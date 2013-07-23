@@ -17,7 +17,6 @@ typedef enum {
 	BTREE_RESULT_FAIL
 } btree_result;
 
-
 //#define _BTREE_32BIT_IDX
 #ifdef _BTREE_32BIT_IDX
 	typedef uint32_t idx_t;
@@ -84,6 +83,12 @@ struct btree {
 	struct btree_kv_ops *kv_ops;
 };
 
+struct btree_iterator {
+	struct btree btree;
+	void *curkey;
+	bid_t *bid;
+	idx_t *idx;
+};
 
 void btree_print_node(struct btree *btree);
 
@@ -98,6 +103,11 @@ btree_result btree_init(
 		struct btree_blk_ops *blk_ops, 	struct btree_kv_ops *kv_ops,
 		uint32_t nodesize, uint8_t ksize, uint8_t vsize,
 		bnode_flag_t flag, struct btree_meta *meta);
+
+btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key);
+btree_result btree_iterator_free(struct btree_iterator *it);
+btree_result btree_next(struct btree_iterator *it, void *key_buf, void *value_buf);
+
 btree_result btree_find(struct btree *btree, void *key, void *value_buf);
 btree_result btree_insert(struct btree *btree, void *key, void *value);
 btree_result btree_remove(struct btree *btree, void *key);

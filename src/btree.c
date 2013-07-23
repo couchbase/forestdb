@@ -12,7 +12,7 @@
 #include "btree_kv.h"
 #include "common.h"
 
-//#define __DEBUG_BTREE
+#define __DEBUG_BTREE
 #ifdef __DEBUG
 #ifndef __DEBUG_BTREE
 	#undef DBG
@@ -197,7 +197,7 @@ btree_result btree_init(
 
 	// create the first root node
 	addr = btree->blk_ops->blk_alloc(btree->blk_handle, &btree->root_bid);
-	root = _btree_init_node(btree, addr, btree->root_flag, 1, meta);
+	root = _btree_init_node(btree, addr, btree->root_flag, BNODE_MASK_ROOT, meta);
 	#ifdef _BNODE_COMP
 		btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, btree->root_bid, _bnode_size(btree, root));
 	#endif
@@ -365,6 +365,102 @@ void btree_print_node(struct btree *btree)
 
 	DBG("tree height: %d\n", btree->height);
 	_btree_print_node(btree, btree->height, btree->root_bid);
+}
+
+btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key)
+{
+	int i;
+
+	it->btree = *btree;
+	it->curkey = (void *)malloc(btree->ksize);
+	if (initial_key) {
+		// set initial key if exists
+		memcpy(it->curkey, initial_key, btree->ksize);
+	}else{
+		// NULL initial key .. set minimum key (start from leftmost key)
+		memset(it->curkey, 0, btree->ksize);
+	}
+	it->bid = (bid_t*)malloc(sizeof(bid_t) * btree->height);
+	it->idx = (idx_t*)malloc(sizeof(idx_t) * btree->height);
+	for (i=0;i<btree->height;++i){
+		it->bid[i] = BTREE_BLK_NOT_FOUND;
+		it->idx[i] = BTREE_IDX_NOT_FOUND;
+	}
+	it->bid[btree->height-1] = btree->root_bid;
+	
+	return BTREE_RESULT_SUCCESS;
+}
+
+btree_result btree_iterator_free(struct btree_iterator *it)
+{
+	free(it->curkey);
+	free(it->bid);
+	free(it->idx);
+	return BTREE_RESULT_SUCCESS;
+}
+
+btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_buf, int depth)
+{
+	struct btree *btree;
+	btree = &it->btree;
+	int i;
+	uint8_t k[btree->ksize], v[btree->vsize];
+	void *addr;
+	struct bnode *node;
+	btree_result r;
+
+	addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
+	node = _fetch_bnode(addr);
+	
+	if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
+		// curkey: lastly returned key
+		it->idx[depth] = _btree_find_entry(btree, node, it->curkey);
+		if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
+			it->idx[depth] = 0;
+		}
+	}
+
+	if (it->idx[depth] >= node->nentry) {
+		// out of bound .. go up to parent node
+		return BTREE_RESULT_FAIL;
+	}
+
+	if (depth > 0) {
+		// index node
+		btree->kv_ops->get_kv(node, it->idx[depth], k, v);
+		it->bid[depth-1] = btree->kv_ops->value2bid(v);
+		r = _btree_next(it, key_buf, value_buf, depth-1);
+		
+		if (r == BTREE_RESULT_FAIL) {
+			// move index to right
+			it->idx[depth]++;
+			
+			if (it->idx[depth] >= node->nentry){
+				// out of bound .. go up to parent node
+				return BTREE_RESULT_FAIL;
+			}else{
+				btree->kv_ops->get_kv(node, it->idx[depth], k, v);
+				it->bid[depth-1] = btree->kv_ops->value2bid(v);
+				// reset child index
+				for (i=depth-1; i>=0; --i)
+					it->idx[i] = BTREE_IDX_NOT_FOUND;
+				// retry
+				r = _btree_next(it, key_buf, value_buf, depth-1);
+			}
+		}
+		return r;
+	}else{
+		// leaf node
+		btree->kv_ops->get_kv(node, it->idx[depth], key_buf, value_buf);
+		memcpy(it->curkey, key_buf, btree->ksize);
+		it->idx[depth]++;
+		return BTREE_RESULT_SUCCESS;
+	}
+}
+
+btree_result btree_next(struct btree_iterator *it, void *key_buf, void *value_buf)
+{
+	return _btree_next(it, key_buf, value_buf, it->btree.height-1);
 }
 
 btree_result btree_find(struct btree *btree, void *key, void *value_buf)
@@ -609,7 +705,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
 
 					#ifdef _BNODE_COMP
 						btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, bid[i], _bnode_size(btree, node[i]));
-						btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, new_root_bid, _bnode_size(btree, new_root));
+						btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, new_root_bid, 
+							_bnode_size(btree, new_root));
 					#endif
 
 					btree->height++;
@@ -748,7 +845,6 @@ btree_result btree_remove(struct btree *btree, void *key)
 					btree->kv_ops->get_kv(node[i], 0, k, v);
 					btree->root_bid = btree->kv_ops->value2bid(v);
 				}
-				
 			}
 		}
 

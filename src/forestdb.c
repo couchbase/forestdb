@@ -64,7 +64,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 	
 	if ( (doc->key == NULL) || (doc->keylen == 0) ||
 		(doc->metalen > 0 && doc->meta == NULL) || 
-		(doc->bodylen > 0 && doc->body == NULL)) return FDB_RESULT_WRONG_ARGS;
+		(doc->bodylen > 0 && doc->body == NULL)) return FDB_RESULT_INVALID_ARGS;
 	
 	_doc.key = doc->key;
 	_doc.meta = doc->meta;
@@ -94,7 +94,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 	
 	if ( (doc->key == NULL) || (doc->keylen == 0) ||
 		(doc->metalen > 0 && doc->meta == NULL) || 
-		(doc->bodylen > 0 && doc->body == NULL)) return FDB_RESULT_WRONG_ARGS;
+		(doc->bodylen > 0 && doc->body == NULL)) return FDB_RESULT_INVALID_ARGS;
 	
 	_doc.length.keylen = doc->keylen;
 	_doc.length.metalen = doc->metalen;

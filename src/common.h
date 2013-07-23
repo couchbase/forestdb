@@ -105,7 +105,7 @@ unsigned randnum_tx=0;
 #endif
 
 // can be faster under O3 optimization
-#define __BIT_CMP
+//#define __BIT_CMP
 #ifdef __BIT_CMP
 
 #define _64_SIGN_MASK (0x8000000000000000)

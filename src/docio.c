@@ -108,7 +108,7 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
 	uint64_t docsize;
 	//uint8_t buf[docsize];
 	uint32_t offset = 0;
-	bid_t r;
+	bid_t bid;
 	void *buf;
 	size_t compbuf_len;
 	void *compbuf;
@@ -131,17 +131,17 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
 	memcpy(buf + offset, &length, sizeof(struct docio_length));
 	offset += sizeof(struct docio_length);
 
-	// read key
+	// copy key
 	memcpy(buf + offset, doc->key, length.keylen);
 	offset += length.keylen;
 
-	// read metadata (optional)
+	// copy metadata (optional)
 	if (length.metalen > 0) {
 		memcpy(buf + offset, doc->meta, length.metalen);
 		offset += length.metalen;
 	}
 
-	// read body (optional)
+	// copy body (optional)
 	if (length.bodylen > 0) {
 		#ifdef _DOC_COMP
 			memcpy(buf + offset, compbuf, length.bodylen);
@@ -152,10 +152,10 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
 		offset += length.bodylen;
 	}
 
-	r = docio_append_doc_raw(handle, docsize, buf);
+	bid = docio_append_doc_raw(handle, docsize, buf);
 	free(buf);
 	
-	return r;
+	return bid;
 }
 
 uint64_t _docio_read_length(struct docio_handle *handle, uint64_t offset, struct docio_length *length)

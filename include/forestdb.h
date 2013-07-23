@@ -9,7 +9,7 @@
 typedef enum {
 	FDB_RESULT_SUCCESS,
 	FDB_RESULT_FAIL,
-	FDB_RESULT_WRONG_ARGS
+	FDB_RESULT_INVALID_ARGS
 } fdb_status;
 
 typedef struct {

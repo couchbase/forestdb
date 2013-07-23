@@ -42,7 +42,7 @@ LDFLAGS = -pthread -lsnappy
 CFLAGS = \
 	-g -D_GNU_SOURCE -I./include -I./src \
 	-D__DEBUG \
-	-O3 -fomit-frame-pointer \
+	#-O3 -fomit-frame-pointer \
 
 all: $(PROGRAMS)
 

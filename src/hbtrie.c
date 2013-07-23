@@ -586,7 +586,8 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 
 						_hbtrie_store_meta(
 								trie, &meta.size, diffchunkno, 
-								key + trie->chunksize * (curchunkno+1), (diffchunkno - (curchunkno+1)) * trie->chunksize, value_short, buf);
+								key + trie->chunksize * (curchunkno+1), 
+								(diffchunkno - (curchunkno+1)) * trie->chunksize, value_short, buf);
 
 						btreeitem_new = (struct btreelist_item *)malloc(sizeof(struct btreelist_item));
 						btreeitem_new->chunkno = diffchunkno;
@@ -606,7 +607,8 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 					
 					_hbtrie_store_meta(
 							trie, &meta.size, diffchunkno, 
-							key + trie->chunksize * (curchunkno+1), (diffchunkno - (curchunkno+1)) * trie->chunksize, NULL, buf);
+							key + trie->chunksize * (curchunkno+1), 
+							(diffchunkno - (curchunkno+1)) * trie->chunksize, NULL, buf);
 
 					btreeitem_new = (struct btreelist_item *)malloc(sizeof(struct btreelist_item));
 					btreeitem_new->chunkno = diffchunkno;

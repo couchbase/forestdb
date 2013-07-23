@@ -22,12 +22,13 @@ void basic_test()
 	struct btreeblk_handle btree_handle;
 	struct btree btree;
 	struct filemgr_config config;
-	int i;
+	int i, r;
 	uint64_t k,v;
 
 	config.blocksize = blocksize;
 	config.ncacheblock = 1024;
 	config.flags = 0x0;
+	r = system("rm -rf ./dummy");
 	file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
 	btreeblk_init(&btree_handle, file, nodesize);
 
@@ -91,6 +92,72 @@ void basic_test()
 	TEST_RESULT("basic test");
 }
 
+void iterator_test()
+{
+	TEST_INIT();
+	
+	int ksize = 8;
+	int vsize = 8;
+	int nodesize = (ksize + vsize)*4 + sizeof(struct bnode);
+	int blocksize = nodesize * 2;
+	struct filemgr *file;
+	struct btreeblk_handle btree_handle;
+	struct btree btree;
+	struct btree_iterator bi;
+	struct filemgr_config config;
+	btree_result br;
+	int i, r;
+	uint64_t k,v;
+
+	config.blocksize = blocksize;
+	config.ncacheblock = 0;
+	config.flags = 0x0;
+	r = system("rm -rf ./dummy");
+	file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+	btreeblk_init(&btree_handle, file, nodesize);
+
+	btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
+
+	for (i=0;i<6;++i) {
+		k = i; v = i*10;
+		btree_insert(&btree, &k, &v);
+	}	
+	
+	btree_print_node(&btree);
+	//btree_operation_end(&btree);
+
+	for (i=6;i<12;++i) {
+		k = i; v = i*10;
+		btree_insert(&btree, &k, &v);
+	}	
+
+	btree_print_node(&btree);
+	btreeblk_end(&btree_handle);
+	//btree_operation_end(&btree);
+
+	filemgr_commit(file);
+
+	k = 3;
+	btree_iterator_init(&btree, &bi, &k);
+	for (i=0;i<3;++i){
+		btree_next(&bi, &k, &v);
+		DBG("%"_F64" , %"_F64"\n", k, v);
+	}
+	btree_iterator_free(&bi);
+
+	btree_iterator_init(&btree, &bi, NULL);
+	for (i=0;i<30;++i){
+		br = btree_next(&bi, &k, &v);
+		if (br == BTREE_RESULT_FAIL) break;
+		DBG("%"_F64" , %"_F64"\n", k, v);
+	}
+	btree_iterator_free(&bi);
+	
+
+	TEST_RESULT("iterator test");
+}
+
+
 void two_btree_test()
 {
 	TEST_INIT();
@@ -132,7 +199,8 @@ void two_btree_test()
 int main()
 {
 	int r = system("rm -rf ./dummy");
-	basic_test();
+	//basic_test();
+	iterator_test();
 	//two_btree_test();
 
 	return 0;
