@@ -82,10 +82,14 @@ INLINE uint32_t _bcache_hash(struct hash *hash, struct hash_elem *e)
 
 INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 {
+	int rvalue_map[3] = {-1, 0, 1};
+	int cmp_fname;
 	struct bcache_item *aa, *bb;
 	aa = _get_entry(a, struct bcache_item, hash_elem);
 	bb = _get_entry(b, struct bcache_item, hash_elem);
 
+	rvalue_map[1] = _CMP_U64(aa->bid, bb->bid);
+	
 /*
 	if (aa->fname == bb->fname) {
 		if (aa->bid == bb->bid) return 0;
@@ -94,17 +98,22 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 	}else if (aa->fname < bb->fname) return -1;
 	else return 1;*/
 
-	if (aa->fname < bb->fname) return -1;
-	else if (aa->fname > bb->fname) return 1;
-	else {
-		#ifdef __BIT_CMP
-			return _CMP_U64(aa->bid, bb->bid);
-		#else
+	#ifdef __BIT_CMP
+		cmp_fname = _CMP_U64((uint64_t)aa->fname, (uint64_t)bb->fname);
+		cmp_fname = _MAP(cmp_fname) + 1;
+		return rvalue_map[cmp_fname];
+
+	#else
+		if (aa->fname < bb->fname) return -1;
+		else if (aa->fname > bb->fname) return 1;
+		else {
 			if (aa->bid == bb->bid) return 0;
 			else if (aa->bid < bb->bid) return -1;
 			else return 1;
-		#endif
-	}
+		}
+		
+	#endif
+
 }
 
 int bcache_read(struct filemgr *file, bid_t bid, void *buf)

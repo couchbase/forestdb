@@ -91,6 +91,8 @@ void hbtrie_init(
 	btree_kv_ops->set_kv = _set_kv;
 	if (chunksize == 8) {
 		btree_kv_ops->cmp = _cmp_binary64;
+	}else if (chunksize == 4){
+		btree_kv_ops->cmp = _cmp_binary32;
 	}else{
 		assert(0);
 	}

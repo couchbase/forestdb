@@ -134,11 +134,20 @@ INLINE int _cmp_binary64(void *key1, void *key2)
 }
 
 // key: uint64_t, value: uint64_t
-static struct btree_kv_ops kv_ops_ku64_vu64 = {_get_kv, _set_kv, _cmp_uint64_t, _value_to_bid_64, _bid_to_value_64};
+static struct btree_kv_ops kv_ops_ku64_vu64 = {
+	_get_kv, _set_kv, _cmp_uint64_t, _value_to_bid_64, _bid_to_value_64};
+
+static struct btree_kv_ops kv_ops_ku32_vu64 = {
+	_get_kv, _set_kv, _cmp_uint32_t, _value_to_bid_64, _bid_to_value_64};
 
 struct btree_kv_ops * btree_kv_get_ku64_vu64() 
 {
 	return &kv_ops_ku64_vu64;
+}
+
+struct btree_kv_ops * btree_kv_get_ku32_vu64()
+{
+	return &kv_ops_ku32_vu64;
 }
 
 

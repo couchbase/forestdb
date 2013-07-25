@@ -126,8 +126,17 @@ unsigned randnum_tx=0;
 #define _U64_V(ptr) ( *(uint64_t*)(ptr) )
 #define _U32_V(ptr) ( *(uint32_t*)(ptr) )
 
+// check whether V is non-zero or not (return 1 when non-zero, otherwise 0)
+#define _NZ(v) (( (v) | (~(v) + 1)) >> 31) & 0x1
+#define _NZ_64(v) (( (v) | (~(v) + 1)) >> 63) & 0x1
+
 // convert 64-bit value to 32-bit value preserving sign bit (but not value)
-#define _CSB(v) ( ((v)>>32) | (((v)&_32_M)>>1) | ((v)&0x1) )
+//#define _CSB(v) ( ((v)>>32) | (((v)&_32_M)>>1) | ((v)&0x1) )
+#define _CSB(v) ( ((v)>>32) | _NZ_64((uint64_t)v) )
+
+// map from (32-bit signed integer){neg, 0, pos} to {-1, 0, 1}
+#define _CS(v) ((~(((v) & _32_SM)>>31)+1) | _NZ(v))
+#define _MAP(v) (int32_t)(_CS((uint32_t)v))
 
 #define _CMP_U32(a, b) \
 	(int32_t)( _CSB((int64_t)(a)-(int64_t)(b)) )

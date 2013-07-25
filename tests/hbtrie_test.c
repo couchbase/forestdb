@@ -101,7 +101,8 @@ void basic_test()
 	docio_init(&dhandle, file);
 	btreeblk_init(&bhandle, file, blocksize);
 
-	hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND, &bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
+	hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND, 
+		&bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
 
 	for (i=0;i<n;++i){
 		_key_expand(key_ori[i], key[i], 8);
@@ -160,7 +161,7 @@ void _set_random_key(char *key, int len)
 {
 	key[len--] = 0;
 	do {
-		key[len] = 'a' + random('z'-'a');
+		key[len] = '!' + random('~'-'!');
 	} while(len--);
 }
 
@@ -205,9 +206,9 @@ void large_test()
 	docio_init(&dhandle, file);
 	btreeblk_init(&bhandle, file, blocksize);
 
-	hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND, &bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
+	hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND, 
+		&bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
 	TEST_TIME();
-
 
 	for (k=0;k<m;++k) {
 		DBG("doc append .. \n");

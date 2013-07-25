@@ -25,6 +25,7 @@ INLINE void* _bid_to_value_64(bid_t *bid);
 INLINE int _cmp_int32_t(void *key1, void *key2);
 INLINE int _cmp_uint32_t(void *key1, void *key2);
 INLINE int _cmp_uint64_t(void *key1, void *key2);
+INLINE int _cmp_binary32(void *key1, void *key2);
 INLINE int _cmp_binary64(void *key1, void *key2);
 
 

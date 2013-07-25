@@ -54,7 +54,8 @@ INLINE int _bnode_size_check(struct btree *btree, struct bnode *node)
 	return ( _bnode_size(btree, node) + btree->ksize + btree->vsize <= btree->blksize );
 }
 
-INLINE struct bnode * _btree_init_node(struct btree *btree, void *addr, bnode_flag_t flag, uint16_t level, struct btree_meta *meta)
+INLINE struct bnode * _btree_init_node(
+	struct btree *btree, void *addr, bnode_flag_t flag, uint16_t level, struct btree_meta *meta)
 {
 	struct bnode *node = (struct bnode *)addr;
 	
@@ -130,7 +131,10 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
 		}
 		// move kv-pairs (only if meta size is changed)
 		if (metasize < old_metasize){
-			memmove(ptr + sizeof(metasize_t) + metasize, node->data, node->nentry * (btree->ksize + btree->vsize));
+			memmove(
+				ptr + sizeof(metasize_t) + metasize, 
+				node->data, 
+				node->nentry * (btree->ksize + btree->vsize));
 			node->data -= (old_metasize - metasize);
 		}
 
@@ -217,9 +221,13 @@ return: 1 (index# of the key '4')
 */
 idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
 {
-	idx_t start, end, middle;
+	idx_t start, end, middle, temp;
 	uint8_t k[btree->ksize], dummy[btree->vsize];
 	int cmp;
+	#ifdef __BIT_CMP
+		idx_t *_map1[3] = {&end, &start, &start};
+		idx_t *_map2[3] = {&temp, &end, &temp}; 
+	#endif
 
 	start = middle = 0;
 	end = node->nentry;
@@ -242,9 +250,16 @@ idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
 			// get key at middle
 			btree->kv_ops->get_kv(node, middle, k, dummy);
 			cmp = btree->kv_ops->cmp(key, k);
-			if (cmp < 0) end = middle;
-			else if (cmp > 0) start = middle;
-			else return middle;
+
+			#ifdef __BIT_CMP
+				cmp = _MAP(cmp) + 1;
+				*_map1[cmp] = middle;
+				*_map2[cmp] = 0;
+			#else
+				if (cmp < 0) end = middle;
+				else if (cmp > 0) start = middle;
+				else return middle;
+			#endif
 		}
 		return start;
 	}

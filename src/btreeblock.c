@@ -189,7 +189,6 @@ int btreeblk_is_writable(void *voidhandle, bid_t bid)
 	return filemgr_is_writable(handle->file, filebid);
 }
 
-
 void btreeblk_set_dirty(void *voidhandle, bid_t bid)
 {
 	struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
