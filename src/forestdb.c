@@ -33,7 +33,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 
 	fconfig.blocksize = _FDB_BLOCKSIZE;
 	fconfig.ncacheblock = config.buffercache_size / _FDB_BLOCKSIZE;
-	fconfig.flags = 0;
+	fconfig.flag = 0x0;
 	handle->fileops = get_linux_filemgr_ops();
 	handle->btreeblkops = btreeblk_get_ops();
 	handle->file = filemgr_open(filename, handle->fileops, fconfig);

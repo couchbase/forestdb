@@ -107,7 +107,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct fi
 		file->wal = (struct wal *)malloc(sizeof(struct wal));
 		strcpy(file->filename, filename);
 		file->ops = ops;
-		file->fd = file->ops->open(file->filename, O_RDWR | O_CREAT | config.flags, 0666);
+		file->fd = file->ops->open(file->filename, O_RDWR | O_CREAT | config.flag, 0666);
 		file->blocksize = global_config.blocksize;
 		file->pos = file->last_commit = file->ops->goto_eof(file->fd);
 		if (file->pos % file->blocksize != 0) {

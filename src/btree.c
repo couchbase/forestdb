@@ -12,7 +12,7 @@
 #include "btree_kv.h"
 #include "common.h"
 
-#define __DEBUG_BTREE
+//#define __DEBUG_BTREE
 #ifdef __DEBUG
 #ifndef __DEBUG_BTREE
 	#undef DBG
@@ -399,6 +399,7 @@ btree_result btree_iterator_free(struct btree_iterator *it)
 	return BTREE_RESULT_SUCCESS;
 }
 
+// recursive function
 btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_buf, int depth)
 {
 	struct btree *btree;
@@ -411,12 +412,19 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
 
 	addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
 	node = _fetch_bnode(addr);
+
+	if (node->nentry <= 0) return BTREE_RESULT_FAIL;
 	
 	if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
 		// curkey: lastly returned key
 		it->idx[depth] = _btree_find_entry(btree, node, it->curkey);
 		if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
 			it->idx[depth] = 0;
+		}
+		btree->kv_ops->get_kv(node, it->idx[depth], key_buf, value_buf);
+		if (btree->kv_ops->cmp(it->curkey, key_buf) > 0 && depth == 0) {
+			// in leaf node, next key must be larger than previous key (i.e. it->curkey)
+			it->idx[depth]++;
 		}
 	}
 
@@ -460,7 +468,8 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
 
 btree_result btree_next(struct btree_iterator *it, void *key_buf, void *value_buf)
 {
-	return _btree_next(it, key_buf, value_buf, it->btree.height-1);
+	btree_result br = _btree_next(it, key_buf, value_buf, it->btree.height-1);
+	return br;
 }
 
 btree_result btree_find(struct btree *btree, void *key, void *value_buf)

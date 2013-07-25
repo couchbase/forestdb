@@ -7,6 +7,7 @@
 #define _JSAHN_HBTRIE_H
 
 #include "common.h"
+#include "list.h"
 #include "btree.h"
 #include "btree_kv.h"
 
@@ -34,11 +35,12 @@ struct hbtrie {
 	hbtrie_func_readkey *readkey;
 };
 
-struct hbtrie_meta {
-	uint8_t chunkno;
-	void *value;
-	void *prefix;
-};
+struct hbtrie_iterator {
+	struct hbtrie trie;
+	struct list btreeit_list;
+	void *curkey;
+	size_t keylen;
+}; 
 
 int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey, int rawkeylen, void *outkey);
 void hbtrie_get_chunk(struct hbtrie *trie, void *key, int keylen, int chunkno, void *out);
@@ -47,6 +49,11 @@ void hbtrie_init(
 			struct hbtrie *trie, int chunksize, 	int valuelen,	int btree_nodesize, bid_t root_bid, 
 			void *btreeblk_handle, struct btree_blk_ops *btree_blk_ops,
 			void *doc_handle, hbtrie_func_readkey *readkey);
+
+hbtrie_result hbtrie_iterator_init(
+	struct hbtrie *trie, struct hbtrie_iterator *it, void *initial_key, size_t keylen);
+hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it);
+hbtrie_result hbtrie_next(struct hbtrie_iterator *it, void *key_buf, size_t *keylen, void *value_buf);
 
 hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey, int rawkeylen, void *valuebuf);
 hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen);

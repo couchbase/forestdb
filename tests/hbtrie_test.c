@@ -80,12 +80,14 @@ void basic_test()
 	char dockey[256], meta[256], body[256];
 	uint8_t valuebuf[8];
 	hbtrie_result r;
+	struct hbtrie_iterator it;
+	size_t keylen;
 
 	int i, j, n=7, rr;
 	char key[n][256];
 	char *key_ori[] = {"aaaa", "aaab", "aaac", "aba", "aaba", "bbbb", "aaac"};
 
-	rr = system("rm ./dummy");
+	rr = system("rm -rf ./dummy");
 
 	doc.key = keybuf;
 	doc.meta = metabuf;
@@ -93,6 +95,8 @@ void basic_test()
 
 	config.blocksize = blocksize;
 	config.ncacheblock = 1024;
+	config.flag = 0x0;
+	
 	file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
 	docio_init(&dhandle, file);
 	btreeblk_init(&bhandle, file, blocksize);
@@ -136,6 +140,16 @@ void basic_test()
 
 	DBG("trie root bid %"_F64"\n", trie.root_bid);
 
+	hbtrie_iterator_init(&trie, &it, NULL, 0);
+	while(1){
+		r = hbtrie_next(&it, keybuf, &keylen, &offset);
+		if (r==HBTRIE_RESULT_FAIL) break;
+		docio_read_doc(&dhandle, offset, &doc);
+		keybuf[keylen] = 0;
+		DBG("%s\n", keybuf);
+	}
+	r = hbtrie_iterator_free(&it);
+	
 	filemgr_close(file);
 	filemgr_free();
 
@@ -168,7 +182,7 @@ void large_test()
 	hbtrie_result r;
 
 	int i, j, k, n=1000000, m=1, rr;
-	int keylen = 16;
+	size_t keylen = 16;
 	char **key;
 	uint64_t *offset;
 	uint64_t _offset;
@@ -183,7 +197,7 @@ void large_test()
 
 	config.blocksize = blocksize;
 	config.ncacheblock = 1 * 1024 * 128;
-	config.flags = 0;
+	config.flag = 0;
 
 	DBG("filemgr, bcache init .. \n");
 	rr = system("rm -rf ./dummy");
@@ -265,6 +279,16 @@ void large_test()
 	TEST_TIME();
 
 	DBG("trie root bid %"_F64"\n", trie.root_bid);	
+
+	struct hbtrie_iterator it;
+	hbtrie_iterator_init(&trie, &it, NULL, 0);
+	for (i=0;i<3;++i){
+		r = hbtrie_next(&it, keybuf, &keylen, &_offset);
+		docio_read_doc(&dhandle, _offset, &doc);
+		keybuf[keylen] = 0;
+		DBG("%s\n", keybuf);
+	}
+	hbtrie_iterator_free(&it);
 
 	filemgr_close(file);
 	filemgr_free();

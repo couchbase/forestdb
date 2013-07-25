@@ -18,7 +18,7 @@
 struct filemgr_config {
 	int blocksize;
 	int ncacheblock;
-	int flags;
+	int flag;
 };
 
 struct filemgr_ops {

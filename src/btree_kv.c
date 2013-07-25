@@ -101,9 +101,24 @@ INLINE int _cmp_char64(void *key1, void *key2)
 	| (((v) & 0x000000000000ff00ULL) << 40) \
 	| (((v) & 0x00000000000000ffULL) << 56))
 
+#define bitswap32(v)	\
+	((((v) & 0xff000000) >> 24) \
+	| (((v) & 0x00ff0000) >> 8) \
+	| (((v) & 0x0000ff00) << 8) \
+	| (((v) & 0x000000ff) << 24))
+
+
+INLINE int _cmp_binary32(void *key1, void *key2)
+{
+	#ifdef __BIT_CMP
+		return _CMP_U32( bitswap32(*(uint32_t*)key1), bitswap32(*(uint32_t*)key2));
+	#else
+		return memcmp(key1, key2, 8);
+	#endif
+}
+
 INLINE int _cmp_binary64(void *key1, void *key2)
 {
-
 	#ifdef __BIT_CMP
 		return _CMP_U64( bitswap64(*(uint64_t*)key1), bitswap64(*(uint64_t*)key2));
 	#else

@@ -23,6 +23,12 @@
 
 #define HBTRIE_EOK (0xf0)
 
+struct hbtrie_meta {
+	uint8_t chunkno;
+	void *value;
+	void *prefix;
+};
+
 INLINE int _get_nchunk_raw(struct hbtrie *trie, void *rawkey, int rawkeylen)
 {
 	return rawkeylen / trie->chunksize + 1;
@@ -188,6 +194,147 @@ struct btreelist_item {
 	bid_t child_rootbid;
 	struct list_elem e;
 };
+
+struct btreeit_item {
+	struct btree_iterator btree_it;
+	struct list_elem le;
+};
+
+hbtrie_result hbtrie_iterator_init(
+	struct hbtrie *trie, struct hbtrie_iterator *it, void *initial_key, size_t keylen)
+{
+	it->trie = *trie;
+	it->curkey = (void *)malloc(HBTRIE_MAX_KEYLEN);
+	
+	if (initial_key) {
+		it->keylen = keylen;
+		memcpy(it->curkey, initial_key, it->keylen);
+	}else{
+		it->keylen = 0;
+		memset(it->curkey, 0, HBTRIE_MAX_KEYLEN);
+	}
+	list_init(&it->btreeit_list);
+
+	return HBTRIE_RESULT_SUCCESS;
+}
+
+hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it)
+{
+	struct list_elem *e;
+	struct btreeit_item *item;
+	e = list_begin(&it->btreeit_list);
+	while(e){
+		item = _get_entry(e, struct btreeit_item, le);
+		e = list_remove(&it->btreeit_list, e);
+		free(item);
+	}
+	free(it->curkey);
+	return HBTRIE_RESULT_SUCCESS;
+}
+
+// recursive function
+hbtrie_result _hbtrie_next(
+	struct hbtrie_iterator *it, struct btreeit_item *item, void *key_buf, size_t *keylen, void *value_buf)
+{
+	struct hbtrie *trie = &it->trie;
+	struct list_elem *e;
+	struct btreeit_item *item_new;
+	struct btree btree;
+	hbtrie_result hr;
+	btree_result br;
+	struct hbtrie_meta hbmeta;
+	struct btree_meta bmeta;
+	void *chunk;
+	uint8_t k[trie->chunksize];
+	uint8_t v[trie->valuelen];
+	bid_t bid;
+	uint64_t offset;
+
+	if (item == NULL) {
+		// this happens only when first call
+		// create iterator for root b-tree
+		if (it->trie.root_bid == BLK_NOT_FOUND) return HBTRIE_RESULT_FAIL;
+		// set current chunk (key for b-tree)
+		chunk = it->curkey;
+		// load b-tree
+		btree_init_from_bid(
+			&btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
+			trie->btree_nodesize, trie->root_bid);
+		item = (struct btreeit_item *)malloc(sizeof(struct btreeit_item));
+		br = btree_iterator_init(&btree, &item->btree_it, chunk);
+		if (br == BTREE_RESULT_FAIL) return HBTRIE_RESULT_FAIL;
+
+		list_push_back(&it->btreeit_list, &item->le);
+	}
+
+	e = list_next(&item->le);
+	if (e) {
+		// if next sub b-tree exists
+		item_new = _get_entry(e, struct btreeit_item, le);
+		hr = _hbtrie_next(it, item_new, key_buf, keylen, value_buf);
+		if (hr == HBTRIE_RESULT_SUCCESS) return hr;
+	}
+
+	// get key-value from current b-tree iterator
+	br = btree_next(&item->btree_it, k, v);
+	if (br == BTREE_RESULT_FAIL) {
+		btree_iterator_free(&item->btree_it);
+		list_remove(&it->btreeit_list, &item->le);
+		return HBTRIE_RESULT_FAIL;
+	}
+
+	// check weather v points to doc or sub b-tree
+	if (_hbtrie_is_msb_set(trie, v)) {
+		// MSB is set -> sub b-tree
+
+		// load sub b-tree and create new iterator for the b-tree
+		_hbtrie_clear_msb(trie, v);
+		bid = trie->btree_kv_ops->value2bid(v);
+		btree_init_from_bid(
+			&btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
+			trie->btree_nodesize, bid);
+		item_new = (struct btreeit_item *)malloc(sizeof(struct btreeit_item));
+
+		// get sub b-tree's chunk number
+		bmeta.data = (void *)malloc(trie->btree_nodesize);
+		bmeta.size = btree_read_meta(&btree, bmeta.data);
+		_hbtrie_fetch_meta(trie, bmeta.size, &hbmeta, bmeta.data);
+		free(bmeta.data);
+		
+		if ( (hbmeta.chunkno+1)*trie->chunksize <= it->keylen ) {
+			chunk = it->curkey + hbmeta.chunkno*trie->chunksize;
+		}else{
+			// chunk number of the b-tree is longer than current iterator's key
+			// set smallest key
+			chunk = NULL;
+		}
+
+		btree_iterator_init(&btree, &item_new->btree_it, chunk);
+		list_push_back(&it->btreeit_list, &item_new->le);
+
+		hr = _hbtrie_next(it, item_new, key_buf, keylen, value_buf);
+		return hr;
+		
+	}else{
+		// MSB is not set -> doc
+		// read entire key and return the doc offset
+		offset = trie->btree_kv_ops->value2bid(v);
+		*keylen = trie->readkey(trie->doc_handle, offset, key_buf);
+		memcpy(it->curkey, key_buf, *keylen);
+		memcpy(value_buf, &offset, trie->valuelen);
+
+		return HBTRIE_RESULT_SUCCESS;
+	}
+}
+
+hbtrie_result hbtrie_next(struct hbtrie_iterator *it, void *key_buf, size_t *keylen, void *value_buf)
+{
+	struct list_elem *e = list_begin(&it->btreeit_list);
+	struct btreeit_item *item = NULL;
+	if (e) item = _get_entry(e, struct btreeit_item, le);
+	
+	return _hbtrie_next(it, item, key_buf, keylen, value_buf);
+}
 
 void _hbtrie_btree_cascaded_update(struct hbtrie *trie, struct list *btreelist, void *key)
 {

@@ -27,7 +27,7 @@ void basic_test()
 
 	config.blocksize = blocksize;
 	config.ncacheblock = 1024;
-	config.flags = 0x0;
+	config.flag = 0x0;
 	r = system("rm -rf ./dummy");
 	file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
 	btreeblk_init(&btree_handle, file, nodesize);
@@ -111,7 +111,7 @@ void iterator_test()
 
 	config.blocksize = blocksize;
 	config.ncacheblock = 0;
-	config.flags = 0x0;
+	config.flag = 0x0;
 	r = system("rm -rf ./dummy");
 	file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
 	btreeblk_init(&btree_handle, file, nodesize);
@@ -119,7 +119,7 @@ void iterator_test()
 	btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
 
 	for (i=0;i<6;++i) {
-		k = i; v = i*10;
+		k = i*2; v = i*10;
 		btree_insert(&btree, &k, &v);
 	}	
 	
@@ -127,7 +127,7 @@ void iterator_test()
 	//btree_operation_end(&btree);
 
 	for (i=6;i<12;++i) {
-		k = i; v = i*10;
+		k = i*2; v = i*10;
 		btree_insert(&btree, &k, &v);
 	}	
 
@@ -137,7 +137,7 @@ void iterator_test()
 
 	filemgr_commit(file);
 
-	k = 3;
+	k = 4;
 	btree_iterator_init(&btree, &bi, &k);
 	for (i=0;i<3;++i){
 		btree_next(&bi, &k, &v);
@@ -145,6 +145,16 @@ void iterator_test()
 	}
 	btree_iterator_free(&bi);
 
+	DBG("\n");
+	k = 7;
+	btree_iterator_init(&btree, &bi, &k);
+	for (i=0;i<3;++i){
+		btree_next(&bi, &k, &v);
+		DBG("%"_F64" , %"_F64"\n", k, v);
+	}
+	btree_iterator_free(&bi);
+
+	DBG("\n");
 	btree_iterator_init(&btree, &bi, NULL);
 	for (i=0;i<30;++i){
 		br = btree_next(&bi, &k, &v);
