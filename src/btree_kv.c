@@ -90,24 +90,6 @@ INLINE int _cmp_char64(void *key1, void *key2)
 	return strncmp((char*)key1, (char*)key2, 8);
 }
 
-
-#define bitswap64(v)	\
-	((((v) & 0xff00000000000000ULL) >> 56) \
-	| (((v) & 0x00ff000000000000ULL) >> 40) \
-	| (((v) & 0x0000ff0000000000ULL) >> 24) \
-	| (((v) & 0x000000ff00000000ULL) >>  8) \
-	| (((v) & 0x00000000ff000000ULL) <<  8) \
-	| (((v) & 0x0000000000ff0000ULL) << 24) \
-	| (((v) & 0x000000000000ff00ULL) << 40) \
-	| (((v) & 0x00000000000000ffULL) << 56))
-
-#define bitswap32(v)	\
-	((((v) & 0xff000000) >> 24) \
-	| (((v) & 0x00ff0000) >> 8) \
-	| (((v) & 0x0000ff00) << 8) \
-	| (((v) & 0x000000ff) << 24))
-
-
 INLINE int _cmp_binary32(void *key1, void *key2)
 {
 	#ifdef __BIT_CMP

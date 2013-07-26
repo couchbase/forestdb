@@ -23,17 +23,6 @@ uint32_t hash_uint_modular(uint64_t value, uint64_t mod)
 	return value % mod;
 }
 
-#define bitswap64(v)	\
-	((((v) & 0xff00000000000000ULL) >> 56) \
-	| (((v) & 0x00ff000000000000ULL) >> 40) \
-	| (((v) & 0x0000ff0000000000ULL) >> 24) \
-	| (((v) & 0x000000ff00000000ULL) >>  8) \
-	| (((v) & 0x00000000ff000000ULL) <<  8) \
-	| (((v) & 0x0000000000ff0000ULL) << 24) \
-	| (((v) & 0x000000000000ff00ULL) << 40) \
-	| (((v) & 0x00000000000000ffULL) << 56))
-
-
 uint32_t hash_shuffle_2uint(uint64_t a, uint64_t b)
 {
 	uint32_t c;

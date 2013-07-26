@@ -27,7 +27,7 @@ void basic_test()
 
 	fdb_handle db;
 	fdb_config config;
-	fdb_doc doc;
+	fdb_doc doc, *rdoc;
 	fdb_status status;
 	
 	int i, n=10, r;
@@ -40,7 +40,8 @@ void basic_test()
 	config.flag = 0;
 
 	r = system("rm -rf ./dummy");
-
+	r = system("rm -rf ./dummy2");
+	
 	fdb_open(&db, "./dummy", config);
 	fdb_close(&db);
 	
@@ -48,15 +49,17 @@ void basic_test()
 
 	fdb_open(&db, "./dummy", config);
 
+	// insert documents
 	for (i=0;i<n;++i){
 		sprintf(keybuf, "key%d", i);
 		sprintf(metabuf, "meta%d", i);
 		sprintf(bodybuf, "body%d", i);
+		
 		_set_doc(&doc, keybuf, metabuf, bodybuf);
 		fdb_set(&db, &doc);
 	}
 
-	// remove key
+	// remove document
 	sprintf(keybuf, "key%d", 5);
 	_set_doc(&doc, keybuf, NULL, NULL);
 	fdb_set(&db, &doc);
@@ -67,6 +70,7 @@ void basic_test()
 
 	fdb_open(&db, "./dummy", config);
 
+	// update existing documents
 	for (i=0;i<2;++i){
 		sprintf(keybuf, "key%d", i);
 		sprintf(metabuf, "meta2%d", i);
@@ -74,24 +78,32 @@ void basic_test()
 		_set_doc(&doc, keybuf, metabuf, bodybuf);
 		fdb_set(&db, &doc);
 	}
+
+	// retrieve documents
 	for (i=0;i<n;++i){
 		sprintf(keybuf, "key%d", i);
-		_set_doc(&doc, keybuf, metabuf, bodybuf);
-		status = fdb_get(&db, &doc);
+
+		fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+		status = fdb_get(&db, rdoc);
+
 		if (i<2) {
 			sprintf(temp, "meta2%d", i);
-			TEST_CHK(!memcmp(doc.meta, temp, doc.metalen));
+			TEST_CHK(!memcmp(rdoc->meta, temp, rdoc->metalen));
 			sprintf(temp, "body2%d", i);
-			TEST_CHK(!memcmp(doc.body, temp, doc.bodylen));
+			TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));
 		}else if (i!=5) {
 			sprintf(temp, "meta%d", i);
-			TEST_CHK(!memcmp(doc.meta, temp, doc.metalen));
+			TEST_CHK(!memcmp(rdoc->meta, temp, rdoc->metalen));
 			sprintf(temp, "body%d", i);
-			TEST_CHK(!memcmp(doc.body, temp, doc.bodylen));		
+			TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));		
 		}else {
 			TEST_CHK(status == FDB_RESULT_FAIL);
 		}
+
+		fdb_doc_free(rdoc);
 	}
+
+	fdb_compact(&db, "./dummy2");
 	
 	fdb_close(&db);
 	

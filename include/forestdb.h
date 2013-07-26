@@ -46,9 +46,13 @@ typedef struct {
 } fdb_handle;
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config);
+fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
+	void *body, size_t bodylen);
+fdb_status fdb_doc_free(fdb_doc *doc);
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_commit(fdb_handle *handle);
+fdb_status fdb_compact(fdb_handle *handle, char *new_filename);
 fdb_status fdb_close(fdb_handle *handle);
 
 

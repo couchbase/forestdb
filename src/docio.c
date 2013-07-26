@@ -99,7 +99,6 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
 #endif
 
 	return 0;
-
 }
 
 bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
@@ -269,8 +268,13 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *
 void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_object *doc)
 {
 	uint64_t _offset;
-
+	
 	_offset = _docio_read_length(handle, offset, &doc->length);
+
+	if (doc->key == NULL) doc->key = (void *)malloc(doc->length.keylen);
+	if (doc->meta == NULL) doc->meta = (void *)malloc(doc->length.metalen);
+	if (doc->body == NULL) doc->body = (void *)malloc(doc->length.bodylen);
+
 	_offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
 	_offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
 	#ifdef _DOC_COMP

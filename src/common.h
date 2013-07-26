@@ -108,6 +108,22 @@ unsigned randnum_tx=0;
 #define __BIT_CMP
 #ifdef __BIT_CMP
 
+#define bitswap64(v)	\
+	((((v) & 0xff00000000000000ULL) >> 56) \
+	| (((v) & 0x00ff000000000000ULL) >> 40) \
+	| (((v) & 0x0000ff0000000000ULL) >> 24) \
+	| (((v) & 0x000000ff00000000ULL) >>  8) \
+	| (((v) & 0x00000000ff000000ULL) <<  8) \
+	| (((v) & 0x0000000000ff0000ULL) << 24) \
+	| (((v) & 0x000000000000ff00ULL) << 40) \
+	| (((v) & 0x00000000000000ffULL) << 56))
+
+#define bitswap32(v)	\
+	((((v) & 0xff000000) >> 24) \
+	| (((v) & 0x00ff0000) >> 8) \
+	| (((v) & 0x0000ff00) << 8) \
+	| (((v) & 0x000000ff) << 24))
+
 // 64-bit sign mask
 #define _64_SM (0x8000000000000000)
 // 32-bit sign mask

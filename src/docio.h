@@ -36,5 +36,4 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc);
 void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *keylen, void *keybuf);
 void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_object *doc);
 
-
 #endif

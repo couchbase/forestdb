@@ -285,6 +285,7 @@ void large_test()
 	hbtrie_iterator_init(&trie, &it, NULL, 0);
 	for (i=0;i<3;++i){
 		r = hbtrie_next(&it, keybuf, &keylen, &_offset);
+		btreeblk_end(&bhandle);
 		docio_read_doc(&dhandle, _offset, &doc);
 		keybuf[keylen] = 0;
 		DBG("%s\n", keybuf);

@@ -325,6 +325,8 @@ void bcache_flush(struct filemgr *file)
 
 				item->list = &cleanlist;
 				list_push_front(item->list, &item->list_elem);
+			}else{
+				e = list_next(e);
 			}
 		}
 
