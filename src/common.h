@@ -77,6 +77,7 @@ static struct timeval _utime_gap(struct timeval a, struct timeval b)
 
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define MIN(a,b) (((a)<(b))?(a):(b))
+#define CHK_POW2(v) (!((uint64_t)v & ((uint64_t)v - 0x1)))
 
 typedef uint64_t bid_t;
 #define BLK_NOT_FOUND 0xffffffffffffffff
@@ -104,9 +105,6 @@ unsigned randnum_tx=0;
 	#define DBGCMD(command...)
 #endif
 
-// can be faster under O3 optimization
-#define __BIT_CMP
-#ifdef __BIT_CMP
 
 #define bitswap64(v)	\
 	((((v) & 0xff00000000000000ULL) >> 56) \
@@ -123,6 +121,10 @@ unsigned randnum_tx=0;
 	| (((v) & 0x00ff0000) >> 8) \
 	| (((v) & 0x0000ff00) << 8) \
 	| (((v) & 0x000000ff) << 24))
+
+// can be faster under O3 optimization
+#define __BIT_CMP
+#ifdef __BIT_CMP
 
 // 64-bit sign mask
 #define _64_SM (0x8000000000000000)

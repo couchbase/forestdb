@@ -47,11 +47,16 @@ struct fnamedic_item {
 };
 
 struct bcache_item {
+	// BID
 	bid_t bid;
+	// contents address
 	void *addr;
 	struct fnamedic_item *fname;
+	// pointer of the list to which this item belongs
 	struct list *list;
+	// hash elem for lookup hash table
 	struct hash_elem hash_elem;
+	// list elem for {free, clean, dirty} lists
 	struct list_elem list_elem;
 };
 
@@ -77,18 +82,20 @@ INLINE uint32_t _bcache_hash(struct hash *hash, struct hash_elem *e)
 {
 	struct bcache_item *item = _get_entry(e, struct bcache_item, hash_elem);
 	//return hash_shuffle_2uint(item->bid, item->fname->hash) & (NBUCKET-1); 
-	return (item->bid + item->fname->hash) & (NBUCKET-1);
+	return (item->bid + item->fname->hash) & ((uint32_t)NBUCKET-1);
 }
 
 INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 {
-	int rvalue_map[3] = {-1, 0, 1};
-	int cmp_fname;
+	#ifdef __BIT_CMP
+		int rvalue_map[3] = {-1, 0, 1};
+		int cmp_fname;
+	#endif
+	
 	struct bcache_item *aa, *bb;
 	aa = _get_entry(a, struct bcache_item, hash_elem);
 	bb = _get_entry(b, struct bcache_item, hash_elem);
 
-	rvalue_map[1] = _CMP_U64(aa->bid, bb->bid);
 	
 /*
 	if (aa->fname == bb->fname) {
@@ -99,6 +106,7 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 	else return 1;*/
 
 	#ifdef __BIT_CMP
+		rvalue_map[1] = _CMP_U64(aa->bid, bb->bid);
 		cmp_fname = _CMP_U64((uint64_t)aa->fname, (uint64_t)bb->fname);
 		cmp_fname = _MAP(cmp_fname) + 1;
 		return rvalue_map[cmp_fname];
@@ -114,6 +122,24 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 		
 	#endif
 
+}
+
+void __bcache_check_bucket_length()
+{
+	struct list_elem *e;
+	int i,c;
+	FILE *fp = fopen("./bcache_hash_log.txt","w");
+	for (i=0;i<hash.nbuckets;++i) {
+		c=0;
+		e = list_begin(hash.buckets + i);
+		while(e) {
+			c++;
+			e = list_next(e);
+		}
+		if (c>0)
+			fprintf(fp, "%d %d\n",i,c);
+	}
+	fclose(fp);
 }
 
 int bcache_read(struct filemgr *file, bid_t bid, void *buf)
@@ -144,7 +170,6 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
 
 		if (h) {
 			item = _get_entry(h, struct bcache_item, hash_elem);
-			//DBG("bcache_read hit file %s bid %"_F64" in %s\n", file->filename, bid, (item->list==&dirtylist)?"dirtylist":"cleanlist");
 			memcpy(buf, item->addr, bcache_blocksize);
 
 			list_remove(item->list, &item->list_elem);
@@ -156,7 +181,6 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
 		}
 	}
 
-	//DBG("bcache_read miss file %s bid %"_F64"\n", file->filename, bid);
 	return 0;
 }
 
@@ -207,6 +231,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, int dirty)
 	h = hash_find(&fnamedic, &fname.hash_elem);
 
 	if (h == NULL) {
+		// filename doesn't exist in filename dictionary .. create
 		int len = strlen(file->filename);
 		fname_new = (struct fnamedic_item *)malloc(sizeof(struct fnamedic_item));
 		fname_new->filename = (char *)malloc(len+1);
@@ -281,6 +306,59 @@ int _bcache_rb_cmp(struct rb_node *a, struct rb_node *b)
 
 #endif
 
+// remove all dirty blocks of the FILE (they are only removed and not written back)
+void bcache_remove_file(struct filemgr *file)
+{
+	struct hash_elem *h;
+	struct list_elem *e;
+	struct bcache_item *item;
+	struct fnamedic_item fname, *fname_item;
+	DBGCMD(
+		struct timeval a,b,rr;
+		gettimeofday(&a, NULL);
+		size_t total=0, count=0;
+	);
+
+	// lookup filename first
+	fname.filename = file->filename;
+	h = hash_find(&fnamedic, &fname.hash_elem);
+
+	if (h) {
+		// file exists
+		fname_item = _get_entry(h, struct fnamedic_item, hash_elem);
+		
+		e = list_begin(&dirtylist);
+		while(e){
+			item = _get_entry(e, struct bcache_item, list_elem);
+
+			if (item->fname == fname_item) {
+				DBGCMD( count++ );
+				
+				e = list_remove(&dirtylist, e);
+
+				item->list = &freelist;
+				list_push_back(item->list, &item->list_elem);
+			}else{
+				e = list_next(e);
+			}
+		}
+
+		hash_remove(&fnamedic, h);
+		fname_item->curfile = NULL;
+		free(fname_item->filename);
+		free(fname_item);
+	}
+
+	DBGCMD(
+		gettimeofday(&b, NULL);
+		rr = _utime_gap(a,b);		
+	);
+	DBG("bcache_remove_file %s, total %"_F64" count %"_F64", %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
+		file->filename, total, count, rr.tv_sec, rr.tv_usec);
+
+}
+
+// flush and sycnrhonize all dirty blocks of the FILE
 void bcache_flush(struct filemgr *file)
 {
 	struct hash_elem *h;
@@ -293,6 +371,13 @@ void bcache_flush(struct filemgr *file)
 	struct bcache_rb *rb;
 #endif
 	struct fnamedic_item fname, *fname_item;
+	DBGCMD(
+		struct timeval a,b,rr;
+		gettimeofday(&a, NULL);
+		size_t total=0, count=0;
+	);
+
+	//DBGCMD( __bcache_check_bucket_length() );
 
 	// lookup filename first
 	fname.filename = file->filename;
@@ -310,8 +395,11 @@ void bcache_flush(struct filemgr *file)
 		e = list_begin(&dirtylist);
 		while(e){
 			item = _get_entry(e, struct bcache_item, list_elem);
+			DBGCMD( total++ );
 
 			if (item->fname == fname_item) {
+				DBGCMD( count++ );
+				
 				e = list_remove(&dirtylist, e);
 
 			#ifdef _BCACHE_SORTED_FLUSH
@@ -345,9 +433,16 @@ void bcache_flush(struct filemgr *file)
 			free(rb);
 		}
 	#endif
-
 		fname_item->curfile = NULL;
 	}
+
+	DBGCMD(
+		gettimeofday(&b, NULL);
+		rr = _utime_gap(a,b);		
+	);
+	
+	DBG("bcache_flush file %s, total %"_F64" count %"_F64", %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
+		file->filename, total, count, rr.tv_sec, rr.tv_usec);
 }
 
 void bcache_init(int nblock, int blocksize)
@@ -397,24 +492,6 @@ void _bcache_free_fnamedic(struct hash_elem *h)
 	struct fnamedic_item *item = _get_entry(h, struct fnamedic_item, hash_elem);
 	free(item->filename);
 	free(item);
-}
-
-void __bcache_check_bucket_length()
-{
-	struct list_elem *e;
-	int i,c;
-	FILE *fp = fopen("./bcache_hash_log.txt","w");
-	for (i=0;i<hash.nbuckets;++i) {
-		c=0;
-		e = list_begin(hash.buckets + i);
-		while(e) {
-			c++;
-			e = list_next(e);
-		}
-		if (c>0)
-			fprintf(fp, "%d %d\n",i,c);
-	}
-	fclose(fp);
 }
 
 void bcache_free()

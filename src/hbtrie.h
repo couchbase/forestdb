@@ -26,7 +26,6 @@ struct hbtrie {
 	uint8_t valuelen;
 	uint32_t btree_nodesize;
 	bid_t root_bid;
-	//struct btree *root;
 	void *btreeblk_handle;
 	void *doc_handle;
 	

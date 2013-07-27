@@ -88,6 +88,7 @@ struct btree_iterator {
 	void *curkey;
 	bid_t *bid;
 	idx_t *idx;
+	struct bnode **node;
 };
 
 void btree_print_node(struct btree *btree);

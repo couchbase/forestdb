@@ -397,9 +397,11 @@ btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it,
 	}
 	it->bid = (bid_t*)malloc(sizeof(bid_t) * btree->height);
 	it->idx = (idx_t*)malloc(sizeof(idx_t) * btree->height);
+	it->node = (struct bnode **)malloc(sizeof(struct bnode *) * btree->height);
 	for (i=0;i<btree->height;++i){
 		it->bid[i] = BTREE_BLK_NOT_FOUND;
 		it->idx[i] = BTREE_IDX_NOT_FOUND;
+		it->node[i] = NULL;
 	}
 	it->bid[btree->height-1] = btree->root_bid;
 	
@@ -411,6 +413,7 @@ btree_result btree_iterator_free(struct btree_iterator *it)
 	free(it->curkey);
 	free(it->bid);
 	free(it->idx);
+	free(it->node);
 	return BTREE_RESULT_SUCCESS;
 }
 
@@ -425,8 +428,10 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
 	struct bnode *node;
 	btree_result r;
 
-	addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
-	node = _fetch_bnode(addr);
+	if (it->node[depth] == NULL){
+		addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
+		node = _fetch_bnode(addr);
+	}
 
 	if (node->nentry <= 0) return BTREE_RESULT_FAIL;
 	
@@ -465,8 +470,10 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
 				btree->kv_ops->get_kv(node, it->idx[depth], k, v);
 				it->bid[depth-1] = btree->kv_ops->value2bid(v);
 				// reset child index
-				for (i=depth-1; i>=0; --i)
+				for (i=depth-1; i>=0; --i) {
 					it->idx[i] = BTREE_IDX_NOT_FOUND;
+					it->node[i] = NULL;
+				}
 				// retry
 				r = _btree_next(it, key_buf, value_buf, depth-1);
 			}

@@ -17,7 +17,7 @@
 #include "filemgr_ops_linux.h"
 
 #define _FDB_BLOCKSIZE (4096)
-#define _FDB_WAL_NBUCKET (1024)
+#define _FDB_WAL_NBUCKET (1048576)
 
 INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
@@ -42,7 +42,8 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 	handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
 	handle->config = config;
 
-	wal_init(handle->file, _FDB_WAL_NBUCKET);
+	assert( CHK_POW2(config.wal_threshold) );
+	wal_init(handle->file, config.wal_threshold);
 	docio_init(handle->dhandle, handle->file);
 	btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
@@ -168,15 +169,15 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 	return FDB_RESULT_SUCCESS;
 }
 
-void _fdb_wal_flush_func(void *voidhandle, void *key, int keylen, uint64_t offset, wal_item_action action)
+INLINE void _fdb_wal_flush_func(void *voidhandle, void *key, int keylen, uint64_t offset, wal_item_action action)
 {
 	fdb_handle *handle = (fdb_handle *)voidhandle;
 	if (action == WAL_ACT_INSERT) {
 		hbtrie_insert(handle->trie, key, keylen, &offset);
 		btreeblk_end(handle->bhandle);
 	}else{
-		hbtrie_remove(handle->trie, key, keylen);
-		btreeblk_end(handle->bhandle);
+		//hbtrie_remove(handle->trie, key, keylen);
+		//btreeblk_end(handle->bhandle);
 	}
 }
 
@@ -207,13 +208,15 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 	struct hbtrie *new_trie;
 	struct hbtrie_iterator it;
 	struct docio_object doc;
-	uint8_t k[handle->trie->chunksize];
+	uint8_t k[HBTRIE_MAX_KEYLEN];
 	size_t keylen;
 	uint64_t offset, new_offset;
 	hbtrie_result hr;
+	//uint8_t metabuf[1024], bodybuf[1024];
 
 	btreeblk_end(handle->bhandle);
 	wal_flush(handle->file, handle, _fdb_wal_flush_func);
+	_fdb_set_file_header(handle);
 
 	fconfig.blocksize = _FDB_BLOCKSIZE;
 	fconfig.ncacheblock = handle->config.buffercache_size / _FDB_BLOCKSIZE;
@@ -227,13 +230,13 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 	new_dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
 	new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
 
-	wal_init(new_file, _FDB_WAL_NBUCKET);
+	wal_init(new_file, handle->config.wal_threshold);
 	docio_init(new_dhandle, new_file);
 	btreeblk_init(new_bhandle, new_file, new_file->blocksize);
 	hbtrie_init(new_trie, handle->trie->chunksize, handle->trie->valuelen, new_file->blocksize,
 		BLK_NOT_FOUND, new_bhandle, handle->btreeblkops, new_dhandle, _fdb_readkey_wrap);
 
-	// scan all live documents in trie
+	// scan all live documents in the trie
 	hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
 	while(hr == HBTRIE_RESULT_SUCCESS) {
@@ -248,13 +251,16 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 
 		// re-write to new file
 		new_offset = docio_append_doc(new_dhandle, &doc);
+		free(doc.meta);
+		free(doc.body);
 		hbtrie_insert(new_trie, k, keylen, &new_offset);
 		btreeblk_end(new_bhandle);
 	}
 
 	hr = hbtrie_iterator_free(&it);
 
-	filemgr_commit(new_file);
+	//filemgr_commit(new_file);
+	filemgr_remove_from_cache(handle->file);
 	
 	filemgr_close(handle->file);
 	handle->file = new_file;

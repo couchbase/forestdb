@@ -68,6 +68,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf);
 void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint64_t len, void *buf);
 void filemgr_write(struct filemgr *file, bid_t bid, void *buf);
 int filemgr_is_writable(struct filemgr *file, bid_t bid);
+void filemgr_remove_from_cache(struct filemgr *file);
 void filemgr_commit(struct filemgr *file);
 void filemgr_free();
 

@@ -268,6 +268,7 @@ void large_test()
 		TEST_CHK(r == HBTRIE_RESULT_SUCCESS);
 
 		if (r == HBTRIE_RESULT_SUCCESS) {
+			/*
 			memcpy(&_offset, valuebuf, 8);
 			docio_read_doc(&dhandle, _offset, &doc);
 			sprintf(meta, "me");
@@ -275,6 +276,7 @@ void large_test()
 			TEST_CHK(!memcmp(doc.key, key[i], doc.length.keylen));
 			TEST_CHK(!memcmp(doc.meta, meta, doc.length.metalen));
 			TEST_CHK(!memcmp(doc.body, body, doc.length.bodylen));
+			*/
 		}
 	}
 	TEST_TIME();

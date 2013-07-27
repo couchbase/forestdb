@@ -209,12 +209,12 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 {
 	uint64_t pos = bid * file->blocksize;
 	assert(pos < file->pos);
-
+/*
 	if (bid == file->buffer.lastbid) {
 		memcpy(buf, file->buffer.block, file->blocksize);
 		return;
 	}
-
+*/
 	if (global_config.ncacheblock > 0) {
 		int r = 	bcache_read(file, bid, buf);
 		if (r == 0) 	{
@@ -243,9 +243,10 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
 			bcache_write(file, bid, buf, 1);
 		}else {
 			uint8_t _buf[file->blocksize];
+			/*
 			if (bid == file->buffer.lastbid) {
 				memcpy(_buf, file->buffer.block, file->blocksize);
-			}else{
+			}else*/{
 				int r = bcache_read(file, bid, _buf);
 			}
 			memcpy(_buf + offset, buf, len);
@@ -269,6 +270,13 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
 {
 	uint64_t pos = bid * file->blocksize;
 	return (pos >= file->last_commit && pos < file->pos);
+}
+
+void filemgr_remove_from_cache(struct filemgr *file)
+{
+	if (global_config.ncacheblock > 0) {
+		bcache_remove_file(file);
+	}
 }
 
 void filemgr_commit(struct filemgr *file)

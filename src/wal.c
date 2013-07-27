@@ -135,6 +135,12 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 	struct list_elem *e;
 	struct hash_elem *h;
 	struct wal_item *item;
+	DBGCMD(
+		struct timeval a,b,rr;
+		gettimeofday(&a, NULL);
+	);
+
+	DBG("wal size: %"_F64"\n", file->wal->size);
 
 	/*
 	for (i=0;i<file->wal->hash.nbuckets;++i){
@@ -160,6 +166,12 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 		free(item);
 	}
 	file->wal->size = 0;
+
+	DBGCMD(
+		gettimeofday(&b, NULL);
+		rr = _utime_gap(a,b);		
+	);
+	DBG("wal flushed, %"_FSEC".%06"_FUSEC" sec elapsed.\n", rr.tv_sec, rr.tv_usec);
 
 	return WAL_RESULT_SUCCESS;
 }

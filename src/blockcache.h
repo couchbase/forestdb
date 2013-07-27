@@ -11,6 +11,7 @@
 void bcache_init(int nblock, int blocksize);
 int bcache_read(struct filemgr *file, bid_t bid, void *buf);
 int bcache_write(struct filemgr *file, bid_t bid, void *buf, int dirty);
+void bcache_remove_file(struct filemgr *file);
 void bcache_flush(struct filemgr *file);
 void bcache_free();
 
