@@ -45,6 +45,7 @@ struct filemgr_header{
 
 struct filemgr {
 	char *filename;
+	uint16_t filename_len;
 	int fd;
 	//int bcache_id;
 	uint64_t pos;
@@ -52,7 +53,7 @@ struct filemgr {
 	uint32_t blocksize;
 	struct wal *wal;
 	struct filemgr_header header;
-	struct filemgr_buffer buffer;
+	struct filemgr_buffer buffer; // not used
 	struct filemgr_ops *ops;
 	struct hash_elem e;
 	spin_t lock;

@@ -111,6 +111,7 @@ struct rb_node
 struct rb_root
 {
 	struct rb_node *rb_node;
+	void *aux;
 };
 
 

@@ -13,36 +13,38 @@
 
 INLINE void _get_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
-/*
 	int ksize, vsize;
-
+	void *ptr;
 	_get_kvsize(node->kvsize, ksize, vsize);
+	ptr = node->data + (idx * (ksize+vsize));
 
-	memcpy(key, node->data + (idx * (ksize+vsize)), ksize);
-	memcpy(value, node->data + (idx * (ksize+vsize)) + ksize, vsize);
-	*/
+	memcpy(key, ptr, ksize);
+	memcpy(value, ptr + ksize, vsize);
+	
+	/*
 	memcpy(key, 
 		node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))), 
 		__ksize(node->kvsize));
 	memcpy(value, 
 		node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))) + __ksize(node->kvsize), 
-		__vsize(node->kvsize));
+		__vsize(node->kvsize));*/
 }
 
 INLINE void _set_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
-/*
 	int ksize, vsize;
-
+	void *ptr;
 	_get_kvsize(node->kvsize, ksize, vsize);
+	ptr = node->data + (idx * (ksize+vsize));
 
-	memcpy(node->data + (idx * (ksize+vsize)), key, ksize);
-	memcpy(node->data + (idx * (ksize+vsize)) + ksize, value, vsize);
-	*/
+	memcpy(ptr, key, ksize);
+	memcpy(ptr + ksize, value, vsize);
+
+	/*
 	memcpy(node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))), 
 		key, __ksize(node->kvsize));
 	memcpy(node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))) + __ksize(node->kvsize), 
-		value, __vsize(node->kvsize));
+		value, __vsize(node->kvsize));*/
 }
 
 INLINE bid_t _value_to_bid_64(void *value)
@@ -93,7 +95,10 @@ INLINE int _cmp_char64(void *key1, void *key2)
 INLINE int _cmp_binary32(void *key1, void *key2)
 {
 	#ifdef __BIT_CMP
-		return _CMP_U32( bitswap32(*(uint32_t*)key1), bitswap32(*(uint32_t*)key2));
+		uint32_t a,b;
+		a = bitswap32(*(uint32_t*)key1);
+		b = bitswap32(*(uint32_t*)key2);
+		return _CMP_U32( a, b );
 	#else
 		return memcmp(key1, key2, 8);
 	#endif
@@ -102,7 +107,10 @@ INLINE int _cmp_binary32(void *key1, void *key2)
 INLINE int _cmp_binary64(void *key1, void *key2)
 {
 	#ifdef __BIT_CMP
-		return _CMP_U64( bitswap64(*(uint64_t*)key1), bitswap64(*(uint64_t*)key2));
+		uint64_t a,b;
+		a = bitswap64(*(uint64_t*)key1);
+		b = bitswap64(*(uint64_t*)key2);
+		return _CMP_U64( a , b );
 	#else
 		return memcmp(key1, key2, 8);
 	#endif

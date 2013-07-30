@@ -131,9 +131,9 @@ void twohash_test()
 
 int main()
 {
-	//basic_test();
+	basic_test();
 	//string_hash_test();
-	twohash_test();
+	//twohash_test();
 
 	return 0;
 }

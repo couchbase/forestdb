@@ -24,9 +24,9 @@
 // *a < *b : return neg
 // *a == *b : return 0
 // *a > *b : return pos
-typedef int rbwrap_cmp_func (struct rb_node *a, struct rb_node *b);
+typedef int rbwrap_cmp_func (struct rb_node *a, struct rb_node *b, void *aux);
 
-void rbwrap_init(struct rb_root *root);
+void rbwrap_init(struct rb_root *root, void *aux);
 struct rb_node * rbwrap_insert(struct rb_root *root, struct rb_node *node, rbwrap_cmp_func *func);
 struct rb_node * rbwrap_search(struct rb_root *root, struct rb_node *node, rbwrap_cmp_func *func);
 

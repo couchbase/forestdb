@@ -27,6 +27,7 @@
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
 #define FILEMGR_MAGIC (0xbeefbeef)
+#define NBUF (32)
 
 // global static variables
 static spin_t initial_lock = SPIN_INITIALIZER;
@@ -34,6 +35,8 @@ static int filemgr_initialized = 0;
 static struct filemgr_config global_config;
 static struct hash hash;
 
+static size_t filemgr_sys_pagesize;
+void *temp_buf[NBUF];
 
 uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
@@ -53,6 +56,8 @@ int _file_cmp(struct hash_elem *a, struct hash_elem *b)
 
 void filemgr_init(struct filemgr_config config)
 {
+	int i, ret;
+
  	spin_lock(&initial_lock);
 	if (!filemgr_initialized) {
 		global_config = config;
@@ -61,6 +66,13 @@ void filemgr_init(struct filemgr_config config)
 			bcache_init(global_config.ncacheblock, global_config.blocksize);
 		
 		hash_init(&hash, NBUCKET, _file_hash, _file_cmp);
+
+		filemgr_sys_pagesize = sysconf(_SC_PAGESIZE);
+
+		for (i=0;i<NBUF;++i){
+			ret = posix_memalign(&temp_buf[i], filemgr_sys_pagesize, global_config.blocksize);
+		}
+			
 		filemgr_initialized = 1;
 	}
 	spin_unlock(&initial_lock);
@@ -103,11 +115,18 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct fi
 	}else{
 		// open
 		file = (struct filemgr*)malloc(sizeof(struct filemgr));
-		file->filename = (char*)malloc(strlen(filename)+1);
+		file->filename_len = strlen(filename);
+		file->filename = (char*)malloc(file->filename_len + 1);
 		file->wal = (struct wal *)malloc(sizeof(struct wal));
 		strcpy(file->filename, filename);
 		file->ops = ops;
-		file->fd = file->ops->open(file->filename, O_RDWR | O_CREAT | config.flag, 0666);
+		#ifdef __O_DIRECT
+			file->fd = file->ops->open(
+				file->filename, O_RDWR | O_CREAT | O_DIRECT | config.flag, 0666);
+		#else
+			file->fd = file->ops->open(
+				file->filename, O_RDWR | O_CREAT | config.flag, 0666);
+		#endif
 		file->blocksize = global_config.blocksize;
 		file->pos = file->last_commit = file->ops->goto_eof(file->fd);
 		if (file->pos % file->blocksize != 0) {
@@ -118,10 +137,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct fi
 			file->header.data = NULL;
 		}
 		file->lock = SPIN_INITIALIZER;
-		file->buffer.block = (void *)malloc(file->blocksize);
-		file->buffer.lastbid = BLK_NOT_FOUND;
-		//file->bcache_id = -1;
-
+		
 		hash_insert(&hash, &file->e);
 	}
 
@@ -204,33 +220,20 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin, bid_
 	spin_unlock(&file->lock);
 }
 
-
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 {
 	uint64_t pos = bid * file->blocksize;
 	assert(pos < file->pos);
-/*
-	if (bid == file->buffer.lastbid) {
-		memcpy(buf, file->buffer.block, file->blocksize);
-		return;
-	}
-*/
+
 	if (global_config.ncacheblock > 0) {
 		int r = 	bcache_read(file, bid, buf);
 		if (r == 0) 	{
 			file->ops->pread(file->fd, buf, file->blocksize, pos);
-			bcache_write(file, bid, buf, 0);
+			bcache_write(file, bid, buf, BCACHE_CLEAN);
 		}
 	}else{	
 		file->ops->pread(file->fd, buf, file->blocksize, pos);
 	}
-
-/*
-	if (file->buffer.lastbid != bid) {
-		file->buffer.lastbid = bid;
-		memcpy(file->buffer.block, buf, file->blocksize);
-	}
-	*/
 }
 
 void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint64_t len, void *buf)
@@ -240,25 +243,23 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
 
 	if (global_config.ncacheblock > 0) {
 		if (len == file->blocksize) {
-			bcache_write(file, bid, buf, 1);
+			// write entire block .. we don't need to read previous block
+			bcache_write(file, bid, buf, BCACHE_DIRTY);
 		}else {
-			uint8_t _buf[file->blocksize];
-			/*
-			if (bid == file->buffer.lastbid) {
-				memcpy(_buf, file->buffer.block, file->blocksize);
-			}else*/{
-				int r = bcache_read(file, bid, _buf);
-			}
+			// write partially .. we have to read previous contents of the block
+			#ifdef __MEMORY_ALIGN
+				void *_buf = temp_buf[0];
+			#else
+				uint8_t _buf[file->blocksize];
+			#endif
+	
+			int r = bcache_read(file, bid, _buf);
 			memcpy(_buf + offset, buf, len);
-			bcache_write(file, bid, _buf, 1);
+			bcache_write(file, bid, _buf, BCACHE_DIRTY);
 		}
 	}else{
 		file->ops->pwrite(file->fd, buf, len, pos);
 	}
-/*
-	if (bid == file->buffer.lastbid)
-		file->buffer.lastbid = BLK_NOT_FOUND;
-		*/
 }
 
 void filemgr_write(struct filemgr *file, bid_t bid, void *buf)
@@ -281,10 +282,27 @@ void filemgr_remove_from_cache(struct filemgr *file)
 
 void filemgr_commit(struct filemgr *file)
 {
+
 	if (global_config.ncacheblock > 0) {
 		bcache_flush(file);
 	}
-	file->ops->fdatasync(file->fd);
+	
+	DBGCMD(
+		struct timeval _a_,_b_,_r_;
+		gettimeofday(&_a_, NULL);
+	)
+
+	#ifndef __O_DIRECT
+		file->ops->fdatasync(file->fd);
+	#endif
+
+	DBGCMD(
+		gettimeofday(&_b_, NULL);
+		_r_ = _utime_gap(_a_,_b_);
+	)
+	DBG("fdatasync, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
+		_r_.tv_sec, _r_.tv_usec);
+
 	// race condition?
 	file->last_commit = file->pos;
 }

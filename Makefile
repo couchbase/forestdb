@@ -1,10 +1,10 @@
 LIST = src/list.o
 LISTTEST = tests/list_test.o
 
-HASH = src/hash.o src/hash_functions.o $(LIST)
-HASHTEST = tests/hash_test.o
-
 RBTREE = src/rbtree.o src/rbwrap.o
+
+HASH = src/hash.o src/hash_functions.o $(LIST) $(RBTREE)
+HASHTEST = tests/hash_test.o
 
 BTREE = src/btree.o src/btree_kv.o
 
@@ -42,8 +42,7 @@ LDFLAGS = -pthread -lsnappy
 CFLAGS = \
 	-g -D_GNU_SOURCE -I./include -I./src \
 	-D__DEBUG \
-	-O3 \
-	-fomit-frame-pointer \
+	-O3 -fomit-frame-pointer \
 
 all: $(PROGRAMS)
 

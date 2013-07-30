@@ -5,23 +5,26 @@
 
 #include "rbwrap.h"
 
-void rbwrap_init(struct rb_root *root)
+void rbwrap_init(struct rb_root *root, void *aux)
 {
 	root->rb_node = NULL;
+	root->aux = aux;
 }
 
 struct rb_node * __rbwrap_insert(struct rb_root *root, struct rb_node *node, rbwrap_cmp_func *func)
 {
 	struct rb_node ** p = &root->rb_node;
 	struct rb_node * parent = NULL;
+	int cmp;
 
 	while (*p)
 	{
 		parent = *p;
 
-		if (func(node, *p) < 0)
+		cmp = func(node, *p, root->aux);
+		if (cmp < 0)
 			p = &(*p)->rb_left;
-		else if (func(node, *p) > 0)
+		else if (cmp > 0)
 			p = &(*p)->rb_right;
 		else
 			return *p;
@@ -48,13 +51,15 @@ struct rb_node * rbwrap_insert(struct rb_root *root, struct rb_node *node, rbwra
 struct rb_node * rbwrap_search(struct rb_root *root, struct rb_node *node, rbwrap_cmp_func *func)
 {
 	struct rb_node * n = root->rb_node;
+	int cmp;
 	//struct page * page;
 
 	while (n)
 	{
-		if (func(node, n) < 0)
+		cmp = func(node, n, root->aux);
+		if (cmp < 0)
 			n = n->rb_left;
-		else if (func(node, n) > 0)
+		else if (cmp > 0)
 			n = n->rb_right;
 		else
 			return n;

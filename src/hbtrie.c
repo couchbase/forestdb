@@ -285,7 +285,7 @@ hbtrie_result _hbtrie_next(
 		return HBTRIE_RESULT_FAIL;
 	}
 
-	// check weather v points to doc or sub b-tree
+	// check whether v points to doc or sub b-tree
 	if (_hbtrie_is_msb_set(trie, v)) {
 		// MSB is set -> sub b-tree
 

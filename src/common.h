@@ -122,6 +122,9 @@ unsigned randnum_tx=0;
 	| (((v) & 0x0000ff00) << 8) \
 	| (((v) & 0x000000ff) << 24))
 
+#define __MEMORY_ALIGN
+//#define __O_DIRECT
+
 // can be faster under O3 optimization
 #define __BIT_CMP
 #ifdef __BIT_CMP
