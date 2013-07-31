@@ -14,7 +14,6 @@
 #include "blockcache.h"
 #include "wal.h"
 
-//#define __DEBUG_FILEMGR
 #ifdef __DEBUG
 #ifndef __DEBUG_FILEMGR
 	#undef DBG

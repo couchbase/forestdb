@@ -11,7 +11,6 @@
 #include "common.h"
 #include "btreeblock.h"
 
-//#define __DEBUG_BTREEBLOCK
 #ifdef __DEBUG
 #ifndef __DEBUG_BTREEBLOCK
 	#undef DBG
@@ -63,20 +62,20 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
 		}
 	}
 	// allocate new block from file manager
-	block = (struct btreeblk_block *)malloc(sizeof(struct btreeblk_block));
+	block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
 	#ifdef _BNODE_COMP
 		block->compsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
 		block->uncompsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
 		memset(block->compsize, 0, handle->nnodeperblock * sizeof(compsize_t));
 		memset(block->uncompsize, 0, handle->nnodeperblock * sizeof(compsize_t));
 	#endif
-	block->addr = (void *)malloc(handle->file->blocksize << coe);
+	block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
 	block->pos = handle->nodesize << coe ;
 	block->bid = filemgr_alloc(handle->file);
 	block->dirty = 1;
 	// btree bid differs to filemgr bid
 	*bid = block->bid * handle->nnodeperblock;
-	list_push_back(&handle->alc_list, &block->e);
+	list_push_front(&handle->alc_list, &block->e);
 	return block->addr;
 }
 
@@ -131,13 +130,6 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
 	int offset = bid % handle->nnodeperblock;
 
 	// check whether the block is in current lists
-	// allocation list (dirty)
-	for ( e = list_begin(&handle->alc_list) ; e ; e = list_next(e) ) {
-		block = _get_entry(e, struct btreeblk_block, e);
-		if (block->bid == filebid && block->pos >= (handle->nodesize << coe) * offset) {
-			return block->addr + (handle->nodesize << coe) * offset;
-		}
-	}
 	// read list (clean)
 	for ( e = list_begin(&handle->read_list) ; e ; e = list_next(e) ) {
 		block = _get_entry(e, struct btreeblk_block, e);
@@ -145,15 +137,22 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
 			return block->addr + (handle->nodesize << coe) * offset;
 		}
 	}
+	// allocation list (dirty)
+	for ( e = list_begin(&handle->alc_list) ; e ; e = list_next(e) ) {
+		block = _get_entry(e, struct btreeblk_block, e);
+		if (block->bid == filebid && block->pos >= (handle->nodesize << coe) * offset) {
+			return block->addr + (handle->nodesize << coe) * offset;
+		}
+	}
 
 	// there is no block in lists
 	// read from file and add item into read list
-	block = (struct btreeblk_block *)malloc(sizeof(struct btreeblk_block));
+	block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
 	#ifdef _BNODE_COMP
 		block->compsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
 		block->uncompsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
 	#endif	
-	block->addr = (void *)malloc(handle->file->blocksize << coe);
+	block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
 	block->pos = (handle->file->blocksize << coe);
 	block->bid = filebid;
 	block->dirty = 0;
@@ -163,7 +162,7 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
 	#else
 		filemgr_read(handle->file, block->bid, block->addr);
 	#endif
-	list_push_back(&handle->read_list, &block->e);
+	list_push_front(&handle->read_list, &block->e);
 	return block->addr + (handle->nodesize << coe) * offset;
 }
 
@@ -235,9 +234,10 @@ void btreeblk_operation_end(void *voidhandle)
 			e = list_remove(&handle->alc_list, e);
 			#ifdef _BNODE_COMP
 				free(block->compsize);
+				free(block->uncompsize);			
 			#endif
-			free(block->addr);
-			free(block);
+			mempool_free(block->addr);
+			mempool_free(block);
 		}else {
 			// reserve the block when there is enough space and the block is writable
 			e = list_next(e);
@@ -262,8 +262,8 @@ void btreeblk_operation_end(void *voidhandle)
 			free(block->compsize);
 			free(block->uncompsize);
 		#endif
-		free(block->addr);
-		free(block);
+		mempool_free(block->addr);
+		mempool_free(block);
 	}	
 }
 
@@ -385,10 +385,12 @@ void btreeblk_end(struct btreeblk_handle *handle)
 		e = list_remove(&handle->alc_list, e);
 		#ifdef _BNODE_COMP
 			free(block->compsize);
+			free(block->uncompsize);
 		#endif
-		free(block->addr);
-		free(block);
+		mempool_free(block->addr);
+		mempool_free(block);
 	}
+	/*
 	e = list_begin(&handle->read_list);
 	while(e) {
 		block = _get_entry(e, struct btreeblk_block, e);
@@ -397,9 +399,9 @@ void btreeblk_end(struct btreeblk_handle *handle)
 			free(block->compsize);
 			free(block->uncompsize);
 		#endif		
-		free(block->addr);
-		free(block);
-	}
+		mempool_free(block->addr);
+		mempool_free(block);
+	}*/
 
 	DBG("btreeblk_end\n");
 }

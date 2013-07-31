@@ -53,7 +53,7 @@ struct filemgr {
 	uint32_t blocksize;
 	struct wal *wal;
 	struct filemgr_header header;
-	struct filemgr_buffer buffer; // not used
+	//struct filemgr_buffer buffer; // not used
 	struct filemgr_ops *ops;
 	struct hash_elem e;
 	spin_t lock;

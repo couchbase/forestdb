@@ -14,7 +14,6 @@
 #include "rbwrap.h"
 #include "blockcache.h"
 
-//#define __DEBUG_BCACHE
 #ifdef __DEBUG
 #ifndef __DEBUG_BCACHE
 	#undef DBG
@@ -30,7 +29,7 @@
 #define NBUCKET (65536)
 #define NDICBUCKET (4096)
 
-#define BCACHE_FLUSH_UNIT (1<<17)
+#define BCACHE_FLUSH_UNIT (262144)
 
 static struct list freelist;
 static struct list cleanlist;
@@ -45,7 +44,8 @@ static int bcache_blocksize;
 static size_t bcache_flush_unit;
 static size_t bcache_sys_pagesize;
 
-uint8_t global_buf[BCACHE_FLUSH_UNIT];
+//uint8_t global_buf[BCACHE_FLUSH_UNIT];
+void *global_buf;
 
 struct fnamedic_item {
 	char *filename;
@@ -238,7 +238,8 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 	// scan and gather rb-tree items sequentially
 	if (sync) {
 		#ifdef __MEMORY_ALIGN
-			ret = posix_memalign(&buf, bcache_sys_pagesize, bcache_flush_unit);
+			//ret = posix_memalign(&buf, bcache_sys_pagesize, bcache_flush_unit);
+			buf = global_buf;
 		#else
 			buf = (void *)malloc(bcache_flush_unit);
 		#endif
@@ -270,7 +271,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 		ditem->item->list = &cleanlist;
 		list_push_front(ditem->item->list, &ditem->item->list_elem);
 		count++;
-		free(ditem);
+		mempool_free(ditem);
 		
 		if (count*bcache_blocksize >= bcache_flush_unit && sync) break;		
 
@@ -281,7 +282,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 	if (sync) {
 		fname_item->curfile->ops->pwrite(
 			fname_item->curfile->fd, buf, count * bcache_blocksize, start_bid * bcache_blocksize);	
-		free(buf);
+		//free(buf);
 	}
 }
 
@@ -425,7 +426,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
 
 		item->list = &dirtylist;
 		
-		ditem = (struct dirty_item *)malloc(sizeof(struct dirty_item));
+		ditem = (struct dirty_item *)mempool_alloc(sizeof(struct dirty_item));
 		ditem->item = item;
 
 		rbwrap_insert(&item->fname->rbtree, &ditem->rb, _dirty_cmp);
@@ -594,6 +595,8 @@ void bcache_init(int nblock, int blocksize)
 		//hash_insert(&hash, &item->hash_elem);
 	}
 
+	ret = posix_memalign(&global_buf, bcache_sys_pagesize, BCACHE_FLUSH_UNIT);
+
 	DBGCMD(
 		gettimeofday(&_b_, NULL);
 		_r_ = _utime_gap(_a_,_b_);
@@ -602,14 +605,14 @@ void bcache_init(int nblock, int blocksize)
 		nblock, blocksize, _r_.tv_sec, _r_.tv_usec);
 }
 
-void _bcache_free_bcache_item(struct hash_elem *h)
+INLINE void _bcache_free_bcache_item(struct hash_elem *h)
 {
 	struct bcache_item *item = _get_entry(h, struct bcache_item, hash_elem);
 	free(item->addr);
 	free(item);
 }
 
-void _bcache_free_fnamedic(struct hash_elem *h)
+INLINE void _bcache_free_fnamedic(struct hash_elem *h)
 {
 	struct fnamedic_item *item = _get_entry(h, struct fnamedic_item, hash_elem);
 	free(item->filename);

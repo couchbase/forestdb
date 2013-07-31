@@ -11,7 +11,6 @@
 #include "hbtrie.h"
 #include "list.h"
 
-//#define __DEBUG_HBTRIE
 #ifdef __DEBUG
 #ifndef __DEBUG_HBTRIE
 	#undef DBG
@@ -228,7 +227,7 @@ hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it)
 	while(e){
 		item = _get_entry(e, struct btreeit_item, le);
 		e = list_remove(&it->btreeit_list, e);
-		free(item);
+		mempool_free(item);
 	}
 	free(it->curkey);
 	return HBTRIE_RESULT_SUCCESS;
@@ -262,7 +261,7 @@ hbtrie_result _hbtrie_next(
 		btree_init_from_bid(
 			&btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
 			trie->btree_nodesize, trie->root_bid);
-		item = (struct btreeit_item *)malloc(sizeof(struct btreeit_item));
+		item = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
 		br = btree_iterator_init(&btree, &item->btree_it, chunk);
 		if (br == BTREE_RESULT_FAIL) return HBTRIE_RESULT_FAIL;
 
@@ -282,6 +281,7 @@ hbtrie_result _hbtrie_next(
 	if (br == BTREE_RESULT_FAIL) {
 		btree_iterator_free(&item->btree_it);
 		list_remove(&it->btreeit_list, &item->le);
+		mempool_free(item);
 		return HBTRIE_RESULT_FAIL;
 	}
 
@@ -295,13 +295,13 @@ hbtrie_result _hbtrie_next(
 		btree_init_from_bid(
 			&btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
 			trie->btree_nodesize, bid);
-		item_new = (struct btreeit_item *)malloc(sizeof(struct btreeit_item));
+		item_new = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
 
 		// get sub b-tree's chunk number
-		bmeta.data = (void *)malloc(trie->btree_nodesize);
+		bmeta.data = (void *)mempool_alloc(trie->btree_nodesize);
 		bmeta.size = btree_read_meta(&btree, bmeta.data);
 		_hbtrie_fetch_meta(trie, bmeta.size, &hbmeta, bmeta.data);
-		free(bmeta.data);
+		mempool_free(bmeta.data);
 		
 		if ( (hbmeta.chunkno+1)*trie->chunksize <= it->keylen ) {
 			chunk = it->curkey + hbmeta.chunkno*trie->chunksize;
@@ -379,7 +379,7 @@ void _hbtrie_btree_cascaded_update(struct hbtrie *trie, struct list *btreelist, 
 	while(e) {
 		btreeitem = _get_entry(e, struct btreelist_item, e);
 		e = list_remove(btreelist, e);
-		free(btreeitem);
+		mempool_free(btreeitem);
 	}
 }
 
@@ -408,7 +408,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen, void *val
 
 	if (btreelist) {
 		list_init(btreelist);
-		btreeitem = (struct btreelist_item *)malloc(sizeof(struct btreelist_item));
+		btreeitem = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
 		list_push_back(btreelist, &btreeitem->e);
 		btree = &btreeitem->btree;
 	}else{
@@ -463,7 +463,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen, void *val
 
 				if (btreelist) {
 					btreeitem->child_rootbid = bid_new;
-					btreeitem = (struct btreelist_item *)malloc(sizeof(struct btreelist_item));
+					btreeitem = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
 					list_push_back(btreelist, &btreeitem->e);
 					btree = &btreeitem->btree;
 				}
@@ -586,7 +586,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 
 	list_init(&btreelist);
 	// btreeitem for root btree
-	btreeitem = (struct btreelist_item*)malloc(sizeof(struct btreelist_item));
+	btreeitem = (struct btreelist_item*)mempool_alloc(sizeof(struct btreelist_item));
 	list_push_back(&btreelist, &btreeitem->e);
 
 	if (trie->root_bid == BLK_NOT_FOUND) {
@@ -635,7 +635,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 						hbmeta.prefix, diffchunkno * trie->chunksize, NULL, buf);
 
 				// new b-tree
-				btreeitem_new = (struct btreelist_item *)malloc(sizeof(struct btreelist_item));
+				btreeitem_new = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
 				btreeitem_new->chunkno = prevchunkno + diffchunkno + 1;
 				r = btree_init(
 						&btreeitem_new->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops, 
@@ -675,7 +675,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 				bid_new = btreeitem->child_rootbid = trie->btree_kv_ops->value2bid(btree_value);
 				//3 traverse to the sub-tree
 				// fetch sub-tree
-				btreeitem = (struct btreelist_item*)malloc(sizeof(struct btreelist_item));
+				btreeitem = (struct btreelist_item*)mempool_alloc(sizeof(struct btreelist_item));
 				
 				r = btree_init_from_bid(
 					&btreeitem->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops, 
@@ -738,7 +738,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 								key + trie->chunksize * (curchunkno+1), 
 								(diffchunkno - (curchunkno+1)) * trie->chunksize, value_short, buf);
 
-						btreeitem_new = (struct btreelist_item *)malloc(sizeof(struct btreelist_item));
+						btreeitem_new = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
 						btreeitem_new->chunkno = diffchunkno;
 						r = btree_init(
 								&btreeitem_new->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops, 
@@ -759,7 +759,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 							key + trie->chunksize * (curchunkno+1), 
 							(diffchunkno - (curchunkno+1)) * trie->chunksize, NULL, buf);
 
-					btreeitem_new = (struct btreelist_item *)malloc(sizeof(struct btreelist_item));
+					btreeitem_new = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
 					btreeitem_new->chunkno = diffchunkno;
 					r = btree_init(
 							&btreeitem_new->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops, 

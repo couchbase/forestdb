@@ -387,7 +387,7 @@ btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it,
 	int i;
 
 	it->btree = *btree;
-	it->curkey = (void *)malloc(btree->ksize);
+	it->curkey = (void *)mempool_alloc(btree->ksize);
 	if (initial_key) {
 		// set initial key if exists
 		memcpy(it->curkey, initial_key, btree->ksize);
@@ -395,9 +395,9 @@ btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it,
 		// NULL initial key .. set minimum key (start from leftmost key)
 		memset(it->curkey, 0, btree->ksize);
 	}
-	it->bid = (bid_t*)malloc(sizeof(bid_t) * btree->height);
-	it->idx = (idx_t*)malloc(sizeof(idx_t) * btree->height);
-	it->node = (struct bnode **)malloc(sizeof(struct bnode *) * btree->height);
+	it->bid = (bid_t*)mempool_alloc(sizeof(bid_t) * btree->height);
+	it->idx = (idx_t*)mempool_alloc(sizeof(idx_t) * btree->height);
+	it->node = (struct bnode **)mempool_alloc(sizeof(struct bnode *) * btree->height);
 	for (i=0;i<btree->height;++i){
 		it->bid[i] = BTREE_BLK_NOT_FOUND;
 		it->idx[i] = BTREE_IDX_NOT_FOUND;
@@ -410,10 +410,10 @@ btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it,
 
 btree_result btree_iterator_free(struct btree_iterator *it)
 {
-	free(it->curkey);
-	free(it->bid);
-	free(it->idx);
-	free(it->node);
+	mempool_free(it->curkey);
+	mempool_free(it->bid);
+	mempool_free(it->idx);
+	mempool_free(it->node);
 	return BTREE_RESULT_SUCCESS;
 }
 

@@ -6,15 +6,18 @@ RBTREE = src/rbtree.o src/rbwrap.o
 HASH = src/hash.o src/hash_functions.o $(LIST) $(RBTREE)
 HASHTEST = tests/hash_test.o
 
+MEMPOOL = src/mempool.o $(LIST)
+MEMPOOLTEST = tests/mempool_test.o
+
 BTREE = src/btree.o src/btree_kv.o
 
-BCACHE = src/blockcache.o $(HASH) $(RBTREE)
+BCACHE = src/blockcache.o $(HASH) $(RBTREE) $(MEMPOOL)
 FILEMGR = src/filemgr.o src/filemgr_ops_linux.o $(HASH) $(BCACHE)
 
 BCACHETEST = tests/bcache_test.o $(FILEMGR)
 FILEMGRTEST = tests/filemgr_test.o
 
-BTREEBLOCK = src/btreeblock.o $(LIST) $(FILEMGR)
+BTREEBLOCK = src/btreeblock.o $(LIST) $(FILEMGR) $(MEMPOOL)
 BTREEBLOCKTEST = tests/btreeblock_test.o
 
 DOCIO = src/docio.o $(FILEMGR)
@@ -31,6 +34,7 @@ FDBTEST = tests/forestdb_test.o
 PROGRAMS = \
 	tests/list_test \
 	tests/hash_test \
+	tests/mempool_test \
 	tests/bcache_test \
 	tests/filemgr_test \
 	tests/btreeblock_test \
@@ -52,6 +56,9 @@ tests/list_test: $(LISTTEST) $(LIST)
 tests/hash_test: $(HASHTEST) $(HASH) 
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 	
+tests/mempool_test: $(MEMPOOLTEST) $(MEMPOOL) 
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
 tests/bcache_test: $(BCACHETEST) $(BCACHE) 
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 

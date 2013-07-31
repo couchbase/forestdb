@@ -16,7 +16,6 @@
 #include "hash_functions.h"
 #include "hbtrie.h"
 
-//#define __DEBUG_WAL
 #ifdef __DEBUG
 #ifndef __DEBUG_WAL
 	#undef DBG
@@ -47,7 +46,8 @@ INLINE int _wal_cmp(struct hash_elem *a, struct hash_elem *b)
 	struct wal_item *aa, *bb;
 	aa = _get_entry(a, struct wal_item, hash_elem);
 	bb = _get_entry(b, struct wal_item, hash_elem);
-	if (aa->keylen != bb->keylen) return 1;
+
+	if (aa->keylen != bb->keylen) return ((int)aa->keylen - (int)bb->keylen);
 	return memcmp(aa->key, bb->key, aa->keylen);
 }
 
@@ -56,6 +56,9 @@ wal_result wal_init(struct filemgr *file, int nbucket)
 	file->wal->size = 0;
 	hash_init(&file->wal->hash, nbucket, _wal_hash, _wal_cmp);
 	list_init(&file->wal->list);
+
+	DBG("wal item size %d\n", (int)sizeof(struct wal_item));
+	
 	return WAL_RESULT_SUCCESS;
 }
 
@@ -72,9 +75,9 @@ wal_result wal_insert(struct filemgr *file, void *key, size_t keylen, uint64_t o
 		item->offset = offset;
 		item->action = WAL_ACT_INSERT;
 	}else{
-		item = (struct wal_item *)malloc(sizeof(struct wal_item));
+		item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
 		item->keylen = keylen;
-		item->key = (void *)malloc(item->keylen);
+		item->key = (void *)mempool_alloc(item->keylen);
 		memcpy(item->key, key, item->keylen);
 		item->action = WAL_ACT_INSERT;
 		item->offset = offset;
@@ -117,9 +120,9 @@ wal_result wal_remove(struct filemgr *file, void *key, size_t keylen)
 			item->action = WAL_ACT_REMOVE;
 		}
 	}else{
-		item = (struct wal_item *)malloc(sizeof(struct wal_item));
+		item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
 		item->keylen = keylen;
-		item->key = (void *)malloc(item->keylen);
+		item->key = (void *)mempool_alloc(item->keylen);
 		memcpy(item->key, key, item->keylen);
 		item->action = WAL_ACT_REMOVE;
 		hash_insert(&file->wal->hash, &item->hash_elem);
@@ -142,28 +145,14 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 
 	DBG("wal size: %"_F64"\n", file->wal->size);
 
-	/*
-	for (i=0;i<file->wal->hash.nbuckets;++i){
-		e = list_begin(file->wal->hash.buckets + i);
-		while(e) {
-			h = _get_entry(e, struct hash_elem, list_elem);
-			item = _get_entry(h, struct wal_item, hash_elem);
-			e = list_remove(file->wal->hash.buckets + i, e);
-			func(dbhandle, item->key, item->keylen, item->offset, item->action);
-
-			free(item->key);
-			free(item);
-		}
-	}*/
-
 	e = list_begin(&file->wal->list);
 	while(e){
 		item = _get_entry(e, struct wal_item, list_elem);
 		e = list_remove(&file->wal->list, e);
 		hash_remove(&file->wal->hash, &item->hash_elem);
 		func(dbhandle, item->key, item->keylen, item->offset, item->action);
-		free(item->key);
-		free(item);
+		mempool_free(item->key);
+		mempool_free(item);
 	}
 	file->wal->size = 0;
 

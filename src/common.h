@@ -12,6 +12,12 @@
 #include <stdint.h>
 #include <assert.h>
 
+#include "option.h"
+
+#ifndef _MEMPOOL
+	#define mempool_alloc malloc
+	#define mempool_free free
+#endif
 
 static struct timespec _ntime_gap(struct timespec a, struct timespec b) 
 {
@@ -84,13 +90,6 @@ typedef uint64_t bid_t;
 
 
 #define randomize() srand((unsigned)time(NULL))
-
-// custom random: 'num' must be power of 2
-/*
-#define random_custom(num) randnum_tx; randnum_tx=(randnum_tx+811)&(num-1)
-unsigned randnum_tx=0;
-*/
-
 #define random(num) ((rand())%(num))
 
 //#define _BNODE_COMP
@@ -122,11 +121,8 @@ unsigned randnum_tx=0;
 	| (((v) & 0x0000ff00) << 8) \
 	| (((v) & 0x000000ff) << 24))
 
-#define __MEMORY_ALIGN
-//#define __O_DIRECT
 
 // can be faster under O3 optimization
-#define __BIT_CMP
 #ifdef __BIT_CMP
 
 // 64-bit sign mask

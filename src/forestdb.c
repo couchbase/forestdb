@@ -17,7 +17,7 @@
 #include "filemgr_ops_linux.h"
 
 #define _FDB_BLOCKSIZE (4096)
-#define _FDB_WAL_NBUCKET (1048576)
+#define _FDB_WAL_NBUCKET (262144)
 
 INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
@@ -31,6 +31,10 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 	struct filemgr_config fconfig;
 	bid_t trie_root_bid = BLK_NOT_FOUND;
 
+	#ifdef _MEMPOOL
+		mempool_init();
+	#endif
+
 	fconfig.blocksize = _FDB_BLOCKSIZE;
 	fconfig.ncacheblock = config.buffercache_size / _FDB_BLOCKSIZE;
 	fconfig.flag = 0x0;
@@ -42,8 +46,9 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 	handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
 	handle->config = config;
 
-	assert( CHK_POW2(config.wal_threshold) );
-	wal_init(handle->file, config.wal_threshold);
+	//assert( CHK_POW2(config.wal_threshold) );
+	//wal_init(handle->file, config.wal_threshold);
+	wal_init(handle->file, _FDB_WAL_NBUCKET);
 	docio_init(handle->dhandle, handle->file);
 	btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
@@ -101,6 +106,18 @@ fdb_status fdb_doc_free(fdb_doc *doc)
 	if (doc->body) free(doc->body);
 	free(doc);
 	return FDB_RESULT_SUCCESS;
+}
+
+INLINE void _fdb_wal_flush_func(void *voidhandle, void *key, int keylen, uint64_t offset, wal_item_action action)
+{
+	fdb_handle *handle = (fdb_handle *)voidhandle;
+	if (action == WAL_ACT_INSERT) {
+		hbtrie_insert(handle->trie, key, keylen, &offset);
+		btreeblk_end(handle->bhandle);
+	}else{
+		//hbtrie_remove(handle->trie, key, keylen);
+		//btreeblk_end(handle->bhandle);
+	}
 }
 
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
@@ -162,23 +179,10 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 		wal_remove(handle->file, _doc.key, _doc.length.keylen);
 	}
 
-	/*
-	if (wal_get_size(handle->file) > 1024) {
+	if (wal_get_size(handle->file) > handle->config.wal_threshold) {
 		wal_flush(handle->file, (void *)handle, _fdb_wal_flush_func);
-	}*/
-	return FDB_RESULT_SUCCESS;
-}
-
-INLINE void _fdb_wal_flush_func(void *voidhandle, void *key, int keylen, uint64_t offset, wal_item_action action)
-{
-	fdb_handle *handle = (fdb_handle *)voidhandle;
-	if (action == WAL_ACT_INSERT) {
-		hbtrie_insert(handle->trie, key, keylen, &offset);
-		btreeblk_end(handle->bhandle);
-	}else{
-		//hbtrie_remove(handle->trie, key, keylen);
-		//btreeblk_end(handle->bhandle);
 	}
+	return FDB_RESULT_SUCCESS;
 }
 
 fdb_status fdb_commit(fdb_handle *handle)

@@ -8,6 +8,7 @@
 #include "docio.h"
 #include "filemgr.h"
 #include "filemgr_ops_linux.h"
+#include "common.h"
 
 uint32_t _set_doc(struct docio_object *doc, char *key, char *meta, char *body)
 {
@@ -301,6 +302,10 @@ void large_test()
 }
 
 int main(){
+	#ifdef _MEMPOOL
+		mempool_init();
+	#endif
+	
 	//hbtrie_key_test();
 	//basic_test();
 	large_test();
