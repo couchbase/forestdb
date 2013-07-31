@@ -12,7 +12,6 @@
 #include "btree_kv.h"
 #include "common.h"
 
-//#define __DEBUG_BTREE
 #ifdef __DEBUG
 #ifndef __DEBUG_BTREE
 	#undef DBG

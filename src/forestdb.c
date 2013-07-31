@@ -16,8 +16,14 @@
 #include "wal.h"
 #include "filemgr_ops_linux.h"
 
-#define _FDB_BLOCKSIZE (4096)
-#define _FDB_WAL_NBUCKET (262144)
+#ifdef __DEBUG
+#ifndef __DEBUG_FDB
+	#undef DBG
+	#undef DBGCMD
+	#define DBG(args...)
+	#define DBGCMD(command...)
+#endif
+#endif
 
 INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
@@ -28,6 +34,11 @@ INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 {
+	DBGCMD(
+		struct timeval _a_,_b_,_rr_;
+		gettimeofday(&_a_, NULL);
+	);
+
 	struct filemgr_config fconfig;
 	bid_t trie_root_bid = BLK_NOT_FOUND;
 
@@ -35,8 +46,8 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 		mempool_init();
 	#endif
 
-	fconfig.blocksize = _FDB_BLOCKSIZE;
-	fconfig.ncacheblock = config.buffercache_size / _FDB_BLOCKSIZE;
+	fconfig.blocksize = FDB_BLOCKSIZE;
+	fconfig.ncacheblock = config.buffercache_size / FDB_BLOCKSIZE;
 	fconfig.flag = 0x0;
 	handle->fileops = get_linux_filemgr_ops();
 	handle->btreeblkops = btreeblk_get_ops();
@@ -48,7 +59,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 
 	//assert( CHK_POW2(config.wal_threshold) );
 	//wal_init(handle->file, config.wal_threshold);
-	wal_init(handle->file, _FDB_WAL_NBUCKET);
+	wal_init(handle->file, FDB_WAL_NBUCKET);
 	docio_init(handle->dhandle, handle->file);
 	btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
@@ -57,6 +68,13 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 	}
 	hbtrie_init(handle->trie, config.chunksize, config.offsetsize, handle->file->blocksize, trie_root_bid, 
 		handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
+
+	DBGCMD(
+		gettimeofday(&_b_, NULL);
+		_rr_ = _utime_gap(_a_,_b_);		
+	);
+	DBG("fdb_open %s, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
+		filename, _rr_.tv_sec, _rr_.tv_usec);
 
 	return FDB_RESULT_SUCCESS;
 }
@@ -179,9 +197,11 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 		wal_remove(handle->file, _doc.key, _doc.length.keylen);
 	}
 
-	if (wal_get_size(handle->file) > handle->config.wal_threshold) {
-		wal_flush(handle->file, (void *)handle, _fdb_wal_flush_func);
-	}
+	#ifdef __WAL_FLUSH_BEFORE_COMMIT
+		if (wal_get_size(handle->file) > handle->config.wal_threshold) {
+			wal_flush(handle->file, (void *)handle, _fdb_wal_flush_func);
+		}
+	#endif
 	return FDB_RESULT_SUCCESS;
 }
 
@@ -222,8 +242,8 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 	wal_flush(handle->file, handle, _fdb_wal_flush_func);
 	_fdb_set_file_header(handle);
 
-	fconfig.blocksize = _FDB_BLOCKSIZE;
-	fconfig.ncacheblock = handle->config.buffercache_size / _FDB_BLOCKSIZE;
+	fconfig.blocksize = FDB_BLOCKSIZE;
+	fconfig.ncacheblock = handle->config.buffercache_size / FDB_BLOCKSIZE;
 	fconfig.flag = 0x0;
 
 	// open new file

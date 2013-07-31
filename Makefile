@@ -28,8 +28,15 @@ HBTRIETEST = tests/hbtrie_test.o
 
 WAL = src/wal.o $(HASH)
 
-FDB = src/forestdb.o $(HBTRIE) $(WAL)
+FDB = \
+	src/forestdb.o src/hbtrie.o src/btree.o src/btree_kv.o \
+	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
+	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
+	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o
+	
 FDBTEST = tests/forestdb_test.o
+
+LIBRARY=forestdb
 
 PROGRAMS = \
 	tests/list_test \
@@ -40,15 +47,18 @@ PROGRAMS = \
 	tests/btreeblock_test \
 	tests/docio_test \
 	tests/hbtrie_test \
-	tests/forestdb_test \
+	forestdb_test \
 
 LDFLAGS = -pthread -lsnappy
 CFLAGS = \
 	-g -D_GNU_SOURCE -I./include -I./src \
-	-D__DEBUG \
+	-D__DEBUG -fPIC \
 	-O3 -fomit-frame-pointer \
 
 all: $(PROGRAMS)
+
+lib: $(FDB)
+	$(CC) $(CFLAGS) -shared $(LDFLAGS) -o ./lib$(LIBRARY).so $(FDB)
 
 tests/list_test: $(LISTTEST) $(LIST) 
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
@@ -74,8 +84,8 @@ tests/docio_test: $(DOCIOTEST) $(DOCIO)
 tests/hbtrie_test: $(HBTRIETEST) $(HBTRIE) $(BTREE)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-tests/forestdb_test: $(FDBTEST) $(FDB)	
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+forestdb_test: lib $(FDBTEST)
+	$(CC) $(CFLAGS) $(FDBTEST) ./lib$(LIBRARY).so -o $@ $(LDFLAGS)
 	
 clean:
-	rm -rf src/*.o tests/*.o $(PROGRAMS)
+	rm -rf src/*.o tests/*.o dummy* $(PROGRAMS) ./lib$(LIBRARY).so

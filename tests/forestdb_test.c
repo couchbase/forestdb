@@ -132,10 +132,10 @@ void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
 	int i, n=ndocs, r;
 	char keybuf[keylen+1], metabuf[metalen+1], bodybuf[bodylen+1], temp[256];
 	
-	config.chunksize = sizeof(uint32_t);
+	config.chunksize = sizeof(uint64_t);
 	config.offsetsize = sizeof(uint64_t);
 	config.buffercache_size = 1024 * 1024 * 1024;
-	config.wal_threshold = 64 * 1024;
+	config.wal_threshold = 128 * 1024;
 	config.flag = 0;
 
 	doc = (fdb_doc**)malloc(sizeof(fdb_doc*) * ndocs);

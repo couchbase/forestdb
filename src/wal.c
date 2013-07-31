@@ -77,8 +77,15 @@ wal_result wal_insert(struct filemgr *file, void *key, size_t keylen, uint64_t o
 	}else{
 		item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
 		item->keylen = keylen;
-		item->key = (void *)mempool_alloc(item->keylen);
-		memcpy(item->key, key, item->keylen);
+		
+		//3 KEY should be copyied or just be linked?
+		#ifdef __WAL_KEY_COPY
+			item->key = (void *)mempool_alloc(item->keylen);
+			memcpy(item->key, key, item->keylen);*/
+		#else
+			item->key = key;
+		#endif
+
 		item->action = WAL_ACT_INSERT;
 		item->offset = offset;
 		hash_insert(&file->wal->hash, &item->hash_elem);
@@ -151,7 +158,10 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 		e = list_remove(&file->wal->list, e);
 		hash_remove(&file->wal->hash, &item->hash_elem);
 		func(dbhandle, item->key, item->keylen, item->offset, item->action);
-		mempool_free(item->key);
+
+		#ifdef __WAL_KEY_COPY
+			mempool_free(item->key);
+		#endif
 		mempool_free(item);
 	}
 	file->wal->size = 0;

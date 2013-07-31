@@ -14,7 +14,7 @@
 	#define DBGCMD(command...)
 #endif
 
-//#define __DEBUG_MEMPOOL
+#define __DEBUG_MEMPOOL
 #ifdef __DEBUG
 #ifndef __DEBUG_MEMPOOL
 	#undef DBG
@@ -82,6 +82,17 @@ static spin_t initial_lock = SPIN_INITIALIZER;
 static int mempool_initialized = 0;
 static int l1cache_linesize;
 
+static uint64_t initial_space[10] = {
+	/* 32-byte */ 32*1024*1024,
+	/* 64-byte */ 64*1024*1024,
+	/* 128-byte */ 16*1024*1024,
+	/* 256-byte */ 4*1024*1024,
+	/* 512-byte */ 2*1024*1024,
+	/* 1024-byte */ 1*1024*1024,
+	/* 2048-byte */ 1*1024*1024,
+	/* 4096-byte */ 1*1024*1024,
+	0, 0};
+
 struct mempool_list_set {
 	struct list list;
 	spin_t lock;
@@ -97,6 +108,7 @@ struct mempool_bucket {
 	struct mempool_list_set listset[N_LISTS];
 	uint32_t size;
 	uint32_t rvalue;
+	spin_t lock;
 };
 
 struct mempool_bucket bucket[10];
@@ -115,6 +127,7 @@ void mempool_init()
 
 		int i, j, k, c, n, ret;
 		struct mempool_item *item;
+		DBGCMD( uint64_t size_total = 0; )
 
 		l1cache_linesize = 64; //sysconf(_SC_LEVEL1_DCACHE_LINESIZE);
 		DBG("L1 dcache linesize %d\n", l1cache_linesize);
@@ -123,19 +136,20 @@ void mempool_init()
 		for (i=MINSIZE; i<=MAXSIZE; i*=2) {
 			bucket[c].rvalue = 0;
 			bucket[c].size = i;
+			bucket[c].lock = SPIN_INITIALIZER;
 
-			n = SPACE_LIMIT_FOR_LIST / (N_LISTS * bucket[c].size);
-			if (bucket[c].size < SIZE_THRES1) n = n * 8;
-			else n = n / 8;
+			n = initial_space[c] / (N_LISTS * bucket[c].size);
 			
-			DBG("size %d n %d\n", bucket[c].size, n);
+			DBG("size %d * %d * %d = %"_F64" bytes\n", 
+				bucket[c].size, N_LISTS, n, (uint64_t)bucket[c].size * N_LISTS * n);
+			DBGCMD( size_total += bucket[c].size * N_LISTS * n; )
 			
 			for (j=0;j<N_LISTS;++j){
 				list_init(&bucket[c].listset[j].list);
 				bucket[c].listset[j].lock = SPIN_INITIALIZER;
 				
 				for (k=0;k<n;++k){
-					item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + bucket[c].size);
+					item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + bucket[c].size);					
 					/*
 					ret = posix_memalign(
 						(void **)&item, l1cache_linesize, sizeof(struct mempool_item) + bucket[c].size);*/
@@ -153,7 +167,8 @@ void mempool_init()
 			bucketmap[i] = &bucket[c];
 		}
 
-		DBG("memory pool initialized, item size %d\n", (int)sizeof(struct mempool_item));
+		DBG("memory pool initialized, item size %d, total allocated size : %"_F64" bytes\n", 
+			(int)sizeof(struct mempool_item), size_total);
 
 		mempool_initialized = 1;
 		spin_unlock(&initial_lock);
@@ -170,7 +185,7 @@ void * mempool_alloc(size_t size)
 
 	b = bucketmap[size];
 	idx = b->rvalue;
-	b->rvalue = random_custom(b->rvalue, N_LISTS);
+	random_custom(b->rvalue, N_LISTS);
 	
 	spin_lock(&b->listset[idx].lock);
 	e = list_pop_front(&b->listset[idx].list);
@@ -178,12 +193,10 @@ void * mempool_alloc(size_t size)
 
 	if (e){
 		item = _get_entry(e, struct mempool_item, le);
-		//DBG("mem pool hit from list %lx size %d\n", (uint64_t)item->listset, b->size);
 	}else{
 		item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + b->size);
 		//ret = posix_memalign((void **)&item, l1cache_linesize, sizeof(struct mempool_item) + b->size);
 		item->listset = &b->listset[idx];		
-		//DBG("mem pool miss, created at list %lx size %d\n", (uint64_t)item->listset, b->size);
 	}
 		
 	return (void *)((uint8_t *)item + sizeof(struct mempool_item));
@@ -197,8 +210,6 @@ void mempool_free(void *addr)
 	spin_lock(&item->listset->lock);
 	list_push_front(&item->listset->list, &item->le);
 	spin_unlock(&item->listset->lock);
-
-	//DBG("free and return at list %lx\n", (uint64_t)item->listset);
 }
 
 
