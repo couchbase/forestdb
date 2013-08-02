@@ -33,10 +33,14 @@ FDB = \
 	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
 	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
 	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o
+FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
 	
 FDBTEST = tests/forestdb_test.o
 
+COUCHBENCH = couchstore_api/couchstore_bench.o
+
 LIBRARY=forestdb
+LIBCOUCHSTORE=couchstore_api/libs/libcouchstore.so
 
 PROGRAMS = \
 	tests/list_test \
@@ -48,18 +52,23 @@ PROGRAMS = \
 	tests/docio_test \
 	tests/hbtrie_test \
 	forestdb_test \
+	couchstore_api/couchbench_ori \
+	couchstore_api/couchbench_fdb \
 
 LDFLAGS = -pthread -lsnappy
 CFLAGS = \
 	-g -D_GNU_SOURCE -I./include -I./src \
 	-D__DEBUG -fPIC \
 	-O3 -fomit-frame-pointer \
-
+	
 all: $(PROGRAMS)
 
 lib: $(FDB)
-	$(CC) $(CFLAGS) -shared $(LDFLAGS) -o ./lib$(LIBRARY).so $(FDB)
+	$(CC) $(CFLAGS) -shared $(LDFLAGS) -o lib$(LIBRARY).so $(FDB)
 
+lib_couch: $(FDB_COUCH)
+	$(CC) $(CFLAGS) -shared $(LDFLAGS) -o lib$(LIBRARY)_couch.so $(FDB_COUCH)
+	
 tests/list_test: $(LISTTEST) $(LIST) 
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
@@ -85,7 +94,13 @@ tests/hbtrie_test: $(HBTRIETEST) $(HBTRIE) $(BTREE)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 forestdb_test: lib $(FDBTEST)
-	$(CC) $(CFLAGS) $(FDBTEST) ./lib$(LIBRARY).so -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(FDBTEST) lib$(LIBRARY).so -o $@ $(LDFLAGS)
+
+couchstore_api/couchbench_fdb: lib_couch $(COUCHBENCH)
+	$(CC) $(CFLAGS) $(COUCHBENCH) lib$(LIBRARY)_couch.so -o $@ $(LDFLAGS)
+	
+couchstore_api/couchbench_ori: $(COUCHBENCH)
+	$(CC) $(CFLAGS) $(COUCHBENCH) $(LIBCOUCHSTORE) -o $@ $(LDFLAGS)
 	
 clean:
-	rm -rf src/*.o tests/*.o dummy* $(PROGRAMS) ./lib$(LIBRARY).so
+	rm -rf src/*.o tests/*.o dummy* $(PROGRAMS) ./*.so

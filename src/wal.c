@@ -81,7 +81,7 @@ wal_result wal_insert(struct filemgr *file, void *key, size_t keylen, uint64_t o
 		//3 KEY should be copyied or just be linked?
 		#ifdef __WAL_KEY_COPY
 			item->key = (void *)mempool_alloc(item->keylen);
-			memcpy(item->key, key, item->keylen);*/
+			memcpy(item->key, key, item->keylen);
 		#else
 			item->key = key;
 		#endif

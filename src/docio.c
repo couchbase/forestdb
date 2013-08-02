@@ -265,6 +265,21 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *
 	*keylen = length.keylen;
 }
 
+uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, struct docio_object *doc)
+{
+	uint64_t _offset;
+
+	_offset = _docio_read_length(handle, offset, &doc->length);
+
+	if (doc->key == NULL) doc->key = (void *)malloc(doc->length.keylen);
+	if (doc->meta == NULL) doc->meta = (void *)malloc(doc->length.metalen);
+
+	_offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
+	_offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
+
+	return _offset;
+}
+
 void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_object *doc)
 {
 	uint64_t _offset;

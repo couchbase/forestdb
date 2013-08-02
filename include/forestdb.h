@@ -17,6 +17,7 @@ typedef struct {
 	size_t offsetsize;
 	size_t buffercache_size;
 	size_t wal_threshold;
+	struct filemgr_ops *fileops;
 	unsigned char flag;
 } fdb_config;
 
@@ -50,6 +51,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, s
 	void *body, size_t bodylen);
 fdb_status fdb_doc_free(fdb_doc *doc);
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc);
+fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset);
 fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_commit(fdb_handle *handle);
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename);

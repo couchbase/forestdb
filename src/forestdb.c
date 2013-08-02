@@ -157,8 +157,44 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 	if (wr == WAL_RESULT_SUCCESS || hr == HBTRIE_RESULT_SUCCESS) {
 		_doc.key = doc->key;
 		_doc.length.keylen = doc->keylen;
-		_doc.meta = _doc.body = NULL;
+		_doc.meta = doc->meta;
+		_doc.body = doc->body;
 		docio_read_doc(handle->dhandle, offset, &_doc);
+
+		if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
+		
+		doc->metalen = _doc.length.metalen;
+		doc->bodylen = _doc.length.bodylen;
+		doc->meta = _doc.meta;
+		doc->body = _doc.body;
+
+		return FDB_RESULT_SUCCESS;
+	}
+
+	return FDB_RESULT_FAIL;
+}
+
+fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset)
+{
+	uint64_t offset;
+	struct docio_object _doc;
+	wal_result wr;
+	hbtrie_result hr;
+
+	if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
+	
+	wr = wal_find(handle->file, doc->key, doc->keylen, &offset);
+
+	if (wr == WAL_RESULT_FAIL) {
+		hr = hbtrie_find(handle->trie, doc->key, doc->keylen, &offset);
+		btreeblk_end(handle->bhandle);
+	}
+
+	if (wr == WAL_RESULT_SUCCESS || hr == HBTRIE_RESULT_SUCCESS) {
+		_doc.key = doc->key;
+		_doc.length.keylen = doc->keylen;
+		_doc.meta = _doc.body = NULL;
+		*body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
 
 		if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
 		

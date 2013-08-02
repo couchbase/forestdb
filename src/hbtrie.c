@@ -198,6 +198,7 @@ struct btreelist_item {
 
 struct btreeit_item {
 	struct btree_iterator btree_it;
+	int chunkno;
 	struct list_elem le;
 };
 
@@ -261,7 +262,10 @@ hbtrie_result _hbtrie_next(
 		btree_init_from_bid(
 			&btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
 			trie->btree_nodesize, trie->root_bid);
+
 		item = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
+		item->chunkno = 0;
+		
 		br = btree_iterator_init(&btree, &item->btree_it, chunk);
 		if (br == BTREE_RESULT_FAIL) return HBTRIE_RESULT_FAIL;
 
@@ -295,16 +299,18 @@ hbtrie_result _hbtrie_next(
 		btree_init_from_bid(
 			&btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
 			trie->btree_nodesize, bid);
-		item_new = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
-
+		
 		// get sub b-tree's chunk number
 		bmeta.data = (void *)mempool_alloc(trie->btree_nodesize);
 		bmeta.size = btree_read_meta(&btree, bmeta.data);
 		_hbtrie_fetch_meta(trie, bmeta.size, &hbmeta, bmeta.data);
 		mempool_free(bmeta.data);
 		
-		if ( (hbmeta.chunkno+1)*trie->chunksize <= it->keylen ) {
-			chunk = it->curkey + hbmeta.chunkno*trie->chunksize;
+		item_new = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
+		item_new->chunkno = hbmeta.chunkno;
+
+		if ( (item_new->chunkno+1)*trie->chunksize <= it->keylen ) {
+			chunk = it->curkey + item_new->chunkno*trie->chunksize;
 		}else{
 			// chunk number of the b-tree is longer than current iterator's key
 			// set smallest key
@@ -322,7 +328,8 @@ hbtrie_result _hbtrie_next(
 		// read entire key and return the doc offset
 		offset = trie->btree_kv_ops->value2bid(v);
 		*keylen = trie->readkey(trie->doc_handle, offset, key_buf);
-		memcpy(it->curkey, key_buf, *keylen);
+		memcpy(it->curkey + item->chunkno*trie->chunksize, 
+			key_buf + item->chunkno*trie->chunksize, trie->chunksize);
 		memcpy(value_buf, &offset, trie->valuelen);
 
 		return HBTRIE_RESULT_SUCCESS;

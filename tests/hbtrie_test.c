@@ -184,7 +184,7 @@ void large_test()
 	hbtrie_result r;
 
 	int i, j, k, n=1000000, m=1, rr;
-	size_t keylen = 16;
+	size_t keylen = 8;
 	char **key;
 	uint64_t *offset;
 	uint64_t _offset;
@@ -269,9 +269,9 @@ void large_test()
 		TEST_CHK(r == HBTRIE_RESULT_SUCCESS);
 
 		if (r == HBTRIE_RESULT_SUCCESS) {
-			/*
 			memcpy(&_offset, valuebuf, 8);
 			docio_read_doc(&dhandle, _offset, &doc);
+			/*
 			sprintf(meta, "me");
 			sprintf(body, "body2_%3d", i);
 			TEST_CHK(!memcmp(doc.key, key[i], doc.length.keylen));
@@ -282,18 +282,22 @@ void large_test()
 	}
 	TEST_TIME();
 
-	DBG("trie root bid %"_F64"\n", trie.root_bid);	
-
+	DBG("hbtrie iterator ..\n");
 	struct hbtrie_iterator it;
 	hbtrie_iterator_init(&trie, &it, NULL, 0);
-	for (i=0;i<3;++i){
+	for (i=0;i<n;++i){
 		r = hbtrie_next(&it, keybuf, &keylen, &_offset);
 		btreeblk_end(&bhandle);
 		docio_read_doc(&dhandle, _offset, &doc);
+		/*
 		keybuf[keylen] = 0;
-		DBG("%s\n", keybuf);
+		DBG("%s\n", keybuf);*/
 	}
 	hbtrie_iterator_free(&it);
+
+	TEST_TIME();
+	
+	DBG("trie root bid %"_F64"\n", trie.root_bid);	
 
 	filemgr_close(file);
 	filemgr_free();

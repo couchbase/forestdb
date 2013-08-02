@@ -14,7 +14,7 @@
 	#define DBGCMD(command...)
 #endif
 
-#define __DEBUG_MEMPOOL
+//#define __DEBUG_MEMPOOL
 #ifdef __DEBUG
 #ifndef __DEBUG_MEMPOOL
 	#undef DBG
@@ -196,7 +196,7 @@ void * mempool_alloc(size_t size)
 	}else{
 		item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + b->size);
 		//ret = posix_memalign((void **)&item, l1cache_linesize, sizeof(struct mempool_item) + b->size);
-		item->listset = &b->listset[idx];		
+		item->listset = &b->listset[idx];
 	}
 		
 	return (void *)((uint8_t *)item + sizeof(struct mempool_item));

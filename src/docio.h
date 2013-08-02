@@ -34,6 +34,7 @@ void docio_init(struct docio_handle *handle, struct filemgr *file);
 INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf);
 bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc);
 void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *keylen, void *keybuf);
+uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, struct docio_object *doc);
 void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_object *doc);
 
 #endif

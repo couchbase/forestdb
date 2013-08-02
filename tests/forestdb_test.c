@@ -192,21 +192,34 @@ void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
 		fdb_doc_create(&rdoc[i], doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
 		status = fdb_get(&db, rdoc[i]);
 		TEST_CHK(status == FDB_RESULT_SUCCESS);
+		free(rdoc[i]->meta);
+		free(rdoc[i]->body);
+		free(rdoc[i]);
+		fdb_doc_free(doc[i]);
 	}
 	TEST_TIME();
 
+/*
 	DBG("verifying\n");
 	for (i=0;i<n;++i){
 		TEST_CHK(!memcmp(rdoc[i]->meta, doc[i]->meta, rdoc[i]->metalen));
 		TEST_CHK(!memcmp(rdoc[i]->body, doc[i]->body, rdoc[i]->bodylen));		
-		fdb_doc_free(rdoc[i]);
+		free(rdoc[i]->meta);
+		free(rdoc[i]->body);
+		free(rdoc[i]);
+		fdb_doc_free(doc[i]);
 	}
 	TEST_TIME();
+*/
 
 	DBG("compaction\n");
 	fdb_compact(&db, "./dummy2");
 	TEST_TIME();
 
+	DBG("compaction\n");
+	fdb_compact(&db, "./dummy3");
+	TEST_TIME();
+	
 	DBG("close\n");
 	fdb_close(&db);
 	TEST_TIME();
