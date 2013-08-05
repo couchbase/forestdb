@@ -398,7 +398,7 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
 		it->node[depth] = _fetch_bnode(addr_cpy);
 	}
 	node = it->node[depth];
-	assert(node->level == depth+1);
+	//assert(node->level == depth+1);
 
 	if (node->nentry <= 0) return BTREE_RESULT_FAIL;
 	

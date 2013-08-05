@@ -32,7 +32,8 @@ void basic_test()
 	
 	int i, n=10, r;
 	char keybuf[256], metabuf[256], bodybuf[256], temp[256];
-	
+
+	memset(&config, 0, sizeof(fdb_config));
 	config.chunksize = sizeof(uint64_t);
 	config.offsetsize = sizeof(uint64_t);
 	config.buffercache_size = 1 * 1024 * 1024;
@@ -131,7 +132,8 @@ void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
 	
 	int i, n=ndocs, r;
 	char keybuf[keylen+1], metabuf[metalen+1], bodybuf[bodylen+1], temp[256];
-	
+
+	memset(&config, 0, sizeof(fdb_config));
 	config.chunksize = sizeof(uint64_t);
 	config.offsetsize = sizeof(uint64_t);
 	config.buffercache_size = 1024 * 1024 * 1024;
@@ -192,14 +194,14 @@ void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
 		fdb_doc_create(&rdoc[i], doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
 		status = fdb_get(&db, rdoc[i]);
 		TEST_CHK(status == FDB_RESULT_SUCCESS);
+		/*
 		free(rdoc[i]->meta);
 		free(rdoc[i]->body);
 		free(rdoc[i]);
-		fdb_doc_free(doc[i]);
+		fdb_doc_free(doc[i]);*/
 	}
 	TEST_TIME();
 
-/*
 	DBG("verifying\n");
 	for (i=0;i<n;++i){
 		TEST_CHK(!memcmp(rdoc[i]->meta, doc[i]->meta, rdoc[i]->metalen));
@@ -210,16 +212,15 @@ void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
 		fdb_doc_free(doc[i]);
 	}
 	TEST_TIME();
-*/
 
 	DBG("compaction\n");
 	fdb_compact(&db, "./dummy2");
 	TEST_TIME();
-
+/*
 	DBG("compaction\n");
 	fdb_compact(&db, "./dummy3");
 	TEST_TIME();
-	
+	*/
 	DBG("close\n");
 	fdb_close(&db);
 	TEST_TIME();

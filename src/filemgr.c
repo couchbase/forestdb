@@ -110,11 +110,14 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct fi
 	if (e) {
 		// already opened
 		file = _get_entry(e, struct filemgr, e);
+		file->ref_count++;
+		
 		DBG("already opened %s\n", file->filename);
 	}else{
 		// open
 		file = (struct filemgr*)malloc(sizeof(struct filemgr));
 		file->filename_len = strlen(filename);
+		file->ref_count = 1;
 		file->filename = (char*)malloc(file->filename_len + 1);
 		file->wal = (struct wal *)malloc(sizeof(struct wal));
 		strcpy(file->filename, filename);
@@ -170,11 +173,14 @@ void filemgr_close(struct filemgr *file)
 	}
 
 	file->ops->close(file->fd);
-	hash_remove(&hash, &file->e);
-	hash_free(&file->wal->hash);
-	free(file->wal);
-	free(file->filename);
-	free(file);
+
+	if (--(file->ref_count) == 0) {
+		hash_remove(&hash, &file->e);
+		hash_free(&file->wal->hash_bykey);
+		free(file->wal);
+		free(file->filename);
+		free(file);
+	}
 }
 
 void _filemgr_free_func(struct hash_elem *h)

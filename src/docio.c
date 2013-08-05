@@ -9,8 +9,6 @@
 
 #include "docio.h"
 
-#define DOCIO_BLOCK_ALIGN
-
 void docio_init(struct docio_handle *handle, struct filemgr *file)
 {
 	handle->file = file;

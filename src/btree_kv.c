@@ -79,12 +79,14 @@ INLINE int _cmp_uint32_t(void *key1, void *key2)
 
 INLINE int _cmp_uint64_t(void *key1, void *key2)
 {
-	uint64_t *a,*b;
-	a = (uint64_t*)key1;
-	b = (uint64_t*)key2;
+	uint64_t a,b;
+	a = *(uint64_t*)key1;
+	b = *(uint64_t*)key2;
+	/*
 	if (*a<*b) return -1;
 	if (*a>*b) return 1;
-	return 0;	
+	return 0;*/
+	return _CMP_U64(a, b);
 }
 
 INLINE int _cmp_char64(void *key1, void *key2)

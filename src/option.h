@@ -3,7 +3,11 @@
 
 #include "mempool.h"
 
+#define __FDB_SEQTREE
+
 #define __MEMORY_ALIGN
+
+#define DOCIO_BLOCK_ALIGN
 
 //#define __O_DIRECT
 

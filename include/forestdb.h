@@ -6,11 +6,21 @@
 #ifndef _JSAHN_FDB_H
 #define _JSAHN_FDB_H
 
+#include <stdint.h>
+
 typedef enum {
 	FDB_RESULT_SUCCESS,
 	FDB_RESULT_FAIL,
 	FDB_RESULT_INVALID_ARGS
 } fdb_status;
+
+typedef uint8_t fdb_seqtree_t;
+enum {
+	FDB_SEQTREE_DO_NOT_USE = 0,
+	FDB_SEQTREE_USE = 1
+};
+
+typedef uint64_t fdb_seqnum_t;
 
 typedef struct {
 	size_t chunksize;
@@ -18,10 +28,11 @@ typedef struct {
 	size_t buffercache_size;
 	size_t wal_threshold;
 	struct filemgr_ops *fileops;
+	fdb_seqtree_t seqtree;
 	unsigned char flag;
 } fdb_config;
 
-typedef struct {
+typedef struct fdb_doc_struct {
 	size_t keylen;
 	size_t metalen;
 	size_t bodylen;
@@ -31,6 +42,7 @@ typedef struct {
 } fdb_doc;
 
 struct hbtrie;
+struct btree;
 struct filemgr;
 struct btreeblk_handle;
 struct docio_handle;
@@ -38,6 +50,7 @@ struct btree_blk_ops;
 
 typedef struct {
 	struct hbtrie *trie;
+	struct btree *seqtree;
 	struct filemgr *file;
 	struct docio_handle *dhandle;
 	struct btreeblk_handle *bhandle;

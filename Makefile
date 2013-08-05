@@ -37,7 +37,7 @@ FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
 	
 FDBTEST = tests/forestdb_test.o
 
-COUCHBENCH = couchstore_api/couchstore_bench.o
+COUCHBENCH = couchstore_api/couchstore_bench.o utils/stopwatch.o utils/iniparser.o
 
 LIBRARY=forestdb
 LIBCOUCHSTORE=couchstore_api/libs/libcouchstore.so
@@ -55,9 +55,10 @@ PROGRAMS = \
 	couchstore_api/couchbench_ori \
 	couchstore_api/couchbench_fdb \
 
-LDFLAGS = -pthread -lsnappy
+LDFLAGS = -pthread -lsnappy -lm
 CFLAGS = \
-	-g -D_GNU_SOURCE -I./include -I./src \
+	-g -D_GNU_SOURCE \
+	-I./include -I./src -I./utils\
 	-D__DEBUG -fPIC \
 	-O3 -fomit-frame-pointer \
 	

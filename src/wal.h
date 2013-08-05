@@ -10,7 +10,6 @@
 #include "hash.h"
 #include "list.h"
 
-
 typedef enum {
 	WAL_ACT_INSERT,
 	WAL_ACT_REMOVE
@@ -25,14 +24,19 @@ typedef void wal_flush_func(void *dbhandle, void *key, int keylen, uint64_t offs
 
 struct wal {
 	size_t size;
-	struct hash hash;
+	struct hash hash_bykey;
+	#ifdef __FDB_SEQTREE
+		struct hash hash_byseq;
+	#endif
 	struct list list;
 };
 
+typedef struct fdb_doc_struct fdb_doc;
+
 wal_result wal_init(struct filemgr *file, int nbucket);
-wal_result wal_insert(struct filemgr *file, void *key, size_t keylen, uint64_t offset);
-wal_result wal_find(struct filemgr *file, void *key, size_t keylen, uint64_t *offset);
-wal_result wal_remove(struct filemgr *file, void *key, size_t keylen);
+wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset);
+wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset);
+wal_result wal_remove(struct filemgr *file, fdb_doc *doc);
 wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func);
 size_t wal_get_size(struct filemgr *file) ;
 

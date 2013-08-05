@@ -105,12 +105,24 @@ INLINE uint32_t _fname_hash(struct hash *hash, struct hash_elem *e)
 
 INLINE int _fname_cmp(struct hash_elem *a, struct hash_elem *b) 
 {
+	size_t len;
 	struct fnamedic_item *aa, *bb;
 	aa = _get_entry(a, struct fnamedic_item, hash_elem);
 	bb = _get_entry(b, struct fnamedic_item, hash_elem);
 
+
+	if (aa->filename_len == bb->filename_len) return memcmp(aa->filename, bb->filename, aa->filename_len);
+	else {
+		len = MIN(aa->filename_len , bb->filename_len);
+		int cmp = memcmp(aa->filename, bb->filename, len);
+		if (cmp != 0) return cmp;
+		else {
+			return (aa->filename_len - bb->filename_len);
+		}
+	}
+/*
 	if (aa->filename_len != bb->filename_len) return ((int)aa->filename_len - (int)bb->filename_len);
-	else return memcmp(aa->filename, bb->filename, aa->filename_len);
+	else return memcmp(aa->filename, bb->filename, aa->filename_len);*/
 }
 
 INLINE uint32_t _bcache_hash(struct hash *hash, struct hash_elem *e)

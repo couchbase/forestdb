@@ -9,6 +9,7 @@
 
 #include "filemgr.h"
 #include "hbtrie.h"
+#include "btree.h"
 #include "docio.h"
 #include "btreeblock.h"
 #include "forestdb.h"
@@ -68,6 +69,19 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 	}
 	hbtrie_init(handle->trie, config.chunksize, config.offsetsize, handle->file->blocksize, trie_root_bid, 
 		handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
+
+	#ifdef __FDB_SEQTREE
+	if (handle->config.seqtree == FDB_SEQTREE_USE) {
+		struct btree_kv_ops *kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
+		memcpy(kv_ops, handle->trie->btree_kv_ops, sizeof(struct btree_kv_ops));
+		kv_ops->cmp = _cmp_uint64_t;
+		
+		handle->seqtree = (struct btree*)malloc(sizeof(struct btree));
+		btree_init(handle->seqtree, handle->bhandle, handle->btreeblkops, kv_ops, 
+			handle->trie->btree_nodesize, sizeof(fdb_seqnum_t), handle->trie->valuelen, 
+			0x0, NULL);
+	}
+	#endif
 
 	DBGCMD(
 		gettimeofday(&_b_, NULL);
@@ -147,7 +161,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 
 	if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
 	
-	wr = wal_find(handle->file, doc->key, doc->keylen, &offset);
+	wr = wal_find(handle->file, doc, &offset);
 
 	if (wr == WAL_RESULT_FAIL) {
 		hr = hbtrie_find(handle->trie, doc->key, doc->keylen, &offset);
@@ -183,7 +197,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
 
 	if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
 	
-	wr = wal_find(handle->file, doc->key, doc->keylen, &offset);
+	wr = wal_find(handle->file, doc, &offset);
 
 	if (wr == WAL_RESULT_FAIL) {
 		hr = hbtrie_find(handle->trie, doc->key, doc->keylen, &offset);
@@ -227,10 +241,10 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 
 	if (_doc.body) {
 		offset = docio_append_doc(handle->dhandle, &_doc);
-		wal_insert(handle->file, _doc.key, _doc.length.keylen, offset);
+		wal_insert(handle->file, doc, offset);
 	}else{
 		//remove
-		wal_remove(handle->file, _doc.key, _doc.length.keylen);
+		wal_remove(handle->file, doc);
 	}
 
 	#ifdef __WAL_FLUSH_BEFORE_COMMIT
@@ -345,6 +359,12 @@ fdb_status fdb_close(fdb_handle *handle)
 	_fdb_set_file_header(handle);
 	filemgr_close(handle->file);
 	free(handle->trie);
+	#ifdef __FDB_SEQTREE
+	if (handle->config.seqtree == FDB_SEQTREE_USE) {
+		free(handle->seqtree->kv_ops);
+		free(handle->seqtree);
+	}
+	#endif
 	free(handle->bhandle);
 	free(handle->dhandle);
 	return FDB_RESULT_SUCCESS;

@@ -16,6 +16,8 @@
 #include "hash_functions.h"
 #include "hbtrie.h"
 
+#include "forestdb.h"
+
 #ifdef __DEBUG
 #ifndef __DEBUG_WAL
 	#undef DBG
@@ -25,60 +27,107 @@
 #endif
 #endif
 
+#ifdef __FDB_SEQTREE
+	#define SEQTREE(args...) args
+#else
+	#define SEQTREE(args...)
+#endif
+
 struct wal_item{
 	void *key;
-	wal_item_action action;
 	keylen_t keylen;
+	wal_item_action action;
 	uint64_t offset;
-	struct hash_elem hash_elem;
+	struct hash_elem he_key;
+	#ifdef __FDB_SEQTREE
+		fdb_seqnum_t seqnum;
+		struct hash_elem he_seq;
+	#endif
 	struct list_elem list_elem;
 };
 
-INLINE uint32_t _wal_hash(struct hash *hash, struct hash_elem *e)
+INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
-	struct wal_item *item = _get_entry(e, struct wal_item, hash_elem);
+	struct wal_item *item = _get_entry(e, struct wal_item, he_key);
 	return hash_djb2(item->key, MIN(8, item->keylen)) & ((uint64_t)hash->nbuckets - 1);
 }
 
-INLINE int _wal_cmp(struct hash_elem *a, struct hash_elem *b)
+INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
 {
 	keylen_t minkeylen;
 	struct wal_item *aa, *bb;
-	aa = _get_entry(a, struct wal_item, hash_elem);
-	bb = _get_entry(b, struct wal_item, hash_elem);
+	aa = _get_entry(a, struct wal_item, he_key);
+	bb = _get_entry(b, struct wal_item, he_key);
 
 	if (aa->keylen != bb->keylen) return ((int)aa->keylen - (int)bb->keylen);
 	return memcmp(aa->key, bb->key, aa->keylen);
 }
 
+#ifdef __FDB_SEQTREE
+
+INLINE uint32_t _wal_hash_byseq(struct hash *hash, struct hash_elem *e)
+{
+	struct wal_item *item = _get_entry(e, struct wal_item, he_seq);
+	return (item->seqnum) & ((uint64_t)hash->nbuckets - 1);
+}
+
+INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
+{
+	keylen_t minkeylen;
+	struct wal_item *aa, *bb;
+	aa = _get_entry(a, struct wal_item, he_seq);
+	bb = _get_entry(b, struct wal_item, he_seq);
+
+	return _CMP_U64(aa->seqnum, bb->seqnum);
+}
+
+#endif
+
 wal_result wal_init(struct filemgr *file, int nbucket)
 {
 	file->wal->size = 0;
-	hash_init(&file->wal->hash, nbucket, _wal_hash, _wal_cmp);
+
+	hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
+	SEQTREE( hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq) );	
+
 	list_init(&file->wal->list);
 
 	DBG("wal item size %d\n", (int)sizeof(struct wal_item));
-	
 	return WAL_RESULT_SUCCESS;
 }
 
-wal_result wal_insert(struct filemgr *file, void *key, size_t keylen, uint64_t offset)
+wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
 {
 	struct wal_item *item;
 	struct wal_item query;
 	struct hash_elem *e;
+	void *key = doc->key;
+	size_t keylen = doc->keylen;
+
 	query.key = key;
 	query.keylen = keylen;
-	e = hash_find(&file->wal->hash, &query.hash_elem);
+	SEQTREE( memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t)) );
+
+	#ifdef __FDB_SEQTREE
+		e = hash_find(&file->wal->hash_byseq, &query.he_seq);
+	#else
+		e = hash_find(&file->wal->hash_bykey, &query.he_key);
+	#endif
+
 	if (e) {
-		item = _get_entry(e, struct wal_item, hash_elem);
+		#ifdef __FDB_SEQTREE
+			item = _get_entry(e, struct wal_item, he_seq);
+		#else
+			item = _get_entry(e, struct wal_item, he_key);
+		#endif
+		
 		item->offset = offset;
 		item->action = WAL_ACT_INSERT;
 	}else{
 		item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
 		item->keylen = keylen;
 		
-		//3 KEY should be copyied or just be linked?
+		//3 KEY should be copied or just be linked?
 		#ifdef __WAL_KEY_COPY
 			item->key = (void *)mempool_alloc(item->keylen);
 			memcpy(item->key, key, item->keylen);
@@ -86,53 +135,98 @@ wal_result wal_insert(struct filemgr *file, void *key, size_t keylen, uint64_t o
 			item->key = key;
 		#endif
 
+		SEQTREE( item->seqnum = query.seqnum );
 		item->action = WAL_ACT_INSERT;
 		item->offset = offset;
-		hash_insert(&file->wal->hash, &item->hash_elem);
+
+		hash_insert(&file->wal->hash_bykey, &item->he_key);
+		SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
+			
 		list_push_front(&file->wal->list, &item->list_elem);
 		file->wal->size++;
 	}
+
 	return WAL_RESULT_SUCCESS;
 }
 
-wal_result wal_find(struct filemgr *file, void *key, size_t keylen, uint64_t *offset)
+wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
 {
 	struct wal_item *item;
 	struct wal_item query;
 	struct hash_elem *e;
-	query.key = key;
-	query.keylen = keylen;
-	e = hash_find(&file->wal->hash, &query.hash_elem);
-	if (e) {
-		item = _get_entry(e, struct wal_item, hash_elem);
-		if (item->action == WAL_ACT_INSERT) {
-			*offset = item->offset;
-			return WAL_RESULT_SUCCESS;
+	void *key = doc->key;
+	size_t keylen = doc->keylen;
+
+	SEQTREE( 
+	if (doc->meta == NULL) { )
+		query.key = key;
+		query.keylen = keylen;
+		e = hash_find(&file->wal->hash_bykey, &query.he_key);
+		if (e) {
+			item = _get_entry(e, struct wal_item, he_key);
+			if (item->action == WAL_ACT_INSERT) {
+				*offset = item->offset;
+				return WAL_RESULT_SUCCESS;
+			}
+		}
+	#ifdef __FDB_SEQTREE
+	}else{
+		memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t));
+		e = hash_find(&file->wal->hash_byseq, &query.he_seq);
+		if (e) {
+			item = _get_entry(e, struct wal_item, he_seq);
+			if (item->action == WAL_ACT_INSERT) {
+				*offset = item->offset;
+				return WAL_RESULT_SUCCESS;
+			}
 		}
 	}
+	#endif		
 	return WAL_RESULT_FAIL;	
 }
 
-wal_result wal_remove(struct filemgr *file, void *key, size_t keylen)
+wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
 {
 	struct wal_item *item;
 	struct wal_item query;
 	struct hash_elem *e;
+	void *key = doc->key;
+	size_t keylen = doc->keylen;
+
 	query.key = key;
 	query.keylen = keylen;
-	e = hash_find(&file->wal->hash, &query.hash_elem);
+	SEQTREE( memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t)) );
+
+	#ifdef __FDB_SEQTREE
+		e = hash_find(&file->wal->hash_byseq, &query.he_seq);
+	#else
+		e = hash_find(&file->wal->hash_bykey, &query.he_key);
+	#endif
+	
 	if (e) {
-		item = _get_entry(e, struct wal_item, hash_elem);
+		#ifdef __FDB_SEQTREE
+			item = _get_entry(e, struct wal_item, he_seq);
+		#else
+			item = _get_entry(e, struct wal_item, he_key);
+		#endif
+		
 		if (item->action == WAL_ACT_INSERT) {
 			item->action = WAL_ACT_REMOVE;
 		}
 	}else{
 		item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
 		item->keylen = keylen;
-		item->key = (void *)mempool_alloc(item->keylen);
-		memcpy(item->key, key, item->keylen);
+		#ifdef __WAL_KEY_COPY
+			item->key = (void *)mempool_alloc(item->keylen);
+			memcpy(item->key, key, item->keylen);
+		#else
+			item->key = key;
+		#endif
+	
+		SEQTREE( item->seqnum = query.seqnum );	
 		item->action = WAL_ACT_REMOVE;
-		hash_insert(&file->wal->hash, &item->hash_elem);
+		hash_insert(&file->wal->hash_bykey, &item->he_key);
+		SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
 		list_push_front(&file->wal->list, &item->list_elem);
 		file->wal->size++;		
 	}
@@ -156,7 +250,8 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 	while(e){
 		item = _get_entry(e, struct wal_item, list_elem);
 		e = list_remove(&file->wal->list, e);
-		hash_remove(&file->wal->hash, &item->hash_elem);
+		hash_remove(&file->wal->hash_bykey, &item->he_key);
+		SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
 		func(dbhandle, item->key, item->keylen, item->offset, item->action);
 
 		#ifdef __WAL_KEY_COPY
