@@ -446,6 +446,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
 
         //3 check whether there are skipped prefixes.
         if (curchunkno - prevchunkno > 1) {
+            assert(hbmeta.prefix != NULL);
             // prefix comparison (find the first different chunk)
             int diffchunkno = _hbtrie_find_diff_chunk(trie, hbmeta.prefix,
                                                       key + trie->chunksize * (prevchunkno+1),
