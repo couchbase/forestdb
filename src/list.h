@@ -21,7 +21,7 @@ struct list {
 
 #ifndef _get_entry
 #define _get_entry(ELEM, STRUCT, MEMBER) \
-	((STRUCT *) ((uint8_t *) (ELEM) - offsetof (STRUCT, MEMBER)))
+    ((STRUCT *) ((uint8_t *) (ELEM) - offsetof (STRUCT, MEMBER)))
 #endif
 
 void list_init(struct list *list);

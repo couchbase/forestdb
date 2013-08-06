@@ -38,72 +38,69 @@ INLINE int _get_nchunk(struct hbtrie *trie, void *key, int keylen)
 	return (keylen-1) / trie->chunksize + 1;
 }
 
-int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey, int rawkeylen, void *outkey)
+int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey,
+                       int rawkeylen, void *outkey)
 {
-	int outkeylen;
-	int nchunk;
-	int rsize;
-	int i;
-	uint8_t EOK = HBTRIE_EOK;
+    int outkeylen;
+    int nchunk;
+    int rsize;
+    int i;
+    uint8_t EOK = HBTRIE_EOK;
 
-	nchunk = _get_nchunk_raw(trie, rawkey, rawkeylen);
-	outkeylen = nchunk * trie->chunksize;
+    nchunk = _get_nchunk_raw(trie, rawkey, rawkeylen);
+    outkeylen = nchunk * trie->chunksize;
 
-	for (i=0;i<nchunk;++i){
-		if (i < nchunk-1) {
-			// full chunk
-			memcpy(outkey + i * trie->chunksize, rawkey + i * trie->chunksize, trie->chunksize);
-		}else{
-			// the last(rightmost) chunk
-			memset(outkey + i * trie->chunksize, 0, trie->chunksize);
-			rsize = rawkeylen % trie->chunksize;
-			if (rsize) {
-				memcpy(outkey + i * trie->chunksize, rawkey + i * trie->chunksize, rsize);
-			}			
-			// add EOK mark + last chunk length
-			EOK |= (uint8_t)(rsize);
-			memset(outkey + i * trie->chunksize + rsize, EOK, 1);
-		}		
-	}
+    for (i=0; i<nchunk; ++i) {
+        if (i < nchunk-1) {
+            // full chunk
+            memcpy(outkey + i * trie->chunksize, rawkey + i * trie->chunksize,
+                   trie->chunksize);
+        } else {
+            // the last(rightmost) chunk
+            memset(outkey + i * trie->chunksize, 0, trie->chunksize);
+            rsize = rawkeylen % trie->chunksize;
+            if (rsize) {
+                memcpy(outkey + i * trie->chunksize,
+                       rawkey + i * trie->chunksize, rsize);
+            }
+            // add EOK mark + last chunk length
+            EOK |= (uint8_t)(rsize);
+            memset(outkey + i * trie->chunksize + rsize, EOK, 1);
+        }
+    }
 
-	return outkeylen;
+    return outkeylen;
 }
 
-void hbtrie_init(
-			struct hbtrie *trie, int chunksize, 	int valuelen,	int btree_nodesize, bid_t root_bid, 
-			void *btreeblk_handle, struct btree_blk_ops *btree_blk_ops,
-			void *doc_handle, hbtrie_func_readkey *readkey)
+void hbtrie_init(struct hbtrie *trie, int chunksize, int valuelen,
+                 int btree_nodesize, bid_t root_bid, void *btreeblk_handle,
+                 struct btree_blk_ops *btree_blk_ops, void *doc_handle,
+                 hbtrie_func_readkey *readkey)
 {
-	struct btree_kv_ops *btree_kv_ops;
+    struct btree_kv_ops *btree_kv_ops;
 
-	trie->chunksize = chunksize;
-	trie->valuelen = valuelen;
-	trie->btree_nodesize = btree_nodesize;
-	trie->btree_blk_ops = btree_blk_ops;
-	trie->btreeblk_handle = btreeblk_handle;
-	trie->doc_handle = doc_handle;
-	trie->root_bid = root_bid;
+    trie->chunksize = chunksize;
+    trie->valuelen = valuelen;
+    trie->btree_nodesize = btree_nodesize;
+    trie->btree_blk_ops = btree_blk_ops;
+    trie->btreeblk_handle = btreeblk_handle;
+    trie->doc_handle = doc_handle;
+    trie->root_bid = root_bid;
 
-	// assign key-value operations
-	btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
-	btree_kv_ops->get_kv = _get_kv;
-	btree_kv_ops->set_kv = _set_kv;
-	if (chunksize == 8) {
-		btree_kv_ops->cmp = _cmp_binary64;
-	}else if (chunksize == 4){
-		btree_kv_ops->cmp = _cmp_binary32;
-	}else{
-		assert(0);
-	}
-	if (valuelen == 8) {
-		btree_kv_ops->bid2value = _bid_to_value_64;
-		btree_kv_ops->value2bid = _value_to_bid_64;
-	}else{
-		assert(0);
-	}
-	trie->btree_kv_ops = btree_kv_ops;
+    // assign key-value operations
+    btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
+    btree_kv_ops->get_kv = _get_kv;
+    btree_kv_ops->set_kv = _set_kv;
 
-	trie->readkey = readkey;
+    assert(chunksize == 4 || chunksize == 8);
+    btree_kv_ops->cmp = chunksize == 8 ? _cmp_binary64 : _cmp_binary32;
+
+    assert(valuelen == 8);
+    btree_kv_ops->bid2value = _bid_to_value_64;
+    btree_kv_ops->value2bid = _value_to_bid_64;
+    trie->btree_kv_ops = btree_kv_ops;
+
+    trie->readkey = readkey;
 }
 
 void hbtrie_free(struct hbtrie *trie)
@@ -112,31 +109,32 @@ void hbtrie_free(struct hbtrie *trie)
 }
 
 //2 IMPORTANT: hbmeta doesn't have own allocated memory space (pointers only)
-void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize, struct hbtrie_meta *hbmeta, void *buf)
+void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize,
+                        struct hbtrie_meta *hbmeta, void *buf)
 {
-	// read hbmeta from buf
-	int offset = 0;
-	uint32_t valuelen = 0;
-	
-	memcpy(&hbmeta->chunkno, buf, sizeof(hbmeta->chunkno));
-	offset += sizeof(hbmeta->chunkno);
+    // read hbmeta from buf
+    int offset = 0;
+    uint32_t valuelen = 0;
 
-	memcpy(&valuelen, buf+offset, sizeof(trie->valuelen));
-	offset += sizeof(trie->valuelen);
+    memcpy(&hbmeta->chunkno, buf, sizeof(hbmeta->chunkno));
+    offset += sizeof(hbmeta->chunkno);
 
-	if (valuelen > 0) {
-		hbmeta->value = buf+offset;
-		offset += trie->valuelen;
-	}else{
-		hbmeta->value = NULL;
-	}
-	
-	if (metasize - offset > 0) {
-		//memcpy(hbmeta->prefix, buf+offset, metasize - offset);
-		hbmeta->prefix = buf+offset;
-	}else{
-		hbmeta->prefix = NULL;
-	}
+    memcpy(&valuelen, buf+offset, sizeof(trie->valuelen));
+    offset += sizeof(trie->valuelen);
+
+    if (valuelen > 0) {
+        hbmeta->value = buf+offset;
+        offset += trie->valuelen;
+    } else {
+        hbmeta->value = NULL;
+    }
+
+    if (metasize - offset > 0) {
+        //memcpy(hbmeta->prefix, buf+offset, metasize - offset);
+        hbmeta->prefix = buf+offset;
+    } else {
+        hbmeta->prefix = NULL;
+    }
 }
 
 void _hbtrie_store_meta(
@@ -166,11 +164,13 @@ void _hbtrie_store_meta(
 
 INLINE int _hbtrie_find_diff_chunk(struct hbtrie *trie, void *key1, void *key2, int nchunk)
 {
-	int i;
-	for (i=0;i<nchunk;++i){
-		if (strncmp(key1 + trie->chunksize*i , key2 + trie->chunksize*i , trie->chunksize)) return i;
-	}
-	return i;
+    int i = 0;
+    for (; i < nchunk; ++i) {
+        if (strncmp(key1 + trie->chunksize*i , key2 + trie->chunksize*i , trie->chunksize)) {
+             return i;
+        }
+    }
+    return i;
 }
 
 //3 little endian
@@ -390,139 +390,140 @@ void _hbtrie_btree_cascaded_update(struct hbtrie *trie, struct list *btreelist, 
 	}
 }
 
-hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen, void *valuebuf, struct list *btreelist)
+hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
+                           void *valuebuf, struct list *btreelist)
 {
-	int nchunk;
-	//int keylen;
-	int prevchunkno, curchunkno;
+    int nchunk;
+    //int keylen;
+    int prevchunkno, curchunkno;
 
-	struct btree *btree, btree_static;
-	btree_result r;
+    struct btree *btree = NULL;
+    struct btree btree_static;
+    btree_result r;
 
-	metasize_t metasize;
-	struct hbtrie_meta hbmeta;
-	struct btree_meta meta;
-	struct btreelist_item *btreeitem;
+    metasize_t metasize;
+    struct hbtrie_meta hbmeta;
+    struct btree_meta meta;
+    struct btreelist_item *btreeitem = NULL;
 
-	nchunk = _get_nchunk(trie, key, keylen);
+    nchunk = _get_nchunk(trie, key, keylen);
 
-	uint8_t buf[trie->btree_nodesize], btree_value[trie->valuelen];
-	void *chunk;
-	bid_t bid_new;
+    uint8_t buf[trie->btree_nodesize], btree_value[trie->valuelen];
+    void *chunk = NULL;
+    bid_t bid_new;
 
-	meta.data = buf;
-	prevchunkno = curchunkno = 0;
+    meta.data = buf;
+    prevchunkno = curchunkno = 0;
 
-	if (btreelist) {
-		list_init(btreelist);
-		btreeitem = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
-		list_push_back(btreelist, &btreeitem->e);
-		btree = &btreeitem->btree;
-	}else{
-		btree = &btree_static;
-	}
+    if (btreelist) {
+        list_init(btreelist);
+        btreeitem = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
+        list_push_back(btreelist, &btreeitem->e);
+        btree = &btreeitem->btree;
+    } else {
+        btree = &btree_static;
+    }
 
-	if (trie->root_bid == BLK_NOT_FOUND) {
-		// retrieval fail
-		return HBTRIE_RESULT_FAIL;
-		
-	}else{
-		// read from root_bid
-		r = btree_init_from_bid(
-			btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops, 
-			trie->btree_nodesize, trie->root_bid);
-	}
-	
-	while(curchunkno < nchunk){
-		// get current chunk number
-		meta.size = btree_read_meta(btree, meta.data);
-		_hbtrie_fetch_meta(trie, meta.size, &hbmeta, meta.data);
-		prevchunkno = curchunkno;
-		curchunkno = hbmeta.chunkno;
-		if (btreelist) btreeitem->chunkno = curchunkno;
+    if (trie->root_bid == BLK_NOT_FOUND) {
+        // retrieval fail
+        return HBTRIE_RESULT_FAIL;
+    } else {
+        // read from root_bid
+        r = btree_init_from_bid(btree, trie->btreeblk_handle, trie->btree_blk_ops,
+                                trie->btree_kv_ops, trie->btree_nodesize,
+                                trie->root_bid);
+    }
 
-		//3 check whether there is skipped prefix
-		if (curchunkno - prevchunkno > 1) {
-			// prefix comparison (find the first different chunk)
-			int diffchunkno = _hbtrie_find_diff_chunk(
-				trie, hbmeta.prefix, key + trie->chunksize * (prevchunkno+1), curchunkno - (prevchunkno+1));
-			if (diffchunkno < curchunkno - (prevchunkno+1)) {
-				// prefix does not match -> retrieval fail
-				return HBTRIE_RESULT_FAIL;
-			}
-		}
+    while (curchunkno < nchunk) {
+        // get current chunk number
+        meta.size = btree_read_meta(btree, meta.data);
+        _hbtrie_fetch_meta(trie, meta.size, &hbmeta, meta.data);
+        prevchunkno = curchunkno;
+        curchunkno = hbmeta.chunkno;
+        if (btreelist) {
+            btreeitem->chunkno = curchunkno;
+        }
 
-		//3 search b-tree using current chunk
-		chunk = key + curchunkno*trie->chunksize;
-		r = btree_find(btree, chunk, btree_value);
+        //3 check whether there are skipped prefixes.
+        if (curchunkno - prevchunkno > 1) {
+            // prefix comparison (find the first different chunk)
+            int diffchunkno = _hbtrie_find_diff_chunk(trie, hbmeta.prefix,
+                                                      key + trie->chunksize * (prevchunkno+1),
+                                                      curchunkno - (prevchunkno+1));
+            if (diffchunkno < curchunkno - (prevchunkno+1)) {
+                // prefix does not match -> retrieval fail
+                return HBTRIE_RESULT_FAIL;
+            }
+        }
 
-		if (r == BTREE_RESULT_FAIL) {
-			// retrieval fail
-			return HBTRIE_RESULT_FAIL;
-			
-		}else{
-			// same chunk exists -> check whether the value points to sub-tree or document
-			// check MSB
-			if (_hbtrie_is_msb_set(trie, btree_value)) {
-				// this is BID of b-tree node (by clearing MSB)
-				_hbtrie_clear_msb(trie, btree_value);
-				bid_new = trie->btree_kv_ops->value2bid(btree_value);
+        //3 search b-tree using current chunk
+	chunk = key + curchunkno * trie->chunksize;
+        r = btree_find(btree, chunk, btree_value);
 
-				if (btreelist) {
-					btreeitem->child_rootbid = bid_new;
-					btreeitem = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
-					list_push_back(btreelist, &btreeitem->e);
-					btree = &btreeitem->btree;
-				}
-				
-				// fetch sub-tree
-				r = btree_init_from_bid(
-					btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops, 
-					trie->btree_nodesize, bid_new);
+        if (r == BTREE_RESULT_FAIL) {
+            // retrieval fail
+            return HBTRIE_RESULT_FAIL;
+        } else {
+            // same chunk exists -> check whether the value points to sub-tree or document
+            // check MSB
+            if (_hbtrie_is_msb_set(trie, btree_value)) {
+                // this is BID of b-tree node (by clearing MSB)
+                _hbtrie_clear_msb(trie, btree_value);
+                bid_new = trie->btree_kv_ops->value2bid(btree_value);
 
-			}else{
-				// this is offset of document (as it is)
+                if (btreelist) {
+                    btreeitem->child_rootbid = bid_new;
+                    btreeitem = (struct btreelist_item *)
+                                mempool_alloc(sizeof(struct btreelist_item));
+                    list_push_back(btreelist, &btreeitem->e);
+                    btree = &btreeitem->btree;
+                }
 
-				// read entire key
-				uint8_t docrawkey[HBTRIE_MAX_KEYLEN], dockey[HBTRIE_MAX_KEYLEN];
-				uint32_t docrawkeylen, dockeylen;
-				uint64_t offset;
-				int docnchunk, minchunkno, diffchunkno;
+                // fetch sub-tree
+                r = btree_init_from_bid(btree, trie->btreeblk_handle, trie->btree_blk_ops,
+                                        trie->btree_kv_ops, trie->btree_nodesize, bid_new);
+            } else {
+                // this is offset of document (as it is)
+                // read entire key
+                uint8_t docrawkey[HBTRIE_MAX_KEYLEN], dockey[HBTRIE_MAX_KEYLEN];
+                uint32_t docrawkeylen, dockeylen;
+                uint64_t offset;
+                int docnchunk, minchunkno, diffchunkno;
 
-				// get offset value from btree_value
-				offset = trie->btree_kv_ops->value2bid(btree_value);
-				// read entire key
-				docrawkeylen = trie->readkey(trie->doc_handle, offset, docrawkey);
-				dockeylen = _hbtrie_reform_key(trie, docrawkey, docrawkeylen, dockey);
-				
-				// find first different chunk
-				docnchunk = _get_nchunk(trie, dockey, dockeylen);
+                // get offset value from btree_value
+                offset = trie->btree_kv_ops->value2bid(btree_value);
+                // read entire key
+                docrawkeylen = trie->readkey(trie->doc_handle, offset, docrawkey);
+                dockeylen = _hbtrie_reform_key(trie, docrawkey, docrawkeylen, dockey);
 
-				if (docnchunk == nchunk) {
-					diffchunkno = _hbtrie_find_diff_chunk(trie, key, dockey, nchunk);
-					if (diffchunkno == nchunk) {
-						// success
-						memcpy(valuebuf, btree_value, trie->valuelen);
-						
-						return HBTRIE_RESULT_SUCCESS;	
-					}
-				}
-				return HBTRIE_RESULT_FAIL;
-			}
-		}	
-	}	
-	return HBTRIE_RESULT_FAIL;
+                // find first different chunk
+                docnchunk = _get_nchunk(trie, dockey, dockeylen);
+
+                if (docnchunk == nchunk) {
+                    diffchunkno = _hbtrie_find_diff_chunk(trie, key, dockey, nchunk);
+                    if (diffchunkno == nchunk) {
+                        // success
+                        memcpy(valuebuf, btree_value, trie->valuelen);
+                        return HBTRIE_RESULT_SUCCESS;
+                    }
+                }
+                return HBTRIE_RESULT_FAIL;
+            }
+        }
+    }
+ 
+    return HBTRIE_RESULT_FAIL;
 }
 
-hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey, int rawkeylen, void *valuebuf)
+hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey,
+                          int rawkeylen, void *valuebuf)
 {
-	int nchunk = _get_nchunk_raw(trie, rawkey, rawkeylen);
-	uint8_t key[nchunk * trie->chunksize];
-	int keylen;
+    int nchunk = _get_nchunk_raw(trie, rawkey, rawkeylen);
+    uint8_t key[nchunk * trie->chunksize];
+    int keylen;
 
-	keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
-	
-	return _hbtrie_find(trie, key, keylen, valuebuf, NULL);
+    keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
+    return _hbtrie_find(trie, key, keylen, valuebuf, NULL);
 }
 
 hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen)

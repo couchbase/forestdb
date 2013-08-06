@@ -11,9 +11,9 @@
 
 void docio_init(struct docio_handle *handle, struct filemgr *file)
 {
-	handle->file = file;
-	handle->curblock = BLK_NOT_FOUND;
-	handle->curpos = 0;
+    handle->file = file;
+    handle->curblock = BLK_NOT_FOUND;
+    handle->curpos = 0;
 }
 
 INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)

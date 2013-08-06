@@ -79,71 +79,77 @@ void filemgr_init(struct filemgr_config config)
 
 void _filemgr_read_header(struct filemgr *file)
 {
-	uint32_t magic;
-	uint16_t len;
-	file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic));
-	if (magic == FILEMGR_MAGIC) {
-		file->ops->pread(file->fd, &len, sizeof(len), file->pos - sizeof(magic) - sizeof(len));
-		file->header.data = (void *)malloc(len);
-		file->ops->pread(file->fd, file->header.data, len, file->pos - len - sizeof(magic) - sizeof(len));
-		file->header.size = len;
+    uint32_t magic;
+    uint16_t len;
+    file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic));
+    if (magic == FILEMGR_MAGIC) {
+        file->ops->pread(file->fd, &len, sizeof(len),
+                         file->pos - sizeof(magic) - sizeof(len));
+        file->header.data = (void *)malloc(len);
+        file->ops->pread(file->fd, file->header.data, len,
+                         file->pos - len - sizeof(magic) - sizeof(len));
+        file->header.size = len;
 
-		file->pos -= len + sizeof(magic) + sizeof(len);
-		file->last_commit = file->pos;
-	}
+        file->pos -= len + sizeof(magic) + sizeof(len);
+        file->last_commit = file->pos;
+    } else {
+        file->header.size = 0;
+        file->header.data = NULL;
+    }
 }
 
-struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct filemgr_config config)
+struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
+                              struct filemgr_config config)
 {
-	struct filemgr *file, query;
-	struct hash_elem *e;
-	
-	// global initialization
-	// initialized only once at first time
-	if (!filemgr_initialized)
-		filemgr_init(config);
+    struct filemgr *file = NULL;
+    struct filemgr query;
+    struct hash_elem *e = NULL;
 
-	// check whether file is already opened or not
-	query.filename = filename;
-	e = hash_find(&hash, &query.e);
+    // global initialization
+    // initialized only once at first time
+    if (!filemgr_initialized) {
+        filemgr_init(config);
+    }
 
-	if (e) {
-		// already opened
-		file = _get_entry(e, struct filemgr, e);
-		file->ref_count++;
-		
-		DBG("already opened %s\n", file->filename);
-	}else{
-		// open
-		file = (struct filemgr*)malloc(sizeof(struct filemgr));
-		file->filename_len = strlen(filename);
-		file->ref_count = 1;
-		file->filename = (char*)malloc(file->filename_len + 1);
-		file->wal = (struct wal *)malloc(sizeof(struct wal));
-		strcpy(file->filename, filename);
-		file->ops = ops;
-		#ifdef __O_DIRECT
-			file->fd = file->ops->open(
-				file->filename, O_RDWR | O_CREAT | O_DIRECT | config.flag, 0666);
-		#else
-			file->fd = file->ops->open(
-				file->filename, O_RDWR | O_CREAT | config.flag, 0666);
-		#endif
-		file->blocksize = global_config.blocksize;
-		file->pos = file->last_commit = file->ops->goto_eof(file->fd);
-		if (file->pos % file->blocksize != 0) {
-			// read header
-			_filemgr_read_header(file);
-		}else{
-			file->header.size = 0;
-			file->header.data = NULL;
-		}
-		file->lock = SPIN_INITIALIZER;
-		
-		hash_insert(&hash, &file->e);
-	}
+    // check whether file is already opened or not
+    query.filename = filename;
+    e = hash_find(&hash, &query.e);
 
-	return file;
+    if (e) {
+        // already opened
+        file = _get_entry(e, struct filemgr, e);
+        file->ref_count++;
+        DBG("already opened %s\n", file->filename);
+    } else {
+        // open
+        file = (struct filemgr*)malloc(sizeof(struct filemgr));
+        file->filename_len = strlen(filename);
+        file->ref_count = 1;
+        file->filename = (char*)malloc(file->filename_len + 1);
+        file->wal = (struct wal *)malloc(sizeof(struct wal));
+        strcpy(file->filename, filename);
+        file->ops = ops;
+#ifdef __O_DIRECT
+	file->fd = file->ops->open(file->filename,
+                                   O_RDWR | O_CREAT | O_DIRECT | config.flag, 0666);
+#else
+        file->fd = file->ops->open(file->filename,
+                                   O_RDWR | O_CREAT | config.flag, 0666);
+#endif
+        file->blocksize = global_config.blocksize;
+        file->pos = file->last_commit = file->ops->goto_eof(file->fd);
+        if (file->pos % file->blocksize != 0) {
+            // read header
+            _filemgr_read_header(file);
+        } else {
+             file->header.size = 0;
+             file->header.data = NULL;
+        }
+        file->lock = SPIN_INITIALIZER;
+        hash_insert(&hash, &file->e);
+    }
+
+    return file;
 }
 
 void filemgr_update_header(struct filemgr *file, void *buf, size_t len)
@@ -227,18 +233,18 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin, bid_
 
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 {
-	uint64_t pos = bid * file->blocksize;
-	assert(pos < file->pos);
+    uint64_t pos = bid * file->blocksize;
+    assert(pos < file->pos);
 
-	if (global_config.ncacheblock > 0) {
-		int r = 	bcache_read(file, bid, buf);
-		if (r == 0) 	{
-			file->ops->pread(file->fd, buf, file->blocksize, pos);
-			bcache_write(file, bid, buf, BCACHE_CLEAN);
-		}
-	}else{	
-		file->ops->pread(file->fd, buf, file->blocksize, pos);
-	}
+    if (global_config.ncacheblock > 0) {
+        int r =	bcache_read(file, bid, buf);
+        if (r == 0) {
+            file->ops->pread(file->fd, buf, file->blocksize, pos);
+            bcache_write(file, bid, buf, BCACHE_CLEAN);
+        }
+    } else {
+        file->ops->pread(file->fd, buf, file->blocksize, pos);
+    }
 }
 
 void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint64_t len, void *buf)

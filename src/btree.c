@@ -23,17 +23,17 @@
 
 INLINE struct bnode *_fetch_bnode(void *addr)
 {
-	struct bnode *node = (struct bnode *)addr;
-	if (!(node->flag & BNODE_MASK_METADATA)) {
-		// no metadata
-		node->data = addr + sizeof(struct bnode);
-	}else{
-		// metadata
-		metasize_t metasize;
-		memcpy(&metasize, addr + sizeof(struct bnode), sizeof(metasize_t));
-		node->data = addr + sizeof(struct bnode) + sizeof(metasize_t) + metasize;
-	}
-	return node;
+    struct bnode *node = (struct bnode *)addr;
+    if (!(node->flag & BNODE_MASK_METADATA)) {
+        // no metadata
+        node->data = addr + sizeof(struct bnode);
+    } else {
+        // metadata
+        metasize_t metasize;
+        memcpy(&metasize, addr + sizeof(struct bnode), sizeof(metasize_t));
+        node->data = addr + sizeof(struct bnode) + sizeof(metasize_t) + metasize;
+    }
+    return node;
 }
 
 INLINE int _bnode_size(struct btree *btree, struct bnode *node)
@@ -75,22 +75,22 @@ INLINE struct bnode * _btree_init_node(
 
 metasize_t btree_read_meta(struct btree *btree, void *buf)
 {
-	void *addr;
-	void *ptr;
-	metasize_t size;
-	struct bnode *node;
+    void *addr;
+    void *ptr;
+    metasize_t size;
+    struct bnode *node;
 
-	addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
-	node = _fetch_bnode(addr);
-	if (node->flag & BNODE_MASK_METADATA) {
-		ptr = addr + sizeof(struct bnode);
-		memcpy(&size, ptr, sizeof(metasize_t));
-		memcpy(buf, ptr + sizeof(metasize_t), size);
-	}else{
-		size = 0;
-	}
-	
-	return size;
+    addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
+    node = _fetch_bnode(addr);
+    if (node->flag & BNODE_MASK_METADATA) {
+        ptr = addr + sizeof(struct bnode);
+        memcpy(&size, ptr, sizeof(metasize_t));
+        memcpy(buf, ptr + sizeof(metasize_t), size);
+    } else {
+        size = 0;
+    }
+
+    return size;
 }
 
 void btree_update_meta(struct btree *btree, struct btree_meta *meta)
@@ -152,31 +152,32 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
 	}
 }
 
-btree_result btree_init_from_bid(
-		struct btree *btree, void *blk_handle,
-		struct btree_blk_ops *blk_ops, 	struct btree_kv_ops *kv_ops,
-		uint32_t nodesize, bid_t root_bid)
+btree_result btree_init_from_bid(struct btree *btree, void *blk_handle,
+                                 struct btree_blk_ops *blk_ops,
+                                 struct btree_kv_ops *kv_ops,
+                                 uint32_t nodesize, bid_t root_bid)
 {
-	void *addr;
-	struct bnode *root;
+    void *addr;
+    struct bnode *root;
 
-	btree->blk_ops = blk_ops;
-	btree->blk_handle = blk_handle;
-	btree->kv_ops = kv_ops;
-	btree->blksize = nodesize;
-	btree->root_bid = root_bid;
+    btree->blk_ops = blk_ops;
+    btree->blk_handle = blk_handle;
+    btree->kv_ops = kv_ops;
+    btree->blksize = nodesize;
+    btree->root_bid = root_bid;
 
-	addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
-	root = _fetch_bnode(addr);
-	#ifdef _BNODE_COMP
-		btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, btree->root_bid, _bnode_size(btree, root));
-	#endif
+    addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
+    root = _fetch_bnode(addr);
+#ifdef _BNODE_COMP
+    btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, btree->root_bid,
+                                        _bnode_size(btree, root));
+#endif
 
-	btree->root_flag = root->flag;
-	btree->height = root->level;
-	_get_kvsize(root->kvsize, btree->ksize, btree->vsize);
+    btree->root_flag = root->flag;
+    btree->height = root->level;
+    _get_kvsize(root->kvsize, btree->ksize, btree->vsize);
 
-	return BTREE_RESULT_SUCCESS;
+    return BTREE_RESULT_SUCCESS;
 }
 
 btree_result btree_init(

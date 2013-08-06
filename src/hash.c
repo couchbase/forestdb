@@ -64,39 +64,35 @@ void hash_insert(struct hash *hash, struct hash_elem *e)
 	IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
 }
 
-struct hash_elem * hash_find(struct hash *hash, struct hash_elem *e)
+struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
 {
-	int bucket = hash->hash(hash, e);
-	struct hash_elem *hash_elem;
+    int bucket = ht->hash(ht, e);
+    struct hash_elem *elem = NULL;
 
-	IFDEF_LOCK( spin_lock(hash->locks + bucket) );
+    IFDEF_LOCK( spin_lock(ht->locks + bucket) );
 
-	#ifdef _HASH_RBTREE
-		struct rb_node *rb;
-		rb = rbwrap_search(hash->buckets + bucket, &e->rb_node, _hash_cmp_rbwrap);
-		if (rb) {
-			IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
-			hash_elem = _get_entry(rb, struct hash_elem, rb_node);
-			return hash_elem;
-		}
-	
-	#else
-		struct list_elem *le;
-		le = list_begin(hash->buckets + bucket);
-		while(le) {
-			hash_elem = _get_entry(le, struct hash_elem, list_elem);
-			if (!hash->cmp(e, hash_elem)) {
-				IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
-				
-				return hash_elem;
-			}
-			le = list_next(le);
-		}
-	#endif
-	
-	IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
+#ifdef _HASH_RBTREE
+    struct rb_node *rb;
+    rb = rbwrap_search(ht->buckets + bucket, &e->rb_node, _hash_cmp_rbwrap);
+    if (rb) {
+        IFDEF_LOCK( spin_unlock(ht->locks + bucket) );
+        elem = _get_entry(rb, struct hash_elem, rb_node);
+        return elem;
+    }
+#else
+    struct list_elem *le = list_begin(ht->buckets + bucket);
+    while(le) {
+        elem = _get_entry(le, struct hash_elem, list_elem);
+        if (!ht->cmp(e, elem)) {
+            IFDEF_LOCK( spin_unlock(ht->locks + bucket) );
+            return elem;
+        }
+        le = list_next(le);
+    }
+    #endif
 
-	return NULL;
+    IFDEF_LOCK( spin_unlock(ht->locks + bucket) );
+    return NULL;
 }
 
 struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)

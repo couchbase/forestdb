@@ -85,15 +85,13 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
 wal_result wal_init(struct filemgr *file, int nbucket)
 {
-	file->wal->size = 0;
+    file->wal->size = 0;
+    hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
+    SEQTREE(hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq));
+    list_init(&file->wal->list);
 
-	hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
-	SEQTREE( hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq) );	
-
-	list_init(&file->wal->list);
-
-	DBG("wal item size %d\n", (int)sizeof(struct wal_item));
-	return WAL_RESULT_SUCCESS;
+    DBG("wal item size %d\n", (int)sizeof(struct wal_item));
+    return WAL_RESULT_SUCCESS;
 }
 
 wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
@@ -151,38 +149,48 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
 
 wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
 {
-	struct wal_item *item;
-	struct wal_item query;
-	struct hash_elem *e;
-	void *key = doc->key;
-	size_t keylen = doc->keylen;
+    struct wal_item *item = NULL;
+    struct wal_item query;
+    struct hash_elem *e = NULL;
+    void *key = doc->key;
+    size_t keylen = doc->keylen;
 
-	SEQTREE( 
-	if (doc->meta == NULL) { )
-		query.key = key;
-		query.keylen = keylen;
-		e = hash_find(&file->wal->hash_bykey, &query.he_key);
-		if (e) {
-			item = _get_entry(e, struct wal_item, he_key);
-			if (item->action == WAL_ACT_INSERT) {
-				*offset = item->offset;
-				return WAL_RESULT_SUCCESS;
-			}
-		}
-	#ifdef __FDB_SEQTREE
-	}else{
-		memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t));
-		e = hash_find(&file->wal->hash_byseq, &query.he_seq);
-		if (e) {
-			item = _get_entry(e, struct wal_item, he_seq);
-			if (item->action == WAL_ACT_INSERT) {
-				*offset = item->offset;
-				return WAL_RESULT_SUCCESS;
-			}
-		}
-	}
-	#endif		
-	return WAL_RESULT_FAIL;	
+#ifdef __FDB_SEQTREE
+    if (doc->meta == NULL) {
+        query.key = key;
+        query.keylen = keylen;
+        e = hash_find(&file->wal->hash_bykey, &query.he_key);
+        if (e) {
+            item = _get_entry(e, struct wal_item, he_key);
+            if (item->action == WAL_ACT_INSERT) {
+                *offset = item->offset;
+                return WAL_RESULT_SUCCESS;
+            }
+        }
+    } else {
+        memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t));
+        e = hash_find(&file->wal->hash_byseq, &query.he_seq);
+        if (e) {
+            item = _get_entry(e, struct wal_item, he_seq);
+            if (item->action == WAL_ACT_INSERT) {
+                *offset = item->offset;
+                return WAL_RESULT_SUCCESS;
+            }
+        }
+    }
+#else
+    query.key = key;
+    query.keylen = keylen;
+    e = hash_find(&file->wal->hash_bykey, &query.he_key);
+    if (e) {
+        item = _get_entry(e, struct wal_item, he_key);
+        if (item->action == WAL_ACT_INSERT) {
+            *offset = item->offset;
+            return WAL_RESULT_SUCCESS;
+        }
+    }
+#endif
+    return WAL_RESULT_FAIL;
 }
 
 wal_result wal_remove(struct filemgr *file, fdb_doc *doc)

@@ -7,6 +7,7 @@
 #define _JSAHN_WAL_H
 
 #include <stdint.h>
+#include "forestdb.h"
 #include "hash.h"
 #include "list.h"
 
@@ -30,8 +31,6 @@ struct wal {
 	#endif
 	struct list list;
 };
-
-typedef struct fdb_doc_struct fdb_doc;
 
 wal_result wal_init(struct filemgr *file, int nbucket);
 wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset);

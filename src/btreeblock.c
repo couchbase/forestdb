@@ -123,47 +123,48 @@ INLINE _btreeblk_comp_and_write(struct btreeblk_handle *handle, struct btreeblk_
 
 void * btreeblk_read(void *voidhandle, bid_t bid)
 {
-	struct list_elem *e;
-	struct btreeblk_block *block;
-	struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
-	bid_t filebid = bid / handle->nnodeperblock;
-	int offset = bid % handle->nnodeperblock;
+    struct list_elem *elm = NULL;
+    struct btreeblk_block *block = NULL;
+    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
+    bid_t filebid = bid / handle->nnodeperblock;
+    int offset = bid % handle->nnodeperblock;
 
-	// check whether the block is in current lists
-	// read list (clean)
-	for ( e = list_begin(&handle->read_list) ; e ; e = list_next(e) ) {
-		block = _get_entry(e, struct btreeblk_block, e);
-		if (block->bid == filebid) {
-			return block->addr + (handle->nodesize << coe) * offset;
-		}
-	}
-	// allocation list (dirty)
-	for ( e = list_begin(&handle->alc_list) ; e ; e = list_next(e) ) {
-		block = _get_entry(e, struct btreeblk_block, e);
-		if (block->bid == filebid && block->pos >= (handle->nodesize << coe) * offset) {
-			return block->addr + (handle->nodesize << coe) * offset;
-		}
-	}
+    // check whether the block is in current lists
+    // read list (clean)
+    for (elm = list_begin(&handle->read_list); elm; elm = list_next(elm)) {
+        block = _get_entry(elm, struct btreeblk_block, e);
+        if (block->bid == filebid) {
+            return block->addr + (handle->nodesize << coe) * offset;
+        }
+    }
+    // allocation list (dirty)
+    for (elm = list_begin(&handle->alc_list); elm; elm = list_next(elm)) {
+        block = _get_entry(elm, struct btreeblk_block, e);
+        if (block->bid == filebid &&
+            block->pos >= (handle->nodesize << coe) * offset) {
+            return block->addr + (handle->nodesize << coe) * offset;
+        }
+    }
 
-	// there is no block in lists
-	// read from file and add item into read list
-	block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
-	#ifdef _BNODE_COMP
-		block->compsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
-		block->uncompsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
-	#endif	
-	block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
-	block->pos = (handle->file->blocksize << coe);
-	block->bid = filebid;
-	block->dirty = 0;
-	#ifdef _BNODE_COMP
-		// uncompress
-		_btreeblk_read_and_uncomp(handle, block);
-	#else
-		filemgr_read(handle->file, block->bid, block->addr);
-	#endif
-	list_push_front(&handle->read_list, &block->e);
-	return block->addr + (handle->nodesize << coe) * offset;
+    // there is no block in lists
+    // read from file and add item into read list
+    block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
+#ifdef _BNODE_COMP
+    block->compsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
+    block->uncompsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
+#endif
+    block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
+    block->pos = (handle->file->blocksize << coe);
+    block->bid = filebid;
+    block->dirty = 0;
+#ifdef _BNODE_COMP
+    // uncompress
+    _btreeblk_read_and_uncomp(handle, block);
+#else
+    filemgr_read(handle->file, block->bid, block->addr);
+#endif
+    list_push_front(&handle->read_list, &block->e);
+    return block->addr + (handle->nodesize << coe) * offset;
 }
 
 void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
@@ -335,39 +336,41 @@ size_t btreeblk_comp_size(void *voidhandle, bid_t bid)
 #endif
 
 #ifdef _BNODE_COMP
-	struct btree_blk_ops btreeblk_ops = {
-		btreeblk_alloc,
-		btreeblk_read,
-		btreeblk_move,
-		btreeblk_is_writable,
-		btreeblk_set_dirty,
-		NULL,
-		btreeblk_set_uncomp_size,
-		btreeblk_comp_size};
+struct btree_blk_ops btreeblk_ops = {
+    btreeblk_alloc,
+    btreeblk_read,
+    btreeblk_move,
+    btreeblk_is_writable,
+    btreeblk_set_dirty,
+    NULL,
+    btreeblk_set_uncomp_size,
+    btreeblk_comp_size
+};
 #else
-	struct btree_blk_ops btreeblk_ops = {
-		btreeblk_alloc,
-		btreeblk_read,
-		btreeblk_move,
-		btreeblk_is_writable,
-		btreeblk_set_dirty,
-		NULL};
+struct btree_blk_ops btreeblk_ops = {
+    btreeblk_alloc,
+    btreeblk_read,
+    btreeblk_move,
+    btreeblk_is_writable,
+    btreeblk_set_dirty,
+    NULL
+};
 #endif
 
 struct btree_blk_ops *btreeblk_get_ops()
 {
-	return &btreeblk_ops;
+    return &btreeblk_ops;
 }
 
 void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nodesize)
 {
-	handle->file = file;
-	handle->nodesize = nodesize;
-	handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
-	list_init(&handle->alc_list);
-	list_init(&handle->read_list);
+    handle->file = file;
+    handle->nodesize = nodesize;
+    handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
+    list_init(&handle->alc_list);
+    list_init(&handle->read_list);
 
-	DBG("block size %d, btree node size %d\n", handle->file->blocksize, handle->nodesize);
+    DBG("block size %d, btree node size %d\n", handle->file->blocksize, handle->nodesize);
 }
 
 void btreeblk_end(struct btreeblk_handle *handle)

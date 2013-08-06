@@ -52,17 +52,18 @@ int _filemgr_linux_fsync(int fd)
 }
 
 struct filemgr_ops linux_ops = {
-	_filemgr_linux_open,
-	_filemgr_linux_pwrite,
-	_filemgr_linux_pread,
-	_filemgr_linux_close,
-	_filemgr_linux_goto_eof,
-	_filemgr_linux_fdatasync,
-	_filemgr_linux_fsync};
+    _filemgr_linux_open,
+    _filemgr_linux_pwrite,
+    _filemgr_linux_pread,
+    _filemgr_linux_close,
+    _filemgr_linux_goto_eof,
+    _filemgr_linux_fdatasync,
+    _filemgr_linux_fsync
+};
 
 struct filemgr_ops * get_linux_filemgr_ops()
 {
-	return &linux_ops;
+    return &linux_ops;
 }
 
 
