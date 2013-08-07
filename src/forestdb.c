@@ -35,18 +35,18 @@ INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 {
-    DBGCMD(
-        struct timeval _a_,_b_,_rr_;
-        gettimeofday(&_a_, NULL);
-    );
+	DBGCMD(
+		struct timeval _a_,_b_,_rr_;
+		gettimeofday(&_a_, NULL);
+	);
 
-    struct filemgr_config fconfig;
-    bid_t trie_root_bid = BLK_NOT_FOUND;
+	struct filemgr_config fconfig;
+	bid_t trie_root_bid = BLK_NOT_FOUND;
 	bid_t seq_root_bid;
 
-#ifdef _MEMPOOL
-    mempool_init();
-#endif
+	#ifdef _MEMPOOL
+		mempool_init();
+	#endif
 
 	fconfig.blocksize = config.blocksize = FDB_BLOCKSIZE;
 	fconfig.ncacheblock = config.buffercache_size / FDB_BLOCKSIZE;
@@ -60,11 +60,11 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 	handle->config = config;
 	handle->btree_fanout = fconfig.blocksize / (config.chunksize+config.offsetsize);
 
-    //assert( CHK_POW2(config.wal_threshold) );
-    //wal_init(handle->file, config.wal_threshold);
-    wal_init(handle->file, FDB_WAL_NBUCKET);
-    docio_init(handle->dhandle, handle->file);
-    btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
+	//assert( CHK_POW2(config.wal_threshold) );
+	//wal_init(handle->file, config.wal_threshold);
+	wal_init(handle->file, FDB_WAL_NBUCKET);
+	docio_init(handle->dhandle, handle->file);
+	btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
 	if (handle->file->header.size > 0 && handle->file->header.data) {
 		size_t offset = 0;
@@ -76,21 +76,27 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 	hbtrie_init(handle->trie, config.chunksize, config.offsetsize, handle->file->blocksize, trie_root_bid, 
 		handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
 
-        handle->seqtree = (struct btree*)malloc(sizeof(struct btree));
-        btree_init(handle->seqtree, handle->bhandle, handle->btreeblkops, kv_ops,
-                   handle->trie->btree_nodesize, sizeof(fdb_seqnum_t),
-                   handle->trie->valuelen, 0x0, NULL);
-    }
-#endif
+	#ifdef __FDB_SEQTREE
+	if (handle->config.seqtree == FDB_SEQTREE_USE) {
+		struct btree_kv_ops *kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
+		memcpy(kv_ops, handle->trie->btree_kv_ops, sizeof(struct btree_kv_ops));
+		kv_ops->cmp = _cmp_uint64_t;
+		
+		handle->seqtree = (struct btree*)malloc(sizeof(struct btree));
+		btree_init(handle->seqtree, handle->bhandle, handle->btreeblkops, kv_ops, 
+			handle->trie->btree_nodesize, sizeof(fdb_seqnum_t), handle->trie->valuelen, 
+			0x0, NULL);
+	}
+	#endif
 
-    DBGCMD(
-        gettimeofday(&_b_, NULL);
-        _rr_ = _utime_gap(_a_,_b_);
-    );
-    DBG("fdb_open %s, %"_FSEC".%06"_FUSEC" sec elapsed.\n",
-        filename, _rr_.tv_sec, _rr_.tv_usec);
+	DBGCMD(
+		gettimeofday(&_b_, NULL);
+		_rr_ = _utime_gap(_a_,_b_);		
+	);
+	DBG("fdb_open %s, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
+		filename, _rr_.tv_sec, _rr_.tv_usec);
 
-    return FDB_RESULT_SUCCESS;
+	return FDB_RESULT_SUCCESS;
 }
 
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
@@ -171,19 +177,19 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 {
-    uint64_t offset;
-    wal_result wr;
-    hbtrie_result hr;
+	uint64_t offset;
+	struct docio_object _doc;
+	wal_result wr;
+	hbtrie_result hr;
 
-    if (doc->key == NULL || doc->keylen == 0) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
+	if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
+	
+	wr = wal_find(handle->file, doc, &offset);
 
-    wr = wal_find(handle->file, doc, &offset);
-    if (wr == WAL_RESULT_FAIL) {
-        hr = hbtrie_find(handle->trie, doc->key, doc->keylen, &offset);
-        btreeblk_end(handle->bhandle);
-    }
+	if (wr == WAL_RESULT_FAIL) {
+		hr = hbtrie_find(handle->trie, doc->key, doc->keylen, &offset);
+		btreeblk_end(handle->bhandle);
+	}
 
 	if (wr != WAL_RESULT_FAIL || hr != HBTRIE_RESULT_FAIL) {
 		_doc.key = doc->key;
@@ -192,19 +198,17 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 		_doc.body = doc->body;
 		docio_read_doc(handle->dhandle, offset, &_doc);
 
-        if (_doc.length.keylen != doc->keylen) {
-            return FDB_RESULT_FAIL;
-        }
+		if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
+		
+		doc->metalen = _doc.length.metalen;
+		doc->bodylen = _doc.length.bodylen;
+		doc->meta = _doc.meta;
+		doc->body = _doc.body;
 
-        doc->metalen = _doc.length.metalen;
-        doc->bodylen = _doc.length.bodylen;
-        doc->meta = _doc.meta;
-        doc->body = _doc.body;
+		return FDB_RESULT_SUCCESS;
+	}
 
-        return FDB_RESULT_SUCCESS;
-    }
-
-    return FDB_RESULT_FAIL;
+	return FDB_RESULT_FAIL;
 }
 
 fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset)
