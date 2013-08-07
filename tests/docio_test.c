@@ -35,6 +35,8 @@ void basic_test()
 	struct docio_object doc;
 	struct filemgr_config config;
 
+	mempool_init();
+
 	doc.key = keybuf;
 	doc.meta = metabuf;
 	doc.body = bodybuf;
@@ -72,9 +74,10 @@ void basic_test()
 	DBG("docsize %d written at %"_F64" ~ %"_F64"\n", docsize, offset, offset + docsize);
 
 	keylen_t keylen;
-	docio_read_doc_key(&handle, 69, &keylen, keybuf);
+	docio_read_doc_key(&handle, 65, &keylen, keybuf);
 	DBG("keylen %d %s\n", keylen, keybuf);
 
+	filemgr_close(file);
 
 	TEST_RESULT("basic test");
 }

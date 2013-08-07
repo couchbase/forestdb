@@ -10,7 +10,9 @@
 
 struct _db {
 	fdb_handle fdb;
+	char *filename;
 	uint64_t seqnum;
+	size_t btree_fanout;
 };
 
 LIBCOUCHSTORE_API
@@ -36,14 +38,16 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
 	memset(&config, 0, sizeof(fdb_config));
 	config.chunksize = sizeof(uint64_t);
 	config.offsetsize = sizeof(uint64_t);
-	config.buffercache_size = 1024 * 1024 * 1024;
-	config.wal_threshold = 128 * 1024;
+	config.buffercache_size = (uint64_t)2048 * 1024 * 1024;
+	config.wal_threshold = 64 * 1024;
 	config.flag = 0;
 
 	*pDb = (Db*)malloc(sizeof(Db));
 	(*pDb)->seqnum = 0;
-
+	(*pDb)->filename = (char *)malloc(strlen(filename)+1);
+	strcpy((*pDb)->filename, filename);
 	fdb = &((*pDb)->fdb);
+
 	status = fdb_open(fdb, fname, config);
 	
 	return COUCHSTORE_SUCCESS;
@@ -56,6 +60,22 @@ couchstore_error_t couchstore_close_db(Db *db)
 	free(db);
 
     return COUCHSTORE_SUCCESS;
+}
+
+LIBCOUCHSTORE_API
+couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
+{
+	size_t btree_fanout;
+
+	info->filename = db->filename;
+	info->doc_count = db->fdb.ndocs;
+	info->deleted_count = 0;
+	info->header_position = 0;
+	info->last_sequence = db->seqnum;
+	info->space_used = db->fdb.datasize;
+	info->space_used += (db->fdb.ndocs / (db->fdb.btree_fanout / 2)) * db->fdb.config.blocksize;
+	
+	return COUCHSTORE_SUCCESS;
 }
 
 size_t _docinfo_to_buf(DocInfo *docinfo, void *buf)
@@ -239,7 +259,8 @@ couchstore_error_t couchstore_compact_db_ex(Db* source, const char* target_filen
 		uint64_t flags, const couch_file_ops *ops)
 {
 	char *new_filename = (char *)target_filename;
-	return fdb_compact(&source->fdb, new_filename);
+	fdb_compact(&source->fdb, new_filename);
+	return COUCHSTORE_SUCCESS;
 }
 
 LIBCOUCHSTORE_API

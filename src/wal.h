@@ -10,6 +10,7 @@
 #include "forestdb.h"
 #include "hash.h"
 #include "list.h"
+#include "forestdb.h"
 
 typedef enum {
 	WAL_ACT_INSERT,
@@ -21,7 +22,22 @@ typedef enum {
 	WAL_RESULT_FAIL
 } wal_result;
 
-typedef void wal_flush_func(void *dbhandle, void *key, int keylen, uint64_t offset, wal_item_action action);
+struct wal_item{
+	void *key;
+	uint16_t keylen;
+	wal_item_action action;
+	uint64_t offset;
+	uint32_t doc_size;
+	struct hash_elem he_key;
+	#ifdef __FDB_SEQTREE
+		fdb_seqnum_t seqnum;
+		struct hash_elem he_seq;
+	#endif
+	struct list_elem list_elem;
+};
+
+//typedef void wal_flush_func(void *dbhandle, void *key, int keylen, uint64_t offset, wal_item_action action);
+typedef void wal_flush_func(void *dbhandle, struct wal_item *item);
 
 struct wal {
 	size_t size;
@@ -31,6 +47,8 @@ struct wal {
 	#endif
 	struct list list;
 };
+
+//typedef struct fdb_doc_struct fdb_doc;
 
 wal_result wal_init(struct filemgr *file, int nbucket);
 wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset);

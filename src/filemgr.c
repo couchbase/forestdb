@@ -265,6 +265,9 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
 			#endif
 	
 			int r = bcache_read(file, bid, _buf);
+			if (r==0) {
+				r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
+			}
 			memcpy(_buf + offset, buf, len);
 			bcache_write(file, bid, _buf, BCACHE_DIRTY);
 		}

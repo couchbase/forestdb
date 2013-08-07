@@ -17,6 +17,7 @@ typedef size_t hbtrie_func_readkey(void *handle, uint64_t offset, void *buf);
 
 typedef enum {
 	HBTRIE_RESULT_SUCCESS,
+	HBTRIE_RESULT_UPDATE,
 	HBTRIE_RESULT_FAIL
 } hbtrie_result;
 
@@ -56,7 +57,7 @@ hbtrie_result hbtrie_next(struct hbtrie_iterator *it, void *key_buf, size_t *key
 
 hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey, int rawkeylen, void *valuebuf);
 hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen);
-hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, void *value);
-
+hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, 
+			void *value, void *oldvalue_out);
 
 #endif

@@ -14,6 +14,7 @@
 
 typedef enum {
 	BTREE_RESULT_SUCCESS,
+	BTREE_RESULT_UPDATE,
 	BTREE_RESULT_FAIL
 } btree_result;
 

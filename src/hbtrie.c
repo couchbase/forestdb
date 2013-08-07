@@ -549,7 +549,8 @@ hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen)
 
 		btreeitem = _get_entry(e, struct btreelist_item, e);
 		br = btree_remove(&btreeitem->btree, key + trie->chunksize * btreeitem->chunkno);
-		assert(br == BTREE_RESULT_SUCCESS);
+		//assert(br != BTREE_RESULT_FAIL);
+		if (br == BTREE_RESULT_FAIL) return HBTRIE_RESULT_FAIL;
 
 		_hbtrie_btree_cascaded_update(trie, &btreelist, key);
 	}
@@ -557,7 +558,8 @@ hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen)
 	return r;
 }
 
-hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, void *value)
+hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, 
+			void *value, void *oldvalue_out)
 {
 	/*
 	<insertion cases>
@@ -576,6 +578,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 	struct list_elem *e;
 	//struct btree btree, btree_new;
 	struct btreelist_item *btreeitem, *btreeitem_new;
+	hbtrie_result ret_result = HBTRIE_RESULT_SUCCESS;
 	btree_result r;
 
 	metasize_t metasize;
@@ -625,7 +628,6 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 				trie, hbmeta.prefix, key + trie->chunksize * (prevchunkno+1), curchunkno - (prevchunkno+1));
 			if (diffchunkno < curchunkno - (prevchunkno+1)) {
 				//3 3. create sub-tree between parent and child tree
-				DBG("case 3\n");
 
 				// metadata (prefix) update in btreeitem->btree
 				int new_prefixlen = trie->chunksize * (curchunkno - (prevchunkno + diffchunkno + 1) - 1);
@@ -660,7 +662,6 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 				// set MSB
 				_hbtrie_set_msb(trie, &bid_new);
 				r = btree_insert(&btreeitem_new->btree, chunk_new, &bid_new);
-
 
 				break;
 			}
@@ -716,15 +717,14 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 					// one key is substring of the other key
 					if (docnchunk == nchunk) {
 						//3 same key!!
-						DBG("same key exists\n");
+						if (oldvalue_out) memcpy(oldvalue_out, btree_value, trie->valuelen);
 						r = btree_insert(&btreeitem->btree, chunk, value);
+						ret_result = HBTRIE_RESULT_UPDATE;
 						break;
 						
 					}else{
 						//3 2-1. create sub-tree which has file offset of one doc in its meta section, 
 						//3 and the other doc is inserted into the tree
-						DBG("case 2-1\n");
-						
 						void *key_long, *value_long;
 						void *key_short, *value_short;
 
@@ -761,8 +761,6 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 					}
 				} else {
 					//3 2-2. create sub-tree and insert two docs into it
-					DBG("case 2-2\n");
-					
 					_hbtrie_store_meta(
 							trie, &meta.size, diffchunkno, 
 							key + trie->chunksize * (curchunkno+1), 
@@ -799,7 +797,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, vo
 
 	_hbtrie_btree_cascaded_update(trie, &btreelist, key);
 
-	return HBTRIE_RESULT_SUCCESS;
+	return ret_result;
 }
 
 

@@ -88,10 +88,10 @@ void basic_test()
 	// update value
 	a = 1; b = 99;
 	r = btree_insert(&btree, &a, &b);
-	TEST_CHK(r==BTREE_RESULT_SUCCESS);
+	TEST_CHK(r!=BTREE_RESULT_FAIL);
 	b = 0;
 	r = btree_find(&btree, &a, &b);
-	TEST_CHK(r==BTREE_RESULT_SUCCESS && b==99);
+	TEST_CHK(r!=BTREE_RESULT_FAIL && b==99);
 
 	btree_print_node(&btree);
 
@@ -121,7 +121,7 @@ void split_test()
 	for (i=10;i<17;++i){
 		a = i*2; b = i*10;
 		r = btree_insert(&btree, &a, &b);
-		TEST_CHK(r == BTREE_RESULT_SUCCESS);
+		TEST_CHK(r != BTREE_RESULT_FAIL);
 	}
 
 	btree_print_node(&btree);
@@ -129,7 +129,7 @@ void split_test()
 	for (i=9;i>=5;--i) {
 		a = i*2; b = i*10;
 		r = btree_insert(&btree, &a, &b);
-		TEST_CHK(r == BTREE_RESULT_SUCCESS);
+		TEST_CHK(r != BTREE_RESULT_FAIL);
 	}
 
 	btree_print_node(&btree);
@@ -142,7 +142,7 @@ void split_test()
 	for (i=5;i<17;++i){
 		a = i*2;
 		r = btree_find(&btree, &a, &b);
-		TEST_CHK(r == BTREE_RESULT_SUCCESS);
+		TEST_CHK(r != BTREE_RESULT_FAIL);
 		TEST_CHK(b == i*10);
 	}
 
@@ -170,7 +170,7 @@ void remove_test()
 	for (i=0;i<12;++i) {
 		a = i; b = i*10;
 		r = btree_insert(&btree, &a, &b);
-		TEST_CHK(r == BTREE_RESULT_SUCCESS);		
+		TEST_CHK(r != BTREE_RESULT_FAIL);		
 	}
 
 	btree_print_node(&btree);
@@ -221,7 +221,7 @@ void flush_test()
 	for (i=0;i<12;++i){
 		a = i; b = i*10;
 		r = btree_insert(&btree, &a, &b);
-		TEST_CHK(r == BTREE_RESULT_SUCCESS);
+		TEST_CHK(r != BTREE_RESULT_FAIL);
 	}
 	dummy_flush();
 
@@ -314,7 +314,7 @@ void seqtree_test()
 	for (i=0;i<17;++i){
 		a = i*2; b = i*10;
 		r = btree_insert(&btree, &a, &b);
-		TEST_CHK(r == BTREE_RESULT_SUCCESS);
+		TEST_CHK(r != BTREE_RESULT_FAIL);
 	}
 
 	btree_print_node(&btree);

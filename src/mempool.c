@@ -83,7 +83,7 @@ static int mempool_initialized = 0;
 static int l1cache_linesize;
 
 static uint64_t initial_space[10] = {
-	/* 32-byte */ 32*1024*1024,
+	/* 32-byte */ 64*1024*1024,
 	/* 64-byte */ 64*1024*1024,
 	/* 128-byte */ 32*1024*1024,
 	/* 256-byte */ 2*1024*1024,

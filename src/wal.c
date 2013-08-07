@@ -33,19 +33,6 @@
 	#define SEQTREE(args...)
 #endif
 
-struct wal_item{
-	void *key;
-	keylen_t keylen;
-	wal_item_action action;
-	uint64_t offset;
-	struct hash_elem he_key;
-	#ifdef __FDB_SEQTREE
-		fdb_seqnum_t seqnum;
-		struct hash_elem he_seq;
-	#endif
-	struct list_elem list_elem;
-};
-
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
 	struct wal_item *item = _get_entry(e, struct wal_item, he_key);
@@ -118,7 +105,8 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
 		#else
 			item = _get_entry(e, struct wal_item, he_key);
 		#endif
-		
+
+		item->doc_size = doc->keylen + doc->metalen + doc->bodylen + sizeof(struct docio_length);
 		item->offset = offset;
 		item->action = WAL_ACT_INSERT;
 	}else{
@@ -136,6 +124,7 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
 		SEQTREE( item->seqnum = query.seqnum );
 		item->action = WAL_ACT_INSERT;
 		item->offset = offset;
+		item->doc_size = doc->keylen + doc->metalen + doc->bodylen + sizeof(struct docio_length);
 
 		hash_insert(&file->wal->hash_bykey, &item->he_key);
 		SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
@@ -260,7 +249,7 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 		e = list_remove(&file->wal->list, e);
 		hash_remove(&file->wal->hash_bykey, &item->he_key);
 		SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
-		func(dbhandle, item->key, item->keylen, item->offset, item->action);
+		func(dbhandle, item);
 
 		#ifdef __WAL_KEY_COPY
 			mempool_free(item->key);

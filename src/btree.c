@@ -650,9 +650,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
 		#endif
 			
 			if (_size_check || (idx[i] != BTREE_IDX_NOT_FOUND && !btree->kv_ops->cmp(key_ins[i], k)) ) {
-				// enough
-
-				// insert
+				// enough .. insert
 				idx_ins[i] = _btree_add_entry(btree, node[i], key_ins[i], value_ins[i]);
 				modified[i] = 1;
 				

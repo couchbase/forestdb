@@ -7,7 +7,7 @@
 
 #define __MEMORY_ALIGN
 
-#define DOCIO_BLOCK_ALIGN
+//#define DOCIO_BLOCK_ALIGN
 
 //#define __O_DIRECT
 
@@ -26,11 +26,11 @@
 
 #define FDB_BLOCKSIZE (4096)
 // MUST BE a power of 2
-#define FDB_WAL_NBUCKET (1048576)
+#define FDB_WAL_NBUCKET (262144)
 
 // MUST BE a power of 2
 #define BCACHE_NBUCKET (65536)
 #define BCACHE_NDICBUCKET (4096)
-#define BCACHE_FLUSH_UNIT (262144)
+#define BCACHE_FLUSH_UNIT (524288)
 
 #endif

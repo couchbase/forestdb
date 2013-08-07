@@ -25,8 +25,9 @@ typedef uint64_t fdb_seqnum_t;
 typedef struct {
 	size_t chunksize;
 	size_t offsetsize;
-	size_t buffercache_size;
-	size_t wal_threshold;
+	size_t blocksize;
+	uint64_t buffercache_size;
+	uint64_t wal_threshold;
 	struct filemgr_ops *fileops;
 	fdb_seqtree_t seqtree;
 	unsigned char flag;
@@ -57,6 +58,9 @@ typedef struct {
 	struct btree_blk_ops *btreeblkops;
 	struct filemgr_ops *fileops;
 	fdb_config config;
+	uint64_t datasize;
+	uint64_t ndocs;
+	uint16_t btree_fanout;
 } fdb_handle;
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config);

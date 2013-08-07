@@ -42,21 +42,23 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 
     struct filemgr_config fconfig;
     bid_t trie_root_bid = BLK_NOT_FOUND;
+	bid_t seq_root_bid;
 
 #ifdef _MEMPOOL
     mempool_init();
 #endif
 
-    fconfig.blocksize = FDB_BLOCKSIZE;
-    fconfig.ncacheblock = config.buffercache_size / FDB_BLOCKSIZE;
-    fconfig.flag = 0x0;
-    handle->fileops = get_linux_filemgr_ops();
-    handle->btreeblkops = btreeblk_get_ops();
-    handle->file = filemgr_open(filename, handle->fileops, fconfig);
-    handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
-    handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
-    handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
-    handle->config = config;
+	fconfig.blocksize = config.blocksize = FDB_BLOCKSIZE;
+	fconfig.ncacheblock = config.buffercache_size / FDB_BLOCKSIZE;
+	fconfig.flag = 0x0;
+	handle->fileops = get_linux_filemgr_ops();
+	handle->btreeblkops = btreeblk_get_ops();
+	handle->file = filemgr_open(filename, handle->fileops, fconfig);
+	handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
+	handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
+	handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
+	handle->config = config;
+	handle->btree_fanout = fconfig.blocksize / (config.chunksize+config.offsetsize);
 
     //assert( CHK_POW2(config.wal_threshold) );
     //wal_init(handle->file, config.wal_threshold);
@@ -64,17 +66,15 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     docio_init(handle->dhandle, handle->file);
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
-    if (handle->file->header.size > 0 && handle->file->header.data) {
-        memcpy(&trie_root_bid, handle->file->header.data, sizeof(bid_t));
-    }
-    hbtrie_init(handle->trie, config.chunksize, config.offsetsize,
-                handle->file->blocksize, trie_root_bid, handle->bhandle,
-                handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
-#ifdef __FDB_SEQTREE
-    if (handle->config.seqtree == FDB_SEQTREE_USE) {
-        struct btree_kv_ops *kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
-        memcpy(kv_ops, handle->trie->btree_kv_ops, sizeof(struct btree_kv_ops));
-        kv_ops->cmp = _cmp_uint64_t;
+	if (handle->file->header.size > 0 && handle->file->header.data) {
+		size_t offset = 0;
+		seq_memcpy(&trie_root_bid, handle->file->header.data + offset, sizeof(trie_root_bid), offset);
+		seq_memcpy(&seq_root_bid, handle->file->header.data + offset, sizeof(seq_root_bid), offset);
+		seq_memcpy(&handle->ndocs, handle->file->header.data + offset, sizeof(handle->ndocs), offset);
+		seq_memcpy(&handle->datasize, handle->file->header.data + offset, sizeof(handle->datasize), offset);
+	}
+	hbtrie_init(handle->trie, config.chunksize, config.offsetsize, handle->file->blocksize, trie_root_bid, 
+		handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
 
         handle->seqtree = (struct btree*)malloc(sizeof(struct btree));
         btree_init(handle->seqtree, handle->bhandle, handle->btreeblkops, kv_ops,
@@ -140,11 +140,28 @@ fdb_status fdb_doc_free(fdb_doc *doc)
 	return FDB_RESULT_SUCCESS;
 }
 
-INLINE void _fdb_wal_flush_func(void *voidhandle, void *key, int keylen, uint64_t offset, wal_item_action action)
+uint8_t sandbox[65536];
+
+INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 {
+	hbtrie_result hr;
 	fdb_handle *handle = (fdb_handle *)voidhandle;
-	if (action == WAL_ACT_INSERT) {
-		hbtrie_insert(handle->trie, key, keylen, &offset);
+	uint64_t old_offset;
+
+	if (item->action == WAL_ACT_INSERT) {
+		hr = hbtrie_insert(handle->trie, item->key, item->keylen, &item->offset, &old_offset);
+		if (hr == HBTRIE_RESULT_SUCCESS) {
+			handle->ndocs++;
+		}else{
+			// update
+			struct docio_object doc;
+			doc.key = (void *)sandbox;
+			doc.meta = (void *)sandbox;
+			docio_read_doc_key_meta(handle->dhandle, old_offset, &doc);
+			handle->datasize -= 
+				(doc.length.keylen + doc.length.metalen + doc.length.bodylen + sizeof(struct docio_length));
+		}
+		handle->datasize += item->doc_size;
 		btreeblk_end(handle->bhandle);
 	}else{
 		//hbtrie_remove(handle->trie, key, keylen);
@@ -168,13 +185,12 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         btreeblk_end(handle->bhandle);
     }
 
-    if (wr == WAL_RESULT_SUCCESS || hr == HBTRIE_RESULT_SUCCESS) {
-        struct docio_object _doc;
-        _doc.key = doc->key;
-        _doc.length.keylen = doc->keylen;
-        _doc.meta = doc->meta;
-        _doc.body = doc->body;
-        docio_read_doc(handle->dhandle, offset, &_doc);
+	if (wr != WAL_RESULT_FAIL || hr != HBTRIE_RESULT_FAIL) {
+		_doc.key = doc->key;
+		_doc.length.keylen = doc->keylen;
+		_doc.meta = doc->meta;
+		_doc.body = doc->body;
+		docio_read_doc(handle->dhandle, offset, &_doc);
 
         if (_doc.length.keylen != doc->keylen) {
             return FDB_RESULT_FAIL;
@@ -207,7 +223,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
 		btreeblk_end(handle->bhandle);
 	}
 
-	if (wr == WAL_RESULT_SUCCESS || hr == HBTRIE_RESULT_SUCCESS) {
+	if (wr != WAL_RESULT_FAIL || hr != HBTRIE_RESULT_FAIL) {
 		_doc.key = doc->key;
 		_doc.length.keylen = doc->keylen;
 		_doc.meta = _doc.body = NULL;
@@ -270,10 +286,20 @@ fdb_status fdb_commit(fdb_handle *handle)
 
 void _fdb_set_file_header(fdb_handle *handle)
 {
-	uint8_t buf[16];
-	memcpy(buf, &handle->trie->root_bid, sizeof(handle->trie->root_bid));
+	uint8_t buf[256];
+	size_t offset = 0;
+
+	/*
+	memcpy(buf + offset, &handle->trie->root_bid, sizeof(handle->trie->root_bid));
 	memcpy(buf + sizeof(handle->trie->root_bid), &handle->trie->root_bid, sizeof(handle->trie->root_bid));
-	filemgr_update_header(handle->file, buf, 16);
+	*/
+	seq_memcpy(buf + offset, &handle->trie->root_bid, sizeof(handle->trie->root_bid), offset);
+	// this should be changed to the root bid of seq b-tree
+	seq_memcpy(buf + offset, &handle->trie->root_bid, sizeof(handle->trie->root_bid), offset);
+	seq_memcpy(buf + offset, &handle->ndocs, sizeof(handle->ndocs), offset);
+	seq_memcpy(buf + offset, &handle->datasize, sizeof(handle->datasize), offset);
+	
+	filemgr_update_header(handle->file, buf, 32);
 }
 
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
@@ -289,6 +315,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 	size_t keylen;
 	uint64_t offset, new_offset;
 	hbtrie_result hr;
+	DBGCMD( uint64_t count = 0 );
 	//uint8_t metabuf[1024], bodybuf[1024];
 
 	btreeblk_end(handle->bhandle);
@@ -316,22 +343,25 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 	// scan all live documents in the trie
 	hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
-	while(hr == HBTRIE_RESULT_SUCCESS) {
+	while(hr != HBTRIE_RESULT_FAIL) {
 		hr = hbtrie_next(&it, k, &keylen, &offset);
 		btreeblk_end(handle->bhandle);
 		if (hr == HBTRIE_RESULT_FAIL) break;
 
 		doc.key = k;
 		doc.length.keylen = keylen;
-		doc.meta = doc.body = NULL;
+		doc.meta = sandbox;
+		doc.body = NULL;
 		docio_read_doc(handle->dhandle, offset, &doc);
 
 		// re-write to new file
 		new_offset = docio_append_doc(new_dhandle, &doc);
-		free(doc.meta);
+		//free(doc.meta);
 		free(doc.body);
-		hbtrie_insert(new_trie, k, keylen, &new_offset);
+		hbtrie_insert(new_trie, k, keylen, &new_offset, NULL);
 		btreeblk_end(new_bhandle);
+
+		DBGCMD( count++ );
 	}
 
 	hr = hbtrie_iterator_free(&it);
@@ -361,6 +391,7 @@ fdb_status fdb_close(fdb_handle *handle)
 	filemgr_commit(handle->file);
 	_fdb_set_file_header(handle);
 	filemgr_close(handle->file);
+	docio_free(handle->dhandle);
 	free(handle->trie);
 	#ifdef __FDB_SEQTREE
 	if (handle->config.seqtree == FDB_SEQTREE_USE) {

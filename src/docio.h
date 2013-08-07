@@ -15,6 +15,9 @@ struct docio_handle {
 	struct filemgr *file;
 	bid_t curblock;
 	uint32_t curpos;
+	// for buffer purpose
+	bid_t lastbid;
+	void *readbuffer;
 };
 
 struct docio_length {
@@ -31,6 +34,7 @@ struct docio_object {
 };
 
 void docio_init(struct docio_handle *handle, struct filemgr *file);
+void docio_free(struct docio_handle *handle);
 INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf);
 bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc);
 void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *keylen, void *keybuf);

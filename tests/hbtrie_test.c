@@ -75,7 +75,7 @@ void basic_test()
 	struct hbtrie trie;
 	struct docio_object doc;
 	struct filemgr_config config;
-	uint64_t offset;
+	uint64_t offset, offset_old;
 	uint32_t docsize;
 	char keybuf[256], metabuf[256], bodybuf[256];
 	char dockey[256], meta[256], body[256];
@@ -112,7 +112,7 @@ void basic_test()
 		sprintf(body, "body_%03d", i);
 		docsize = _set_doc(&doc, dockey, meta, body);	
 		offset = docio_append_doc(&dhandle, &doc);		
-		hbtrie_insert(&trie, key[i], strlen(key[i]), &offset);
+		hbtrie_insert(&trie, key[i], strlen(key[i]), &offset, &offset_old);
 		btreeblk_end(&bhandle);
 	}
 
@@ -125,7 +125,7 @@ void basic_test()
 		if (i!=2) {
 			r = hbtrie_find(&trie, key[i], strlen(key[i]), valuebuf);
 			if (i>0) {
-				TEST_CHK(r == HBTRIE_RESULT_SUCCESS);
+				TEST_CHK(r != HBTRIE_RESULT_FAIL);
 						
 				memcpy(&offset, valuebuf, 8);
 				docio_read_doc(&dhandle, offset, &doc);
@@ -228,7 +228,7 @@ void large_test()
 
 		DBG("hbtrie update .. \n");
 		for (i=(n/m)*k;i<(n/m)*(k+1);++i){
-			hbtrie_insert(&trie, key[i], strlen(key[i]), offset + i);
+			hbtrie_insert(&trie, key[i], strlen(key[i]), offset + i, &_offset);
 			btreeblk_end(&bhandle);
 		}
 		TEST_TIME();
@@ -251,7 +251,7 @@ void large_test()
 
 		DBG("hbtrie update .. \n");
 		for (i=(n/m)*k;i<(n/m)*(k+1);++i){
-			hbtrie_insert(&trie, key[i], strlen(key[i]), offset + i);
+			hbtrie_insert(&trie, key[i], strlen(key[i]), offset + i, &_offset);
 			btreeblk_end(&bhandle);
 		}
 		TEST_TIME();
@@ -266,9 +266,9 @@ void large_test()
 		//DBG("key %s\n", key[i]);
 		r = hbtrie_find(&trie, key[i], strlen(key[i]), valuebuf);
 		btreeblk_end(&bhandle);
-		TEST_CHK(r == HBTRIE_RESULT_SUCCESS);
+		TEST_CHK(r != HBTRIE_RESULT_FAIL);
 
-		if (r == HBTRIE_RESULT_SUCCESS) {
+		if (r != HBTRIE_RESULT_FAIL) {
 			memcpy(&_offset, valuebuf, 8);
 			docio_read_doc(&dhandle, _offset, &doc);
 			/*

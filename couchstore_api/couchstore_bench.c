@@ -13,7 +13,8 @@
 
 int _basic_callback(Db *db, DocInfo *docinfo, void *ctx)
 {
-	printf("%s %ld %ld %ld %ld\n", docinfo->id.buf, docinfo->db_seq, docinfo->rev_seq, docinfo->size, docinfo->bp);
+	//printf("%s %ld %ld %ld %ld\n", docinfo->id.buf, docinfo->db_seq, docinfo->rev_seq, docinfo->size, docinfo->bp);
+	return 0;
 }
 
 void _basic_test()
@@ -64,9 +65,10 @@ void _basic_test()
 		ids[i].size = strlen(key)+1;
 		memcpy(ids[i].buf, key, ids[i].size);
 		err = couchstore_docinfo_by_id(db, key, strlen(key)+1, &rinfo);
+/*
 		if (err==0)
 			printf("%s %ld %ld %ld %ld\n", rinfo->id.buf, rinfo->db_seq, rinfo->rev_seq, rinfo->size, rinfo->bp);
-
+*/
 		couchstore_free_docinfo(rinfo);
 	}
 	couchstore_docinfos_by_id(db, ids, 10, 0, _basic_callback, NULL);
@@ -88,6 +90,7 @@ struct bench_info {
 
 	// percentage
 	size_t write_prob;
+	size_t compact_thres;
 };
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -111,11 +114,12 @@ int _cmp_docs(const void *a, const void *b)
 
 static uint8_t metabuf[256];
 
-void _create_docs(Doc *docs[], DocInfo *infos[], struct bench_info *binfo)
+size_t _create_docs(Doc *docs[], DocInfo *infos[], struct bench_info *binfo)
 {
 	BDR_RNG_VARS;
 	int i, j, r;
 	int keylen;
+	size_t totalsize = 0;
 
 	for (i=0;i<binfo->ndocs;++i) {
 		docs[i] = (Doc *)malloc(sizeof(Doc));
@@ -123,6 +127,8 @@ void _create_docs(Doc *docs[], DocInfo *infos[], struct bench_info *binfo)
 		BDR_RNG_NEXTPAIR;
 		r = get_random(&binfo->keylen, rngz, rngz2);
 		if (r < 8) r = 8;
+		if (r > 200) r = 200;
+		
 		docs[i]->id.size = r;
 		docs[i]->id.buf = (char *)malloc(docs[i]->id.size);
 
@@ -130,7 +136,11 @@ void _create_docs(Doc *docs[], DocInfo *infos[], struct bench_info *binfo)
 			BDR_RNG_NEXTPAIR;
 			docs[i]->id.buf[j] = '!' + (rngz%('~'-'!'));
 		}
-
+		/*
+		docs[i]->id.size = 8;
+		docs[i]->id.buf = (char *)malloc(docs[i]->id.size);
+		sprintf(docs[i]->id.buf, "%08d", i);
+*/
 		BDR_RNG_NEXTPAIR;
 		r = get_random(&binfo->bodylen, rngz, rngz2);
 		if (r < 8) r = 8;
@@ -147,10 +157,13 @@ void _create_docs(Doc *docs[], DocInfo *infos[], struct bench_info *binfo)
 		infos[i] = (DocInfo*)malloc(sizeof(DocInfo));
 		memset(infos[i], 0, sizeof(DocInfo));
 		infos[i]->id = docs[i]->id;
-		infos[i]->rev_meta.buf = metabuf;
+		infos[i]->rev_meta.buf = (char *)metabuf;
 		infos[i]->rev_meta.size = 4;
-	
+
+		totalsize += (docs[i]->id.size + docs[i]->data.size + infos[i]->rev_meta.size);
 	}
+
+	return totalsize;
 }
 
 #define PRINT_TIME(t) \
@@ -165,7 +178,7 @@ void print_filesize(char *filename)
 	stat(filename, &filestat);
 	size = filestat.st_size;
 	
-	printf("file size : %ld bytes ", filestat.st_size);
+	printf("file size : %lu bytes ", (unsigned long)filestat.st_size);
 	if (size >= 1024 && size < 1024*1024) {
 		printf("(%.2f KB)\n", (double)size / 1024);
 	}else if (size >= 1024*1024 && size < 1024*1024*1024) {
@@ -185,33 +198,40 @@ void do_bench(struct bench_info *binfo)
 	BDR_RNG_VARS;
 	int i, j, ret, r;
 	Db *db;
+	DbInfo *dbinfo;
 	Doc **docs, **rq_docs;
 	DocInfo **infos, **rq_infos;
-	char keybuf[256], bodybuf[1024], cmd[256];
-	struct stopwatch sw;
+	char curfile[256], newfile[256], keybuf[256], bodybuf[1024], cmd[256];
+	struct stopwatch sw, sw_compaction;
 	struct timeval gap;
+	struct stat filestat;
 	sized_buf *ids;
 	int prog_dot;
 	int batchsize, op_med, op_count_read, op_count_write;
+	int compaction_no = 0;
+	uint64_t workingset_size, appended_size;
+
+	dbinfo = (DbInfo *)malloc(sizeof(DbInfo));
 
 	stopwatch_init(&sw);
+	stopwatch_init(&sw_compaction);
 
 	printf("create %d docs\n", (int)binfo->ndocs);
 	stopwatch_start(&sw);
 	docs = (Doc **)malloc(sizeof(Doc *) * binfo->ndocs);
 	infos = (DocInfo **)malloc(sizeof(DocInfo *) * binfo->ndocs);
-	_create_docs(docs, infos, binfo);
+	workingset_size = _create_docs(docs, infos, binfo);
 	gap = stopwatch_stop(&sw);
 	PRINT_TIME(gap);
 
 	//qsort(docs, binfo->ndocs, sizeof(Doc), _cmp_docs);
 
-	sprintf(cmd, "rm ./%s -rf", binfo->filename);
-	ret = system(cmd);
-	sprintf(cmd, "rm ./%s -rf", binfo->filename2);
+	// erase previous db file	
+	sprintf(cmd, "rm %s* -rf 2> errorlog.txt", binfo->filename);
 	ret = system(cmd);
 
-	couchstore_open_db(binfo->filename, COUCHSTORE_OPEN_FLAG_CREATE, &db);
+	sprintf(curfile, "%s%d", binfo->filename, compaction_no);
+	couchstore_open_db(curfile, COUCHSTORE_OPEN_FLAG_CREATE, &db);
 
 	printf("\npopulation\n");
 	stopwatch_start(&sw);
@@ -219,7 +239,7 @@ void do_bench(struct bench_info *binfo)
 	couchstore_commit(db);
 	gap = stopwatch_stop(&sw);
 	PRINT_TIME(gap);
-	print_filesize(binfo->filename);
+	print_filesize(curfile);
 
 	printf("\nbenchmark\n");
 	op_count_read = op_count_write = prog_dot = 0;
@@ -254,11 +274,13 @@ void do_bench(struct bench_info *binfo)
 			for (j=0;j<batchsize;++j){
 				BDR_RNG_NEXTPAIR;
 				r = get_random(&binfo->op_dist, rngz, rngz2);
-				if (r < 0) r = (r+binfo->ndocs) % binfo->ndocs;;
+				if (r < 0) r = (r+binfo->ndocs) % binfo->ndocs;
 				if (r >= binfo->ndocs) r = r % binfo->ndocs;
 
 				rq_docs[j] = docs[j];
 				rq_infos[j] = infos[j];
+
+				appended_size += (rq_docs[j]->id.size + rq_docs[j]->data.size + rq_infos[j]->rev_meta.size);
 			}
 
 			couchstore_save_documents(db, rq_docs, rq_infos, batchsize, 0x0);
@@ -267,6 +289,7 @@ void do_bench(struct bench_info *binfo)
 
 			free(rq_docs);
 			free(rq_infos);
+
 		}else{		
 			// read
 			ids = (sized_buf *)malloc(sizeof(sized_buf) * batchsize);
@@ -286,9 +309,35 @@ void do_bench(struct bench_info *binfo)
 		}
 
 		if (prog_dot < (i*53)/(binfo->nops-1)){
+
+			stat(curfile, &filestat);
+			couchstore_db_info(db, dbinfo);
+			
+			if ( (filestat.st_size - dbinfo->space_used) > 
+				((double)binfo->compact_thres/100.0)*(double)filestat.st_size) {
+				// compaction
+				printf("\r<compaction>");
+				fflush(stdout);
+				sprintf(newfile, "%s%d", binfo->filename, ++compaction_no);
+
+				stopwatch_start(&sw_compaction);
+				couchstore_compact_db(db, newfile);
+				couchstore_close_db(db);
+				stopwatch_stop(&sw_compaction);
+
+				// erase previous db file	
+				sprintf(cmd, "rm %s -rf 2> errorlog.txt", curfile);
+				ret = system(cmd);
+
+				strcpy(curfile, newfile);
+				couchstore_open_db(curfile, COUCHSTORE_OPEN_FLAG_CREATE, &db);
+				stat(curfile, &filestat);
+			}
+
 			printf("\r");
 			for (j=0;j<prog_dot;++j) printf("=");
 			printf("> %.1f %%", i*100.0 / (binfo->nops-1));
+			printf(" (%lld / %lld)", (long long int)filestat.st_size, (long long int)dbinfo->space_used);
 			prog_dot++;
 			fflush(stdout);
 		}		
@@ -300,8 +349,12 @@ void do_bench(struct bench_info *binfo)
 	printf("total %d operations (%.2f ops)\n", 
 		op_count_read + op_count_write, 
 		(double)(op_count_read + op_count_write) / (gap.tv_sec + (double)gap.tv_usec / 1000000.0));
-	print_filesize(binfo->filename);
+	print_filesize(curfile);
 
+	printf("compaction : occurred %d times, ", compaction_no);
+	PRINT_TIME(sw_compaction.elapsed);
+
+/*
 	printf("\ncompaction\n");
 	stopwatch_start(&sw);
 	couchstore_compact_db(db, binfo->filename2);
@@ -310,8 +363,8 @@ void do_bench(struct bench_info *binfo)
 	couchstore_close_db(db);
 	gap = stopwatch_stop(&sw);
 	PRINT_TIME(gap);
-
-	print_filesize(binfo->filename2);
+	print_filesize(curfile);
+*/
 
 	printf("\n");
 }
@@ -322,7 +375,6 @@ void _print_benchinfo(struct bench_info *binfo)
 {
 	printf(" === benchmark configuration ===\n");
 	printf("filename (before compaction): %s\n", binfo->filename);
-	printf("filename (after compaction): %s\n", binfo->filename2);
 	printf("the number of documents (i.e. working set size): %d\n", (int)binfo->ndocs);
 	printf("key length distribution: %s(%d,%d)\n", 
 		(binfo->keylen.type == RND_NORMAL)?"Norm":"Uniform", (int)binfo->keylen.a, (int)binfo->keylen.b);
@@ -332,8 +384,10 @@ void _print_benchinfo(struct bench_info *binfo)
 	printf("batch size distribution: %s(%d,%d)\n",
 		(binfo->batchsize.type == RND_NORMAL)?"Norm":"Uniform", (int)binfo->batchsize.a, (int)binfo->batchsize.b);
 	printf("operations in a batch: %s distribution\n", 	(binfo->op_dist.type == RND_NORMAL)?"Norm":"Uniform");
-	printf("the range of operations in a batch: %d\n", (int)binfo->batchrange);
+	printf("the range of operations in a batch: -%d ~ +%d (total %d)\n", 
+		(int)binfo->batchrange/2 , (int)binfo->batchrange/2, (int)binfo->batchrange);
 	printf("the proportion of write operations: %d %%\n", (int)binfo->write_prob);
+	printf("compaction threshold: invalid data is larger than %d %% of entire file\n", (int)binfo->compact_thres);
 	printf("\n");
 }
 
@@ -354,10 +408,12 @@ int main(){
 	binfo.filename = filename1;
 	binfo.filename2 = filename2;
 
-	str = iniparser_getstring(cfg, "db_file:filename1", "./dummy");
+	str = iniparser_getstring(cfg, "db_file:filename", "./dummy");
 	strcpy(binfo.filename, str);
+	/*
 	str = iniparser_getstring(cfg, "db_file:filename2", "./dummy2");
 	strcpy(binfo.filename2, str);
+	*/
 	
 	str = iniparser_getstring(cfg, "key_length:distribution", "normal");
 	if (str[0] == 'n') {
@@ -404,10 +460,11 @@ int main(){
 		binfo.op_dist.type = RND_UNIFORM;
 	}
 	//binfo.op_dist.type = RND_UNIFORM;
-	range_percent = iniparser_getint(cfg, "operation:batch_range_percent", 25);
-	binfo.batchrange = (size_t)(binfo.ndocs / (100.0 / (double)range_percent));
+	binfo.batchrange = iniparser_getint(cfg, "operation:batch_range", 1000);
 
 	binfo.write_prob = iniparser_getint(cfg, "operation:write_ratio_percent", 20);
+
+	binfo.compact_thres = iniparser_getint(cfg, "compaction:threshold", 70);
 
 	_print_benchinfo(&binfo);
 	do_bench(&binfo);

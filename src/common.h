@@ -85,6 +85,10 @@ static struct timeval _utime_gap(struct timeval a, struct timeval b)
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define CHK_POW2(v) (!((uint64_t)v & ((uint64_t)v - 0x1)))
 
+#define seq_memcpy(dest, src, size, offset_var) \
+	memcpy(dest, src, size); \
+	offset_var += size
+
 typedef uint64_t bid_t;
 #define BLK_NOT_FOUND 0xffffffffffffffff
 
