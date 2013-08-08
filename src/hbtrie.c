@@ -458,7 +458,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
         }
 
         //3 search b-tree using current chunk
-	chunk = key + curchunkno * trie->chunksize;
+        chunk = key + curchunkno * trie->chunksize;
         r = btree_find(btree, chunk, btree_value);
 
         if (r == BTREE_RESULT_FAIL) {

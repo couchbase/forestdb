@@ -575,7 +575,7 @@ void bcache_init(int nblock, int blocksize)
 	DBGCMD(
 		gettimeofday(&_b_, NULL);
 		_r_ = _utime_gap(_a_,_b_);
-	)
+	);
 	DBG("bcache init. %d * %d bytes blocks, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
 		nblock, blocksize, _r_.tv_sec, _r_.tv_usec);
 }
