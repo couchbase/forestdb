@@ -13,39 +13,39 @@
 #include "forestdb.h"
 
 typedef enum {
-	WAL_ACT_INSERT,
-	WAL_ACT_REMOVE
+    WAL_ACT_INSERT,
+    WAL_ACT_REMOVE
 } wal_item_action;
 
 typedef enum {
-	WAL_RESULT_SUCCESS,
-	WAL_RESULT_FAIL
+    WAL_RESULT_SUCCESS,
+    WAL_RESULT_FAIL
 } wal_result;
 
 struct wal_item{
-	void *key;
-	uint16_t keylen;
-	wal_item_action action;
-	uint64_t offset;
-	uint32_t doc_size;
-	struct hash_elem he_key;
-	#ifdef __FDB_SEQTREE
-		fdb_seqnum_t seqnum;
-		struct hash_elem he_seq;
-	#endif
-	struct list_elem list_elem;
+    void *key;
+    uint16_t keylen;
+    wal_item_action action;
+    uint64_t offset;
+    uint32_t doc_size;
+    struct hash_elem he_key;
+    #ifdef __FDB_SEQTREE
+        fdb_seqnum_t seqnum;
+        struct hash_elem he_seq;
+    #endif
+    struct list_elem list_elem;
 };
 
 //typedef void wal_flush_func(void *dbhandle, void *key, int keylen, uint64_t offset, wal_item_action action);
 typedef void wal_flush_func(void *dbhandle, struct wal_item *item);
 
 struct wal {
-	size_t size;
-	struct hash hash_bykey;
-	#ifdef __FDB_SEQTREE
-		struct hash hash_byseq;
-	#endif
-	struct list list;
+    size_t size;
+    struct hash hash_bykey;
+    #ifdef __FDB_SEQTREE
+        struct hash hash_byseq;
+    #endif
+    struct list list;
 };
 
 //typedef struct fdb_doc_struct fdb_doc;

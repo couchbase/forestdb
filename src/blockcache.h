@@ -9,8 +9,8 @@
 #include "filemgr.h"
 
 typedef enum {
-	BCACHE_CLEAN,
-	BCACHE_DIRTY
+    BCACHE_CLEAN,
+    BCACHE_DIRTY
 } bcache_dirty_t;
 
 void bcache_init(int nblock, int blocksize);

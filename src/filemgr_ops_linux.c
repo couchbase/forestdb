@@ -14,41 +14,41 @@
 
 int _filemgr_linux_open(const char *pathname, int flags, mode_t mode)
 {
-	return open(pathname, flags, mode);
+    return open(pathname, flags, mode);
 }
 
 int _filemgr_linux_pwrite(int fd, void *buf, size_t count, off_t offset)
 {
-	return pwrite(fd, buf, count, offset);
+    return pwrite(fd, buf, count, offset);
 }
 
 int _filemgr_linux_pread(int fd, void *buf, size_t count, off_t offset)
 {
-	return pread(fd, buf, count, offset);
+    return pread(fd, buf, count, offset);
 }
 
 int _filemgr_linux_close(int fd)
 {
-	return close(fd);
+    return close(fd);
 }
 
 off_t _filemgr_linux_goto_eof(int fd)
 {
-	return lseek(fd, 0, SEEK_END);
+    return lseek(fd, 0, SEEK_END);
 }
 
 int _filemgr_linux_fdatasync(int fd)
 {
 #ifdef __APPLE__
-	return fsync(fd);
+    return fsync(fd);
 #elif __linux
-	return fdatasync(fd);
+    return fdatasync(fd);
 #endif
 }
 
 int _filemgr_linux_fsync(int fd)
 {
-	return fsync(fd);
+    return fsync(fd);
 }
 
 struct filemgr_ops linux_ops = {

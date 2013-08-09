@@ -11,8 +11,8 @@
 #include "common.h"
 
 #define _get_kvsize(kvsize, ksize, vsize) \
-	(ksize) = ((kvsize) & 0xf0) >> 4;	\
-	(vsize) = ((kvsize) & 0x0f)
+    (ksize) = ((kvsize) & 0xf0) >> 4;    \
+    (vsize) = ((kvsize) & 0x0f)
 
 #define __ksize(kvsize) (((kvsize) & 0xf0) >> 4)
 #define __vsize(kvsize) (((kvsize) & 0x0f))

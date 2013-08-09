@@ -12,25 +12,25 @@
 typedef uint16_t keylen_t;
 
 struct docio_handle {
-	struct filemgr *file;
-	bid_t curblock;
-	uint32_t curpos;
-	// for buffer purpose
-	bid_t lastbid;
-	void *readbuffer;
+    struct filemgr *file;
+    bid_t curblock;
+    uint32_t curpos;
+    // for buffer purpose
+    bid_t lastbid;
+    void *readbuffer;
 };
 
 struct docio_length {
-	keylen_t keylen;
-	uint16_t metalen;
-	uint32_t bodylen;
+    keylen_t keylen;
+    uint16_t metalen;
+    uint32_t bodylen;
 };
 
 struct docio_object {
-	struct docio_length length;
-	void *key;
-	void *meta;
-	void *body;
+    struct docio_length length;
+    void *key;
+    void *meta;
+    void *body;
 };
 
 void docio_init(struct docio_handle *handle, struct filemgr *file);

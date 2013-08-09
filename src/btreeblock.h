@@ -11,11 +11,11 @@
 #include "btree.h"
 
 struct btreeblk_handle{
-	uint32_t nodesize;
-	uint16_t nnodeperblock;
-	struct list alc_list;
-	struct list read_list;
-	struct filemgr *file;
+    uint32_t nodesize;
+    uint16_t nnodeperblock;
+    struct list alc_list;
+    struct list read_list;
+    struct filemgr *file;
 };
 
 struct btree_blk_ops *btreeblk_get_ops();

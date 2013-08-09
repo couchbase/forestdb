@@ -16,46 +16,46 @@
 #include "hash.h"
 
 struct filemgr_config {
-	int blocksize;
-	int ncacheblock;
-	int flag;
+    int blocksize;
+    int ncacheblock;
+    int flag;
 };
 
 struct filemgr_ops {
-	int (*open)(const char *pathname, int flags, mode_t mode);
-	int (*pwrite)(int fd, void *buf, size_t count, off_t offset);
-	int (*pread)(int fd, void *buf, size_t count, off_t offset);
-	int (*close)(int fd);
-	off_t (*goto_eof)(int fd);
-	int (*fdatasync)(int fd);
-	int (*fsync)(int fd);
+    int (*open)(const char *pathname, int flags, mode_t mode);
+    int (*pwrite)(int fd, void *buf, size_t count, off_t offset);
+    int (*pread)(int fd, void *buf, size_t count, off_t offset);
+    int (*close)(int fd);
+    off_t (*goto_eof)(int fd);
+    int (*fdatasync)(int fd);
+    int (*fsync)(int fd);
 };
 
 struct filemgr_buffer{
-	void *block;
-	bid_t lastbid;
+    void *block;
+    bid_t lastbid;
 };
 
 struct wal;
 
 struct filemgr_header{
-	uint16_t size;
-	void *data;
+    uint16_t size;
+    void *data;
 };
 
 struct filemgr {
-	char *filename;
-	uint16_t filename_len;
-	int fd;
-	uint8_t ref_count;
-	uint64_t pos;
-	uint64_t last_commit;
-	uint32_t blocksize;
-	struct wal *wal;
-	struct filemgr_header header;
-	struct filemgr_ops *ops;
-	struct hash_elem e;
-	spin_t lock;
+    char *filename;
+    uint16_t filename_len;
+    int fd;
+    uint8_t ref_count;
+    uint64_t pos;
+    uint64_t last_commit;
+    uint32_t blocksize;
+    struct wal *wal;
+    struct filemgr_header header;
+    struct filemgr_ops *ops;
+    struct hash_elem e;
+    spin_t lock;
 };
 
 struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct filemgr_config config);

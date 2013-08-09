@@ -10,13 +10,13 @@
 #include <stddef.h>
 
 struct list_elem {
-	struct list_elem *prev;
-	struct list_elem *next;
+    struct list_elem *prev;
+    struct list_elem *next;
 };
 
 struct list {
-	struct list_elem *head;
-	struct list_elem *tail;
+    struct list_elem *head;
+    struct list_elem *tail;
 };
 
 #ifndef _get_entry

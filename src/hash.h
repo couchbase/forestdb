@@ -10,9 +10,9 @@
 #define _HASH_RBTREE
 
 #ifdef _HASH_RBTREE
-	#include "rbwrap.h"
+    #include "rbwrap.h"
 #else
-	#include "list.h"
+    #include "list.h"
 #endif
 
 #define _HASH_LOCK
@@ -20,38 +20,38 @@
 
 #ifdef __APPLE__
 
-	#ifndef spin_t
-	// spinlock
-	#include <libkern/OSAtomic.h>
-	#define spin_t OSSpinLock
-	#define spin_lock(arg) OSSpinLockLock(arg)
-	#define spin_unlock(arg) OSSpinLockUnlock(arg)
-	#define SPIN_INITIALIZER 0
-	#endif
-	
+    #ifndef spin_t
+    // spinlock
+    #include <libkern/OSAtomic.h>
+    #define spin_t OSSpinLock
+    #define spin_lock(arg) OSSpinLockLock(arg)
+    #define spin_unlock(arg) OSSpinLockUnlock(arg)
+    #define SPIN_INITIALIZER 0
+    #endif
+    
 #elif __linux
 
-	#ifndef spin_t
-	// spinlock
-	#include <pthread.h>
-	#define spin_t pthread_spinlock_t
-	#define spin_lock(arg) pthread_spin_lock(arg)
-	#define spin_unlock(arg) pthread_spin_unlock(arg)
-	#define SPIN_INITIALIZER 1
-	#endif
-	
+    #ifndef spin_t
+    // spinlock
+    #include <pthread.h>
+    #define spin_t pthread_spinlock_t
+    #define spin_lock(arg) pthread_spin_lock(arg)
+    #define spin_unlock(arg) pthread_spin_unlock(arg)
+    #define SPIN_INITIALIZER 1
+    #endif
+    
 #else
-	#define INLINE make_error
+    #define INLINE make_error
 #endif
 
 #endif
 
 struct hash_elem {
-	#ifdef _HASH_RBTREE
-		struct rb_node rb_node;
-	#else
-		struct list_elem list_elem;
-	#endif
+    #ifdef _HASH_RBTREE
+        struct rb_node rb_node;
+    #else
+        struct list_elem list_elem;
+    #endif
 };
 
 struct hash;
@@ -62,22 +62,22 @@ typedef int hash_cmp_func(struct hash_elem *a, struct hash_elem *b);
 typedef void hash_free_func(struct hash_elem *e);
 
 struct hash {
-	size_t nbuckets;
-	#ifdef _HASH_RBTREE
-		struct rb_root *buckets;
-	#else
-		struct list *buckets;
-	#endif
-	
-	hash_hash_func *hash;
-	hash_cmp_func *cmp;
-	#ifdef _HASH_RBTREE
-		rbwrap_cmp_func *rb_cmp;
-	#endif
+    size_t nbuckets;
+    #ifdef _HASH_RBTREE
+        struct rb_root *buckets;
+    #else
+        struct list *buckets;
+    #endif
+    
+    hash_hash_func *hash;
+    hash_cmp_func *cmp;
+    #ifdef _HASH_RBTREE
+        rbwrap_cmp_func *rb_cmp;
+    #endif
 
 #ifdef _HASH_LOCK
-	// define locks for each bucket
-	spin_t *locks;
+    // define locks for each bucket
+    spin_t *locks;
 #endif
 };
 

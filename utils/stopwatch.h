@@ -4,8 +4,8 @@
 #include <sys/time.h>
 
 struct stopwatch {
-	struct timeval elapsed;
-	struct timeval start;
+    struct timeval elapsed;
+    struct timeval start;
 };
 
 void stopwatch_init(struct stopwatch *sw);
