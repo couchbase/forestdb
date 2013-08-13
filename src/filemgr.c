@@ -25,7 +25,7 @@
 
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
-#define FILEMGR_MAGIC (0xbeefbeef)
+#define FILEMGR_MAGIC (0xdeadcafebeefbeef)
 #define NBUF (32)
 
 // global static variables
@@ -79,18 +79,20 @@ void filemgr_init(struct filemgr_config config)
 
 void _filemgr_read_header(struct filemgr *file)
 {
-    uint32_t magic;
-    uint16_t len;
+    filemgr_magic_t magic;
+    filemgr_header_len_t len;
+    
     file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic));
+    
     if (magic == FILEMGR_MAGIC) {
         file->ops->pread(file->fd, &len, sizeof(len),
                          file->pos - sizeof(magic) - sizeof(len));
         file->header.data = (void *)malloc(len);
         file->ops->pread(file->fd, file->header.data, len,
-                         file->pos - len - sizeof(magic) - sizeof(len));
+                         file->pos - file->blocksize);
         file->header.size = len;
 
-        file->pos -= len + sizeof(magic) + sizeof(len);
+        //file->pos -= len + sizeof(magic) + sizeof(len);
         file->last_commit = file->pos;
     } else {
         file->header.size = 0;
@@ -120,6 +122,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file = _get_entry(e, struct filemgr, e);
         file->ref_count++;
         DBG("already opened %s\n", file->filename);
+        
     } else {
         // open
         file = (struct filemgr*)malloc(sizeof(struct filemgr));
@@ -130,7 +133,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         strcpy(file->filename, filename);
         file->ops = ops;
 #ifdef __O_DIRECT
-    file->fd = file->ops->open(file->filename,
+        file->fd = file->ops->open(file->filename,
                                    O_RDWR | O_CREAT | O_DIRECT | config.flag, 0666);
 #else
         file->fd = file->ops->open(file->filename,
@@ -138,13 +141,16 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 #endif
         file->blocksize = global_config.blocksize;
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
-        if (file->pos % file->blocksize != 0) {
+        
+        //if (file->pos % file->blocksize != 0) {
             // read header
             _filemgr_read_header(file);
+            /*
         } else {
              file->header.size = 0;
              file->header.data = NULL;
-        }
+        }*/
+        
         file->lock = SPIN_INITIALIZER;
         hash_insert(&hash, &file->e);
     }
@@ -166,25 +172,20 @@ void filemgr_update_header(struct filemgr *file, void *buf, size_t len)
 void filemgr_close(struct filemgr *file)
 {
     if (global_config.ncacheblock > 0) {
-        bcache_flush(file);
-    }
-
-    if (file->header.size > 0 && file->header.data) {
-        uint16_t header_len = file->header.size;
-        uint32_t magic = FILEMGR_MAGIC;
-        file->ops->pwrite(file->fd, file->header.data, header_len, file->pos);
-        file->ops->pwrite(file->fd, &header_len, sizeof(header_len), file->pos + header_len);
-        file->ops->pwrite(file->fd, &magic, sizeof(magic), file->pos + header_len + sizeof(header_len));
-        free(file->header.data);
+        //bcache_flush(file);
+        // remove all dirty blocks belong to this file
+        bcache_remove_file(file);
     }
 
     file->ops->close(file->fd);
 
+    // remove filemgr structure if no thread refers to the file
     if (--(file->ref_count) == 0) {
         hash_remove(&hash, &file->e);
         hash_free(&file->wal->hash_bykey);
         free(file->wal);
         free(file->filename);
+        free(file->header.data);
         free(file);
     }
 }
@@ -237,7 +238,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
     assert(pos < file->pos);
 
     if (global_config.ncacheblock > 0) {
-        int r =    bcache_read(file, bid, buf);
+        int r = bcache_read(file, bid, buf);
         if (r == 0) {
             file->ops->pread(file->fd, buf, file->blocksize, pos);
             bcache_write(file, bid, buf, BCACHE_CLEAN);
@@ -296,9 +297,21 @@ void filemgr_remove_from_cache(struct filemgr *file)
 
 void filemgr_commit(struct filemgr *file)
 {
+    uint16_t header_len = file->header.size;
+    filemgr_magic_t magic = FILEMGR_MAGIC;
 
     if (global_config.ncacheblock > 0) {
         bcache_flush(file);
+    }
+
+    if (file->header.size > 0 && file->header.data) {
+        file->ops->pwrite(file->fd, file->header.data, header_len, file->pos);
+        file->ops->pwrite(file->fd, &header_len, sizeof(header_len), 
+            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len)) );
+        file->ops->pwrite(file->fd, &magic, sizeof(magic), 
+            file->pos + (file->blocksize - sizeof(filemgr_magic_t)) );
+
+        file->pos += file->blocksize;
     }
     
     DBGCMD(
@@ -313,7 +326,8 @@ void filemgr_commit(struct filemgr *file)
     DBGCMD(
         gettimeofday(&_b_, NULL);
         _r_ = _utime_gap(_a_,_b_);
-    )
+    );
+    
     DBG("fdatasync, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
         _r_.tv_sec, _r_.tv_usec);
 

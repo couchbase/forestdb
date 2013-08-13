@@ -294,6 +294,10 @@ void do_bench(struct bench_info *binfo)
         }
 
         //printf("batchsize %d median %d\n", batchsize, op_med);
+        if (i==149516) {
+            int asdf = 0;
+        }
+        
         if (write_mode) {
             // write (update)
             rq_docs = (Doc **)malloc(sizeof(Doc *) * batchsize);
@@ -343,27 +347,7 @@ void do_bench(struct bench_info *binfo)
 
             stat(curfile, &filestat);
             couchstore_db_info(db, dbinfo);
-            
-            if ( (filestat.st_size - dbinfo->space_used) > 
-                ((double)binfo->compact_thres/100.0)*(double)filestat.st_size) {
-                // compaction
-                printf("\r<compaction>");
-                fflush(stdout);
-                sprintf(newfile, "%s%d", binfo->filename, ++compaction_no);
-
-                stopwatch_start(&sw_compaction);
-                couchstore_compact_db(db, newfile);
-                couchstore_close_db(db);
-                stopwatch_stop(&sw_compaction);
-
-                // erase previous db file    
-                sprintf(cmd, "rm %s -rf 2> errorlog.txt", curfile);
-                ret = system(cmd);
-
-                strcpy(curfile, newfile);
-                couchstore_open_db(curfile, COUCHSTORE_OPEN_FLAG_CREATE, &db);
-                stat(curfile, &filestat);
-            }
+                        
             stopwatch_stop(&sw);
             printf("\r");
             //for (j=0;j<prog_dot;++j) printf("=");
@@ -384,7 +368,29 @@ void do_bench(struct bench_info *binfo)
             fflush(stdout);
             stopwatch_start(&sw);
 
-            if (sw.elapsed.tv_sec >= binfo->bench_secs) break;
+            if ( (filestat.st_size > dbinfo->space_used) && 
+                ((filestat.st_size - dbinfo->space_used) > 
+                ((double)binfo->compact_thres/100.0)*(double)filestat.st_size) ) {
+                // compaction
+                printf("\r<compaction>");
+                fflush(stdout);
+                sprintf(newfile, "%s%d", binfo->filename, ++compaction_no);
+
+                stopwatch_start(&sw_compaction);
+                couchstore_compact_db(db, newfile);
+                couchstore_close_db(db);
+                stopwatch_stop(&sw_compaction);
+
+                // erase previous db file    
+                sprintf(cmd, "rm %s -rf 2> errorlog.txt", curfile);
+                ret = system(cmd);
+
+                strcpy(curfile, newfile);
+                couchstore_open_db(curfile, COUCHSTORE_OPEN_FLAG_CREATE, &db);
+                stat(curfile, &filestat);
+            }
+
+            if (sw.elapsed.tv_sec >= binfo->bench_secs && binfo->bench_secs > 0) break;
         }      
         stopwatch_start(&progress);
     }
@@ -481,9 +487,7 @@ int main(){
     }
 
     binfo.nops = iniparser_getint(cfg, "operation:nbatches", 0);
-    if (binfo.nops == 0) {
-        binfo.bench_secs = iniparser_getint(cfg, "operation:duration", 60);
-    }
+    binfo.bench_secs = iniparser_getint(cfg, "operation:duration", 0);
     
     str = iniparser_getstring(cfg, "operation:batchsize_distribution", "normal");
     if (str[0] == 'n') {

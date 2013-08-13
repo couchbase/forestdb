@@ -38,8 +38,11 @@ struct filemgr_buffer{
 
 struct wal;
 
+typedef uint16_t filemgr_header_len_t;
+typedef uint64_t filemgr_magic_t; 
+
 struct filemgr_header{
-    uint16_t size;
+    filemgr_header_len_t size;
     void *data;
 };
 

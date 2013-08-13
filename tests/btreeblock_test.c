@@ -205,6 +205,39 @@ void two_btree_test()
     TEST_RESULT("two btree test");
 }
 
+void btreeblk_cache_test()
+{
+    TEST_INIT();
+    
+    int ksize = 8;
+    int vsize = 8;
+    int nodesize = (ksize + vsize)*4 + sizeof(struct bnode);
+    int blocksize = nodesize * 2;
+    struct filemgr *file;
+    struct btreeblk_handle btree_handle;
+    struct btree btree;
+    struct filemgr_config config;
+    int i, j, r;
+    uint64_t k,v;
+    bid_t bid;
+
+    config.blocksize = blocksize;
+    config.ncacheblock = 1024;
+    config.flag = 0x0;
+    r = system("rm -rf ./dummy");
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+    btreeblk_init(&btree_handle, file, nodesize);
+
+    for (i=0;i<1600;++i){
+        btreeblk_alloc(&btree_handle, &bid);
+    }
+    for (i=0;i<1600;++i){
+        btreeblk_read(&btree_handle, i);
+    }
+
+    TEST_RESULT("basic test");
+}
+
 
 int main()
 {
@@ -212,7 +245,9 @@ int main()
     int r = system("rm -rf ./dummy");
     //basic_test();
     iterator_test();
-    //two_btree_test();
+    two_btree_test();
+
+    //btreeblk_cache_test();
 
     return 0;
 }

@@ -229,9 +229,130 @@ void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
 }
 
 
+void seqnum_test()
+{
+    TEST_INIT();
+
+    fdb_handle db;
+    fdb_config config;
+    fdb_doc doc, *rdoc;
+    fdb_status status;
+    fdb_seqnum_t seqnum = 0, _seqnum;
+    
+    int i, n=10, r;
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = sizeof(uint64_t);
+    config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 1 * 1024 * 1024;
+    config.wal_threshold = 1024;
+    config.seqtree = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    r = system("rm -rf ./dummy");
+    r = system("rm -rf ./dummy2");
+    
+    fdb_open(&db, "./dummy", config);
+    fdb_close(&db);
+    
+    TEST_TIME();
+
+    fdb_open(&db, "./dummy", config);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        //sprintf(metabuf, "meta%d", i);
+        seqnum++;
+        memcpy(metabuf, &seqnum, sizeof(fdb_seqnum_t));
+        sprintf(bodybuf, "body%d", i);
+        
+        //_set_doc(&doc, keybuf, metabuf, bodybuf);
+        doc.keylen = strlen(keybuf);
+        doc.metalen = sizeof(fdb_seqnum_t);
+        doc.bodylen = strlen(bodybuf);
+        doc.key = keybuf;
+        doc.meta = metabuf;
+        doc.body = bodybuf;
+        
+        fdb_set(&db, &doc);
+    }
+
+    // remove document
+    sprintf(keybuf, "key%d", 5);
+    _seqnum = 6;
+    memcpy(metabuf, &_seqnum, sizeof(fdb_seqnum_t));
+    doc.keylen = strlen(keybuf);
+    doc.key = keybuf;
+    doc.metalen = sizeof(fdb_seqnum_t);
+    doc.meta = metabuf;
+    doc.bodylen = 0;
+    doc.body = NULL;
+
+    fdb_set(&db, &doc);
+
+    fdb_flush_wal(&db);
+    fdb_commit(&db);
+    fdb_close(&db);
+
+    TEST_TIME();
+
+    fdb_open(&db, "./dummy", config);
+
+    // update existing documents
+    for (i=0;i<2;++i){
+        sprintf(keybuf, "key%d", i);
+        //sprintf(metabuf, "meta%d", i);
+        seqnum++;
+        memcpy(metabuf, &seqnum, sizeof(fdb_seqnum_t));
+        sprintf(bodybuf, "body2%d", i);
+        
+        //_set_doc(&doc, keybuf, metabuf, bodybuf);
+        doc.keylen = strlen(keybuf);
+        doc.metalen = sizeof(fdb_seqnum_t);
+        doc.bodylen = strlen(bodybuf);
+        doc.key = keybuf;
+        doc.meta = metabuf;
+        doc.body = bodybuf;
+        fdb_set(&db, &doc);
+    }
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+
+        fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(&db, rdoc);
+
+        if (i<2) {
+            sprintf(temp, "body2%d", i);
+            TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));
+        }else if (i!=5) {
+            sprintf(temp, "body%d", i);
+            TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));        
+        }else {
+            TEST_CHK(status == FDB_RESULT_FAIL);
+        }
+
+        fdb_doc_free(rdoc);
+    }
+
+    
+    
+    fdb_close(&db);
+    
+    TEST_TIME();
+
+    TEST_RESULT("seqnum test");
+}
+
+
+
 int main(){
     //basic_test();
-    large_test(1000000, 32, 32, 512);
+    //large_test(1000000, 32, 32, 512);
+	seqnum_test();
 
     return 0;
 }

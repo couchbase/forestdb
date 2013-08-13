@@ -16,7 +16,7 @@ typedef enum {
 
 typedef uint8_t fdb_seqtree_t;
 enum {
-    FDB_SEQTREE_DO_NOT_USE = 0,
+    FDB_SEQTREE_NOT_USE = 0,
     FDB_SEQTREE_USE = 1
 };
 
@@ -72,6 +72,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
 fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_commit(fdb_handle *handle);
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename);
+fdb_status fdb_flush_wal(fdb_handle *handle);
 fdb_status fdb_close(fdb_handle *handle);
 
 

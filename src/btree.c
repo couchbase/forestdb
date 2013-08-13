@@ -432,7 +432,7 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
         r = _btree_next(it, key_buf, value_buf, depth-1);
         
         if (r == BTREE_RESULT_FAIL) {
-            // move index to right
+            // move index to right
             it->idx[depth]++;
             
             if (it->idx[depth] >= node->nentry){
@@ -467,7 +467,7 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
 btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key)
 {
     int i;
-
+    
     it->btree = *btree;
     it->curkey = (void *)mempool_alloc(btree->ksize);
     if (initial_key) {

@@ -76,6 +76,7 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
     // btree bid differs to filemgr bid
     *bid = block->bid * handle->nnodeperblock;
     list_push_front(&handle->alc_list, &block->e);
+    
     return block->addr;
 }
 
@@ -121,10 +122,78 @@ INLINE _btreeblk_comp_and_write(struct btreeblk_handle *handle, struct btreeblk_
 
 #endif
 
+INLINE struct btreeblk_block *_btreeblk_find_recycle_bin(struct btreeblk_handle *handle, bid_t bid)
+{
+    struct list_elem *elm = NULL;
+    struct btreeblk_block *block;
+    size_t idx = bid & (BTREEBLK_CACHE_LIMIT-1);
+
+    if (handle->cache[idx]) {
+        if (handle->cache[idx]->bid == bid) {
+            block = handle->cache[idx];
+            handle->cache[idx] = NULL;
+            handle->bin_size--;
+            list_remove(&handle->recycle_bin, &block->e);
+            return block;
+        }
+    }
+    
+    elm = list_begin(&handle->recycle_bin);
+    while(elm){
+        block = _get_entry(elm, struct btreeblk_block, e);
+        if (block->bid == bid) {
+            handle->bin_size--;
+            list_remove(&handle->recycle_bin, elm);
+            return block;
+        }
+        elm = list_next(elm);
+    }
+
+    return NULL;
+}
+
+INLINE void _btreeblk_dump_recycle_bin(struct btreeblk_handle *handle, struct btreeblk_block *block)
+{
+    size_t idx = block->bid & (BTREEBLK_CACHE_LIMIT-1);
+    handle->bin_size++;
+    list_push_front(&handle->recycle_bin, &block->e);
+    handle->cache[idx] = block;
+}
+
+INLINE void _btreeblk_empty_recycle_bin(struct btreeblk_handle *handle)
+{
+    size_t count = 0;
+    size_t idx;
+    struct list_elem *elm = NULL;
+    struct btreeblk_block *block;
+
+    if (handle->bin_size <= BTREEBLK_CACHE_LIMIT) return;
+
+    elm = list_end(&handle->recycle_bin);
+    while(elm){
+        if (++count > (handle->bin_size - BTREEBLK_CACHE_LIMIT)) {
+            break;
+        }else{
+            block = _get_entry(elm, struct btreeblk_block, e);
+            idx = block->bid & (BTREEBLK_CACHE_LIMIT-1);
+
+            elm = list_remove_reverse(&handle->recycle_bin, elm);
+
+            if (handle->cache[idx] == block) {
+                handle->cache[idx] = NULL;
+            }
+            mempool_free(block->addr);
+            mempool_free(block);
+        }
+    }
+
+    handle->bin_size = BTREEBLK_CACHE_LIMIT;
+}
+
 void * btreeblk_read(void *voidhandle, bid_t bid)
 {
     struct list_elem *elm = NULL;
-    struct btreeblk_block *block = NULL;
+    struct btreeblk_block *block = NULL, *cached_block;
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     bid_t filebid = bid / handle->nnodeperblock;
     int offset = bid % handle->nnodeperblock;
@@ -147,29 +216,48 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
     }
 
     // there is no block in lists
-    // read from file and add item into read list
+
+#ifdef __BTREEBLK_CACHE
+    // first find simple cache
+    
+    cached_block = _btreeblk_find_recycle_bin(handle, filebid);
+    if ( cached_block ) {
+        block = cached_block;
+        block->dirty = 0;
+        block->pos = (handle->file->blocksize << coe);
+        //DBG("block %ld hit\n", block->bid);
+        list_push_front(&handle->read_list, &block->e);
+        return block->addr + (handle->nodesize << coe) * offset;
+    }
+#endif
+
+    // if miss, read from file and add item into read list
     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
 #ifdef _BNODE_COMP
     block->compsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
     block->uncompsize = (compsize_t *)malloc(sizeof(compsize_t) * handle->nnodeperblock);
 #endif
-    block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
     block->pos = (handle->file->blocksize << coe);
     block->bid = filebid;
     block->dirty = 0;
+
+    block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
 #ifdef _BNODE_COMP
     // uncompress
     _btreeblk_read_and_uncomp(handle, block);
 #else
     filemgr_read(handle->file, block->bid, block->addr);
 #endif
+    
     list_push_front(&handle->read_list, &block->e);
+
     return block->addr + (handle->nodesize << coe) * offset;
 }
 
 void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
 {
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
+    struct btreeblk_block *block = NULL;    
     void *old_addr, *new_addr;
 
     old_addr = btreeblk_read(voidhandle, bid);
@@ -214,8 +302,8 @@ void btreeblk_operation_end(void *voidhandle)
     // flush and write all items in allocation list
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;
-    struct btreeblk_block *block;
-    int writable;
+    struct btreeblk_block *block, **cached_block;
+    int writable, dumped = 0;
 
     // write and free items in allocation list
     e = list_begin(&handle->alc_list);
@@ -237,8 +325,15 @@ void btreeblk_operation_end(void *voidhandle)
                 free(block->compsize);
                 free(block->uncompsize);            
             #endif
-            mempool_free(block->addr);
-            mempool_free(block);
+
+            #ifdef __BTREEBLK_CACHE
+                _btreeblk_dump_recycle_bin(handle, block);
+                dumped = 1;
+            #else                
+                mempool_free(block->addr);
+                mempool_free(block);
+            #endif
+
         }else {
             // reserve the block when there is enough space and the block is writable
             e = list_next(e);
@@ -263,9 +358,18 @@ void btreeblk_operation_end(void *voidhandle)
             free(block->compsize);
             free(block->uncompsize);
         #endif
-        mempool_free(block->addr);
-        mempool_free(block);
+
+        #ifdef __BTREEBLK_CACHE
+            _btreeblk_dump_recycle_bin(handle, block);        
+            dumped = 1;
+        #else        
+            mempool_free(block->addr);
+            mempool_free(block);
+        #endif
+        
     }    
+
+    if (dumped) _btreeblk_empty_recycle_bin(handle);
 }
 
 #ifdef _BNODE_COMP
@@ -364,19 +468,30 @@ struct btree_blk_ops *btreeblk_get_ops()
 
 void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nodesize)
 {
+    int i;
+
     handle->file = file;
     handle->nodesize = nodesize;
     handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
     list_init(&handle->alc_list);
     list_init(&handle->read_list);
 
+    #ifdef __BTREEBLK_CACHE
+        handle->bin_size = 0;
+        list_init(&handle->recycle_bin);
+        for (i=0;i<BTREEBLK_CACHE_LIMIT;++i){
+            handle->cache[i] = NULL;
+        }
+    #endif
+
     DBG("block size %d, btree node size %d\n", handle->file->blocksize, handle->nodesize);
 }
 
 void btreeblk_end(struct btreeblk_handle *handle)
 {
+    int dumped = 0;
     struct list_elem *e;
-    struct btreeblk_block *block;
+    struct btreeblk_block *block, **cached_block;
 
     // flush all dirty items
     btreeblk_operation_end((void *)handle);
@@ -390,22 +505,17 @@ void btreeblk_end(struct btreeblk_handle *handle)
             free(block->compsize);
             free(block->uncompsize);
         #endif
-        mempool_free(block->addr);
-        mempool_free(block);
-    }
-    /*
-    e = list_begin(&handle->read_list);
-    while(e) {
-        block = _get_entry(e, struct btreeblk_block, e);
-        e = list_remove(&handle->read_list, e);
-        #ifdef _BNODE_COMP
-            free(block->compsize);
-            free(block->uncompsize);
-        #endif        
-        mempool_free(block->addr);
-        mempool_free(block);
-    }*/
 
+        #ifdef __BTREEBLK_CACHE
+            _btreeblk_dump_recycle_bin(handle, block);
+            dumped = 1;
+        #else        
+            mempool_free(block->addr);
+            mempool_free(block);
+        #endif
+    }
+
+    if (dumped) _btreeblk_empty_recycle_bin(handle);
     DBG("btreeblk_end\n");
 }
 

@@ -10,12 +10,19 @@
 #include "list.h"
 #include "btree.h"
 
+struct btreeblk_block;
+
 struct btreeblk_handle{
     uint32_t nodesize;
     uint16_t nnodeperblock;
     struct list alc_list;
     struct list read_list;
     struct filemgr *file;
+    #ifdef __BTREEBLK_CACHE
+        uint16_t bin_size;
+        struct list recycle_bin;
+        struct btreeblk_block *cache[BTREEBLK_CACHE_LIMIT];
+    #endif
 };
 
 struct btree_blk_ops *btreeblk_get_ops();

@@ -33,4 +33,7 @@
 #define BCACHE_NDICBUCKET (4096)
 #define BCACHE_FLUSH_UNIT (524288)
 
+#define __BTREEBLK_CACHE
+#define BTREEBLK_CACHE_LIMIT (16)
+
 #endif
