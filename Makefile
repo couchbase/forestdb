@@ -26,13 +26,15 @@ DOCIOTEST = tests/docio_test.o
 HBTRIE = src/hbtrie.o $(BTREE) $(DOCIO) $(BTREEBLOCK) $(LIST)
 HBTRIETEST = tests/hbtrie_test.o
 
+CRCTEST = tests/crc_test.o utils/crc32.o
+
 WAL = src/wal.o $(HASH)
 
 FDB = \
 	src/forestdb.o src/hbtrie.o src/btree.o src/btree_kv.o \
 	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
 	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
-	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o
+	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o
 FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
 	
 FDBTEST = tests/forestdb_test.o
@@ -51,6 +53,7 @@ PROGRAMS = \
 	tests/btreeblock_test \
 	tests/docio_test \
 	tests/hbtrie_test \
+	tests/crc_test \
 	forestdb_test \
 	couchstore_api/couchbench_ori \
 	couchstore_api/couchbench_fdb \
@@ -92,6 +95,9 @@ tests/docio_test: $(DOCIOTEST) $(DOCIO)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 tests/hbtrie_test: $(HBTRIETEST) $(HBTRIE) $(BTREE)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+tests/crc_test: $(CRCTEST)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 forestdb_test: lib $(FDBTEST)

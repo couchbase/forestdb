@@ -336,14 +336,10 @@ void seqnum_test()
         }
 
         fdb_doc_free(rdoc);
-    }
-
-    
-    
+    }    
     fdb_close(&db);
     
     TEST_TIME();
-
     TEST_RESULT("seqnum test");
 }
 
@@ -352,7 +348,7 @@ void seqnum_test()
 int main(){
     //basic_test();
     //large_test(1000000, 32, 32, 512);
-	seqnum_test();
+    seqnum_test();
 
     return 0;
 }
