@@ -38,13 +38,22 @@ INLINE struct bnode *_fetch_bnode(void *addr)
 
 INLINE int _bnode_size(struct btree *btree, struct bnode *node)
 {
+    int nodesize = 0;
+    
     if (node->flag & BNODE_MASK_METADATA) {
         metasize_t size;
         memcpy(&size, (void *)node + sizeof(struct bnode), sizeof(metasize_t));
-        return sizeof(struct bnode) + (btree->ksize + btree->vsize) * node->nentry + size + sizeof(metasize_t);
+        nodesize = sizeof(struct bnode) + (btree->ksize + btree->vsize) * node->nentry + 
+            size + sizeof(metasize_t);
     }else{
-        return sizeof(struct bnode) + (btree->ksize + btree->vsize) * node->nentry;
+        nodesize = sizeof(struct bnode) + (btree->ksize + btree->vsize) * node->nentry;
     }
+
+#ifdef __CRC32
+    nodesize -= BLK_MARK_SIZE;
+#endif
+    
+    return nodesize;
 }
 
 // return true if there is enough space to insert one or more kv-pair into the NODE
@@ -69,6 +78,10 @@ INLINE struct bnode * _btree_init_node(
     }else{
         node->data = addr + sizeof(struct bnode);
     }
+
+#ifdef __CRC32
+    memset(addr + btree->blksize - 1, BLK_MARK_BNODE, BLK_MARK_SIZE);
+#endif
 
     return node;
 }

@@ -272,8 +272,9 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
         // remove from dirtylist
         list_remove(ditem->item->list, &ditem->item->list_elem);
 
-        if (sync)
+        if (sync) {
             memcpy(buf + count*bcache_blocksize, ditem->item->addr, bcache_blocksize);
+        }
 
         // insert into cleanlist
         ditem->item->list = &cleanlist;
@@ -452,6 +453,70 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
 
     return bcache_blocksize;
 }
+
+int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offset, size_t len)
+{
+    struct hash_elem *h;
+    struct list_elem *e;
+    struct bcache_item *item;
+    struct bcache_item query;
+    struct fnamedic_item fname, *fname_new;
+
+    // lookup filename first
+    fname.filename = file->filename;
+    fname.filename_len = file->filename_len;
+    h = hash_find(&fnamedic, &fname.hash_elem);
+
+    if (h == NULL) {
+        // filename doesn't exist in filename dictionary .. create
+        fname_new = _fname_create(file);
+        h = &fname_new->hash_elem;
+    }
+
+    query.bid = bid;
+    query.fname = _get_entry(h, struct fnamedic_item, hash_elem);
+    query.fname->curfile = file;
+
+    h = NULL;
+    if (query.fname->lastitem) {
+        if (query.bid == query.fname->lastitem->bid) {
+            // hit last accessed BID
+            h = &query.fname->lastitem->hash_elem;
+        }
+    }
+    if (h == NULL) {
+        h = hash_find(&hash, &query.hash_elem);
+    }
+
+    if (h == NULL) {
+        // cache miss .. partial write fail .. return 0
+        return 0;
+        
+    }else{
+        item = _get_entry(h, struct bcache_item, hash_elem);
+    }
+    
+    memcpy(item->addr + offset, buf, len);
+
+    list_remove(item->list, &item->list_elem);
+
+    if (item->list != &dirtylist) {
+        struct dirty_item *ditem;
+
+        item->list = &dirtylist;
+        DBGCMD(_dirty++;)
+            
+        ditem = (struct dirty_item *)mempool_alloc(sizeof(struct dirty_item));
+        ditem->item = item;
+        rbwrap_insert(&item->fname->rbtree, &ditem->rb, _dirty_cmp);
+    }
+    
+    list_push_front(item->list, &item->list_elem);
+    query.fname->lastitem = item;
+
+    return len;
+}
+
 
 // remove all dirty blocks of the FILE (they are only removed and not written back)
 void bcache_remove_file(struct filemgr *file)

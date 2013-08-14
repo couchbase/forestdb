@@ -250,6 +250,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 
 void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint64_t len, void *buf)
 {
+    int r = 0;
     uint64_t pos = bid * file->blocksize + offset;
     assert(pos >= file->last_commit);
 
@@ -258,19 +259,24 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
             // write entire block .. we don't need to read previous block
             bcache_write(file, bid, buf, BCACHE_DIRTY);
         }else {
-            // write partially .. we have to read previous contents of the block
-            #ifdef __MEMORY_ALIGN
-                void *_buf = temp_buf[0];
-            #else
-                uint8_t _buf[file->blocksize];
-            #endif
-    
-            int r = bcache_read(file, bid, _buf);
-            if (r==0) {
-                r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
+            // partially write buffer cache first
+            r = bcache_write_partial(file, bid, buf, offset, len);
+            if (r == 0) {    
+                // cache miss
+                // write partially .. we have to read previous contents of the block
+                #ifdef __MEMORY_ALIGN
+                    void *_buf = temp_buf[0];
+                #else
+                    uint8_t _buf[file->blocksize];
+                #endif
+
+                r = bcache_read(file, bid, _buf);
+                if (r==0) {
+                    r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
+                }
+                memcpy(_buf + offset, buf, len);
+                bcache_write(file, bid, _buf, BCACHE_DIRTY);
             }
-            memcpy(_buf + offset, buf, len);
-            bcache_write(file, bid, _buf, BCACHE_DIRTY);
         }
     }else{
         file->ops->pwrite(file->fd, buf, len, pos);

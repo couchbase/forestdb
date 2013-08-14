@@ -11,6 +11,8 @@
 
 //#define __O_DIRECT
 
+#define __CRC32
+
 #define __BIT_CMP
 
 #define __WAL_KEY_COPY

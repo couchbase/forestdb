@@ -4,6 +4,7 @@
 
 #include "test.h"
 #include "crc32.h"
+#include "hash_functions.h"
 
 int main()
 {
@@ -12,7 +13,7 @@ int main()
     size_t len = 1024*1024*1024 + 7;
     void *dummy;
     size_t i;
-    uint32_t r1, r2;
+    uint32_t r1, r2, r3;
 
     dummy = (void *)malloc(len);
     for (i=0;i<len/sizeof(size_t); i+=sizeof(size_t)) {
@@ -26,6 +27,10 @@ int main()
     TEST_TIME();
 
     r2 = crc32_1(dummy, len, 0);
+
+    TEST_TIME();
+
+    r3 = hash_djb2(dummy, len);
 
     TEST_TIME();
 

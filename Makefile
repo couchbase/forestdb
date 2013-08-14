@@ -6,6 +6,8 @@ RBTREE = src/rbtree.o src/rbwrap.o
 HASH = src/hash.o src/hash_functions.o $(LIST) $(RBTREE)
 HASHTEST = tests/hash_test.o
 
+CRC32 = utils/crc32.o
+
 MEMPOOL = src/mempool.o $(LIST)
 MEMPOOLTEST = tests/mempool_test.o
 
@@ -17,7 +19,7 @@ FILEMGR = src/filemgr.o src/filemgr_ops_linux.o $(HASH) $(BCACHE)
 BCACHETEST = tests/bcache_test.o $(FILEMGR)
 FILEMGRTEST = tests/filemgr_test.o
 
-BTREEBLOCK = src/btreeblock.o $(LIST) $(FILEMGR) $(MEMPOOL)
+BTREEBLOCK = src/btreeblock.o $(LIST) $(FILEMGR) $(MEMPOOL) $(CRC32)
 BTREEBLOCKTEST = tests/btreeblock_test.o
 
 DOCIO = src/docio.o $(FILEMGR)
@@ -26,7 +28,7 @@ DOCIOTEST = tests/docio_test.o
 HBTRIE = src/hbtrie.o $(BTREE) $(DOCIO) $(BTREEBLOCK) $(LIST)
 HBTRIETEST = tests/hbtrie_test.o
 
-CRCTEST = tests/crc_test.o utils/crc32.o
+CRCTEST = tests/crc_test.o utils/crc32.o src/hash_functions.o
 
 WAL = src/wal.o $(HASH)
 

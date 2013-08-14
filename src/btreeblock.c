@@ -10,6 +10,7 @@
 
 #include "common.h"
 #include "btreeblock.h"
+#include "crc32.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_BTREEBLOCK
@@ -295,6 +296,44 @@ void btreeblk_set_dirty(void *voidhandle, bid_t bid)
     }
 }
 
+INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle, struct btreeblk_block *block)
+{
+    #ifdef _BNODE_COMP
+        free(block->compsize);
+        free(block->uncompsize);            
+    #endif
+
+    #ifdef __BTREEBLK_CACHE
+        _btreeblk_dump_recycle_bin(handle, block);
+    #else                
+        mempool_free(block->addr);
+        mempool_free(block);
+    #endif
+}
+
+INLINE void _btreeblk_write_dirty_block(struct btreeblk_handle *handle, struct btreeblk_block *block)
+{
+    //2 MUST BE modified to support multiple nodes in a block
+
+    /*
+#ifdef __CRC32
+    size_t offset = offsetof(struct bnode, data);
+    void *dataptr = block->addr + offset;
+    uint32_t crc32 = crc32_8(block->addr, handle->file->blocksize, 0);
+    memcpy(block->addr + offset, &crc32, sizeof(crc32));
+    if (sizeof(void *) > 4) {
+        memset(block->addr + offset + sizeof(crc32), 0xff, sizeof(void *) - sizeof(crc32));
+    }
+#endif*/
+    
+    filemgr_write(handle->file, block->bid, block->addr);
+    /*
+#ifdef __CRC32
+    // rollback original pointer value
+    memcpy(block->addr + offset, &dataptr, sizeof(void *));
+#endif*/
+}
+
 void btreeblk_operation_end(void *voidhandle)
 {
     DBG("btreeblk_operation_end\n");
@@ -312,7 +351,7 @@ void btreeblk_operation_end(void *voidhandle)
         writable = filemgr_is_writable(handle->file, block->bid);
         if (writable) { 
             #ifndef _BNODE_COMP
-                filemgr_write(handle->file, block->bid, block->addr);
+                _btreeblk_write_dirty_block(handle, block);
             #else
                 // compress
                 _btreeblk_comp_and_write(handle, block);
@@ -321,19 +360,9 @@ void btreeblk_operation_end(void *voidhandle)
 
         if (block->pos + (handle->nodesize << coe) > (handle->file->blocksize << coe) || !writable) {
             e = list_remove(&handle->alc_list, e);
-            #ifdef _BNODE_COMP
-                free(block->compsize);
-                free(block->uncompsize);            
-            #endif
-
-            #ifdef __BTREEBLK_CACHE
-                _btreeblk_dump_recycle_bin(handle, block);
-                dumped = 1;
-            #else                
-                mempool_free(block->addr);
-                mempool_free(block);
-            #endif
-
+            _btreeblk_free_dirty_block(handle, block);
+            dumped = 1;
+            
         }else {
             // reserve the block when there is enough space and the block is writable
             e = list_next(e);
@@ -348,24 +377,15 @@ void btreeblk_operation_end(void *voidhandle)
         if (block->dirty) {
             // write back only when the block is modified
             #ifndef _BNODE_COMP
-                filemgr_write(handle->file, block->bid, block->addr);
+                _btreeblk_write_dirty_block(handle, block);
             #else
                 // compress
                 _btreeblk_comp_and_write(handle, block);
             #endif
         }
-        #ifdef _BNODE_COMP
-            free(block->compsize);
-            free(block->uncompsize);
-        #endif
 
-        #ifdef __BTREEBLK_CACHE
-            _btreeblk_dump_recycle_bin(handle, block);        
-            dumped = 1;
-        #else        
-            mempool_free(block->addr);
-            mempool_free(block);
-        #endif
+        _btreeblk_free_dirty_block(handle, block);
+        dumped = 1;
         
     }    
 
@@ -374,7 +394,7 @@ void btreeblk_operation_end(void *voidhandle)
 
 #ifdef _BNODE_COMP
 
-// TODO: MUST BE optimized: btree_set_uncomp_size, btreeblk_comp_size
+//2 TODO: MUST BE optimized: btree_set_uncomp_size, btreeblk_comp_size
 void btreeblk_set_uncomp_size(void *voidhandle, bid_t bid, size_t uncomp_size)
 {
     struct list_elem *e;
@@ -501,18 +521,9 @@ void btreeblk_end(struct btreeblk_handle *handle)
     while(e) {
         block = _get_entry(e, struct btreeblk_block, e);
         e = list_remove(&handle->alc_list, e);
-        #ifdef _BNODE_COMP
-            free(block->compsize);
-            free(block->uncompsize);
-        #endif
 
-        #ifdef __BTREEBLK_CACHE
-            _btreeblk_dump_recycle_bin(handle, block);
-            dumped = 1;
-        #else        
-            mempool_free(block->addr);
-            mempool_free(block);
-        #endif
+        _btreeblk_free_dirty_block(handle, block);
+        dumped = 1;
     }
 
     if (dumped) _btreeblk_empty_recycle_bin(handle);

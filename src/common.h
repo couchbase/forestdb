@@ -90,8 +90,12 @@ static struct timeval _utime_gap(struct timeval a, struct timeval b)
     offset_var += size
 
 typedef uint64_t bid_t;
-#define BLK_NOT_FOUND 0xffffffffffffffff
+#define BLK_NOT_FOUND (0xffffffffffffffff)
 
+#define BLK_MARK_BNODE (0xff)
+#define BLK_MARK_DBHEADER (0xee)
+#define BLK_MARK_DOC (0xdd)
+#define BLK_MARK_SIZE (1)
 
 #define randomize() srand((unsigned)time(NULL))
 #define random(num) ((rand())%(num))

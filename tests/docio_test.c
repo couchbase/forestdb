@@ -26,6 +26,7 @@ void basic_test()
 
     uint64_t offset;
     uint32_t docsize;
+    int r;
     int blocksize = 128;
     struct docio_handle handle;
     struct filemgr *file;
@@ -43,7 +44,8 @@ void basic_test()
 
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
-    file = filemgr_open("./test", get_linux_filemgr_ops(), config);
+    r = system("rm -rf ./dummy");
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
     docio_init(&handle, file);
 
     docsize = _set_doc(&doc, "this_is_key", "this_is_metadata", "this_is_body_lawiefjaawleif");    
@@ -77,6 +79,7 @@ void basic_test()
     docio_read_doc_key(&handle, 65, &keylen, keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
+    filemgr_commit(file);
     filemgr_close(file);
 
     TEST_RESULT("basic test");

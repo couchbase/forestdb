@@ -313,12 +313,8 @@ void _fdb_set_file_header(fdb_handle *handle)
     uint8_t buf[256];
     size_t offset = 0;
 
-    /*
-    memcpy(buf + offset, &handle->trie->root_bid, sizeof(handle->trie->root_bid));
-    memcpy(buf + sizeof(handle->trie->root_bid), &handle->trie->root_bid, sizeof(handle->trie->root_bid));
-    */
     seq_memcpy(buf + offset, &handle->trie->root_bid, sizeof(handle->trie->root_bid), offset);
-    // this should be changed to the root bid of seq b-tree
+
     if (handle->config.seqtree == FDB_SEQTREE_USE) {
         seq_memcpy(buf + offset, &handle->seqtree->root_bid, sizeof(handle->seqtree->root_bid), offset);
     }else{
