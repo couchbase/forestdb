@@ -13,7 +13,7 @@ MEMPOOLTEST = tests/mempool_test.o
 
 BTREE = src/btree.o src/btree_kv.o
 
-BCACHE = src/blockcache.o $(HASH) $(RBTREE) $(MEMPOOL)
+BCACHE = src/blockcache.o $(HASH) $(RBTREE) $(MEMPOOL) $(CRC32)
 FILEMGR = src/filemgr.o src/filemgr_ops_linux.o $(HASH) $(BCACHE)
 
 BCACHETEST = tests/bcache_test.o $(FILEMGR)
@@ -22,7 +22,7 @@ FILEMGRTEST = tests/filemgr_test.o
 BTREEBLOCK = src/btreeblock.o $(LIST) $(FILEMGR) $(MEMPOOL) $(CRC32)
 BTREEBLOCKTEST = tests/btreeblock_test.o
 
-DOCIO = src/docio.o $(FILEMGR)
+DOCIO = src/docio.o $(FILEMGR) $(CRC32)
 DOCIOTEST = tests/docio_test.o
 
 HBTRIE = src/hbtrie.o $(BTREE) $(DOCIO) $(BTREEBLOCK) $(LIST)

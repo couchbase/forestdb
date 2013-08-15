@@ -6,7 +6,7 @@
 #include "crc32.h"
 #include "hash_functions.h"
 
-int main()
+void basic_test()
 {
     TEST_INIT();
 
@@ -39,5 +39,31 @@ int main()
     free(dummy);
 
     TEST_RESULT("crc32 slicing-8 test");
+}
+
+void endian_test()
+{
+    uint32_t a, b, c;
+    char buf[12];
+    uint32_t r1, r2;
+    a = 0xabcddef0;
+    b = 0x13576420;
+    c = 0x01234567;
+    memcpy(buf, &a, sizeof(uint32_t));
+    memcpy(buf + 4, &b, sizeof(uint32_t));    
+    memcpy(buf + 8, &c, sizeof(uint32_t));    
+
+    r1 = crc32_8(buf, 12, 0);
+    r2 = crc32_8(&a, 4, 0);
+    r2 = crc32_8(&b, 4, r2);
+    r2 = crc32_8(&c, 4, r2);
+
+    DBG("%u %u\n", r1,r2);
+    
+}
+
+int main()
+{
+    endian_test();
     return 0;
 }

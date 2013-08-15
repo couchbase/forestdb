@@ -13,6 +13,7 @@
 #include "hash_functions.h"
 #include "blockcache.h"
 #include "wal.h"
+#include "crc32.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FILEMGR
@@ -245,6 +246,16 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
         }
     } else {
         file->ops->pread(file->fd, buf, file->blocksize, pos);
+        #ifdef __CRC32
+            if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARK_BNODE ) {
+                uint32_t crc_file, crc;
+                memcpy(&crc_file, buf + 8, sizeof(crc_file));
+                memset(buf + 8, 0xff, sizeof(void *));
+                crc = crc32_8(buf, file->blocksize, 0);
+                assert(crc == crc_file);
+            }
+            
+        #endif
     }
 }
 

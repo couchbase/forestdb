@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "docio.h"
+#include "crc32.h"
 
 void docio_init(struct docio_handle *handle, struct filemgr *file)
 {
@@ -279,6 +280,7 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
     uint64_t docsize;
     //uint8_t buf[docsize];
     uint32_t offset = 0;
+    uint32_t crc;
     bid_t ret_offset;
     void *buf;
     size_t compbuf_len;
@@ -297,6 +299,9 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
     #endif
 
     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
+    #ifdef __CRC32
+        docsize += sizeof(crc);
+    #endif
     buf = (void *)malloc(docsize);
 
     memcpy(buf + offset, &length, sizeof(struct docio_length));
@@ -322,6 +327,11 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
         #endif
         offset += length.bodylen;
     }
+
+    #ifdef __CRC32
+        crc = crc32_8(buf, docsize - sizeof(crc), 0);
+        memcpy(buf + offset, &crc, sizeof(crc));
+    #endif
 
     ret_offset = docio_append_doc_raw(handle, docsize, buf);
     free(buf);
@@ -497,10 +507,20 @@ void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_o
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
-    #ifdef _DOC_COMP
-        _offset = _docio_read_doc_component_comp(handle, _offset, &doc->length.bodylen, doc->body);        
-    #else
-        _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen, doc->body);        
-    #endif
+#ifdef _DOC_COMP
+    _offset = _docio_read_doc_component_comp(handle, _offset, &doc->length.bodylen, doc->body);        
+#else
+    _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen, doc->body);        
+#endif
+
+#ifdef __CRC32
+    uint32_t crc_file, crc;
+    _offset = _docio_read_doc_component(handle, _offset, sizeof(crc_file), &crc_file);
+    crc = crc32_8(&doc->length, sizeof(doc->length), 0);
+    crc = crc32_8(doc->key, doc->length.keylen, crc);
+    crc = crc32_8(doc->meta, doc->length.metalen, crc);
+    crc = crc32_8(doc->body, doc->length.bodylen, crc);
+    assert(crc == crc_file);
+#endif
 }
 

@@ -13,6 +13,7 @@
 #include "list.h"
 #include "rbwrap.h"
 #include "blockcache.h"
+#include "crc32.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_BCACHE
@@ -46,7 +47,7 @@ struct fnamedic_item {
     char *filename;
     uint16_t filename_len;
     
-    uint32_t hash;
+    //uint32_t hash;
 
     // current opened filemgr instance (can be changed on-the-fly when file is closed and re-opened)
     struct filemgr *curfile;
@@ -100,7 +101,8 @@ INLINE uint32_t _fname_hash(struct hash *hash, struct hash_elem *e)
     //int len = strlen(item->filename);
     int len = item->filename_len;
     int offset = MIN(len, 8);
-    return hash_djb2(item->filename + (len - offset), offset) & ((unsigned)(BCACHE_NDICBUCKET-1));
+    //return hash_djb2(item->filename + (len - offset), offset) & ((unsigned)(BCACHE_NDICBUCKET-1));
+    return crc32_8(item->filename + (len - offset), offset, 0) & ((unsigned)(BCACHE_NDICBUCKET-1));
 }
 
 INLINE int _fname_cmp(struct hash_elem *a, struct hash_elem *b) 
@@ -273,6 +275,16 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
         list_remove(ditem->item->list, &ditem->item->list_elem);
 
         if (sync) {
+            #ifdef __CRC32
+                void *ptr = ditem->item->addr;
+                uint8_t mark = *((uint8_t*)(ptr) + bcache_blocksize-1);
+                if (mark == BLK_MARK_BNODE ) {
+                    // b-tree node .. calculate crc32 and put it into 8th byte of the block
+                    memset(ptr + 8, 0xff, sizeof(void *));
+                    uint32_t crc = crc32_8(ptr, bcache_blocksize, 0);
+                    memcpy(ptr + 8, &crc, sizeof(crc));
+                }
+            #endif
             memcpy(buf + count*bcache_blocksize, ditem->item->addr, bcache_blocksize);
         }
 
@@ -346,8 +358,9 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->filename[fname_new->filename_len] = 0;
 
     // calculate hash value
+    /*
     fname_new->hash = hash_djb2(
-        fname_new->filename + fname_new->filename_len, fname_new->filename_len);
+        fname_new->filename + fname_new->filename_len, fname_new->filename_len);*/
     fname_new->lastitem = NULL;
 
     // initialize rb-tree

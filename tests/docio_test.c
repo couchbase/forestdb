@@ -50,33 +50,33 @@ void basic_test()
 
     docsize = _set_doc(&doc, "this_is_key", "this_is_metadata", "this_is_body_lawiefjaawleif");    
     offset = docio_append_doc(&handle, &doc);
-    DBG("docsize %d written at %"_F64" ~ %"_F64"\n", docsize, offset, offset + docsize);
+    DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     docsize = _set_doc(&doc, "this_is_key2", "this_is_metadata2", "hello_world");    
     offset = docio_append_doc(&handle, &doc);
-    DBG("docsize %d written at %"_F64" ~ %"_F64"\n", docsize, offset, offset + docsize);
+    DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     docsize = _set_doc(&doc, "key3", "a", "b");    
     offset = docio_append_doc(&handle, &doc);
-    DBG("docsize %d written at %"_F64" ~ %"_F64"\n", docsize, offset, offset + docsize);
+    DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     docsize = _set_doc(&doc, "key4", "a", "b");    
     offset = docio_append_doc(&handle, &doc);
-    DBG("docsize %d written at %"_F64" ~ %"_F64"\n", docsize, offset, offset + docsize);
+    DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     docsize = _set_doc(&doc, "key5", "a", "b");    
     offset = docio_append_doc(&handle, &doc);
-    DBG("docsize %d written at %"_F64" ~ %"_F64"\n", docsize, offset, offset + docsize);
+    DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     doc.length.keylen = 1;
     doc.length.metalen = 1;
     doc.length.bodylen = 190;
     docsize = 12 + 182;
     offset = docio_append_doc(&handle, &doc);
-    DBG("docsize %d written at %"_F64" ~ %"_F64"\n", docsize, offset, offset + docsize);
+    DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     keylen_t keylen;
-    docio_read_doc_key(&handle, 65, &keylen, keybuf);
+    docio_read_doc_key(&handle, 69, &keylen, keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
     filemgr_commit(file);
