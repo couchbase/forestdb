@@ -432,6 +432,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
         r = btree_init_from_bid(btree, trie->btreeblk_handle, trie->btree_blk_ops,
                                 trie->btree_kv_ops, trie->btree_nodesize,
                                 trie->root_bid);
+        assert(btree->ksize == trie->chunksize && btree->vsize == trie->valuelen);
     }
 
     while (curchunkno < nchunk) {

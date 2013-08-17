@@ -207,7 +207,10 @@ void two_btree_test()
 
 int main()
 {
-    mempool_init();
+    #ifdef _MEMPOOL
+        mempool_init();
+    #endif
+
     int r = system("rm -rf ./dummy");
     //basic_test();
     iterator_test();

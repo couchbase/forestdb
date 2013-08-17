@@ -123,6 +123,8 @@ INLINE _btreeblk_comp_and_write(struct btreeblk_handle *handle, struct btreeblk_
 
 #endif
 
+#ifdef __BTREEBLK_CACHE
+
 INLINE struct btreeblk_block *_btreeblk_find_recycle_bin(struct btreeblk_handle *handle, bid_t bid)
 {
     struct list_elem *elm = NULL;
@@ -191,6 +193,8 @@ INLINE void _btreeblk_empty_recycle_bin(struct btreeblk_handle *handle)
     handle->bin_size = BTREEBLK_CACHE_LIMIT;
 }
 
+#endif
+
 void * btreeblk_read(void *voidhandle, bid_t bid)
 {
     struct list_elem *elm = NULL;
@@ -217,7 +221,6 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
     }
 
     // there is no block in lists
-
 #ifdef __BTREEBLK_CACHE
     // first find simple cache
     
@@ -226,7 +229,6 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
         block = cached_block;
         block->dirty = 0;
         block->pos = (handle->file->blocksize << coe);
-        //DBG("block %ld hit\n", block->bid);
         list_push_front(&handle->read_list, &block->e);
         return block->addr + (handle->nodesize << coe) * offset;
     }
@@ -336,8 +338,6 @@ INLINE void _btreeblk_write_dirty_block(struct btreeblk_handle *handle, struct b
 
 void btreeblk_operation_end(void *voidhandle)
 {
-    DBG("btreeblk_operation_end\n");
-
     // flush and write all items in allocation list
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;
@@ -389,7 +389,9 @@ void btreeblk_operation_end(void *voidhandle)
         
     }    
 
-    if (dumped) _btreeblk_empty_recycle_bin(handle);
+    #ifdef __BTREEBLK_CACHE
+        if (dumped) _btreeblk_empty_recycle_bin(handle);
+    #endif
 }
 
 #ifdef _BNODE_COMP
@@ -526,8 +528,9 @@ void btreeblk_end(struct btreeblk_handle *handle)
         dumped = 1;
     }
 
-    if (dumped) _btreeblk_empty_recycle_bin(handle);
-    DBG("btreeblk_end\n");
+    #ifdef __BTREEBLK_CACHE
+        if (dumped) _btreeblk_empty_recycle_bin(handle);
+    #endif
 }
 
 

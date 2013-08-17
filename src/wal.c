@@ -37,8 +37,8 @@
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item *item = _get_entry(e, struct wal_item, he_key);
-    //return hash_djb2(item->key, MIN(8, item->keylen)) & ((uint64_t)hash->nbuckets - 1);
-    return crc32_8(item->key, MIN(8, item->keylen), 0) & ((uint64_t)hash->nbuckets - 1);
+    return hash_djb2(item->key, MIN(8, item->keylen)) & ((uint64_t)hash->nbuckets - 1);
+    //return crc32_8(item->key, MIN(8, item->keylen), 0) & ((uint64_t)hash->nbuckets - 1);
 }
 
 INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
@@ -48,8 +48,18 @@ INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
     aa = _get_entry(a, struct wal_item, he_key);
     bb = _get_entry(b, struct wal_item, he_key);
 
+    if (aa->keylen == bb->keylen) return memcmp(aa->key, bb->key, aa->keylen);
+    else {
+        size_t len = MIN(aa->keylen , bb->keylen);
+        int cmp = memcmp(aa->key, bb->key, len);
+        if (cmp != 0) return cmp;
+        else {
+            return (int)((int)aa->keylen - (int)bb->keylen);
+        }
+    }
+/*
     if (aa->keylen != bb->keylen) return ((int)aa->keylen - (int)bb->keylen);
-    return memcmp(aa->key, bb->key, aa->keylen);
+    return memcmp(aa->key, bb->key, aa->keylen);*/
 }
 
 #ifdef __FDB_SEQTREE
@@ -102,6 +112,7 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
     #endif
 
     if (e) {
+        // already exists in WAL index
         #ifdef __FDB_SEQTREE
             item = _get_entry(e, struct wal_item, he_seq);
         #else
@@ -111,7 +122,9 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
         item->doc_size = doc->keylen + doc->metalen + doc->bodylen + sizeof(struct docio_length);
         item->offset = offset;
         item->action = WAL_ACT_INSERT;
-    }else{
+        
+    }else{        
+        // not exist .. create new one
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
         
@@ -186,6 +199,7 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
 
 wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
 {
+    //3 search by only key
     struct wal_item *item;
     struct wal_item query;
     struct hash_elem *e;
@@ -196,20 +210,10 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
     query.keylen = keylen;
     SEQTREE( memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t)) );
 
-    /*
-    #ifdef __FDB_SEQTREE
-        e = hash_find(&file->wal->hash_byseq, &query.he_seq);
-    #else*/
-        e = hash_find(&file->wal->hash_bykey, &query.he_key);
-    //#endif
+    e = hash_find(&file->wal->hash_bykey, &query.he_key);
     
     if (e) {
-        /*
-        #ifdef __FDB_SEQTREE
-            item = _get_entry(e, struct wal_item, he_seq);
-        #else*/
-            item = _get_entry(e, struct wal_item, he_key);
-        //#endif
+        item = _get_entry(e, struct wal_item, he_key);
         
         if (item->action == WAL_ACT_INSERT) {
             item->action = WAL_ACT_REMOVE;

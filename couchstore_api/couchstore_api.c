@@ -2,9 +2,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #include "forestdb.h"
 #include "couch_db.h"
+#include "debug.h"
 
 #define META_BUF_MAXLEN 256
 
@@ -212,6 +214,8 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
     size_t rev_meta_size, max_meta_size = 256;
     size_t meta_offset;
 
+    DBGSW(0, int temp=0; );
+
     meta_offset = sizeof(uint64_t)*2 + sizeof(int) + sizeof(couchstore_content_meta_flags);
 
     docinfo = (DocInfo*)malloc(sizeof(DocInfo) + max_meta_size);
@@ -222,6 +226,8 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
         _doc.meta = _doc.body = NULL;
 
         status = fdb_get_metaonly(&db->fdb, &_doc, &offset);
+        assert(status != FDB_RESULT_FAIL);
+        
         memcpy(&rev_meta_size, _doc.meta + meta_offset, sizeof(size_t));
         if (rev_meta_size > max_meta_size) {
             max_meta_size = rev_meta_size;

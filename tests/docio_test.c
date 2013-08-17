@@ -36,8 +36,6 @@ void basic_test()
     struct docio_object doc;
     struct filemgr_config config;
 
-    mempool_init();
-
     doc.key = keybuf;
     doc.meta = metabuf;
     doc.body = bodybuf;
@@ -87,6 +85,11 @@ void basic_test()
 
 int main()
 {
+    #ifdef _MEMPOOL
+        mempool_init();
+    #endif
+
+
     basic_test();
 
     return 0;

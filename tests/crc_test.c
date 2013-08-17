@@ -44,7 +44,7 @@ void basic_test()
 void endian_test()
 {
     uint32_t a, b, c;
-    char buf[12];
+    char buf[12], str[256];
     uint32_t r1, r2;
     a = 0xabcddef0;
     b = 0x13576420;
@@ -59,11 +59,24 @@ void endian_test()
     r2 = crc32_8(&c, 4, r2);
 
     DBG("%u %u\n", r1,r2);
+
+    sprintf(str, "1234aaaaaaaa");
+    a = crc32_8_last8(str, strlen(str), 0);
+    sprintf(str, "5678aaaaaaaa");
+    b = crc32_8_last8(str, strlen(str), 0);
+    DBG("%u %u\n", a, b);
+
+    sprintf(str, "./dummy12");
+    a = crc32_8_last8(str, strlen(str), 0);
+    sprintf(str, ";/dummy21");
+    b = crc32_8_last8(str, strlen(str), 0);
+    DBG("%u %u\n", a, b);
     
 }
 
 int main()
 {
+    //basic_test();
     endian_test();
     return 0;
 }

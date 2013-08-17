@@ -16,7 +16,7 @@
 #define __BIT_CMP
 
 #define __WAL_KEY_COPY
-#define __WAL_FLUSH_BEFORE_COMMIT
+//#define __WAL_FLUSH_BEFORE_COMMIT
 
 //#define __DEBUG_FDB
 //#define __DEBUG_WAL
@@ -31,7 +31,7 @@
 #define FDB_WAL_NBUCKET (262144)
 
 // MUST BE a power of 2
-#define BCACHE_NBUCKET (65536)
+#define BCACHE_NBUCKET (256*1024)
 #define BCACHE_NDICBUCKET (4096)
 #define BCACHE_FLUSH_UNIT (524288)
 

@@ -49,6 +49,12 @@ struct btreeblk_handle;
 struct docio_handle;
 struct btree_blk_ops;
 
+typedef uint8_t fdb_wal_dirty_t;
+enum {
+    FDB_WAL_CLEAN = 0,
+    FDB_WAL_DIRTY = 1
+};
+
 typedef struct {
     struct hbtrie *trie;
     struct btree *seqtree;
@@ -58,9 +64,11 @@ typedef struct {
     struct btree_blk_ops *btreeblkops;
     struct filemgr_ops *fileops;
     fdb_config config;
+    uint64_t last_header_bid;
     uint64_t datasize;
     uint64_t ndocs;
     uint16_t btree_fanout;
+    fdb_wal_dirty_t wal_dirty;
 } fdb_handle;
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config);

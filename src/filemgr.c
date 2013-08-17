@@ -80,25 +80,29 @@ void filemgr_init(struct filemgr_config config)
 
 void _filemgr_read_header(struct filemgr *file)
 {
+    uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
     filemgr_header_len_t len;
-    
-    file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic));
-    
-    if (magic == FILEMGR_MAGIC) {
-        file->ops->pread(file->fd, &len, sizeof(len),
-                         file->pos - sizeof(magic) - sizeof(len));
-        file->header.data = (void *)malloc(len);
-        file->ops->pread(file->fd, file->header.data, len,
-                         file->pos - file->blocksize);
-        file->header.size = len;
 
-        //file->pos -= len + sizeof(magic) + sizeof(len);
-        file->last_commit = file->pos;
-    } else {
-        file->header.size = 0;
-        file->header.data = NULL;
-    }
+    file->ops->pread(file->fd, marker, BLK_MARKER_SIZE, file->pos - BLK_MARKER_SIZE);
+    
+    if (marker[0] == BLK_MARKER_DBHEADER) {
+        file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic) - BLK_MARKER_SIZE);
+        if (magic == FILEMGR_MAGIC) {
+            file->ops->pread(file->fd, &len, sizeof(len),
+                             file->pos - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE);
+            file->header.data = (void *)malloc(len);
+            file->ops->pread(file->fd, file->header.data, len,
+                             file->pos - file->blocksize);
+            file->header.size = len;
+
+            //file->pos -= len + sizeof(magic) + sizeof(len);
+            file->last_commit = file->pos;
+            return ;
+        }
+    } 
+    file->header.size = 0;
+    file->header.data = NULL;
 }
 
 struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
@@ -143,14 +147,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->blocksize = global_config.blocksize;
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
         
-        //if (file->pos % file->blocksize != 0) {
-            // read header
-            _filemgr_read_header(file);
-            /*
-        } else {
-             file->header.size = 0;
-             file->header.data = NULL;
-        }*/
+        _filemgr_read_header(file);
         
         file->lock = SPIN_INITIALIZER;
         hash_insert(&hash, &file->e);
@@ -175,7 +172,7 @@ void filemgr_close(struct filemgr *file)
     if (global_config.ncacheblock > 0) {
         //bcache_flush(file);
         // remove all dirty blocks belong to this file
-        bcache_remove_file(file);
+        bcache_remove_dirty_blocks(file);
     }
 
     file->ops->close(file->fd);
@@ -242,19 +239,27 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
         int r = bcache_read(file, bid, buf);
         if (r == 0) {
             file->ops->pread(file->fd, buf, file->blocksize, pos);
+            #ifdef __CRC32
+                if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
+                    uint32_t crc_file, crc;
+                    memcpy(&crc_file, buf + 8, sizeof(crc_file));
+                    memset(buf + 8, 0xff, sizeof(void *));
+                    crc = crc32_8(buf, file->blocksize, 0);
+                    assert(crc == crc_file);
+                }
+            #endif
             bcache_write(file, bid, buf, BCACHE_CLEAN);
         }
     } else {
         file->ops->pread(file->fd, buf, file->blocksize, pos);
         #ifdef __CRC32
-            if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARK_BNODE ) {
+            if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
                 uint32_t crc_file, crc;
                 memcpy(&crc_file, buf + 8, sizeof(crc_file));
                 memset(buf + 8, 0xff, sizeof(void *));
                 crc = crc32_8(buf, file->blocksize, 0);
                 assert(crc == crc_file);
             }
-            
         #endif
     }
 }
@@ -305,10 +310,13 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
     return (pos >= file->last_commit && pos < file->pos);
 }
 
+// permanently remove file from cache (not just close)
 void filemgr_remove_from_cache(struct filemgr *file)
 {
     if (global_config.ncacheblock > 0) {
-        bcache_remove_file(file);
+        bcache_remove_dirty_blocks(file);
+        //bcache_remove_clean_blocks(file);
+        //bcache_remove_file(file);
     }
 }
 
@@ -322,11 +330,15 @@ void filemgr_commit(struct filemgr *file)
     }
 
     if (file->header.size > 0 && file->header.data) {
+        uint8_t marker[BLK_MARKER_SIZE];
         file->ops->pwrite(file->fd, file->header.data, header_len, file->pos);
         file->ops->pwrite(file->fd, &header_len, sizeof(header_len), 
-            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len)) );
+            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE) );
         file->ops->pwrite(file->fd, &magic, sizeof(magic), 
-            file->pos + (file->blocksize - sizeof(filemgr_magic_t)) );
+            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE) );
+        
+        memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
+        file->ops->pwrite(file->fd, marker, BLK_MARKER_SIZE, file->pos + file->blocksize - BLK_MARKER_SIZE);
 
         file->pos += file->blocksize;
     }
@@ -336,18 +348,17 @@ void filemgr_commit(struct filemgr *file)
         gettimeofday(&_a_, NULL);
     )
 
-    #ifndef __O_DIRECT
-        file->ops->fdatasync(file->fd);
-    #endif
+    file->ops->fdatasync(file->fd);
 
     DBGCMD(
         gettimeofday(&_b_, NULL);
         _r_ = _utime_gap(_a_,_b_);
     );
-    
+
+    /*
     DBG("fdatasync, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
         _r_.tv_sec, _r_.tv_usec);
-
+*/
     // race condition?
     file->last_commit = file->pos;
 }

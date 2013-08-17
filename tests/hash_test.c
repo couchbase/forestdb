@@ -96,6 +96,24 @@ void string_hash_test()
         DBG("%s %10u %5u\n",str, b, b&((unsigned)1023));
     }
 
+    sprintf(str, "1234aaaaaaaa");
+    a = hash_djb2(str, strlen(str));
+    sprintf(str, "5678aaaaaaaa");
+    b = hash_djb2(str, strlen(str));
+    DBG("%u %u\n", a, b);
+
+    sprintf(str, "1234aaaaaaaa");
+    a = hash_djb2_last8(str, strlen(str));
+    sprintf(str, "5678aaaaaaaa");
+    b = hash_djb2_last8(str, strlen(str));
+    DBG("%u %u\n", a, b);
+    
+    sprintf(str, "./dummy0");
+    a = hash_djb2_last8(str, strlen(str));
+    sprintf(str, "./dummy01");
+    b = hash_djb2_last8(str, strlen(str));
+    DBG("%u %u\n", a, b);
+
     TEST_RESULT("string hash test");
 }
 
@@ -131,8 +149,8 @@ void twohash_test()
 
 int main()
 {
-    basic_test();
-    //string_hash_test();
+    //basic_test();
+    string_hash_test();
     //twohash_test();
 
     return 0;

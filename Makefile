@@ -13,13 +13,13 @@ MEMPOOLTEST = tests/mempool_test.o
 
 BTREE = src/btree.o src/btree_kv.o
 
-BCACHE = src/blockcache.o $(HASH) $(RBTREE) $(MEMPOOL) $(CRC32)
-FILEMGR = src/filemgr.o src/filemgr_ops_linux.o $(HASH) $(BCACHE)
+BCACHE = src/blockcache.o utils/debug.o $(HASH) $(RBTREE) $(MEMPOOL) $(CRC32)
+FILEMGR = src/filemgr.o src/filemgr_ops_linux.o utils/debug.o $(HASH) $(BCACHE)
 
 BCACHETEST = tests/bcache_test.o $(FILEMGR)
 FILEMGRTEST = tests/filemgr_test.o
 
-BTREEBLOCK = src/btreeblock.o $(LIST) $(FILEMGR) $(MEMPOOL) $(CRC32)
+BTREEBLOCK = src/btreeblock.o utils/debug.o $(LIST) $(FILEMGR) $(MEMPOOL) $(CRC32)
 BTREEBLOCKTEST = tests/btreeblock_test.o
 
 DOCIO = src/docio.o $(FILEMGR) $(CRC32)
@@ -36,12 +36,13 @@ FDB = \
 	src/forestdb.o src/hbtrie.o src/btree.o src/btree_kv.o \
 	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
 	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
-	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o
+	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o \
+	utils/debug.o
 FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
 	
 FDBTEST = tests/forestdb_test.o
 
-COUCHBENCH = couchstore_api/couchstore_bench.o utils/stopwatch.o utils/iniparser.o
+COUCHBENCH = couchstore_api/couchstore_bench.o utils/stopwatch.o utils/iniparser.o \
 
 LIBRARY=forestdb
 LIBCOUCHSTORE=couchstore_api/libs/libcouchstore.so
@@ -112,4 +113,4 @@ couchstore_api/couchbench_ori: $(COUCHBENCH)
 	$(CC) $(CFLAGS) $(COUCHBENCH) $(LIBCOUCHSTORE) -o $@ $(LDFLAGS)
 	
 clean:
-	rm -rf src/*.o tests/*.o dummy* $(PROGRAMS) ./*.so
+	rm -rf src/*.o tests/*.o couchstore_api/*.o utils/*.o dummy* $(PROGRAMS) ./*.so

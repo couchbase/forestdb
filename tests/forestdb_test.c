@@ -139,6 +139,7 @@ void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
     config.buffercache_size = 1024 * 1024 * 1024;
     config.wal_threshold = 64 * 1024;
     config.flag = 0;
+    config.seqtree = FDB_SEQTREE_NOT_USE;
 
     doc = (fdb_doc**)malloc(sizeof(fdb_doc*) * ndocs);
     rdoc = (fdb_doc**)malloc(sizeof(fdb_doc*) * ndocs);
@@ -336,7 +337,9 @@ void seqnum_test()
         }
 
         fdb_doc_free(rdoc);
-    }    
+    }
+
+    fdb_commit(&db);
     fdb_close(&db);
     
     TEST_TIME();
@@ -347,8 +350,8 @@ void seqnum_test()
 
 int main(){
     //basic_test();
-    //large_test(1000000, 32, 32, 512);
-    seqnum_test();
+    large_test(1000000, 32, 32, 512);
+    //seqnum_test();
 
     return 0;
 }

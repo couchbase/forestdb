@@ -92,10 +92,10 @@ static struct timeval _utime_gap(struct timeval a, struct timeval b)
 typedef uint64_t bid_t;
 #define BLK_NOT_FOUND (0xffffffffffffffff)
 
-#define BLK_MARK_BNODE (0xff)
-#define BLK_MARK_DBHEADER (0xee)
-#define BLK_MARK_DOC (0xdd)
-#define BLK_MARK_SIZE (1)
+#define BLK_MARKER_BNODE (0xff)
+#define BLK_MARKER_DBHEADER (0xee)
+#define BLK_MARKER_DOC (0xdd)
+#define BLK_MARKER_SIZE (1)
 
 #define randomize() srand((unsigned)time(NULL))
 #define random(num) ((rand())%(num))
@@ -103,15 +103,7 @@ typedef uint64_t bid_t;
 //#define _BNODE_COMP
 //#define _DOC_COMP
 
-#ifdef __DEBUG
-    #include <stdio.h>
-    #define DBG(args...) fprintf(stderr, args)
-    #define DBGCMD(command...) command
-#else
-    #define DBG(args...)
-    #define DBGCMD(command...)
-#endif
-
+#include "debug.h"
 
 #define bitswap64(v)    \
     ((((v) & 0xff00000000000000ULL) >> 56) \

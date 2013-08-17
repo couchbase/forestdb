@@ -11,6 +11,8 @@
 #include "stopwatch.h"
 #include "iniparser.h"
 
+#include "debug.h"
+
 int _basic_callback(Db *db, DocInfo *docinfo, void *ctx)
 {
     //printf("%s %ld %ld %ld %ld\n", docinfo->id.buf, docinfo->db_seq, docinfo->rev_seq, docinfo->size, docinfo->bp);
@@ -264,7 +266,11 @@ void do_bench(struct bench_info *binfo)
     stopwatch_start(&sw);
     stopwatch_start(&progress);
     
-    for (i=0;(i<binfo->nops || binfo->nops == 0);++i){        
+    for (i=0;(i<binfo->nops || binfo->nops == 0);++i){
+        if (i==1335058) {
+            int asdf=0;
+        }
+        
         BDR_RNG_NEXTPAIR;
         write_mode_r = get_random(&write_mode_random, rngz, rngz2);
         write_mode = ( ((double)binfo->write_prob * 256.0 / 100.0 * rw_factor * 65536) > write_mode_r);
@@ -291,11 +297,6 @@ void do_bench(struct bench_info *binfo)
             binfo->op_dist.b = op_med + binfo->batchrange/2;
             if (binfo->op_dist.a < 0) binfo->op_dist.a = 0;
             if (binfo->op_dist.b >= binfo->ndocs) binfo->op_dist.b = binfo->ndocs;
-        }
-
-        //printf("batchsize %d median %d\n", batchsize, op_med);
-        if (i==149516) {
-            int asdf = 0;
         }
         
         if (write_mode) {
@@ -372,9 +373,10 @@ void do_bench(struct bench_info *binfo)
                 ((filestat.st_size - dbinfo->space_used) > 
                 ((double)binfo->compact_thres/100.0)*(double)filestat.st_size) ) {
                 // compaction
-                printf("\r<compaction>");
+                compaction_no++;
+                sprintf(newfile, "%s%d", binfo->filename, compaction_no);
+                printf("\r<#%d compaction %s -> %s>", compaction_no, curfile, newfile);
                 fflush(stdout);
-                sprintf(newfile, "%s%d", binfo->filename, ++compaction_no);
 
                 stopwatch_start(&sw_compaction);
                 couchstore_compact_db(db, newfile);

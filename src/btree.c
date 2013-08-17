@@ -50,7 +50,7 @@ INLINE int _bnode_size(struct btree *btree, struct bnode *node)
     }
 
 #ifdef __CRC32
-    nodesize -= BLK_MARK_SIZE;
+    nodesize -= BLK_MARKER_SIZE;
 #endif
     
     return nodesize;
@@ -80,7 +80,7 @@ INLINE struct bnode * _btree_init_node(
     }
 
 #ifdef __CRC32
-    memset(addr + btree->blksize - 1, BLK_MARK_BNODE, BLK_MARK_SIZE);
+    memset(addr + btree->blksize - 1, BLK_MARKER_BNODE, BLK_MARKER_SIZE);
 #endif
 
     return node;
@@ -181,6 +181,7 @@ btree_result btree_init_from_bid(struct btree *btree, void *blk_handle,
 
     addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
     root = _fetch_bnode(addr);
+
 #ifdef _BNODE_COMP
     btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, btree->root_bid,
                                         _bnode_size(btree, root));
@@ -218,8 +219,6 @@ btree_result btree_init(
     #ifdef _BNODE_COMP
         btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, btree->root_bid, _bnode_size(btree, root));
     #endif
-
-    DBG("root kvsize %0x\n", root->kvsize);
 
     return BTREE_RESULT_SUCCESS;
 }
@@ -392,134 +391,6 @@ void btree_print_node(struct btree *btree)
 
     DBG("tree height: %d\n", btree->height);
     _btree_print_node(btree, btree->height, btree->root_bid);
-}
-
-btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_buf, int depth)
-{
-    struct btree *btree;
-    btree = &it->btree;
-    int i;
-    uint8_t k[btree->ksize], v[btree->vsize];
-    void *addr, *addr_cpy;
-    struct bnode *node;
-    btree_result r;
-
-    if (it->node[depth] == NULL){
-        addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
-        addr_cpy = (void *)mempool_alloc(btree->blksize);
-        memcpy(addr_cpy, addr, btree->blksize);
-        it->node[depth] = _fetch_bnode(addr_cpy);
-    }
-    node = it->node[depth];
-    //assert(node->level == depth+1);
-
-    if (node->nentry <= 0) return BTREE_RESULT_FAIL;
-    
-    if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
-        // curkey: lastly returned key
-        it->idx[depth] = _btree_find_entry(btree, node, it->curkey);
-        if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
-            it->idx[depth] = 0;
-        }
-        btree->kv_ops->get_kv(node, it->idx[depth], key_buf, value_buf);
-        if (btree->kv_ops->cmp(it->curkey, key_buf) > 0 && depth == 0) {
-            // in leaf node, next key must be larger than previous key (i.e. it->curkey)
-            it->idx[depth]++;
-        }
-    }
-
-    if (it->idx[depth] >= node->nentry) {
-        // out of bound .. go up to parent node
-        it->idx[depth] = 0;
-        if (it->node[depth]) mempool_free(it->node[depth]);
-        it->node[depth] = NULL;
-        return BTREE_RESULT_FAIL;
-    }
-
-    if (depth > 0) {
-        // index node
-        if (it->node[depth-1] == NULL) {
-            btree->kv_ops->get_kv(node, it->idx[depth], k, v);
-            it->bid[depth-1] = btree->kv_ops->value2bid(v);
-        }
-        r = _btree_next(it, key_buf, value_buf, depth-1);
-        
-        if (r == BTREE_RESULT_FAIL) {
-            // move index to right
-            it->idx[depth]++;
-            
-            if (it->idx[depth] >= node->nentry){
-                // out of bound .. go up to parent node
-                it->idx[depth] = 0;
-                if (it->node[depth]) mempool_free(it->node[depth]);
-                it->node[depth] = NULL;
-                return BTREE_RESULT_FAIL;
-            }else{
-                btree->kv_ops->get_kv(node, it->idx[depth], k, v);
-                it->bid[depth-1] = btree->kv_ops->value2bid(v);
-                // reset child index
-                for (i=depth-1; i>=0; --i) {
-                    it->idx[i] = 0;
-                    if (it->node[i]) mempool_free(it->node[i]);
-                    it->node[i] = NULL;
-                }
-                // retry
-                r = _btree_next(it, key_buf, value_buf, depth-1);
-            }
-        }
-        return r;
-    }else{
-        // leaf node
-        btree->kv_ops->get_kv(node, it->idx[depth], key_buf, value_buf);
-        memcpy(it->curkey, key_buf, btree->ksize);
-        it->idx[depth]++;
-        return BTREE_RESULT_SUCCESS;
-    }
-}
-
-btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key)
-{
-    int i;
-    
-    it->btree = *btree;
-    it->curkey = (void *)mempool_alloc(btree->ksize);
-    if (initial_key) {
-        // set initial key if exists
-        memcpy(it->curkey, initial_key, btree->ksize);
-    }else{
-        // NULL initial key .. set minimum key (start from leftmost key)
-        memset(it->curkey, 0, btree->ksize);
-    }
-    it->bid = (bid_t*)mempool_alloc(sizeof(bid_t) * btree->height);
-    it->idx = (idx_t*)mempool_alloc(sizeof(idx_t) * btree->height);
-    it->node = (struct bnode **)mempool_alloc(sizeof(struct bnode *) * btree->height);
-    for (i=0;i<btree->height;++i){
-        it->bid[i] = BTREE_BLK_NOT_FOUND;
-        it->idx[i] = BTREE_IDX_NOT_FOUND;
-        it->node[i] = NULL;
-    }
-    it->bid[btree->height-1] = btree->root_bid;
-    
-    return BTREE_RESULT_SUCCESS;
-}
-
-btree_result btree_iterator_free(struct btree_iterator *it)
-{
-    int i;
-    mempool_free(it->curkey);
-    mempool_free(it->bid);
-    mempool_free(it->idx);
-    for (i=0;i<it->btree.height;++i){
-        if (it->node[i]) mempool_free(it->node[i]);
-    }
-    mempool_free(it->node);
-    return BTREE_RESULT_SUCCESS;
-}
-
-btree_result btree_next(struct btree_iterator *it, void *key_buf, void *value_buf)
-{
-    btree_result br = _btree_next(it, key_buf, value_buf, it->btree.height-1);
-    return br;
 }
 
 btree_result btree_find(struct btree *btree, void *key, void *value_buf)
@@ -767,7 +638,6 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                     #endif
 
                     btree->height++;
-                    DBG("height grow\n");
 
                     if (btree->blk_ops->blk_operation_end) btree->blk_ops->blk_operation_end(btree->blk_handle);                    
                     return BTREE_RESULT_SUCCESS;
@@ -937,4 +807,134 @@ btree_result btree_operation_end(struct btree *btree)
     return BTREE_RESULT_SUCCESS;
 }
 
+btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key)
+{
+    int i;
+    
+    it->btree = *btree;
+    it->curkey = (void *)mempool_alloc(btree->ksize);
+    if (initial_key) {
+        // set initial key if exists
+        memcpy(it->curkey, initial_key, btree->ksize);
+    }else{
+        // NULL initial key .. set minimum key (start from leftmost key)
+        memset(it->curkey, 0, btree->ksize);
+    }
+    it->bid = (bid_t*)mempool_alloc(sizeof(bid_t) * btree->height);
+    it->idx = (idx_t*)mempool_alloc(sizeof(idx_t) * btree->height);
+    it->node = (struct bnode **)mempool_alloc(sizeof(struct bnode *) * btree->height);
+    for (i=0;i<btree->height;++i){
+        it->bid[i] = BTREE_BLK_NOT_FOUND;
+        it->idx[i] = BTREE_IDX_NOT_FOUND;
+        it->node[i] = NULL;
+    }
+    it->bid[btree->height-1] = btree->root_bid;
+    
+    return BTREE_RESULT_SUCCESS;
+}
 
+btree_result btree_iterator_free(struct btree_iterator *it)
+{
+    int i;
+    mempool_free(it->curkey);
+    mempool_free(it->bid);
+    mempool_free(it->idx);
+    for (i=0;i<it->btree.height;++i){
+        if (it->node[i]) mempool_free(it->node[i]);
+    }
+    mempool_free(it->node);
+    return BTREE_RESULT_SUCCESS;
+}
+
+btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_buf, int depth)
+{
+    struct btree *btree;
+    btree = &it->btree;
+    int i;
+    uint8_t k[btree->ksize], v[btree->vsize];
+    void *addr, *addr_cpy;
+    struct bnode *node;
+    btree_result r;
+
+    if (it->bid[depth] == 150944) {
+        int asdf=0;
+    }
+
+    if (it->node[depth] == NULL){
+        addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
+        addr_cpy = (void *)mempool_alloc(btree->blksize);
+        memcpy(addr_cpy, addr, btree->blksize);
+        it->node[depth] = _fetch_bnode(addr_cpy);
+    }
+    node = it->node[depth];
+    //assert(node->level == depth+1);
+
+    if (node->nentry <= 0) return BTREE_RESULT_FAIL;
+    
+    if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
+        // curkey: lastly returned key
+        it->idx[depth] = _btree_find_entry(btree, node, it->curkey);
+        if (it->idx[depth] == BTREE_IDX_NOT_FOUND) {
+            it->idx[depth] = 0;
+        }
+        btree->kv_ops->get_kv(node, it->idx[depth], key_buf, value_buf);
+        if (btree->kv_ops->cmp(it->curkey, key_buf) > 0 && depth == 0) {
+            // in leaf node, next key must be larger than previous key (i.e. it->curkey)
+            it->idx[depth]++;
+        }
+    }
+
+    if (it->idx[depth] >= node->nentry) {
+        // out of bound .. go up to parent node
+        it->idx[depth] = 0;
+        if (it->node[depth]) mempool_free(it->node[depth]);
+        it->node[depth] = NULL;
+        return BTREE_RESULT_FAIL;
+    }
+
+    if (depth > 0) {
+        // index node
+        if (it->node[depth-1] == NULL) {
+            btree->kv_ops->get_kv(node, it->idx[depth], k, v);
+            it->bid[depth-1] = btree->kv_ops->value2bid(v);
+        }
+        r = _btree_next(it, key_buf, value_buf, depth-1);
+        
+        if (r == BTREE_RESULT_FAIL) {
+            // move index to right
+            it->idx[depth]++;
+            
+            if (it->idx[depth] >= node->nentry){
+                // out of bound .. go up to parent node
+                it->idx[depth] = 0;
+                if (it->node[depth]) mempool_free(it->node[depth]);
+                it->node[depth] = NULL;
+                return BTREE_RESULT_FAIL;
+            }else{
+                btree->kv_ops->get_kv(node, it->idx[depth], k, v);
+                it->bid[depth-1] = btree->kv_ops->value2bid(v);
+                // reset child index
+                for (i=depth-1; i>=0; --i) {
+                    it->idx[i] = 0;
+                    if (it->node[i]) mempool_free(it->node[i]);
+                    it->node[i] = NULL;
+                }
+                // retry
+                r = _btree_next(it, key_buf, value_buf, depth-1);
+            }
+        }
+        return r;
+    }else{
+        // leaf node
+        btree->kv_ops->get_kv(node, it->idx[depth], key_buf, value_buf);
+        memcpy(it->curkey, key_buf, btree->ksize);
+        it->idx[depth]++;
+        return BTREE_RESULT_SUCCESS;
+    }
+}
+
+btree_result btree_next(struct btree_iterator *it, void *key_buf, void *value_buf)
+{
+    btree_result br = _btree_next(it, key_buf, value_buf, it->btree.height-1);
+    return br;
+}

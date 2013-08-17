@@ -305,6 +305,7 @@ const uint32_t crc_lookup[8][256] =
     0x2C8E0FFF,0xE0240F61,0x6EAB0882,0xA201081C,0xA8C40105,0x646E019B,0xEAE10678,0x264B06E6 }
 };
 
+#define MIN(a,b) (((a)<(b))?(a):(b))
 
 uint32_t crc32_1(const void* data, size_t len, uint32_t prev_value)
 {
@@ -343,5 +344,11 @@ uint32_t crc32_8(const void* data, size_t len, uint32_t prev_value)
         crc = (crc >> 8) ^ crc_lookup[0][(crc & 0xFF) ^ *cur_byte++];  
 
     return ~crc;
+}
+
+uint32_t crc32_8_last8(const void *data, size_t len, uint32_t prev_value)
+{
+    size_t min = MIN(len, 8);
+    return crc32_8(data + (len-min), min, prev_value);
 }
 

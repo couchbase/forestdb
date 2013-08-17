@@ -9,11 +9,22 @@
 #include "common.h"
 
 // djb2 hashing using last LEN digits in VALUE
-INLINE uint32_t hash_djb2(void *value, int len)
+uint32_t hash_djb2(void *value, int len)
 {
     unsigned hash = 5381;
     while(len--){
         hash = ((hash << 5) + hash) + *((uint8_t*)value + len);
+    }
+    return hash;
+}
+
+uint32_t hash_djb2_last8(void *value, int len)
+{
+    int min = MIN(len, 8), c;
+    unsigned hash = 5381;
+    c = min;
+    while(c--){
+        hash = ((hash << 5) + hash) + *((uint8_t*)value + (len - min) + c);
     }
     return hash;
 }
