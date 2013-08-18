@@ -52,7 +52,8 @@ struct btree_blk_ops;
 typedef uint8_t fdb_wal_dirty_t;
 enum {
     FDB_WAL_CLEAN = 0,
-    FDB_WAL_DIRTY = 1
+    FDB_WAL_DIRTY = 1,
+    FDB_WAL_PENDING = 2
 };
 
 typedef struct {

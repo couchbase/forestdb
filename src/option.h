@@ -16,7 +16,7 @@
 #define __BIT_CMP
 
 #define __WAL_KEY_COPY
-//#define __WAL_FLUSH_BEFORE_COMMIT
+#define __WAL_FLUSH_BEFORE_COMMIT
 
 //#define __DEBUG_FDB
 //#define __DEBUG_WAL

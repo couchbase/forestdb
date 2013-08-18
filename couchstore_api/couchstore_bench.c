@@ -375,7 +375,7 @@ void do_bench(struct bench_info *binfo)
                 // compaction
                 compaction_no++;
                 sprintf(newfile, "%s%d", binfo->filename, compaction_no);
-                printf("\r<#%d compaction %s -> %s>", compaction_no, curfile, newfile);
+                printf("\r[ #%d compaction %s >> %s ]", compaction_no, curfile, newfile);
                 fflush(stdout);
 
                 stopwatch_start(&sw_compaction);

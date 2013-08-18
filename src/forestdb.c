@@ -313,12 +313,14 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         //remove
         wal_remove(handle->file, doc);
     }
-    handle->wal_dirty = FDB_WAL_DIRTY;
+    if (handle->wal_dirty == FDB_WAL_CLEAN) {
+        handle->wal_dirty = FDB_WAL_DIRTY;
+    }
 
     #ifdef __WAL_FLUSH_BEFORE_COMMIT
         if (wal_get_size(handle->file) > handle->config.wal_threshold) {
             wal_flush(handle->file, (void *)handle, _fdb_wal_flush_func);
-            handle->wal_dirty = FDB_WAL_CLEAN;
+            handle->wal_dirty = FDB_WAL_PENDING;
         }
     #endif
     return FDB_RESULT_SUCCESS;
@@ -368,7 +370,8 @@ void _fdb_set_file_header(fdb_handle *handle)
 fdb_status fdb_commit(fdb_handle *handle)
 {
     //btreeblk_end(handle->bhandle);
-    if (wal_get_size(handle->file) > handle->config.wal_threshold) {
+    if (wal_get_size(handle->file) > handle->config.wal_threshold || 
+        handle->wal_dirty == FDB_WAL_PENDING) {
         wal_flush(handle->file, handle, _fdb_wal_flush_func);
         handle->wal_dirty = FDB_WAL_CLEAN;
     }
