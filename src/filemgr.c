@@ -193,7 +193,7 @@ void filemgr_close(struct filemgr *file)
 {
     if (global_config.ncacheblock > 0) {
         //bcache_flush(file);
-        // remove all dirty blocks belong to this file
+        // discard all dirty blocks belong to this file
         bcache_remove_dirty_blocks(file);
     }
 
@@ -308,10 +308,10 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
                     uint8_t _buf[file->blocksize];
                 #endif
 
-                r = bcache_read(file, bid, _buf);
-                if (r==0) {
+                /*r = bcache_read(file, bid, _buf);
+                if (r==0) {*/
                     r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
-                }
+                //}
                 memcpy(_buf + offset, buf, len);
                 bcache_write(file, bid, _buf, BCACHE_DIRTY);
             }

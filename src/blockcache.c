@@ -546,7 +546,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
 }
 
 
-// remove all dirty blocks of the FILE (they are only removed and not be written back)
+// remove all dirty blocks of the FILE (they are only discarded and not written back)
 void bcache_remove_dirty_blocks(struct filemgr *file)
 {
     struct hash_elem *h;

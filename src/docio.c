@@ -68,10 +68,10 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             filemgr_get_next_alloc_block(handle->file) == handle->curblock+1) {
 
             // start from current block
-            filemgr_alloc_multiple(handle->file, nblock, &begin, &end);
+            offset = blocksize - handle->curpos;
+            filemgr_alloc_multiple(handle->file, nblock + ((remain>offset)?1:0), &begin, &end);
             assert(begin == handle->curblock + 1);
             
-            offset = blocksize - handle->curpos;
             if (offset > 0) {
                 filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
             }
@@ -149,6 +149,13 @@ INLINE bid_t _docio_append_doc_component(struct docio_handle *handle, void *buf,
     bid_t bid;
     uint64_t offset;
     uint64_t basis_size;
+    uint8_t marker[BLK_MARKER_SIZE];
+    size_t blocksize = handle->file->blocksize;
+    size_t real_blocksize = blocksize;
+#ifdef __CRC32
+    blocksize -= BLK_MARKER_SIZE;
+    memset(marker, BLK_MARKER_DOC, BLK_MARKER_SIZE);
+#endif
 
     if (handle->curblock == BLK_NOT_FOUND) {
         // allocate new block
@@ -168,64 +175,107 @@ INLINE bid_t _docio_append_doc_component(struct docio_handle *handle, void *buf,
         basis_size = size;
     }
     
-    if (basis_size <= handle->file->blocksize - handle->curpos) {
+    if (basis_size <= blocksize - handle->curpos) {
         // simply append to current block
         offset = handle->curpos;
         filemgr_write_offset(handle->file, handle->curblock, offset, size, buf);
+        filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
 
         handle->curpos += size;
 
-        return handle->curblock * handle->file->blocksize + offset;
+        return handle->curblock * real_blocksize + offset;
         
     }else{
         // not simply fitted into current block
         bid_t begin, end, i, startpos;
-        uint32_t nblock = basis_size / handle->file->blocksize;
-        uint32_t remain = basis_size % handle->file->blocksize;
+        uint32_t nblock = basis_size / blocksize;
+        uint32_t remain = basis_size % blocksize;
         uint64_t remainsize = size;
 
-        if ((remain <= handle->file->blocksize - handle->curpos && 
+    #ifdef DOCIO_BLOCK_ALIGN
+        if ((remain <= blocksize - handle->curpos && 
             filemgr_get_next_alloc_block(handle->file) == handle->curblock+1) || 
             mode == DOCIO_SIMPLY_APPEND) {
+
             // start from current block
+            offset = blocksize - handle->curpos;
             if (mode == DOCIO_CHECK_ALIGN) {
                 // allocate next blocks
-                filemgr_alloc_multiple(handle->file, nblock, &begin, &end);
+                filemgr_alloc_multiple(handle->file, nblock + ((remain>offset)?1:0), &begin, &end);
                 assert(begin == handle->curblock + 1);
             }else{
                 begin = handle->curblock + 1;
-                end = begin + nblock - 1;
+                end = begin + (size + handle->curpos)/blocksize - 1;
             }
-            
-            offset = handle->file->blocksize - handle->curpos;
-            if (offset > 0) 
-                filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
-            remainsize -= offset;
 
-            startpos = handle->curblock * handle->file->blocksize + handle->curpos;            
+            size_t write_len = MIN(offset, size);
+            if (offset > 0) {
+                filemgr_write_offset(handle->file, handle->curblock, handle->curpos, write_len, buf);
+            }
+            filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+            remainsize -= write_len;
+
+            startpos = handle->curblock * real_blocksize + handle->curpos;            
+            handle->curpos += write_len;
         }else {
             // allocate new multiple blocks (only when DOCIO_CHECK_ALIGN)
             filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0), &begin, &end);
             offset = 0;
 
-            startpos = begin * handle->file->blocksize;
+            startpos = begin * real_blocksize;
         }
-
-        for (i=begin; i<=end; ++i) {
-            handle->curblock = i;
-            if (remainsize >= handle->file->blocksize) {
-                // write entire block
-                filemgr_write(handle->file, i, buf + offset);
-                offset += handle->file->blocksize;
-                remainsize -= handle->file->blocksize;
-                handle->curpos = handle->file->blocksize;
-                
+    #else
+        if (filemgr_get_next_alloc_block(handle->file) == handle->curblock+1 ||
+            mode == DOCIO_SIMPLY_APPEND) {
+            
+            // start from current block
+            offset = blocksize - handle->curpos;
+            if (mode == DOCIO_CHECK_ALIGN) {
+                // allocate next blocks
+                filemgr_alloc_multiple(handle->file, nblock + ((remain>offset)?1:0), &begin, &end);
+                assert(begin == handle->curblock + 1);
             }else{
-                // write rest of document
-                assert(i==end);
-                filemgr_write_offset(handle->file, i, 0, remainsize, buf + offset);
-                offset += remainsize;
-                handle->curpos = remainsize;
+                begin = handle->curblock + 1;
+                end = begin + (size + handle->curpos)/blocksize - 1;
+            }
+
+            size_t write_len = MIN(offset, size);
+            if (offset > 0) {
+                filemgr_write_offset(handle->file, handle->curblock, handle->curpos, write_len, buf);
+            }
+            filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+            remainsize -= write_len;
+
+            startpos = handle->curblock * real_blocksize + handle->curpos;            
+            handle->curpos += write_len;
+        }else {
+            // allocate new multiple blocks (only when DOCIO_CHECK_ALIGN)
+            filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0), &begin, &end);
+            offset = 0;
+
+            startpos = begin * real_blocksize;
+        }
+    #endif
+
+        if (remainsize > 0) {
+            for (i=begin; i<=end; ++i) {
+                handle->curblock = i;
+                if (remainsize >= blocksize) {
+                    // write entire block
+                    filemgr_write(handle->file, i, buf + offset);
+                    filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
+                    offset += blocksize;
+                    remainsize -= blocksize;
+                    handle->curpos = blocksize;
+                    
+                }else{
+                    // write rest of document
+                    assert(i==end);
+                    filemgr_write_offset(handle->file, i, 0, remainsize, buf + offset);
+                    filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
+                    offset += remainsize;
+                    handle->curpos = remainsize;
+                }
             }
         }
 
@@ -233,6 +283,7 @@ INLINE bid_t _docio_append_doc_component(struct docio_handle *handle, void *buf,
     }
 }
 
+// doing same as docio_append_doc with memcpy to temporary buffer 
 bid_t docio_append_doc_(struct docio_handle *handle, struct docio_object *doc)
 {
     struct docio_length length;
@@ -241,20 +292,25 @@ bid_t docio_append_doc_(struct docio_handle *handle, struct docio_object *doc)
     bid_t bid;
     size_t compbuf_len;
     void *compbuf;
+    uint32_t crc;
 
     length = doc->length;
 
-    #ifdef _DOC_COMP
-        if (doc->length.bodylen > 0) {
-            compbuf_len = snappy_max_compressed_length(length.bodylen);
-            compbuf = (void *)malloc(compbuf_len);
+#ifdef _DOC_COMP
+    if (doc->length.bodylen > 0) {
+        compbuf_len = snappy_max_compressed_length(length.bodylen);
+        compbuf = (void *)malloc(compbuf_len);
 
-            snappy_compress(doc->body, length.bodylen, compbuf, &compbuf_len);
-            length.bodylen = compbuf_len;
-        }
-    #endif
+        snappy_compress(doc->body, length.bodylen, compbuf, &compbuf_len);
+        length.bodylen = compbuf_len;
+    }
+#endif
 
     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
+    #ifdef __CRC32
+        docsize += sizeof(crc);
+    #endif
+
     bid = _docio_append_doc_component(handle, &length, sizeof(struct docio_length), 
         docsize, DOCIO_CHECK_ALIGN);
 
@@ -270,6 +326,18 @@ bid_t docio_append_doc_(struct docio_handle *handle, struct docio_object *doc)
     if (length.bodylen > 0) {
         _docio_append_doc_component(handle, doc->body, length.bodylen, docsize, DOCIO_SIMPLY_APPEND);
     }
+
+    #ifdef __CRC32
+        crc = crc32_8(&length, sizeof(struct docio_length), 0);
+        crc = crc32_8(doc->key, length.keylen, crc);
+        if (length.metalen > 0) {
+            crc = crc32_8(doc->meta, length.metalen, crc);
+        }
+        if (length.bodylen > 0) {
+            crc = crc32_8(doc->body, length.bodylen, crc);
+        }
+        _docio_append_doc_component(handle, &crc, sizeof(crc), docsize, DOCIO_SIMPLY_APPEND);
+    #endif
     
     return bid;
 }
