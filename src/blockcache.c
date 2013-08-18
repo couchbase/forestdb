@@ -39,9 +39,6 @@ static int bcache_blocksize;
 static size_t bcache_flush_unit;
 static size_t bcache_sys_pagesize;
 
-//uint8_t global_buf[BCACHE_FLUSH_UNIT];
-void *global_buf;
-
 struct fnamedic_item {
     char *filename;
     uint16_t filename_len;
@@ -257,7 +254,6 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
     if (sync) {
         #ifdef __MEMORY_ALIGN
             ret = posix_memalign(&buf, bcache_sys_pagesize, bcache_flush_unit);
-            //buf = global_buf;
         #else
             buf = (void *)malloc(bcache_flush_unit);
         #endif
@@ -302,17 +298,17 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             memcpy(buf + count*bcache_blocksize, ditem->item->addr, bcache_blocksize);
         }
 
-        //if (sync) {
+        if (sync) {
             // insert into cleanlist
             ditem->item->list = &cleanlist;
             list_push_front(ditem->item->list, &ditem->item->list_elem);
             count++;
-            /*
         }else{
             // not committed dirty blocks of closed file .. just remove?
+            hash_remove(&bhash, &ditem->item->hash_elem);
             ditem->item->list = &freelist;
             list_push_front(ditem->item->list, &ditem->item->list_elem);
-        }*/
+        }
 
         DBGCMD(_dirty--);
         mempool_free(ditem);
@@ -700,8 +696,6 @@ void bcache_init(int nblock, int blocksize)
         list_push_front(item->list, &item->list_elem);
         //hash_insert(&bhash, &item->hash_elem);
     }
-
-    ret = posix_memalign(&global_buf, bcache_sys_pagesize, BCACHE_FLUSH_UNIT);
 
     DBGCMD(
         gettimeofday(&_b_, NULL);

@@ -37,13 +37,13 @@
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item *item = _get_entry(e, struct wal_item, he_key);
-    return hash_djb2(item->key, MIN(8, item->keylen)) & ((uint64_t)hash->nbuckets - 1);
-    //return crc32_8(item->key, MIN(8, item->keylen), 0) & ((uint64_t)hash->nbuckets - 1);
+    // using only first 8 bytes
+    //return hash_djb2(item->key, MIN(8, item->keylen)) & ((uint64_t)hash->nbuckets - 1);
+    return crc32_8(item->key, MIN(8, item->keylen), 0) & ((uint64_t)hash->nbuckets - 1);
 }
 
 INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
 {
-    keylen_t minkeylen;
     struct wal_item *aa, *bb;
     aa = _get_entry(a, struct wal_item, he_key);
     bb = _get_entry(b, struct wal_item, he_key);
@@ -57,9 +57,6 @@ INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
             return (int)((int)aa->keylen - (int)bb->keylen);
         }
     }
-/*
-    if (aa->keylen != bb->keylen) return ((int)aa->keylen - (int)bb->keylen);
-    return memcmp(aa->key, bb->key, aa->keylen);*/
 }
 
 #ifdef __FDB_SEQTREE
@@ -72,7 +69,6 @@ INLINE uint32_t _wal_hash_byseq(struct hash *hash, struct hash_elem *e)
 
 INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 {
-    keylen_t minkeylen;
     struct wal_item *aa, *bb;
     aa = _get_entry(a, struct wal_item, he_seq);
     bb = _get_entry(b, struct wal_item, he_seq);

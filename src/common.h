@@ -100,6 +100,8 @@ typedef uint64_t bid_t;
 #define randomize() srand((unsigned)time(NULL))
 #define random(num) ((rand())%(num))
 
+#define random_custom(prev, num) (prev) = ((prev)+811)&((num)-1)
+
 //#define _BNODE_COMP
 //#define _DOC_COMP
 

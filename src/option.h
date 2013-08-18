@@ -9,7 +9,9 @@
 
 //#define DOCIO_BLOCK_ALIGN
 
-//#define __O_DIRECT
+//#define __RAW_BLOCK
+#define __O_DIRECT
+#define __SYNC
 
 #define __CRC32
 

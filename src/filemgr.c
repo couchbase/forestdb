@@ -36,7 +36,10 @@ static struct filemgr_config global_config;
 static struct hash hash;
 
 static size_t filemgr_sys_pagesize;
-void *temp_buf[NBUF];
+
+static spin_t temp_buf_lock;
+static void *temp_buf[NBUF];
+static size_t temp_buf_turn;
 
 uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
@@ -72,10 +75,21 @@ void filemgr_init(struct filemgr_config config)
         for (i=0;i<NBUF;++i){
             ret = posix_memalign(&temp_buf[i], filemgr_sys_pagesize, global_config.blocksize);
         }
+        temp_buf_lock = SPIN_INITIALIZER;
+        temp_buf_turn = 0;
             
         filemgr_initialized = 1;
     }
     spin_unlock(&initial_lock);
+}
+
+INLINE void * _filemgr_get_temp_buf()
+{
+    size_t r;
+    spin_lock(&temp_buf_lock);
+    r = random_custom(temp_buf_turn, NBUF);
+    spin_unlock(&temp_buf_lock);
+    return temp_buf[r];
 }
 
 void _filemgr_read_header(struct filemgr *file)
@@ -83,24 +97,32 @@ void _filemgr_read_header(struct filemgr *file)
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
     filemgr_header_len_t len;
+    void *buf = _filemgr_get_temp_buf();
 
-    file->ops->pread(file->fd, marker, BLK_MARKER_SIZE, file->pos - BLK_MARKER_SIZE);
+    file->ops->pread(file->fd, buf, file->blocksize, file->pos - file->blocksize);
+
+    //file->ops->pread(file->fd, marker, BLK_MARKER_SIZE, file->pos - BLK_MARKER_SIZE);
+    memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE, BLK_MARKER_SIZE);
     
     if (marker[0] == BLK_MARKER_DBHEADER) {
-        file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic) - BLK_MARKER_SIZE);
+        //file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic) - BLK_MARKER_SIZE);
+        memcpy(&magic, buf + file->blocksize - sizeof(magic) - BLK_MARKER_SIZE, sizeof(magic));
         if (magic == FILEMGR_MAGIC) {
-            file->ops->pread(file->fd, &len, sizeof(len),
-                             file->pos - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE);
+            /*file->ops->pread(file->fd, &len, sizeof(len),
+                             file->pos - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE);*/
+            memcpy(&len, buf + file->blocksize - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE, sizeof(len));
             file->header.data = (void *)malloc(len);
-            file->ops->pread(file->fd, file->header.data, len,
-                             file->pos - file->blocksize);
+            
+            /*file->ops->pread(file->fd, file->header.data, len,
+                             file->pos - file->blocksize);*/
+            memcpy(file->header.data, buf, len);                 
             file->header.size = len;
 
-            //file->pos -= len + sizeof(magic) + sizeof(len);
-            file->last_commit = file->pos;
+            //file->last_commit = file->pos;
             return ;
         }
-    } 
+    }
+    
     file->header.size = 0;
     file->header.data = NULL;
 }
@@ -281,7 +303,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
                 // cache miss
                 // write partially .. we have to read previous contents of the block
                 #ifdef __MEMORY_ALIGN
-                    void *_buf = temp_buf[0];
+                    void *_buf = _filemgr_get_temp_buf();
                 #else
                     uint8_t _buf[file->blocksize];
                 #endif
@@ -315,8 +337,8 @@ void filemgr_remove_from_cache(struct filemgr *file)
 {
     if (global_config.ncacheblock > 0) {
         bcache_remove_dirty_blocks(file);
-        //bcache_remove_clean_blocks(file);
-        //bcache_remove_file(file);
+        bcache_remove_clean_blocks(file);
+        bcache_remove_file(file);
     }
 }
 
@@ -330,16 +352,25 @@ void filemgr_commit(struct filemgr *file)
     }
 
     if (file->header.size > 0 && file->header.data) {
+        void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
-        file->ops->pwrite(file->fd, file->header.data, header_len, file->pos);
-        file->ops->pwrite(file->fd, &header_len, sizeof(header_len), 
-            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE) );
-        file->ops->pwrite(file->fd, &magic, sizeof(magic), 
-            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE) );
+        
+        //file->ops->pwrite(file->fd, file->header.data, header_len, file->pos);
+        memcpy(buf, file->header.data, header_len);
+        /*file->ops->pwrite(file->fd, &header_len, sizeof(header_len), 
+            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE) );*/
+        memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE),
+            &header_len, sizeof(header_len));
+        /*file->ops->pwrite(file->fd, &magic, sizeof(magic), 
+            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE) );*/
+        memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE),
+            &magic, sizeof(magic));
         
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
-        file->ops->pwrite(file->fd, marker, BLK_MARKER_SIZE, file->pos + file->blocksize - BLK_MARKER_SIZE);
+        //file->ops->pwrite(file->fd, marker, BLK_MARKER_SIZE, file->pos + file->blocksize - BLK_MARKER_SIZE);
+        memcpy(buf + file->blocksize - BLK_MARKER_SIZE, marker, BLK_MARKER_SIZE);
 
+        file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
         file->pos += file->blocksize;
     }
     
@@ -348,7 +379,11 @@ void filemgr_commit(struct filemgr *file)
         gettimeofday(&_a_, NULL);
     )
 
-    file->ops->fdatasync(file->fd);
+#ifndef __O_DIRECT
+    #ifdef __SYNC
+        file->ops->fdatasync(file->fd);
+    #endif
+#endif
 
     DBGCMD(
         gettimeofday(&_b_, NULL);

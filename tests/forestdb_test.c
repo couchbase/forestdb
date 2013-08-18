@@ -350,8 +350,8 @@ void seqnum_test()
 
 int main(){
     //basic_test();
-    large_test(1000000, 32, 32, 512);
-    //seqnum_test();
+    //large_test(1000000, 32, 32, 512);
+    seqnum_test();
 
     return 0;
 }
