@@ -29,6 +29,9 @@ struct docio_length {
 struct docio_object {
     struct docio_length length;
     void *key;
+    #ifdef __FDB_SEQTREE
+        fdb_seqnum_t seqnum;
+    #endif
     void *meta;
     void *body;
 };

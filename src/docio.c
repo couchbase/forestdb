@@ -307,6 +307,9 @@ bid_t docio_append_doc_(struct docio_handle *handle, struct docio_object *doc)
 #endif
 
     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
+    #ifdef __FDB_SEQTREE
+        docsize += sizeof(fdb_seqnum_t);
+    #endif
     #ifdef __CRC32
         docsize += sizeof(crc);
     #endif
@@ -316,6 +319,12 @@ bid_t docio_append_doc_(struct docio_handle *handle, struct docio_object *doc)
 
     // copy key
     _docio_append_doc_component(handle, doc->key, length.keylen, docsize, DOCIO_SIMPLY_APPEND);
+
+    // TODO: do this
+    #ifdef __FDB_SEQTREE
+        // copy seqeunce number (optional)
+        
+    #endif
 
     // copy metadata (optional)
     if (length.metalen > 0) {
@@ -367,6 +376,9 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
     #endif
 
     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
+    #ifdef __FDB_SEQTREE
+        docsize += sizeof(fdb_seqnum_t);
+    #endif
     #ifdef __CRC32
         docsize += sizeof(crc);
     #endif
@@ -378,6 +390,12 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
     // copy key
     memcpy(buf + offset, doc->key, length.keylen);
     offset += length.keylen;
+
+    #ifdef __FDB_SEQTREE
+        // copy seqeunce number (optional)
+        memcpy(buf + offset, &doc->seqnum, sizeof(fdb_seqnum_t));
+        offset += sizeof(fdb_seqnum_t);
+    #endif
 
     // copy metadata (optional)
     if (length.metalen > 0) {
@@ -560,6 +578,12 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
     assert(doc->key && doc->meta);
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
+
+#ifdef __FDB_SEQTREE
+    // copy seqeunce number (optional)
+    _offset = _docio_read_doc_component(handle, _offset, sizeof(fdb_seqnum_t), &doc->seqnum);
+#endif
+    
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
 
     return _offset;
@@ -578,6 +602,12 @@ void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_o
     assert(doc->key && doc->meta && doc->body);
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
+
+#ifdef __FDB_SEQTREE
+    // copy seqeunce number (optional)
+    _offset = _docio_read_doc_component(handle, _offset, sizeof(fdb_seqnum_t), &doc->seqnum);
+#endif
+    
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
 #ifdef _DOC_COMP
     _offset = _docio_read_doc_component_comp(handle, _offset, &doc->length.bodylen, doc->body);        
@@ -590,6 +620,7 @@ void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_o
     _offset = _docio_read_doc_component(handle, _offset, sizeof(crc_file), &crc_file);
     crc = crc32_8(&doc->length, sizeof(doc->length), 0);
     crc = crc32_8(doc->key, doc->length.keylen, crc);
+    crc = crc32_8(&doc->seqnum, sizeof(fdb_seqnum_t), crc);    
     crc = crc32_8(doc->meta, doc->length.metalen, crc);
     crc = crc32_8(doc->body, doc->length.bodylen, crc);
     assert(crc == crc_file);

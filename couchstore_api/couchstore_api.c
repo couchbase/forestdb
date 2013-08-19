@@ -13,7 +13,7 @@
 struct _db {
     fdb_handle fdb;
     char *filename;
-    uint64_t seqnum;
+    //uint64_t seqnum;
     size_t btree_fanout;
 };
 
@@ -46,7 +46,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.flag = 0;
 
     *pDb = (Db*)malloc(sizeof(Db));
-    (*pDb)->seqnum = 0;
+    //(*pDb)->seqnum = 0;
     (*pDb)->filename = (char *)malloc(strlen(filename)+1);
     strcpy((*pDb)->filename, filename);
     fdb = &((*pDb)->fdb);
@@ -74,7 +74,7 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
     info->doc_count = db->fdb.ndocs;
     info->deleted_count = 0;
     info->header_position = 0;
-    info->last_sequence = db->seqnum;
+    info->last_sequence = db->fdb.seqnum;
     info->space_used = db->fdb.datasize;
     // hb-trie size (estimated as worst case)
     info->space_used += (db->fdb.ndocs / (db->fdb.btree_fanout / 2)) * db->fdb.config.blocksize;
@@ -86,11 +86,11 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
 
 size_t _docinfo_to_buf(DocInfo *docinfo, void *buf)
 {
-    // db_seq, rev_seq, deleted, content_meta, rev_meta (size), rev_meta (buf)
+    // [db_seq,] rev_seq, deleted, content_meta, rev_meta (size), rev_meta (buf)
     size_t offset = 0;
-    
-    memcpy(buf + offset, &docinfo->db_seq, sizeof(docinfo->db_seq));
-    offset += sizeof(docinfo->db_seq);
+
+    /*memcpy(buf + offset, &docinfo->db_seq, sizeof(docinfo->db_seq));
+    offset += sizeof(docinfo->db_seq);*/
 
     memcpy(buf + offset, &docinfo->rev_seq, sizeof(docinfo->rev_seq));
     offset += sizeof(docinfo->rev_seq);
@@ -126,11 +126,13 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
         _doc.keylen = docs[i]->id.size;
         _doc.body = docs[i]->data.buf;
         _doc.bodylen = docs[i]->data.size;
-        infos[i]->db_seq = db->seqnum++;
+        //_doc.seqnum = infos[i]->db_seq = db->seqnum++;
         _doc.metalen = _docinfo_to_buf(infos[i], buf);
         _doc.meta = buf;
 
         status = fdb_set(&db->fdb, &_doc);
+
+        infos[i]->db_seq = _doc.seqnum;
     }
     
     return COUCHSTORE_SUCCESS;
@@ -146,9 +148,9 @@ couchstore_error_t couchstore_save_document(Db *db, const Doc *doc, DocInfo *inf
 void _buf_to_docinfo(void *buf, size_t size, DocInfo *docinfo)
 {
     size_t offset = 0;
-
-    memcpy(&docinfo->db_seq, buf + offset, sizeof(docinfo->db_seq));
-    offset += sizeof(docinfo->db_seq);
+    
+    /*memcpy(&docinfo->db_seq, buf + offset, sizeof(docinfo->db_seq));
+    offset += sizeof(docinfo->db_seq);*/
 
     memcpy(&docinfo->rev_seq, buf + offset, sizeof(docinfo->rev_seq));
     offset += sizeof(docinfo->rev_seq);
@@ -181,10 +183,11 @@ couchstore_error_t couchstore_docinfo_by_id(Db *db, const void *id, size_t idlen
     size_t rev_meta_size;
     size_t meta_offset;
 
-    meta_offset = sizeof(uint64_t)*2 + sizeof(int) + sizeof(couchstore_content_meta_flags);
+    meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
     
     _doc.key = (void *)id;
     _doc.keylen = idlen;
+    _doc.seqnum = SEQNUM_NOT_USED;
     _doc.meta = _doc.body = NULL;
 
     status = fdb_get_metaonly(&db->fdb, &_doc, &offset);
@@ -195,6 +198,7 @@ couchstore_error_t couchstore_docinfo_by_id(Db *db, const void *id, size_t idlen
     (*pInfo)->id.size = idlen;
     (*pInfo)->size = _doc.bodylen;
     (*pInfo)->bp = offset;
+    (*pInfo)->db_seq = _doc.seqnum;
     _buf_to_docinfo(_doc.meta, _doc.metalen, (*pInfo));
 
     free(_doc.meta);
@@ -216,13 +220,14 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
 
     DBGSW(0, int temp=0; );
 
-    meta_offset = sizeof(uint64_t)*2 + sizeof(int) + sizeof(couchstore_content_meta_flags);
+    meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
 
     docinfo = (DocInfo*)malloc(sizeof(DocInfo) + max_meta_size);
 
     for (i=0;i<numDocs;++i){
         _doc.key = (void*)ids[i].buf;
         _doc.keylen = ids[i].size;
+        _doc.seqnum = SEQNUM_NOT_USED;
         _doc.meta = _doc.body = NULL;
 
         status = fdb_get_metaonly(&db->fdb, &_doc, &offset);
@@ -239,6 +244,7 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
         docinfo->id.size = ids[i].size;
         docinfo->size = _doc.bodylen;
         docinfo->bp = offset;
+        docinfo->db_seq = _doc.seqnum;
         _buf_to_docinfo(_doc.meta, _doc.metalen, docinfo);
         free(_doc.meta);
 

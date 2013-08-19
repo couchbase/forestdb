@@ -7,6 +7,8 @@
 #define _JSAHN_FDB_H
 
 #include <stdint.h>
+#include "option.h"
+#include "arch.h"
 
 typedef enum {
     FDB_RESULT_SUCCESS,
@@ -19,8 +21,6 @@ enum {
     FDB_SEQTREE_NOT_USE = 0,
     FDB_SEQTREE_USE = 1
 };
-
-typedef uint64_t fdb_seqnum_t;
 
 typedef struct {
     size_t chunksize;
@@ -38,6 +38,9 @@ typedef struct fdb_doc_struct {
     size_t metalen;
     size_t bodylen;
     void *key;
+    #ifdef __FDB_SEQTREE
+        fdb_seqnum_t seqnum;
+    #endif
     void *meta;
     void *body;
 } fdb_doc;
@@ -70,6 +73,10 @@ typedef struct {
     uint64_t ndocs;
     uint16_t btree_fanout;
     fdb_wal_dirty_t wal_dirty;
+    #ifdef __FDB_SEQTREE
+        fdb_seqnum_t seqnum;
+    #endif
+    spin_t lock;
 } fdb_handle;
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config);

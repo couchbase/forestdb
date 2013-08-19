@@ -68,6 +68,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     handle->btree_fanout = fconfig.blocksize / (config.chunksize+config.offsetsize);
     handle->last_header_bid = BLK_NOT_FOUND;
     handle->wal_dirty = FDB_WAL_CLEAN;
+    handle->lock = SPIN_INITIALIZER;
 
     //assert( CHK_POW2(config.wal_threshold) );
     //wal_init(handle->file, config.wal_threshold);
@@ -92,8 +93,9 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     hbtrie_init(handle->trie, config.chunksize, config.offsetsize, handle->file->blocksize, trie_root_bid, 
         handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
 
-    #ifdef __FDB_SEQTREE
+#ifdef __FDB_SEQTREE
     if (handle->config.seqtree == FDB_SEQTREE_USE) {
+        handle->seqnum = 0;
         struct btree_kv_ops *kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
         memcpy(kv_ops, handle->trie->btree_kv_ops, sizeof(struct btree_kv_ops));
         kv_ops->cmp = _cmp_uint64_t;
@@ -110,7 +112,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     }else{
         handle->seqtree = NULL;
     }
-    #endif
+#endif
 
     DBGCMD(
         gettimeofday(&_b_, NULL);
@@ -213,7 +215,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     wal_result wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
     btree_result br = BTREE_RESULT_FAIL;
-    fdb_seqnum_t seqnum;
+    //fdb_seqnum_t seqnum;
 
     if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
     
@@ -221,9 +223,8 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 
     if (wr == WAL_RESULT_FAIL) {
         #ifdef __FDB_SEQTREE
-            if (doc->meta) {
-                memcpy(&seqnum, doc->meta, sizeof(fdb_seqnum_t));
-                br = btree_find(handle->seqtree, &seqnum, &offset);
+            if (handle->config.seqtree == FDB_SEQTREE_USE) {
+                br = btree_find(handle->seqtree, &doc->seqnum, &offset);
             }
             if (br == BTREE_RESULT_FAIL) {
                 hr = hbtrie_find(handle->trie, doc->key, doc->keylen, &offset);
@@ -243,7 +244,8 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         docio_read_doc(handle->dhandle, offset, &_doc);
 
         if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
-        
+
+        doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->meta = _doc.meta;
@@ -255,6 +257,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     return FDB_RESULT_FAIL;
 }
 
+// search document metadata using key
 fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset)
 {
     uint64_t offset;
@@ -278,7 +281,8 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
 
         if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
-        
+
+        doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->meta = _doc.meta;
@@ -303,6 +307,16 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     _doc.length.metalen = doc->metalen;
     _doc.length.bodylen = doc->bodylen;
     _doc.key = doc->key;
+    #ifdef __FDB_SEQTREE
+        if (handle->config.seqtree == FDB_SEQTREE_USE) {
+            //_doc.seqnum = doc->seqnum;
+            spin_lock(&handle->lock);
+            _doc.seqnum = doc->seqnum = handle->seqnum++;
+            spin_unlock(&handle->lock);
+        }else{
+            _doc.seqnum = SEQNUM_NOT_USED;
+        }
+    #endif
     _doc.meta = doc->meta;
     _doc.body = doc->body;
 
