@@ -31,10 +31,12 @@ typedef uint64_t fdb_seqnum_t;
 //#define __DEBUG_BTREEBLOCK
 //#define __DEBUG_BCACHE
 //#define __DEBUG_FILEMGR
+//#define __DEBUG_COUCHBENCH
 
 #define FDB_BLOCKSIZE (4096)
 // MUST BE a power of 2
 #define FDB_WAL_NBUCKET (262144)
+#define FDB_MAX_KEYLEN (256)
 
 // MUST BE a power of 2
 #define BCACHE_NBUCKET (256*1024)

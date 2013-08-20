@@ -218,8 +218,6 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
     size_t rev_meta_size, max_meta_size = 256;
     size_t meta_offset;
 
-    DBGSW(0, int temp=0; );
-
     meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
 
     docinfo = (DocInfo*)malloc(sizeof(DocInfo) + max_meta_size);
@@ -242,6 +240,58 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
         memset(docinfo, 0, sizeof(DocInfo));
         docinfo->id.buf = ids[i].buf;
         docinfo->id.size = ids[i].size;
+        docinfo->size = _doc.bodylen;
+        docinfo->bp = offset;
+        docinfo->db_seq = _doc.seqnum;
+        _buf_to_docinfo(_doc.meta, _doc.metalen, docinfo);
+        free(_doc.meta);
+
+        callback(db, docinfo, ctx);
+    }
+
+    free(docinfo);
+
+    return COUCHSTORE_SUCCESS;
+}
+
+LIBCOUCHSTORE_API
+couchstore_error_t couchstore_docinfos_by_sequence(Db *db,
+                                                   const uint64_t sequence[],
+                                                   unsigned numDocs,
+                                                   couchstore_docinfos_options options,
+                                                   couchstore_changes_callback_fn callback,
+                                                   void *ctx)
+{
+    int i;
+    fdb_doc _doc;
+    fdb_status status;
+    DocInfo *docinfo;
+    uint64_t offset;
+    size_t rev_meta_size, max_meta_size = 256;
+    size_t meta_offset;
+    uint8_t keybuf[FDB_MAX_KEYLEN];
+
+    meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
+
+    docinfo = (DocInfo*)malloc(sizeof(DocInfo) + max_meta_size);
+
+    for (i=0;i<numDocs;++i){
+        _doc.key = (void*)keybuf;
+        _doc.seqnum = sequence[i];
+        _doc.meta = _doc.body = NULL;
+
+        status = fdb_get_metaonly_byseq(&db->fdb, &_doc, &offset);
+        assert(status != FDB_RESULT_FAIL);
+        
+        memcpy(&rev_meta_size, _doc.meta + meta_offset, sizeof(size_t));
+        if (rev_meta_size > max_meta_size) {
+            max_meta_size = rev_meta_size;
+            docinfo = (DocInfo*)realloc(docinfo, sizeof(DocInfo) + max_meta_size);
+        }
+
+        memset(docinfo, 0, sizeof(DocInfo));
+        docinfo->id.buf = (void *)keybuf;
+        docinfo->id.size = _doc.keylen;
         docinfo->size = _doc.bodylen;
         docinfo->bp = offset;
         docinfo->db_seq = _doc.seqnum;

@@ -6,7 +6,6 @@
 
     #define DBG(args...) fprintf(stderr, args)
     #define DBGCMD(command...) command
-
     #define DBGSW(n, args...) if (_dbg_is_sw_set(n)) {args; }
 #else
     #define DBG(args...)

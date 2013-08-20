@@ -16,8 +16,10 @@
 #ifndef __DEBUG_BTREEBLOCK
     #undef DBG
     #undef DBGCMD
+    #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
+    #define DBGSW(n, command...) 
 #endif
 #endif
 

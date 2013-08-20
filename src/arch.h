@@ -9,6 +9,8 @@
     #define _FSEC "ld"
     #define _FUSEC "d"
 
+    #define _ARCH_O_DIRECT (0x0)
+
     #ifndef spin_t
     // spinlock
     #include <libkern/OSAtomic.h>
@@ -24,6 +26,8 @@
     #define _F64 "ld"
     #define _FSEC "ld"
     #define _FUSEC "ld"
+
+    #define _ARCH_O_DIRECT O_DIRECT
 
     #ifndef spin_t
     // spinlock

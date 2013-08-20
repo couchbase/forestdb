@@ -16,12 +16,13 @@
 #include "crc32.h"
 
 #ifdef __DEBUG
-
 #ifndef __DEBUG_BCACHE
     #undef DBG
     #undef DBGCMD
+    #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
+    #define DBGSW(n, command...) 
 #endif
 static uint64_t _dirty = 0;
 #endif
@@ -182,7 +183,7 @@ void __bcache_check_bucket_length()
     #endif
 }
 
-INLINE _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fname)
+INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fname)
 {
     fname->filename = file->filename;
     fname->filename_len = file->filename_len;

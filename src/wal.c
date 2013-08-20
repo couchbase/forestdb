@@ -23,8 +23,10 @@
 #ifndef __DEBUG_WAL
     #undef DBG
     #undef DBGCMD
+    #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
+    #define DBGSW(n, command...) 
 #endif
 #endif
 
@@ -78,6 +80,19 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
 #endif
 
+INLINE size_t _wal_get_docsize(fdb_doc *doc)
+{
+    size_t ret = doc->keylen + doc->metalen + doc->bodylen + sizeof(struct docio_length);
+    #ifdef __FDB_SEQTREE
+        ret += sizeof(fdb_seqnum_t);
+    #endif
+    #ifdef __CRC32
+        ret += sizeof(uint32_t);
+    #endif
+
+    return ret;
+}
+
 wal_result wal_init(struct filemgr *file, int nbucket)
 {
     file->wal->size = 0;
@@ -118,7 +133,7 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
             item = _get_entry(e, struct wal_item, he_key);
         #endif
 
-        item->doc_size = doc->keylen + doc->metalen + doc->bodylen + sizeof(struct docio_length);
+        item->doc_size = _wal_get_docsize(doc);
         item->offset = offset;
         item->action = WAL_ACT_INSERT;
         
@@ -138,7 +153,7 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
         SEQTREE( item->seqnum = query.seqnum );
         item->action = WAL_ACT_INSERT;
         item->offset = offset;
-        item->doc_size = doc->keylen + doc->metalen + doc->bodylen + sizeof(struct docio_length);
+        item->doc_size = _wal_get_docsize(doc);
 
         hash_insert(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
@@ -160,6 +175,7 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
 
 #ifdef __FDB_SEQTREE
     if (doc->seqnum == SEQNUM_NOT_USED) {
+        // search by key
         query.key = key;
         query.keylen = keylen;
         e = hash_find(&file->wal->hash_bykey, &query.he_key);
@@ -171,7 +187,7 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
             }
         }
     } else {
-        //memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t));
+        // search by seqnum
         query.seqnum = doc->seqnum;
         e = hash_find(&file->wal->hash_byseq, &query.he_seq);
         if (e) {
@@ -183,6 +199,7 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
         }
     }
 #else
+    // seq-tree is not used .. just search by key
     query.key = key;
     query.keylen = keylen;
     e = hash_find(&file->wal->hash_bykey, &query.he_key);
@@ -199,7 +216,7 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
 
 wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
 {
-    //3 search by only key
+    //3 search by key only
     struct wal_item *item;
     struct wal_item query;
     struct hash_elem *e;

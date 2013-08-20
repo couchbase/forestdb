@@ -20,8 +20,10 @@
 #ifndef __DEBUG_MEMPOOL
     #undef DBG
     #undef DBGCMD
+    #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
+    #define DBGSW(n, command...) 
 #endif
 #endif
 

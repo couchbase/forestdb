@@ -16,8 +16,10 @@
 #ifndef __DEBUG_BTREE
     #undef DBG
     #undef DBGCMD
+    #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
+    #define DBGSW(n, command...) 
 #endif
 #endif
 
@@ -151,10 +153,12 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
         }
 
     }else {
-        memmove(ptr, node->data, node->nentry * (btree->ksize + btree->vsize));
-        node->data -= (old_metasize + sizeof(metasize_t));
-        // clear the flag
-        node->flag &= ~BNODE_MASK_METADATA;
+        if (node->flag & BNODE_MASK_METADATA) {
+            memmove(ptr, node->data, node->nentry * (btree->ksize + btree->vsize));
+            node->data -= (old_metasize + sizeof(metasize_t));
+            // clear the flag
+            node->flag &= ~BNODE_MASK_METADATA;
+        }
     }
 
     if (!btree->blk_ops->blk_is_writable(btree->blk_handle, btree->root_bid)) {
@@ -542,7 +546,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                 bid_t new_bid;
                 struct bnode *new_node;
                 int nentry1, nentry2;
-                
+
                 // allocate new block for latter half
                 addr = btree->blk_ops->blk_alloc(btree->blk_handle, &new_bid);
                 new_node = _btree_init_node(btree, addr, 0x0, node[i]->level, NULL);
@@ -866,7 +870,7 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
         memcpy(addr_cpy, addr, btree->blksize);
         it->node[depth] = _fetch_bnode(addr_cpy);
     }
-    node = it->node[depth];
+    node = _fetch_bnode(it->node[depth]);
     //assert(node->level == depth+1);
 
     if (node->nentry <= 0) return BTREE_RESULT_FAIL;

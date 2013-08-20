@@ -11,7 +11,20 @@
 #include "stopwatch.h"
 #include "iniparser.h"
 
+#include "arch.h"
+#include "option.h"
 #include "debug.h"
+
+#ifdef __DEBUG
+#ifndef __DEBUG_COUCHBENCH
+    #undef DBG
+    #undef DBGCMD
+    #undef DBGSW
+    #define DBG(args...)
+    #define DBGCMD(command...)
+    #define DBGSW(n, command...) 
+#endif
+#endif
 
 int _basic_callback(Db *db, DocInfo *docinfo, void *ctx)
 {
@@ -91,6 +104,7 @@ struct bench_info {
     struct rndinfo wbatchsize;
     struct rndinfo op_dist;
     size_t batchrange;
+    uint8_t read_query_byseq;
 
     // percentage
     size_t write_prob;
@@ -211,6 +225,7 @@ void do_bench(struct bench_info *binfo)
     struct timeval gap;
     struct stat filestat;
     sized_buf *ids;
+    uint64_t *seqs;
     int prog_dot, write_mode, write_mode_r;
     int batchsize, op_med, op_count_read, op_count_write;
     int compaction_no = 0;
@@ -310,13 +325,13 @@ void do_bench(struct bench_info *binfo)
                 if (r < 0) r = (r+binfo->ndocs) % binfo->ndocs;
                 if (r >= binfo->ndocs) r = r % binfo->ndocs;
 
-                rq_docs[j] = docs[j];
-                rq_infos[j] = infos[j];
+                rq_docs[j] = docs[r];
+                rq_infos[j] = infos[r];
 
                 appended_size += (rq_docs[j]->id.size + rq_docs[j]->data.size + rq_infos[j]->rev_meta.size);
             }
 
-            couchstore_save_documents(db, rq_docs, rq_infos, batchsize, 0x0);
+            couchstore_save_documents(db, rq_docs, rq_infos, batchsize, 0x0);            
             couchstore_commit(db);
             op_count_write += batchsize;
 
@@ -325,7 +340,11 @@ void do_bench(struct bench_info *binfo)
 
         }else{        
             // read
-            ids = (sized_buf *)malloc(sizeof(sized_buf) * batchsize);
+            if (binfo->read_query_byseq) {
+                seqs = (uint64_t *)malloc(sizeof(uint64_t) * batchsize);
+            }else{
+                ids = (sized_buf *)malloc(sizeof(sized_buf) * batchsize);
+            }
 
             for (j=0;j<batchsize;++j){
                 BDR_RNG_NEXTPAIR;
@@ -333,12 +352,21 @@ void do_bench(struct bench_info *binfo)
                 if (r < 0) r = (r+binfo->ndocs) % binfo->ndocs;;
                 if (r >= binfo->ndocs) r = r % binfo->ndocs;
 
-                ids[j] = docs[r]->id;
+                if (binfo->read_query_byseq) {
+                    seqs[j] = infos[r]->db_seq;
+                }else{
+                    ids[j] = docs[r]->id;
+                }
             }
 
-            couchstore_docinfos_by_id(db, ids, batchsize, 0x0, empty_callback, NULL);
+            if (binfo->read_query_byseq){
+                couchstore_docinfos_by_sequence(db, seqs, batchsize, 0x0, empty_callback, NULL);
+                free(seqs);
+            }else{
+                couchstore_docinfos_by_id(db, ids, batchsize, 0x0, empty_callback, NULL);
+                free(ids);
+            }
             op_count_read += batchsize;
-            free(ids);
         }
 
         stopwatch_stop(&progress);
@@ -432,6 +460,7 @@ void _print_benchinfo(struct bench_info *binfo)
 
     printf("read batch size distribution: %s(%d,%d)\n",
         (binfo->rbatchsize.type == RND_NORMAL)?"Norm":"Uniform", (int)binfo->rbatchsize.a, (int)binfo->rbatchsize.b);
+    printf("read query: by %s\n", (binfo->read_query_byseq)?"sequence":"id");
     printf("write batch size distribution: %s(%d,%d)\n",
         (binfo->wbatchsize.type == RND_NORMAL)?"Norm":"Uniform", (int)binfo->wbatchsize.a, (int)binfo->wbatchsize.b);
     printf("operations in a batch: %s distribution\n",     (binfo->op_dist.type == RND_NORMAL)?"Norm":"Uniform");
@@ -507,6 +536,10 @@ int main(){
         binfo.wbatchsize.a = iniparser_getint(cfg, "operation:write_batchsize_lower_bound", 750);
         binfo.wbatchsize.b = iniparser_getint(cfg, "operation:write_batchsize_upper_bound", 1250);
     }
+
+    str = iniparser_getstring(cfg, "operation:read_query", "key");
+    if (str[0] == 'k' || str[0] == 'i') binfo.read_query_byseq = 0;
+    else binfo.read_query_byseq = 1;
         
     binfo.batch_dist.type = RND_UNIFORM;
     binfo.batch_dist.a = 0;

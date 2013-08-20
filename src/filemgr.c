@@ -19,8 +19,10 @@
 #ifndef __DEBUG_FILEMGR
     #undef DBG
     #undef DBGCMD
+    #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
+    #define DBGSW(n, command...) 
 #endif
 #endif
 
@@ -83,7 +85,7 @@ void filemgr_init(struct filemgr_config config)
     spin_unlock(&initial_lock);
 }
 
-INLINE void * _filemgr_get_temp_buf()
+void * _filemgr_get_temp_buf()
 {
     size_t r;
     spin_lock(&temp_buf_lock);
@@ -161,7 +163,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->ops = ops;
 #ifdef __O_DIRECT
         file->fd = file->ops->open(file->filename,
-                                   O_RDWR | O_CREAT | O_DIRECT | config.flag, 0666);
+                                   O_RDWR | O_CREAT | _ARCH_O_DIRECT | config.flag, 0666);
 #else
         file->fd = file->ops->open(file->filename,
                                    O_RDWR | O_CREAT | config.flag, 0666);

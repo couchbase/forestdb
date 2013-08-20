@@ -11,7 +11,7 @@
 #include "btree.h"
 #include "btree_kv.h"
 
-#define HBTRIE_MAX_KEYLEN 256
+#define HBTRIE_MAX_KEYLEN FDB_MAX_KEYLEN
 
 typedef size_t hbtrie_func_readkey(void *handle, uint64_t offset, void *buf);
 
