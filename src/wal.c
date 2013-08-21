@@ -115,24 +115,28 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
     query.key = key;
     query.keylen = keylen;
     SEQTREE( 
-        //memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t)) 
         query.seqnum = doc->seqnum;
     );
 
-    #ifdef __FDB_SEQTREE
+    /*#ifdef __FDB_SEQTREE
         e = hash_find(&file->wal->hash_byseq, &query.he_seq);
-    #else
+    #else*/
         e = hash_find(&file->wal->hash_bykey, &query.he_key);
-    #endif
+    //#endif
 
     if (e) {
         // already exists in WAL index
-        #ifdef __FDB_SEQTREE
+        /*#ifdef __FDB_SEQTREE
             item = _get_entry(e, struct wal_item, he_seq);
-        #else
+        #else*/
             item = _get_entry(e, struct wal_item, he_key);
-        #endif
+        //#endif
 
+        #ifdef __FDB_SEQTREE
+            hash_remove(&file->wal->hash_byseq, &item->he_seq);
+            item->seqnum = query.seqnum;
+            hash_insert(&file->wal->hash_byseq, &item->he_seq);
+        #endif
         item->doc_size = _wal_get_docsize(doc);
         item->offset = offset;
         item->action = WAL_ACT_INSERT;
@@ -226,7 +230,6 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
     query.key = key;
     query.keylen = keylen;
     SEQTREE( 
-        //memcpy(&query.seqnum, doc->meta, sizeof(fdb_seqnum_t)) 
         query.seqnum = doc->seqnum;
     );
 
@@ -234,7 +237,12 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
     
     if (e) {
         item = _get_entry(e, struct wal_item, he_key);
-        
+
+        #ifdef __FDB_SEQTREE
+            hash_remove(&file->wal->hash_byseq, &item->he_seq);
+            item->seqnum = query.seqnum;
+            hash_insert(&file->wal->hash_byseq, &item->he_seq);
+        #endif
         if (item->action == WAL_ACT_INSERT) {
             item->action = WAL_ACT_REMOVE;
         }

@@ -74,6 +74,6 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid);
 void filemgr_remove_from_cache(struct filemgr *file);
 void filemgr_commit(struct filemgr *file);
 void filemgr_free();
-
+void filemgr_update_file_status(struct filemgr *file, file_status_t status);
 
 #endif

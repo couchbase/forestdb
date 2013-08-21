@@ -15,6 +15,7 @@ typedef uint64_t fdb_seqnum_t;
 
 //#define __RAW_BLOCK
 #define __O_DIRECT
+#define FDB_SECTOR_SIZE (512)
 #define __SYNC
 
 #define __CRC32
@@ -31,7 +32,7 @@ typedef uint64_t fdb_seqnum_t;
 //#define __DEBUG_BTREEBLOCK
 //#define __DEBUG_BCACHE
 //#define __DEBUG_FILEMGR
-//#define __DEBUG_COUCHBENCH
+#define __DEBUG_COUCHBENCH
 
 #define FDB_BLOCKSIZE (4096)
 // MUST BE a power of 2
@@ -41,7 +42,7 @@ typedef uint64_t fdb_seqnum_t;
 // MUST BE a power of 2
 #define BCACHE_NBUCKET (256*1024)
 #define BCACHE_NDICBUCKET (4096)
-#define BCACHE_FLUSH_UNIT (524288)
+#define BCACHE_FLUSH_UNIT (256*1024)
 
 #define __BTREEBLK_CACHE
 #define BTREEBLK_CACHE_LIMIT (16)

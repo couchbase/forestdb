@@ -23,4 +23,6 @@ void bcache_remove_file(struct filemgr *file);
 void bcache_flush(struct filemgr *file);
 void bcache_free();
 
+void bcache_update_file_status(struct filemgr *file, file_status_t status);
+
 #endif

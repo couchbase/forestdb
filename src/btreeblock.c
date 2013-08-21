@@ -52,6 +52,7 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
     struct list_elem *e = list_end(&handle->alc_list);
     struct btreeblk_block *block;
     uint32_t curpos;
+    int ret;
 
     if (e) {
         block = _get_entry(e, struct btreeblk_block, e);
@@ -72,7 +73,8 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
         memset(block->compsize, 0, handle->nnodeperblock * sizeof(compsize_t));
         memset(block->uncompsize, 0, handle->nnodeperblock * sizeof(compsize_t));
     #endif
-    block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
+    //block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
+    ret = posix_memalign(&block->addr, FDB_SECTOR_SIZE, handle->file->blocksize << coe);
     block->pos = handle->nodesize << coe ;
     block->bid = filemgr_alloc(handle->file);
     block->dirty = 1;
@@ -187,7 +189,8 @@ INLINE void _btreeblk_empty_recycle_bin(struct btreeblk_handle *handle)
             if (handle->cache[idx] == block) {
                 handle->cache[idx] = NULL;
             }
-            mempool_free(block->addr);
+            //mempool_free(block->addr);
+            free(block->addr);
             mempool_free(block);
         }
     }
@@ -204,6 +207,7 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     bid_t filebid = bid / handle->nnodeperblock;
     int offset = bid % handle->nnodeperblock;
+    int ret;
 
     // check whether the block is in current lists
     // read list (clean)
@@ -246,7 +250,8 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
     block->bid = filebid;
     block->dirty = 0;
 
-    block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
+    //block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
+    ret = posix_memalign(&block->addr, FDB_SECTOR_SIZE, handle->file->blocksize << coe);
 #ifdef _BNODE_COMP
     // uncompress
     _btreeblk_read_and_uncomp(handle, block);
@@ -310,7 +315,8 @@ INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle, struct bt
     #ifdef __BTREEBLK_CACHE
         _btreeblk_dump_recycle_bin(handle, block);
     #else                
-        mempool_free(block->addr);
+        //mempool_free(block->addr);
+        free(block->addr);
         mempool_free(block);
     #endif
 }

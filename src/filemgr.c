@@ -75,7 +75,7 @@ void filemgr_init(struct filemgr_config config)
         filemgr_sys_pagesize = sysconf(_SC_PAGESIZE);
 
         for (i=0;i<NBUF;++i){
-            ret = posix_memalign(&temp_buf[i], filemgr_sys_pagesize, global_config.blocksize);
+            ret = posix_memalign(&temp_buf[i], FDB_SECTOR_SIZE, global_config.blocksize);
         }
         temp_buf_lock = SPIN_INITIALIZER;
         temp_buf_turn = 0;
@@ -103,24 +103,17 @@ void _filemgr_read_header(struct filemgr *file)
 
     file->ops->pread(file->fd, buf, file->blocksize, file->pos - file->blocksize);
 
-    //file->ops->pread(file->fd, marker, BLK_MARKER_SIZE, file->pos - BLK_MARKER_SIZE);
     memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE, BLK_MARKER_SIZE);
     
     if (marker[0] == BLK_MARKER_DBHEADER) {
-        //file->ops->pread(file->fd, &magic, sizeof(magic), file->pos - sizeof(magic) - BLK_MARKER_SIZE);
         memcpy(&magic, buf + file->blocksize - sizeof(magic) - BLK_MARKER_SIZE, sizeof(magic));
         if (magic == FILEMGR_MAGIC) {
-            /*file->ops->pread(file->fd, &len, sizeof(len),
-                             file->pos - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE);*/
             memcpy(&len, buf + file->blocksize - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE, sizeof(len));
             file->header.data = (void *)malloc(len);
             
-            /*file->ops->pread(file->fd, file->header.data, len,
-                             file->pos - file->blocksize);*/
             memcpy(file->header.data, buf, len);                 
             file->header.size = len;
 
-            //file->last_commit = file->pos;
             return ;
         }
     }
@@ -205,6 +198,9 @@ void filemgr_close(struct filemgr *file)
     if (--(file->ref_count) == 0) {
         hash_remove(&hash, &file->e);
         hash_free(&file->wal->hash_bykey);
+        #ifdef __FDB_SEQTREE
+            hash_free(&file->wal->hash_byseq);
+        #endif
         free(file->wal);
         free(file->filename);
         free(file->header.data);
@@ -262,7 +258,8 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
     if (global_config.ncacheblock > 0) {
         int r = bcache_read(file, bid, buf);
         if (r == 0) {
-            file->ops->pread(file->fd, buf, file->blocksize, pos);
+            r = file->ops->pread(file->fd, buf, file->blocksize, pos);
+            assert(r > 0);
             #ifdef __CRC32
                 if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
                     uint32_t crc_file, crc;
@@ -357,19 +354,13 @@ void filemgr_commit(struct filemgr *file)
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
         
-        //file->ops->pwrite(file->fd, file->header.data, header_len, file->pos);
         memcpy(buf, file->header.data, header_len);
-        /*file->ops->pwrite(file->fd, &header_len, sizeof(header_len), 
-            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE) );*/
         memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE),
             &header_len, sizeof(header_len));
-        /*file->ops->pwrite(file->fd, &magic, sizeof(magic), 
-            file->pos + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE) );*/
         memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE),
             &magic, sizeof(magic));
         
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
-        //file->ops->pwrite(file->fd, marker, BLK_MARKER_SIZE, file->pos + file->blocksize - BLK_MARKER_SIZE);
         memcpy(buf + file->blocksize - BLK_MARKER_SIZE, marker, BLK_MARKER_SIZE);
 
         file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
@@ -398,6 +389,11 @@ void filemgr_commit(struct filemgr *file)
 */
     // race condition?
     file->last_commit = file->pos;
+}
+
+void filemgr_update_file_status(struct filemgr *file, file_status_t status)
+{
+    bcache_update_file_status(file, status);
 }
 
 

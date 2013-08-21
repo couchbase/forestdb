@@ -97,6 +97,7 @@ struct bench_info {
     char *filename2;
     struct rndinfo keylen;
     struct rndinfo bodylen;
+    size_t nbatches;
     size_t nops;
     size_t bench_secs;
     struct rndinfo batch_dist;
@@ -187,23 +188,31 @@ size_t _create_docs(Doc *docs[], DocInfo *infos[], struct bench_info *binfo)
 #define PRINT_TIME(t,str) \
     printf("%d.%03d"str, (int)(t).tv_sec, (int)(t).tv_usec / 1000);
 
+uint64_t get_filesize(char *filename)
+{
+    struct stat filestat;
+    stat(filename, &filestat);
+    return filestat.st_size;
+}
+
+char * print_filesize_approx(uint64_t size, char *output)
+{
+    if (size < 1024*1024) {
+        sprintf(output, "%.2f KB", (double)size / 1024);
+    }else if (size >= 1024*1024 && size < 1024*1024*1024) {
+        sprintf(output, "%.2f MB", (double)size / (1024*1024));
+    }else {
+        sprintf(output, "%.2f GB", (double)size / (1024*1024*1024));    
+    }
+    return output;
+}
+
 void print_filesize(char *filename)
 {
-    int r;
-    struct stat filestat;
-    uint64_t size; 
-
-    stat(filename, &filestat);
-    size = filestat.st_size;
+    char buf[256];
+    uint64_t size = get_filesize(filename);
     
-    printf("file size : %lu bytes ", (unsigned long)filestat.st_size);
-    if (size >= 1024 && size < 1024*1024) {
-        printf("(%.2f KB)\n", (double)size / 1024);
-    }else if (size >= 1024*1024 && size < 1024*1024*1024) {
-        printf("(%.2f MB)\n", (double)size / (1024*1024));
-    }else {
-        printf("(%.2f GB)\n", (double)size / (1024*1024*1024));    
-    }
+    printf("file size : %lu bytes (%s)\n", (unsigned long)size, print_filesize_approx(size, buf));
 }
 
 int empty_callback(Db *db, DocInfo *docinfo, void *ctx)
@@ -220,17 +229,19 @@ void do_bench(struct bench_info *binfo)
     Doc **docs, **rq_docs;
     DocInfo **infos, **rq_infos;
     char curfile[256], newfile[256], keybuf[256], bodybuf[1024], cmd[256];
+    char fsize1[128], fsize2[128];
     struct stopwatch sw, sw_compaction, progress;
     struct rndinfo write_mode_random;
     struct timeval gap;
-    struct stat filestat;
+    //struct stat filestat;
     sized_buf *ids;
     uint64_t *seqs;
-    int prog_dot, write_mode, write_mode_r;
+    int write_mode, write_mode_r;
     int batchsize, op_med, op_count_read, op_count_write;
     int compaction_no = 0;
     double rw_factor;
-    uint64_t workingset_size, appended_size;
+    uint64_t workingset_size, appended_size, previous_filesize;
+    DBGCMD( int rarray[3000]; );
 
     dbinfo = (DbInfo *)malloc(sizeof(DbInfo));
 
@@ -260,10 +271,12 @@ void do_bench(struct bench_info *binfo)
     couchstore_commit(db);
     gap = stopwatch_stop(&sw);
     PRINT_TIME(gap, " sec elapsed\n");
+    previous_filesize = get_filesize(curfile);
     print_filesize(curfile);
 
     printf("\nbenchmark\n");
-    op_count_read = op_count_write = prog_dot = 0;
+    appended_size = 0;
+    op_count_read = op_count_write = 0;
     write_mode_random.type = RND_UNIFORM;
     write_mode_random.a = 0;
     write_mode_random.b = 65536 * 256;
@@ -281,11 +294,8 @@ void do_bench(struct bench_info *binfo)
     stopwatch_start(&sw);
     stopwatch_start(&progress);
     
-    for (i=0;(i<binfo->nops || binfo->nops == 0);++i){
-        if (i==1335058) {
-            int asdf=0;
-        }
-        
+    for (i=0;(i<binfo->nbatches || binfo->nbatches == 0);++i){
+
         BDR_RNG_NEXTPAIR;
         write_mode_r = get_random(&write_mode_random, rngz, rngz2);
         write_mode = ( ((double)binfo->write_prob * 256.0 / 100.0 * rw_factor * 65536) > write_mode_r);
@@ -327,8 +337,7 @@ void do_bench(struct bench_info *binfo)
 
                 rq_docs[j] = docs[r];
                 rq_infos[j] = infos[r];
-
-                appended_size += (rq_docs[j]->id.size + rq_docs[j]->data.size + rq_infos[j]->rev_meta.size);
+                DBGCMD( rarray[j] = r; );
             }
 
             couchstore_save_documents(db, rq_docs, rq_infos, batchsize, 0x0);            
@@ -347,6 +356,7 @@ void do_bench(struct bench_info *binfo)
             }
 
             for (j=0;j<batchsize;++j){
+                
                 BDR_RNG_NEXTPAIR;
                 r = get_random(&binfo->op_dist, rngz, rngz2);
                 if (r < 0) r = (r+binfo->ndocs) % binfo->ndocs;;
@@ -357,6 +367,7 @@ void do_bench(struct bench_info *binfo)
                 }else{
                     ids[j] = docs[r]->id;
                 }
+                DBGCMD( rarray[j] = r; );
             }
 
             if (binfo->read_query_byseq){
@@ -371,57 +382,74 @@ void do_bench(struct bench_info *binfo)
 
         stopwatch_stop(&progress);
         if (progress.elapsed.tv_sec * 10 + progress.elapsed.tv_usec / 100000 > 0){
+            // for every 0.1 sec, print current status
+            uint64_t cur_size;
         
             stopwatch_init(&progress);
 
-            stat(curfile, &filestat);
+            cur_size = get_filesize(curfile);
             couchstore_db_info(db, dbinfo);
                         
             stopwatch_stop(&sw);
             printf("\r");
-            //for (j=0;j<prog_dot;++j) printf("=");
-            if (binfo->nops > 0) {
-                printf("%5.1f %% (", i*100.0 / (binfo->nops-1));
+
+            if (binfo->nbatches > 0) {
+                printf("%5.1f %% (", i*100.0 / (binfo->nbatches-1));
                 gap = sw.elapsed;
                 PRINT_TIME(gap, " s , "); 
-            }else{
+            }else if (binfo->bench_secs > 0){
                 printf("(");
                 gap = sw.elapsed;
                 PRINT_TIME(gap, " s / ");
                 printf("%d s , ", (int)binfo->bench_secs); 
+            }else {
+                printf("%5.1f %% (", (op_count_read+op_count_write)*100.0 / (binfo->nops-1));
+                gap = sw.elapsed;
+                PRINT_TIME(gap, " s , ");                 
             }
             printf("%.2f ops)", 
                 (double)(op_count_read + op_count_write) / (gap.tv_sec + (double)gap.tv_usec / 1000000.0));
-            printf(" (%lld / %lld)", (long long int)filestat.st_size, (long long int)dbinfo->space_used);
-            prog_dot++;
+            print_filesize_approx(cur_size, fsize1);
+            print_filesize_approx(dbinfo->space_used, fsize2);
+            printf(" (%s / %s)", fsize1, fsize2);
+            
             fflush(stdout);
             stopwatch_start(&sw);
 
-            if ( (filestat.st_size > dbinfo->space_used) && 
-                ((filestat.st_size - dbinfo->space_used) > 
-                ((double)binfo->compact_thres/100.0)*(double)filestat.st_size) ) {
-                // compaction
+            // valid:invalid size check
+            if ( (cur_size > dbinfo->space_used) && 
+                ((cur_size - dbinfo->space_used) > 
+                ((double)binfo->compact_thres/100.0)*(double)cur_size) ) {
+                
+                // compaction                
                 compaction_no++;
                 sprintf(newfile, "%s%d", binfo->filename, compaction_no);
-                printf("\r[ #%d compaction %s >> %s ]", compaction_no, curfile, newfile);
+                printf(" [ #%d compaction %s >> %s ]", compaction_no, curfile, newfile);
                 fflush(stdout);
+
+                appended_size += (get_filesize(curfile) - previous_filesize);
 
                 stopwatch_start(&sw_compaction);
                 couchstore_compact_db(db, newfile);
                 couchstore_close_db(db);
                 stopwatch_stop(&sw_compaction);
 
+                previous_filesize = get_filesize(newfile);
+
                 // erase previous db file    
                 sprintf(cmd, "rm %s -rf 2> errorlog.txt", curfile);
                 ret = system(cmd);
 
+                // open new db file
                 strcpy(curfile, newfile);
                 couchstore_open_db(curfile, COUCHSTORE_OPEN_FLAG_CREATE, &db);
-                stat(curfile, &filestat);
             }
 
             if (sw.elapsed.tv_sec >= binfo->bench_secs && binfo->bench_secs > 0) break;
         }      
+
+        if ((op_count_read + op_count_write) >= binfo->nops && binfo->nops > 0) break;
+        
         stopwatch_start(&progress);
     }
     printf("\n");
@@ -433,6 +461,8 @@ void do_bench(struct bench_info *binfo)
         op_count_read + op_count_write, 
         (double)(op_count_read + op_count_write) / (gap.tv_sec + (double)gap.tv_usec / 1000000.0));
     print_filesize(curfile);
+    appended_size += (get_filesize(curfile) - previous_filesize);
+    printf("total %lu bytes (%s) written\n", appended_size, print_filesize_approx(appended_size, fsize1));
 
     printf("compaction : occurred %d times, ", compaction_no);
     PRINT_TIME(sw_compaction.elapsed, " sec elapsed\n");
@@ -452,10 +482,14 @@ void _print_benchinfo(struct bench_info *binfo)
     printf("body length distribution: %s(%d,%d)\n", 
         (binfo->bodylen.type == RND_NORMAL)?"Norm":"Uniform", (int)binfo->bodylen.a, (int)binfo->bodylen.b);
 
-	if (binfo->nops > 0) {
-        printf("the number of operation batches: %d\n", (int)binfo->nops);
-    }else{
-        printf("benchmark duration: %d seconds\n", (int)binfo->bench_secs);
+    if (binfo->nbatches > 0) {
+        printf("the number of operation batches for benchmark: %lu\n", (unsigned long)binfo->nbatches);
+    }
+    if (binfo->nops > 0){
+        printf("the number of operations for benchmark: %lu\n", (unsigned long)binfo->nops);
+    }
+    if (binfo->bench_secs > 0){
+        printf("benchmark duration: %lu seconds\n", (unsigned long)binfo->bench_secs);
     }
 
     printf("read batch size distribution: %s(%d,%d)\n",
@@ -517,8 +551,12 @@ int main(){
         binfo.bodylen.b = iniparser_getint(cfg, "body_length:upper_bound", 576);
     }
 
-    binfo.nops = iniparser_getint(cfg, "operation:nbatches", 0);
+    binfo.nbatches = iniparser_getint(cfg, "operation:nbatches", 0);
+    binfo.nops = iniparser_getint(cfg, "operation:nops", 0);
     binfo.bench_secs = iniparser_getint(cfg, "operation:duration", 0);
+    if (binfo.nbatches == 0 && binfo.nops == 0 && binfo.bench_secs == 0) {
+        binfo.bench_secs = 60;
+    }
     
     str = iniparser_getstring(cfg, "operation:batchsize_distribution", "normal");
     if (str[0] == 'n') {

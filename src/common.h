@@ -29,6 +29,13 @@
 typedef uint64_t bid_t;
 #define BLK_NOT_FOUND (0xffffffffffffffff)
 
+typedef uint8_t file_status_t;
+enum{
+    FILE_NORMAL = 0,
+    FILE_COMPACT_OLD = 1,
+    FILE_COMPACT_NEW = 2
+};
+
 #define BLK_MARKER_BNODE (0xff)
 #define BLK_MARKER_DBHEADER (0xee)
 #define BLK_MARKER_DOC (0xdd)

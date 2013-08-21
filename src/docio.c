@@ -12,16 +12,20 @@
 
 void docio_init(struct docio_handle *handle, struct filemgr *file)
 {
+    int ret;
+    //size_t filemgr_sys_pagesize = sysconf(_SC_PAGESIZE);    
+
     handle->file = file;
     handle->curblock = BLK_NOT_FOUND;
     handle->curpos = 0;
     handle->lastbid = BLK_NOT_FOUND;
-    handle->readbuffer = (void *)mempool_alloc(file->blocksize);
+    //handle->readbuffer = (void *)mempool_alloc(file->blocksize);
+    ret = posix_memalign(&handle->readbuffer, FDB_SECTOR_SIZE, file->blocksize);
 }
 
 void docio_free(struct docio_handle *handle)
 {
-    mempool_free(handle->readbuffer);
+    free(handle->readbuffer);
 }
 
 INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)

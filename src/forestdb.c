@@ -481,6 +481,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         (handle->file->pos) / handle->file->blocksize;
     _fdb_set_file_header(handle);
     btreeblk_end(handle->bhandle);
+    filemgr_update_file_status(handle->file, FILE_COMPACT_OLD);
 
     fconfig.blocksize = FDB_BLOCKSIZE;
     fconfig.ncacheblock = handle->config.buffercache_size / FDB_BLOCKSIZE;
@@ -488,6 +489,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 
     // open new file
     new_file = filemgr_open(new_filename, handle->fileops, fconfig);
+    filemgr_update_file_status(new_file, FILE_COMPACT_NEW);
 
     // create new hb-trie and related handles
     new_bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
@@ -570,6 +572,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         }
     #endif
 
+    filemgr_update_file_status(handle->file, FILE_NORMAL);
     fdb_commit(handle);
 
     return FDB_RESULT_SUCCESS;

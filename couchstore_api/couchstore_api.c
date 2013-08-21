@@ -40,7 +40,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     memset(&config, 0, sizeof(fdb_config));
     config.chunksize = sizeof(uint64_t);
     config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = (uint64_t)2048 * 1024 * 1024;
+    config.buffercache_size = (uint64_t)2 * 1024 * 1024 * 1024;
     config.wal_threshold = 32 * 1024;
     config.seqtree = FDB_SEQTREE_USE;
     config.flag = 0;

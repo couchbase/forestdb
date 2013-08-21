@@ -246,7 +246,7 @@ void seqnum_test()
     memset(&config, 0, sizeof(fdb_config));
     config.chunksize = sizeof(uint64_t);
     config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 1 * 1024 * 1024;
+    config.buffercache_size = 2 * 4 * 1024;
     config.wal_threshold = 1024;
     config.seqtree = FDB_SEQTREE_USE;
     config.flag = 0;
@@ -324,6 +324,7 @@ void seqnum_test()
         sprintf(keybuf, "key%d", i);
 
         fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        rdoc->seqnum = SEQNUM_NOT_USED;
         status = fdb_get(&db, rdoc);
 
         if (i<2) {

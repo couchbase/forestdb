@@ -285,6 +285,7 @@ hbtrie_result _hbtrie_next(
     // get key-value from current b-tree iterator
     br = btree_next(&item->btree_it, k, v);
     if (br == BTREE_RESULT_FAIL) {
+        // no more KV pair in the b-tree
         btree_iterator_free(&item->btree_it);
         list_remove(&it->btreeit_list, &item->le);
         mempool_free(item);
