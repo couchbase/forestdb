@@ -32,8 +32,9 @@ typedef uint64_t bid_t;
 typedef uint8_t file_status_t;
 enum{
     FILE_NORMAL = 0,
-    FILE_COMPACT_OLD = 1,
-    FILE_COMPACT_NEW = 2
+    FILE_COMPACT_OLD_SCAN = 1,
+    FILE_COMPACT_OLD = 2,
+    FILE_COMPACT_NEW = 3
 };
 
 #define BLK_MARKER_BNODE (0xff)

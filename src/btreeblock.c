@@ -75,12 +75,15 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
     #endif
     //block->addr = (void *)mempool_alloc(handle->file->blocksize << coe);
     ret = posix_memalign(&block->addr, FDB_SECTOR_SIZE, handle->file->blocksize << coe);
+#ifdef __CRC32
+    memset(block->addr + handle->nodesize - BLK_MARKER_SIZE, BLK_MARKER_BNODE, BLK_MARKER_SIZE);
+#endif    
     block->pos = handle->nodesize << coe ;
     block->bid = filemgr_alloc(handle->file);
     block->dirty = 1;
     // btree bid differs to filemgr bid
     *bid = block->bid * handle->nnodeperblock;
-    list_push_front(&handle->alc_list, &block->e);
+    list_push_back(&handle->alc_list, &block->e);
     
     return block->addr;
 }
@@ -364,6 +367,8 @@ void btreeblk_operation_end(void *voidhandle)
                 // compress
                 _btreeblk_comp_and_write(handle, block);
             #endif
+        }else{
+            assert(0);
         }
 
         if (block->pos + (handle->nodesize << coe) > (handle->file->blocksize << coe) || !writable) {

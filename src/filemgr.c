@@ -163,6 +163,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 #endif
         file->blocksize = global_config.blocksize;
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
+        file->status = FILE_NORMAL;
         
         _filemgr_read_header(file);
         
@@ -235,6 +236,11 @@ bid_t filemgr_alloc(struct filemgr *file)
 {
     spin_lock(&file->lock);
     bid_t bid = file->pos / file->blocksize;
+    DBGCMD(
+        if (bid == 40554) {
+            DBG("break point.. %d", (int)bid); char asdf=getc(stdin);
+            }
+        );
     file->pos += file->blocksize;
     spin_unlock(&file->lock);
     
@@ -246,41 +252,79 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin, bid_
     spin_lock(&file->lock);
     *begin = file->pos / file->blocksize;
     *end = *begin + nblock - 1;
+    DBGCMD(
+        if (*begin <= 40554 && 40554 <= *end) {
+            DBG("break point.. %d %d", (int)*begin, (int)*end); char asdf=getc(stdin);
+            }
+    );
     file->pos += file->blocksize * nblock;
     spin_unlock(&file->lock);
 }
 
+INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
+{
+    if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
+        uint32_t crc_file, crc;
+        memcpy(&crc_file, buf + 8, sizeof(crc_file));
+        memset(buf + 8, 0xff, sizeof(void *));
+        crc = crc32_8(buf, file->blocksize, 0);
+        assert(crc == crc_file);
+    }
+}
+
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 {
+    int r;
     uint64_t pos = bid * file->blocksize;
     assert(pos < file->pos);
 
     if (global_config.ncacheblock > 0) {
-        int r = bcache_read(file, bid, buf);
+        r = bcache_read(file, bid, buf);
         if (r == 0) {
-            r = file->ops->pread(file->fd, buf, file->blocksize, pos);
-            assert(r > 0);
-            #ifdef __CRC32
-                if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
-                    uint32_t crc_file, crc;
-                    memcpy(&crc_file, buf + 8, sizeof(crc_file));
-                    memset(buf + 8, 0xff, sizeof(void *));
-                    crc = crc32_8(buf, file->blocksize, 0);
-                    assert(crc == crc_file);
+            // cache miss
+            if (file->status != FILE_COMPACT_OLD_SCAN) {
+                // if normal file, just read a block
+                r = file->ops->pread(file->fd, buf, file->blocksize, pos);
+                assert(r > 0);
+                
+                #ifdef __CRC32
+                    _filemgr_crc32_check(file, buf);
+                #endif
+
+                bcache_write(file, bid, buf, BCACHE_CLEAN);
+            }else{
+                // if file is undergoing compaction, bulk read and bulk cache prefetch
+                uint64_t pos_bulk;
+                uint64_t count_bulk;
+                uint64_t nblocks, i;
+                void *bulk_buf;
+                
+                pos_bulk = (bid / FILEMGR_BULK_READ);
+                pos_bulk *= FILEMGR_BULK_READ * file->blocksize;
+                count_bulk = FILEMGR_BULK_READ * file->blocksize;
+                if (pos_bulk + count_bulk > file->last_commit) {
+                    count_bulk = file->last_commit - pos_bulk;
                 }
-            #endif
-            bcache_write(file, bid, buf, BCACHE_CLEAN);
+                nblocks = count_bulk / file->blocksize;
+                r = posix_memalign(&bulk_buf, FDB_SECTOR_SIZE, count_bulk);
+                r = file->ops->pread(file->fd, bulk_buf, count_bulk, pos_bulk);
+                assert(r > 0);
+
+                for (i=0;i<nblocks;++i){
+                    bcache_write(file, pos_bulk / file->blocksize + i, 
+                        bulk_buf + i*file->blocksize, BCACHE_CLEAN);
+                }
+                memcpy(buf, bulk_buf + (bid*file->blocksize - pos_bulk), file->blocksize);
+                
+                free(bulk_buf);
+            }
         }
     } else {
-        file->ops->pread(file->fd, buf, file->blocksize, pos);
+        r = file->ops->pread(file->fd, buf, file->blocksize, pos);
+        assert(r > 0);
+        
         #ifdef __CRC32
-            if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
-                uint32_t crc_file, crc;
-                memcpy(&crc_file, buf + 8, sizeof(crc_file));
-                memset(buf + 8, 0xff, sizeof(void *));
-                crc = crc32_8(buf, file->blocksize, 0);
-                assert(crc == crc_file);
-            }
+            _filemgr_crc32_check(file, buf);
         #endif
     }
 }
@@ -393,7 +437,8 @@ void filemgr_commit(struct filemgr *file)
 
 void filemgr_update_file_status(struct filemgr *file, file_status_t status)
 {
-    bcache_update_file_status(file, status);
+    file->status = status;
+    //bcache_update_file_status(file, status);
 }
 
 

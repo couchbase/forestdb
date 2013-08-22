@@ -30,6 +30,8 @@ static uint64_t _dirty = 0;
 static struct list freelist;
 static struct list cleanlist;
 static struct list dirtylist;
+static uint64_t nfree, nclean, ndirty;
+static uint64_t bcache_nblock;
 
 // hash table for lookup blocks using their BID
 static struct hash bhash;
@@ -44,7 +46,7 @@ struct fnamedic_item {
     char *filename;
     uint16_t filename_len;
     uint32_t hash;
-    file_status_t status;
+    //file_status_t status;
 
     // current opened filemgr instance (can be changed on-the-fly when file is closed and re-opened)
     struct filemgr *curfile;
@@ -74,6 +76,49 @@ struct dirty_item {
 };
 
 static struct hash_elem *fname_cache = NULL;
+
+#ifdef __DEBUG
+uint64_t _gn(struct list *list)
+{
+    uint64_t c = 0;
+    struct list_elem *e;
+    e = list_begin(list);
+    while(e) {
+        c++;
+        e = list_next(e);
+    }
+    return c;
+}
+void _pl(struct list *list, uint64_t begin, uint64_t n)
+{
+    uint64_t c = 0;
+    struct list_elem *e;
+    struct bcache_item *item;
+    char fname_buf[256];
+    uint8_t marker;
+    
+    e = list_begin(list);
+    while(e) {
+        if (begin <= c && c < begin+n) {
+            item = _get_entry(e, struct bcache_item, list_elem);
+            memcpy(fname_buf, item->fname->filename, item->fname->filename_len);
+            fname_buf[item->fname->filename_len] = 0;
+            memcpy(&marker, item->addr + 4095, 1);
+            printf("#%"_F64": BID %"_F64", marker 0x%x, file %s\n", c, item->bid, marker, fname_buf);
+        }
+        c++;
+        e = list_next(e);
+    }
+}
+#endif
+
+INLINE void _bcache_count(struct list *list, int delta)
+{
+    if (list == &cleanlist) nclean += delta;
+    else if (list == &dirtylist) ndirty += delta;
+    else if (list == &freelist) nfree += delta;
+    else assert(0);
+}
 
 INLINE int _dirty_cmp(struct rb_node *a, struct rb_node *b, void *aux)
 {
@@ -226,9 +271,11 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
             assert(item->fname->curfile == file);
             memcpy(buf, item->addr, bcache_blocksize);
 
-            // move the item at the head of the list (LRU)
-            list_remove(item->list, &item->list_elem);
-            list_push_front(item->list, &item->list_elem);
+            // move the item at the head of the list (LRU) when the file is not undergoing compaction
+            if (item->fname->curfile->status != FILE_COMPACT_OLD) {
+                list_remove(item->list, &item->list_elem);
+                list_push_front(item->list, &item->list_elem);
+            }
 
             // set lastitem
             query.fname->lastitem = item;
@@ -250,6 +297,8 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
     struct dirty_item *ditem;
     int count, ret;
     bid_t start_bid, prev_bid;
+    void *ptr = NULL;
+    uint8_t marker = 0x0;
 
     // scan and gather rb-tree items sequentially
     if (sync) {
@@ -274,16 +323,18 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
         prev_bid = ditem->item->bid;
         r = rb_next(r);
 
+        ptr = ditem->item->addr;
+        marker = *((uint8_t*)(ptr) + bcache_blocksize-1);
+
         // remove from rb-tree
         rb_erase(&ditem->rb, &fname_item->rbtree);
         // remove from dirtylist
         list_remove(ditem->item->list, &ditem->item->list_elem);
+        _bcache_count(ditem->item->list, -1);
 
         if (sync) {
             #ifdef __CRC32
-                void *ptr = ditem->item->addr;
-                uint8_t mark = *((uint8_t*)(ptr) + bcache_blocksize-1);
-                if (mark == BLK_MARKER_BNODE ) {
+                if (marker == BLK_MARKER_BNODE ) {
                     // b-tree node .. calculate crc32 and put it into 8th byte of the block
                     memset(ptr + 8, 0xff, sizeof(void *));
                     uint32_t crc = crc32_8(ptr, bcache_blocksize, 0);
@@ -293,11 +344,13 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             memcpy(buf + count*bcache_blocksize, ditem->item->addr, bcache_blocksize);
         }
 
-        if (sync) {
+        // when the file is undergoing compaction, blocks for documents are discarded
+        if ( (sync && fname_item->curfile->status != FILE_COMPACT_OLD) || 
+              (sync && fname_item->curfile->status == FILE_COMPACT_OLD && marker == BLK_MARKER_BNODE) ) {
             // insert into cleanlist
             ditem->item->list = &cleanlist;
             list_push_front(ditem->item->list, &ditem->item->list_elem);
-            count++;
+            _bcache_count(ditem->item->list, 1);
         }else{
             // not committed dirty blocks of closed file .. just remove?
             if (ditem->item == fname_item->lastitem) {
@@ -307,7 +360,9 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             hash_remove(&bhash, &ditem->item->hash_elem);
             ditem->item->list = &freelist;
             list_push_front(ditem->item->list, &ditem->item->list_elem);
+            _bcache_count(ditem->item->list, 1);
         }
+        count++;
 
         DBGCMD(_dirty--);
         mempool_free(ditem);
@@ -323,6 +378,10 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             fname_item->curfile->fd, buf, count * bcache_blocksize, start_bid * bcache_blocksize);    
         assert(ret != 0);
         free(buf);
+
+        #ifdef __O_DIRECT
+            fname_item->curfile->last_commit = (start_bid + count) * bcache_blocksize;
+        #endif
     }
 }
 
@@ -332,22 +391,42 @@ struct list_elem * _bcache_evict(struct filemgr *file)
     struct bcache_item *item;
     struct hash_elem *h;
     struct fnamedic_item query, *fname_item = NULL;
+    size_t ratio;
 
-    // evict clean block
-    e = list_pop_back(&cleanlist);
+    if (ndirty > 0) {
+        ratio = nclean / ndirty;
+    }else{
+        ratio = 0xffffffff;
+    }
 
-    if (e == NULL) {
-        // when there is no item in clean list .. evict dirty block
+    if ( ratio >= BCACHE_EVICT_RATIO ) {
+        // evict clean block
+        e = list_pop_back(&cleanlist);
+        if (e == NULL) {
+            // when there is no item in clean list .. evict dirty block
+            e = list_end(&dirtylist);
+            item = _get_entry(e, struct bcache_item, list_elem);
+
+            //if (item->fname->curfile->status != FILE_COMPACT_NEW) {
+                _bcache_evict_dirty(item->fname, 1);
+            /*}else{
+                while(rb_first(&item->fname->rbtree)) {    
+                    _bcache_evict_dirty(item->fname, 1);
+                }            
+            }*/
+            e = list_pop_back(&cleanlist);
+        }
+    }else{
+        // directly evict dirty block
         e = list_end(&dirtylist);
         item = _get_entry(e, struct bcache_item, list_elem);
         
         _bcache_evict_dirty(item->fname, 1);
-        
         e = list_pop_back(&cleanlist);
-
     }
 
     item = _get_entry(e, struct bcache_item, list_elem);
+    _bcache_count(item->list, -1);
     fname_item = item->fname;
     
     if (fname_item) {
@@ -359,6 +438,7 @@ struct list_elem * _bcache_evict(struct filemgr *file)
     hash_remove(&bhash, &item->hash_elem);
     item->list = &freelist;
     list_push_front(item->list, &item->list_elem);
+    _bcache_count(item->list, 1);
 
     return &item->list_elem;
 }
@@ -377,7 +457,7 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     //fname_new->hash = hash_djb2_last8(fname_new->filename, fname_new->filename_len);
     fname_new->hash = crc32_8_last8(fname_new->filename, fname_new->filename_len, 0);
     fname_new->lastitem = NULL;
-    fname_new->status = FILE_NORMAL;
+    //fname_new->status = FILE_NORMAL;
 
     // initialize rb-tree
     rbwrap_init(&fname_new->rbtree, NULL);
@@ -388,6 +468,7 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     return fname_new;    
 }
 
+/*
 void bcache_update_file_status(struct filemgr *file, file_status_t status)
 {
     struct fnamedic_item fname, *fname_item;
@@ -403,7 +484,7 @@ void bcache_update_file_status(struct filemgr *file, file_status_t status)
         fname_item = _fname_create(file);
     }
     fname_item->status = status;
-}
+}*/
 
 void _fname_free(struct fnamedic_item *fname)
 {
@@ -433,6 +514,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     struct bcache_item *item;
     struct bcache_item query;
     struct fnamedic_item fname, *fname_new;
+    uint8_t marker;
 
     // lookup filename first
     _file_to_fname_query(file, &fname);
@@ -447,6 +529,24 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     query.bid = bid;
     query.fname = _get_entry(h, struct fnamedic_item, hash_elem);
     query.fname->curfile = file;
+
+    DBGCMD(
+        if (dirty) {
+            struct dirty_item *da, *db;
+            struct rb_node *r;
+            r = rb_first(&query.fname->rbtree);
+            if (r) {
+                da = _get_entry(r, struct dirty_item, rb);
+                r = rb_last(&query.fname->rbtree);
+                db = _get_entry(r, struct dirty_item, rb);
+                if (bid+1 < da->item->bid || bid > db->item->bid+1) {
+                    DBG("hole ..."); char asdf = getc(stdin);
+                    DBG("continue\n");
+                }
+            }
+        }
+        );
+
 
     h = NULL;
     if (query.fname->lastitem) {
@@ -479,6 +579,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     memcpy(item->addr, buf, bcache_blocksize);
 
     list_remove(item->list, &item->list_elem);
+    _bcache_count(item->list, -1);
 
     if (dirty == BCACHE_DIRTY) {
         if (item->list != &dirtylist) {
@@ -494,8 +595,25 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     }else{ 
         item->list = &cleanlist;
     }
-    
-    list_push_front(item->list, &item->list_elem);
+
+    marker = *((uint8_t*)(item->addr) + bcache_blocksize-1);
+    if ( item->fname->curfile->status != FILE_COMPACT_OLD || 
+         (item->fname->curfile->status == FILE_COMPACT_OLD && marker == BLK_MARKER_BNODE) ) {
+        list_push_front(item->list, &item->list_elem);
+    }else{
+        size_t count = 0;
+        e = list_end(item->list);
+        while(e && count < BCACHE_REAR_COUNT) {
+            e = list_prev(e);
+            count++;
+        }
+        if (e) {
+            list_insert_before(item->list, e, &item->list_elem);
+        }else{
+            list_push_back(item->list, &item->list_elem);
+        }
+    }
+    _bcache_count(item->list, 1);
     query.fname->lastitem = item;
 
     return bcache_blocksize;
@@ -508,6 +626,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
     struct bcache_item *item;
     struct bcache_item query;
     struct fnamedic_item fname, *fname_new;
+    uint8_t marker;
 
     // lookup filename first
     _file_to_fname_query(file, &fname);
@@ -522,6 +641,22 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
     query.bid = bid;
     query.fname = _get_entry(h, struct fnamedic_item, hash_elem);
     query.fname->curfile = file;
+    DBGCMD(
+        if (1) {
+            struct dirty_item *da, *db;
+            struct rb_node *r;
+            r = rb_first(&query.fname->rbtree);
+            if (r) {
+                da = _get_entry(r, struct dirty_item, rb);
+                r = rb_last(&query.fname->rbtree);
+                db = _get_entry(r, struct dirty_item, rb);
+                if (bid+1 < da->item->bid || bid > db->item->bid+1) {
+                    DBG("hole ..."); char asdf = getc(stdin);
+                    DBG("continue\n");
+                }
+            }
+        }
+        );
 
     h = NULL;
     if (query.fname->lastitem) {
@@ -545,6 +680,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
     memcpy(item->addr + offset, buf, len);
 
     list_remove(item->list, &item->list_elem);
+    _bcache_count(item->list, -1);
 
     if (item->list != &dirtylist) {
         struct dirty_item *ditem;
@@ -557,7 +693,24 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
         rbwrap_insert(&item->fname->rbtree, &ditem->rb, _dirty_cmp);
     }
     
-    list_push_front(item->list, &item->list_elem);
+    marker = *((uint8_t*)(item->addr) + bcache_blocksize-1);
+    if ( item->fname->curfile->status != FILE_COMPACT_OLD || 
+         (item->fname->curfile->status == FILE_COMPACT_OLD && marker == BLK_MARKER_BNODE) ) {
+        list_push_front(item->list, &item->list_elem);
+    }else{
+        size_t count = 0;
+        e = list_end(item->list);
+        while(e && count < BCACHE_REAR_COUNT) {
+            e = list_prev(e);
+            count++;
+        }
+        if (e) {
+            list_insert_before(item->list, e, &item->list_elem);
+        }else{
+            list_push_back(item->list, &item->list_elem);
+        }
+    }
+    _bcache_count(item->list, 1);
     query.fname->lastitem = item;
 
     return len;
@@ -620,10 +773,12 @@ void bcache_remove_clean_blocks(struct filemgr *file)
                 }
 
                 e = list_remove(&cleanlist, e);
+                _bcache_count(&cleanlist, -1);
                 hash_remove(&bhash, &item->hash_elem);
 
                 item->list = &freelist;
                 list_push_front(item->list, &item->list_elem);
+                _bcache_count(item->list, 1);
             }else{
                 e = list_next(e);
             }
@@ -697,12 +852,14 @@ void bcache_init(int nblock, int blocksize)
     list_init(&freelist);
     list_init(&cleanlist);
     list_init(&dirtylist);
+    nfree = nclean = ndirty = 0;
     hash_init(&bhash, BCACHE_NBUCKET, _bcache_hash, _bcache_cmp);
     hash_init(&fnamedic, BCACHE_NDICBUCKET, _fname_hash, _fname_cmp);
     
     bcache_blocksize = blocksize;
     bcache_flush_unit = BCACHE_FLUSH_UNIT;
     bcache_sys_pagesize = sysconf(_SC_PAGESIZE);
+    bcache_nblock = nblock;
 
     for (i=0;i<nblock;++i){
         item = (struct bcache_item *)malloc(sizeof(struct bcache_item));
@@ -712,6 +869,7 @@ void bcache_init(int nblock, int blocksize)
         item->fname = NULL;
 
         list_push_front(item->list, &item->list_elem);
+        _bcache_count(item->list, 1);
         //hash_insert(&bhash, &item->hash_elem);
     }
     e = list_begin(&freelist);

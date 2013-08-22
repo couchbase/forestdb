@@ -58,6 +58,7 @@ struct filemgr {
     struct filemgr_header header;
     struct filemgr_ops *ops;
     struct hash_elem e;
+    file_status_t status;
     spin_t lock;
 };
 

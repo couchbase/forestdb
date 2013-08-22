@@ -10,6 +10,7 @@
 #include "filemgr.h"
 #include "hbtrie.h"
 #include "btree.h"
+//#include "btree_kv.h"
 #include "docio.h"
 #include "btreeblock.h"
 #include "forestdb.h"
@@ -26,6 +27,8 @@
     #define DBG(args...)
     #define DBGCMD(command...)
     #define DBGSW(n, command...) 
+#else
+    static int compact_count=0;
 #endif
 #endif
 
@@ -453,9 +456,17 @@ fdb_status fdb_commit(fdb_handle *handle)
     return FDB_RESULT_SUCCESS;
 }
 
-DBGCMD(
-    static int compact_count=0;            
-);
+INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
+{
+    uint64_t a,b;
+    a = *(uint64_t*)key1;
+    b = *(uint64_t*)key2;
+    /*
+    if (*a<*b) return -1;
+    if (*a>*b) return 1;
+    return 0;*/
+    return _CMP_U64(a, b);
+}
 
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 {
@@ -470,10 +481,9 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     struct docio_object doc;
     uint8_t k[HBTRIE_MAX_KEYLEN];
     size_t keylen;
-    uint64_t offset, new_offset;
+    uint64_t offset, new_offset, *offset_arr, i, count;
     fdb_seqnum_t seqnum;
     hbtrie_result hr;
-    DBGCMD( uint64_t count = 0 );
 
     wal_flush(handle->file, handle, _fdb_wal_flush_func);
     handle->wal_dirty = FDB_WAL_CLEAN;
@@ -481,7 +491,6 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         (handle->file->pos) / handle->file->blocksize;
     _fdb_set_file_header(handle);
     btreeblk_end(handle->bhandle);
-    filemgr_update_file_status(handle->file, FILE_COMPACT_OLD);
 
     fconfig.blocksize = FDB_BLOCKSIZE;
     fconfig.ncacheblock = handle->config.buffercache_size / FDB_BLOCKSIZE;
@@ -489,7 +498,6 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 
     // open new file
     new_file = filemgr_open(new_filename, handle->fileops, fconfig);
-    filemgr_update_file_status(new_file, FILE_COMPACT_NEW);
 
     // create new hb-trie and related handles
     new_bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
@@ -513,42 +521,93 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
                 0x0, NULL);
         }
     #endif
-    // scan all live documents in the trie
-    hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
-    while( hr != HBTRIE_RESULT_FAIL ) {
+    #ifdef __FDB_SORTED_COMPACTION
+        // allocate offset array
+        //filemgr_update_file_status(handle->file, FILE_COMPACT_OLD_SCAN);
+        offset_arr = (uint64_t*)malloc(sizeof(uint64_t) * handle->ndocs);
         
-        hr = hbtrie_next(&it, k, &keylen, &offset);
-        btreeblk_end(handle->bhandle);
+        // scan all live documents in the trie
+        hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
+        count = 0;
+        while( hr != HBTRIE_RESULT_FAIL ) {
+            
+            hr = hbtrie_next(&it, k, &keylen, &offset);
+            btreeblk_end(handle->bhandle);
+            
+            if ( hr == HBTRIE_RESULT_FAIL ) break;
+
+            assert(count < handle->ndocs);
+            offset_arr[count] = offset;
+            count++;
+        }
+
+        hr = hbtrie_iterator_free(&it);
+
+        // sort in offset order
+        qsort(offset_arr, count, sizeof(uint64_t), _fdb_cmp_uint64_t);
+        filemgr_update_file_status(handle->file, FILE_COMPACT_OLD);
+        filemgr_update_file_status(new_file, FILE_COMPACT_NEW);
         
-        if ( hr == HBTRIE_RESULT_FAIL ) break;
+        for (i=0;i<count;++i){
+            doc.key = k;
+            doc.length.keylen = keylen;
+            doc.meta = sandbox;
+            doc.body = NULL;
+            docio_read_doc(handle->dhandle, offset_arr[i], &doc);
 
-        doc.key = k;
-        doc.length.keylen = keylen;
-        doc.meta = sandbox;
-        doc.body = NULL;
-        docio_read_doc(handle->dhandle, offset, &doc);
+            // re-write to new file
+            new_offset = docio_append_doc(new_dhandle, &doc);
+            free(doc.body);
+            hbtrie_insert(new_trie, k, doc.length.keylen, &new_offset, NULL);
+            btreeblk_end(new_bhandle);
 
-        // re-write to new file
-        new_offset = docio_append_doc(new_dhandle, &doc);
-        free(doc.body);
-        hbtrie_insert(new_trie, k, doc.length.keylen, &new_offset, NULL);
-        btreeblk_end(new_bhandle);
+            #ifdef __FDB_SEQTREE
+                if (handle->config.seqtree == FDB_SEQTREE_USE) {
+                    btree_insert(new_seqtree, &doc.seqnum, &new_offset);
+                    btreeblk_end(new_bhandle);                
+                }
+            #endif        
+        }
+        free(offset_arr);
 
-        #ifdef __FDB_SEQTREE
-            if (handle->config.seqtree == FDB_SEQTREE_USE) {
-                btree_insert(new_seqtree, &doc.seqnum, &new_offset);
-                btreeblk_end(new_bhandle);                
-            }
-        #endif
+    #else
 
-        DBGCMD( count++ );
-    }
+        // scan all live documents in the trie
+        hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
+
+        while( hr != HBTRIE_RESULT_FAIL ) {
+            
+            hr = hbtrie_next(&it, k, &keylen, &offset);
+            btreeblk_end(handle->bhandle);
+            
+            if ( hr == HBTRIE_RESULT_FAIL ) break;
+
+            doc.key = k;
+            doc.length.keylen = keylen;
+            doc.meta = sandbox;
+            doc.body = NULL;
+            docio_read_doc(handle->dhandle, offset, &doc);
+
+            // re-write to new file
+            new_offset = docio_append_doc(new_dhandle, &doc);
+            free(doc.body);
+            hbtrie_insert(new_trie, k, doc.length.keylen, &new_offset, NULL);
+            btreeblk_end(new_bhandle);
+
+            #ifdef __FDB_SEQTREE
+                if (handle->config.seqtree == FDB_SEQTREE_USE) {
+                    btree_insert(new_seqtree, &doc.seqnum, &new_offset);
+                    btreeblk_end(new_bhandle);                
+                }
+            #endif
+
+            DBGCMD( count++ );
+        }
+    #endif
 
     DBG("\nkey count: %"_F64"\n", count);
     //DBGCMD( {DBG("compaction complete...\n"); char c = getc(stdin); } );
-
-    hr = hbtrie_iterator_free(&it);
 
     //filemgr_commit(new_file);
     filemgr_remove_from_cache(handle->file);

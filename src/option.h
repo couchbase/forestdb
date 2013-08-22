@@ -8,6 +8,7 @@ typedef uint64_t fdb_seqnum_t;
 
 
 #define __FDB_SEQTREE
+#define __FDB_SORTED_COMPACTION
 
 #define __MEMORY_ALIGN
 
@@ -42,7 +43,11 @@ typedef uint64_t fdb_seqnum_t;
 // MUST BE a power of 2
 #define BCACHE_NBUCKET (256*1024)
 #define BCACHE_NDICBUCKET (4096)
-#define BCACHE_FLUSH_UNIT (256*1024)
+#define BCACHE_FLUSH_UNIT (1024*1024)
+#define BCACHE_EVICT_RATIO (3)
+#define BCACHE_REAR_COUNT (4)
+
+#define FILEMGR_BULK_READ (16)
 
 #define __BTREEBLK_CACHE
 #define BTREEBLK_CACHE_LIMIT (16)

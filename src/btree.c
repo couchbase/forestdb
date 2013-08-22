@@ -51,17 +51,18 @@ INLINE int _bnode_size(struct btree *btree, struct bnode *node)
         nodesize = sizeof(struct bnode) + (btree->ksize + btree->vsize) * node->nentry;
     }
 
-#ifdef __CRC32
-    nodesize -= BLK_MARKER_SIZE;
-#endif
-    
     return nodesize;
 }
 
 // return true if there is enough space to insert one or more kv-pair into the NODE
 INLINE int _bnode_size_check(struct btree *btree, struct bnode *node) 
 {
-    return ( _bnode_size(btree, node) + btree->ksize + btree->vsize <= btree->blksize );
+    size_t nodesize = btree->blksize;
+    #ifdef __CRC32
+        nodesize -= BLK_MARKER_SIZE;
+    #endif
+    
+    return ( _bnode_size(btree, node) + btree->ksize + btree->vsize <= nodesize );
 }
 
 INLINE struct bnode * _btree_init_node(
@@ -82,7 +83,7 @@ INLINE struct bnode * _btree_init_node(
     }
 
 #ifdef __CRC32
-    memset(addr + btree->blksize - 1, BLK_MARKER_BNODE, BLK_MARKER_SIZE);
+    memset(addr + btree->blksize - BLK_MARKER_SIZE, BLK_MARKER_BNODE, BLK_MARKER_SIZE);
 #endif
 
     return node;
