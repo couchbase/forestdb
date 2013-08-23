@@ -172,8 +172,8 @@ INLINE uint32_t _bcache_hash(struct hash *hash, struct hash_elem *e)
 {
     struct bcache_item *item = _get_entry(e, struct bcache_item, hash_elem);
     //return hash_shuffle_2uint(item->bid, item->fname->hash) & (BCACHE_NBUCKET-1); 
-    //return (item->bid + item->fname->hash) & ((uint32_t)BCACHE_NBUCKET-1);
-    return (item->bid) & ((uint32_t)BCACHE_NBUCKET-1);
+    return (item->bid + item->fname->hash) & ((uint32_t)BCACHE_NBUCKET-1);
+    //return (item->bid) & ((uint32_t)BCACHE_NBUCKET-1);
 }
 
 INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
@@ -601,7 +601,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
          (item->fname->curfile->status == FILE_COMPACT_OLD && marker == BLK_MARKER_BNODE) ) {
         list_push_front(item->list, &item->list_elem);
     }else{
-        size_t count = 0;
+        /* size_t count = 0;
         e = list_end(item->list);
         while(e && count < BCACHE_REAR_COUNT) {
             e = list_prev(e);
@@ -609,9 +609,9 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
         }
         if (e) {
             list_insert_before(item->list, e, &item->list_elem);
-        }else{
+        }else{*/
             list_push_back(item->list, &item->list_elem);
-        }
+        //}
     }
     _bcache_count(item->list, 1);
     query.fname->lastitem = item;
@@ -698,7 +698,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
          (item->fname->curfile->status == FILE_COMPACT_OLD && marker == BLK_MARKER_BNODE) ) {
         list_push_front(item->list, &item->list_elem);
     }else{
-        size_t count = 0;
+        /*size_t count = 0;
         e = list_end(item->list);
         while(e && count < BCACHE_REAR_COUNT) {
             e = list_prev(e);
@@ -706,9 +706,9 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
         }
         if (e) {
             list_insert_before(item->list, e, &item->list_elem);
-        }else{
+        }else{*/
             list_push_back(item->list, &item->list_elem);
-        }
+        //}
     }
     _bcache_count(item->list, 1);
     query.fname->lastitem = item;

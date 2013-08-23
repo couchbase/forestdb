@@ -119,6 +119,8 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     }
 #endif
 
+    btreeblk_end(handle->bhandle);
+
     DBGCMD(
         gettimeofday(&_b_, NULL);
         _rr_ = _utime_gap(_a_,_b_);        
@@ -440,7 +442,7 @@ void _fdb_set_file_header(fdb_handle *handle)
 
 fdb_status fdb_commit(fdb_handle *handle)
 {
-    //btreeblk_end(handle->bhandle);
+    btreeblk_end(handle->bhandle);
     if (wal_get_size(handle->file) > handle->config.wal_threshold || 
         handle->wal_dirty == FDB_WAL_PENDING) {
         wal_flush(handle->file, handle, _fdb_wal_flush_func);
@@ -522,6 +524,8 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         }
     #endif
 
+    //memleak_start();
+    
     #ifdef __FDB_SORTED_COMPACTION
         // allocate offset array
         //filemgr_update_file_status(handle->file, FILE_COMPACT_OLD_SCAN);
@@ -614,13 +618,16 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 
     filemgr_close(handle->file);
     handle->file = new_file;
-    
+
+    btreeblk_free(handle->bhandle);
     free(handle->bhandle);
     handle->bhandle = new_bhandle;
 
+    docio_free(handle->dhandle);
     free(handle->dhandle);
     handle->dhandle = new_dhandle;
 
+    hbtrie_free(handle->trie);
     free(handle->trie);
     handle->trie = new_trie;
 
@@ -630,6 +637,8 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
             handle->seqtree = new_seqtree;
         }
     #endif
+
+    //memleak_end();
 
     filemgr_update_file_status(handle->file, FILE_NORMAL);
     fdb_commit(handle);
@@ -649,6 +658,9 @@ fdb_status fdb_close(fdb_handle *handle)
 {
     filemgr_close(handle->file);
     docio_free(handle->dhandle);
+    btreeblk_end(handle->bhandle);
+    btreeblk_free(handle->bhandle);
+    hbtrie_free(handle->trie);
     free(handle->trie);
     #ifdef __FDB_SEQTREE
     if (handle->config.seqtree == FDB_SEQTREE_USE) {

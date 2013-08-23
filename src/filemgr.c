@@ -164,6 +164,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->blocksize = global_config.blocksize;
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
         file->status = FILE_NORMAL;
+        file->config = &global_config;
         
         _filemgr_read_header(file);
         
@@ -360,6 +361,17 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
             }
         }
     }else{
+
+        #ifdef __CRC32
+            if (len == file->blocksize) {
+                uint8_t marker = *((uint8_t*)buf + file->blocksize - 1);
+                if (marker == BLK_MARKER_BNODE) {
+                    memset(buf + 8, 0xff, sizeof(void *));
+                    uint32_t crc32 = crc32_8(buf, file->blocksize, 0);
+                    memcpy(buf + 8, &crc32, sizeof(crc32));
+                }
+            }
+        #endif    
         file->ops->pwrite(file->fd, buf, len, pos);
     }
 }
@@ -416,11 +428,11 @@ void filemgr_commit(struct filemgr *file)
         gettimeofday(&_a_, NULL);
     )
 
-#ifndef __O_DIRECT
+//#ifndef __O_DIRECT
     #ifdef __SYNC
         file->ops->fdatasync(file->fd);
     #endif
-#endif
+//#endif
 
     DBGCMD(
         gettimeofday(&_b_, NULL);

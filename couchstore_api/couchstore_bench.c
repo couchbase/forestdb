@@ -417,14 +417,14 @@ void do_bench(struct bench_info *binfo)
             stopwatch_start(&sw);
 
             // valid:invalid size check
-            if ( (cur_size > dbinfo->space_used) && 
+            if ( (cur_size > dbinfo->space_used) && (binfo->compact_thres > 0) &&
                 ((cur_size - dbinfo->space_used) > 
                 ((double)binfo->compact_thres/100.0)*(double)cur_size) ) {
                 
                 // compaction                
                 compaction_no++;
                 sprintf(newfile, "%s%d", binfo->filename, compaction_no);
-                printf(" [ #%d compaction %s >> %s ]", compaction_no, curfile, newfile);
+                printf(" [ compaction #%d %s >> %s ]", compaction_no, curfile, newfile);
                 fflush(stdout);
 
                 appended_size += (get_filesize(curfile) - previous_filesize);
@@ -590,7 +590,7 @@ int main(){
         binfo.op_dist.type = RND_UNIFORM;
     }
     //binfo.op_dist.type = RND_UNIFORM;
-    binfo.batchrange = iniparser_getint(cfg, "operation:batch_range", 1000);
+    binfo.batchrange = iniparser_getint(cfg, "operation:batch_range", binfo.ndocs);
 
     binfo.write_prob = iniparser_getint(cfg, "operation:write_ratio_percent", 20);
 

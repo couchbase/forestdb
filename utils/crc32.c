@@ -5,7 +5,7 @@
 //
 
 /*
- * Jung-Sang Ahn modified in 2013.
+ * modified by Jung-Sang Ahn in 2013.
  */
 
 #include <stdlib.h>

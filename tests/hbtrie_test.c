@@ -183,7 +183,7 @@ void large_test()
     uint8_t valuebuf[8];
     hbtrie_result r;
 
-    int i, j, k, n=1000000, m=1, rr;
+    int i, j, k, n=2500, m=1, rr;
     size_t keylen = 8;
     char **key;
     uint64_t *offset;
@@ -198,7 +198,7 @@ void large_test()
     doc.body = bodybuf;
 
     config.blocksize = blocksize;
-    config.ncacheblock = 1 * 1024 * 128;
+    config.ncacheblock = 0 * 1024 * 128;
     config.flag = 0;
 
     DBG("filemgr, bcache init .. \n");
@@ -294,6 +294,7 @@ void large_test()
         DBG("%s\n", keybuf);*/
     }
     hbtrie_iterator_free(&it);
+
 
     TEST_TIME();
     

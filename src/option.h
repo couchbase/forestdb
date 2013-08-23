@@ -8,16 +8,19 @@ typedef uint64_t fdb_seqnum_t;
 
 
 #define __FDB_SEQTREE
-#define __FDB_SORTED_COMPACTION
+#define __FDB_BCACHE_USE
+#ifdef __FDB_BCACHE_USE
+    #define __FDB_SORTED_COMPACTION
+    //#define __O_DIRECT
+#endif
+#define __SYNC
+#define FDB_SECTOR_SIZE (512)
 
 #define __MEMORY_ALIGN
 
 //#define DOCIO_BLOCK_ALIGN
 
 //#define __RAW_BLOCK
-#define __O_DIRECT
-#define FDB_SECTOR_SIZE (512)
-#define __SYNC
 
 #define __CRC32
 
@@ -33,17 +36,18 @@ typedef uint64_t fdb_seqnum_t;
 //#define __DEBUG_BTREEBLOCK
 //#define __DEBUG_BCACHE
 //#define __DEBUG_FILEMGR
-#define __DEBUG_COUCHBENCH
+//#define __DEBUG_COUCHBENCH
 
 #define FDB_BLOCKSIZE (4096)
 // MUST BE a power of 2
-#define FDB_WAL_NBUCKET (262144)
+#define FDB_WAL_NBUCKET (256*1024)
 #define FDB_MAX_KEYLEN (256)
+#define FDB_WAL_THRESHOLD (64*1024)
 
 // MUST BE a power of 2
-#define BCACHE_NBUCKET (256*1024)
+#define BCACHE_NBUCKET (1024*1024)
 #define BCACHE_NDICBUCKET (4096)
-#define BCACHE_FLUSH_UNIT (1024*1024)
+#define BCACHE_FLUSH_UNIT (256*1024)
 #define BCACHE_EVICT_RATIO (3)
 #define BCACHE_REAR_COUNT (4)
 

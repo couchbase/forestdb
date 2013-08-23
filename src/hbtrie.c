@@ -230,6 +230,7 @@ hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it)
     while(e){
         item = _get_entry(e, struct btreeit_item, le);
         e = list_remove(&it->btreeit_list, e);
+        btree_iterator_free(&item->btree_it);
         mempool_free(item);
     }
     free(it->curkey);

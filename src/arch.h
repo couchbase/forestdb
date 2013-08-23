@@ -27,7 +27,7 @@
     #define _FSEC "ld"
     #define _FUSEC "ld"
 
-    #define _ARCH_O_DIRECT O_DIRECT
+    #define _ARCH_O_DIRECT (O_DIRECT)
 
     #ifndef spin_t
     // spinlock

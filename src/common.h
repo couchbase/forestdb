@@ -21,6 +21,8 @@
     #define mempool_free free
 #endif
 
+#define _MEMORY_OVERRIDE
+//#include "memleak.h"
 
 #define seq_memcpy(dest, src, size, offset_var) \
     memcpy(dest, src, size); \

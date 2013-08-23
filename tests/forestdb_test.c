@@ -11,6 +11,8 @@
 #include "filemgr_ops_linux.h"
 #include "forestdb.h"
 
+#include "memleak.h"
+
 void _set_doc(fdb_doc *doc, char *key, char *meta, char *body)
 {
     doc->keylen = strlen(key);
@@ -256,7 +258,7 @@ void seqnum_test()
     
     fdb_open(&db, "./dummy", config);
     fdb_close(&db);
-    
+
     TEST_TIME();
 
     fdb_open(&db, "./dummy", config);
@@ -342,7 +344,7 @@ void seqnum_test()
 
     fdb_commit(&db);
     fdb_close(&db);
-    
+
     TEST_TIME();
     TEST_RESULT("seqnum test");
 }
@@ -351,7 +353,7 @@ void seqnum_test()
 
 int main(){
     //basic_test();
-    //large_test(1000000, 32, 32, 512);
+    //large_test(100, 32, 32, 512);
     seqnum_test();
 
     return 0;

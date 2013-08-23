@@ -7,6 +7,7 @@
 #include "forestdb.h"
 #include "couch_db.h"
 #include "debug.h"
+#include "option.h"
 
 #define META_BUF_MAXLEN 256
 
@@ -40,8 +41,12 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     memset(&config, 0, sizeof(fdb_config));
     config.chunksize = sizeof(uint64_t);
     config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = (uint64_t)2 * 1024 * 1024 * 1024;
-    config.wal_threshold = 32 * 1024;
+#ifdef __FDB_BCACHE_USE
+    config.buffercache_size = (uint64_t)4 * 1024 * 1024 * 1024;
+#else
+    config.buffercache_size = 0;
+#endif    
+    config.wal_threshold = FDB_WAL_THRESHOLD;
     config.seqtree = FDB_SEQTREE_USE;
     config.flag = 0;
 
@@ -60,6 +65,7 @@ LIBCOUCHSTORE_API
 couchstore_error_t couchstore_close_db(Db *db)
 {
     fdb_close(&db->fdb);
+    free(db->filename);
     free(db);
 
     return COUCHSTORE_SUCCESS;

@@ -3,44 +3,51 @@ LISTTEST = tests/list_test.o
 
 RBTREE = src/rbtree.o src/rbwrap.o
 
+MEMLEAK = utils/memleak.o $(RBTREE)
+
 HASH = src/hash.o src/hash_functions.o $(LIST) $(RBTREE)
 HASHTEST = tests/hash_test.o
 
-CRC32 = utils/crc32.o
+CRC32 = utils/crc32.o $(MEMLEAK)
+CRCTEST = tests/crc_test.o $(CRC32) src/hash_functions.o
 
-MEMPOOL = src/mempool.o $(LIST)
+MEMPOOL = src/mempool.o $(LIST) $(MEMLEAK)
 MEMPOOLTEST = tests/mempool_test.o
 
-BTREE = src/btree.o src/btree_kv.o
+BTREE = src/btree.o src/btree_kv.o $(MEMLEAK)
 
-BCACHE = src/blockcache.o utils/debug.o $(HASH) $(RBTREE) $(MEMPOOL) $(CRC32)
-FILEMGR = src/filemgr.o src/filemgr_ops_linux.o utils/debug.o $(HASH) $(BCACHE)
+BCACHE = src/blockcache.o utils/debug.o \
+	$(HASH) $(RBTREE) $(MEMPOOL) $(CRC32) $(MEMLEAK)
+	
+FILEMGR = src/filemgr.o src/filemgr_ops_linux.o utils/debug.o \
+	$(HASH) $(BCACHE) $(MEMLEAK)
 
 BCACHETEST = tests/bcache_test.o $(FILEMGR)
 FILEMGRTEST = tests/filemgr_test.o
 
-BTREEBLOCK = src/btreeblock.o utils/debug.o $(LIST) $(FILEMGR) $(MEMPOOL) $(CRC32)
+BTREEBLOCK = src/btreeblock.o utils/debug.o \
+	$(LIST) $(FILEMGR) $(MEMPOOL) $(CRC32) $(MEMLEAK)
 BTREEBLOCKTEST = tests/btreeblock_test.o
 
-DOCIO = src/docio.o $(FILEMGR) $(CRC32)
+DOCIO = src/docio.o $(FILEMGR) $(CRC32) $(MEMLEAK)
 DOCIOTEST = tests/docio_test.o
 
-HBTRIE = src/hbtrie.o $(BTREE) $(DOCIO) $(BTREEBLOCK) $(LIST)
+HBTRIE = src/hbtrie.o $(BTREE) $(DOCIO) $(BTREEBLOCK) \
+	$(LIST) $(MEMLEAK)
 HBTRIETEST = tests/hbtrie_test.o
 
-CRCTEST = tests/crc_test.o utils/crc32.o src/hash_functions.o
-
-WAL = src/wal.o $(HASH)
+WAL = src/wal.o $(HASH) $(MEMLEAK)
 
 FDB = \
 	src/forestdb.o src/hbtrie.o src/btree.o src/btree_kv.o \
 	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
 	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
 	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o \
-	utils/debug.o
+	utils/debug.o 
+	#utils/memleak.o
 FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
 	
-FDBTEST = tests/forestdb_test.o
+FDBTEST = tests/forestdb_test.o $(MEMLEAK)
 
 COUCHBENCH = couchstore_api/couchstore_bench.o utils/stopwatch.o utils/iniparser.o \
 
