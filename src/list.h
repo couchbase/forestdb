@@ -9,6 +9,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
+//#define _LIST_LOCK
+#ifdef _LIST_LOCK
+    #include "arch.h"
+#endif
+
 struct list_elem {
     struct list_elem *prev;
     struct list_elem *next;
@@ -17,6 +22,9 @@ struct list_elem {
 struct list {
     struct list_elem *head;
     struct list_elem *tail;
+#ifdef _LIST_LOCK
+    spin_t lock;
+#endif
 };
 
 #ifndef _get_entry

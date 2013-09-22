@@ -19,6 +19,8 @@
 
 #include "forestdb.h"
 
+#include "memleak.h"
+
 #ifdef __DEBUG
 #ifndef __DEBUG_WAL
     #undef DBG
@@ -95,13 +97,21 @@ INLINE size_t _wal_get_docsize(fdb_doc *doc)
 
 wal_result wal_init(struct filemgr *file, int nbucket)
 {
+    file->wal->flag = WAL_FLAG_INITIALIZED;
     file->wal->size = 0;
+    file->wal->last_commit = NULL;
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
     SEQTREE(hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq));
     list_init(&file->wal->list);
+    file->wal->lock = SPIN_INITIALIZER;
 
     DBG("wal item size %d\n", (int)sizeof(struct wal_item));
     return WAL_RESULT_SUCCESS;
+}
+
+int wal_is_initialized(struct filemgr *file)
+{
+    return file->wal->flag & WAL_FLAG_INITIALIZED;
 }
 
 wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
@@ -114,32 +124,29 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
 
     query.key = key;
     query.keylen = keylen;
-    SEQTREE( 
-        query.seqnum = doc->seqnum;
-    );
+    SEQTREE( query.seqnum = doc->seqnum; );
 
-    /*#ifdef __FDB_SEQTREE
-        e = hash_find(&file->wal->hash_byseq, &query.he_seq);
-    #else*/
-        e = hash_find(&file->wal->hash_bykey, &query.he_key);
-    //#endif
+    spin_lock(&file->wal->lock);
+
+    e = hash_find(&file->wal->hash_bykey, &query.he_key);
 
     if (e) {
-        // already exists in WAL index
-        /*#ifdef __FDB_SEQTREE
-            item = _get_entry(e, struct wal_item, he_seq);
-        #else*/
-            item = _get_entry(e, struct wal_item, he_key);
-        //#endif
+        // already exist
+        item = _get_entry(e, struct wal_item, he_key);
 
         #ifdef __FDB_SEQTREE
             hash_remove(&file->wal->hash_byseq, &item->he_seq);
             item->seqnum = query.seqnum;
             hash_insert(&file->wal->hash_byseq, &item->he_seq);
         #endif
+
         item->doc_size = _wal_get_docsize(doc);
         item->offset = offset;
         item->action = WAL_ACT_INSERT;
+
+        // move to the end of list
+        list_remove(&file->wal->list, &item->list_elem);
+        list_push_back(&file->wal->list, &item->list_elem);
         
     }else{        
         // not exist .. create new one
@@ -166,6 +173,8 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
         file->wal->size++;
     }
 
+    spin_unlock(&file->wal->lock);
+
     return WAL_RESULT_SUCCESS;
 }
 
@@ -177,8 +186,10 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
     void *key = doc->key;
     size_t keylen = doc->keylen;
 
+    spin_lock(&file->wal->lock);
+
 #ifdef __FDB_SEQTREE
-    if (doc->seqnum == SEQNUM_NOT_USED) {
+    if (doc->seqnum == SEQNUM_NOT_USED || (key && keylen>0)) {
         // search by key
         query.key = key;
         query.keylen = keylen;
@@ -187,6 +198,8 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
             item = _get_entry(e, struct wal_item, he_key);
             if (item->action == WAL_ACT_INSERT) {
                 *offset = item->offset;
+                
+                spin_unlock(&file->wal->lock);
                 return WAL_RESULT_SUCCESS;
             }
         }
@@ -198,6 +211,8 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
             item = _get_entry(e, struct wal_item, he_seq);
             if (item->action == WAL_ACT_INSERT) {
                 *offset = item->offset;
+
+                spin_unlock(&file->wal->lock);
                 return WAL_RESULT_SUCCESS;
             }
         }
@@ -211,10 +226,13 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
         item = _get_entry(e, struct wal_item, he_key);
         if (item->action == WAL_ACT_INSERT) {
             *offset = item->offset;
+
+            spin_unlock(&file->wal->lock);
             return WAL_RESULT_SUCCESS;
         }
     }
 #endif
+    spin_unlock(&file->wal->lock);
     return WAL_RESULT_FAIL;
 }
 
@@ -233,9 +251,12 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         query.seqnum = doc->seqnum;
     );
 
+    spin_lock(&file->wal->lock);
+
     e = hash_find(&file->wal->hash_bykey, &query.he_key);
     
     if (e) {
+        // already exist
         item = _get_entry(e, struct wal_item, he_key);
 
         #ifdef __FDB_SEQTREE
@@ -246,6 +267,11 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         if (item->action == WAL_ACT_INSERT) {
             item->action = WAL_ACT_REMOVE;
         }
+
+        // move to the end of list
+        list_remove(&file->wal->list, &item->list_elem);
+        list_push_back(&file->wal->list, &item->list_elem);
+        
     }else{
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
@@ -263,6 +289,16 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         list_push_back(&file->wal->list, &item->list_elem);
         file->wal->size++;        
     }
+
+    spin_unlock(&file->wal->lock);
+    return WAL_RESULT_SUCCESS;
+}
+
+wal_result wal_commit(struct filemgr *file)
+{
+    spin_lock(&file->wal->lock);
+    file->wal->last_commit = list_end(&file->wal->list);
+    spin_unlock(&file->wal->lock);
     return WAL_RESULT_SUCCESS;
 }
 
@@ -279,6 +315,8 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 
     DBG("wal size: %"_F64"\n", file->wal->size);
 
+    spin_lock(&file->wal->lock);
+
     e = list_begin(&file->wal->list);
     while(e){
         item = _get_entry(e, struct wal_item, list_elem);
@@ -293,6 +331,7 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
         mempool_free(item);
     }
     file->wal->size = 0;
+    file->wal->last_commit = NULL;
 
     DBGCMD(
         gettimeofday(&b, NULL);
@@ -300,7 +339,48 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
     );
     DBG("wal flushed, %"_FSEC".%06"_FUSEC" sec elapsed.\n", rr.tv_sec, rr.tv_usec);
 
+    spin_unlock(&file->wal->lock);
     return WAL_RESULT_SUCCESS;
+}
+
+// discard entries that are not committed (i.e. all entries after the last commit)
+wal_result wal_close(struct filemgr *file)
+{
+    struct wal_item *item;
+    struct list_elem *e;
+
+    spin_lock(&file->wal->lock);
+
+    if (file->wal->last_commit) {
+        e = list_next(file->wal->last_commit);
+    }else{
+        // if LAST_COMMIT is NULL, then start from the beginning (discard all entries)
+        e = list_begin(&file->wal->list);
+    }
+
+    while(e){
+        item = _get_entry(e, struct wal_item, list_elem);
+        e = list_remove(&file->wal->list, e);
+        hash_remove(&file->wal->hash_bykey, &item->he_key);
+        SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
+
+    #ifdef __WAL_KEY_COPY
+        mempool_free(item->key);
+    #endif
+        mempool_free(item);
+
+        file->wal->size--;
+    }
+    
+    spin_unlock(&file->wal->lock);
+    return WAL_RESULT_SUCCESS;
+}
+
+// discard all WAL entries
+wal_result wal_shutdown(struct filemgr *file)
+{
+    file->wal->last_commit = NULL;
+    return wal_close(file);
 }
 
 size_t wal_get_size(struct filemgr *file) 

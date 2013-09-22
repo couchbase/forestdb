@@ -10,6 +10,8 @@
 #include "docio.h"
 #include "crc32.h"
 
+#include "memleak.h"
+
 void docio_init(struct docio_handle *handle, struct filemgr *file)
 {
     int ret;
@@ -68,11 +70,11 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
         uint64_t remainsize = size;
 
     #ifdef DOCIO_BLOCK_ALIGN
+        offset = blocksize - handle->curpos;
         if (remain <= blocksize - handle->curpos && 
             filemgr_get_next_alloc_block(handle->file) == handle->curblock+1) {
 
             // start from current block
-            offset = blocksize - handle->curpos;
             filemgr_alloc_multiple(handle->file, nblock + ((remain>offset)?1:0), &begin, &end);
             assert(begin == handle->curblock + 1);
             
@@ -93,9 +95,9 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
 
     #else
         // simple append mode .. always append at the end of file
+        offset = blocksize - handle->curpos;
         if (filemgr_get_next_alloc_block(handle->file) == handle->curblock+1) {
             // start from current block
-            offset = blocksize - handle->curpos;
             filemgr_alloc_multiple(handle->file, nblock + ((remain>offset)?1:0), &begin, &end);
             assert(begin == handle->curblock + 1);
             
@@ -556,6 +558,18 @@ uint64_t _docio_read_doc_component_comp(struct docio_handle *handle, uint64_t of
 }
 
 #endif
+
+struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t offset) 
+{
+    struct docio_length length;
+    uint64_t _offset;
+
+    _offset = _docio_read_length(handle, offset, &length);
+
+    assert(length.keylen < 256);
+
+    return length;
+}
 
 void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *keylen, void *keybuf)
 {

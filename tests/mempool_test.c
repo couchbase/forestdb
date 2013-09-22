@@ -5,6 +5,8 @@
 #include "test.h"
 #include "mempool.h"
 
+#include "memleak.h"
+
 struct test_struct {
     uint64_t a[4];
 };
@@ -42,11 +44,13 @@ void speed_test()
 {
     TEST_INIT();
 
-    int i, j, n=30000, m=1000;
+    int i, j, n=3000, m=1000;
     void *ptr[m];
     size_t size[m];
     char dummy[65536];
     unsigned r;
+
+    memleak_start();
 
     mempool_init();
 
@@ -78,6 +82,10 @@ void speed_test()
     }
 
     TEST_TIME();
+
+    mempool_shutdown();
+
+    memleak_end();
 
     TEST_RESULT("speed test");
 }

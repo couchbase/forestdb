@@ -11,6 +11,8 @@
 #include "hbtrie.h"
 #include "list.h"
 
+#include "memleak.h"
+
 #ifdef __DEBUG
 #ifndef __DEBUG_HBTRIE
     #undef DBG

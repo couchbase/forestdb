@@ -153,7 +153,7 @@ void basic_test()
     r = hbtrie_iterator_free(&it);
     
     filemgr_close(file);
-    filemgr_free();
+    filemgr_shutdown();
 
     TEST_RESULT("basic test");
 }
@@ -301,7 +301,7 @@ void large_test()
     DBG("trie root bid %"_F64"\n", trie.root_bid);    
 
     filemgr_close(file);
-    filemgr_free();
+    filemgr_shutdown();
     
     TEST_RESULT("large test");
 }

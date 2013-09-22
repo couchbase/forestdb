@@ -43,8 +43,8 @@ FDB = \
 	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
 	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
 	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o \
-	utils/debug.o 
-	#utils/memleak.o
+	utils/debug.o \
+    utils/memleak.o
 FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
 	
 FDBTEST = tests/forestdb_test.o $(MEMLEAK)

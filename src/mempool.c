@@ -6,7 +6,7 @@
 #include "list.h"
 #include "arch.h"
 
-//#include "memleak.h"
+#include "memleak.h"
 
 #ifdef __DEBUG
     #include <stdio.h>
@@ -141,6 +141,51 @@ void mempool_init()
 
         mempool_initialized = 1;
         spin_unlock(&initial_lock);
+    }
+}
+
+void mempool_shutdown()
+{
+    if (mempool_initialized) {
+
+        spin_lock(&initial_lock);
+
+        if (!mempool_initialized) {
+            spin_unlock(&initial_lock);
+            return;
+        }
+
+        int i, j, k, c, n;
+        struct list_elem *e;
+        struct mempool_item *item;
+        
+        c=0;
+        for (i=MINSIZE; i<=MAXSIZE; i*=2) {
+            bucket[c].rvalue = 0;
+            bucket[c].size = i;
+            bucket[c].lock = SPIN_INITIALIZER;
+        
+            n = initial_space[c] / (N_LISTS * bucket[c].size);
+            
+            DBG("size %d * %d * %d = %"_F64" bytes\n", 
+                bucket[c].size, N_LISTS, n, (uint64_t)bucket[c].size * N_LISTS * n);
+            DBGCMD( size_total += bucket[c].size * N_LISTS * n; )
+            
+            for (j=0;j<N_LISTS;++j){
+                e = list_begin(&bucket[c].listset[j].list);
+                while(e){
+                    item = _get_entry(e, struct mempool_item, le);
+                    e = list_remove(&bucket[c].listset[j].list, e);
+
+                    free(item);
+                }
+            }
+            c++;
+        }
+
+        mempool_initialized = 0;
+        
+        spin_unlock(&initial_lock);        
     }
 }
 

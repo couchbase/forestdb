@@ -15,9 +15,11 @@
     #include "list.h"
 #endif
 
-#define _HASH_LOCK
+//#define _HASH_LOCK
 #ifdef _HASH_LOCK
 
+#include "arch.h"
+/*
 #ifdef __APPLE__
 
     #ifndef spin_t
@@ -43,7 +45,7 @@
 #else
     #define INLINE make_error
 #endif
-
+*/
 #endif
 
 struct hash_elem {

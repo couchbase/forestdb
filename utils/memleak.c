@@ -120,6 +120,7 @@ void *memleak_realloc(void *ptr, size_t size)
                 item->addr, item->file, item->line, item->size, (uint64_t)addr, size);
             rb_erase(r, &rbtree);
             _memleak_add_to_index(addr, size, item->file, item->line);
+            free(item);
         }        
     }
     return addr;
@@ -141,6 +142,7 @@ void memleak_free(void *addr)
             item->addr, item->file, item->line, item->size);
 
         rb_erase(r, &rbtree);
+        free(item);
     }
 }
 

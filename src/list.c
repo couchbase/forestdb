@@ -7,14 +7,23 @@
 #include <assert.h>
 #include "list.h"
 
+#ifdef _LIST_LOCK
+    #define IFDEF_LOCK(command...) command
+#else
+    #define IFDEF_LOCK(command...) 
+#endif
+
+
 void list_init(struct list *list)
 {
     list->head = NULL;
     list->tail = NULL;
+    IFDEF_LOCK( list->lock = SPIN_INITIALIZER; );
 }
 
 void list_push_front(struct list *list, struct list_elem *e)
 {
+    IFDEF_LOCK( spin_lock(&list->lock); );
     if (list->head == NULL) {
         list->head = e;
         list->tail = e;
@@ -25,10 +34,12 @@ void list_push_front(struct list *list, struct list_elem *e)
         e->next = list->head;
         list->head = e;            
     }
+    IFDEF_LOCK( spin_unlock(&list->lock); );
 }
 
 void list_push_back(struct list *list, struct list_elem *e)
 {
+    IFDEF_LOCK( spin_lock(&list->lock); );
     if (list->tail == NULL) {
         list->head = e;
         list->tail = e;
@@ -39,30 +50,36 @@ void list_push_back(struct list *list, struct list_elem *e)
         e->next = NULL;
         list->tail = e;            
     }
+    IFDEF_LOCK( spin_unlock(&list->lock); );    
 }
 
 // insert E just before BEFORE
 void list_insert_before(struct list *list, struct list_elem *before, struct list_elem *e)
 {
+    IFDEF_LOCK( spin_lock(&list->lock); );
     e->prev = before->prev;
     e->next = before;
     if (before->prev) before->prev->next = e;
     else list->head = e;
     before->prev = e;
+    IFDEF_LOCK( spin_unlock(&list->lock); );    
 }
 
 // insert E just after AFTER
 void list_insert_after(struct list *list, struct list_elem *after, struct list_elem *e)
 {
+    IFDEF_LOCK( spin_lock(&list->lock); );
     e->next = after->next;
     e->prev = after;
     if (after->next) after->next->prev = e;
     else list->tail = e;
     after->next = e;
+    IFDEF_LOCK( spin_unlock(&list->lock); );    
 }
 
 struct list_elem *list_remove(struct list *list, struct list_elem *e)
 {
+    IFDEF_LOCK( spin_lock(&list->lock); );
     if (e) {
         // if not NULL
         if (e->next) e->next->prev = e->prev;
@@ -71,14 +88,17 @@ struct list_elem *list_remove(struct list *list, struct list_elem *e)
         if (list->head == e) list->head = e->next;
         if (list->tail == e) list->tail = e->prev;
 
+        IFDEF_LOCK( spin_unlock(&list->lock); );
         return e->next;
     }
     // NULL .. do nothing
+    IFDEF_LOCK( spin_unlock(&list->lock); );
     return NULL;
 }
 
 struct list_elem *list_remove_reverse(struct list *list, struct list_elem *e)
 {
+    IFDEF_LOCK( spin_lock(&list->lock); );
     if (e) {
         // if not NULL
         if (e->next) e->next->prev = e->prev;
@@ -87,34 +107,68 @@ struct list_elem *list_remove_reverse(struct list *list, struct list_elem *e)
         if (list->head == e) list->head = e->next;
         if (list->tail == e) list->tail = e->prev;
 
+        IFDEF_LOCK( spin_unlock(&list->lock); );
         return e->prev;
     }
     // NULL .. do nothing
+    IFDEF_LOCK( spin_unlock(&list->lock); );
     return NULL;
 }
 
 struct list_elem *list_pop_front(struct list *list)
 {
-    struct list_elem *front = list->head;
-    list_remove(list, front);
-    return front;
+    IFDEF_LOCK( spin_lock(&list->lock); );
+    struct list_elem *e = list->head;
+    if (e) {
+        // if not NULL
+        if (e->next) e->next->prev = e->prev;
+        if (e->prev) e->prev->next = e->next;
+        
+        if (list->head == e) list->head = e->next;
+        if (list->tail == e) list->tail = e->prev;
+
+        IFDEF_LOCK( spin_unlock(&list->lock); );
+        return e;
+    }
+    // NULL .. do nothing
+    IFDEF_LOCK( spin_unlock(&list->lock); );
+    return NULL;
 }
 
 struct list_elem *list_pop_back(struct list *list)
 {
-    struct list_elem *back = list->tail;
-    list_remove(list, back);
-    return back;
+    IFDEF_LOCK( spin_lock(&list->lock); );
+    struct list_elem *e = list->tail;
+    if (e) {
+        // if not NULL
+        if (e->next) e->next->prev = e->prev;
+        if (e->prev) e->prev->next = e->next;
+        
+        if (list->head == e) list->head = e->next;
+        if (list->tail == e) list->tail = e->prev;
+
+        IFDEF_LOCK( spin_unlock(&list->lock); );
+        return e;
+    }
+    // NULL .. do nothing
+    IFDEF_LOCK( spin_unlock(&list->lock); );
+    return NULL;
 }
 
 struct list_elem *list_begin(struct list *list)
 {
-    return list->head;
+    IFDEF_LOCK( spin_lock(&list->lock); );
+    struct list_elem *e = list->head;
+    IFDEF_LOCK( spin_unlock(&list->lock); );
+    return e;
 }
 
 struct list_elem *list_end(struct list *list)
 {
-    return list->tail;
+    IFDEF_LOCK( spin_lock(&list->lock); );
+    struct list_elem *e = list->tail;
+    IFDEF_LOCK( spin_unlock(&list->lock); );
+    return e;
 }
 
 struct list_elem *list_next(struct list_elem *e)

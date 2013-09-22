@@ -15,6 +15,8 @@
 #include "wal.h"
 #include "crc32.h"
 
+#include "memleak.h"
+
 #ifdef __DEBUG
 #ifndef __DEBUG_FILEMGR
     #undef DBG
@@ -36,6 +38,7 @@ static spin_t initial_lock = SPIN_INITIALIZER;
 static int filemgr_initialized = 0;
 static struct filemgr_config global_config;
 static struct hash hash;
+static spin_t filemgr_openlock;
 
 static size_t filemgr_sys_pagesize;
 
@@ -79,7 +82,9 @@ void filemgr_init(struct filemgr_config config)
         }
         temp_buf_lock = SPIN_INITIALIZER;
         temp_buf_turn = 0;
-            
+
+        filemgr_openlock = SPIN_INITIALIZER;
+        
         filemgr_initialized = 1;
     }
     spin_unlock(&initial_lock);
@@ -137,13 +142,28 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 
     // check whether file is already opened or not
     query.filename = filename;
+    spin_lock(&filemgr_openlock);
     e = hash_find(&hash, &query.e);
 
     if (e) {
         // already opened
         file = _get_entry(e, struct filemgr, e);
+        spin_unlock(&filemgr_openlock);
+        
+        spin_lock(&file->lock);
         file->ref_count++;
-        DBG("already opened %s\n", file->filename);
+        // if file was closed before
+        if (file->status == FILE_CLOSED) {
+#ifdef __O_DIRECT
+            file->fd = file->ops->open(file->filename,
+                                       O_RDWR | O_CREAT | _ARCH_O_DIRECT | config.flag, 0666);
+#else
+            file->fd = file->ops->open(file->filename,
+                                       O_RDWR | O_CREAT | config.flag, 0666);
+#endif
+            file->status = FILE_NORMAL;
+        }
+        spin_unlock(&file->lock);
         
     } else {
         // open
@@ -152,6 +172,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->ref_count = 1;
         file->filename = (char*)malloc(file->filename_len + 1);
         file->wal = (struct wal *)malloc(sizeof(struct wal));
+        file->wal->flag = 0x0;
         strcpy(file->filename, filename);
         file->ops = ops;
 #ifdef __O_DIRECT
@@ -170,13 +191,18 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         
         file->lock = SPIN_INITIALIZER;
         hash_insert(&hash, &file->e);
+
+        spin_unlock(&filemgr_openlock);
     }
+
 
     return file;
 }
 
 void filemgr_update_header(struct filemgr *file, void *buf, size_t len)
 {
+    spin_lock(&file->lock);
+
     if (file->header.data == NULL) {
         file->header.data = (void *)malloc(len);
     }else if (file->header.size < len){
@@ -184,47 +210,96 @@ void filemgr_update_header(struct filemgr *file, void *buf, size_t len)
     }
     memcpy(file->header.data, buf, len);
     file->header.size = len;
+
+    spin_unlock(&file->lock);
+}
+
+void filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
+{
+    assert(buf);
+    spin_lock(&file->lock);
+
+    if (file->header.size > 0) {
+        memcpy(buf, file->header.data, file->header.size);
+    }
+    *len = file->header.size;
+
+    spin_unlock(&file->lock);
 }
 
 void filemgr_close(struct filemgr *file)
 {
-    if (global_config.ncacheblock > 0) {
-        //bcache_flush(file);
-        // discard all dirty blocks belong to this file
-        bcache_remove_dirty_blocks(file);
-    }
-
-    file->ops->close(file->fd);
-
     // remove filemgr structure if no thread refers to the file
+    spin_lock(&file->lock);
     if (--(file->ref_count) == 0) {
-        hash_remove(&hash, &file->e);
-        hash_free(&file->wal->hash_bykey);
-        #ifdef __FDB_SEQTREE
-            hash_free(&file->wal->hash_byseq);
-        #endif
-        free(file->wal);
-        free(file->filename);
-        free(file->header.data);
-        free(file);
+        spin_unlock(&file->lock);                
+        if (global_config.ncacheblock > 0) {
+            // discard all dirty blocks belong to this file
+            bcache_remove_dirty_blocks(file);
+        }
+        
+        spin_lock(&file->lock);
+        file->ops->close(file->fd);
+        file->status = FILE_CLOSED;
     }
+    spin_unlock(&file->lock);
 }
 
 void _filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
-    filemgr_close(file);
+
+    // remove all cached blocks
+    if (global_config.ncacheblock > 0) {
+        bcache_remove_dirty_blocks(file);
+        bcache_remove_clean_blocks(file);
+        bcache_remove_file(file);
+    }
+
+    // destroy WAL
+    hash_free(&file->wal->hash_bykey);
+#ifdef __FDB_SEQTREE
+    hash_free(&file->wal->hash_byseq);
+#endif
+    free(file->wal);
+
+    // free filename and header
+    free(file->filename);
+    free(file->header.data);
+
+    // free file structure
+    free(file);   
 }
 
-void filemgr_free()
+// permanently remove file from cache (not just close)
+void filemgr_remove_file(struct filemgr *file)
 {
-    spin_lock(&initial_lock);
-
-    hash_free_active(&hash, _filemgr_free_func);
-    bcache_free();
-    filemgr_initialized = 0;
+    assert(file);
     
-    spin_unlock(&initial_lock);
+    // remove from global hash table
+    spin_lock(&filemgr_openlock);    
+    assert(hash_remove(&hash, &file->e));
+    spin_unlock(&filemgr_openlock);
+
+    _filemgr_free_func(&file->e);
+}
+
+void filemgr_shutdown()
+{
+    if (filemgr_initialized) {
+        int i;
+
+        spin_lock(&initial_lock);
+
+        hash_free_active(&hash, _filemgr_free_func);
+        bcache_shutdown();
+        filemgr_initialized = 0;
+        for (i=0;i<NBUF;++i){
+            free(temp_buf[i]);
+        }
+        
+        spin_unlock(&initial_lock);
+    }
 }
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file)
@@ -237,11 +312,6 @@ bid_t filemgr_alloc(struct filemgr *file)
 {
     spin_lock(&file->lock);
     bid_t bid = file->pos / file->blocksize;
-    DBGCMD(
-        if (bid == 40554) {
-            DBG("break point.. %d", (int)bid); char asdf=getc(stdin);
-            }
-        );
     file->pos += file->blocksize;
     spin_unlock(&file->lock);
     
@@ -253,13 +323,27 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin, bid_
     spin_lock(&file->lock);
     *begin = file->pos / file->blocksize;
     *end = *begin + nblock - 1;
-    DBGCMD(
-        if (*begin <= 40554 && 40554 <= *end) {
-            DBG("break point.. %d %d", (int)*begin, (int)*end); char asdf=getc(stdin);
-            }
-    );
     file->pos += file->blocksize * nblock;
     spin_unlock(&file->lock);
+}
+
+// atomically allocate NBLOCK blocks only when current file position is same to nextbid
+bid_t filemgr_alloc_multiple_cond(
+    struct filemgr *file, bid_t nextbid, int nblock, bid_t *begin, bid_t *end)
+{
+    bid_t bid;
+    spin_lock(&file->lock);
+    bid = file->pos / file->blocksize;
+    if (bid == nextbid) {
+        *begin = file->pos / file->blocksize;
+        *end = *begin + nblock - 1;
+        file->pos += file->blocksize * nblock;        
+    }else{
+        *begin = BLK_NOT_FOUND;
+        *end = BLK_NOT_FOUND;
+    }
+    spin_unlock(&file->lock);
+    return bid;
 }
 
 INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
@@ -387,16 +471,6 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
     return (pos >= file->last_commit && pos < file->pos);
 }
 
-// permanently remove file from cache (not just close)
-void filemgr_remove_from_cache(struct filemgr *file)
-{
-    if (global_config.ncacheblock > 0) {
-        bcache_remove_dirty_blocks(file);
-        bcache_remove_clean_blocks(file);
-        bcache_remove_file(file);
-    }
-}
-
 void filemgr_commit(struct filemgr *file)
 {
     uint16_t header_len = file->header.size;
@@ -406,6 +480,8 @@ void filemgr_commit(struct filemgr *file)
         bcache_flush(file);
     }
 
+    spin_lock(&file->lock);
+    
     if (file->header.size > 0 && file->header.data) {
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
@@ -422,17 +498,19 @@ void filemgr_commit(struct filemgr *file)
         file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
         file->pos += file->blocksize;
     }
+    // race condition?
+    file->last_commit = file->pos;
+
+    spin_unlock(&file->lock);
     
     DBGCMD(
         struct timeval _a_,_b_,_r_;
         gettimeofday(&_a_, NULL);
     )
 
-//#ifndef __O_DIRECT
     #ifdef __SYNC
         file->ops->fdatasync(file->fd);
     #endif
-//#endif
 
     DBGCMD(
         gettimeofday(&_b_, NULL);
@@ -443,14 +521,20 @@ void filemgr_commit(struct filemgr *file)
     DBG("fdatasync, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
         _r_.tv_sec, _r_.tv_usec);
 */
-    // race condition?
-    file->last_commit = file->pos;
 }
 
 void filemgr_update_file_status(struct filemgr *file, file_status_t status)
 {
+    spin_lock(&file->lock);
     file->status = status;
-    //bcache_update_file_status(file, status);
+    spin_unlock(&file->lock);
 }
 
+file_status_t filemgr_get_file_status(struct filemgr *file)
+{
+    spin_lock(&file->lock);
+    file_status_t status = file->status;
+    spin_unlock(&file->lock);
+    return status;
+}
 

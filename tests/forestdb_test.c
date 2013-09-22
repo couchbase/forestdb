@@ -13,107 +13,244 @@
 
 #include "memleak.h"
 
-void _set_doc(fdb_doc *doc, char *key, char *meta, char *body)
-{
-    doc->keylen = strlen(key);
-    doc->metalen = (meta)?strlen(meta):0;
-    doc->bodylen = (body)?strlen(body):0;
-    doc->key = key;
-    doc->meta = meta;
-    doc->body = body;
-}
-
 void basic_test()
 {
     TEST_INIT();
 
+    memleak_start();
+
+    int i, r;
+    int n = 10;
     fdb_handle db;
     fdb_config config;
-    fdb_doc doc, *rdoc;
+    fdb_doc *doc[n], *rdoc;
     fdb_status status;
     
-    int i, n=10, r;
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
+    // configuration
     memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = sizeof(uint64_t);
-    config.offsetsize = sizeof(uint64_t);
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
     config.buffercache_size = 1 * 1024 * 1024;
     config.wal_threshold = 1024;
+    config.seqtree = FDB_SEQTREE_USE;
     config.flag = 0;
 
-    r = system("rm -rf ./dummy");
-    r = system("rm -rf ./dummy2");
+    // remove previous dummy files
+    r = system("rm -rf ./dummy* > errorlog.txt");
     
-    fdb_open(&db, "./dummy", config);
+    // open and close db
+    fdb_open(&db, "./dummy1", config);
     fdb_close(&db);
-    
-    TEST_TIME();
 
-    fdb_open(&db, "./dummy", config);
+    // reopen db
+    fdb_open(&db, "./dummy1", config);
 
     // insert documents
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        
-        _set_doc(&doc, keybuf, metabuf, bodybuf);
-        fdb_set(&db, &doc);
+        fdb_doc_create(&doc[i], 
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
     }
 
-    // remove document
-    sprintf(keybuf, "key%d", 5);
-    _set_doc(&doc, keybuf, NULL, NULL);
-    fdb_set(&db, &doc);
+    // remove document #5
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta, doc[5]->metalen, NULL, 0);
+    fdb_set(&db, rdoc);
+    fdb_doc_free(rdoc);
 
+    // commit
+    fdb_commit(&db);
+
+    // close the db
     fdb_close(&db);
 
-    TEST_TIME();
+    // reopen
+    fdb_open(&db, "./dummy1", config);
 
-    fdb_open(&db, "./dummy", config);
-
-    // update existing documents
+    // update document #0 and #1
     for (i=0;i<2;++i){
-        sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta2%d", i);
         sprintf(bodybuf, "body2%d", i);
-        _set_doc(&doc, keybuf, metabuf, bodybuf);
-        fdb_set(&db, &doc);
+        fdb_doc_update(&doc[i], metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
     }
+
+    // commit
+    fdb_commit(&db);
 
     // retrieve documents
     for (i=0;i<n;++i){
-        sprintf(keybuf, "key%d", i);
-
-        fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(&db, rdoc);
 
-        if (i<2) {
-            sprintf(temp, "meta2%d", i);
-            TEST_CHK(!memcmp(rdoc->meta, temp, rdoc->metalen));
-            sprintf(temp, "body2%d", i);
-            TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));
-        }else if (i!=5) {
-            sprintf(temp, "meta%d", i);
-            TEST_CHK(!memcmp(rdoc->meta, temp, rdoc->metalen));
-            sprintf(temp, "body%d", i);
-            TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));        
-        }else {
+        if (i != 5) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            // removed document
             TEST_CHK(status == FDB_RESULT_FAIL);
         }
 
+        // free result document
         fdb_doc_free(rdoc);
     }
 
+    // do compaction
     fdb_compact(&db, "./dummy2");
+
+    // retrieve documents after compaction
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(&db, rdoc);
+
+        if (i != 5) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            // removed document
+            TEST_CHK(status == FDB_RESULT_FAIL);
+        }
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
     
+    // retrieve documents by sequence number
+    for (i=0;i<n;++i){
+        // search by seq
+        fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+        rdoc->seqnum = i;
+        status = fdb_get_byseq(&db, rdoc);
+
+        if ( (i>=2 && i<=4) || (i>=6 && i<=9) || (i>=11 && i<=12)) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            // removed document
+            TEST_CHK(status == FDB_RESULT_FAIL);
+        }
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // do one more compaction
+    fdb_compact(&db, "./dummy3");
+
+    // close db file
     fdb_close(&db);
-    
-    TEST_TIME();
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
 
     TEST_RESULT("basic test");
 }
+
+void wal_commit_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_handle db;
+    fdb_config config;
+    fdb_doc *doc[n], *rdoc;
+    fdb_status status;
+    
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // configuration
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 1 * 1024 * 1024;
+    config.wal_threshold = 1024;
+    config.seqtree = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    // remove previous dummy files
+    r = system("rm -rf ./dummy* > errorlog.txt");
+    
+    // open db
+    fdb_open(&db, "./dummy1", config);
+
+    // insert half documents
+    for (i=0;i<n/2;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], 
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(&db);
+
+    // insert the other half documents
+    for (i=n/2;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], 
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+
+    // close the db
+    fdb_close(&db);
+
+    // reopen
+    fdb_open(&db, "./dummy1", config);
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(&db, rdoc);
+
+        if (i < n/2) {
+            // committed documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            // not committed document
+            TEST_CHK(status == FDB_RESULT_FAIL);
+        }
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // close db file
+    fdb_close(&db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("WAL commit test");
+}
+
 
 void _set_random_string(char *str, int len)
 {
@@ -123,238 +260,9 @@ void _set_random_string(char *str, int len)
     } while(len--);
 }
 
-void large_test(size_t ndocs, size_t keylen, size_t metalen, size_t bodylen)
-{
-    TEST_INIT();
-
-    fdb_handle db;
-    fdb_config config;
-    fdb_doc **doc, **rdoc;
-    fdb_status status;
-    
-    int i, n=ndocs, r;
-    char keybuf[keylen+1], metabuf[metalen+1], bodybuf[bodylen+1], temp[256];
-
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = sizeof(uint64_t);
-    config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 1024 * 1024 * 1024;
-    config.wal_threshold = 64 * 1024;
-    config.flag = 0;
-    config.seqtree = FDB_SEQTREE_NOT_USE;
-
-    doc = (fdb_doc**)malloc(sizeof(fdb_doc*) * ndocs);
-    rdoc = (fdb_doc**)malloc(sizeof(fdb_doc*) * ndocs);
-
-    DBG("initialization\n");
-
-    r = system("rm -rf ./dummy");
-    r = system("rm -rf ./dummy2");
-    
-    fdb_open(&db, "./dummy", config);
-    fdb_close(&db);
-
-    TEST_TIME();
-
-    DBG("create %"_F64" random docs\n", (uint64_t)ndocs);
-    for (i=0;i<ndocs;++i){
-        _set_random_string(keybuf, keylen);
-        _set_random_string(metabuf, metalen);
-        _set_random_string(bodybuf, bodylen);
-        fdb_doc_create(&doc[i], keybuf, keylen, metabuf, metalen, bodybuf, bodylen);
-    }
-    TEST_TIME();
-
-    fdb_open(&db, "./dummy", config);
-
-    // insert documents
-    DBG("set\n");
-    for (i=0;i<n;++i){
-        status = fdb_set(&db, doc[i]);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
-    }
-    TEST_TIME();
-
-    DBG("commit\n");
-    fdb_commit(&db);
-    TEST_TIME();
-
-    // update documents
-    DBG("update\n");
-    for (i=0;i<n;++i){
-        status = fdb_set(&db, doc[i]);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
-    }
-    TEST_TIME();
-
-    DBG("commit\n");
-    fdb_commit(&db);
-    TEST_TIME();
-    
-    // retrieve documents
-    DBG("get\n");
-    for (i=0;i<n;++i){
-        fdb_doc_create(&rdoc[i], doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc[i]);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
-        /*
-        free(rdoc[i]->meta);
-        free(rdoc[i]->body);
-        free(rdoc[i]);
-        fdb_doc_free(doc[i]);*/
-    }
-    TEST_TIME();
-
-    DBG("verifying\n");
-    for (i=0;i<n;++i){
-        TEST_CHK(!memcmp(rdoc[i]->meta, doc[i]->meta, rdoc[i]->metalen));
-        TEST_CHK(!memcmp(rdoc[i]->body, doc[i]->body, rdoc[i]->bodylen));        
-        free(rdoc[i]->meta);
-        free(rdoc[i]->body);
-        free(rdoc[i]);
-        fdb_doc_free(doc[i]);
-    }
-    TEST_TIME();
-
-    DBG("compaction\n");
-    fdb_compact(&db, "./dummy2");
-    TEST_TIME();
-/*
-    DBG("compaction\n");
-    fdb_compact(&db, "./dummy3");
-    TEST_TIME();
-    */
-    DBG("close\n");
-    fdb_close(&db);
-    TEST_TIME();
-
-    TEST_RESULT("large test");
-}
-
-
-void seqnum_test()
-{
-    TEST_INIT();
-
-    fdb_handle db;
-    fdb_config config;
-    fdb_doc doc, *rdoc;
-    fdb_status status;
-    fdb_seqnum_t seqnum = 0, _seqnum;
-    
-    int i, n=10, r;
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
-
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = sizeof(uint64_t);
-    config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 2 * 4 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree = FDB_SEQTREE_USE;
-    config.flag = 0;
-
-    r = system("rm -rf ./dummy");
-    r = system("rm -rf ./dummy2");
-    
-    fdb_open(&db, "./dummy", config);
-    fdb_close(&db);
-
-    TEST_TIME();
-
-    fdb_open(&db, "./dummy", config);
-
-    // insert documents
-    for (i=0;i<n;++i){
-        sprintf(keybuf, "key%d", i);
-        //sprintf(metabuf, "meta%d", i);
-        seqnum++;
-        memcpy(metabuf, &seqnum, sizeof(fdb_seqnum_t));
-        sprintf(bodybuf, "body%d", i);
-        
-        //_set_doc(&doc, keybuf, metabuf, bodybuf);
-        doc.keylen = strlen(keybuf);
-        doc.metalen = sizeof(fdb_seqnum_t);
-        doc.bodylen = strlen(bodybuf);
-        doc.key = keybuf;
-        doc.meta = metabuf;
-        doc.body = bodybuf;
-        
-        fdb_set(&db, &doc);
-    }
-
-    // remove document
-    sprintf(keybuf, "key%d", 5);
-    _seqnum = 6;
-    memcpy(metabuf, &_seqnum, sizeof(fdb_seqnum_t));
-    doc.keylen = strlen(keybuf);
-    doc.key = keybuf;
-    doc.metalen = sizeof(fdb_seqnum_t);
-    doc.meta = metabuf;
-    doc.bodylen = 0;
-    doc.body = NULL;
-
-    fdb_set(&db, &doc);
-
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
-    fdb_close(&db);
-
-    TEST_TIME();
-
-    fdb_open(&db, "./dummy", config);
-
-    // update existing documents
-    for (i=0;i<2;++i){
-        sprintf(keybuf, "key%d", i);
-        //sprintf(metabuf, "meta%d", i);
-        seqnum++;
-        memcpy(metabuf, &seqnum, sizeof(fdb_seqnum_t));
-        sprintf(bodybuf, "body2%d", i);
-        
-        //_set_doc(&doc, keybuf, metabuf, bodybuf);
-        doc.keylen = strlen(keybuf);
-        doc.metalen = sizeof(fdb_seqnum_t);
-        doc.bodylen = strlen(bodybuf);
-        doc.key = keybuf;
-        doc.meta = metabuf;
-        doc.body = bodybuf;
-        fdb_set(&db, &doc);
-    }
-
-    // retrieve documents
-    for (i=0;i<n;++i){
-        sprintf(keybuf, "key%d", i);
-
-        fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
-        rdoc->seqnum = SEQNUM_NOT_USED;
-        status = fdb_get(&db, rdoc);
-
-        if (i<2) {
-            sprintf(temp, "body2%d", i);
-            TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));
-        }else if (i!=5) {
-            sprintf(temp, "body%d", i);
-            TEST_CHK(!memcmp(rdoc->body, temp, rdoc->bodylen));        
-        }else {
-            TEST_CHK(status == FDB_RESULT_FAIL);
-        }
-
-        fdb_doc_free(rdoc);
-    }
-
-    fdb_commit(&db);
-    fdb_close(&db);
-
-    TEST_TIME();
-    TEST_RESULT("seqnum test");
-}
-
-
-
 int main(){
-    //basic_test();
-    //large_test(100, 32, 32, 512);
-    seqnum_test();
-
+    basic_test();
+    wal_commit_test();
+    
     return 0;
 }

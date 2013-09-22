@@ -12,6 +12,8 @@
 #include "btree_kv.h"
 #include "common.h"
 
+#include "memleak.h"
+
 #ifdef __DEBUG
 #ifndef __DEBUG_BTREE
     #undef DBG
@@ -23,6 +25,15 @@
 #endif
 #endif
 
+//#define METASIZE_ALIGN_UNIT (8)
+#ifdef METASIZE_ALIGN_UNIT
+    #define _metasize_align(size) \
+        (((( (size + sizeof(metasize_t)) + (METASIZE_ALIGN_UNIT-1)) \
+            / METASIZE_ALIGN_UNIT) * METASIZE_ALIGN_UNIT) - sizeof(metasize_t))
+#else
+    #define _metasize_align(size) (size)
+#endif
+
 INLINE struct bnode *_fetch_bnode(void *addr)
 {
     struct bnode *node = (struct bnode *)addr;
@@ -32,8 +43,8 @@ INLINE struct bnode *_fetch_bnode(void *addr)
     } else {
         // metadata
         metasize_t metasize;
-        memcpy(&metasize, addr + sizeof(struct bnode), sizeof(metasize_t));
-        node->data = addr + sizeof(struct bnode) + sizeof(metasize_t) + metasize;
+        memcpy(&metasize, addr + sizeof(struct bnode), sizeof(metasize_t));        
+        node->data = addr + sizeof(struct bnode) + sizeof(metasize_t) + _metasize_align(metasize);
     }
     return node;
 }
@@ -46,7 +57,7 @@ INLINE int _bnode_size(struct btree *btree, struct bnode *node)
         metasize_t size;
         memcpy(&size, (void *)node + sizeof(struct bnode), sizeof(metasize_t));
         nodesize = sizeof(struct bnode) + (btree->ksize + btree->vsize) * node->nentry + 
-            size + sizeof(metasize_t);
+            _metasize_align(size) + sizeof(metasize_t);
     }else{
         nodesize = sizeof(struct bnode) + (btree->ksize + btree->vsize) * node->nentry;
     }
@@ -77,7 +88,7 @@ INLINE struct bnode * _btree_init_node(
     if ((flag & BNODE_MASK_METADATA) && meta) {
         memcpy(addr + sizeof(struct bnode), &meta->size, sizeof(metasize_t));
         memcpy(addr + sizeof(struct bnode) + sizeof(metasize_t), meta->data, meta->size);
-        node->data = addr + sizeof(struct bnode) + sizeof(metasize_t) + meta->size;
+        node->data = addr + sizeof(struct bnode) + sizeof(metasize_t) + _metasize_align(meta->size);
     }else{
         node->data = addr + sizeof(struct bnode);
     }
@@ -145,18 +156,19 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
             node->flag &= ~BNODE_MASK_METADATA;
         }
         // move kv-pairs (only if meta size is changed)
-        if (metasize < old_metasize){
+        if (_metasize_align(metasize) < _metasize_align(old_metasize)){
             memmove(
-                ptr + sizeof(metasize_t) + metasize, 
+                ptr + sizeof(metasize_t) + _metasize_align(metasize), 
                 node->data, 
                 node->nentry * (btree->ksize + btree->vsize));
-            node->data -= (old_metasize - metasize);
+            node->data -= (_metasize_align(old_metasize) - _metasize_align(metasize));
         }
 
     }else {
         if (node->flag & BNODE_MASK_METADATA) {
+            // existing metadata is removed
             memmove(ptr, node->data, node->nentry * (btree->ksize + btree->vsize));
-            node->data -= (old_metasize + sizeof(metasize_t));
+            node->data -= (_metasize_align(old_metasize) + sizeof(metasize_t));
             // clear the flag
             node->flag &= ~BNODE_MASK_METADATA;
         }

@@ -12,6 +12,8 @@
 #include "btreeblock.h"
 #include "crc32.h"
 
+#include "memleak.h"
+
 #ifdef __DEBUG
 #ifndef __DEBUG_BTREEBLOCK
     #undef DBG

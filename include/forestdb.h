@@ -73,24 +73,28 @@ typedef struct {
     uint64_t ndocs;
     uint16_t btree_fanout;
     fdb_wal_dirty_t wal_dirty;
-    #ifdef __FDB_SEQTREE
-        fdb_seqnum_t seqnum;
-    #endif
+#ifdef __FDB_SEQTREE
+    fdb_seqnum_t seqnum;
+#endif
     spin_t lock;
 } fdb_handle;
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config);
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
     void *body, size_t bodylen);
+fdb_status fdb_doc_update(fdb_doc **doc, void *meta, size_t metalen, void *body, size_t bodylen);
 fdb_status fdb_doc_free(fdb_doc *doc);
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset);
+#ifdef __FDB_SEQTREE
+fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset);
+#endif
 fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_commit(fdb_handle *handle);
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename);
 fdb_status fdb_flush_wal(fdb_handle *handle);
 fdb_status fdb_close(fdb_handle *handle);
-
+fdb_status fdb_shutdown();
 
 #endif
