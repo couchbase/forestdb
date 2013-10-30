@@ -8,6 +8,10 @@
 #include "blk_dummy.h"
 
 
+void print_btree(struct btree *btree, void *key, void *value)
+{
+    DBG("(%"_F64" %"_F64")", *(uint64_t*)key, *(uint64_t*)value);
+}
 
 void getsetkv_test()
 {
@@ -93,7 +97,7 @@ void basic_test()
     r = btree_find(&btree, &a, &b);
     TEST_CHK(r!=BTREE_RESULT_FAIL && b==99);
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     dummy_close();
 
@@ -124,7 +128,7 @@ void split_test()
         TEST_CHK(r != BTREE_RESULT_FAIL);
     }
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     for (i=9;i>=5;--i) {
         a = i*2; b = i*10;
@@ -132,12 +136,12 @@ void split_test()
         TEST_CHK(r != BTREE_RESULT_FAIL);
     }
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     a = 9; b=99;
     r = btree_insert(&btree, &a, &b);
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     for (i=5;i<17;++i){
         a = i*2;
@@ -173,17 +177,17 @@ void remove_test()
         TEST_CHK(r != BTREE_RESULT_FAIL);        
     }
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     for (i=2;i<=5;++i){
         a = i; b = i*10;
         r = btree_remove(&btree, &a);
-        btree_print_node(&btree);
+        btree_print_node(&btree, print_btree);
     }
     for (i=0;i<2;++i) {
         a = i; b = i*10;
         r = btree_remove(&btree, &a);
-        btree_print_node(&btree);
+        btree_print_node(&btree, print_btree);
     }
 
     for (i=0;i<=5;++i){
@@ -225,14 +229,14 @@ void flush_test()
     }
     dummy_flush();
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     // update one entry and flush
     a = 10; b = 99;
     r = btree_insert(&btree, &a, &b);
     dummy_flush();
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     // update two entries and flush
     a = 5; b=55;
@@ -241,13 +245,13 @@ void flush_test()
     r = btree_insert(&btree, &a, &b);
     dummy_flush();
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     // remove one entry and flush
     a = 0;
     r = btree_remove(&btree, &a);
     dummy_flush();
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     
     TEST_RESULT("flush test");
 }
@@ -278,13 +282,13 @@ void metadata_test()
     for (i=0;i<4;++i) {
         a = i; b = i*10;
         r = btree_insert(&btree, &a, &b);
-        if (i==2) btree_print_node(&btree);
+        if (i==2) btree_print_node(&btree, print_btree);
     }
     r = btree_find(&btree, &a, &c);
 
     TEST_CHK(c == b);
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     meta2.size = btree_read_meta(&btree, buf);
     TEST_CHK(meta2.size == meta.size);
@@ -317,7 +321,7 @@ void seqtree_test()
         TEST_CHK(r != BTREE_RESULT_FAIL);
     }
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
 
     TEST_RESULT("split test");
 }

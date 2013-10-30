@@ -415,7 +415,7 @@ struct list_elem * _bcache_evict(struct filemgr *file)
         if (e) _bcache_count(&cleanlist, -1);
     }
         
-    if (e == NULL) {
+    while (e == NULL) {
         // when there is no item in clean list .. evict dirty block
        e = list_end(&dirtylist);
         item = _get_entry(e, struct bcache_item, list_elem);
@@ -522,7 +522,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
         // cache miss
         
         e = list_pop_front(&freelist);
-        if (e == NULL) {
+        while (e == NULL) {
             spin_unlock(&bcache_lock);
             _bcache_evict(file);
             spin_lock(&bcache_lock);

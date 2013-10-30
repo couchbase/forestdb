@@ -19,15 +19,9 @@ INLINE void _get_kv(struct bnode *node, idx_t idx, void *key, void *value)
     ptr = node->data + (idx * (ksize+vsize));
 
     memcpy(key, ptr, ksize);
-    memcpy(value, ptr + ksize, vsize);
-    
-    /*
-    memcpy(key, 
-        node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))), 
-        __ksize(node->kvsize));
-    memcpy(value, 
-        node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))) + __ksize(node->kvsize), 
-        __vsize(node->kvsize));*/
+    if (value) {
+        memcpy(value, ptr + ksize, vsize);
+    }
 }
 
 INLINE void _set_kv(struct bnode *node, idx_t idx, void *key, void *value)
@@ -39,12 +33,92 @@ INLINE void _set_kv(struct bnode *node, idx_t idx, void *key, void *value)
 
     memcpy(ptr, key, ksize);
     memcpy(ptr + ksize, value, vsize);
+}
 
-    /*
-    memcpy(node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))), 
-        key, __ksize(node->kvsize));
-    memcpy(node->data + (idx * (__ksize(node->kvsize)+__vsize(node->kvsize))) + __ksize(node->kvsize), 
-        value, __vsize(node->kvsize));*/
+INLINE void _ins_kv(struct bnode *node, idx_t idx, void *key, void *value)
+{
+    int ksize, vsize, kvsize;
+    void *ptr;
+    _get_kvsize(node->kvsize, ksize, vsize);
+    kvsize = ksize + vsize;
+    ptr = node->data;
+
+    if (key && value) {
+        // insert
+        memmove(
+            ptr + (idx+1)*kvsize, 
+            ptr + idx*kvsize, 
+            (node->nentry - idx)*kvsize);
+        memcpy(ptr + idx*kvsize, key, ksize);
+        memcpy(ptr + idx*kvsize + ksize, value, vsize);
+    }else{
+        // remove
+        memmove(
+            ptr + idx*kvsize, 
+            ptr + (idx+1)*kvsize, 
+            (node->nentry - (idx+1))*kvsize);
+    }
+}
+
+INLINE void _copy_kv(
+    struct bnode *node_dst, struct bnode *node_src, idx_t dst_idx, idx_t src_idx, idx_t len)
+{
+    int ksize, vsize, kvsize;
+    void *ptr_src, *ptr_dst;
+
+    _get_kvsize(node_src->kvsize, ksize, vsize);
+    kvsize = ksize + vsize;
+    
+    ptr_src = node_src->data;
+    ptr_dst = node_dst->data;
+
+    memcpy(
+        ptr_dst + kvsize * dst_idx,
+        ptr_src + kvsize * src_idx,
+        kvsize * len);
+}
+
+INLINE size_t _get_data_size(struct bnode *node, void *key_arr, void *value_arr, size_t len)
+{
+    int ksize, vsize;
+    _get_kvsize(node->kvsize, ksize, vsize);
+    return node->nentry * (ksize + vsize) + ((key_arr && value_arr)?((ksize + vsize)*len):0);
+}
+
+INLINE size_t _get_kv_size(struct btree *tree, void *key, void *value)
+{
+    return (key)?tree->ksize:0 + (value)?tree->vsize:0;
+}
+
+INLINE void _init_kv_var(struct btree *tree, void *key, void *value)
+{
+    if (key) memset(key, 0, tree->ksize);
+    if (value) memset(value, 0, tree->vsize);
+}
+
+INLINE void _set_key(struct btree *tree, void *dst, void *src)
+{
+    memcpy(dst, src, tree->ksize);
+}
+
+INLINE void _set_value(struct btree *tree, void *dst, void *src)
+{
+    memcpy(dst, src, tree->vsize);
+}
+
+INLINE void _get_nth_idx(struct bnode *node, idx_t num, idx_t den, idx_t *idx)
+{
+    size_t rem = node->nentry - (int)(node->nentry / den) * den;
+    *idx = (node->nentry / den) * num + ((num < rem)?(num):(rem));
+}
+
+INLINE void _get_nth_splitter(struct bnode *prev_node, struct bnode *node, void *key)
+{
+    int ksize, vsize;
+
+    _get_kvsize(node->kvsize, ksize, vsize);
+    // always return the first key of the NODE
+    memcpy(key, node->data, ksize);
 }
 
 INLINE bid_t _value_to_bid_64(void *value)
@@ -116,21 +190,18 @@ INLINE int _cmp_binary64(void *key1, void *key2)
     #else
         return memcmp(key1, key2, 8);
     #endif
-    
-    //return memcmp(key1, key2, 8);
-    /*
-    if ( bitswap64(*(uint64_t*)key1) < bitswap64(*(uint64_t*)key2) ) return -1;
-    else if ( bitswap64(*(uint64_t*)key1) > bitswap64(*(uint64_t*)key2) ) return 1;
-    else return 0;*/
-    //return _CMP_U64( bitswap64(*(uint64_t*)key1), bitswap64(*(uint64_t*)key2));
 }
 
 // key: uint64_t, value: uint64_t
 static struct btree_kv_ops kv_ops_ku64_vu64 = {
-    _get_kv, _set_kv, _cmp_uint64_t, _value_to_bid_64, _bid_to_value_64};
+    _get_kv, _set_kv, _ins_kv, _copy_kv, _get_data_size, _get_kv_size, _init_kv_var, NULL, 
+    _set_key, _set_value, _get_nth_idx, _get_nth_splitter,
+    _cmp_uint64_t, _value_to_bid_64, _bid_to_value_64};
 
 static struct btree_kv_ops kv_ops_ku32_vu64 = {
-    _get_kv, _set_kv, _cmp_uint32_t, _value_to_bid_64, _bid_to_value_64};
+    _get_kv, _set_kv, _ins_kv, _copy_kv, _get_data_size, _get_kv_size, _init_kv_var, NULL, 
+    _set_key, _set_value, _get_nth_idx, _get_nth_splitter,
+    _cmp_uint32_t, _value_to_bid_64, _bid_to_value_64};
 
 struct btree_kv_ops * btree_kv_get_ku64_vu64() 
 {
@@ -140,6 +211,68 @@ struct btree_kv_ops * btree_kv_get_ku64_vu64()
 struct btree_kv_ops * btree_kv_get_ku32_vu64()
 {
     return &kv_ops_ku32_vu64;
+}
+
+struct btree_kv_ops * btree_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops)
+{
+    struct btree_kv_ops *btree_kv_ops;
+    if (kv_ops) {
+        btree_kv_ops = kv_ops;
+    }else{
+        btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
+    }
+    
+    btree_kv_ops->get_kv = _get_kv;
+    btree_kv_ops->set_kv = _set_kv;
+    btree_kv_ops->ins_kv = _ins_kv;
+    btree_kv_ops->copy_kv = _copy_kv;
+    btree_kv_ops->set_key = _set_key;
+    btree_kv_ops->set_value = _set_value;
+    btree_kv_ops->get_data_size = _get_data_size;
+    btree_kv_ops->get_kv_size = _get_kv_size;
+    btree_kv_ops->init_kv_var = _init_kv_var;
+    btree_kv_ops->free_kv_var = NULL;
+
+    btree_kv_ops->get_nth_idx = _get_nth_idx;
+    btree_kv_ops->get_nth_splitter = _get_nth_splitter;
+
+    btree_kv_ops->cmp = _cmp_binary64;
+
+    btree_kv_ops->bid2value = _bid_to_value_64;
+    btree_kv_ops->value2bid = _value_to_bid_64;
+
+    return btree_kv_ops;
+}
+
+struct btree_kv_ops * btree_kv_get_kb32_vb64(struct btree_kv_ops *kv_ops)
+{
+    struct btree_kv_ops *btree_kv_ops;
+    if (kv_ops) {
+        btree_kv_ops = kv_ops;
+    }else{
+        btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
+    }
+    
+    btree_kv_ops->get_kv = _get_kv;
+    btree_kv_ops->set_kv = _set_kv;
+    btree_kv_ops->ins_kv = _ins_kv;
+    btree_kv_ops->copy_kv = _copy_kv;
+    btree_kv_ops->set_key = _set_key;
+    btree_kv_ops->set_value = _set_value;
+    btree_kv_ops->get_data_size = _get_data_size;
+    btree_kv_ops->get_kv_size = _get_kv_size;
+    btree_kv_ops->init_kv_var = _init_kv_var;
+    btree_kv_ops->free_kv_var = NULL;
+
+    btree_kv_ops->get_nth_idx = _get_nth_idx;
+    btree_kv_ops->get_nth_splitter = _get_nth_splitter;
+
+    btree_kv_ops->cmp = _cmp_binary32;
+
+    btree_kv_ops->bid2value = _bid_to_value_64;
+    btree_kv_ops->value2bid = _value_to_bid_64;
+
+    return btree_kv_ops;
 }
 
 

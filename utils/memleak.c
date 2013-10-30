@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#include "arch.h"
+
 #define _MALLOC_OVERRIDE
 //#define _PRINT_DBG
 
@@ -30,6 +32,7 @@ struct memleak_item {
 
 static struct rb_root rbtree;
 static uint8_t start_sw = 0;
+static spin_t lock;
 
 int memleak_cmp(struct rb_node *a, struct rb_node *b, void *aux)
 {
@@ -43,6 +46,7 @@ int memleak_cmp(struct rb_node *a, struct rb_node *b, void *aux)
 
 void memleak_start()
 {
+    lock = SPIN_INITIALIZER;
     rbwrap_init(&rbtree, NULL);
     start_sw = 1;
 }
@@ -51,6 +55,8 @@ void memleak_end()
 {
     struct rb_node *r;
     struct memleak_item *item;
+
+    spin_lock(&lock);
     
     start_sw = 0;
 
@@ -64,6 +70,8 @@ void memleak_end()
             item->addr, item->file, item->line, item->size);
         free(item);
     }
+
+    spin_unlock(&lock);
 }
 
 void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line)
@@ -79,34 +87,48 @@ void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line)
 
 void * memleak_alloc(size_t size, char *file, size_t line)
 {
+    spin_lock(&lock);
+    
     void *addr = malloc(size);
     if (addr && start_sw) {
         _memleak_add_to_index(addr, size, file, line);
     }
+
+    spin_unlock(&lock);
     return addr;
 }
 
 void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
 {
+    spin_lock(&lock);
+    
     void *addr = calloc(nmemb, size);
     if (addr && start_sw) {
         _memleak_add_to_index(addr, size, file, line);
     }
+
+    spin_unlock(&lock);
     return addr;
 }
 
 int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
 {
+    spin_lock(&lock);
+    
     int ret = posix_memalign(memptr, alignment, size);
     if (ret==0 && start_sw)
     {
         _memleak_add_to_index(*memptr, size, file, line);
     }
+
+    spin_unlock(&lock);
     return ret;
 }
 
 void *memleak_realloc(void *ptr, size_t size)
 {
+    spin_lock(&lock);
+    
     void *addr = realloc(ptr, size);
     if (addr && start_sw) {
         struct rb_node *r;
@@ -123,11 +145,15 @@ void *memleak_realloc(void *ptr, size_t size)
             free(item);
         }        
     }
+
+    spin_unlock(&lock);
     return addr;
 }
 
 void memleak_free(void *addr)
 {
+    spin_lock(&lock);
+    
     free(addr);
     if (start_sw) {
         struct rb_node *r;
@@ -135,7 +161,10 @@ void memleak_free(void *addr)
 
         query.addr = (uint64_t)addr;
         r = rbwrap_search(&rbtree, &query.rb, memleak_cmp);
-        if (!r) return;
+        if (!r) {
+            spin_unlock(&lock);
+            return;
+        }
 
         item = _get_entry(r, struct memleak_item, rb);
         DBG("free address 0x%016lx (allocated at %s:%ld, size %ld)\n", 
@@ -144,5 +173,7 @@ void memleak_free(void *addr)
         rb_erase(r, &rbtree);
         free(item);
     }
+    
+    spin_unlock(&lock);
 }
 

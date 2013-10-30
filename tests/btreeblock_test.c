@@ -10,6 +10,11 @@
 #include "btree_kv.h"
 #include "test.h"
 
+void print_btree(struct btree *btree, void *key, void *value)
+{
+    fprintf(stderr, "(%"_F64" %"_F64")", *(uint64_t*)key, *(uint64_t*)value);
+}
+
 void basic_test()
 {
     TEST_INIT();
@@ -39,7 +44,7 @@ void basic_test()
         btree_insert(&btree, &k, &v);
     }    
     
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
 
     for (i=6;i<12;++i) {
@@ -47,14 +52,14 @@ void basic_test()
         btree_insert(&btree, &k, &v);
     }    
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     btreeblk_end(&btree_handle);
     //btree_operation_end(&btree);
 
     k = 4;
     v = 44;
     btree_insert(&btree, &k, &v);
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
     
     btreeblk_end(&btree_handle);
@@ -63,7 +68,7 @@ void basic_test()
     k = 5;
     v = 55;
     btree_insert(&btree, &k, &v);
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
@@ -72,7 +77,7 @@ void basic_test()
     k = 5;
     v = 59;
     btree_insert(&btree, &k, &v);
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
@@ -83,11 +88,11 @@ void basic_test()
     
     DBG("re-read using root bid %"_F64"\n", btree.root_bid);
     btree_init_from_bid(&btree2, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, btree.root_bid);
-    btree_print_node(&btree2);
+    btree_print_node(&btree2, print_btree);
     /*
     DBG("re-read using root bid 13\n");
     btree_init_from_bid(&btree2, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 13);
-    btree_print_node(&btree2);
+    btree_print_node(&btree2, print_btree);
     */
     TEST_RESULT("basic test");
 }
@@ -123,7 +128,7 @@ void iterator_test()
         btree_insert(&btree, &k, &v);
     }    
     
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
 
     for (i=6;i<12;++i) {
@@ -131,7 +136,7 @@ void iterator_test()
         btree_insert(&btree, &k, &v);
     }    
 
-    btree_print_node(&btree);
+    btree_print_node(&btree, print_btree);
     btreeblk_end(&btree_handle);
     //btree_operation_end(&btree);
 
@@ -199,8 +204,8 @@ void two_btree_test()
 
     filemgr_commit(file);
 
-    btree_print_node(&btree_a);
-    btree_print_node(&btree_b);
+    btree_print_node(&btree_a, print_btree);
+    btree_print_node(&btree_b, print_btree);
 
     TEST_RESULT("two btree test");
 }
@@ -212,9 +217,9 @@ int main()
     #endif
 
     int r = system("rm -rf ./dummy");
-    //basic_test();
-    iterator_test();
-    two_btree_test();
+    basic_test();
+    //iterator_test();
+    //two_btree_test();
 
     //btreeblk_cache_test();
 

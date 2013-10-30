@@ -40,9 +40,11 @@ struct wal;
 
 typedef uint16_t filemgr_header_len_t;
 typedef uint64_t filemgr_magic_t; 
+typedef uint64_t filemgr_header_revnum_t;
 
 struct filemgr_header{
     filemgr_header_len_t size;
+    filemgr_header_revnum_t revnum;
     void *data;
 };
 
@@ -64,8 +66,11 @@ struct filemgr {
 };
 
 struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct filemgr_config config);
-void filemgr_update_header(struct filemgr *file, void *buf, size_t len);
-void filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
+
+uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
+filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
+void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
+
 void filemgr_close(struct filemgr *file);
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file);

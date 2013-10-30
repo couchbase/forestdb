@@ -13,14 +13,14 @@
 #include "forestdb.h"
 
 typedef enum {
-    WAL_ACT_INSERT,
-    WAL_ACT_REMOVE
-} wal_item_action;
-
-typedef enum {
     WAL_RESULT_SUCCESS,
     WAL_RESULT_FAIL
 } wal_result;
+
+typedef enum {
+    WAL_ACT_INSERT,
+    WAL_ACT_REMOVE
+} wal_item_action;
 
 struct wal_item{
     void *key;

@@ -93,17 +93,17 @@ void hbtrie_init(struct hbtrie *trie, int chunksize, int valuelen,
 
     // assign key-value operations
     btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
-    btree_kv_ops->get_kv = _get_kv;
-    btree_kv_ops->set_kv = _set_kv;
 
     assert(chunksize == 4 || chunksize == 8);
-    btree_kv_ops->cmp = chunksize == 8 ? _cmp_binary64 : _cmp_binary32;
-
     assert(valuelen == 8);
-    btree_kv_ops->bid2value = _bid_to_value_64;
-    btree_kv_ops->value2bid = _value_to_bid_64;
-    trie->btree_kv_ops = btree_kv_ops;
+    
+    if (chunksize == 8 && valuelen == 8){
+        btree_kv_ops = btree_kv_get_kb64_vb64(btree_kv_ops);
+    }else if (chunksize == 4 && valuelen == 8) {
+        btree_kv_ops = btree_kv_get_kb32_vb64(btree_kv_ops);
+    }
 
+    trie->btree_kv_ops = btree_kv_ops;
     trie->readkey = readkey;
 }
 

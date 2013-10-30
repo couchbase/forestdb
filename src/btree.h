@@ -7,8 +7,14 @@
 #define _JSAHN_BTREE_H
 
 #include <stdint.h>
-
 #include "common.h"
+
+#define _get_kvsize(kvsize, ksize, vsize) \
+    (ksize) = ((kvsize) & 0xf0) >> 4;    \
+    (vsize) = ((kvsize) & 0x0f)
+#define __ksize(kvsize) (((kvsize) & 0xf0) >> 4)
+#define __vsize(kvsize) (((kvsize) & 0x0f))
+
 
 #define BTREE_BLK_NOT_FOUND BLK_NOT_FOUND
 
@@ -63,25 +69,42 @@ struct btree_blk_ops {
 #endif
 };
 
-struct btree_kv_ops {
-    void (*get_kv)(struct bnode *node, idx_t idx, void *key, void *value);
-    void (*set_kv)(struct bnode *node, idx_t idx, void *key, void *value);
-    int (*cmp)(void *key1, void *key2);
-    bid_t (*value2bid)(void *value);
-    voidref (*bid2value)(bid_t *bid);
-};
-
 struct btree {
     uint8_t ksize;
     uint8_t vsize;
     uint32_t blksize;
     bid_t root_bid;
     bnode_flag_t root_flag;
-    uint32_t height;
+    uint16_t height;
     void *blk_handle;
-    //struct btree_meta *meta;
     struct btree_blk_ops *blk_ops;
     struct btree_kv_ops *kv_ops;
+};
+
+struct btree_kv_ops {
+    void (*get_kv)(struct bnode *node, idx_t idx, void *key, void *value);
+    void (*set_kv)(struct bnode *node, idx_t idx, void *key, void *value);
+    void (*ins_kv)(struct bnode *node, idx_t idx, void *key, void *value);
+    void (*copy_kv)(struct bnode *node_dst, struct bnode *node_src, idx_t dst_idx, idx_t src_idx, idx_t len);
+
+    // return node size after inserting list of key/value pairs
+    size_t (*get_data_size)(struct bnode *node, void *key_arr, void *value_arr, size_t len);
+    // return (actual) key value size
+    size_t (*get_kv_size)(struct btree *tree, void *key, void *value);
+
+    void (*init_kv_var)(struct btree *tree, void *key, void *value);
+    void (*free_kv_var)(struct btree *tree, void *key, void *value);
+    
+    void (*set_key)(struct btree *tree, void *dst, void *src);
+    void (*set_value)(struct btree *tree, void *dst, void *src);
+
+    void (*get_nth_idx)(struct bnode *node, idx_t num, idx_t den, idx_t *idx);
+    //void (*get_nth_splitter)(struct bnode *node, idx_t num, idx_t den, void *key);
+    void (*get_nth_splitter)(struct bnode *prev_node, struct bnode *node, void *key);
+
+    int (*cmp)(void *key1, void *key2);
+    bid_t (*value2bid)(void *value);
+    voidref (*bid2value)(bid_t *bid);
 };
 
 struct btree_iterator {
@@ -92,7 +115,8 @@ struct btree_iterator {
     struct bnode **node;
 };
 
-void btree_print_node(struct btree *btree);
+typedef void btree_print_func(struct btree *btree, void *key, void *value);
+void btree_print_node(struct btree *btree, btree_print_func func);
 
 metasize_t btree_read_meta(struct btree *btree, void *buf);
 void btree_update_meta(struct btree *btree, struct btree_meta *meta);

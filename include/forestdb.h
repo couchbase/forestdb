@@ -68,6 +68,7 @@ typedef struct {
     struct btree_blk_ops *btreeblkops;
     struct filemgr_ops *fileops;
     fdb_config config;
+    uint64_t cur_header_revnum;
     uint64_t last_header_bid;
     uint64_t datasize;
     uint64_t ndocs;

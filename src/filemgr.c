@@ -106,24 +106,28 @@ void _filemgr_read_header(struct filemgr *file)
     filemgr_header_len_t len;
     void *buf = _filemgr_get_temp_buf();
 
-    file->ops->pread(file->fd, buf, file->blocksize, file->pos - file->blocksize);
+    if (file->pos > 0) {
 
-    memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE, BLK_MARKER_SIZE);
-    
-    if (marker[0] == BLK_MARKER_DBHEADER) {
-        memcpy(&magic, buf + file->blocksize - sizeof(magic) - BLK_MARKER_SIZE, sizeof(magic));
-        if (magic == FILEMGR_MAGIC) {
-            memcpy(&len, buf + file->blocksize - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE, sizeof(len));
-            file->header.data = (void *)malloc(len);
-            
-            memcpy(file->header.data, buf, len);                 
-            file->header.size = len;
+        file->ops->pread(file->fd, buf, file->blocksize, file->pos - file->blocksize);
+        memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE, BLK_MARKER_SIZE);
+        
+        if (marker[0] == BLK_MARKER_DBHEADER) {
+            memcpy(&magic, buf + file->blocksize - sizeof(magic) - BLK_MARKER_SIZE, sizeof(magic));
+            if (magic == FILEMGR_MAGIC) {
+                memcpy(&len, buf + file->blocksize - sizeof(magic) - sizeof(len) - BLK_MARKER_SIZE, sizeof(len));
+                file->header.data = (void *)malloc(len);
+                
+                memcpy(file->header.data, buf, len);
+                memcpy(&file->header.revnum, buf + len, sizeof(filemgr_header_revnum_t));
+                file->header.size = len;
 
-            return ;
+                return;
+            }
         }
     }
     
     file->header.size = 0;
+    file->header.revnum = 0;
     file->header.data = NULL;
 }
 
@@ -148,9 +152,10 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     if (e) {
         // already opened
         file = _get_entry(e, struct filemgr, e);
-        spin_unlock(&filemgr_openlock);
-        
+
         spin_lock(&file->lock);
+        spin_unlock(&filemgr_openlock);
+
         file->ref_count++;
         // if file was closed before
         if (file->status == FILE_CLOSED) {
@@ -199,8 +204,10 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     return file;
 }
 
-void filemgr_update_header(struct filemgr *file, void *buf, size_t len)
+uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len)
 {
+    uint64_t ret;
+    
     spin_lock(&file->lock);
 
     if (file->header.data == NULL) {
@@ -210,21 +217,38 @@ void filemgr_update_header(struct filemgr *file, void *buf, size_t len)
     }
     memcpy(file->header.data, buf, len);
     file->header.size = len;
+    ++(file->header.revnum);
+    ret = file->header.revnum;
 
     spin_unlock(&file->lock);
+
+    return ret;
 }
 
-void filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
+filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
 {
-    assert(buf);
+    filemgr_header_revnum_t ret;
+    spin_lock(&file->lock);
+    ret = file->header.revnum;
+    spin_unlock(&file->lock);
+    return ret;
+}
+
+void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
+{
     spin_lock(&file->lock);
 
     if (file->header.size > 0) {
+        if (buf == NULL) {
+            buf = (void*)malloc(file->header.size);
+        }
         memcpy(buf, file->header.data, file->header.size);
     }
     *len = file->header.size;
-
+    
     spin_unlock(&file->lock);
+
+    return buf;
 }
 
 void filemgr_close(struct filemgr *file)
@@ -237,8 +261,8 @@ void filemgr_close(struct filemgr *file)
             // discard all dirty blocks belong to this file
             bcache_remove_dirty_blocks(file);
         }
-        
         spin_lock(&file->lock);
+        wal_close(file);
         file->ops->close(file->fd);
         file->status = FILE_CLOSED;
     }
@@ -257,10 +281,13 @@ void _filemgr_free_func(struct hash_elem *h)
     }
 
     // destroy WAL
-    hash_free(&file->wal->hash_bykey);
-#ifdef __FDB_SEQTREE
-    hash_free(&file->wal->hash_byseq);
-#endif
+    if (wal_is_initialized(file)) {
+        wal_shutdown(file);
+        hash_free(&file->wal->hash_bykey);
+    #ifdef __FDB_SEQTREE
+        hash_free(&file->wal->hash_byseq);
+    #endif
+    }
     free(file->wal);
 
     // free filename and header
@@ -292,7 +319,9 @@ void filemgr_shutdown()
         spin_lock(&initial_lock);
 
         hash_free_active(&hash, _filemgr_free_func);
-        bcache_shutdown();
+        if (global_config.ncacheblock > 0) {
+            bcache_shutdown();
+        }
         filemgr_initialized = 0;
         for (i=0;i<NBUF;++i){
             free(temp_buf[i]);
@@ -436,10 +465,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
                     uint8_t _buf[file->blocksize];
                 #endif
 
-                /*r = bcache_read(file, bid, _buf);
-                if (r==0) {*/
-                    r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
-                //}
+                r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
                 memcpy(_buf + offset, buf, len);
                 bcache_write(file, bid, _buf, BCACHE_DIRTY);
             }
@@ -467,8 +493,12 @@ void filemgr_write(struct filemgr *file, bid_t bid, void *buf)
 
 int filemgr_is_writable(struct filemgr *file, bid_t bid)
 {
+    spin_lock(&file->lock);
     uint64_t pos = bid * file->blocksize;
-    return (pos >= file->last_commit && pos < file->pos);
+    int cond = (pos >= file->last_commit && pos < file->pos);
+    spin_unlock(&file->lock);
+    
+    return cond;
 }
 
 void filemgr_commit(struct filemgr *file)
@@ -485,13 +515,20 @@ void filemgr_commit(struct filemgr *file)
     if (file->header.size > 0 && file->header.data) {
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
-        
+
+        // header data
         memcpy(buf, file->header.data, header_len);
+        // header rev number
+        memcpy(buf + header_len, &file->header.revnum, sizeof(filemgr_header_revnum_t));
+
+        // header length    
         memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE),
             &header_len, sizeof(header_len));
+        // magic number
         memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE),
             &magic, sizeof(magic));
-        
+
+        // marker
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
         memcpy(buf + file->blocksize - BLK_MARKER_SIZE, marker, BLK_MARKER_SIZE);
 

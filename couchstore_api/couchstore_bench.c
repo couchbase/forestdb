@@ -15,7 +15,7 @@
 #include "option.h"
 #include "debug.h"
 
-#include "memleak.h"
+//#include "memleak.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_COUCHBENCH

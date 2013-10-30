@@ -72,10 +72,10 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
     #ifdef DOCIO_BLOCK_ALIGN
         offset = blocksize - handle->curpos;
         if (remain <= blocksize - handle->curpos && 
-            filemgr_get_next_alloc_block(handle->file) == handle->curblock+1) {
+            filemgr_alloc_multiple(handle->file, handle->curblock+1, 
+                nblock + ((remain>offset)?1:0), &begin, &end) == handle->curblock+1) {
 
             // start from current block
-            filemgr_alloc_multiple(handle->file, nblock + ((remain>offset)?1:0), &begin, &end);
             assert(begin == handle->curblock + 1);
             
             if (offset > 0) {
@@ -86,7 +86,7 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
 
             startpos = handle->curblock * real_blocksize + handle->curpos;            
         }else {
-            // allocate new multiple blocks
+            // next block to be allocated is not continuous .. allocate new multiple blocks
             filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0), &begin, &end);
             offset = 0;
 
@@ -96,9 +96,9 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
     #else
         // simple append mode .. always append at the end of file
         offset = blocksize - handle->curpos;
-        if (filemgr_get_next_alloc_block(handle->file) == handle->curblock+1) {
+        if (filemgr_alloc_multiple_cond(handle->file, handle->curblock+1,
+                nblock + ((remain>offset)?1:0), &begin, &end) == handle->curblock+1) {
             // start from current block
-            filemgr_alloc_multiple(handle->file, nblock + ((remain>offset)?1:0), &begin, &end);
             assert(begin == handle->curblock + 1);
             
             if (offset > 0) {
@@ -109,7 +109,7 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
 
             startpos = handle->curblock * real_blocksize + handle->curpos;            
         }else {
-            // allocate new multiple blocks
+            // next block to be allocated is not continuous .. allocate new multiple blocks
             filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0), &begin, &end);
             offset = 0;
 

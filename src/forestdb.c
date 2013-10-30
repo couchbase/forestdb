@@ -46,6 +46,27 @@ INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
     return keylen;
 }
 
+INLINE void _fdb_fetch_header(
+    void *header_buf, 
+    size_t header_len, 
+    bid_t *trie_root_bid, 
+    bid_t *seq_root_bid, 
+    fdb_seqnum_t *seqnum,
+    uint64_t *ndocs,
+    uint64_t *datasize,
+    uint64_t *last_header_bid)
+{
+    size_t offset = 0;
+    seq_memcpy(trie_root_bid, header_buf + offset, sizeof(bid_t), offset);
+    seq_memcpy(seq_root_bid, header_buf + offset, sizeof(bid_t), offset);
+    seq_memcpy(seqnum, header_buf + offset, sizeof(fdb_seqnum_t), offset);        
+    seq_memcpy(ndocs, header_buf + offset, sizeof(uint64_t), offset);
+    seq_memcpy(datasize, header_buf + offset, sizeof(uint64_t), offset);
+    seq_memcpy(last_header_bid, header_buf + offset, 
+        sizeof(uint64_t), offset);
+}
+    
+
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 {
     DBGCMD(
@@ -78,6 +99,8 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     handle->last_header_bid = BLK_NOT_FOUND;
     handle->lock = SPIN_INITIALIZER;
 
+    handle->datasize = handle->ndocs = 0;
+
     if (!wal_is_initialized(handle->file)) {
         handle->wal_dirty = FDB_WAL_CLEAN;
         wal_init(handle->file, FDB_WAL_NBUCKET);
@@ -87,21 +110,17 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
     filemgr_fetch_header(handle->file, header_buf, &header_len);
-    if (header_len > 0) {
-        size_t offset = 0;
+    if (header_len > 0) {             
         uint32_t crc_file, crc;
-        seq_memcpy(&trie_root_bid, header_buf + offset, sizeof(trie_root_bid), offset);
-        seq_memcpy(&seq_root_bid, header_buf + offset, sizeof(seq_root_bid), offset);
-        seq_memcpy(&seqnum, header_buf + offset, sizeof(handle->seqnum), offset);        
-        seq_memcpy(&handle->ndocs, header_buf + offset, sizeof(handle->ndocs), offset);
-        seq_memcpy(&handle->datasize, header_buf + offset, sizeof(handle->datasize), offset);
-        seq_memcpy(&handle->last_header_bid, header_buf + offset, 
-            sizeof(handle->last_header_bid), offset);
         
         crc = crc32_8(header_buf, header_len - sizeof(crc), 0);
         memcpy(&crc_file, header_buf + (header_len - sizeof(crc)), sizeof(crc_file));
         assert(crc == crc_file);
+        
+        _fdb_fetch_header(header_buf, header_len, &trie_root_bid, &seq_root_bid, &seqnum,
+            &handle->ndocs, &handle->datasize, &handle->last_header_bid);
     }
+    handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
     
     hbtrie_init(handle->trie, config.chunksize, config.offsetsize, handle->file->blocksize, trie_root_bid, 
         handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
@@ -283,15 +302,45 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     }
 }
 
+void _fdb_sync_db_header(fdb_handle *handle)
+{
+    uint64_t cur_revnum = filemgr_get_header_revnum(handle->file);
+    if (handle->cur_header_revnum != cur_revnum) {
+        void *header_buf = NULL;
+        size_t header_len;
+
+        header_buf = filemgr_fetch_header(handle->file, NULL, &header_len);
+        if (header_len > 0) {             
+            bid_t new_seq_root;
+            _fdb_fetch_header(header_buf, header_len, 
+                &handle->trie->root_bid, &new_seq_root, &handle->seqnum,
+                &handle->ndocs, &handle->datasize, &handle->last_header_bid);
+            if (new_seq_root != handle->seqtree->root_bid) {
+                btree_init_from_bid(
+                    handle->seqtree, handle->seqtree->blk_handle, 
+                    handle->seqtree->blk_ops, handle->seqtree->kv_ops, 
+                    handle->seqtree->blksize, new_seq_root);
+            }
+        }
+        if (header_buf) {
+            free(header_buf);
+        }
+    }
+}
+
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 {
+    void *header_buf;
+    size_t header_len;
     uint64_t offset;
     struct docio_object _doc;
     wal_result wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
 
     if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
-    
+
+    _fdb_sync_db_header(handle);
+
     wr = wal_find(handle->file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
@@ -489,7 +538,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     return FDB_RESULT_SUCCESS;
 }
 
-void _fdb_set_file_header(fdb_handle *handle)
+uint64_t _fdb_set_file_header(fdb_handle *handle)
 {
     /*
     <ForestDB header>
@@ -537,7 +586,7 @@ void _fdb_set_file_header(fdb_handle *handle)
     crc = crc32_8(buf, offset, 0);
     seq_memcpy(buf + offset, &crc, sizeof(crc), offset);
     
-    filemgr_update_header(handle->file, buf, offset);
+    return filemgr_update_header(handle->file, buf, offset);
 }
 
 fdb_status fdb_commit(fdb_handle *handle)
@@ -545,18 +594,21 @@ fdb_status fdb_commit(fdb_handle *handle)
     btreeblk_end(handle->bhandle);
     if (wal_get_size(handle->file) > handle->config.wal_threshold || 
         handle->wal_dirty == FDB_WAL_PENDING) {
+        // wal flush when 
+        // 1. wal size exceeds threshold
+        // 2. wal is already flushed before commit (in this case flush the rest of entries)
         wal_flush(handle->file, handle, _fdb_wal_flush_func);
         handle->wal_dirty = FDB_WAL_CLEAN;
     }else{
+        // otherwise just commit wal
         wal_commit(handle->file);
     }
 
     if (handle->wal_dirty == FDB_WAL_CLEAN) {
         //3 <not sure whether this is bug-free or not>
-        handle->last_header_bid = 
-            (handle->file->pos) / handle->file->blocksize;
+        handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
     }
-    _fdb_set_file_header(handle);    
+    handle->cur_header_revnum = _fdb_set_file_header(handle);    
     filemgr_commit(handle->file);
     return FDB_RESULT_SUCCESS;
 }
@@ -754,15 +806,16 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 // manually flush WAL entries into index
 fdb_status fdb_flush_wal(fdb_handle *handle)
 {
-    wal_flush(handle->file, handle, _fdb_wal_flush_func);
-    handle->wal_dirty = FDB_WAL_CLEAN;
-
+    if (wal_get_size(handle->file) > 0) {
+        wal_flush(handle->file, handle, _fdb_wal_flush_func);
+        handle->wal_dirty = FDB_WAL_PENDING;
+    }
     return FDB_RESULT_SUCCESS;
 }
 
 fdb_status fdb_close(fdb_handle *handle)
 {
-    wal_close(handle->file);
+    //wal_close(handle->file);
     filemgr_close(handle->file);
     docio_free(handle->dhandle);
     btreeblk_end(handle->bhandle);
@@ -782,10 +835,10 @@ fdb_status fdb_close(fdb_handle *handle)
 
 fdb_status fdb_shutdown()
 {
-#ifdef _MEMPOOL
-    mempool_shutdown();
-#endif    
     filemgr_shutdown();
+    #ifdef _MEMPOOL
+        mempool_shutdown();
+    #endif    
 }
 
 

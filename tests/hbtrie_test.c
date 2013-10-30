@@ -183,7 +183,7 @@ void large_test()
     uint8_t valuebuf[8];
     hbtrie_result r;
 
-    int i, j, k, n=2500, m=1, rr;
+    int i, j, k, n=1000000, m=1, rr;
     size_t keylen = 8;
     char **key;
     uint64_t *offset;

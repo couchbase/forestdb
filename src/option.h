@@ -1,7 +1,7 @@
 #ifndef _JSAHN_OPTION_H
 #define _JSAHN_OPTION_H
 
-#include "mempool.h"
+//#include "mempool.h"
 
 typedef uint64_t fdb_seqnum_t;
 #define SEQNUM_NOT_USED (0xffffffffffffffff)

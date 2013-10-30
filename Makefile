@@ -19,8 +19,10 @@ BTREE = src/btree.o src/btree_kv.o $(MEMLEAK)
 BCACHE = src/blockcache.o utils/debug.o \
 	$(HASH) $(RBTREE) $(MEMPOOL) $(CRC32) $(MEMLEAK)
 	
+WAL = src/wal.o $(HASH) $(MEMLEAK)
+
 FILEMGR = src/filemgr.o src/filemgr_ops_linux.o utils/debug.o \
-	$(HASH) $(BCACHE) $(MEMLEAK)
+	$(HASH) $(BCACHE) $(MEMLEAK) $(WAL)
 
 BCACHETEST = tests/bcache_test.o $(FILEMGR)
 FILEMGRTEST = tests/filemgr_test.o
@@ -35,8 +37,6 @@ DOCIOTEST = tests/docio_test.o
 HBTRIE = src/hbtrie.o $(BTREE) $(DOCIO) $(BTREEBLOCK) \
 	$(LIST) $(MEMLEAK)
 HBTRIETEST = tests/hbtrie_test.o
-
-WAL = src/wal.o $(HASH) $(MEMLEAK)
 
 FDB = \
 	src/forestdb.o src/hbtrie.o src/btree.o src/btree_kv.o \
@@ -68,7 +68,7 @@ PROGRAMS = \
 	couchstore_api/couchbench_ori \
 	couchstore_api/couchbench_fdb \
 
-LDFLAGS = -pthread -lsnappy -lm
+LDFLAGS = -pthread -lsnappy -lm -lrt
 CFLAGS = \
 	-g -D_GNU_SOURCE \
 	-I./include -I./src -I./utils\
@@ -118,6 +118,12 @@ couchstore_api/couchbench_fdb: lib_couch $(COUCHBENCH)
 	
 couchstore_api/couchbench_ori: $(COUCHBENCH)
 	$(CC) $(CFLAGS) $(COUCHBENCH) $(LIBCOUCHSTORE) -o $@ $(LDFLAGS)
-	
+
+test: lib forestdb_test
+	LD_LIBRARY_PATH=./ ./forestdb_test
+
+bench: lib_couch couchstore_api/couchbench_fdb
+	LD_LIBRARY_PATH=./ ./couchstore_api/couchbench_fdb
+
 clean:
 	rm -rf src/*.o tests/*.o couchstore_api/*.o utils/*.o dummy* $(PROGRAMS) ./*.so
