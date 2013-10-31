@@ -777,6 +777,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                 for (j=1;j<nnode;++j){
                     btree->kv_ops->copy_kv(new_node[j], node[i], 0, split_idx[j], nentry[j]);
                 }
+                j = 0;
+                btree->kv_ops->copy_kv(new_node[j], node[i], 0, split_idx[j], nentry[j]);
 
                 // header
                 for (j=0;j<nnode;++j){
@@ -794,7 +796,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                         idx_ins[i] = BTREE_IDX_NOT_FOUND;
                         for (j=1;j<nnode;++j){
                             btree->kv_ops->get_kv(new_node[j], 0, k, v);
-                            if (btree->kv_ops->cmp(key, k) < 0) {
+                            if (btree->kv_ops->cmp(kv_item->key, k) < 0) {
                                 idx_ins[i] = _btree_add_entry(btree, new_node[j-1], kv_item->key, kv_item->value);
                                 break;
                             }
@@ -807,7 +809,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                     }
                 #else
                     btree->kv_ops->get_kv(new_node[1], 0, k, v);
-                    if (btree->kv_ops->cmp(key, k) < 0) {
+                    if (btree->kv_ops->cmp(key_ins[i], k) < 0) {
                         idx_ins[i] = _btree_add_entry(btree, node[i], key_ins[i], value_ins[i]);
                     }else{
                         _btree_add_entry(btree, new_node[1], key_ins[i], value_ins[i]);
@@ -828,7 +830,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                             list_push_back(&kv_ins_list[i+1], &kv_item->le);
                         }
                     #else
-                        btree->kv_ops->set_key(btree, key_ins[i+1], k);
+                        btree->kv_ops->get_nth_splitter(new_node[0], new_node[1], key_ins[i+1]);
+                        //btree->kv_ops->set_key(btree, key_ins[i+1], k);
                         btree->kv_ops->set_value(btree, value_ins[i+1], &new_bid[1]);
                     #endif
                     ins[i+1] = 1;
@@ -872,7 +875,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                     _btree_add_entry(btree, new_root, k, btree->kv_ops->bid2value(&bid[i]));
                     // the others
                     for (j=1;j<nnode;++j){
-                        btree->kv_ops->get_kv(new_node[j], 0, k, v);
+                        //btree->kv_ops->get_kv(new_node[j], 0, k, v);
+                        btree->kv_ops->get_nth_splitter(new_node[j-1], new_node[j], k);
                         _btree_add_entry(btree, new_root, k, btree->kv_ops->bid2value(&new_bid[j]));
                     }
 

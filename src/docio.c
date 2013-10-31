@@ -437,8 +437,13 @@ INLINE void _docio_read_through_buffer(struct docio_handle *handle, bid_t bid)
     // to reduce the overhead from memcpy the same block
     if (handle->lastbid != bid) {
         // lock should be tried!!
+        if (filemgr_is_writable(handle->file, bid)) {
+            // this block can be modified later .. must be re-read
+            handle->lastbid = BLK_NOT_FOUND;
+        }else{
+            handle->lastbid = bid;
+        }
         filemgr_read(handle->file, bid, handle->readbuffer);
-        handle->lastbid = bid;
     }
 }
 

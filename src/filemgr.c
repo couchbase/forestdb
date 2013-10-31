@@ -262,7 +262,9 @@ void filemgr_close(struct filemgr *file)
             bcache_remove_dirty_blocks(file);
         }
         spin_lock(&file->lock);
-        wal_close(file);
+        if (wal_is_initialized(file)) {
+            wal_close(file);
+        }
         file->ops->close(file->fd);
         file->status = FILE_CLOSED;
     }

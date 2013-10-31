@@ -66,6 +66,8 @@ INLINE void _copy_kv(
     int ksize, vsize, kvsize;
     void *ptr_src, *ptr_dst;
 
+    if (node_dst == node_src) return;
+
     _get_kvsize(node_src->kvsize, ksize, vsize);
     kvsize = ksize + vsize;
     
