@@ -10,6 +10,14 @@ build
 =====
 make
 
+test
+====
+make test
+
+benchmark
+=========
+make bench
+
 how to use
 ==========
 refer to tests/forestdb_test.c

@@ -47,8 +47,9 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.buffercache_size = 0;
 #endif    
     config.wal_threshold = FDB_WAL_THRESHOLD;
-    config.seqtree = FDB_SEQTREE_USE;
+    config.seqtree_opt = FDB_SEQTREE_USE;
     config.flag = 0;
+    config.durability_opt = FDB_DRB_NONE;
 
     *pDb = (Db*)malloc(sizeof(Db));
     //(*pDb)->seqnum = 0;

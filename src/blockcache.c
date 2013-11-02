@@ -56,7 +56,7 @@ struct fnamedic_item {
     struct hash_elem hash_elem;
     struct rb_root rbtree;
     // spin lock
-    //spin_t lock;
+    spin_t lock;
 };
 
 struct bcache_item {
@@ -314,8 +314,6 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
         //assert(ret == 0);
     }
 
-    spin_lock(&bcache_lock);
-    
     prev_bid = start_bid = BLK_NOT_FOUND;
     count = 0;
 
@@ -345,14 +343,13 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
               && marker == BLK_MARKER_BNODE) ) {
             // if file is not COMPACT_OLD, OR
             // file is COMPACT_OLD but current block is b-tree node            
-            
             // insert into the front of cleanlist
             ditem->item->list = &cleanlist;
             list_push_front(ditem->item->list, &ditem->item->list_elem);
             _bcache_count(ditem->item->list, 1);
             
         }else{
-            // not committed dirty blocks of COMPACTION_OLD file .. just remove?
+            // not committed dirty blocks of COMPACTION_OLD file .. just remove (insert into freelist)?
             hash_remove(&bhash, &ditem->item->hash_elem);
 
             ditem->item->list = &freelist;
@@ -360,7 +357,6 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             _bcache_count(ditem->item->list, 1);
         }
         spin_lock(&ditem->item->lock);
-        spin_unlock(&bcache_lock);
 
         if (sync) {
             #ifdef __CRC32
@@ -374,23 +370,19 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             memcpy(buf + count*bcache_blocksize, ditem->item->addr, bcache_blocksize);
         }
         spin_unlock(&ditem->item->lock);
-        spin_lock(&bcache_lock);
 
-        count++;
-
-        DBGCMD(_dirty--);
         mempool_free(ditem);
         
+        count++;
         if (count*bcache_blocksize >= bcache_flush_unit && sync) break;        
     }
 
-    spin_unlock(&bcache_lock);
-
     // synchronize
-    if (sync) {
+    if (sync && count>0) {
         ret = fname_item->curfile->ops->pwrite(
             fname_item->curfile->fd, buf, count * bcache_blocksize, start_bid * bcache_blocksize);    
-        assert(ret != 0);
+
+        assert(ret == count * bcache_blocksize);
         free(buf);
 
         #ifdef __O_DIRECT
@@ -406,8 +398,6 @@ struct list_elem * _bcache_evict(struct filemgr *file)
     struct hash_elem *h;
     struct fnamedic_item query, *fname_item = NULL;
 
-    spin_lock(&bcache_lock);
-
     // ratio check
     if ( nclean >= BCACHE_EVICT_RATIO * ndirty ) {
         // evict clean block        
@@ -420,9 +410,7 @@ struct list_elem * _bcache_evict(struct filemgr *file)
        e = list_end(&dirtylist);
         item = _get_entry(e, struct bcache_item, list_elem);
 
-        spin_unlock(&bcache_lock);
         _bcache_evict_dirty(item->fname, 1);
-        spin_lock(&bcache_lock);
 
         // pop back from cleanlist
         e = list_pop_back(&cleanlist);
@@ -441,8 +429,6 @@ struct list_elem * _bcache_evict(struct filemgr *file)
     list_push_front(item->list, &item->list_elem);
     _bcache_count(item->list, 1);
 
-    spin_unlock(&bcache_lock);
-
     return &item->list_elem;
 }
 
@@ -459,6 +445,7 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     // calculate hash value
     //fname_new->hash = hash_djb2_last8(fname_new->filename, fname_new->filename_len);
     fname_new->hash = crc32_8_last8(fname_new->filename, fname_new->filename_len, 0);
+    fname_new->lock = SPIN_INITIALIZER;
 
     // initialize rb-tree
     rbwrap_init(&fname_new->rbtree, NULL);
@@ -523,9 +510,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
         
         e = list_pop_front(&freelist);
         while (e == NULL) {
-            spin_unlock(&bcache_lock);
             _bcache_evict(file);
-            spin_lock(&bcache_lock);
 
             e = list_pop_front(&freelist);
         }
@@ -537,19 +522,20 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
         item->bid = bid;
         item->fname = query.fname;
         hash_insert(&bhash, &item->hash_elem);
+        
     }else{
+    
         item = _get_entry(h, struct bcache_item, hash_elem);
-
         list_remove(item->list, &item->list_elem);
         _bcache_count(item->list, -1);
     }
 
     if (dirty == BCACHE_DIRTY) {
+        // to avoid re-insert already exist item into rb-tree
         if (item->list != &dirtylist) {
             struct dirty_item *ditem;
 
             item->list = &dirtylist;
-            DBGCMD(_dirty++;)
                 
             ditem = (struct dirty_item *)mempool_alloc(sizeof(struct dirty_item));
             ditem->item = item;
@@ -626,8 +612,6 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
         struct dirty_item *ditem;
 
         item->list = &dirtylist;
-        DBGCMD(_dirty++;)
-            
         ditem = (struct dirty_item *)mempool_alloc(sizeof(struct dirty_item));
         ditem->item = item;
         
@@ -679,9 +663,7 @@ void bcache_remove_dirty_blocks(struct filemgr *file)
         fname_item = _get_entry(h, struct fnamedic_item, hash_elem);
 
         while(rb_first(&fname_item->rbtree)) {
-            spin_unlock(&bcache_lock);
             _bcache_evict_dirty(fname_item, 0);
-            spin_lock(&bcache_lock);
         }
     }
 
@@ -775,9 +757,7 @@ void bcache_flush(struct filemgr *file)
         fname_item = _get_entry(h, struct fnamedic_item, hash_elem);
 
         while(rb_first(&fname_item->rbtree)) {    
-            spin_unlock(&bcache_lock);
             _bcache_evict_dirty(fname_item, 1);
-            spin_lock(&bcache_lock);
         }
     }
 

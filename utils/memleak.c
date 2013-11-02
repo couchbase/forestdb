@@ -32,7 +32,7 @@ struct memleak_item {
 
 static struct rb_root rbtree;
 static uint8_t start_sw = 0;
-static spin_t lock;
+static spin_t lock = SPIN_INITIALIZER;
 
 int memleak_cmp(struct rb_node *a, struct rb_node *b, void *aux)
 {

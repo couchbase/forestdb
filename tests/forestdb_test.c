@@ -25,6 +25,14 @@ void _set_random_string(char *str, int len)
     } while(len--);
 }
 
+void _set_random_string_smallabt(char *str, int len)
+{
+    str[len--] = 0;
+    do {
+        str[len] = 'a' + random('z'-'a');
+    } while(len--);
+}
+
 void basic_test()
 {
     TEST_INIT();
@@ -45,7 +53,7 @@ void basic_test()
     config.chunksize = config.offsetsize = sizeof(uint64_t);
     config.buffercache_size = 0 * 1024 * 1024;
     config.wal_threshold = 1024;
-    config.seqtree = FDB_SEQTREE_USE;
+    config.seqtree_opt = FDB_SEQTREE_USE;
     config.flag = 0;
 
     // remove previous dummy files
@@ -194,7 +202,7 @@ void wal_commit_test()
     config.chunksize = config.offsetsize = sizeof(uint64_t);
     config.buffercache_size = 0 * 1024 * 1024;
     config.wal_threshold = 1024;
-    config.seqtree = FDB_SEQTREE_USE;
+    config.seqtree_opt = FDB_SEQTREE_USE;
     config.flag = 0;
 
     // remove previous dummy files
@@ -288,7 +296,7 @@ void multi_version_test()
     config.chunksize = config.offsetsize = sizeof(uint64_t);
     config.buffercache_size = 1 * 1024 * 1024;
     config.wal_threshold = 1024;
-    config.seqtree = FDB_SEQTREE_USE;
+    config.seqtree_opt = FDB_SEQTREE_USE;
     config.flag = 0;
 
     // remove previous dummy files
@@ -391,6 +399,7 @@ void multi_version_test()
 
     TEST_RESULT("multi version test");
 }
+
 struct timespec _time_gap(struct timespec a, struct timespec b) 
 {
 	struct timespec ret;
@@ -404,7 +413,6 @@ struct timespec _time_gap(struct timespec a, struct timespec b)
 	return ret;
 }
 
-
 struct work_thread_args{
     int tid;
     size_t ndocs;
@@ -414,6 +422,8 @@ struct work_thread_args{
     size_t time_sec;
     size_t nbatch;
 };
+
+#define FILENAME "./ssd/dummy"
 
 void *_worker_thread(void *voidargs)
 {
@@ -428,7 +438,7 @@ void *_worker_thread(void *voidargs)
     char cnt_str[6];
     int cnt_int;
 
-    fdb_open(&db, "./dummy1", *(args->config));
+    fdb_open(&db, FILENAME"1", *(args->config));
 
     clock_gettime(CLOCK_REALTIME, &ts_begin);
 
@@ -488,7 +498,7 @@ void multi_thread_test(
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system("rm -rf "FILENAME"* > errorlog.txt");
 
     memleak_start();
 
@@ -497,18 +507,24 @@ void multi_thread_test(
     config.chunksize = config.offsetsize = sizeof(uint64_t);
     config.buffercache_size = 8 * 1024 * 1024;
     config.wal_threshold = wal_threshold;
-    config.seqtree = FDB_SEQTREE_USE;
+    config.seqtree_opt = FDB_SEQTREE_USE;
     config.flag = 0;
+    //config.durability_opt = FDB_DRB_NONE;
 
     // initial population ===
     // open db
-    fdb_open(&db, "./dummy1", config);
+    fdb_open(&db, FILENAME"1", config);
 
     // insert documents
     for (i=0;i<ndocs;++i){
-        sprintf(keybuf, "k%05d", i);
+        _set_random_string_smallabt(temp, 100-6);
+        sprintf(keybuf, "k%05d%s", i, temp);
+        
         sprintf(metabuf, "m%05d", i);
-        sprintf(bodybuf, "b%05d%05d", i, 0);
+
+        _set_random_string_smallabt(temp, 100-11);
+        sprintf(bodybuf, "b%05d%05d%s", i, 0, temp);
+        
         fdb_doc_create(&doc[i], 
             keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
@@ -556,7 +572,7 @@ int main(){
     basic_test();
     wal_commit_test();
     multi_version_test();
-    multi_thread_test(2048, 1024, 20, 10, 1, 2);
+    multi_thread_test(40000, 1024, 10, 1, 1, 1);
     
     return 0;
 }

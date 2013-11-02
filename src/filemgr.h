@@ -19,6 +19,7 @@ struct filemgr_config {
     int blocksize;
     int ncacheblock;
     int flag;
+    uint8_t async;
 };
 
 struct filemgr_ops {
@@ -62,6 +63,7 @@ struct filemgr {
     struct hash_elem e;
     file_status_t status;
     struct filemgr_config *config;
+    uint8_t sync;
     spin_t lock;
 };
 

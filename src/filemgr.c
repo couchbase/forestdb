@@ -8,6 +8,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <sys/stat.h>
 
 #include "filemgr.h"
 #include "hash_functions.h"
@@ -137,6 +138,11 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     struct filemgr *file = NULL;
     struct filemgr query;
     struct hash_elem *e = NULL;
+    int create_flag = 0x0;
+    int file_flag = 0x0;
+
+    create_flag = (O_CREAT);
+    file_flag = O_RDWR | create_flag | config.flag;
 
     // global initialization
     // initialized only once at first time
@@ -159,13 +165,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->ref_count++;
         // if file was closed before
         if (file->status == FILE_CLOSED) {
-#ifdef __O_DIRECT
-            file->fd = file->ops->open(file->filename,
-                                       O_RDWR | O_CREAT | _ARCH_O_DIRECT | config.flag, 0666);
-#else
-            file->fd = file->ops->open(file->filename,
-                                       O_RDWR | O_CREAT | config.flag, 0666);
-#endif
+            file->fd = file->ops->open(file->filename, file_flag, 0666);
             file->status = FILE_NORMAL;
         }
         spin_unlock(&file->lock);
@@ -180,13 +180,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->wal->flag = 0x0;
         strcpy(file->filename, filename);
         file->ops = ops;
-#ifdef __O_DIRECT
-        file->fd = file->ops->open(file->filename,
-                                   O_RDWR | O_CREAT | _ARCH_O_DIRECT | config.flag, 0666);
-#else
-        file->fd = file->ops->open(file->filename,
-                                   O_RDWR | O_CREAT | config.flag, 0666);
-#endif
+        file->fd = file->ops->open(file->filename, file_flag, 0666);
         file->blocksize = global_config.blocksize;
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
         file->status = FILE_NORMAL;
@@ -199,7 +193,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 
         spin_unlock(&filemgr_openlock);
     }
-
+    file->sync = (config.async)?(0):(1);
 
     return file;
 }
@@ -401,7 +395,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
             if (file->status != FILE_COMPACT_OLD_SCAN) {
                 // if normal file, just read a block
                 r = file->ops->pread(file->fd, buf, file->blocksize, pos);
-                assert(r > 0);
+                assert(r == file->blocksize);
                 
                 #ifdef __CRC32
                     _filemgr_crc32_check(file, buf);
@@ -437,7 +431,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
         }
     } else {
         r = file->ops->pread(file->fd, buf, file->blocksize, pos);
-        assert(r > 0);
+        assert(r == file->blocksize);
         
         #ifdef __CRC32
             _filemgr_crc32_check(file, buf);
@@ -484,7 +478,8 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
                 }
             }
         #endif    
-        file->ops->pwrite(file->fd, buf, len, pos);
+        r = file->ops->pwrite(file->fd, buf, len, pos);
+        assert(r == len);
     }
 }
 
@@ -547,9 +542,9 @@ void filemgr_commit(struct filemgr *file)
         gettimeofday(&_a_, NULL);
     )
 
-    #ifdef __SYNC
+    if (file->sync) {
         file->ops->fdatasync(file->fd);
-    #endif
+    }
 
     DBGCMD(
         gettimeofday(&_b_, NULL);

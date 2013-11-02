@@ -11,9 +11,7 @@ typedef uint64_t fdb_seqnum_t;
 #define __FDB_BCACHE_USE
 #ifdef __FDB_BCACHE_USE
     #define __FDB_SORTED_COMPACTION
-    //#define __O_DIRECT
 #endif
-#define __SYNC
 #define FDB_SECTOR_SIZE (512)
 
 #define __MEMORY_ALIGN
@@ -54,6 +52,6 @@ typedef uint64_t fdb_seqnum_t;
 #define FILEMGR_BULK_READ (16)
 
 #define __BTREEBLK_CACHE
-#define BTREEBLK_CACHE_LIMIT (16)
+#define BTREEBLK_CACHE_LIMIT (8)
 
 #endif

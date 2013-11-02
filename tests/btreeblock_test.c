@@ -30,6 +30,7 @@ void basic_test()
     int i, r;
     uint64_t k,v;
 
+    memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     config.flag = 0x0;
@@ -114,6 +115,7 @@ void iterator_test()
     int i, r;
     uint64_t k,v;
 
+    memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 0;
     config.flag = 0x0;
@@ -186,6 +188,7 @@ void two_btree_test()
     struct filemgr_config config;
     uint64_t k,v;
 
+    memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);

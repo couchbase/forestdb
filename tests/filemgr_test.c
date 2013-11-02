@@ -18,6 +18,7 @@ void basic_test()
     char buf[256];
     int len;
 
+    memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 1024;
     

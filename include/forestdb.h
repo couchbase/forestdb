@@ -16,10 +16,18 @@ typedef enum {
     FDB_RESULT_INVALID_ARGS
 } fdb_status;
 
-typedef uint8_t fdb_seqtree_t;
+typedef uint8_t fdb_seqtree_opt_t;
 enum {
     FDB_SEQTREE_NOT_USE = 0,
     FDB_SEQTREE_USE = 1
+};
+
+typedef uint8_t fdb_durability_opt_t;
+enum {
+    FDB_DRB_NONE = 0x0,
+    FDB_DRB_ODIRECT = 0x1,
+    FDB_DRB_ASYNC = 0x2,
+    FDB_DRB_ODIRECT_ASYNC = 0x3
 };
 
 typedef struct {
@@ -29,8 +37,10 @@ typedef struct {
     uint64_t buffercache_size;
     uint64_t wal_threshold;
     struct filemgr_ops *fileops;
-    fdb_seqtree_t seqtree;
-    unsigned char flag;
+    fdb_seqtree_opt_t seqtree_opt;
+    fdb_durability_opt_t durability_opt;
+    uint32_t flag;
+    void *aux;
 } fdb_config;
 
 typedef struct fdb_doc_struct {

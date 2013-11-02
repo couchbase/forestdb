@@ -94,6 +94,7 @@ void basic_test()
     doc.meta = metabuf;
     doc.body = bodybuf;
 
+    memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     config.flag = 0x0;
@@ -197,6 +198,7 @@ void large_test()
     doc.meta = metabuf;
     doc.body = bodybuf;
 
+    memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 0 * 1024 * 128;
     config.flag = 0;

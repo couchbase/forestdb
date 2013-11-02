@@ -40,6 +40,7 @@ void basic_test()
     doc.meta = metabuf;
     doc.body = bodybuf;
 
+    memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     r = system("rm -rf ./dummy");

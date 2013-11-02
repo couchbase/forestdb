@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 
 #include "filemgr.h"
 #include "hbtrie.h"
@@ -88,6 +89,15 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     fconfig.blocksize = config.blocksize = FDB_BLOCKSIZE;
     fconfig.ncacheblock = config.buffercache_size / FDB_BLOCKSIZE;
     fconfig.flag = 0x0;
+    if (config.durability_opt & 0x1) {
+        fconfig.flag |= _ARCH_O_DIRECT;
+    }
+    if (config.durability_opt & 0x2) {
+        fconfig.async = 1;
+    }else {
+        fconfig.async = 0;
+    }
+    
     handle->fileops = get_linux_filemgr_ops();
     handle->btreeblkops = btreeblk_get_ops();
     handle->file = filemgr_open(filename, handle->fileops, fconfig);
@@ -126,7 +136,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
         handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
 
 #ifdef __FDB_SEQTREE
-    if (handle->config.seqtree == FDB_SEQTREE_USE) {
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         handle->seqnum = seqnum;
         struct btree_kv_ops *kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
         memcpy(kv_ops, handle->trie->btree_kv_ops, sizeof(struct btree_kv_ops));
@@ -282,7 +292,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         btreeblk_end(handle->bhandle);
 
         SEQTREE( 
-            if (handle->config.seqtree == FDB_SEQTREE_USE) {
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                 br = btree_insert(handle->seqtree, &item->seqnum, &item->offset);
                 btreeblk_end(handle->bhandle);
             }
@@ -504,7 +514,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     _doc.key = doc->key;
 
 #ifdef __FDB_SEQTREE
-    if (handle->config.seqtree == FDB_SEQTREE_USE) {
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         //_doc.seqnum = doc->seqnum;
         spin_lock(&handle->lock);
         _doc.seqnum = doc->seqnum = handle->seqnum++;
@@ -559,7 +569,7 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     seq_memcpy(buf + offset, &handle->trie->root_bid, sizeof(handle->trie->root_bid), offset);
 
 #ifdef __FDB_SEQTREE
-    if (handle->config.seqtree == FDB_SEQTREE_USE) {
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // b+tree root bid
         seq_memcpy(buf + offset, &handle->seqtree->root_bid, 
             sizeof(handle->seqtree->root_bid), offset);
@@ -652,6 +662,14 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     fconfig.blocksize = FDB_BLOCKSIZE;
     fconfig.ncacheblock = handle->config.buffercache_size / FDB_BLOCKSIZE;
     fconfig.flag = 0x0;
+    if (handle->config.durability_opt & 0x1) {
+        fconfig.flag |= _ARCH_O_DIRECT;
+    }
+    if (handle->config.durability_opt & 0x2) {
+        fconfig.async = 1;
+    }else {
+        fconfig.async = 0;
+    }
 
     // open new file
     new_file = filemgr_open(new_filename, handle->fileops, fconfig);
@@ -668,7 +686,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         BLK_NOT_FOUND, new_bhandle, handle->btreeblkops, new_dhandle, _fdb_readkey_wrap);
 
     #ifdef __FDB_SEQTREE
-        if (handle->config.seqtree == FDB_SEQTREE_USE) {
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             // if we use sequence number tree
             new_seqtree = (struct btree *)malloc(sizeof(struct btree));
             old_seqtree = handle->seqtree;
@@ -723,7 +741,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
             btreeblk_end(new_bhandle);
 
             #ifdef __FDB_SEQTREE
-                if (handle->config.seqtree == FDB_SEQTREE_USE) {
+                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                     btree_insert(new_seqtree, &doc.seqnum, &new_offset);
                     btreeblk_end(new_bhandle);                
                 }
@@ -759,7 +777,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
             btreeblk_end(new_bhandle);
 
             #ifdef __FDB_SEQTREE
-                if (handle->config.seqtree == FDB_SEQTREE_USE) {
+                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                     btree_insert(new_seqtree, &doc.seqnum, &new_offset);
                     btreeblk_end(new_bhandle);                
                 }
@@ -791,7 +809,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     handle->trie = new_trie;
 
     #ifdef __FDB_SEQTREE
-        if (handle->config.seqtree == FDB_SEQTREE_USE) {
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             free(handle->seqtree);
             handle->seqtree = new_seqtree;
         }
@@ -823,7 +841,7 @@ fdb_status fdb_close(fdb_handle *handle)
     hbtrie_free(handle->trie);
     free(handle->trie);
     #ifdef __FDB_SEQTREE
-    if (handle->config.seqtree == FDB_SEQTREE_USE) {
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         free(handle->seqtree->kv_ops);
         free(handle->seqtree);
     }
