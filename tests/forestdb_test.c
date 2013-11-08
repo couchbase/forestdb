@@ -514,7 +514,7 @@ struct work_thread_args{
     size_t compact_term;
 };
 
-#define FILENAME "./ssd/dummy"
+#define FILENAME "./dummy"
 #define KSIZE (100)
 #define VSIZE (100)
 #define IDX_DIGIT (7)
@@ -557,7 +557,6 @@ void *_worker_thread(void *voidargs)
             cnt_int = atoi(cnt_str);
 
             // increase and rephrase
-            //sprintf(rdoc->body, "b%05d%05d", i, ++cnt_int);
             sprintf(cnt_str, "%0"IDX_DIGIT_STR"d", ++cnt_int);
             memcpy(rdoc->body+(IDX_DIGIT+1), cnt_str, IDX_DIGIT);
             
