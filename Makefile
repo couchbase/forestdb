@@ -46,13 +46,17 @@ FDB = \
 	utils/debug.o \
     utils/memleak.o
 FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
+
+LEVELDB_COUCH = couchstore_api/couchstore_api_leveldb.o
 	
 FDBTEST = tests/forestdb_test.o $(MEMLEAK)
 
 COUCHBENCH = couchstore_api/couchstore_bench.o utils/stopwatch.o utils/iniparser.o \
 
+LIBDIR=./couchstore_api/libs/
 LIBRARY=forestdb
-LIBCOUCHSTORE=couchstore_api/libs/libcouchstore.so
+LIBCOUCHSTORE=$(LIBDIR)/libcouchstore.so
+LIBLEVELDB=$(LIBDIR)/libleveldb.so
 
 PROGRAMS = \
 	tests/list_test \
@@ -66,12 +70,13 @@ PROGRAMS = \
 	tests/crc_test \
 	forestdb_test \
 	couchstore_api/couchbench_ori \
+	couchstore_api/couchbench_level \
 	couchstore_api/couchbench_fdb \
 
 LDFLAGS = -pthread -lsnappy -lm -lrt
 CFLAGS = \
 	-g -D_GNU_SOURCE \
-	-I./include -I./src -I./utils\
+	-I./include -I./src -I./utils \
 	-D__DEBUG -fPIC \
 	-O3 -fomit-frame-pointer \
 	
@@ -116,6 +121,9 @@ forestdb_test: lib $(FDBTEST)
 couchstore_api/couchbench_fdb: lib_couch $(COUCHBENCH)
 	$(CC) $(CFLAGS) $(COUCHBENCH) lib$(LIBRARY)_couch.so -o $@ $(LDFLAGS)
 	
+couchstore_api/couchbench_level: $(LEVELDB_COUCH) $(COUCHBENCH) 
+	$(CC) $(CFLAGS) $(LEVELDB_COUCH) $(COUCHBENCH) $(LIBLEVELDB) -o $@ $(LDFLAGS)
+
 couchstore_api/couchbench_ori: $(COUCHBENCH)
 	$(CC) $(CFLAGS) $(COUCHBENCH) $(LIBCOUCHSTORE) -o $@ $(LDFLAGS)
 

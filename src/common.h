@@ -37,7 +37,8 @@ enum{
     FILE_COMPACT_OLD_SCAN = 1,
     FILE_COMPACT_OLD = 2,
     FILE_COMPACT_NEW = 3, 
-    FILE_CLOSED = 4
+    FILE_CLOSED = 4,
+    FILE_REMOVED_PENDING = 5,
 };
 
 #define BLK_MARKER_BNODE (0xff)

@@ -158,7 +158,6 @@ INLINE int _fname_cmp(struct hash_elem *a, struct hash_elem *b)
     aa = _get_entry(a, struct fnamedic_item, hash_elem);
     bb = _get_entry(b, struct fnamedic_item, hash_elem);
 
-
     if (aa->filename_len == bb->filename_len) {
         return memcmp(aa->filename, bb->filename, aa->filename_len);
     }else {
@@ -236,6 +235,7 @@ INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fna
 {
     fname->filename = file->filename;
     fname->filename_len = file->filename_len;
+    //filemgr_get_filename_ptr(file, &fname->filename, &fname->filename_len);
     
     //fname.hash = hash_djb2_last8(fname.filename, fname.filename_len);
     fname->hash = crc32_8_last8(fname->filename, fname->filename_len, 0);
@@ -379,6 +379,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 
     // synchronize
     if (sync && count>0) {
+        // TODO: we MUST NOT directly call file->ops
         ret = fname_item->curfile->ops->pwrite(
             fname_item->curfile->fd, buf, count * bcache_blocksize, start_bid * bcache_blocksize);    
 
@@ -433,6 +434,8 @@ struct list_elem * _bcache_evict(struct filemgr *file)
 }
 
 struct fnamedic_item * _fname_create(struct filemgr *file) {
+    // TODO: we MUST NOT directly read file sturcture
+
     struct fnamedic_item *fname_new;
     fname_new = (struct fnamedic_item *)malloc(sizeof(struct fnamedic_item));
 

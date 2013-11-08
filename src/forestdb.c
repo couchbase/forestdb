@@ -11,6 +11,7 @@
 #include "filemgr.h"
 #include "hbtrie.h"
 #include "btree.h"
+#include "btree_kv.h"
 #include "docio.h"
 #include "btreeblock.h"
 #include "forestdb.h"
@@ -308,7 +309,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
         handle->datasize += item->doc_size;
     }else{
-        // set delete flag and update
+        // TODO: set delete flag and update
     }
 }
 
@@ -338,6 +339,19 @@ void _fdb_sync_db_header(fdb_handle *handle)
     }
 }
 
+void _fdb_check_file_reopen(fdb_handle *handle)
+{
+    if (filemgr_get_file_status(handle->file) == FILE_REMOVED_PENDING) {
+        assert(handle->file->new_file);
+
+        struct filemgr *new_file = handle->file->new_file;
+        fdb_config config = handle->config;
+
+        fdb_close(handle);
+        fdb_open(handle, new_file->filename, config);
+    }
+}
+
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 {
     void *header_buf;
@@ -349,6 +363,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 
     if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
 
+    _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
 
     wr = wal_find(handle->file, doc, &offset);
@@ -389,6 +404,9 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
     hbtrie_result hr;
 
     if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
+
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
     
     wr = wal_find(handle->file, doc, &offset);
 
@@ -507,6 +525,9 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     if ( (doc->key == NULL) || (doc->keylen == 0) ||
         (doc->metalen > 0 && doc->meta == NULL) || 
         (doc->bodylen > 0 && doc->body == NULL)) return FDB_RESULT_INVALID_ARGS;
+
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
     
     _doc.length.keylen = doc->keylen;
     _doc.length.metalen = doc->metalen;
@@ -699,7 +720,6 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 
     #ifdef __FDB_SORTED_COMPACTION
         // allocate offset array
-        //filemgr_update_file_status(handle->file, FILE_COMPACT_OLD_SCAN);
         offset_arr = (uint64_t*)malloc(sizeof(uint64_t) * handle->ndocs);
         
         // scan all live documents in the trie
@@ -752,6 +772,9 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     #else
 
         // scan all live documents in the trie
+        filemgr_update_file_status(handle->file, FILE_COMPACT_OLD);
+        filemgr_update_file_status(new_file, FILE_COMPACT_NEW);
+
         hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
         while( hr != HBTRIE_RESULT_FAIL ) {
@@ -789,12 +812,9 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 
     DBG("\nkey count: %"_F64"\n", count);
 
-    filemgr_close(handle->file);
     old_file = handle->file;
+    filemgr_close(old_file);
     handle->file = new_file;
-
-    wal_shutdown(old_file);
-    filemgr_remove_file(old_file);
 
     btreeblk_free(handle->bhandle);
     free(handle->bhandle);
@@ -815,8 +835,13 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         }
     #endif
 
-    filemgr_update_file_status(handle->file, FILE_NORMAL);
+    filemgr_update_file_status(new_file, FILE_NORMAL);
     fdb_commit(handle);
+
+    wal_shutdown(old_file);
+
+    // removing file is pended until there is no handle referring the file
+    filemgr_remove_pending(old_file, new_file);
 
     return FDB_RESULT_SUCCESS;
 }

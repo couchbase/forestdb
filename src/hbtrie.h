@@ -8,8 +8,6 @@
 
 #include "common.h"
 #include "list.h"
-#include "btree.h"
-#include "btree_kv.h"
 
 #define HBTRIE_MAX_KEYLEN FDB_MAX_KEYLEN
 
@@ -21,7 +19,8 @@ typedef enum {
     HBTRIE_RESULT_FAIL
 } hbtrie_result;
 
-
+struct btree_blk_ops;
+struct btree_kv_ops;
 struct hbtrie {
     uint8_t chunksize;
     uint8_t valuelen;

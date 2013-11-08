@@ -10,6 +10,8 @@
 
 #include "hbtrie.h"
 #include "list.h"
+#include "btree.h"
+#include "btree_kv.h"
 
 #include "memleak.h"
 

@@ -330,29 +330,7 @@ INLINE void _btreeblk_write_dirty_block(struct btreeblk_handle *handle, struct b
 {
     //2 MUST BE modified to support multiple nodes in a block
 
-    
-#ifdef __CRC32
-/*
-    size_t offset;
-    void *dataptr;
-    if (handle->file->config->ncacheblock == 0) {
-        offset = offsetof(struct bnode, data);
-        //dataptr = block->addr + offset;
-        uint32_t crc32 = crc32_8(block->addr, handle->file->blocksize, 0);
-        memset(block->addr + offset, 0xff, sizeof(void *));
-        memcpy(block->addr + offset, &crc32, sizeof(crc32));
-    }*/
-#endif
-    
     filemgr_write(handle->file, block->bid, block->addr);
-    
-#ifdef __CRC32
-/*
-    if (handle->file->config->ncacheblock == 0) {
-        // rollback original pointer value
-        memcpy(block->addr + offset, &dataptr, sizeof(void *));
-    }*/
-#endif
 }
 
 void btreeblk_operation_end(void *voidhandle)

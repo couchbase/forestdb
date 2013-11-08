@@ -63,6 +63,7 @@ struct filemgr {
     struct hash_elem e;
     file_status_t status;
     struct filemgr_config *config;
+    struct filemgr *new_file;
     uint8_t sync;
     spin_t lock;
 };
@@ -71,6 +72,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct fi
 
 uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
+void filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
+
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
 
 void filemgr_close(struct filemgr *file);
@@ -89,6 +92,7 @@ void filemgr_remove_file(struct filemgr *file);
 void filemgr_commit(struct filemgr *file);
 void filemgr_shutdown();
 void filemgr_update_file_status(struct filemgr *file, file_status_t status);
+void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
 file_status_t filemgr_get_file_status(struct filemgr *file);
 
 #endif

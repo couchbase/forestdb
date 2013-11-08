@@ -30,6 +30,13 @@ void docio_free(struct docio_handle *handle)
     free(handle->readbuffer);
 }
 
+#ifdef __CRC32
+    #define _add_blk_marker(file, bid, blocksize, marker) \
+        filemgr_write_offset((file), (bid), (blocksize), BLK_MARKER_SIZE, (marker))
+#else
+    #define _add_blk_marker(file, bid, blocksize, marker)
+#endif
+
 INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)
 {
     bid_t bid;
@@ -57,7 +64,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
         // simply append to current block
         offset = handle->curpos;
         filemgr_write_offset(handle->file, handle->curblock, offset, size, buf);
-        filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+        //filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+        _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
         handle->curpos += size;
 
         return handle->curblock * real_blocksize + offset;
@@ -81,7 +89,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             if (offset > 0) {
                 filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
             }
-            filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+            //filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
             remainsize -= offset;
 
             startpos = handle->curblock * real_blocksize + handle->curpos;            
@@ -104,7 +113,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             if (offset > 0) {
                 filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
             }
-            filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+            //filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
+            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
             remainsize -= offset;
 
             startpos = handle->curblock * real_blocksize + handle->curpos;            
@@ -123,7 +133,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             if (remainsize >= blocksize) {
                 // write entire block
                 filemgr_write(handle->file, i, buf + offset);
-                filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
+                //filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
+                _add_blk_marker(handle->file, i, blocksize, marker);
                 offset += blocksize;
                 remainsize -= blocksize;
                 handle->curpos = blocksize;
@@ -132,7 +143,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
                 // write rest of document
                 assert(i==end);
                 filemgr_write_offset(handle->file, i, 0, remainsize, buf + offset);
-                filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
+                //filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
+                _add_blk_marker(handle->file, i, blocksize, marker);
                 offset += remainsize;
                 handle->curpos = remainsize;
             }

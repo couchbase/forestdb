@@ -10,7 +10,7 @@ typedef uint64_t fdb_seqnum_t;
 #define __FDB_SEQTREE
 #define __FDB_BCACHE_USE
 #ifdef __FDB_BCACHE_USE
-    #define __FDB_SORTED_COMPACTION
+    //#define __FDB_SORTED_COMPACTION
 #endif
 #define FDB_SECTOR_SIZE (512)
 

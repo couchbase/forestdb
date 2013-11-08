@@ -221,7 +221,7 @@ void multi_thread_test(
 int main()
 {
     basic_test2();
-    multi_thread_test(4, 2, 32, 3, 1, 1);
+    multi_thread_test(4, 2, 32, 120, 1, 7);
 
     return 0;
 }

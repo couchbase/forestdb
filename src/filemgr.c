@@ -61,6 +61,18 @@ int _file_cmp(struct hash_elem *a, struct hash_elem *b)
     aa = _get_entry(a, struct filemgr, e);
     bb = _get_entry(b, struct filemgr, e);
     return strcmp(aa->filename, bb->filename);
+
+/*
+    if (aa->filename_len == bb->filename_len) {
+        return memcmp(aa->filename, bb->filename, aa->filename_len);
+    }else {
+        uint16_t len = MIN(aa->filename_len , bb->filename_len);
+        int cmp = memcmp(aa->filename, bb->filename, len);
+        if (cmp != 0) return cmp;
+        else {
+            return (int)((int)aa->filename_len - (int)bb->filename_len);
+        }
+    }*/
 }
 
 void filemgr_init(struct filemgr_config config)
@@ -156,7 +168,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     e = hash_find(&hash, &query.e);
 
     if (e) {
-        // already opened
+        // already opened (return existing structure)
         file = _get_entry(e, struct filemgr, e);
 
         spin_lock(&file->lock);
@@ -171,20 +183,25 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         spin_unlock(&file->lock);
         
     } else {
-        // open
+        // open (newly create)
         file = (struct filemgr*)malloc(sizeof(struct filemgr));
         file->filename_len = strlen(filename);
-        file->ref_count = 1;
         file->filename = (char*)malloc(file->filename_len + 1);
+        strcpy(file->filename, filename);
+
+        file->ref_count = 1;
+
         file->wal = (struct wal *)malloc(sizeof(struct wal));
         file->wal->flag = 0x0;
-        strcpy(file->filename, filename);
+
         file->ops = ops;
-        file->fd = file->ops->open(file->filename, file_flag, 0666);
         file->blocksize = global_config.blocksize;
-        file->pos = file->last_commit = file->ops->goto_eof(file->fd);
         file->status = FILE_NORMAL;
         file->config = &global_config;
+        file->new_file = NULL;
+
+        file->fd = file->ops->open(file->filename, file_flag, 0666);
+        file->pos = file->last_commit = file->ops->goto_eof(file->fd);
         
         _filemgr_read_header(file);
         
@@ -228,6 +245,12 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
     return ret;
 }
 
+void filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len)
+{
+    *filename = file->filename;
+    *len = file->filename_len;
+}
+
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
 {
     spin_lock(&file->lock);
@@ -260,7 +283,17 @@ void filemgr_close(struct filemgr *file)
             wal_close(file);
         }
         file->ops->close(file->fd);
-        file->status = FILE_CLOSED;
+        if (file->status == FILE_REMOVED_PENDING) {
+            // remove file
+
+            // we can release lock becuase no one will open this file
+            spin_unlock(&file->lock);
+            
+            remove(file->filename);
+            filemgr_remove_file(file);
+        }else{
+            file->status = FILE_CLOSED;
+        }
     }
     spin_unlock(&file->lock);
 }
@@ -441,6 +474,8 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 
 void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint64_t len, void *buf)
 {
+    assert(offset + len <= file->blocksize);
+
     int r = 0;
     uint64_t pos = bid * file->blocksize + offset;
     assert(pos >= file->last_commit);
@@ -536,25 +571,10 @@ void filemgr_commit(struct filemgr *file)
     file->last_commit = file->pos;
 
     spin_unlock(&file->lock);
-    
-    DBGCMD(
-        struct timeval _a_,_b_,_r_;
-        gettimeofday(&_a_, NULL);
-    )
 
     if (file->sync) {
         file->ops->fdatasync(file->fd);
     }
-
-    DBGCMD(
-        gettimeofday(&_b_, NULL);
-        _r_ = _utime_gap(_a_,_b_);
-    );
-
-    /*
-    DBG("fdatasync, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
-        _r_.tv_sec, _r_.tv_usec);
-*/
 }
 
 void filemgr_update_file_status(struct filemgr *file, file_status_t status)
@@ -562,6 +582,23 @@ void filemgr_update_file_status(struct filemgr *file, file_status_t status)
     spin_lock(&file->lock);
     file->status = status;
     spin_unlock(&file->lock);
+}
+
+void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
+{
+    assert(new_file);
+
+    spin_lock(&old_file->lock);
+    if (old_file->ref_count > 0) {
+        // delay removing
+        old_file->new_file = new_file;
+        old_file->status = FILE_REMOVED_PENDING;
+        spin_unlock(&old_file->lock);
+    }else{
+        // immediatly remove
+        spin_unlock(&old_file->lock);
+        filemgr_remove_file(old_file);
+    }
 }
 
 file_status_t filemgr_get_file_status(struct filemgr *file)
