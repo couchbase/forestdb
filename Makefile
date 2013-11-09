@@ -69,9 +69,11 @@ PROGRAMS = \
 	tests/hbtrie_test \
 	tests/crc_test \
 	forestdb_test \
+	couchstore_api/couchbench_fdb \
+
+BENCH = \
 	couchstore_api/couchbench_ori \
 	couchstore_api/couchbench_level \
-	couchstore_api/couchbench_fdb \
 
 LDFLAGS = -pthread -lsnappy -lm -lrt
 CFLAGS = \
@@ -134,4 +136,4 @@ bench: lib_couch couchstore_api/couchbench_fdb
 	LD_LIBRARY_PATH=./ ./couchstore_api/couchbench_fdb
 
 clean:
-	rm -rf src/*.o tests/*.o couchstore_api/*.o utils/*.o dummy* $(PROGRAMS) ./*.so
+	rm -rf src/*.o tests/*.o couchstore_api/*.o utils/*.o dummy* $(PROGRAMS) $(BENCH) ./*.so
