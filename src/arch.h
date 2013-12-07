@@ -1,6 +1,7 @@
 #ifndef _JSAHN_ARCH_H
 #define _JSAHN_ARCH_H
 
+#include <fcntl.h>
 
 #ifdef __APPLE__
     #define INLINE extern inline

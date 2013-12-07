@@ -67,7 +67,6 @@ INLINE void _fdb_fetch_header(
     seq_memcpy(last_header_bid, header_buf + offset, 
         sizeof(uint64_t), offset);
 }
-    
 
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 {
@@ -270,10 +269,16 @@ INLINE size_t _fdb_get_docsize(struct docio_object *doc)
 
 INLINE size_t _fdb_get_docsize(struct docio_length len)
 {
-    size_t ret = len.keylen  + len.metalen + len.bodylen + sizeof(struct docio_length);
+    size_t ret = 
+        len.keylen + 
+        len.metalen + 
+        len.bodylen + 
+        sizeof(struct docio_length);
+    
     #ifdef __FDB_SEQTREE
         ret += sizeof(fdb_seqnum_t);
     #endif
+    
     #ifdef __CRC32
         ret += sizeof(uint32_t);
     #endif
@@ -301,13 +306,17 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         
         if (hr == HBTRIE_RESULT_SUCCESS) {
             handle->ndocs++;
+            handle->datasize += item->doc_size;
         }else{
-            // update
+            // update            
             struct docio_length len;
+            // this block is already cached when we call HBTRIE_INSERT .. no additional block access
             len = docio_read_doc_length(handle->dhandle, old_offset);
-            handle->datasize -= _fdb_get_docsize(len);            
+            handle->datasize -= _fdb_get_docsize(len);
+            //handle->datasize -= _wal_get_docsize(len);
+            
+            handle->datasize += item->doc_size;
         }
-        handle->datasize += item->doc_size;
     }else{
         // TODO: set delete flag and update
     }
@@ -669,7 +678,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     struct docio_object doc;
     uint8_t k[HBTRIE_MAX_KEYLEN];
     size_t keylen;
-    uint64_t offset, new_offset, *offset_arr, i, count;
+    uint64_t offset, new_offset, *offset_arr, i, count, new_datasize;
     fdb_seqnum_t seqnum;
     hbtrie_result hr;
 
@@ -718,13 +727,15 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         }
     #endif
 
+    count = new_datasize = 0;
+
     #ifdef __FDB_SORTED_COMPACTION
         // allocate offset array
         offset_arr = (uint64_t*)malloc(sizeof(uint64_t) * handle->ndocs);
         
         // scan all live documents in the trie
         hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
-        count = 0;
+
         while( hr != HBTRIE_RESULT_FAIL ) {
             
             hr = hbtrie_next(&it, k, &keylen, &offset);
@@ -756,6 +767,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
             new_offset = docio_append_doc(new_dhandle, &doc);
             free(doc.meta);
             free(doc.body);
+            new_datasize += _fdb_get_docsize(doc.length);
 
             hbtrie_insert(new_trie, k, doc.length.keylen, &new_offset, NULL);
             btreeblk_end(new_bhandle);
@@ -795,6 +807,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
             new_offset = docio_append_doc(new_dhandle, &doc);
             free(doc.meta);
             free(doc.body);
+            new_datasize += _fdb_get_docsize(doc.length);            
             
             hbtrie_insert(new_trie, k, doc.length.keylen, &new_offset, NULL);
             btreeblk_end(new_bhandle);
@@ -806,11 +819,16 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
                 }
             #endif
 
-            DBGCMD( count++ );
+            count++;
         }
+
+        hr = hbtrie_iterator_free(&it);
     #endif
 
     DBG("\nkey count: %"_F64"\n", count);
+
+    handle->ndocs = count;
+    handle->datasize = new_datasize;
 
     old_file = handle->file;
     filemgr_close(old_file);
@@ -874,6 +892,22 @@ fdb_status fdb_close(fdb_handle *handle)
     free(handle->bhandle);
     free(handle->dhandle);
     return FDB_RESULT_SUCCESS;
+}
+
+// roughly estimate the space occupied db handle HANDLE
+size_t fdb_estimate_space_used(fdb_handle *handle)
+{
+    size_t ret = 0;
+
+    ret += handle->datasize;
+    // hb-trie size (estimated as worst case)
+    ret += (handle->ndocs / (handle->btree_fanout / 2)) * handle->config.blocksize;
+    // b-tree size (estimated as worst case)
+    ret += (handle->ndocs / (handle->btree_fanout / 2)) * handle->config.blocksize;
+
+    ret += wal_get_datasize(handle->file);
+    
+    return ret;
 }
 
 fdb_status fdb_shutdown()

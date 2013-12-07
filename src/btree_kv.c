@@ -9,7 +9,7 @@
 
 #include "btree.h"
 #include "btree_kv.h"
-
+#include "memleak.h"
 
 INLINE void _get_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
@@ -80,7 +80,8 @@ INLINE void _copy_kv(
         kvsize * len);
 }
 
-INLINE size_t _get_data_size(struct bnode *node, void *key_arr, void *value_arr, size_t len)
+INLINE size_t _get_data_size(
+    struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)
 {
     int ksize, vsize;
     _get_kvsize(node->kvsize, ksize, vsize);

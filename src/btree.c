@@ -11,7 +11,7 @@
 #include "btree.h"
 #include "common.h"
 
-//#define BTREE_MULTI_SPLIT
+#define BTREE_MULTI_SPLIT
 #ifdef BTREE_MULTI_SPLIT
     #include "list.h"
 #endif
@@ -53,17 +53,21 @@ INLINE struct bnode *_fetch_bnode(void *addr)
 }
 
 INLINE int _bnode_size(
-    struct btree *btree, struct bnode *node, void *key_arr, void *value_arr, size_t len)
+    struct btree *btree, struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)
 {
     int nodesize = 0;
     
     if (node->flag & BNODE_MASK_METADATA) {
         metasize_t size;
         memcpy(&size, (void *)node + sizeof(struct bnode), sizeof(metasize_t));
-        nodesize = sizeof(struct bnode) + btree->kv_ops->get_data_size(node, key_arr, value_arr, len) + 
+        nodesize = 
+            sizeof(struct bnode) + 
+            btree->kv_ops->get_data_size(node, new_minkey, key_arr, value_arr, len) + 
             _metasize_align(size) + sizeof(metasize_t);
     }else{
-        nodesize = sizeof(struct bnode) + btree->kv_ops->get_data_size(node, key_arr, value_arr, len);
+        nodesize = 
+            sizeof(struct bnode) + 
+            btree->kv_ops->get_data_size(node, new_minkey, key_arr, value_arr, len);
     }
 
     return nodesize;
@@ -103,7 +107,8 @@ INLINE int _bnode_size(
     }
     
     INLINE int _bnode_size_check(
-        struct btree *btree, struct bnode *node, struct list *kv_ins_list, size_t *size_out) 
+        struct btree *btree, struct bnode *node, 
+        void *new_minkey, struct list *kv_ins_list, size_t *size_out) 
     {
         size_t nitem;
         size_t cursize;
@@ -137,16 +142,16 @@ INLINE int _bnode_size(
                 memcpy(value_arr + btree->ksize * i, item->value, btree->ksize);
                 e = list_next(e);
             }
-            cursize = _bnode_size(btree, node, key_arr, value_arr, nitem);
+            cursize = _bnode_size(btree, node, new_minkey, key_arr, value_arr, nitem);
 
             free(key_arr);
             free(value_arr);            
         }else if (nitem == 1) {
             e = list_begin(kv_ins_list);
             item = _get_entry(e, struct kv_ins_item, le);            
-            cursize = _bnode_size(btree, node, item->key, item->value, 1);        
+            cursize = _bnode_size(btree, node, new_minkey, item->key, item->value, 1);        
         }else if (nitem == 0) {
-            cursize = _bnode_size(btree, node, NULL, NULL, 0);
+            cursize = _bnode_size(btree, node, new_minkey, NULL, NULL, 0);
         }
 
         *size_out = cursize;
@@ -156,14 +161,15 @@ INLINE int _bnode_size(
 #else
 
     INLINE int _bnode_size_check(
-        struct btree *btree, struct bnode *node, void *key, void *value, size_t *size_out) 
+        struct btree *btree, struct bnode *node, 
+        void *new_minkey, void *key, void *value, size_t *size_out) 
     {
         size_t nodesize = btree->blksize;
         #ifdef __CRC32
             nodesize -= BLK_MARKER_SIZE;
         #endif
 
-        *size_out = _bnode_size(btree, node, key, value, 1);
+        *size_out = _bnode_size(btree, node, new_minkey, key, value, 1);
         return ( *size_out <= nodesize );
     }
 
@@ -253,14 +259,14 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
             memmove(
                 ptr + sizeof(metasize_t) + _metasize_align(metasize), 
                 node->data, 
-                btree->kv_ops->get_data_size(node, NULL, NULL, 0));
+                btree->kv_ops->get_data_size(node, NULL, NULL, NULL, 0));
             node->data -= (_metasize_align(old_metasize) - _metasize_align(metasize));
         }
 
     }else {
         if (node->flag & BNODE_MASK_METADATA) {
             // existing metadata is removed
-            memmove(ptr, node->data, btree->kv_ops->get_data_size(node, NULL, NULL, 0));
+            memmove(ptr, node->data, btree->kv_ops->get_data_size(node, NULL, NULL, NULL, 0));
             node->data -= (_metasize_align(old_metasize) + sizeof(metasize_t));
             // clear the flag
             node->flag &= ~BNODE_MASK_METADATA;
@@ -292,11 +298,6 @@ btree_result btree_init_from_bid(struct btree *btree, void *blk_handle,
     addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
     root = _fetch_bnode(addr);
 
-#ifdef _BNODE_COMP
-    btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, btree->root_bid,
-                                        _bnode_size(btree, root));
-#endif
-
     btree->root_flag = root->flag;
     btree->height = root->level;
     _get_kvsize(root->kvsize, btree->ksize, btree->vsize);
@@ -326,9 +327,6 @@ btree_result btree_init(
     // create the first root node
     addr = btree->blk_ops->blk_alloc(btree->blk_handle, &btree->root_bid);
     root = _btree_init_node(btree, addr, btree->root_flag, BNODE_MASK_ROOT, meta);
-    #ifdef _BNODE_COMP
-        btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, btree->root_bid, _bnode_size(btree, root));
-    #endif
 
     return BTREE_RESULT_SUCCESS;
 }
@@ -609,6 +607,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
     bid_t bid[btree->height];
     // flags
     int8_t modified[btree->height], moved[btree->height], ins[btree->height];
+    int8_t minkey_replace[btree->height];
+    int8_t height_growup;
 
     // key, value to be inserted
 #ifdef BTREE_MULTI_SPLIT
@@ -626,7 +626,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
     int i, j;
 
     // initialize flags
-    for (i=0;i<btree->height;++i) moved[i] = modified[i] = ins[i] = 0;
+    for (i=0;i<btree->height;++i) moved[i] = modified[i] = ins[i] = minkey_replace[i] = 0;
+    height_growup = 0;
 
     // initialize temporary variables    
     if (btree->kv_ops->init_kv_var) {
@@ -682,17 +683,14 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
     for (i=0;i<btree->height;++i){
         
         if (idx[i] != BTREE_IDX_NOT_FOUND)
-            btree->kv_ops->get_kv(node[i], idx[i], k, v);
+            btree->kv_ops->get_kv(node[i], idx[i], k, NULL);
 
         if (i > 0) {
             // in case of index node
             // when KEY is smaller than smallest key in index node
             if (idx[i] == 0 && btree->kv_ops->cmp(key, k) < 0) {
                 // change node's smallest key
-                btree->kv_ops->set_kv(node[i], idx[i], key, v);
-                //memcpy(k, key, btree->ksize);
-                btree->kv_ops->set_key(btree, k, key);
-                modified[i] = 1;
+                minkey_replace[i] = 1;
             }
 
             // when child node is moved to new block
@@ -703,12 +701,15 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
             }
         }        
 
-        if (ins[i]) {
+        if (ins[i] || minkey_replace[i]) {
             // there is a key-value pair to be inserted into this (level of) node
         
             // check whether btree node space is enough to add new key-value pair or not, OR
             // action is not insertion but update (key_ins exists in current node)
             int is_update = 0;
+            size_t nodesize;
+            void *new_minkey = (minkey_replace[i])?(key):(NULL);
+            
             if (i==0) {
                 #ifdef BTREE_MULTI_SPLIT
                     e = list_begin(&kv_ins_list[i]);
@@ -721,33 +722,35 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                 #endif
             }
 
-            size_t nodesize;            
-            #ifndef _BNODE_COMP
-                #ifdef BTREE_MULTI_SPLIT
-                    int _size_check = _bnode_size_check(btree, node[i], &kv_ins_list[i], &nodesize);
-                #else
-                    int _size_check = _bnode_size_check(btree, node[i], key_ins[i], value_ins[i], &nodesize);
-                #endif
+            #ifdef BTREE_MULTI_SPLIT
+                int _size_check = 
+                    _bnode_size_check(btree, node[i], new_minkey, &kv_ins_list[i], &nodesize);
             #else
-                size_t compsize = btree->blk_ops->blk_comp_size(btree->blk_handle, bid[i]);
-                int _size_check = (compsize + 2*(btree->ksize + btree->vsize) <= btree->blksize);
-                
+                int _size_check = 
+                    _bnode_size_check(btree, node[i], new_minkey, key_ins[i], value_ins[i], &nodesize);
             #endif
             
             if (_size_check || is_update ) {
-                // enough .. insert
-                #ifdef BTREE_MULTI_SPLIT
-                    // insert all kv pairs on list
-                    e = list_begin(&kv_ins_list[i]);
-                    while(e) {
-                        kv_item = _get_entry(e, struct kv_ins_item, le);
-                        idx_ins[i] = _btree_add_entry(btree, node[i], kv_item->key, kv_item->value);
-                        e = list_next(e);
-                    }                        
-                #else
-                    idx_ins[i] = _btree_add_entry(btree, node[i], key_ins[i], value_ins[i]);
-                #endif
-                
+                // enough space
+                if (ins[i]) {
+                    // insert key/value pair(s)
+                    #ifdef BTREE_MULTI_SPLIT
+                        // insert all kv pairs on list
+                        e = list_begin(&kv_ins_list[i]);
+                        while(e) {
+                            kv_item = _get_entry(e, struct kv_ins_item, le);
+                            idx_ins[i] = _btree_add_entry(btree, node[i], kv_item->key, kv_item->value);
+                            e = list_next(e);
+                        }                        
+                    #else
+                        idx_ins[i] = _btree_add_entry(btree, node[i], key_ins[i], value_ins[i]);
+                    #endif
+                }
+                if (minkey_replace[i]) {
+                    // replace the minimum key in the node to KEY
+                    btree->kv_ops->get_kv(node[i], idx[i], k, v);
+                    btree->kv_ops->set_kv(node[i], idx[i], key, v);                    
+                }                
                 modified[i] = 1;
                 
             }else {
@@ -784,42 +787,44 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                 for (j=0;j<nnode;++j){
                     new_node[j]->nentry = nentry[j];
                 }
-
                 modified[i] = 1;
 
-                // insert kv-pair(s) to appropriate node
-                #ifdef BTREE_MULTI_SPLIT
-                    e = list_begin(&kv_ins_list[i]);
-                    while(e) {
-                        kv_item = _get_entry(e, struct kv_ins_item, le);
+                if (ins[i]) {
+                    // insert kv-pair(s) to appropriate node
+                    #ifdef BTREE_MULTI_SPLIT
+                        e = list_begin(&kv_ins_list[i]);
+                        while(e) {
+                            kv_item = _get_entry(e, struct kv_ins_item, le);
 
-                        idx_ins[i] = BTREE_IDX_NOT_FOUND;
-                        for (j=1;j<nnode;++j){
-                            btree->kv_ops->get_kv(new_node[j], 0, k, v);
-                            if (btree->kv_ops->cmp(kv_item->key, k) < 0) {
-                                idx_ins[i] = _btree_add_entry(btree, new_node[j-1], kv_item->key, kv_item->value);
-                                break;
+                            idx_ins[i] = BTREE_IDX_NOT_FOUND;
+                            for (j=1;j<nnode;++j){
+                                btree->kv_ops->get_kv(new_node[j], 0, k, v);
+                                if (btree->kv_ops->cmp(kv_item->key, k) < 0) {
+                                    idx_ins[i] = _btree_add_entry(btree, new_node[j-1], kv_item->key, kv_item->value);
+                                    break;
+                                }
                             }
+                            if (idx_ins[i] == BTREE_IDX_NOT_FOUND) {
+                                // insert into the last split node
+                                idx_ins[i] = _btree_add_entry(btree, new_node[nnode-1], kv_item->key, kv_item->value);
+                            }
+                            e = list_next(e);
                         }
-                        if (idx_ins[i] == BTREE_IDX_NOT_FOUND) {
-                            // insert into the last split node
-                            idx_ins[i] = _btree_add_entry(btree, new_node[nnode-1], kv_item->key, kv_item->value);
+                    #else
+                        btree->kv_ops->get_kv(new_node[1], 0, k, v);
+                        if (btree->kv_ops->cmp(key_ins[i], k) < 0) {
+                            idx_ins[i] = _btree_add_entry(btree, node[i], key_ins[i], value_ins[i]);
+                        }else{
+                            _btree_add_entry(btree, new_node[1], key_ins[i], value_ins[i]);
                         }
-                        e = list_next(e);
-                    }
-                #else
-                    btree->kv_ops->get_kv(new_node[1], 0, k, v);
-                    if (btree->kv_ops->cmp(key_ins[i], k) < 0) {
-                        idx_ins[i] = _btree_add_entry(btree, node[i], key_ins[i], value_ins[i]);
-                    }else{
-                        _btree_add_entry(btree, new_node[1], key_ins[i], value_ins[i]);
-                    }
-                #endif
+                    #endif
+                }
+                if (minkey_replace[i]){
+                    // replace the minimum key in the (first split) node to KEY
+                    btree->kv_ops->get_kv(new_node[0], idx[i], k, v);
+                    btree->kv_ops->set_kv(new_node[0], idx[i], key, v);
+                }
                 
-                #ifdef _BNODE_COMP
-                    btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, new_bid, _bnode_size(btree, new_node));
-                #endif
-
                 if (i+1 < btree->height) {
                     // non-root node
                     // reserve kv-pair (i.e. splitters) to be inserted into parent node
@@ -880,41 +885,17 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                         _btree_add_entry(btree, new_root, k, btree->kv_ops->bid2value(&new_bid[j]));
                     }
 
-                    #ifdef _BNODE_COMP
-                        btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, bid[i], _bnode_size(btree, node[i]));
-                        btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, new_root_bid, 
-                            _bnode_size(btree, new_root));
-                    #endif
-
                     btree->height++;
-
-                    if (btree->blk_ops->blk_operation_end) btree->blk_ops->blk_operation_end(btree->blk_handle);    
-                    if (btree->kv_ops->free_kv_var) {
-                        btree->kv_ops->free_kv_var(btree, k, v);
-                        for (j=0;j<btree->height-1;++j){
-                            #ifdef BTREE_MULTI_SPLIT
-                                e = list_begin(&kv_ins_list[j]);
-                                while(e) {
-                                    kv_item = _get_entry(e, struct kv_ins_item, le);
-                                    e = list_remove(&kv_ins_list[j], e);
-
-                                    btree->kv_ops->free_kv_var(btree, kv_item->key, kv_item->value);
-                                    _kv_ins_item_free(kv_item);
-                                }
-                            #else
-                                btree->kv_ops->free_kv_var(btree, key_ins[j], value_ins[j]);
-                            #endif
-                        }
-                    }
-                    return BTREE_RESULT_SUCCESS;
+                    height_growup = 1;
                 }    
             }
         }
+        if (height_growup) break;
 
         if (modified[i]) {
             // when node is modified            
             if (!btree->blk_ops->blk_is_writable(btree->blk_handle, bid[i])) {
-                // already flushed block -> cannot overwrite, we have to move to new block
+                // not writable .. already flushed block -> cannot overwrite, we have to move to new block
                 // get new bid[i]
                 addr = btree->blk_ops->blk_move(btree->blk_handle, bid[i], &bid[i]);
                 node[i] = _fetch_bnode(addr);
@@ -924,33 +905,34 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                     // if moved node is root node
                     btree->root_bid = bid[i];
             }else{
+                // writable .. just set dirty to write back into storage
                 btree->blk_ops->blk_set_dirty(btree->blk_handle, bid[i]);
             }
             
-            #ifdef _BNODE_COMP
-                btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, bid[i], _bnode_size(btree, node[i]));
-            #endif
         }
         
     }
 
     if (btree->blk_ops->blk_operation_end) btree->blk_ops->blk_operation_end(btree->blk_handle);
-    if (btree->kv_ops->free_kv_var) {
-        btree->kv_ops->free_kv_var(btree, k, v);
-        for (j=0;j<btree->height;++j){
-            #ifdef BTREE_MULTI_SPLIT
-                e = list_begin(&kv_ins_list[j]);
-                while(e) {
-                    kv_item = _get_entry(e, struct kv_ins_item, le);
-                    e = list_remove(&kv_ins_list[j], e);                    
 
+    if (btree->kv_ops->free_kv_var) 
+        btree->kv_ops->free_kv_var(btree, k, v);
+    
+    for (j=0; j < ((height_growup)?(btree->height-1):(btree->height)); ++j){
+        #ifdef BTREE_MULTI_SPLIT
+            e = list_begin(&kv_ins_list[j]);
+            while(e) {
+                kv_item = _get_entry(e, struct kv_ins_item, le);
+                e = list_remove(&kv_ins_list[j], e);                    
+
+                if (btree->kv_ops->free_kv_var)            
                     btree->kv_ops->free_kv_var(btree, kv_item->key, kv_item->value);
-                    _kv_ins_item_free(kv_item);
-                }
-            #else
+                _kv_ins_item_free(kv_item);
+            }
+        #else
+            if (btree->kv_ops->free_kv_var)            
                 btree->kv_ops->free_kv_var(btree, key_ins[j], value_ins[j]);
-            #endif
-        }
+        #endif
     }
     return BTREE_RESULT_SUCCESS;
     
@@ -1083,9 +1065,6 @@ btree_result btree_remove(struct btree *btree, void *key)
                 btree->blk_ops->blk_set_dirty(btree->blk_handle, bid[i]);
             }
             
-            #ifdef _BNODE_COMP
-                btree->blk_ops->blk_set_uncomp_size(btree->blk_handle, bid[i], _bnode_size(btree, node[i]));
-            #endif
         }        
     }
 

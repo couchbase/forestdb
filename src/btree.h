@@ -47,7 +47,7 @@ struct bnode{
 #define BNODE_MASK_METADATA 0x2
 #define BNODE_MASK_SEQTREE 0x4
 
-typedef uint8_t metasize_t;
+typedef uint16_t metasize_t;
 struct btree_meta{
     metasize_t size;
     void *data;
@@ -88,7 +88,7 @@ struct btree_kv_ops {
     void (*copy_kv)(struct bnode *node_dst, struct bnode *node_src, idx_t dst_idx, idx_t src_idx, idx_t len);
 
     // return node size after inserting list of key/value pairs
-    size_t (*get_data_size)(struct bnode *node, void *key_arr, void *value_arr, size_t len);
+    size_t (*get_data_size)(struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len);
     // return (actual) key value size
     size_t (*get_kv_size)(struct btree *tree, void *key, void *value);
 

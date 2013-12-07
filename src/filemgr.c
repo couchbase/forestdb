@@ -577,6 +577,15 @@ void filemgr_commit(struct filemgr *file)
     }
 }
 
+void filemgr_sync(struct filemgr *file)
+{
+    if (global_config.ncacheblock > 0) {
+        bcache_flush(file);
+    }
+
+    file->ops->fdatasync(file->fd);
+}
+
 void filemgr_update_file_status(struct filemgr *file, file_status_t status)
 {
     spin_lock(&file->lock);

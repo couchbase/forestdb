@@ -20,7 +20,7 @@ typedef uint64_t fdb_seqnum_t;
 
 //#define __RAW_BLOCK
 
-#define __CRC32
+//#define __CRC32
 
 #define __BIT_CMP
 
@@ -39,7 +39,7 @@ typedef uint64_t fdb_seqnum_t;
 #define FDB_BLOCKSIZE (4096)
 // MUST BE a power of 2
 #define FDB_WAL_NBUCKET (64*1024)
-#define FDB_MAX_KEYLEN (256)
+#define FDB_MAX_KEYLEN (320)
 #define FDB_WAL_THRESHOLD (64*1024)
 
 // MUST BE a power of 2
@@ -51,7 +51,8 @@ typedef uint64_t fdb_seqnum_t;
 
 #define FILEMGR_BULK_READ (16)
 
-#define __BTREEBLK_CACHE
+#define __BTREEBLK_BLOCKPOOL
+//#define __BTREEBLK_CACHE
 #define BTREEBLK_CACHE_LIMIT (8)
 
 #endif

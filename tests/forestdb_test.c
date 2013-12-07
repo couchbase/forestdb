@@ -514,7 +514,7 @@ struct work_thread_args{
     size_t compact_term;
 };
 
-#define FILENAME "./dummy"
+#define FILENAME "./ssd/dummy"
 #define KSIZE (100)
 #define VSIZE (100)
 #define IDX_DIGIT (7)
@@ -703,7 +703,7 @@ int main(){
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
-    multi_thread_test(40*1024, 1024, 10, 100, 100, 1, 7);
+    multi_thread_test(40*1024, 1024, 120, 1, 100, 1, 1);
     
     return 0;
 }

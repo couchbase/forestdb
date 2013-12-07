@@ -5,7 +5,7 @@ RBTREE = src/rbtree.o src/rbwrap.o
 
 MEMLEAK = utils/memleak.o $(RBTREE)
 
-HASH = src/hash.o src/hash_functions.o $(LIST) $(RBTREE)
+HASH = src/hash.o src/hash_functions.o $(LIST) $(RBTREE) $(MEMLEAK)
 HASHTEST = tests/hash_test.o
 
 CRC32 = utils/crc32.o $(MEMLEAK)
@@ -52,10 +52,11 @@ LEVELDB_COUCH = couchstore_api/couchstore_api_leveldb.o
 FDBTEST = tests/forestdb_test.o $(MEMLEAK)
 
 COUCHBENCH = couchstore_api/couchstore_bench.o utils/stopwatch.o utils/iniparser.o \
+    utils/crc32.o utils/memleak.o src/rbtree.o src/rbwrap.o
 
 LIBDIR=./couchstore_api/libs/
 LIBRARY=forestdb
-LIBCOUCHSTORE=$(LIBDIR)/libcouchstore.so
+LIBCOUCHSTORE=$(LIBDIR)/libcouchstore.so.1
 LIBLEVELDB=$(LIBDIR)/libleveldb.so
 
 PROGRAMS = \
@@ -134,6 +135,8 @@ test: lib forestdb_test
 
 bench: lib_couch couchstore_api/couchbench_fdb
 	LD_LIBRARY_PATH=./ ./couchstore_api/couchbench_fdb
+
+other_bench: lib_couch couchstore_api/couchbench_level couchstore_api/couchbench_ori
 
 clean:
 	rm -rf src/*.o tests/*.o couchstore_api/*.o utils/*.o dummy* $(PROGRAMS) $(BENCH) ./*.so

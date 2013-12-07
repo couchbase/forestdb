@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "hash.h"
+#include "memleak.h"
 
 #ifdef _HASH_LOCK
     #define IFDEF_LOCK(command...) command

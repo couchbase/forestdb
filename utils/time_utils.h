@@ -1,3 +1,4 @@
+
 #ifndef _JSAHN_TIME_UTILS_H
 #define _JSAHN_TIME_UTILS_H
 
@@ -31,3 +32,4 @@ static struct timeval _utime_gap(struct timeval a, struct timeval b)
 }
 
 #endif
+

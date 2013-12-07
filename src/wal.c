@@ -84,10 +84,16 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
 INLINE size_t _wal_get_docsize(fdb_doc *doc)
 {
-    size_t ret = doc->keylen + doc->metalen + doc->bodylen + sizeof(struct docio_length);
+    size_t ret = 
+        doc->keylen + 
+        doc->metalen + 
+        doc->bodylen + 
+        sizeof(struct docio_length);
+    
     #ifdef __FDB_SEQTREE
         ret += sizeof(fdb_seqnum_t);
     #endif
+    
     #ifdef __CRC32
         ret += sizeof(uint32_t);
     #endif
@@ -388,4 +394,23 @@ size_t wal_get_size(struct filemgr *file)
     return file->wal->size;
 }
 
+size_t wal_get_datasize(struct filemgr *file)
+{
+    size_t datasize = 0;
+    struct list_elem *e;
+    struct hash_elem *h;
+    struct wal_item *item;
+
+    spin_lock(&file->wal->lock);
+
+    e = list_begin(&file->wal->list);
+    while(e){
+        item = _get_entry(e, struct wal_item, list_elem);
+        datasize += item->doc_size;
+        e = list_next(e);
+    }
+    spin_unlock(&file->wal->lock);
+
+    return datasize;
+}
 

@@ -65,5 +65,6 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
 size_t wal_get_size(struct filemgr *file);
+size_t wal_get_datasize(struct filemgr *file);
 
 #endif

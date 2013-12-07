@@ -105,6 +105,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_commit(fdb_handle *handle);
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename);
 fdb_status fdb_flush_wal(fdb_handle *handle);
+size_t fdb_estimate_space_used(fdb_handle *handle);
 fdb_status fdb_close(fdb_handle *handle);
 fdb_status fdb_shutdown();
 

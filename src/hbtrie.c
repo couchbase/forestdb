@@ -28,8 +28,9 @@
 
 #define HBTRIE_EOK (0xf0)
 
+typedef uint16_t chunkno_t;
 struct hbtrie_meta {
-    uint8_t chunkno;
+    chunkno_t chunkno;
     void *value;
     void *prefix;
 };
@@ -144,7 +145,7 @@ void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize,
 }
 
 void _hbtrie_store_meta(
-            struct hbtrie *trie, metasize_t *metasize, uint8_t chunkno, 
+            struct hbtrie *trie, metasize_t *metasize, chunkno_t chunkno, 
             void *prefix, int prefixlen, void *value, void *buf)
 {
     // write hbmeta to buf
@@ -197,14 +198,14 @@ INLINE int _hbtrie_is_msb_set(struct hbtrie *trie, void *value)
 
 struct btreelist_item {
     struct btree btree;
-    uint8_t chunkno;
+    chunkno_t chunkno;
     bid_t child_rootbid;
     struct list_elem e;
 };
 
 struct btreeit_item {
     struct btree_iterator btree_it;
-    int chunkno;
+    chunkno_t chunkno;
     struct list_elem le;
 };
 

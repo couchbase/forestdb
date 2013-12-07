@@ -18,11 +18,16 @@ struct btreeblk_handle{
     struct list alc_list;
     struct list read_list;
     struct filemgr *file;
-    #ifdef __BTREEBLK_CACHE
-        uint16_t bin_size;
-        struct list recycle_bin;
-        struct btreeblk_block *cache[BTREEBLK_CACHE_LIMIT];
-    #endif
+
+#ifdef __BTREEBLK_BLOCKPOOL
+    struct list blockpool;
+#endif
+
+#ifdef __BTREEBLK_CACHE
+    uint16_t bin_size;
+    struct list recycle_bin;
+    struct btreeblk_block *cache[BTREEBLK_CACHE_LIMIT];
+#endif
 };
 
 struct btree_blk_ops *btreeblk_get_ops();

@@ -95,6 +95,8 @@ void basic_test()
     btree_init_from_bid(&btree2, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 13);
     btree_print_node(&btree2, print_btree);
     */
+    btreeblk_free(&btree_handle);
+    
     TEST_RESULT("basic test");
 }
 

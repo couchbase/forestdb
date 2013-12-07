@@ -32,8 +32,8 @@ INLINE int _cmp_binary64(void *key1, void *key2);
 */
 INLINE int _cmp_uint64_t(void *key1, void *key2);
 
+struct btree_kv_ops;
 struct btree_kv_ops * btree_kv_get_ku64_vu64();
-
 struct btree_kv_ops * btree_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops);
 struct btree_kv_ops * btree_kv_get_kb32_vb64(struct btree_kv_ops *kv_ops);
 

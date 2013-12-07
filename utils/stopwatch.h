@@ -10,6 +10,8 @@ struct stopwatch {
 
 void stopwatch_init(struct stopwatch *sw);
 void stopwatch_start(struct stopwatch *sw);
+int stopwatch_check_ms(struct stopwatch *sw, size_t ms);
+int stopwatch_check_us(struct stopwatch *sw, size_t us);
 struct timeval stopwatch_stop(struct stopwatch *sw);
 
 #endif

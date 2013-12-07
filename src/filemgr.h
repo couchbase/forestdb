@@ -90,6 +90,7 @@ void filemgr_write(struct filemgr *file, bid_t bid, void *buf);
 int filemgr_is_writable(struct filemgr *file, bid_t bid);
 void filemgr_remove_file(struct filemgr *file);
 void filemgr_commit(struct filemgr *file);
+void filemgr_sync(struct filemgr *file);
 void filemgr_shutdown();
 void filemgr_update_file_status(struct filemgr *file, file_status_t status);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);

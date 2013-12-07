@@ -1,7 +1,7 @@
 #ifndef _JSAHN_ADV_RANDOM_H
 #define _JSAHN_ADV_RANDOM_H
 
-
+#include <stdint.h>
 #include <math.h>
 
 #ifndef UINT64_MAX
@@ -10,6 +10,10 @@
 
 #define BDR_RNG_VARS  \
         uint64_t rngx=rand(), rngy=362436069, rngz=521288629; \
+        uint64_t rngt, rngz2;
+
+#define BDR_RNG_VARS_SET(x)  \
+        uint64_t rngx=(x), rngy=362436069, rngz=521288629; \
         uint64_t rngt, rngz2;
 
 //rngz contains the new value
@@ -39,6 +43,11 @@
         rngx = rngy; \
         rngy = rngz; \
         rngz = rngt ^ rngx ^ rngy;
+
+#define BDR_RNG_GET_INT(number) (rngz % (number))
+#define BDR_RNG_GET_INT_PAIR(a, b, number) \
+    (a) = (rngz % (number)); \
+    (b) = (rngz2 % (number));
 
 typedef enum {
     RND_UNIFORM, 

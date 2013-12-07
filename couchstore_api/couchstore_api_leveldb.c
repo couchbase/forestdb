@@ -52,6 +52,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     ppdb->read_options = leveldb_readoptions_create();
     ppdb->write_options = leveldb_writeoptions_create();
     leveldb_writeoptions_set_sync(ppdb->write_options, 1);
+    //leveldb_writeoptions_set_sync(ppdb->write_options, 0);
     
     return COUCHSTORE_SUCCESS;
 }

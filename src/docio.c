@@ -80,7 +80,7 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
     #ifdef DOCIO_BLOCK_ALIGN
         offset = blocksize - handle->curpos;
         if (remain <= blocksize - handle->curpos && 
-            filemgr_alloc_multiple(handle->file, handle->curblock+1, 
+            filemgr_alloc_multiple_cond(handle->file, handle->curblock+1, 
                 nblock + ((remain>offset)?1:0), &begin, &end) == handle->curblock+1) {
 
             // start from current block

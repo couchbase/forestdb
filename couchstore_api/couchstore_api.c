@@ -9,6 +9,8 @@
 #include "debug.h"
 #include "option.h"
 
+#include "memleak.h"
+
 #define META_BUF_MAXLEN 256
 
 struct _db {
@@ -42,7 +44,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.chunksize = sizeof(uint64_t);
     config.offsetsize = sizeof(uint64_t);
 #ifdef __FDB_BCACHE_USE
-    config.buffercache_size = (uint64_t)2 * 1024 * 1024 * 1024;
+    config.buffercache_size = (uint64_t)0 * 1024 * 1024 * 1024;
 #else
     config.buffercache_size = 0;
 #endif    
@@ -50,6 +52,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.seqtree_opt = FDB_SEQTREE_USE;
     config.flag = 0;
     config.durability_opt = FDB_DRB_NONE;
+    //config.durability_opt = FDB_DRB_ASYNC;
 
     *pDb = (Db*)malloc(sizeof(Db));
     //(*pDb)->seqnum = 0;
@@ -82,11 +85,16 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
     info->deleted_count = 0;
     info->header_position = 0;
     info->last_sequence = db->fdb.seqnum;
+
+    info->space_used = fdb_estimate_space_used(&db->fdb);
+
+    /*
     info->space_used = db->fdb.datasize;
     // hb-trie size (estimated as worst case)
     info->space_used += (db->fdb.ndocs / (db->fdb.btree_fanout / 2)) * db->fdb.config.blocksize;
     // b-tree size (estimated as worst case)
     info->space_used += (db->fdb.ndocs / (db->fdb.btree_fanout / 2)) * db->fdb.config.blocksize;
+    */
     
     return COUCHSTORE_SUCCESS;
 }
