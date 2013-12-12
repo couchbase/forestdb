@@ -209,7 +209,6 @@ void * mempool_alloc(size_t size)
         item = _get_entry(e, struct mempool_item, le);
     }else{
         item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + b->size);
-        //ret = posix_memalign((void **)&item, l1cache_linesize, sizeof(struct mempool_item) + b->size);
         item->listset = &b->listset[idx];
     }
         

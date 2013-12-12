@@ -703,7 +703,7 @@ int main(){
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
-    multi_thread_test(40*1024, 1024, 120, 1, 100, 1, 1);
+    multi_thread_test(40*1024, 1024, 20, 1, 100, 1, 7);
     
     return 0;
 }

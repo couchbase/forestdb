@@ -320,6 +320,7 @@ void population(Db **db, struct bench_info *binfo)
     void *ret[binfo->nthreads];
     struct pop_thread_args args[binfo->nthreads];
 
+
     for (i=0;i<binfo->nthreads;++i){
         args[i].n = i;
         args[i].db = db;
@@ -330,6 +331,15 @@ void population(Db **db, struct bench_info *binfo)
     for (i=0;i<binfo->nthreads;++i){
         pthread_join(tid[i], &ret[i]);
     }
+    
+/*
+    for (i=0;i<binfo->nthreads;++i){
+        args[i].n = i;
+        args[i].db = db;
+        args[i].binfo = binfo;
+        pop_thread(&args[i]);
+    }
+*/
     printf("\n");
 }
 
@@ -499,6 +509,9 @@ void do_bench(struct bench_info *binfo)
 
         }else{        
             // read
+            int r_arr[batchsize];
+            uint32_t crc_arr[batchsize];
+            
             if (binfo->read_query_byseq) {
                 seqs = (uint64_t *)malloc(sizeof(uint64_t) * batchsize);
             }else{
@@ -513,6 +526,7 @@ void do_bench(struct bench_info *binfo)
                 if (r >= binfo->ndocs) r = r % binfo->ndocs;
 
                 r = (r % ndocs_file) + doc_range_begin;
+                r_arr[j] = r;
 
                 if (binfo->read_query_byseq) {
                     //seqs[j] = infos[r]->db_seq;
@@ -520,6 +534,7 @@ void do_bench(struct bench_info *binfo)
                 }else{
                     //ids[j] = docs[r]->id;
                     crc = _idx2crc(r, 0);
+                    crc_arr[j] = crc;
                     ids[j].size = _crc2keylen(binfo, crc);
                     ids[j].buf = (char*)malloc(ids[j].size);
                     _crc2key(crc, ids[j].buf, ids[j].size);

@@ -250,8 +250,6 @@ fdb_status fdb_doc_free(fdb_doc *doc)
     return FDB_RESULT_SUCCESS;
 }
 
-uint8_t sandbox[65536];
-
 /*
 INLINE size_t _fdb_get_docsize(struct docio_object *doc)
 {
@@ -790,6 +788,10 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
         while( hr != HBTRIE_RESULT_FAIL ) {
+
+            if (count == 16254) {
+                size_t a=0;
+            }
             
             hr = hbtrie_next(&it, k, &keylen, &offset);
             btreeblk_end(handle->bhandle);
@@ -901,9 +903,9 @@ size_t fdb_estimate_space_used(fdb_handle *handle)
 
     ret += handle->datasize;
     // hb-trie size (estimated as worst case)
-    ret += (handle->ndocs / (handle->btree_fanout / 2)) * handle->config.blocksize;
+    ret += (handle->ndocs / (handle->btree_fanout * 3 / 4)) * handle->config.blocksize;
     // b-tree size (estimated as worst case)
-    ret += (handle->ndocs / (handle->btree_fanout / 2)) * handle->config.blocksize;
+    ret += (handle->ndocs / (handle->btree_fanout * 3 / 4)) * handle->config.blocksize;
 
     ret += wal_get_datasize(handle->file);
     
@@ -913,9 +915,9 @@ size_t fdb_estimate_space_used(fdb_handle *handle)
 fdb_status fdb_shutdown()
 {
     filemgr_shutdown();
-    #ifdef _MEMPOOL
-        mempool_shutdown();
-    #endif    
+#ifdef _MEMPOOL
+    mempool_shutdown();
+#endif    
 }
 
 

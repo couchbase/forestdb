@@ -15,6 +15,7 @@
 #include "blockcache.h"
 #include "wal.h"
 #include "crc32.h"
+#include "list.h"
 
 #include "memleak.h"
 
@@ -32,7 +33,7 @@
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
 #define FILEMGR_MAGIC (0xdeadcafebeefbeef)
-#define NBUF (32)
+#define NBUF (128)
 
 // global static variables
 static spin_t initial_lock = SPIN_INITIALIZER;
@@ -43,9 +44,12 @@ static spin_t filemgr_openlock;
 
 static size_t filemgr_sys_pagesize;
 
+struct temp_buf_item{
+    void *addr;
+    struct list_elem le;
+};
+static struct list temp_buf;
 static spin_t temp_buf_lock;
-static void *temp_buf[NBUF];
-static size_t temp_buf_turn;
 
 uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
@@ -78,6 +82,7 @@ int _file_cmp(struct hash_elem *a, struct hash_elem *b)
 void filemgr_init(struct filemgr_config config)
 {
     int i, ret;
+    uint32_t *temp;
 
      spin_lock(&initial_lock);
     if (!filemgr_initialized) {
@@ -90,14 +95,14 @@ void filemgr_init(struct filemgr_config config)
 
         filemgr_sys_pagesize = sysconf(_SC_PAGESIZE);
 
-        for (i=0;i<NBUF;++i){
-            ret = posix_memalign(&temp_buf[i], FDB_SECTOR_SIZE, global_config.blocksize);
-        }
+        // initialize temp buffer
+        list_init(&temp_buf);
         temp_buf_lock = SPIN_INITIALIZER;
-        temp_buf_turn = 0;
 
+        // initialize global lock
         filemgr_openlock = SPIN_INITIALIZER;
-        
+
+        // set the initialize flag
         filemgr_initialized = 1;
     }
     spin_unlock(&initial_lock);
@@ -105,11 +110,52 @@ void filemgr_init(struct filemgr_config config)
 
 void * _filemgr_get_temp_buf()
 {
-    size_t r;
+    struct list_elem *e;
+    struct temp_buf_item *item;
+
     spin_lock(&temp_buf_lock);
-    r = random_custom(temp_buf_turn, NBUF);
+    e = list_pop_front(&temp_buf);
+    if (e) {
+        item = _get_entry(e, struct temp_buf_item, le);
+    }else{
+        void *addr;
+        int ret = posix_memalign(&addr, FDB_SECTOR_SIZE,
+            global_config.blocksize + sizeof(struct temp_buf_item));
+        assert(ret == 0);
+
+        item = addr + global_config.blocksize;
+        item->addr = addr;
+    }
     spin_unlock(&temp_buf_lock);
-    return temp_buf[r];
+    
+    return item->addr;
+}
+
+void _filemgr_release_temp_buf(void *buf)
+{
+    struct temp_buf_item *item;
+
+    spin_lock(&temp_buf_lock);
+    item = (struct temp_buf_item*)((void*)buf + global_config.blocksize);
+    list_push_front(&temp_buf, &item->le);
+    spin_unlock(&temp_buf_lock);    
+}
+
+void _filemgr_shutdown_temp_buf()
+{
+    struct list_elem *e;
+    struct temp_buf_item *item;
+    size_t count=0;
+
+    spin_lock(&temp_buf_lock);
+    e = list_begin(&temp_buf);
+    while(e){
+        item = _get_entry(e, struct temp_buf_item, le);
+        e = list_remove(&temp_buf, e);
+        free(item->addr);
+        count++;
+    }
+    spin_unlock(&temp_buf_lock);
 }
 
 void _filemgr_read_header(struct filemgr *file)
@@ -117,7 +163,10 @@ void _filemgr_read_header(struct filemgr *file)
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
     filemgr_header_len_t len;
-    void *buf = _filemgr_get_temp_buf();
+    void *buf;
+
+    // get temp buffer
+    buf = _filemgr_get_temp_buf();
 
     if (file->pos > 0) {
 
@@ -138,6 +187,9 @@ void _filemgr_read_header(struct filemgr *file)
             }
         }
     }
+
+    // release temp buffer
+    _filemgr_release_temp_buf(buf);
     
     file->header.size = 0;
     file->header.revnum = 0;
@@ -352,9 +404,7 @@ void filemgr_shutdown()
             bcache_shutdown();
         }
         filemgr_initialized = 0;
-        for (i=0;i<NBUF;++i){
-            free(temp_buf[i]);
-        }
+        _filemgr_shutdown_temp_buf();
         
         spin_unlock(&initial_lock);
     }
@@ -490,15 +540,13 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
             if (r == 0) {    
                 // cache miss
                 // write partially .. we have to read previous contents of the block
-                #ifdef __MEMORY_ALIGN
-                    void *_buf = _filemgr_get_temp_buf();
-                #else
-                    uint8_t _buf[file->blocksize];
-                #endif
+                void *_buf = _filemgr_get_temp_buf();
 
                 r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
                 memcpy(_buf + offset, buf, len);
                 bcache_write(file, bid, _buf, BCACHE_DIRTY);
+
+                _filemgr_release_temp_buf(_buf);
             }
         }
     }else{
@@ -566,6 +614,8 @@ void filemgr_commit(struct filemgr *file)
 
         file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
         file->pos += file->blocksize;
+
+        _filemgr_release_temp_buf(buf);
     }
     // race condition?
     file->last_commit = file->pos;

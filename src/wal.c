@@ -358,6 +358,7 @@ wal_result wal_close(struct filemgr *file)
     spin_lock(&file->wal->lock);
 
     if (file->wal->last_commit) {
+        // if LAST_COMMIT is not NULL, then discard non-committed items
         e = list_next(file->wal->last_commit);
     }else{
         // if LAST_COMMIT is NULL, then start from the beginning (discard all entries)

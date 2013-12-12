@@ -17,11 +17,15 @@
 #ifdef _HASH_RBTREE
 int _hash_cmp_rbwrap(struct rb_node *a, struct rb_node *b, void *aux)
 {
+/*
     struct hash *hash = (struct hash *)aux;
     struct hash_elem *aa, *bb;
     aa = _get_entry(a, struct hash_elem, rb_node);
     bb = _get_entry(b, struct hash_elem, rb_node);
-    return hash->cmp(aa, bb);
+    return hash->cmp(aa, bb);*/
+    return ((struct hash *)aux)->cmp(
+        _get_entry(a, struct hash_elem, rb_node),
+        _get_entry(b, struct hash_elem, rb_node));  
 }
 #endif
 

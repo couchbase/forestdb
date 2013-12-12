@@ -81,7 +81,7 @@ CFLAGS = \
 	-g -D_GNU_SOURCE \
 	-I./include -I./src -I./utils \
 	-D__DEBUG -fPIC \
-	-O3 -fomit-frame-pointer \
+	-O2 -fomit-frame-pointer \
 	
 all: $(PROGRAMS)
 

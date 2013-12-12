@@ -102,6 +102,7 @@ struct timespec _time_gap(struct timespec a, struct timespec b)
 }
 
 struct worker_args{
+    size_t n;
     struct filemgr *file;
     size_t writer;
     size_t nblocks;
@@ -134,7 +135,7 @@ void * worker(void *voidargs)
         memcpy(&i, buf, sizeof(i));
         memcpy(&crc, buf + sizeof(uint64_t)*2, sizeof(crc));
         assert(crc == crc_file && i==bid);
-        //DBG("%d %d %x %x\n", (int)i, (int)bid, (int)crc, (int)crc_file);
+        //DBG("%d %d %d %x %x\n", (int)args->n, (int)i, (int)bid, (int)crc, (int)crc_file);
         
         if (args->writer) {
             memcpy(&c, buf+sizeof(i), sizeof(c));
@@ -197,6 +198,7 @@ void multi_thread_test(
     }
 
     for (i=0;i<n;++i){
+        args[i].n = i;
         args[i].file = file;
         args[i].writer = ((i<nwriters)?(1):(0));
         args[i].nblocks = nblocks;

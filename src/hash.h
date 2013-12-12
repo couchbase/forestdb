@@ -17,35 +17,7 @@
 
 //#define _HASH_LOCK
 #ifdef _HASH_LOCK
-
-#include "arch.h"
-/*
-#ifdef __APPLE__
-
-    #ifndef spin_t
-    // spinlock
-    #include <libkern/OSAtomic.h>
-    #define spin_t OSSpinLock
-    #define spin_lock(arg) OSSpinLockLock(arg)
-    #define spin_unlock(arg) OSSpinLockUnlock(arg)
-    #define SPIN_INITIALIZER 0
-    #endif
-    
-#elif __linux
-
-    #ifndef spin_t
-    // spinlock
-    #include <pthread.h>
-    #define spin_t pthread_spinlock_t
-    #define spin_lock(arg) pthread_spin_lock(arg)
-    #define spin_unlock(arg) pthread_spin_unlock(arg)
-    #define SPIN_INITIALIZER 1
-    #endif
-    
-#else
-    #define INLINE make_error
-#endif
-*/
+    #include "arch.h"
 #endif
 
 struct hash_elem {

@@ -1,6 +1,7 @@
 #ifndef _JSAHN_ARCH_H
 #define _JSAHN_ARCH_H
 
+#include <stdio.h>
 #include <fcntl.h>
 
 #ifdef __APPLE__
@@ -34,8 +35,15 @@
     // spinlock
     #include <pthread.h>
     #define spin_t pthread_spinlock_t
+    /*
+    #define spin_lock(arg) {printf("%s %d %lx lock\n", __FILE__, __LINE__, (long unsigned int)arg); \
+        pthread_spin_lock(arg);}
+    #define spin_unlock(arg) {printf("%s %d %lx unlock\n", __FILE__, __LINE__, (long unsigned int)arg); \
+        pthread_spin_unlock(arg);}*/
+
     #define spin_lock(arg) pthread_spin_lock(arg)
     #define spin_unlock(arg) pthread_spin_unlock(arg)
+
     #define SPIN_INITIALIZER 1
     #endif
     

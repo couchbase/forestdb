@@ -44,7 +44,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.chunksize = sizeof(uint64_t);
     config.offsetsize = sizeof(uint64_t);
 #ifdef __FDB_BCACHE_USE
-    config.buffercache_size = (uint64_t)0 * 1024 * 1024 * 1024;
+    config.buffercache_size = (uint64_t)2 * 1024 * 1024 * 1024;
 #else
     config.buffercache_size = 0;
 #endif    

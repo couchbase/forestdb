@@ -173,7 +173,8 @@ INLINE int _hbtrie_find_diff_chunk(struct hbtrie *trie, void *key1, void *key2, 
 {
     int i = 0;
     for (; i < nchunk; ++i) {
-        if (strncmp(key1 + trie->chunksize*i , key2 + trie->chunksize*i , trie->chunksize)) {
+        //if (strncmp(key1 + trie->chunksize*i , key2 + trie->chunksize*i , trie->chunksize)) {
+        if (memcmp(key1 + trie->chunksize*i , key2 + trie->chunksize*i , trie->chunksize)) {
              return i;
         }
     }
