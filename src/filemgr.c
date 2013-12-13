@@ -33,7 +33,6 @@
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
 #define FILEMGR_MAGIC (0xdeadcafebeefbeef)
-#define NBUF (128)
 
 // global static variables
 static spin_t initial_lock = SPIN_INITIALIZER;
@@ -254,6 +253,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 
         file->fd = file->ops->open(file->filename, file_flag, 0666);
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
+
+        file->bcache = NULL;
         
         _filemgr_read_header(file);
         
@@ -330,10 +331,12 @@ void filemgr_close(struct filemgr *file)
             // discard all dirty blocks belong to this file
             bcache_remove_dirty_blocks(file);
         }
+        
         spin_lock(&file->lock);
         if (wal_is_initialized(file)) {
             wal_close(file);
         }
+
         file->ops->close(file->fd);
         if (file->status == FILE_REMOVED_PENDING) {
             // remove file
@@ -343,6 +346,8 @@ void filemgr_close(struct filemgr *file)
             
             remove(file->filename);
             filemgr_remove_file(file);
+
+            return;
         }else{
             file->status = FILE_CLOSED;
         }
@@ -362,13 +367,14 @@ void _filemgr_free_func(struct hash_elem *h)
     }
 
     // destroy WAL
-    if (wal_is_initialized(file)) {
+    if (wal_is_initialized(file)) {        
         wal_shutdown(file);
         hash_free(&file->wal->hash_bykey);
     #ifdef __FDB_SEQTREE
         hash_free(&file->wal->hash_byseq);
     #endif
     }
+
     free(file->wal);
 
     // free filename and header
@@ -376,7 +382,7 @@ void _filemgr_free_func(struct hash_elem *h)
     free(file->header.data);
 
     // free file structure
-    free(file);   
+    free(file);
 }
 
 // permanently remove file from cache (not just close)

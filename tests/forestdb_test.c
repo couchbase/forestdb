@@ -452,7 +452,7 @@ void compact_wo_reopen_test()
 
     // perform compaction using one handle
     fdb_compact(&db, "./dummy2");
-
+    
     // retrieve documents using the other handle without close/re-open
     for (i=0;i<n;++i){
         // search by key
@@ -492,15 +492,15 @@ void compact_wo_reopen_test()
 
 struct timespec _time_gap(struct timespec a, struct timespec b) 
 {
-	struct timespec ret;
-	if (b.tv_nsec >= a.tv_nsec) {
-		ret.tv_nsec = b.tv_nsec - a.tv_nsec;
-		ret.tv_sec = b.tv_sec - a.tv_sec;
-	}else{
-		ret.tv_nsec = 1000000000 + b.tv_nsec - a.tv_nsec;
-		ret.tv_sec = b.tv_sec - a.tv_sec - 1;
-	}
-	return ret;
+    struct timespec ret;
+    if (b.tv_nsec >= a.tv_nsec) {
+        ret.tv_nsec = b.tv_nsec - a.tv_nsec;
+        ret.tv_sec = b.tv_sec - a.tv_sec;
+    }else{
+        ret.tv_nsec = 1000000000 + b.tv_nsec - a.tv_nsec;
+        ret.tv_sec = b.tv_sec - a.tv_sec - 1;
+    }
+    return ret;
 }
 
 struct work_thread_args{
@@ -514,7 +514,7 @@ struct work_thread_args{
     size_t compact_term;
 };
 
-#define FILENAME "./ssd/dummy"
+#define FILENAME "./dummy"
 #define KSIZE (100)
 #define VSIZE (100)
 #define IDX_DIGIT (7)
@@ -703,7 +703,7 @@ int main(){
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
-    multi_thread_test(40*1024, 1024, 20, 1, 100, 1, 7);
+    multi_thread_test(40*1024, 1024, 20, 1, 100, 1, 8);
     
     return 0;
 }

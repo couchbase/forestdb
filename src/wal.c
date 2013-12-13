@@ -42,7 +42,6 @@ INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item *item = _get_entry(e, struct wal_item, he_key);
     // using only first 8 bytes
-    //return hash_djb2(item->key, MIN(8, item->keylen)) & ((uint64_t)hash->nbuckets - 1);
     return crc32_8(item->key, MIN(8, item->keylen), 0) & ((uint64_t)hash->nbuckets - 1);
 }
 
@@ -160,12 +159,12 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
         item->keylen = keylen;
         
         //3 KEY should be copied or just be linked?
-        #ifdef __WAL_KEY_COPY
-            item->key = (void *)mempool_alloc(item->keylen);
-            memcpy(item->key, key, item->keylen);
-        #else
-            item->key = key;
-        #endif
+    #ifdef __WAL_KEY_COPY
+        item->key = (void *)mempool_alloc(item->keylen);
+        memcpy(item->key, key, item->keylen);
+    #else
+        item->key = key;
+    #endif
 
         SEQTREE( item->seqnum = query.seqnum );
         item->action = WAL_ACT_INSERT;
@@ -281,12 +280,12 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
     }else{
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
-        #ifdef __WAL_KEY_COPY
-            item->key = (void *)mempool_alloc(item->keylen);
-            memcpy(item->key, key, item->keylen);
-        #else
-            item->key = key;
-        #endif
+    #ifdef __WAL_KEY_COPY
+        item->key = (void *)mempool_alloc(item->keylen);
+        memcpy(item->key, key, item->keylen);
+    #else
+        item->key = key;
+    #endif
     
         //SEQTREE( item->seqnum = query.seqnum );    
         item->action = WAL_ACT_REMOVE;
@@ -331,9 +330,9 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
         SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
         func(dbhandle, item);
 
-        #ifdef __WAL_KEY_COPY
-            mempool_free(item->key);
-        #endif
+    #ifdef __WAL_KEY_COPY
+        mempool_free(item->key);
+    #endif
         mempool_free(item);
     }
     file->wal->size = 0;

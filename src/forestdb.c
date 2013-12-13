@@ -311,7 +311,6 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             // this block is already cached when we call HBTRIE_INSERT .. no additional block access
             len = docio_read_doc_length(handle->dhandle, old_offset);
             handle->datasize -= _fdb_get_docsize(len);
-            //handle->datasize -= _wal_get_docsize(len);
             
             handle->datasize += item->doc_size;
         }
@@ -653,14 +652,20 @@ fdb_status fdb_commit(fdb_handle *handle)
 
 INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 {
+#ifdef __BIT_CMP
+
     uint64_t a,b;
     a = *(uint64_t*)key1;
     b = *(uint64_t*)key2;
-    /*
+    return _CMP_U64(a, b);
+    
+#else
+
     if (*a<*b) return -1;
     if (*a>*b) return 1;
-    return 0;*/
-    return _CMP_U64(a, b);
+    return 0;
+    
+#endif
 }
 
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
@@ -789,10 +794,6 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 
         while( hr != HBTRIE_RESULT_FAIL ) {
 
-            if (count == 16254) {
-                size_t a=0;
-            }
-            
             hr = hbtrie_next(&it, k, &keylen, &offset);
             btreeblk_end(handle->bhandle);
             
@@ -879,7 +880,7 @@ fdb_status fdb_flush_wal(fdb_handle *handle)
 fdb_status fdb_close(fdb_handle *handle)
 {
     //wal_close(handle->file);
-    filemgr_close(handle->file);
+    filemgr_close(handle->file);   
     docio_free(handle->dhandle);
     btreeblk_end(handle->bhandle);
     btreeblk_free(handle->bhandle);

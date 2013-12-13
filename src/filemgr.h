@@ -49,6 +49,7 @@ struct filemgr_header{
     void *data;
 };
 
+struct fnamedic_item;
 struct filemgr {
     char *filename;
     uint16_t filename_len;
@@ -64,6 +65,7 @@ struct filemgr {
     file_status_t status;
     struct filemgr_config *config;
     struct filemgr *new_file;
+    struct fnamedic_item *bcache;
     uint8_t sync;
     spin_t lock;
 };

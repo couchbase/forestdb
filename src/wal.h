@@ -17,17 +17,23 @@ typedef enum {
     WAL_RESULT_FAIL
 } wal_result;
 
+/*
 typedef enum {
     WAL_ACT_INSERT,
     WAL_ACT_REMOVE
-} wal_item_action;
+} wal_item_action;*/
+typedef uint8_t wal_item_action;
+enum{
+    WAL_ACT_INSERT,
+    WAL_ACT_REMOVE
+};
 
 struct wal_item{
     void *key;
-    uint16_t keylen;
     wal_item_action action;
-    uint64_t offset;
+    uint16_t keylen;
     uint32_t doc_size;
+    uint64_t offset;
     struct hash_elem he_key;
 #ifdef __FDB_SEQTREE
     fdb_seqnum_t seqnum;

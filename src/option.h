@@ -36,7 +36,7 @@ typedef uint64_t fdb_seqnum_t;
 
 #define FDB_BLOCKSIZE (4096)
 // MUST BE a power of 2
-#define FDB_WAL_NBUCKET (64*1024)
+#define FDB_WAL_NBUCKET (4*1024)
 #define FDB_MAX_KEYLEN (320)
 #define FDB_WAL_THRESHOLD (64*1024)
 

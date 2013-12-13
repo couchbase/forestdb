@@ -186,40 +186,21 @@ INLINE uint32_t _bcache_hash(struct hash *hash, struct hash_elem *e)
 
 INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 {
-/*
-    #ifdef __BIT_CMP
-        int rvalue_map[3] = {-1, 0, 1};
-        int cmp_fname;
-    #endif*/
-    
     struct bcache_item *aa, *bb;
     aa = _get_entry(a, struct bcache_item, hash_elem);
     bb = _get_entry(b, struct bcache_item, hash_elem);
 
     #ifdef __BIT_CMP
 
-    /*
-        rvalue_map[1] = _CMP_U64(aa->bid, bb->bid);
-        cmp_fname = _CMP_U64((uint64_t)aa->fname->hash, (uint64_t)bb->fname->hash);
-        cmp_fname = _MAP(cmp_fname) + 1;
-        return rvalue_map[cmp_fname];*/
         return _CMP_U64(aa->bid, bb->bid);
 
     #else
-/*
-        if (aa->fname->hash < bb->fname->hash) return -1;
-        else if (aa->fname->hash > bb->fname->hash) return 1;
-        else {
-            if (aa->bid == bb->bid) return 0;
-            else if (aa->bid < bb->bid) return -1;
-            else return 1;
-        }*/
+
         if (aa->bid == bb->bid) return 0;
         else if (aa->bid < bb->bid) return -1;
         else return 1;
         
     #endif
-
 }
 
 INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fname)
@@ -439,10 +420,11 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->filename[fname_new->filename_len] = 0;
 
     // calculate hash value
-    //fname_new->hash = hash_djb2_last8(fname_new->filename, fname_new->filename_len);
     fname_new->hash = crc32_8_last8(fname_new->filename, fname_new->filename_len, 0);
     fname_new->lock = SPIN_INITIALIZER;
     fname_new->curlist = NULL;
+    fname_new->curfile = file;
+    file->bcache = fname_new;
 
     // initialize rb-tree
     rbwrap_init(&fname_new->rbtree, NULL);
@@ -482,24 +464,18 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
     struct hash_elem *h;
     struct bcache_item *item;
     struct bcache_item query;
-    struct fnamedic_item fname;
+    struct fnamedic_item fname_query, *fname;
 
-    spin_lock(&bcache_lock);
-
-    // lookup filename first
-    _file_to_fname_query(file, &fname);
-    h = hash_find(&fnamedic, &fname.hash_elem);
-    
-    if (h) {
+    fname = file->bcache;    
+    if (fname) {
         // file exists        
         // set query
         query.bid = bid;
-        query.fname = _get_entry(h, struct fnamedic_item, hash_elem);
+        query.fname = fname;
         query.fname->curfile = file;
 
         // relay lock
         spin_lock(&query.fname->lock);
-        spin_unlock(&bcache_lock);
 
         // move the file to the head of FILE_LRU
         _bcache_move_fname_list(query.fname, &file_lru);
@@ -513,7 +489,7 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
             spin_lock(&item->lock);
 
             // move the item to the head of list if the block is clean (don't care if the block is dirty)
-            if (!(item->flag && BCACHE_DIRTY)) {
+            if (!(item->flag & BCACHE_DIRTY)) {
                 list_remove(&item->fname->cleanlist, &item->list_elem);
                 list_push_front(&item->fname->cleanlist, &item->list_elem);
             }
@@ -532,8 +508,6 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
     }
 
     // does not exist .. cache miss
-    spin_unlock(&bcache_lock);
-    
     return 0;
 }
 
@@ -543,27 +517,19 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     struct list_elem *e;
     struct bcache_item *item;
     struct bcache_item query;
-    struct fnamedic_item fname, *fname_new;
+    struct fnamedic_item fname_query, *fname_new;
     uint8_t marker;
 
-    spin_lock(&bcache_lock);
-
-    // lookup filename first
-    _file_to_fname_query(file, &fname);
-    h = hash_find(&fnamedic, &fname.hash_elem);
-
-    if (h == NULL) {
+    fname_new = file->bcache;
+    if (fname_new == NULL) {
         // filename doesn't exist in filename dictionary .. create
         fname_new = _fname_create(file);
-        h = &fname_new->hash_elem;
     }else{
-        // file already exists .. remove from FILE_LRU
-        fname_new = _get_entry(h, struct fnamedic_item, hash_elem);
+        // file already exists 
     }
 
-    // relay lock
+    // acquire lock
     spin_lock(&fname_new->lock);
-    spin_unlock(&bcache_lock);
     
     // move to the head of FILE_LRU
     _bcache_move_fname_list(fname_new, &file_lru);
@@ -605,14 +571,14 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     spin_lock(&item->lock);
     
     // remove from the list if the block is in clean list
-    if (!(item->flag && BCACHE_DIRTY)) {
+    if (!(item->flag & BCACHE_DIRTY)) {
         list_remove(&query.fname->cleanlist, &item->list_elem);
     }
 
     if (dirty == BCACHE_DIRTY) {
         // DIRTY request
         // to avoid re-insert already existing item into rb-tree
-        if (!(item->flag && BCACHE_DIRTY)) {
+        if (!(item->flag & BCACHE_DIRTY)) {
             // dirty block
             // insert into rb-tree
             struct dirty_item *ditem;
@@ -626,7 +592,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     }else{ 
         // CLEAN request
         // insert into clean list only when it was originally clean
-        if (!(item->flag && BCACHE_DIRTY)) {
+        if (!(item->flag & BCACHE_DIRTY)) {
             list_push_front(&item->fname->cleanlist, &item->list_elem);
             item->flag &= ~(BCACHE_DIRTY);
         }
@@ -646,31 +612,23 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
     struct list_elem *e;
     struct bcache_item *item;
     struct bcache_item query;
-    struct fnamedic_item fname, *fname_new;
+    struct fnamedic_item fname_query, *fname_new;
     uint8_t marker;
 
-    spin_lock(&bcache_lock);
-
-    // lookup filename first
-    _file_to_fname_query(file, &fname);
-    h = hash_find(&fnamedic, &fname.hash_elem);
-
-    if (h == NULL) {
+    fname_new = file->bcache;
+    if (fname_new == NULL) {
         // filename doesn't exist in filename dictionary .. create
         fname_new = _fname_create(file);
-        h = &fname_new->hash_elem;
     }else{
-        // file already exists .. remove from FILE_LRU
-        fname_new = _get_entry(h, struct fnamedic_item, hash_elem);
+        // file already exists
     }
 
     // relay lock
     spin_lock(&fname_new->lock);
-    spin_unlock(&bcache_lock);
     
     // set query
     query.bid = bid;
-    query.fname = _get_entry(h, struct fnamedic_item, hash_elem);
+    query.fname = fname_new;
     query.fname->curfile = file;
 
     // search hash table
@@ -691,7 +649,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
 
     // check whether this is dirty block
     // to avoid re-insert already existing item into rb-tree
-    if (!(item->flag && BCACHE_DIRTY)) {
+    if (!(item->flag & BCACHE_DIRTY)) {
         // this block was clean block
         struct dirty_item *ditem;
 
@@ -721,21 +679,13 @@ void bcache_remove_dirty_blocks(struct filemgr *file)
     struct hash_elem *h;
     struct list_elem *e;
     struct bcache_item *item;
-    struct fnamedic_item fname, *fname_item;
+    struct fnamedic_item fname_query, *fname_item;
 
-    spin_lock(&bcache_lock);
-
-    // lookup filename first
-    _file_to_fname_query(file, &fname);
-    h = hash_find(&fnamedic, &fname.hash_elem);
-
-    if (h) {
-        // file exists
-        fname_item = _get_entry(h, struct fnamedic_item, hash_elem);
-
-        // relay lock
+    fname_item = file->bcache;
+    
+    if (fname_item) {
+        // acquire lock
         spin_lock(&fname_item->lock);
-        spin_unlock(&bcache_lock);
 
         // check whether the victim file has no cached clean block
         if (list_begin(&fname_item->cleanlist) == NULL) {
@@ -751,8 +701,6 @@ void bcache_remove_dirty_blocks(struct filemgr *file)
         spin_unlock(&fname_item->lock);
         return;
     }
-
-    spin_unlock(&bcache_lock);
 }
 
 // remove all clean blocks of the FILE
@@ -761,19 +709,13 @@ void bcache_remove_clean_blocks(struct filemgr *file)
     struct list_elem *e;
     struct hash_elem *h;
     struct bcache_item *item;
-    struct fnamedic_item *fname_item, fname;
+    struct fnamedic_item *fname_item, fname_query;
 
-    spin_lock(&bcache_lock);
+    fname_item = file->bcache;
 
-    _file_to_fname_query(file, &fname);    
-    h = hash_find(&fnamedic, &fname.hash_elem);
-
-    if (h) {
-        fname_item = _get_entry(h, struct fnamedic_item, hash_elem);
-
-        // relay lock
+    if (fname_item) {
+        // acquire lock
         spin_lock(&fname_item->lock);
-        spin_unlock(&bcache_lock);
 
         // check whether the victim file has no cached dirty block
         if (fname_item->rbtree.rb_node == NULL) {
@@ -797,8 +739,6 @@ void bcache_remove_clean_blocks(struct filemgr *file)
         spin_unlock(&fname_item->lock);
         return;
     }
-
-    spin_unlock(&bcache_lock);    
 }
 
 // remove file from filename dictionary
@@ -806,32 +746,27 @@ void bcache_remove_clean_blocks(struct filemgr *file)
 void bcache_remove_file(struct filemgr *file)
 {
     struct hash_elem *h;
-    struct fnamedic_item *fname_item, fname;
+    struct fnamedic_item *fname_item, fname_query;
 
-    spin_lock(&bcache_lock);
+    fname_item = file->bcache;
 
-    _file_to_fname_query(file, &fname);
-    h = hash_find(&fnamedic, &fname.hash_elem);
-
-    if (h) {
-        fname_item = _get_entry(h, struct fnamedic_item, hash_elem);
+    if (fname_item) {
+        assert(fname_item->rbtree.rb_node == NULL);        
+        assert(fname_item->cleanlist.head == NULL);
 
         // remove from fname dictionary hash table
         hash_remove(&fnamedic, &fname_item->hash_elem);
         
-        // relay lock
+        // acquire lock
         spin_lock(&fname_item->lock);
-        spin_unlock(&bcache_lock);
         
-        assert(fname_item->rbtree.rb_node == NULL);        
         _fname_free(fname_item);
 
         spin_unlock(&fname_item->lock);
-        free(fname_item);        
 
+        free(fname_item);
         return;
     }
-    spin_unlock(&bcache_lock);    
 }
 
 // flush and synchronize all dirty blocks of the FILE
@@ -841,21 +776,13 @@ void bcache_flush(struct filemgr *file)
     struct hash_elem *h;
     struct list_elem *e;
     struct bcache_item *item;
-    struct fnamedic_item fname, *fname_item;
+    struct fnamedic_item fname_query, *fname_item;
 
-    spin_lock(&bcache_lock);
+    fname_item = file->bcache;
 
-    // lookup filename first
-    _file_to_fname_query(file, &fname);
-    h = hash_find(&fnamedic, &fname.hash_elem);
-
-    if (h) {
-        // file exists
-        fname_item = _get_entry(h, struct fnamedic_item, hash_elem);
-
-        // relay lock
+    if (fname_item) {
+        // acquire lock
         spin_lock(&fname_item->lock);
-        spin_unlock(&bcache_lock);
 
         while(fname_item->rbtree.rb_node) {    
             _bcache_evict_dirty(fname_item, 1);
@@ -864,8 +791,6 @@ void bcache_flush(struct filemgr *file)
         spin_unlock(&fname_item->lock);
         return;
     }
-    
-    spin_unlock(&bcache_lock);
 }
 
 void bcache_init(int nblock, int blocksize)
