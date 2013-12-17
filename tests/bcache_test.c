@@ -114,7 +114,7 @@ void * worker(void *voidargs)
     void *buf = (void *)malloc(4096);
     struct worker_args *args = (struct worker_args*)voidargs;
     struct timeval ts_begin, ts_cur, ts_gap;
-    
+
     int ret;
     bid_t bid;
     uint32_t crc, crc_file;
@@ -157,7 +157,7 @@ void * worker(void *voidargs)
     }
 
     free(buf);
-    pthread_exit(NULL);    
+    pthread_exit(NULL);
     return NULL;
 }
 
