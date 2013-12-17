@@ -9,7 +9,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <assert.h>
+#if !defined(__APPLE__)
 #include <malloc.h>
+#endif
 
 #include "option.h"
 #include "arch.h"

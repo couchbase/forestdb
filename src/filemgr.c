@@ -118,12 +118,13 @@ void * _filemgr_get_temp_buf()
         item = _get_entry(e, struct temp_buf_item, le);
     }else{
         void *addr;
-        /*
+        
         int ret = posix_memalign(&addr, FDB_SECTOR_SIZE,
             global_config.blocksize + sizeof(struct temp_buf_item));
-        assert(ret == 0);*/
+        assert(ret == 0);
+        /*
         addr = memalign(FDB_SECTOR_SIZE, global_config.blocksize + sizeof(struct temp_buf_item));
-        assert(addr);
+        assert(addr);*/
 
         item = addr + global_config.blocksize;
         item->addr = addr;

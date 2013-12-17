@@ -211,7 +211,7 @@ INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fna
     fname->hash = crc32_8_last8(fname->filename, fname->filename_len, 0);
 }
 
-INLINE void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
+void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
 {
     spin_lock(&filelist_lock);
     if (fname->curlist) list_remove(fname->curlist, &fname->le);
@@ -220,7 +220,7 @@ INLINE void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *li
     spin_unlock(&filelist_lock);
 }
 
-INLINE struct fnamedic_item *_bcache_get_victim()
+struct fnamedic_item *_bcache_get_victim()
 {
     struct list_elem *e = NULL;
 
@@ -244,7 +244,7 @@ INLINE struct fnamedic_item *_bcache_get_victim()
     return NULL;
 }
 
-INLINE struct bcache_item *_bcache_alloc_freeblock()
+struct bcache_item *_bcache_alloc_freeblock()
 {
     struct list_elem *e = NULL;    
     struct bcache_item *item;
@@ -260,7 +260,7 @@ INLINE struct bcache_item *_bcache_alloc_freeblock()
     return NULL;
 }
 
-INLINE void _bcache_release_freeblock(struct bcache_item *item)
+void _bcache_release_freeblock(struct bcache_item *item)
 {
     spin_lock(&freelist_lock);
     list_push_front(&freelist, &item->list_elem);
@@ -284,8 +284,8 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 
     // scan and gather rb-tree items sequentially
     if (sync) {
-        //ret = posix_memalign(&buf, FDB_SECTOR_SIZE, bcache_flush_unit); assert(ret == 0);
-        buf = memalign(FDB_SECTOR_SIZE, bcache_flush_unit); assert(buf);
+        ret = posix_memalign(&buf, FDB_SECTOR_SIZE, bcache_flush_unit); assert(ret == 0);
+        //buf = memalign(FDB_SECTOR_SIZE, bcache_flush_unit); assert(buf);
     }
 
     prev_bid = start_bid = BLK_NOT_FOUND;

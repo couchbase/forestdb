@@ -22,8 +22,8 @@ void docio_init(struct docio_handle *handle, struct filemgr *file)
     handle->curpos = 0;
     handle->lastbid = BLK_NOT_FOUND;
     //handle->readbuffer = (void *)mempool_alloc(file->blocksize);
-    //ret = posix_memalign(&handle->readbuffer, FDB_SECTOR_SIZE, file->blocksize);
-    handle->readbuffer = memalign(FDB_SECTOR_SIZE, file->blocksize); assert(handle->readbuffer);
+    ret = posix_memalign(&handle->readbuffer, FDB_SECTOR_SIZE, file->blocksize); assert(ret==0);
+    //handle->readbuffer = memalign(FDB_SECTOR_SIZE, file->blocksize); assert(handle->readbuffer);
 }
 
 void docio_free(struct docio_handle *handle)

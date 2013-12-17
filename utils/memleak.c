@@ -8,7 +8,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#if !defined(__APPLE__)
 #include <malloc.h>
+#endif
 
 #include "arch.h"
 
@@ -69,7 +71,7 @@ void memleak_end()
         rb_erase(&item->rb, &rbtree);
 
         fprintf(stderr, "address 0x%016lx (allocated at %s:%ld, size %ld) is not freed\n", 
-            item->addr, item->file, item->line, item->size);
+            (unsigned long)item->addr, item->file, item->line, item->size);
         free(item);
         count++;
     }
@@ -115,7 +117,7 @@ void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
     spin_unlock(&lock);
     return addr;
 }
-
+/*
 void * memleak_memalign(size_t alignment, size_t size, char *file, size_t line)
 {
     spin_lock(&lock);
@@ -128,7 +130,7 @@ void * memleak_memalign(size_t alignment, size_t size, char *file, size_t line)
 
     spin_unlock(&lock);
     return addr;
-}
+}*/
 
 int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
 {

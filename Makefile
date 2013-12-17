@@ -76,7 +76,7 @@ BENCH = \
 	couchstore_api/couchbench_ori \
 	couchstore_api/couchbench_level \
 
-LDFLAGS = -lpthread -lsnappy -lm
+LDFLAGS = -lpthread -lm
 CFLAGS = \
 	-g -D_GNU_SOURCE \
 	-I./include -I./src -I./utils -I./option\

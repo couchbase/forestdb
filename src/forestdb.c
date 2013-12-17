@@ -931,7 +931,9 @@ fdb_status fdb_shutdown()
     filemgr_shutdown();
 #ifdef _MEMPOOL
     mempool_shutdown();
-#endif    
+#endif
+
+    return FDB_RESULT_SUCCESS;
 }
 
 

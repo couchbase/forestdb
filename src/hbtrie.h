@@ -48,6 +48,7 @@ void hbtrie_init(
             struct hbtrie *trie, int chunksize,     int valuelen,    int btree_nodesize, bid_t root_bid, 
             void *btreeblk_handle, struct btree_blk_ops *btree_blk_ops,
             void *doc_handle, hbtrie_func_readkey *readkey);
+void hbtrie_free(struct hbtrie *trie);
 
 hbtrie_result hbtrie_iterator_init(
     struct hbtrie *trie, struct hbtrie_iterator *it, void *initial_key, size_t keylen);

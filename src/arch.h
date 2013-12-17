@@ -21,6 +21,15 @@
         #define spin_unlock(arg) OSSpinLockUnlock(arg)
         #define SPIN_INITIALIZER (0)
     #endif
+    #ifndef mutex_t
+        // mutex
+        #include <pthread.h>
+        #define mutex_t OSSpinLock
+        #define mutex_lock(arg) OSSpinLockLock(arg)
+        #define mutex_unlock(arg) OSSpinLockUnlock(arg)
+        //#define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+        #define mutex_init(arg) *(arg) = (0)
+    #endif
     
 #elif __linux
     #define INLINE __inline

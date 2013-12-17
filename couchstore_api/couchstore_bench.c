@@ -659,7 +659,8 @@ void do_bench(struct bench_info *binfo)
     printf("total file size : %u files, %lu bytes (%s)\n", 
         (int)binfo->nfiles, (unsigned long)total_dbsize, print_filesize_approx(total_dbsize, bodybuf));
     
-    printf("total %lu bytes (%s) written\n", appended_size, print_filesize_approx(appended_size, bodybuf));
+    printf("total %lu bytes (%s) written\n", 
+        (unsigned long)appended_size, print_filesize_approx(appended_size, bodybuf));
 
     printf("compaction : occurred %d times, ", total_compaction);
     PRINT_TIME(sw_compaction.elapsed, " sec elapsed\n");

@@ -14,7 +14,7 @@
     #define malloc(size) memleak_alloc(size, __FILE__, __LINE__)
     #define calloc(nmemb, size) memleak_calloc(nmemb, size, __FILE__, __LINE__)
     #define realloc(ptr, size) memleak_realloc(ptr, size);
-    #define memalign(alignment, size) memleak_memalign(alignment, size, __FILE__, __LINE__)
+    //#define memalign(alignment, size) memleak_memalign(alignment, size, __FILE__, __LINE__)
     #define posix_memalign(memptr, alignment, size) \
         memleak_posix_memalign(memptr, alignment, size, __FILE__, __LINE__)
     #define free memleak_free
