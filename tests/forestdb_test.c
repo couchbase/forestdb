@@ -45,7 +45,7 @@ void basic_test()
     fdb_config config;
     fdb_doc *doc[n], *rdoc;
     fdb_status status;
-    
+
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // configuration
@@ -58,7 +58,7 @@ void basic_test()
 
     // remove previous dummy files
     r = system("rm -rf ./dummy* > errorlog.txt");
-    
+
     // open and close db
     fdb_open(&db, "./dummy1", config);
     fdb_close(&db);
@@ -71,7 +71,7 @@ void basic_test()
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i], 
+        fdb_doc_create(&doc[i],
             keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
@@ -143,7 +143,7 @@ void basic_test()
         // free result document
         fdb_doc_free(rdoc);
     }
-    
+
     // retrieve documents by sequence number
     for (i=0;i<n;++i){
         // search by seq
@@ -194,7 +194,7 @@ void wal_commit_test()
     fdb_config config;
     fdb_doc *doc[n], *rdoc;
     fdb_status status;
-    
+
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // configuration
@@ -207,7 +207,7 @@ void wal_commit_test()
 
     // remove previous dummy files
     r = system("rm -rf ./dummy* > errorlog.txt");
-    
+
     // open db
     fdb_open(&db, "./dummy1", config);
 
@@ -216,7 +216,7 @@ void wal_commit_test()
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i], 
+        fdb_doc_create(&doc[i],
             keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
@@ -229,7 +229,7 @@ void wal_commit_test()
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i], 
+        fdb_doc_create(&doc[i],
             keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
@@ -288,7 +288,7 @@ void multi_version_test()
     fdb_config config;
     fdb_doc *doc[n], *rdoc;
     fdb_status status;
-    
+
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // configuration
@@ -301,7 +301,7 @@ void multi_version_test()
 
     // remove previous dummy files
     r = system("rm -rf ./dummy* > errorlog.txt");
-    
+
     // open db
     fdb_open(&db, "./dummy1", config);
 
@@ -310,7 +310,7 @@ void multi_version_test()
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i], 
+        fdb_doc_create(&doc[i],
             keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
@@ -348,7 +348,7 @@ void multi_version_test()
         // free result document
         fdb_doc_free(rdoc);
     }
-    
+
     // retrieve documents using the new handle
     for (i=0;i<n;++i){
         // search by key
@@ -381,7 +381,7 @@ void multi_version_test()
         // free result document
         fdb_doc_free(rdoc);
     }
-    
+
 
     // free all documents
     for (i=0;i<n;++i){
@@ -412,7 +412,7 @@ void compact_wo_reopen_test()
     fdb_config config;
     fdb_doc *doc[n], *rdoc;
     fdb_status status;
-    
+
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // configuration
@@ -425,7 +425,7 @@ void compact_wo_reopen_test()
 
     // remove previous dummy files
     r = system("rm -rf ./dummy* > errorlog.txt");
-    
+
     // open db
     fdb_open(&db, "./dummy1", config);
     fdb_open(&db_new, "./dummy1", config);
@@ -435,12 +435,12 @@ void compact_wo_reopen_test()
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i], 
+        fdb_doc_create(&doc[i],
             keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
-    // remove doc   
+    // remove doc
     fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
     fdb_set(&db, rdoc);
     fdb_doc_free(rdoc);
@@ -459,7 +459,7 @@ void compact_wo_reopen_test()
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(&db_new, rdoc);
 
-        if (i != 1) {    
+        if (i != 1) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
@@ -490,7 +490,7 @@ void compact_wo_reopen_test()
     TEST_RESULT("compaction without reopen test");
 }
 
-struct timespec _time_gap(struct timespec a, struct timespec b) 
+struct timespec _time_gap(struct timespec a, struct timespec b)
 {
     struct timespec ret;
     if (b.tv_nsec >= a.tv_nsec) {
@@ -522,14 +522,14 @@ struct work_thread_args{
 
 void *_worker_thread(void *voidargs)
 {
-    struct timespec ts_begin, ts_cur, ts_gap;
     struct work_thread_args *args = (struct work_thread_args *)voidargs;
     int i, r, k, c, commit_count, filename_count;
+    struct timeval ts_begin, ts_cur, ts_gap;
     fdb_handle db;
     fdb_status status;
     fdb_doc *rdoc;
     char temp[1024];
-    
+
     char cnt_str[IDX_DIGIT+1];
     int cnt_int;
 
@@ -537,29 +537,29 @@ void *_worker_thread(void *voidargs)
     sprintf(temp, FILENAME"%d", filename_count);
     fdb_open(&db, temp, *(args->config));
 
-    clock_gettime(CLOCK_REALTIME, &ts_begin);
+    gettimeofday(&ts_begin, NULL);
 
     c = cnt_int = commit_count = 0;
     cnt_str[IDX_DIGIT] = 0;
-    
+
     while(1){
         i = rand() % args->ndocs;
         fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(&db, rdoc);
-        
+
         assert(status == FDB_RESULT_SUCCESS);
         assert(!memcmp(rdoc->body, args->doc[i]->body, (IDX_DIGIT+1)));
 
         if (args->writer) {
             // if writer,
-            // copy and parse the counter in body            
+            // copy and parse the counter in body
             memcpy(cnt_str, rdoc->body+(IDX_DIGIT+1), IDX_DIGIT);
             cnt_int = atoi(cnt_str);
 
             // increase and rephrase
             sprintf(cnt_str, "%0"IDX_DIGIT_STR"d", ++cnt_int);
             memcpy(rdoc->body+(IDX_DIGIT+1), cnt_str, IDX_DIGIT);
-            
+
             // update and commit
             status = fdb_set(&db, rdoc);
 
@@ -568,7 +568,7 @@ void *_worker_thread(void *voidargs)
                     // commit for every NBATCH
                     fdb_commit(&db);
                     commit_count++;
-                    
+
                     if (args->compact_term == commit_count && args->compact_term > 0) {
                         // do compaction for every COMPACT_TERM batch
                         sprintf(temp, FILENAME"%d", ++filename_count);
@@ -580,23 +580,25 @@ void *_worker_thread(void *voidargs)
         }
         fdb_doc_free(rdoc);
         c++;
-        
-        clock_gettime(CLOCK_REALTIME, &ts_cur);
-        ts_gap = _time_gap(ts_begin, ts_cur);
+
+        gettimeofday(&ts_cur, NULL);
+        ts_gap = _utime_gap(ts_begin, ts_cur);
         if (ts_gap.tv_sec >= args->time_sec) break;
     }
 
-    DBG("Thread #%d (%s) %d ops / %d seconds\n", 
+    DBG("Thread #%d (%s) %d ops / %d seconds\n",
         args->tid, (args->writer)?("writer"):("reader"), c, (int)args->time_sec);
-    
+
     fdb_flush_wal(&db);
     fdb_commit(&db);
 
-    fdb_close(&db);    
+    fdb_close(&db);
+    pthread_exit(NULL);
+    return NULL;
 }
 
 void multi_thread_test(
-    size_t ndocs, size_t wal_threshold, size_t time_sec, 
+    size_t ndocs, size_t wal_threshold, size_t time_sec,
     size_t nbatch, size_t compact_term, size_t nwriters, size_t nreaders)
 {
     TEST_INIT();
@@ -606,12 +608,12 @@ void multi_thread_test(
     pthread_t tid[n];
     void *thread_ret[n];
     struct work_thread_args args[n];
-    struct timespec ts_begin, ts_cur, ts_gap;
+    struct timeval ts_begin, ts_cur, ts_gap;
     fdb_handle db, db_new;
     fdb_config config;
     fdb_doc *doc[ndocs], *rdoc;
     fdb_status status;
-    
+
     char keybuf[1024], metabuf[1024], bodybuf[1024], temp[1024];
 
     idx_digit = IDX_DIGIT;
@@ -631,23 +633,23 @@ void multi_thread_test(
     config.durability_opt = FDB_DRB_NONE;
 
     // initial population ===
-    DBG("Initialize..\n");    
+    DBG("Initialize..\n");
     // open db
     fdb_open(&db, FILENAME"1", config);
 
-    clock_gettime(CLOCK_REALTIME, &ts_begin);
+    gettimeofday(&ts_begin, NULL);
 
     // insert documents
     for (i=0;i<ndocs;++i){
         _set_random_string_smallabt(temp, KSIZE - (IDX_DIGIT+1));
         sprintf(keybuf, "k%0"IDX_DIGIT_STR"d%s", i, temp);
-        
+
         sprintf(metabuf, "m%0"IDX_DIGIT_STR"d", i);
 
         _set_random_string_smallabt(temp, VSIZE-(IDX_DIGIT*2+1));
         sprintf(bodybuf, "b%0"IDX_DIGIT_STR"d%0"IDX_DIGIT_STR"d%s", i, 0, temp);
-        
-        fdb_doc_create(&doc[i], 
+
+        fdb_doc_create(&doc[i],
             keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
@@ -655,8 +657,8 @@ void multi_thread_test(
     fdb_flush_wal(&db);
     fdb_commit(&db);
 
-    clock_gettime(CLOCK_REALTIME, &ts_cur);
-    ts_gap = _time_gap(ts_begin, ts_cur);
+        gettimeofday(&ts_cur, NULL);
+        ts_gap = _utime_gap(ts_begin, ts_cur);
     //DBG("%d.%09d seconds elapsed\n", (int)ts_gap.tv_sec, (int)ts_gap.tv_nsec);
 
     fdb_close(&db);
@@ -688,7 +690,7 @@ void multi_thread_test(
     // free all documents
     for (i=0;i<ndocs;++i){
         fdb_doc_free(doc[i]);
-    }   
+    }
 
     // shutdown
     fdb_shutdown();

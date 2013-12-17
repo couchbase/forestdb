@@ -113,14 +113,15 @@ void * worker(void *voidargs)
 {
     void *buf = (void *)malloc(4096);
     struct worker_args *args = (struct worker_args*)voidargs;
-    struct timespec ts_begin, ts_cur, ts_gap;
+    struct timeval ts_begin, ts_cur, ts_gap;
+
     int ret;
     bid_t bid;
     uint32_t crc, crc_file;
     uint64_t i, c, run_count=0;
 
     memset(buf, 0, 4096);
-    clock_gettime(CLOCK_REALTIME, &ts_begin);
+    gettimeofday(&ts_begin, NULL);
 
     while(1) {
         bid = rand() % args->nblocks;
@@ -148,14 +149,16 @@ void * worker(void *voidargs)
             assert(ret == args->file->blocksize);
         }
         
-        clock_gettime(CLOCK_REALTIME, &ts_cur);
-        ts_gap = _time_gap(ts_begin, ts_cur);
+        gettimeofday(&ts_cur, NULL);
+        ts_gap = _utime_gap(ts_begin, ts_cur);
         if (ts_gap.tv_sec >= args->time_sec) break;
 
         run_count++;
     }
 
     free(buf);
+    pthread_exit(NULL);
+    return NULL;
 }
 
 void multi_thread_test(
