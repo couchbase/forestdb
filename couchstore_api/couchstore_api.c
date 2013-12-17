@@ -60,7 +60,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     strcpy((*pDb)->filename, filename);
     fdb = &((*pDb)->fdb);
 
-    status = fdb_open(fdb, fname, config);
+    status = fdb_open(fdb, fname, &config);
     
     return COUCHSTORE_SUCCESS;
 }

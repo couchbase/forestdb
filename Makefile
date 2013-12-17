@@ -76,10 +76,10 @@ BENCH = \
 	couchstore_api/couchbench_ori \
 	couchstore_api/couchbench_level \
 
-LDFLAGS = -pthread -lsnappy -lm -lrt
+LDFLAGS = -lpthread -lsnappy -lm
 CFLAGS = \
 	-g -D_GNU_SOURCE \
-	-I./include -I./src -I./utils \
+	-I./include -I./src -I./utils -I./option\
 	-D__DEBUG -fPIC \
 	-O2 -fomit-frame-pointer \
 	

@@ -47,6 +47,14 @@ typedef void wal_flush_func(void *dbhandle, struct wal_item *item);
 
 #define WAL_FLAG_INITIALIZED 0x1
 
+
+typedef uint8_t wal_dirty_t;
+enum {
+    FDB_WAL_CLEAN = 0,
+    FDB_WAL_DIRTY = 1,
+    FDB_WAL_PENDING = 2
+};
+
 struct wal {
     uint8_t flag;
     size_t size;
@@ -56,6 +64,7 @@ struct wal {
 #endif
     struct list list;
     struct list_elem *last_commit;
+    wal_dirty_t wal_dirty;
     spin_t lock;
 };
 
@@ -72,5 +81,7 @@ wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
 size_t wal_get_size(struct filemgr *file);
 size_t wal_get_datasize(struct filemgr *file);
+void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status);
+wal_dirty_t wal_get_dirty_status(struct filemgr *file);
 
 #endif

@@ -311,6 +311,8 @@ void * pop_thread(void *voidargs)
 
     free(docs);
     free(infos);    
+    pthread_exit(NULL);
+    return NULL;
 }
 
 void population(Db **db, struct bench_info *binfo)
@@ -432,7 +434,9 @@ void do_bench(struct bench_info *binfo)
             (double)(binfo->wbatchsize.a + binfo->wbatchsize.b);    
     }
 
+    // timer for total elapsed time
     stopwatch_init(&sw);
+    // timer for periodic stdout print
     stopwatch_init(&progress);
     
     stopwatch_start(&sw);

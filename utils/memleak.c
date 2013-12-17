@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <malloc.h>
 
 #include "arch.h"
 
@@ -53,6 +54,7 @@ void memleak_start()
 
 void memleak_end()
 {
+    size_t count = 0;
     struct rb_node *r;
     struct memleak_item *item;
 
@@ -69,7 +71,9 @@ void memleak_end()
         fprintf(stderr, "address 0x%016lx (allocated at %s:%ld, size %ld) is not freed\n", 
             item->addr, item->file, item->line, item->size);
         free(item);
+        count++;
     }
+    if (count > 0) fprintf(stderr, "total %d objects\n", (int)count);
 
     spin_unlock(&lock);
 }
@@ -81,7 +85,8 @@ void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line)
     item->addr = (uint64_t)addr;
     item->file = file;
     item->line = line;
-    item->size = size;
+    item->size = size;   
+    memset(addr, 0xff, size);
     rbwrap_insert(&rbtree, &item->rb, memleak_cmp);
 }
 
@@ -104,6 +109,20 @@ void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
     
     void *addr = calloc(nmemb, size);
     if (addr && start_sw) {
+        _memleak_add_to_index(addr, size, file, line);
+    }
+
+    spin_unlock(&lock);
+    return addr;
+}
+
+void * memleak_memalign(size_t alignment, size_t size, char *file, size_t line)
+{
+    spin_lock(&lock);
+    
+    void *addr = memalign(alignment, size);
+    if (addr && start_sw)
+    {
         _memleak_add_to_index(addr, size, file, line);
     }
 

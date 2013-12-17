@@ -44,7 +44,7 @@ void basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
     docio_init(&handle, file);
 
     docsize = _set_doc(&doc, "this_is_key", "this_is_metadata", "this_is_body_lawiefjaawleif");    

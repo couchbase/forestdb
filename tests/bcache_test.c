@@ -24,7 +24,7 @@ void basic_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 5;
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file);
@@ -70,7 +70,7 @@ void basic_test2()
     config.blocksize = 4096;
     config.ncacheblock = 5;
     config.flag = 0x0;    
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file);
@@ -113,14 +113,15 @@ void * worker(void *voidargs)
 {
     void *buf = (void *)malloc(4096);
     struct worker_args *args = (struct worker_args*)voidargs;
-    struct timespec ts_begin, ts_cur, ts_gap;
+    struct timeval ts_begin, ts_cur, ts_gap;
+    
     int ret;
     bid_t bid;
     uint32_t crc, crc_file;
     uint64_t i, c, run_count=0;
 
     memset(buf, 0, 4096);
-    clock_gettime(CLOCK_REALTIME, &ts_begin);
+    gettimeofday(&ts_begin, NULL);
 
     while(1) {
         bid = rand() % args->nblocks;
@@ -148,14 +149,16 @@ void * worker(void *voidargs)
             assert(ret == args->file->blocksize);
         }
         
-        clock_gettime(CLOCK_REALTIME, &ts_cur);
-        ts_gap = _time_gap(ts_begin, ts_cur);
+        gettimeofday(&ts_cur, NULL);
+        ts_gap = _utime_gap(ts_begin, ts_cur);
         if (ts_gap.tv_sec >= args->time_sec) break;
 
         run_count++;
     }
 
     free(buf);
+    pthread_exit(NULL);    
+    return NULL;
 }
 
 void multi_thread_test(
@@ -186,7 +189,7 @@ void multi_thread_test(
     config.blocksize = blocksize;
     config.ncacheblock = cachesize;
     config.flag = 0x0;
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
 
     for (i=0;i<nblocks;++i) {
         memcpy(buf, &i, sizeof(i));
@@ -223,7 +226,7 @@ void multi_thread_test(
 int main()
 {
     basic_test2();
-    multi_thread_test(4, 2, 32, 120, 1, 7);
+    multi_thread_test(4, 1, 32, 60, 1, 7);
 
     return 0;
 }

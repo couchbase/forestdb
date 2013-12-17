@@ -45,7 +45,7 @@ void basic_test()
     fdb_config config;
     fdb_doc *doc[n], *rdoc;
     fdb_status status;
-    
+
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // configuration
@@ -60,11 +60,11 @@ void basic_test()
     r = system("rm -rf ./dummy* > errorlog.txt");
     
     // open and close db
-    fdb_open(&db, "./dummy1", config);
+    fdb_open(&db, "./dummy1", &config);
     fdb_close(&db);
 
     // reopen db
-    fdb_open(&db, "./dummy1", config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -88,7 +88,7 @@ void basic_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, "./dummy1", config);
+    fdb_open(&db, "./dummy1", &config);
 
     // update document #0 and #1
     for (i=0;i<2;++i){
@@ -209,7 +209,7 @@ void wal_commit_test()
     r = system("rm -rf ./dummy* > errorlog.txt");
     
     // open db
-    fdb_open(&db, "./dummy1", config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert half documents
     for (i=0;i<n/2;++i){
@@ -238,7 +238,7 @@ void wal_commit_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, "./dummy1", config);
+    fdb_open(&db, "./dummy1", &config);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -303,7 +303,7 @@ void multi_version_test()
     r = system("rm -rf ./dummy* > errorlog.txt");
     
     // open db
-    fdb_open(&db, "./dummy1", config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -321,7 +321,7 @@ void multi_version_test()
     fdb_commit(&db);
 
     // open same db file using a new handle
-    fdb_open(&db_new, "./dummy1", config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // update documents using the old handle
     for (i=0;i<n;++i){
@@ -365,7 +365,7 @@ void multi_version_test()
 
     // close and re-open the new handle
     fdb_close(&db_new);
-    fdb_open(&db_new, "./dummy1", config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // retrieve documents using the new handle
     for (i=0;i<n;++i){
@@ -427,8 +427,8 @@ void compact_wo_reopen_test()
     r = system("rm -rf ./dummy* > errorlog.txt");
     
     // open db
-    fdb_open(&db, "./dummy1", config);
-    fdb_open(&db_new, "./dummy1", config);
+    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -512,9 +512,11 @@ struct work_thread_args{
     size_t time_sec;
     size_t nbatch;
     size_t compact_term;
+    int *filename_count;
+    spin_t *filename_count_lock;
 };
 
-#define FILENAME "./dummy"
+#define FILENAME "./hdd/dummy"
 #define KSIZE (100)
 #define VSIZE (100)
 #define IDX_DIGIT (7)
@@ -522,9 +524,9 @@ struct work_thread_args{
 
 void *_worker_thread(void *voidargs)
 {
-    struct timespec ts_begin, ts_cur, ts_gap;
     struct work_thread_args *args = (struct work_thread_args *)voidargs;
     int i, r, k, c, commit_count, filename_count;
+    struct timeval ts_begin, ts_cur, ts_gap;
     fdb_handle db;
     fdb_status status;
     fdb_doc *rdoc;
@@ -533,11 +535,11 @@ void *_worker_thread(void *voidargs)
     char cnt_str[IDX_DIGIT+1];
     int cnt_int;
 
-    filename_count = 1;
+    filename_count = *args->filename_count;
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&db, temp, *(args->config));
+    fdb_open(&db, temp, args->config);
 
-    clock_gettime(CLOCK_REALTIME, &ts_begin);
+    gettimeofday(&ts_begin, NULL);
 
     c = cnt_int = commit_count = 0;
     cnt_str[IDX_DIGIT] = 0;
@@ -571,7 +573,14 @@ void *_worker_thread(void *voidargs)
                     
                     if (args->compact_term == commit_count && args->compact_term > 0) {
                         // do compaction for every COMPACT_TERM batch
-                        sprintf(temp, FILENAME"%d", ++filename_count);
+                        spin_lock(args->filename_count_lock);
+                        *args->filename_count += 1;
+                        filename_count = *args->filename_count;
+                        spin_unlock(args->filename_count_lock);
+                        
+                        sprintf(temp, FILENAME"%d", filename_count);
+                        //DBG("writer %d triggers compaction %s %s\n", args->tid, db.file->filename, temp);
+                        
                         fdb_compact(&db, temp);
                         commit_count = 0;
                     }
@@ -581,8 +590,8 @@ void *_worker_thread(void *voidargs)
         fdb_doc_free(rdoc);
         c++;
         
-        clock_gettime(CLOCK_REALTIME, &ts_cur);
-        ts_gap = _time_gap(ts_begin, ts_cur);
+        gettimeofday(&ts_cur, NULL);
+        ts_gap = _utime_gap(ts_begin, ts_cur);
         if (ts_gap.tv_sec >= args->time_sec) break;
     }
 
@@ -592,7 +601,9 @@ void *_worker_thread(void *voidargs)
     fdb_flush_wal(&db);
     fdb_commit(&db);
 
-    fdb_close(&db);    
+    fdb_close(&db);
+    pthread_exit(NULL);
+    return NULL;
 }
 
 void multi_thread_test(
@@ -606,11 +617,14 @@ void multi_thread_test(
     pthread_t tid[n];
     void *thread_ret[n];
     struct work_thread_args args[n];
-    struct timespec ts_begin, ts_cur, ts_gap;
+    struct timeval ts_begin, ts_cur, ts_gap;
     fdb_handle db, db_new;
     fdb_config config;
     fdb_doc *doc[ndocs], *rdoc;
     fdb_status status;
+
+    int filename_count = 1;
+    spin_t filename_count_lock = SPIN_INITIALIZER;
     
     char keybuf[1024], metabuf[1024], bodybuf[1024], temp[1024];
 
@@ -632,10 +646,12 @@ void multi_thread_test(
 
     // initial population ===
     DBG("Initialize..\n");    
-    // open db
-    fdb_open(&db, FILENAME"1", config);
 
-    clock_gettime(CLOCK_REALTIME, &ts_begin);
+    // open db
+    sprintf(temp, FILENAME"%d", filename_count);
+    fdb_open(&db, temp, &config);
+
+    gettimeofday(&ts_begin, NULL);
 
     // insert documents
     for (i=0;i<ndocs;++i){
@@ -655,8 +671,8 @@ void multi_thread_test(
     fdb_flush_wal(&db);
     fdb_commit(&db);
 
-    clock_gettime(CLOCK_REALTIME, &ts_cur);
-    ts_gap = _time_gap(ts_begin, ts_cur);
+    gettimeofday(&ts_cur, NULL);
+    ts_gap = _utime_gap(ts_begin, ts_cur);
     //DBG("%d.%09d seconds elapsed\n", (int)ts_gap.tv_sec, (int)ts_gap.tv_nsec);
 
     fdb_close(&db);
@@ -675,6 +691,8 @@ void multi_thread_test(
         args[i].time_sec = time_sec;
         args[i].nbatch = nbatch;
         args[i].compact_term = compact_term;
+        args[i].filename_count = &filename_count;
+        args[i].filename_count_lock = &filename_count_lock;
         pthread_create(&tid[i], NULL, _worker_thread, &args[i]);
     }
 
@@ -703,7 +721,7 @@ int main(){
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
-    multi_thread_test(40*1024, 1024, 20, 1, 100, 1, 8);
+    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 7);
     
     return 0;
 }

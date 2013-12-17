@@ -99,7 +99,7 @@ void basic_test()
     config.ncacheblock = 1024;
     config.flag = 0x0;
     
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 
@@ -205,7 +205,7 @@ void large_test()
 
     DBG("filemgr, bcache init .. \n");
     rr = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), config);
+    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 

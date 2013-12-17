@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <assert.h>
+#include <malloc.h>
 
 #include "option.h"
 #include "arch.h"

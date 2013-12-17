@@ -37,8 +37,6 @@ struct filemgr_buffer{
     bid_t lastbid;
 };
 
-struct wal;
-
 typedef uint16_t filemgr_header_len_t;
 typedef uint64_t filemgr_magic_t; 
 typedef uint64_t filemgr_header_revnum_t;
@@ -49,15 +47,17 @@ struct filemgr_header{
     void *data;
 };
 
+struct wal;
 struct fnamedic_item;
 struct filemgr {
     char *filename;
-    uint16_t filename_len;
-    int fd;
     uint8_t ref_count;
+    uint8_t sync;
+    uint16_t filename_len;
+    uint32_t blocksize;
+    int fd;
     uint64_t pos;
     uint64_t last_commit;
-    uint32_t blocksize;
     struct wal *wal;
     struct filemgr_header header;
     struct filemgr_ops *ops;
@@ -66,15 +66,18 @@ struct filemgr {
     struct filemgr_config *config;
     struct filemgr *new_file;
     struct fnamedic_item *bcache;
-    uint8_t sync;
+    
+    // spin lock for small region
     spin_t lock;
+    // mutex for larger & higher region (for FDB interfaces)
+    mutex_t mutex;
 };
 
-struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct filemgr_config config);
+struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct filemgr_config *config);
 
 uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
-void filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
+char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
 
@@ -97,5 +100,8 @@ void filemgr_shutdown();
 void filemgr_update_file_status(struct filemgr *file, file_status_t status);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
 file_status_t filemgr_get_file_status(struct filemgr *file);
+
+void filemgr_mutex_lock(struct filemgr *file);
+void filemgr_mutex_unlock(struct filemgr *file);
 
 #endif

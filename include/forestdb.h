@@ -31,9 +31,9 @@ enum {
 };
 
 typedef struct {
-    size_t chunksize;
-    size_t offsetsize;
-    size_t blocksize;
+    uint16_t chunksize;
+    uint16_t offsetsize;
+    uint32_t blocksize;
     uint64_t buffercache_size;
     uint64_t wal_threshold;
     struct filemgr_ops *fileops;
@@ -62,13 +62,6 @@ struct btreeblk_handle;
 struct docio_handle;
 struct btree_blk_ops;
 
-typedef uint8_t fdb_wal_dirty_t;
-enum {
-    FDB_WAL_CLEAN = 0,
-    FDB_WAL_DIRTY = 1,
-    FDB_WAL_PENDING = 2
-};
-
 typedef struct {
     struct hbtrie *trie;
     struct btree *seqtree;
@@ -83,14 +76,12 @@ typedef struct {
     uint64_t datasize;
     uint64_t ndocs;
     uint16_t btree_fanout;
-    fdb_wal_dirty_t wal_dirty;
 #ifdef __FDB_SEQTREE
     fdb_seqnum_t seqnum;
 #endif
-    spin_t lock;
 } fdb_handle;
 
-fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config);
+fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config);
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
     void *body, size_t bodylen);
 fdb_status fdb_doc_update(fdb_doc **doc, void *meta, size_t metalen, void *body, size_t bodylen);

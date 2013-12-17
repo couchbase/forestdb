@@ -78,14 +78,14 @@ int _file_cmp(struct hash_elem *a, struct hash_elem *b)
     }*/
 }
 
-void filemgr_init(struct filemgr_config config)
+void filemgr_init(struct filemgr_config *config)
 {
     int i, ret;
     uint32_t *temp;
 
      spin_lock(&initial_lock);
     if (!filemgr_initialized) {
-        global_config = config;
+        global_config = *config;
 
         if (global_config.ncacheblock > 0) 
             bcache_init(global_config.ncacheblock, global_config.blocksize);
@@ -118,9 +118,12 @@ void * _filemgr_get_temp_buf()
         item = _get_entry(e, struct temp_buf_item, le);
     }else{
         void *addr;
+        /*
         int ret = posix_memalign(&addr, FDB_SECTOR_SIZE,
             global_config.blocksize + sizeof(struct temp_buf_item));
-        assert(ret == 0);
+        assert(ret == 0);*/
+        addr = memalign(FDB_SECTOR_SIZE, global_config.blocksize + sizeof(struct temp_buf_item));
+        assert(addr);
 
         item = addr + global_config.blocksize;
         item->addr = addr;
@@ -196,7 +199,7 @@ void _filemgr_read_header(struct filemgr *file)
 }
 
 struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
-                              struct filemgr_config config)
+                              struct filemgr_config *config)
 {
     struct filemgr *file = NULL;
     struct filemgr query;
@@ -205,7 +208,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     int file_flag = 0x0;
 
     create_flag = (O_CREAT);
-    file_flag = O_RDWR | create_flag | config.flag;
+    file_flag = O_RDWR | create_flag | config->flag;
 
     // global initialization
     // initialized only once at first time
@@ -259,11 +262,13 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         _filemgr_read_header(file);
         
         file->lock = SPIN_INITIALIZER;
+        mutex_init(&file->mutex);
+        
         hash_insert(&hash, &file->e);
 
         spin_unlock(&filemgr_openlock);
     }
-    file->sync = (config.async)?(0):(1);
+    file->sync = (config->async)?(0):(1);
 
     return file;
 }
@@ -298,10 +303,13 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
     return ret;
 }
 
-void filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len)
+char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len)
 {
+    spin_lock(&file->lock);
     *filename = file->filename;
     *len = file->filename_len;
+    spin_unlock(&file->lock);
+    return *filename;
 }
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
@@ -389,6 +397,7 @@ void _filemgr_free_func(struct hash_elem *h)
 void filemgr_remove_file(struct filemgr *file)
 {
     assert(file);
+    assert(file->ref_count <= 0);
     
     // remove from global hash table
     spin_lock(&filemgr_openlock);    
@@ -662,6 +671,7 @@ void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
     }else{
         // immediatly remove
         spin_unlock(&old_file->lock);
+        remove(old_file->filename);
         filemgr_remove_file(old_file);
     }
 }
@@ -672,5 +682,15 @@ file_status_t filemgr_get_file_status(struct filemgr *file)
     file_status_t status = file->status;
     spin_unlock(&file->lock);
     return status;
+}
+
+void filemgr_mutex_lock(struct filemgr *file)
+{
+    mutex_lock(&file->mutex);
+}
+
+void filemgr_mutex_unlock(struct filemgr *file)
+{
+    mutex_unlock(&file->mutex);
 }
 

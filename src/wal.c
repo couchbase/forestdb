@@ -105,6 +105,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     file->wal->flag = WAL_FLAG_INITIALIZED;
     file->wal->size = 0;
     file->wal->last_commit = NULL;
+    file->wal->wal_dirty = FDB_WAL_CLEAN;
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
     SEQTREE(hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq));
     list_init(&file->wal->list);
@@ -413,4 +414,21 @@ size_t wal_get_datasize(struct filemgr *file)
 
     return datasize;
 }
+
+void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status)
+{
+    spin_lock(&file->wal->lock);
+    file->wal->wal_dirty = status;
+    spin_unlock(&file->wal->lock);
+}
+
+wal_dirty_t wal_get_dirty_status(struct filemgr *file)
+{
+    wal_dirty_t ret;
+    spin_lock(&file->wal->lock);
+    ret = file->wal->wal_dirty;
+    spin_unlock(&file->wal->lock);
+    return ret;
+}
+
 

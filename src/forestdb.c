@@ -68,13 +68,8 @@ INLINE void _fdb_fetch_header(
         sizeof(uint64_t), offset);
 }
 
-fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
+fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 {
-    DBGCMD(
-        struct timeval _a_,_b_,_rr_;
-        gettimeofday(&_a_, NULL);
-    );
-
     struct filemgr_config fconfig;
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
@@ -86,13 +81,13 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     mempool_init();
 #endif
 
-    fconfig.blocksize = config.blocksize = FDB_BLOCKSIZE;
-    fconfig.ncacheblock = config.buffercache_size / FDB_BLOCKSIZE;
+    fconfig.blocksize = config->blocksize = FDB_BLOCKSIZE;
+    fconfig.ncacheblock = config->buffercache_size / FDB_BLOCKSIZE;
     fconfig.flag = 0x0;
-    if (config.durability_opt & 0x1) {
+    if (config->durability_opt & 0x1) {
         fconfig.flag |= _ARCH_O_DIRECT;
     }
-    if (config.durability_opt & 0x2) {
+    if (config->durability_opt & 0x2) {
         fconfig.async = 1;
     }else {
         fconfig.async = 0;
@@ -100,19 +95,17 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     
     handle->fileops = get_linux_filemgr_ops();
     handle->btreeblkops = btreeblk_get_ops();
-    handle->file = filemgr_open(filename, handle->fileops, fconfig);
+    handle->file = filemgr_open(filename, handle->fileops, &fconfig);
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
     handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
     handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
-    handle->config = config;
-    handle->btree_fanout = fconfig.blocksize / (config.chunksize+config.offsetsize);
+    handle->config = *config;
+    handle->btree_fanout = fconfig.blocksize / (config->chunksize+config->offsetsize);
     handle->last_header_bid = BLK_NOT_FOUND;
-    handle->lock = SPIN_INITIALIZER;
 
     handle->datasize = handle->ndocs = 0;
 
     if (!wal_is_initialized(handle->file)) {
-        handle->wal_dirty = FDB_WAL_CLEAN;
         wal_init(handle->file, FDB_WAL_NBUCKET);
     }
 
@@ -132,7 +125,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
     }
     handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
     
-    hbtrie_init(handle->trie, config.chunksize, config.offsetsize, handle->file->blocksize, trie_root_bid, 
+    hbtrie_init(handle->trie, config->chunksize, config->offsetsize, handle->file->blocksize, trie_root_bid, 
         handle->bhandle, handle->btreeblkops, handle->dhandle, _fdb_readkey_wrap);
 
 #ifdef __FDB_SEQTREE
@@ -157,13 +150,6 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config config)
 #endif
 
     btreeblk_end(handle->bhandle);
-
-    DBGCMD(
-        gettimeofday(&_b_, NULL);
-        _rr_ = _utime_gap(_a_,_b_);        
-    );
-    DBG("fdb_open %s, %"_FSEC".%06"_FUSEC" sec elapsed.\n", 
-        filename, _rr_.tv_sec, _rr_.tv_usec);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -249,21 +235,6 @@ fdb_status fdb_doc_free(fdb_doc *doc)
     free(doc);
     return FDB_RESULT_SUCCESS;
 }
-
-/*
-INLINE size_t _fdb_get_docsize(struct docio_object *doc)
-{
-    size_t ret = doc->length.keylen  + doc->length.metalen + doc->length.bodylen + sizeof(struct docio_length);
-    #ifdef __FDB_SEQTREE
-        ret += sizeof(fdb_seqnum_t);
-    #endif
-    #ifdef __CRC32
-        ret += sizeof(uint32_t);
-    #endif
-
-    return ret;    
-}
-*/
 
 INLINE size_t _fdb_get_docsize(struct docio_length len)
 {
@@ -354,7 +325,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
         fdb_config config = handle->config;
 
         fdb_close(handle);
-        fdb_open(handle, new_file->filename, config);
+        fdb_open(handle, new_file->filename, &config);
     }
 }
 
@@ -451,10 +422,12 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
     struct docio_object _doc;
     wal_result wr;
     btree_result br = BTREE_RESULT_FAIL;
-    //fdb_seqnum_t seqnum;
 
     if (doc->seqnum == SEQNUM_NOT_USED) return FDB_RESULT_INVALID_ARGS;
     
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
     wr = wal_find(handle->file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
@@ -489,11 +462,13 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     uint64_t offset;
     struct docio_object _doc;
     wal_result wr;
-    //hbtrie_result hr;
     btree_result br;
 
     if (doc->seqnum == SEQNUM_NOT_USED) return FDB_RESULT_INVALID_ARGS;
     
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
     wr = wal_find(handle->file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
@@ -530,11 +505,15 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     
     if ( (doc->key == NULL) || (doc->keylen == 0) ||
         (doc->metalen > 0 && doc->meta == NULL) || 
-        (doc->bodylen > 0 && doc->body == NULL)) return FDB_RESULT_INVALID_ARGS;
+        (doc->bodylen > 0 && doc->body == NULL)) {
+        return FDB_RESULT_INVALID_ARGS;        
+    }
 
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
-    
+
+    filemgr_mutex_lock(handle->file);
+
     _doc.length.keylen = doc->keylen;
     _doc.length.metalen = doc->metalen;
     _doc.length.bodylen = doc->bodylen;
@@ -543,9 +522,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 #ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         //_doc.seqnum = doc->seqnum;
-        spin_lock(&handle->lock);
         _doc.seqnum = doc->seqnum = handle->seqnum++;
-        spin_unlock(&handle->lock);
     }else{
         _doc.seqnum = SEQNUM_NOT_USED;
     }
@@ -561,17 +538,18 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         //remove
         wal_remove(handle->file, doc);
     }
-    if (handle->wal_dirty == FDB_WAL_CLEAN) {
-        handle->wal_dirty = FDB_WAL_DIRTY;
+    if (wal_get_dirty_status(handle->file)== FDB_WAL_CLEAN) {
+        wal_set_dirty_status(handle->file, FDB_WAL_DIRTY);
     }
 
 #ifdef __WAL_FLUSH_BEFORE_COMMIT
     if (wal_get_size(handle->file) > handle->config.wal_threshold) {
         wal_flush(handle->file, (void *)handle, _fdb_wal_flush_func);
-        handle->wal_dirty = FDB_WAL_PENDING;
+        wal_set_dirty_status(handle->file, FDB_WAL_PENDING);
     }
 #endif
 
+    filemgr_mutex_unlock(handle->file);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -628,25 +606,29 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
 
 fdb_status fdb_commit(fdb_handle *handle)
 {
+    filemgr_mutex_lock(handle->file);
+
     btreeblk_end(handle->bhandle);
     if (wal_get_size(handle->file) > handle->config.wal_threshold || 
-        handle->wal_dirty == FDB_WAL_PENDING) {
+        wal_get_dirty_status(handle->file) == FDB_WAL_PENDING) {
         // wal flush when 
         // 1. wal size exceeds threshold
         // 2. wal is already flushed before commit (in this case flush the rest of entries)
         wal_flush(handle->file, handle, _fdb_wal_flush_func);
-        handle->wal_dirty = FDB_WAL_CLEAN;
+        wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
     }else{
         // otherwise just commit wal
         wal_commit(handle->file);
     }
 
-    if (handle->wal_dirty == FDB_WAL_CLEAN) {
+    if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
         //3 <not sure whether this is bug-free or not>
         handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
     }
     handle->cur_header_revnum = _fdb_set_file_header(handle);    
     filemgr_commit(handle->file);
+    
+    filemgr_mutex_unlock(handle->file);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -685,15 +667,37 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     fdb_seqnum_t seqnum;
     hbtrie_result hr;
 
+    // prevent update to the target file
+    filemgr_mutex_lock(handle->file);
+
+    // if the file is already compacted by other thread
+    if (filemgr_get_file_status(handle->file) == FILE_REMOVED_PENDING) {
+        filemgr_mutex_unlock(handle->file);
+
+        // update handle and return
+        _fdb_check_file_reopen(handle);
+        _fdb_sync_db_header(handle);
+
+        return FDB_RESULT_FAIL;
+    }
+
+    // invalid filename
+    if (!strcmp(new_filename, handle->file->filename)) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    // flush WAL and set DB header
     wal_flush(handle->file, handle, _fdb_wal_flush_func);
-    handle->wal_dirty = FDB_WAL_CLEAN;
+    wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
     handle->last_header_bid = 
         (handle->file->pos) / handle->file->blocksize;
     _fdb_set_file_header(handle);
     btreeblk_end(handle->bhandle);
 
-    fconfig.blocksize = FDB_BLOCKSIZE;
-    fconfig.ncacheblock = handle->config.buffercache_size / FDB_BLOCKSIZE;
+    // set filemgr configuration
+    fconfig.blocksize = handle->config.blocksize;
+    fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
     fconfig.flag = 0x0;
     if (handle->config.durability_opt & 0x1) {
         fconfig.flag |= _ARCH_O_DIRECT;
@@ -705,7 +709,10 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     }
 
     // open new file
-    new_file = filemgr_open(new_filename, handle->fileops, fconfig);
+    new_file = filemgr_open(new_filename, handle->fileops, &fconfig);
+
+    // prevent update to the new_file
+    filemgr_mutex_lock(new_file);
 
     // create new hb-trie and related handles
     new_bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
@@ -828,8 +835,6 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         hr = hbtrie_iterator_free(&it);
     #endif
 
-    DBG("\nkey count: %"_F64"\n", count);
-
     handle->ndocs = count;
     handle->datasize = new_datasize;
 
@@ -856,7 +861,11 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
         }
     #endif
 
-    filemgr_update_file_status(new_file, FILE_NORMAL);
+    filemgr_update_file_status(new_file, FILE_NORMAL);   
+
+    // allow update to new_file
+    filemgr_mutex_unlock(new_file);
+    
     fdb_commit(handle);
 
     wal_shutdown(old_file);
@@ -864,22 +873,26 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     // removing file is pended until there is no handle referring the file
     filemgr_remove_pending(old_file, new_file);
 
+    filemgr_mutex_unlock(old_file);
     return FDB_RESULT_SUCCESS;
 }
 
 // manually flush WAL entries into index
 fdb_status fdb_flush_wal(fdb_handle *handle)
 {
+    filemgr_mutex_lock(handle->file);
+
     if (wal_get_size(handle->file) > 0) {
         wal_flush(handle->file, handle, _fdb_wal_flush_func);
-        handle->wal_dirty = FDB_WAL_PENDING;
+        wal_set_dirty_status(handle->file, FDB_WAL_PENDING);
     }
+
+    filemgr_mutex_unlock(handle->file);
     return FDB_RESULT_SUCCESS;
 }
 
 fdb_status fdb_close(fdb_handle *handle)
 {
-    //wal_close(handle->file);
     filemgr_close(handle->file);   
     docio_free(handle->dhandle);
     btreeblk_end(handle->bhandle);
