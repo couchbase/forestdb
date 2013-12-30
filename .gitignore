@@ -1,0 +1,19 @@
+# Keep the entries sorted to reduce the risk for a merge conflict
+*.[ao]
+couchstore_api/couchbench_fdb
+dummy2
+errorlog.txt
+forestdb_test
+libforestdb.so
+libforestdb_couch.so
+src/wc
+tests/bcache_test
+tests/btreeblock_test
+tests/crc_test
+tests/docio_test
+tests/filemgr_test
+tests/hash_test
+tests/hbtrie_test
+tests/list_test
+tests/mempool_test
+wt2
