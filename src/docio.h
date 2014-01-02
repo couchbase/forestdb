@@ -43,6 +43,7 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc);
 struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t offset);
 void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *keylen, void *keybuf);
 uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, struct docio_object *doc);
-void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_object *doc);
-
+uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
+                        struct docio_object *doc);
+int docio_check_buffer(struct docio_handle *dhandle, bid_t check_bid);
 #endif

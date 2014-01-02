@@ -47,6 +47,7 @@ enum{
 #define BLK_MARKER_DBHEADER (0xee)
 #define BLK_MARKER_DOC (0xdd)
 #define BLK_MARKER_SIZE (1)
+#define BLK_DBHEADER_SIZE (52)
 
 #define randomize() srand((unsigned)time(NULL))
 #define random(num) ((rand())%(num))

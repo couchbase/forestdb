@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "docio.h"
+#include "wal.h"
 #include "crc32.h"
 
 #include "memleak.h"
@@ -608,6 +609,8 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
 
     _offset = _docio_read_length(handle, offset, &doc->length);
 
+    if (!doc->length.keylen || doc->length.keylen < 256) return offset;
+
     if (doc->key == NULL) doc->key = (void *)malloc(doc->length.keylen);
     if (doc->meta == NULL) doc->meta = (void *)malloc(doc->length.metalen);
 
@@ -625,15 +628,31 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
     return _offset;
 }
 
-void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_object *doc)
+uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
+                        struct docio_object *doc)
 {
     uint64_t _offset;
+    int key_alloc = 0;
+    int meta_alloc = 0;
+    int body_alloc = 0;
     
     _offset = _docio_read_length(handle, offset, &doc->length);
+    if (doc->length.keylen == 0 || doc->length.keylen > 256) {
+        return offset;
+    }
 
-    if (doc->key == NULL) doc->key = (void *)malloc(doc->length.keylen);
-    if (doc->meta == NULL) doc->meta = (void *)malloc(doc->length.metalen);
-    if (doc->body == NULL) doc->body = (void *)malloc(doc->length.bodylen);
+    if (doc->key == NULL) {
+        doc->key = (void *)malloc(doc->length.keylen);
+        key_alloc = 1;
+    }
+    if (doc->meta == NULL) {
+        doc->meta = (void *)malloc(doc->length.metalen);
+        meta_alloc = 1;
+    }
+    if (doc->body == NULL) {
+        doc->body = (void *)malloc(doc->length.bodylen);
+        body_alloc = 1;
+    }
 
     assert(doc->key && doc->meta && doc->body);
 
@@ -659,7 +678,30 @@ void docio_read_doc(struct docio_handle *handle, uint64_t offset, struct docio_o
     crc = crc32_8(&doc->seqnum, sizeof(fdb_seqnum_t), crc);    
     crc = crc32_8(doc->meta, doc->length.metalen, crc);
     crc = crc32_8(doc->body, doc->length.bodylen, crc);
-    assert(crc == crc_file);
+    if (crc != crc_file) {
+        if (key_alloc) {
+            free(doc->key);
+            doc->key = NULL;
+        }
+        if (meta_alloc) {
+            free(doc->meta);
+            doc->meta = NULL;
+        }
+        if (body_alloc) {
+            free(doc->body);
+            doc->body = NULL;
+        }
+        return offset;
+    }
 #endif
+    return _offset;
 }
 
+int docio_check_buffer(struct docio_handle *handle, bid_t bid)
+{
+    uint8_t marker[BLK_MARKER_SIZE];
+    _docio_read_through_buffer(handle, bid);
+    marker[0] = *(((uint8_t *)handle->readbuffer)
+                 + handle->file->blocksize - BLK_MARKER_SIZE);
+    return (marker[0] == BLK_MARKER_DOC);
+}

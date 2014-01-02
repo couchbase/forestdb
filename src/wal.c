@@ -107,7 +107,8 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     file->wal->last_commit = NULL;
     file->wal->wal_dirty = FDB_WAL_CLEAN;
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
-    SEQTREE(hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq));
+    SEQTREE(hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq,
+                       _wal_cmp_byseq));
     list_init(&file->wal->list);
     file->wal->lock = SPIN_INITIALIZER;
 

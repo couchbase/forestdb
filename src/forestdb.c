@@ -68,6 +68,59 @@ INLINE void _fdb_fetch_header(
         sizeof(uint64_t), offset);
 }
 
+INLINE void _fdb_restore_wal(fdb_handle *handle)
+{
+    struct filemgr *file = handle->file;
+    uint32_t blocksize = handle->file->blocksize;
+    uint64_t last_header_bid = handle->last_header_bid;
+    uint64_t header_blk_pos = file->pos ? file->pos - blocksize : 0;
+    uint64_t offset = 0; //assume everything from first block needs restoration
+    uint8_t *buf;
+
+    filemgr_mutex_lock(file);
+    if (last_header_bid != BLK_NOT_FOUND) {
+        offset = (last_header_bid + 1) * blocksize;
+    }
+
+    // If a valid last header was retrieved and it matches the current header
+    // OR if WAL already had entries populated, then no crash recovery needed
+    if (!header_blk_pos || header_blk_pos <= offset || wal_get_size(file)) {
+        filemgr_mutex_unlock(file);
+        return;
+    }
+
+    for (; offset < header_blk_pos;
+         offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
+         if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
+            continue;
+        } else do {
+            struct docio_object doc;
+            uint64_t _offset;
+            memset(&doc, 0, sizeof(doc));
+            _offset = docio_read_doc(handle->dhandle, offset, &doc);
+            if (doc.key) {
+                fdb_doc wal_doc;
+                wal_doc.keylen = doc.length.keylen;
+                wal_doc.metalen = doc.length.metalen;
+                wal_doc.key = doc.key;
+#ifdef __FDB_SEQTREE
+                wal_doc.seqnum = doc.seqnum;
+#endif
+                wal_doc.meta = doc.meta;
+                wal_insert(file, &wal_doc, offset);
+                free(doc.key);
+                free(doc.meta);
+                free(doc.body);
+                offset = _offset;
+            } else {
+                offset = _offset;
+                break;
+            }
+        } while (offset + sizeof(struct docio_length) < header_blk_pos);
+    }
+    filemgr_mutex_unlock(file);
+}
+
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 {
     struct filemgr_config fconfig;
@@ -114,12 +167,6 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 
     filemgr_fetch_header(handle->file, header_buf, &header_len);
     if (header_len > 0) {             
-        uint32_t crc_file, crc;
-        
-        crc = crc32_8(header_buf, header_len - sizeof(crc), 0);
-        memcpy(&crc_file, header_buf + (header_len - sizeof(crc)), sizeof(crc_file));
-        assert(crc == crc_file);
-        
         _fdb_fetch_header(header_buf, header_len, &trie_root_bid, &seq_root_bid, &seqnum,
             &handle->ndocs, &handle->datasize, &handle->last_header_bid);
     }
@@ -148,6 +195,8 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
         handle->seqtree = NULL;
     }
 #endif
+
+    _fdb_restore_wal(handle);
 
     btreeblk_end(handle->bhandle);
 
@@ -355,7 +404,9 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         _doc.length.keylen = doc->keylen;
         _doc.meta = doc->meta;
         _doc.body = doc->body;
-        docio_read_doc(handle->dhandle, offset, &_doc);
+        if (docio_read_doc(handle->dhandle, offset, &_doc) == offset) {
+            return FDB_RESULT_FAIL;
+        }
 
         if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
 
@@ -397,6 +448,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         _doc.length.keylen = doc->keylen;
         _doc.meta = _doc.body = NULL;
         *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
+        if (*body_offset == offset) return FDB_RESULT_FAIL;
 
         if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
 
@@ -439,7 +491,9 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         _doc.key = doc->key;
         _doc.meta = doc->meta;
         _doc.body = doc->body;
-        docio_read_doc(handle->dhandle, offset, &_doc);
+        if (docio_read_doc(handle->dhandle, offset, &_doc) == offset) {
+            return FDB_RESULT_FAIL;
+        }
 
         assert(doc->seqnum == _doc.seqnum);
 
@@ -481,6 +535,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
         *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
+        if (*body_offset == offset) return FDB_RESULT_FAIL;
 
         assert(doc->seqnum == _doc.seqnum);
         
@@ -564,7 +619,7 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     [0032]: Data size (byte): 8 bytes
     [0040]: File offset of the DB header created when last WAL flush: 8 bytes
     [0048]: CRC32: 4 bytes
-    [total size: 52 bytes]
+    [total size: 52 bytes] BLK_DBHEADER_SIZE must be incremented on new fields
     */
     uint8_t buf[256];
     size_t offset = 0;

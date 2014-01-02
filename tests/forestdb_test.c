@@ -452,7 +452,7 @@ void compact_wo_reopen_test()
 
     // perform compaction using one handle
     fdb_compact(&db, "./dummy2");
-    
+
     // retrieve documents using the other handle without close/re-open
     for (i=0;i<n;++i){
         // search by key
@@ -579,10 +579,10 @@ void *_worker_thread(void *voidargs)
                         *args->filename_count += 1;
                         filename_count = *args->filename_count;
                         spin_unlock(args->filename_count_lock);
-                        
+
                         sprintf(temp, FILENAME"%d", filename_count);
                         //DBG("writer %d triggers compaction %s %s\n", args->tid, db.file->filename, temp);
-                        
+
                         fdb_compact(&db, temp);
                         commit_count = 0;
                     }
@@ -627,7 +627,7 @@ void multi_thread_test(
 
     int filename_count = 1;
     spin_t filename_count_lock = SPIN_INITIALIZER;
-    
+
     char keybuf[1024], metabuf[1024], bodybuf[1024], temp[1024];
 
     idx_digit = IDX_DIGIT;
@@ -718,12 +718,111 @@ void multi_thread_test(
     TEST_RESULT("multi thread test");
 }
 
+void crash_recovery_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_handle db;
+    fdb_config config;
+    fdb_doc *doc[n], *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // configuration
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 0 * 1024 * 1024;
+    config.wal_threshold = 1024;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    // remove previous dummy files
+    r = system("rm -rf ./dummy* > errorlog.txt");
+
+    // reopen db
+    fdb_open(&db, "./dummy2", &config);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i],
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(&db);
+
+    // close the db
+    fdb_close(&db);
+
+    // Shutdown forest db in the middle of the test to simulate crash
+    fdb_shutdown();
+
+    // Now append garbage at the end of the file for a few blocks
+    r = system(
+       "dd if=/dev/zero bs=4096 of=./dummy2 oseek=3 count=2 >> errorlog.txt");
+
+    // reopen the same file
+    fdb_open(&db, "./dummy2", &config);
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(&db, rdoc);
+
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // retrieve documents by sequence number
+    for (i=0;i<n;++i){
+        // search by seq
+        fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+        rdoc->seqnum = i;
+        status = fdb_get_byseq(&db, rdoc);
+
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // close db file
+    fdb_close(&db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("crash recovery test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
+    crash_recovery_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 7);
-    
+
     return 0;
 }
