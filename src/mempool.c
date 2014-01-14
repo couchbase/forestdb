@@ -25,7 +25,7 @@
     #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
-    #define DBGSW(n, command...) 
+    #define DBGSW(n, command...)
 #endif
 #endif
 
@@ -108,17 +108,17 @@ void mempool_init()
             bucket[c].lock = SPIN_INITIALIZER;
 
             n = initial_space[c] / (N_LISTS * bucket[c].size);
-            
-            DBG("size %d * %d * %d = %"_F64" bytes\n", 
+
+            DBG("size %d * %d * %d = %"_F64" bytes\n",
                 bucket[c].size, N_LISTS, n, (uint64_t)bucket[c].size * N_LISTS * n);
             DBGCMD( size_total += bucket[c].size * N_LISTS * n; )
-            
+
             for (j=0;j<N_LISTS;++j){
                 list_init(&bucket[c].listset[j].list);
                 bucket[c].listset[j].lock = SPIN_INITIALIZER;
-                
+
                 for (k=0;k<n;++k){
-                    item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + bucket[c].size);                    
+                    item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + bucket[c].size);
                     /*
                     ret = posix_memalign(
                         (void **)&item, l1cache_linesize, sizeof(struct mempool_item) + bucket[c].size);*/
@@ -136,7 +136,7 @@ void mempool_init()
             bucketmap[i] = &bucket[c];
         }
 
-        DBG("memory pool initialized, item size %d, total allocated size : %"_F64" bytes\n", 
+        DBG("memory pool initialized, item size %d, total allocated size : %"_F64" bytes\n",
             (int)sizeof(struct mempool_item), size_total);
 
         mempool_initialized = 1;
@@ -158,19 +158,19 @@ void mempool_shutdown()
         int i, j, k, c, n;
         struct list_elem *e;
         struct mempool_item *item;
-        
+
         c=0;
         for (i=MINSIZE; i<=MAXSIZE; i*=2) {
             bucket[c].rvalue = 0;
             bucket[c].size = i;
             bucket[c].lock = SPIN_INITIALIZER;
-        
+
             n = initial_space[c] / (N_LISTS * bucket[c].size);
-            
-            DBG("size %d * %d * %d = %"_F64" bytes\n", 
+
+            DBG("size %d * %d * %d = %"_F64" bytes\n",
                 bucket[c].size, N_LISTS, n, (uint64_t)bucket[c].size * N_LISTS * n);
             DBGCMD( size_total += bucket[c].size * N_LISTS * n; )
-            
+
             for (j=0;j<N_LISTS;++j){
                 e = list_begin(&bucket[c].listset[j].list);
                 while(e){
@@ -184,8 +184,8 @@ void mempool_shutdown()
         }
 
         mempool_initialized = 0;
-        
-        spin_unlock(&initial_lock);        
+
+        spin_unlock(&initial_lock);
     }
 }
 
@@ -195,12 +195,12 @@ void * mempool_alloc(size_t size)
     struct list_elem *e;
     struct mempool_bucket *b;
     struct mempool_item *item;
-    uint32_t idx; 
+    uint32_t idx;
 
     b = bucketmap[size];
     idx = b->rvalue;
     random_custom(b->rvalue, N_LISTS);
-    
+
     spin_lock(&b->listset[idx].lock);
     e = list_pop_front(&b->listset[idx].list);
     spin_unlock(&b->listset[idx].lock);
@@ -211,7 +211,7 @@ void * mempool_alloc(size_t size)
         item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + b->size);
         item->listset = &b->listset[idx];
     }
-        
+
     return (void *)((uint8_t *)item + sizeof(struct mempool_item));
 }
 

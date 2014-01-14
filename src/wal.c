@@ -28,7 +28,7 @@
     #undef DBGSW
     #define DBG(args...)
     #define DBGCMD(command...)
-    #define DBGSW(n, command...) 
+    #define DBGSW(n, command...)
 #endif
 #endif
 
@@ -83,16 +83,16 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
 INLINE size_t _wal_get_docsize(fdb_doc *doc)
 {
-    size_t ret = 
-        doc->keylen + 
-        doc->metalen + 
-        doc->bodylen + 
+    size_t ret =
+        doc->keylen +
+        doc->metalen +
+        doc->bodylen +
         sizeof(struct docio_length);
-    
+
     #ifdef __FDB_SEQTREE
         ret += sizeof(fdb_seqnum_t);
     #endif
-    
+
     #ifdef __CRC32
         ret += sizeof(uint32_t);
     #endif
@@ -154,12 +154,12 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
         // move to the end of list
         list_remove(&file->wal->list, &item->list_elem);
         list_push_back(&file->wal->list, &item->list_elem);
-        
-    }else{        
+
+    }else{
         // not exist .. create new one
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
-        
+
         //3 KEY should be copied or just be linked?
     #ifdef __WAL_KEY_COPY
         item->key = (void *)mempool_alloc(item->keylen);
@@ -175,7 +175,7 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
 
         hash_insert(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
-            
+
         list_push_back(&file->wal->list, &item->list_elem);
         file->wal->size++;
     }
@@ -205,7 +205,7 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
             item = _get_entry(e, struct wal_item, he_key);
             if (item->action == WAL_ACT_INSERT) {
                 *offset = item->offset;
-                
+
                 spin_unlock(&file->wal->lock);
                 return WAL_RESULT_SUCCESS;
             }
@@ -254,14 +254,14 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
 
     query.key = key;
     query.keylen = keylen;
-    SEQTREE( 
+    SEQTREE(
         query.seqnum = doc->seqnum;
     );
 
     spin_lock(&file->wal->lock);
 
     e = hash_find(&file->wal->hash_bykey, &query.he_key);
-    
+
     if (e) {
         // already exist
         item = _get_entry(e, struct wal_item, he_key);
@@ -278,7 +278,7 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         // move to the end of list
         list_remove(&file->wal->list, &item->list_elem);
         list_push_back(&file->wal->list, &item->list_elem);
-        
+
     }else{
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
@@ -288,13 +288,13 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
     #else
         item->key = key;
     #endif
-    
-        //SEQTREE( item->seqnum = query.seqnum );    
+
+        //SEQTREE( item->seqnum = query.seqnum );
         item->action = WAL_ACT_REMOVE;
         hash_insert(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
         list_push_back(&file->wal->list, &item->list_elem);
-        file->wal->size++;        
+        file->wal->size++;
     }
 
     spin_unlock(&file->wal->lock);
@@ -342,7 +342,7 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
 
     DBGCMD(
         gettimeofday(&b, NULL);
-        rr = _utime_gap(a,b);        
+        rr = _utime_gap(a,b);
     );
     DBG("wal flushed, %"_FSEC".%06"_FUSEC" sec elapsed.\n", rr.tv_sec, rr.tv_usec);
 
@@ -379,7 +379,7 @@ wal_result wal_close(struct filemgr *file)
 
         file->wal->size--;
     }
-    
+
     spin_unlock(&file->wal->lock);
     return WAL_RESULT_SUCCESS;
 }
@@ -391,7 +391,7 @@ wal_result wal_shutdown(struct filemgr *file)
     return wal_close(file);
 }
 
-size_t wal_get_size(struct filemgr *file) 
+size_t wal_get_size(struct filemgr *file)
 {
     return file->wal->size;
 }
