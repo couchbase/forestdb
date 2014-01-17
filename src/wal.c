@@ -315,12 +315,7 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
     struct list_elem *e;
     struct hash_elem *h;
     struct wal_item *item;
-    DBGCMD(
-        struct timeval a,b,rr;
-        gettimeofday(&a, NULL);
-    );
-
-    DBG("wal size: %"_F64"\n", file->wal->size);
+    size_t count = 0;
 
     spin_lock(&file->wal->lock);
 
@@ -331,6 +326,7 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
         hash_remove(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
         func(dbhandle, item);
+        count++;
 
     #ifdef __WAL_KEY_COPY
         mempool_free(item->key);
@@ -339,12 +335,6 @@ wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
     }
     file->wal->size = 0;
     file->wal->last_commit = NULL;
-
-    DBGCMD(
-        gettimeofday(&b, NULL);
-        rr = _utime_gap(a,b);
-    );
-    DBG("wal flushed, %"_FSEC".%06"_FUSEC" sec elapsed.\n", rr.tv_sec, rr.tv_usec);
 
     spin_unlock(&file->wal->lock);
     return WAL_RESULT_SUCCESS;

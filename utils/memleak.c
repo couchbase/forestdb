@@ -15,6 +15,8 @@
 #include "arch.h"
 
 #define _MALLOC_OVERRIDE
+#define INIT_VAL (0xff)
+#define FREE_VAL (0x11)
 //#define _PRINT_DBG
 
 #ifdef _PRINT_DBG
@@ -61,7 +63,7 @@ void memleak_end()
     struct memleak_item *item;
 
     spin_lock(&lock);
-    
+
     start_sw = 0;
 
     r = rb_first(&rbtree);
@@ -70,7 +72,7 @@ void memleak_end()
         r = rb_next(r);
         rb_erase(&item->rb, &rbtree);
 
-        fprintf(stderr, "address 0x%016lx (allocated at %s:%ld, size %ld) is not freed\n", 
+        fprintf(stderr, "address 0x%016lx (allocated at %s:%ld, size %ld) is not freed\n",
             (unsigned long)item->addr, item->file, item->line, item->size);
         free(item);
         count++;
@@ -80,25 +82,27 @@ void memleak_end()
     spin_unlock(&lock);
 }
 
-void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line)
+void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uint8_t init_val)
 {
     DBG("malloc at %s:%ld, size %ld\n", file, line, size);
     struct memleak_item *item = (struct memleak_item *)malloc(sizeof(struct memleak_item));
     item->addr = (uint64_t)addr;
     item->file = file;
     item->line = line;
-    item->size = size;   
-    memset(addr, 0xff, size);
+    item->size = size;
+#ifdef INIT_VAL
+    memset(addr, init_val, size);
+#endif
     rbwrap_insert(&rbtree, &item->rb, memleak_cmp);
 }
 
 void * memleak_alloc(size_t size, char *file, size_t line)
 {
     spin_lock(&lock);
-    
+
     void *addr = malloc(size);
     if (addr && start_sw) {
-        _memleak_add_to_index(addr, size, file, line);
+        _memleak_add_to_index(addr, size, file, line, INIT_VAL);
     }
 
     spin_unlock(&lock);
@@ -108,38 +112,24 @@ void * memleak_alloc(size_t size, char *file, size_t line)
 void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
 {
     spin_lock(&lock);
-    
+
     void *addr = calloc(nmemb, size);
     if (addr && start_sw) {
-        _memleak_add_to_index(addr, size, file, line);
+        _memleak_add_to_index(addr, size, file, line, 0x0);
     }
 
     spin_unlock(&lock);
     return addr;
 }
-/*
-void * memleak_memalign(size_t alignment, size_t size, char *file, size_t line)
-{
-    spin_lock(&lock);
-    
-    void *addr = memalign(alignment, size);
-    if (addr && start_sw)
-    {
-        _memleak_add_to_index(addr, size, file, line);
-    }
-
-    spin_unlock(&lock);
-    return addr;
-}*/
 
 int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
 {
     spin_lock(&lock);
-    
+
     int ret = posix_memalign(memptr, alignment, size);
     if (ret==0 && start_sw)
     {
-        _memleak_add_to_index(*memptr, size, file, line);
+        _memleak_add_to_index(*memptr, size, file, line, INIT_VAL);
     }
 
     spin_unlock(&lock);
@@ -149,7 +139,7 @@ int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *f
 void *memleak_realloc(void *ptr, size_t size)
 {
     spin_lock(&lock);
-    
+
     void *addr = realloc(ptr, size);
     if (addr && start_sw) {
         struct rb_node *r;
@@ -159,42 +149,47 @@ void *memleak_realloc(void *ptr, size_t size)
         r = rbwrap_search(&rbtree, &query.rb, memleak_cmp);
         if (r) {
             item = _get_entry(r, struct memleak_item, rb);
-            DBG("realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n", 
+            DBG("realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n",
                 item->addr, item->file, item->line, item->size, (uint64_t)addr, size);
             rb_erase(r, &rbtree);
-            _memleak_add_to_index(addr, size, item->file, item->line);
+            _memleak_add_to_index(addr, size, item->file, item->line, INIT_VAL);
             free(item);
-        }        
+        }
     }
 
     spin_unlock(&lock);
     return addr;
 }
 
-void memleak_free(void *addr)
+void memleak_free(void *addr, char *file, size_t line)
 {
+    struct rb_node *r;
+    struct memleak_item *item, query;
     spin_lock(&lock);
-    
-    free(addr);
+
     if (start_sw) {
-        struct rb_node *r;
-        struct memleak_item *item, query;
 
         query.addr = (uint64_t)addr;
         r = rbwrap_search(&rbtree, &query.rb, memleak_cmp);
         if (!r) {
+            fprintf(stderr, "try to free not allocated memory address 0x%016lx at %s:%ld\n",
+                (long unsigned int)addr, file, line);
             spin_unlock(&lock);
             return;
         }
 
         item = _get_entry(r, struct memleak_item, rb);
-        DBG("free address 0x%016lx (allocated at %s:%ld, size %ld)\n", 
+        DBG("free address 0x%016lx (allocated at %s:%ld, size %ld)\n",
             item->addr, item->file, item->line, item->size);
+#ifdef FREE_VAL
+        memset(addr, FREE_VAL, item->size);
+#endif
 
         rb_erase(r, &rbtree);
         free(item);
     }
-    
+    free(addr);
+
     spin_unlock(&lock);
 }
 

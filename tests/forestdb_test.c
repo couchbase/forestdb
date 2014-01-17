@@ -816,12 +816,80 @@ void crash_recovery_test()
     TEST_RESULT("crash recovery test");
 }
 
+void incomplete_block_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 2;
+    fdb_handle db;
+    fdb_config config;
+    fdb_doc *doc[n], *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // configuration
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 0;
+    config.wal_threshold = 1024;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    // remove previous dummy files
+    r = system("rm -rf ./dummy* > errorlog.txt");
+
+    // open db
+    fdb_open(&db, "./dummy1", &config);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i],
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(&db, rdoc);
+
+        // updated documents
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // close db file
+    fdb_close(&db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("incomplete block test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
+#ifdef __CRC32
     crash_recovery_test();
+#endif
+    incomplete_block_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 7);
 
     return 0;

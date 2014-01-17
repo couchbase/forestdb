@@ -48,9 +48,9 @@ typedef struct fdb_doc_struct {
     size_t metalen;
     size_t bodylen;
     void *key;
-    #ifdef __FDB_SEQTREE
-        fdb_seqnum_t seqnum;
-    #endif
+#ifdef __FDB_SEQTREE
+    fdb_seqnum_t seqnum;
+#endif
     void *meta;
     void *body;
 } fdb_doc;

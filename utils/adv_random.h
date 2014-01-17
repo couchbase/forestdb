@@ -50,7 +50,7 @@
     (b) = (rngz2 % (number));
 
 typedef enum {
-    RND_UNIFORM, 
+    RND_UNIFORM,
     RND_NORMAL
 } rndtype_t;
 
@@ -125,7 +125,7 @@ void _rand_gen_test()
     }
 
     for (i=0;i<n;++i){
-        cdf += (double)arr[i]/m*100;        
+        cdf += (double)arr[i]/m*100;
         printf("arr[%d] = %7d (%.2f %% / %.2f %%)\n", i, arr[i], (double)arr[i]/m*100, cdf);
     }
 }

@@ -50,8 +50,8 @@ void endian_test()
     b = 0x13576420;
     c = 0x01234567;
     memcpy(buf, &a, sizeof(uint32_t));
-    memcpy(buf + 4, &b, sizeof(uint32_t));    
-    memcpy(buf + 8, &c, sizeof(uint32_t));    
+    memcpy(buf + 4, &b, sizeof(uint32_t));
+    memcpy(buf + 8, &c, sizeof(uint32_t));
 
     r1 = crc32_8(buf, 12, 0);
     r2 = crc32_8(&a, 4, 0);
@@ -71,7 +71,7 @@ void endian_test()
     sprintf(str, ";/dummy21");
     b = crc32_8_last8(str, strlen(str), 0);
     DBG("%u %u\n", a, b);
-    
+
 }
 
 int main()

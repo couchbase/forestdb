@@ -11,7 +11,7 @@
 #ifdef _HASH_LOCK
     #define IFDEF_LOCK(command...) command
 #else
-    #define IFDEF_LOCK(command...) 
+    #define IFDEF_LOCK(command...)
 #endif
 
 #ifdef _HASH_RBTREE
@@ -25,7 +25,7 @@ int _hash_cmp_rbwrap(struct rb_node *a, struct rb_node *b, void *aux)
     return hash->cmp(aa, bb);*/
     return ((struct hash *)aux)->cmp(
         _get_entry(a, struct hash_elem, rb_node),
-        _get_entry(b, struct hash_elem, rb_node));  
+        _get_entry(b, struct hash_elem, rb_node));
 }
 #endif
 
@@ -47,9 +47,9 @@ void hash_init(struct hash *hash, int nbuckets, hash_hash_func *hash_func, hash_
         #else
             list_init(hash->buckets + i);
         #endif
-        
+
         IFDEF_LOCK( *(hash->locks + i) = SPIN_INITIALIZER );
-    }    
+    }
     hash->hash = hash_func;
     hash->cmp = cmp_func;
 }
@@ -57,7 +57,7 @@ void hash_init(struct hash *hash, int nbuckets, hash_hash_func *hash_func, hash_
 void hash_insert(struct hash *hash, struct hash_elem *e)
 {
     int bucket = hash->hash(hash, e);
-    
+
     IFDEF_LOCK( spin_lock(hash->locks + bucket) );
 
     #ifdef _HASH_RBTREE
@@ -126,15 +126,15 @@ struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)
                 list_remove(hash->buckets + bucket, le);
 
                 IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
-                
+
                 return hash_elem;
             }
             le = list_next(le);
         }
     #endif
-    
+
     IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
-    
+
     return NULL;
 }
 
@@ -147,15 +147,15 @@ void hash_free(struct hash *hash)
 void hash_free_active(struct hash *hash, hash_free_func *free_func)
 {
     int i;
-    
+
     #ifdef _HASH_RBTREE
         struct rb_node *r, *r_next;;
     #else
         struct list_elem *e, *e_next;
     #endif
-    
+
     struct hash_elem *h;
-    
+
     for (i=0;i<hash->nbuckets;++i){
         #ifdef _HASH_RBTREE
             r = rb_first(hash->buckets + i);
@@ -166,7 +166,7 @@ void hash_free_active(struct hash *hash, hash_free_func *free_func)
                 free_func(h);
                 //r = rb_first(hash->buckets + i);
             }
-        
+
         #else
             e = list_begin(hash->buckets + i);
             while(e) {
@@ -175,7 +175,7 @@ void hash_free_active(struct hash *hash, hash_free_func *free_func)
                 free_func(h);
                 e = e_next;
             }
-            
+
         #endif
     }
 

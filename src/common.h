@@ -20,8 +20,8 @@
 #include "time_utils.h"
 
 #ifndef _MEMPOOL
-    #define mempool_alloc malloc
-    #define mempool_free free
+    #define mempool_alloc(args...) malloc(args)
+    #define mempool_free(args...) free(args)
 #endif
 
 #define _MEMORY_OVERRIDE
@@ -38,7 +38,7 @@ enum{
     FILE_NORMAL = 0,
     FILE_COMPACT_OLD_SCAN = 1,
     FILE_COMPACT_OLD = 2,
-    FILE_COMPACT_NEW = 3, 
+    FILE_COMPACT_NEW = 3,
     FILE_CLOSED = 4,
     FILE_REMOVED_PENDING = 5,
 };

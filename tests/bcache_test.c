@@ -36,7 +36,7 @@ void basic_test()
         filemgr_write(file, i, buf);
     }
     filemgr_commit(file);
-    
+
     filemgr_read(file, 8, buf);
     filemgr_read(file, 9, buf);
 
@@ -65,11 +65,11 @@ void basic_test2()
     uint8_t buf[4096];
     int r;
     r = system("rm -rf ./dummy");
-    
+
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 5;
-    config.flag = 0x0;    
+    config.flag = 0x0;
     file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
 
     for (i=0;i<5;++i) {
@@ -88,7 +88,7 @@ void basic_test2()
 
 }
 
-struct timespec _time_gap(struct timespec a, struct timespec b) 
+struct timespec _time_gap(struct timespec a, struct timespec b)
 {
 	struct timespec ret;
 	if (b.tv_nsec >= a.tv_nsec) {
@@ -137,7 +137,7 @@ void * worker(void *voidargs)
         memcpy(&crc, buf + sizeof(uint64_t)*2, sizeof(crc));
         assert(crc == crc_file && i==bid);
         //DBG("%d %d %d %x %x\n", (int)args->n, (int)i, (int)bid, (int)crc, (int)crc_file);
-        
+
         if (args->writer) {
             memcpy(&c, buf+sizeof(i), sizeof(c));
             c++;
@@ -148,7 +148,7 @@ void * worker(void *voidargs)
             ret = bcache_write(args->file, bid, buf, BCACHE_DIRTY);
             assert(ret == args->file->blocksize);
         }
-        
+
         gettimeofday(&ts_cur, NULL);
         ts_gap = _utime_gap(ts_begin, ts_cur);
         if (ts_gap.tv_sec >= args->time_sec) break;
@@ -177,7 +177,7 @@ void multi_thread_test(
     pthread_t tid[n];
     struct worker_args args[n];
     void *ret[n];
-    
+
     r = system("rm -rf ./dummy");
 
     memleak_start();

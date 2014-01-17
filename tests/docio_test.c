@@ -47,23 +47,23 @@ void basic_test()
     file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
     docio_init(&handle, file);
 
-    docsize = _set_doc(&doc, "this_is_key", "this_is_metadata", "this_is_body_lawiefjaawleif");    
+    docsize = _set_doc(&doc, "this_is_key", "this_is_metadata", "this_is_body_lawiefjaawleif");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "this_is_key2", "this_is_metadata2", "hello_world");    
+    docsize = _set_doc(&doc, "this_is_key2", "this_is_metadata2", "hello_world");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "key3", "a", "b");    
+    docsize = _set_doc(&doc, "key3", "a", "b");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "key4", "a", "b");    
+    docsize = _set_doc(&doc, "key4", "a", "b");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "key5", "a", "b");    
+    docsize = _set_doc(&doc, "key5", "a", "b");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 

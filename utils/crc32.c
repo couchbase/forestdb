@@ -315,33 +315,33 @@ uint32_t crc32_1(const void* data, size_t len, uint32_t prev_value)
     while (len-- > 0)
         crc = (crc >> 8) ^ crc_lookup[0][(crc & 0xFF) ^ *cur++];
 
-    return ~crc; 
+    return ~crc;
 }
 
 
 uint32_t crc32_8(const void* data, size_t len, uint32_t prev_value)
-{  
-    uint32_t *cur = (uint32_t*) data;  
-    uint32_t crc = ~prev_value;  
+{
+    uint32_t *cur = (uint32_t*) data;
+    uint32_t crc = ~prev_value;
 
-    while (len >= 8) {    
-        uint32_t one = *cur++ ^ crc;    
-        uint32_t two = *cur++;    
-        crc = 
-            crc_lookup[7][one & 0xFF] ^          
-            crc_lookup[6][(one>> 8) & 0xFF] ^          
-            crc_lookup[5][(one>>16) & 0xFF] ^          
-            crc_lookup[4][one>>24] ^          
-            crc_lookup[3][two & 0xFF] ^          
-            crc_lookup[2][(two>> 8) & 0xFF] ^          
-            crc_lookup[1][(two>>16) & 0xFF] ^          
-            crc_lookup[0][two>>24];    
-        len -= 8;  
+    while (len >= 8) {
+        uint32_t one = *cur++ ^ crc;
+        uint32_t two = *cur++;
+        crc =
+            crc_lookup[7][one & 0xFF] ^
+            crc_lookup[6][(one>> 8) & 0xFF] ^
+            crc_lookup[5][(one>>16) & 0xFF] ^
+            crc_lookup[4][one>>24] ^
+            crc_lookup[3][two & 0xFF] ^
+            crc_lookup[2][(two>> 8) & 0xFF] ^
+            crc_lookup[1][(two>>16) & 0xFF] ^
+            crc_lookup[0][two>>24];
+        len -= 8;
     }
 
-    unsigned char *cur_byte = (unsigned char*) cur;   
-    while (len--)    
-        crc = (crc >> 8) ^ crc_lookup[0][(crc & 0xFF) ^ *cur_byte++];  
+    unsigned char *cur_byte = (unsigned char*) cur;
+    while (len--)
+        crc = (crc >> 8) ^ crc_lookup[0][(crc & 0xFF) ^ *cur_byte++];
 
     return ~crc;
 }

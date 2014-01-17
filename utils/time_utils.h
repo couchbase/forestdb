@@ -5,7 +5,7 @@
 #include <time.h>
 #include <sys/time.h>
 
-static struct timespec _ntime_gap(struct timespec a, struct timespec b) 
+static struct timespec _ntime_gap(struct timespec a, struct timespec b)
 {
     struct timespec ret;
     if (b.tv_nsec >= a.tv_nsec) {
@@ -18,7 +18,7 @@ static struct timespec _ntime_gap(struct timespec a, struct timespec b)
     return ret;
 }
 
-static struct timeval _utime_gap(struct timeval a, struct timeval b) 
+static struct timeval _utime_gap(struct timeval a, struct timeval b)
 {
     struct timeval ret;
     if (b.tv_usec >= a.tv_usec) {

@@ -35,7 +35,7 @@ void hbtrie_key_test()
 
     struct hbtrie trie;
     int i,j,n;
-    
+
     trie.chunksize = 4;
 
     char *key[] = {"abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"};
@@ -45,7 +45,7 @@ void hbtrie_key_test()
     for (i=0;i<6;++i){
         keylen = _hbtrie_reform_key(&trie, key[i], strlen(key[i]), buf);
 
-        DBG("keylen: %2d , ", keylen);        
+        DBG("keylen: %2d , ", keylen);
         for (j=0;j<keylen;++j) {
             printf("%02x ", (uint8_t)buf[j]);
         }
@@ -98,12 +98,12 @@ void basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     config.flag = 0x0;
-    
+
     file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 
-    hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND, 
+    hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
         &bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
 
     for (i=0;i<n;++i){
@@ -111,8 +111,8 @@ void basic_test()
         sprintf(dockey, "%s", key[i]);
         sprintf(meta, "metadata_%03d", i);
         sprintf(body, "body_%03d", i);
-        docsize = _set_doc(&doc, dockey, meta, body);    
-        offset = docio_append_doc(&dhandle, &doc);        
+        docsize = _set_doc(&doc, dockey, meta, body);
+        offset = docio_append_doc(&dhandle, &doc);
         hbtrie_insert(&trie, key[i], strlen(key[i]), &offset, &offset_old);
         btreeblk_end(&bhandle);
     }
@@ -127,7 +127,7 @@ void basic_test()
             r = hbtrie_find(&trie, key[i], strlen(key[i]), valuebuf);
             if (i>0) {
                 TEST_CHK(r != HBTRIE_RESULT_FAIL);
-                        
+
                 memcpy(&offset, valuebuf, 8);
                 docio_read_doc(&dhandle, offset, &doc);
                 sprintf(meta, "metadata_%03d", i);
@@ -152,7 +152,7 @@ void basic_test()
         DBG("%s\n", keybuf);
     }
     r = hbtrie_iterator_free(&it);
-    
+
     filemgr_close(file);
     filemgr_shutdown();
 
@@ -190,7 +190,7 @@ void large_test()
     uint64_t *offset;
     uint64_t _offset;
     int sw;
-    
+
     key = (char **)malloc(sizeof(char*) * n);
     offset = (uint64_t *)malloc(sizeof(uint64_t) * n);
 
@@ -209,7 +209,7 @@ void large_test()
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 
-    hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND, 
+    hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
         &bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
     TEST_TIME();
 
@@ -223,8 +223,8 @@ void large_test()
             sprintf(dockey, "%s", key[i]);
             sprintf(meta, "m");
             sprintf(body, "body_%3d", i);
-            docsize = _set_doc(&doc, dockey, meta, body);    
-            offset[i] = docio_append_doc(&dhandle, &doc);        
+            docsize = _set_doc(&doc, dockey, meta, body);
+            offset[i] = docio_append_doc(&dhandle, &doc);
         }
         TEST_TIME();
 
@@ -234,7 +234,7 @@ void large_test()
             btreeblk_end(&bhandle);
         }
         TEST_TIME();
-        
+
         DBG("filemgr commit .. \n");
         filemgr_commit(file);
         TEST_TIME();
@@ -246,8 +246,8 @@ void large_test()
             sprintf(dockey, "%s", key[i]);
             sprintf(meta, "me");
             sprintf(body, "body2_%3d", i);
-            docsize = _set_doc(&doc, dockey, meta, body);    
-            offset[i] = docio_append_doc(&dhandle, &doc);        
+            docsize = _set_doc(&doc, dockey, meta, body);
+            offset[i] = docio_append_doc(&dhandle, &doc);
         }
         TEST_TIME();
 
@@ -257,7 +257,7 @@ void large_test()
             btreeblk_end(&bhandle);
         }
         TEST_TIME();
-        
+
         DBG("filemgr commit .. \n");
         filemgr_commit(file);
         TEST_TIME();
@@ -273,13 +273,13 @@ void large_test()
         if (r != HBTRIE_RESULT_FAIL) {
             memcpy(&_offset, valuebuf, 8);
             docio_read_doc(&dhandle, _offset, &doc);
-            
+
             sprintf(meta, "me");
             sprintf(body, "body2_%3d", i);
             TEST_CHK(!memcmp(doc.key, key[i], doc.length.keylen));
             TEST_CHK(!memcmp(doc.meta, meta, doc.length.metalen));
             TEST_CHK(!memcmp(doc.body, body, doc.length.bodylen));
-            
+
         }
     }
     TEST_TIME();
@@ -299,12 +299,12 @@ void large_test()
 
 
     TEST_TIME();
-    
-    DBG("trie root bid %"_F64"\n", trie.root_bid);    
+
+    DBG("trie root bid %"_F64"\n", trie.root_bid);
 
     filemgr_close(file);
     filemgr_shutdown();
-    
+
     TEST_RESULT("large test");
 }
 
@@ -312,7 +312,7 @@ int main(){
     #ifdef _MEMPOOL
         mempool_init();
     #endif
-    
+
     //hbtrie_key_test();
     //basic_test();
     large_test();

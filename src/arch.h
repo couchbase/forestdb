@@ -30,7 +30,7 @@
         //#define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
         #define mutex_init(arg) *(arg) = (0)
     #endif
-    
+
 #elif __linux
     #define INLINE __inline
 
@@ -57,7 +57,7 @@
         #define mutex_unlock(arg) pthread_mutex_unlock(arg)
         #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
     #endif
-    
+
 #else
     #define INLINE make_error
 #endif

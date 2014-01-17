@@ -28,7 +28,7 @@ struct hbtrie {
     bid_t root_bid;
     void *btreeblk_handle;
     void *doc_handle;
-    
+
     struct btree_blk_ops *btree_blk_ops;
     struct btree_kv_ops *btree_kv_ops;
     hbtrie_func_readkey *readkey;
@@ -39,13 +39,13 @@ struct hbtrie_iterator {
     struct list btreeit_list;
     void *curkey;
     size_t keylen;
-}; 
+};
 
 int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey, int rawkeylen, void *outkey);
 void hbtrie_get_chunk(struct hbtrie *trie, void *key, int keylen, int chunkno, void *out);
 
 void hbtrie_init(
-            struct hbtrie *trie, int chunksize,     int valuelen,    int btree_nodesize, bid_t root_bid, 
+            struct hbtrie *trie, int chunksize,     int valuelen,    int btree_nodesize, bid_t root_bid,
             void *btreeblk_handle, struct btree_blk_ops *btree_blk_ops,
             void *doc_handle, hbtrie_func_readkey *readkey);
 void hbtrie_free(struct hbtrie *trie);
@@ -57,7 +57,7 @@ hbtrie_result hbtrie_next(struct hbtrie_iterator *it, void *key_buf, size_t *key
 
 hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey, int rawkeylen, void *valuebuf);
 hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen);
-hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen, 
+hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
             void *value, void *oldvalue_out);
 
 #endif

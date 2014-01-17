@@ -21,7 +21,7 @@ void basic_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 1024;
-    
+
     file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
     file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
 

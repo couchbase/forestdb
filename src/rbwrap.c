@@ -35,7 +35,7 @@ struct rb_node * __rbwrap_insert(struct rb_root *root, struct rb_node *node, rbw
     else
         rb_root_init(root, node);
 
-    return NULL;    
+    return NULL;
 }
 
 struct rb_node * rbwrap_insert(struct rb_root *root, struct rb_node *node, rbwrap_cmp_func *func)
@@ -45,7 +45,7 @@ struct rb_node * rbwrap_insert(struct rb_root *root, struct rb_node *node, rbwra
         goto out;
     rb_insert_color(node, root);
  out:
-    return ret;    
+    return ret;
 }
 
 struct rb_node * rbwrap_search(struct rb_root *root, struct rb_node *node, rbwrap_cmp_func *func)

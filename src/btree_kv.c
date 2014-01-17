@@ -46,16 +46,16 @@ INLINE void _ins_kv(struct bnode *node, idx_t idx, void *key, void *value)
     if (key && value) {
         // insert
         memmove(
-            ptr + (idx+1)*kvsize, 
-            ptr + idx*kvsize, 
+            ptr + (idx+1)*kvsize,
+            ptr + idx*kvsize,
             (node->nentry - idx)*kvsize);
         memcpy(ptr + idx*kvsize, key, ksize);
         memcpy(ptr + idx*kvsize + ksize, value, vsize);
     }else{
         // remove
         memmove(
-            ptr + idx*kvsize, 
-            ptr + (idx+1)*kvsize, 
+            ptr + idx*kvsize,
+            ptr + (idx+1)*kvsize,
             (node->nentry - (idx+1))*kvsize);
     }
 }
@@ -70,7 +70,7 @@ INLINE void _copy_kv(
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
     kvsize = ksize + vsize;
-    
+
     ptr_src = node_src->data;
     ptr_dst = node_dst->data;
 
@@ -141,7 +141,7 @@ INLINE int _cmp_int32_t(void *key1, void *key2)
     b = (int32_t*)key2;
     if (*a<*b) return -1;
     if (*a>*b) return 1;
-    return 0;    
+    return 0;
 }
 
 INLINE int _cmp_uint32_t(void *key1, void *key2)
@@ -151,7 +151,7 @@ INLINE int _cmp_uint32_t(void *key1, void *key2)
     b = (uint32_t*)key2;
     if (*a<*b) return -1;
     if (*a>*b) return 1;
-    return 0;    
+    return 0;
 }
 
 INLINE int _cmp_uint64_t(void *key1, void *key2)
@@ -197,16 +197,16 @@ INLINE int _cmp_binary64(void *key1, void *key2)
 
 // key: uint64_t, value: uint64_t
 static struct btree_kv_ops kv_ops_ku64_vu64 = {
-    _get_kv, _set_kv, _ins_kv, _copy_kv, _get_data_size, _get_kv_size, _init_kv_var, NULL, 
+    _get_kv, _set_kv, _ins_kv, _copy_kv, _get_data_size, _get_kv_size, _init_kv_var, NULL,
     _set_key, _set_value, _get_nth_idx, _get_nth_splitter,
     _cmp_uint64_t, _value_to_bid_64, _bid_to_value_64};
 
 static struct btree_kv_ops kv_ops_ku32_vu64 = {
-    _get_kv, _set_kv, _ins_kv, _copy_kv, _get_data_size, _get_kv_size, _init_kv_var, NULL, 
+    _get_kv, _set_kv, _ins_kv, _copy_kv, _get_data_size, _get_kv_size, _init_kv_var, NULL,
     _set_key, _set_value, _get_nth_idx, _get_nth_splitter,
     _cmp_uint32_t, _value_to_bid_64, _bid_to_value_64};
 
-struct btree_kv_ops * btree_kv_get_ku64_vu64() 
+struct btree_kv_ops * btree_kv_get_ku64_vu64()
 {
     return &kv_ops_ku64_vu64;
 }
@@ -224,7 +224,7 @@ struct btree_kv_ops * btree_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops)
     }else{
         btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
     }
-    
+
     btree_kv_ops->get_kv = _get_kv;
     btree_kv_ops->set_kv = _set_kv;
     btree_kv_ops->ins_kv = _ins_kv;
@@ -255,7 +255,7 @@ struct btree_kv_ops * btree_kv_get_kb32_vb64(struct btree_kv_ops *kv_ops)
     }else{
         btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
     }
-    
+
     btree_kv_ops->get_kv = _get_kv;
     btree_kv_ops->set_kv = _set_kv;
     btree_kv_ops->ins_kv = _ins_kv;

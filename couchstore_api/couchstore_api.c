@@ -47,12 +47,13 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.buffercache_size = (uint64_t)2 * 1024 * 1024 * 1024;
 #else
     config.buffercache_size = 0;
-#endif    
+#endif
     config.wal_threshold = FDB_WAL_THRESHOLD;
     config.seqtree_opt = FDB_SEQTREE_USE;
     config.flag = 0;
     config.durability_opt = FDB_DRB_NONE;
     //config.durability_opt = FDB_DRB_ASYNC;
+    //config.durability_opt = FDB_DRB_ODIRECT_ASYNC;
 
     *pDb = (Db*)malloc(sizeof(Db));
     //(*pDb)->seqnum = 0;
@@ -61,7 +62,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     fdb = &((*pDb)->fdb);
 
     status = fdb_open(fdb, fname, &config);
-    
+
     return COUCHSTORE_SUCCESS;
 }
 
@@ -95,7 +96,7 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
     // b-tree size (estimated as worst case)
     info->space_used += (db->fdb.ndocs / (db->fdb.btree_fanout / 2)) * db->fdb.config.blocksize;
     */
-    
+
     return COUCHSTORE_SUCCESS;
 }
 
@@ -115,7 +116,7 @@ size_t _docinfo_to_buf(DocInfo *docinfo, void *buf)
 
     memcpy(buf + offset, &docinfo->content_meta, sizeof(docinfo->content_meta));
     offset += sizeof(docinfo->content_meta);
-    
+
     memcpy(buf + offset, &docinfo->rev_meta.size, sizeof(docinfo->rev_meta.size));
     offset += sizeof(docinfo->rev_meta.size);
 
@@ -128,7 +129,7 @@ size_t _docinfo_to_buf(DocInfo *docinfo, void *buf)
 }
 
 LIBCOUCHSTORE_API
-couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo *infos[], 
+couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo *infos[],
         unsigned numdocs, couchstore_save_options options)
 {
     unsigned i;
@@ -149,12 +150,12 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
 
         infos[i]->db_seq = _doc.seqnum;
     }
-    
+
     return COUCHSTORE_SUCCESS;
 }
 
 LIBCOUCHSTORE_API
-couchstore_error_t couchstore_save_document(Db *db, const Doc *doc, DocInfo *info, 
+couchstore_error_t couchstore_save_document(Db *db, const Doc *doc, DocInfo *info,
         couchstore_save_options options)
 {
     return couchstore_save_documents(db, (Doc**)&doc, (DocInfo**)&info, 1, options);
@@ -163,7 +164,7 @@ couchstore_error_t couchstore_save_document(Db *db, const Doc *doc, DocInfo *inf
 void _buf_to_docinfo(void *buf, size_t size, DocInfo *docinfo)
 {
     size_t offset = 0;
-    
+
     /*memcpy(&docinfo->db_seq, buf + offset, sizeof(docinfo->db_seq));
     offset += sizeof(docinfo->db_seq);*/
 
@@ -199,7 +200,7 @@ couchstore_error_t couchstore_docinfo_by_id(Db *db, const void *id, size_t idlen
     size_t meta_offset;
 
     meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
-    
+
     _doc.key = (void *)id;
     _doc.keylen = idlen;
     _doc.seqnum = SEQNUM_NOT_USED;
@@ -245,7 +246,7 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
 
         status = fdb_get_metaonly(&db->fdb, &_doc, &offset);
         assert(status != FDB_RESULT_FAIL);
-        
+
         memcpy(&rev_meta_size, _doc.meta + meta_offset, sizeof(size_t));
         if (rev_meta_size > max_meta_size) {
             max_meta_size = rev_meta_size;
@@ -297,7 +298,7 @@ couchstore_error_t couchstore_docinfos_by_sequence(Db *db,
 
         status = fdb_get_metaonly_byseq(&db->fdb, &_doc, &offset);
         assert(status != FDB_RESULT_FAIL);
-        
+
         memcpy(&rev_meta_size, _doc.meta + meta_offset, sizeof(size_t));
         if (rev_meta_size > max_meta_size) {
             max_meta_size = rev_meta_size;

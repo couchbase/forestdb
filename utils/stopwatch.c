@@ -2,7 +2,7 @@
 
 #include "stopwatch.h"
 
-static struct timeval _utime_gap(struct timeval a, struct timeval b) 
+static struct timeval _utime_gap(struct timeval a, struct timeval b)
 {
     struct timeval ret;
     if (b.tv_usec >= a.tv_usec) {

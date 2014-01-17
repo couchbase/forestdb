@@ -82,7 +82,7 @@ CFLAGS = \
 	-I./include -I./src -I./utils -I./option\
 	-D__DEBUG -fPIC \
 	-O2 -fomit-frame-pointer \
-	
+
 all: $(PROGRAMS)
 
 lib: $(FDB)
@@ -90,7 +90,7 @@ lib: $(FDB)
 
 lib_couch: $(FDB_COUCH)
 	$(CC) $(CFLAGS) -shared $(LDFLAGS) -o lib$(LIBRARY)_couch.so $(FDB_COUCH)
-	
+
 tests/list_test: $(LISTTEST) $(LIST) 
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
@@ -136,7 +136,9 @@ test: lib forestdb_test
 bench: lib_couch couchstore_api/couchbench_fdb
 	LD_LIBRARY_PATH=./ ./couchstore_api/couchbench_fdb
 
-other_bench: lib_couch couchstore_api/couchbench_level couchstore_api/couchbench_ori
+other_bench: \
+    lib_couch couchstore_api/couchbench_level \
+    couchstore_api/couchbench_ori \
 
 clean:
 	rm -rf src/*.o tests/*.o couchstore_api/*.o utils/*.o dummy* $(PROGRAMS) $(BENCH) ./*.so

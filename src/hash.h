@@ -42,7 +42,7 @@ struct hash {
     #else
         struct list *buckets;
     #endif
-    
+
     hash_hash_func *hash;
     hash_cmp_func *cmp;
     #ifdef _HASH_RBTREE

@@ -39,6 +39,6 @@ uint64_t _dbg_get_uint64_t(int n)
 
 int _dbg_is_sw_set(int n)
 {
-    return _global_dbg_switch[n];    
+    return _global_dbg_switch[n];
 }
 

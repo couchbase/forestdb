@@ -38,7 +38,7 @@ struct filemgr_buffer{
 };
 
 typedef uint16_t filemgr_header_len_t;
-typedef uint64_t filemgr_magic_t; 
+typedef uint64_t filemgr_magic_t;
 typedef uint64_t filemgr_header_revnum_t;
 
 struct filemgr_header{
@@ -66,7 +66,7 @@ struct filemgr {
     struct filemgr_config *config;
     struct filemgr *new_file;
     struct fnamedic_item *bcache;
-    
+
     // spin lock for small region
     spin_t lock;
     // mutex for larger & higher region (for FDB interfaces)

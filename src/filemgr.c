@@ -292,6 +292,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->new_file = NULL;
 
         file->fd = file->ops->open(file->filename, file_flag, 0666);
+        assert(file->fd >= 0);
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
 
         file->bcache = NULL;
@@ -373,7 +374,7 @@ void filemgr_close(struct filemgr *file)
     if (--(file->ref_count) == 0) {
         spin_unlock(&file->lock);
         if (global_config.ncacheblock > 0) {
-            // discard all dirty blocks belong to this file
+            // discard all dirty blocks belonged to this file
             bcache_remove_dirty_blocks(file);
         }
 
@@ -424,7 +425,7 @@ void _filemgr_free_func(struct hash_elem *h)
 
     // free filename and header
     free(file->filename);
-    free(file->header.data);
+    if (file->header.data) free(file->header.data);
 
     // free file structure
     free(file);
@@ -464,7 +465,9 @@ void filemgr_shutdown()
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file)
 {
+    spin_lock(&file->lock);
     bid_t bid = file->pos / file->blocksize;
+    spin_unlock(&file->lock);
     return bid;
 }
 
@@ -473,6 +476,12 @@ bid_t filemgr_alloc(struct filemgr *file)
     spin_lock(&file->lock);
     bid_t bid = file->pos / file->blocksize;
     file->pos += file->blocksize;
+
+    if (global_config.ncacheblock <= 0) {
+        // if block cache is turned off, write the allocated block before use
+        uint8_t _buf = 0x0;
+        file->ops->pwrite(file->fd, &_buf, 1, file->pos-1);
+    }
     spin_unlock(&file->lock);
 
     return bid;
@@ -484,6 +493,12 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin, bid_
     *begin = file->pos / file->blocksize;
     *end = *begin + nblock - 1;
     file->pos += file->blocksize * nblock;
+
+    if (global_config.ncacheblock <= 0) {
+        // if block cache is turned off, write the allocated block before use
+        uint8_t _buf = 0x0;
+        file->ops->pwrite(file->fd, &_buf, 1, file->pos-1);
+    }
     spin_unlock(&file->lock);
 }
 
@@ -498,6 +513,12 @@ bid_t filemgr_alloc_multiple_cond(
         *begin = file->pos / file->blocksize;
         *end = *begin + nblock - 1;
         file->pos += file->blocksize * nblock;
+
+        if (global_config.ncacheblock <= 0) {
+            // if block cache is turned off, write the allocated block before use
+            uint8_t _buf = 0x0;
+            file->ops->pwrite(file->fd, &_buf, 1, file->pos-1);
+        }
     }else{
         *begin = BLK_NOT_FOUND;
         *end = BLK_NOT_FOUND;
@@ -506,16 +527,18 @@ bid_t filemgr_alloc_multiple_cond(
     return bid;
 }
 
+#ifdef __CRC32
 INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
 {
     if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file, crc;
-        memcpy(&crc_file, buf + 8, sizeof(crc_file));
-        memset(buf + 8, 0xff, sizeof(void *));
+        memcpy(&crc_file, buf + BTREE_CRC_OFFSET, sizeof(crc_file));
+        memset(buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
         crc = crc32_8(buf, file->blocksize, 0);
         assert(crc == crc_file);
     }
 }
+#endif
 
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 {
@@ -607,14 +630,16 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
             if (len == file->blocksize) {
                 uint8_t marker = *((uint8_t*)buf + file->blocksize - 1);
                 if (marker == BLK_MARKER_BNODE) {
-                    memset(buf + 8, 0xff, sizeof(void *));
+                    memset(buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
                     uint32_t crc32 = crc32_8(buf, file->blocksize, 0);
-                    memcpy(buf + 8, &crc32, sizeof(crc32));
+                    memcpy(buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));
                 }
             }
         #endif
+
         r = file->ops->pwrite(file->fd, buf, len, pos);
         assert(r == len);
+
     }
 }
 
@@ -675,7 +700,7 @@ void filemgr_commit(struct filemgr *file)
     spin_unlock(&file->lock);
 
     if (file->sync) {
-        file->ops->fdatasync(file->fd);
+        file->ops->fsync(file->fd);
     }
 }
 
@@ -685,7 +710,7 @@ void filemgr_sync(struct filemgr *file)
         bcache_flush(file);
     }
 
-    file->ops->fdatasync(file->fd);
+    file->ops->fsync(file->fd);
 }
 
 void filemgr_update_file_status(struct filemgr *file, file_status_t status)

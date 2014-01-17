@@ -88,8 +88,10 @@ struct list_elem *list_remove(struct list *list, struct list_elem *e)
         if (list->head == e) list->head = e->next;
         if (list->tail == e) list->tail = e->prev;
 
+        struct list_elem *next = e->next;
+
         IFDEF_LOCK( spin_unlock(&list->lock); );
-        return e->next;
+        return next;
     }
     // NULL .. do nothing
     IFDEF_LOCK( spin_unlock(&list->lock); );
