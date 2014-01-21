@@ -63,22 +63,22 @@ struct btree_blk_ops {
     int (*blk_is_writable)(void *handle, bid_t bid);
     void (*blk_set_dirty)(void *handle, bid_t bid);
     void (*blk_operation_end)(void *handle); // optional
-#ifdef _BNODE_COMP
-    void (*blk_set_uncomp_size)(void *handle, bid_t bid, size_t uncomp_size);
-    size_t (*blk_comp_size)(void *handle, bid_t bid);
-#endif
 };
 
 struct btree {
     uint8_t ksize;
     uint8_t vsize;
+    uint16_t height;
     uint32_t blksize;
     bid_t root_bid;
-    bnode_flag_t root_flag;
-    uint16_t height;
     void *blk_handle;
     struct btree_blk_ops *blk_ops;
     struct btree_kv_ops *kv_ops;
+    bnode_flag_t root_flag;
+
+#ifdef __UTREE
+    uint16_t leafsize;
+#endif
 };
 
 struct btree_kv_ops {
@@ -94,7 +94,7 @@ struct btree_kv_ops {
 
     void (*init_kv_var)(struct btree *tree, void *key, void *value);
     void (*free_kv_var)(struct btree *tree, void *key, void *value);
-    
+
     void (*set_key)(struct btree *tree, void *dst, void *src);
     void (*set_value)(struct btree *tree, void *dst, void *src);
 
@@ -113,6 +113,7 @@ struct btree_iterator {
     bid_t *bid;
     idx_t *idx;
     struct bnode **node;
+    void **addr;
 };
 
 typedef void btree_print_func(struct btree *btree, void *key, void *value);
@@ -133,6 +134,9 @@ btree_result btree_init(
 btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key);
 btree_result btree_iterator_free(struct btree_iterator *it);
 btree_result btree_next(struct btree_iterator *it, void *key_buf, void *value_buf);
+
+btree_result btree_get_key_range(
+    struct btree *btree, idx_t num, idx_t den, void *key_begin, void *key_end);
 
 btree_result btree_find(struct btree *btree, void *key, void *value_buf);
 btree_result btree_insert(struct btree *btree, void *key, void *value);
