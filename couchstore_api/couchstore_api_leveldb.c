@@ -37,7 +37,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
 {
     Db *ppdb;
     char *err;
-    
+
     *pDb = (Db*)malloc(sizeof(Db));
     ppdb = *pDb;
 
@@ -53,7 +53,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     ppdb->write_options = leveldb_writeoptions_create();
     leveldb_writeoptions_set_sync(ppdb->write_options, 1);
     //leveldb_writeoptions_set_sync(ppdb->write_options, 0);
-    
+
     return COUCHSTORE_SUCCESS;
 }
 
@@ -80,7 +80,7 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
 
     stat(db->filename, &filestat);
     info->space_used = filestat.st_size;
-    
+
     return COUCHSTORE_SUCCESS;
 }
 
@@ -100,7 +100,7 @@ size_t _docinfo_to_buf(DocInfo *docinfo, void *buf)
 
     memcpy(buf + offset, &docinfo->content_meta, sizeof(docinfo->content_meta));
     offset += sizeof(docinfo->content_meta);
-    
+
     memcpy(buf + offset, &docinfo->rev_meta.size, sizeof(docinfo->rev_meta.size));
     offset += sizeof(docinfo->rev_meta.size);
 
@@ -113,7 +113,7 @@ size_t _docinfo_to_buf(DocInfo *docinfo, void *buf)
 }
 
 LIBCOUCHSTORE_API
-couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo *infos[], 
+couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo *infos[],
         unsigned numdocs, couchstore_save_options options)
 {
     unsigned i;
@@ -131,19 +131,19 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
         memcpy(buf, &metalen, sizeof(metalen));
         memcpy(buf + sizeof(metalen) + metalen, docs[i]->data.buf, docs[i]->data.size);
 
-        leveldb_writebatch_put(wb, 
+        leveldb_writebatch_put(wb,
             docs[i]->id.buf, docs[i]->id.size, buf, sizeof(metalen) + metalen + docs[i]->data.size);
 
         infos[i]->db_seq = 0;
     }
     leveldb_write(db->db, db->write_options, wb, &err);
     leveldb_writebatch_destroy(wb);
-    
+
     return COUCHSTORE_SUCCESS;
 }
 
 LIBCOUCHSTORE_API
-couchstore_error_t couchstore_save_document(Db *db, const Doc *doc, DocInfo *info, 
+couchstore_error_t couchstore_save_document(Db *db, const Doc *doc, DocInfo *info,
         couchstore_save_options options)
 {
     return couchstore_save_documents(db, (Doc**)&doc, (DocInfo**)&info, 1, options);
@@ -152,7 +152,7 @@ couchstore_error_t couchstore_save_document(Db *db, const Doc *doc, DocInfo *inf
 void _buf_to_docinfo(void *buf, size_t size, DocInfo *docinfo)
 {
     size_t offset = 0;
-    
+
     /*memcpy(&docinfo->db_seq, buf + offset, sizeof(docinfo->db_seq));
     offset += sizeof(docinfo->db_seq);*/
 
@@ -222,7 +222,7 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
 
     for (i=0;i<numDocs;++i){
         value = leveldb_get(db->db, db->read_options, ids[i].buf, ids[i].size, &valuelen, &err);
-       
+
         memcpy(&rev_meta_size, value + sizeof(uint16_t) + meta_offset, sizeof(size_t));
         if (rev_meta_size > max_meta_size) {
             max_meta_size = rev_meta_size;
@@ -258,6 +258,42 @@ couchstore_error_t couchstore_docinfos_by_sequence(Db *db,
 
     return COUCHSTORE_SUCCESS;
 }
+
+LIBCOUCHSTORE_API
+couchstore_error_t couchstore_open_document(Db *db,
+                                            const void *id,
+                                            size_t idlen,
+                                            Doc **pDoc,
+                                            couchstore_open_options options)
+{
+    char *err;
+    void *value;
+    size_t valuelen;
+    size_t rev_meta_size;
+    size_t meta_offset;
+
+    value = leveldb_get(db->db, db->read_options, id, idlen, &valuelen, &err);
+
+    meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
+    memcpy(&rev_meta_size, value + sizeof(uint16_t) + meta_offset, sizeof(size_t));
+
+    *pDoc = (Doc *)malloc(sizeof(Doc));
+    (*pDoc)->id.buf = (void*)id;
+    (*pDoc)->id.size = idlen;
+    (*pDoc)->data.buf = value;
+    (*pDoc)->data.size = valuelen;
+
+    return COUCHSTORE_SUCCESS;
+}
+
+LIBCOUCHSTORE_API
+void couchstore_free_document(Doc *doc)
+{
+    free(doc->id.buf);
+    free(doc->data.buf);
+    free(doc);
+}
+
 
 LIBCOUCHSTORE_API
 void couchstore_free_docinfo(DocInfo *docinfo)

@@ -323,6 +323,48 @@ couchstore_error_t couchstore_docinfos_by_sequence(Db *db,
 }
 
 LIBCOUCHSTORE_API
+couchstore_error_t couchstore_open_document(Db *db,
+                                            const void *id,
+                                            size_t idlen,
+                                            Doc **pDoc,
+                                            couchstore_open_options options)
+{
+    fdb_doc _doc;
+    fdb_status status;
+    size_t rev_meta_size;
+    size_t meta_offset;
+
+    meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
+
+    _doc.key = (void *)id;
+    _doc.keylen = idlen;
+    _doc.seqnum = SEQNUM_NOT_USED;
+    _doc.meta = _doc.body = NULL;
+
+    status = fdb_get(&db->fdb, &_doc);
+    memcpy(&rev_meta_size, _doc.meta + meta_offset, sizeof(size_t));
+
+    *pDoc = (Doc *)malloc(sizeof(Doc));
+    (*pDoc)->id.buf = _doc.key;
+    (*pDoc)->id.size = _doc.keylen;
+    (*pDoc)->data.buf = _doc.body;
+    (*pDoc)->data.size = _doc.bodylen;
+
+    free(_doc.meta);
+
+    return COUCHSTORE_SUCCESS;
+}
+
+
+LIBCOUCHSTORE_API
+void couchstore_free_document(Doc *doc)
+{
+    free(doc->id.buf);
+    free(doc->data.buf);
+    free(doc);
+}
+
+LIBCOUCHSTORE_API
 void couchstore_free_docinfo(DocInfo *docinfo)
 {
     //free(docinfo->rev_meta.buf);

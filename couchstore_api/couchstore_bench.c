@@ -512,10 +512,11 @@ void do_bench(struct bench_info *binfo)
                     db[curfile_no], seqs, batchsize, 0x0, empty_callback, NULL);
                 free(seqs);
             }else{
-                couchstore_docinfos_by_id(db[curfile_no], ids, batchsize, 0x0, empty_callback, NULL);
+                Doc *rdoc;
 
                 for (j=0;j<batchsize;++j){
-                    free(ids[j].buf);
+                    couchstore_open_document(db[curfile_no], ids[j].buf, ids[j].size, &rdoc, 0x0);
+                    couchstore_free_document(rdoc);
                 }
                 free(ids);
             }

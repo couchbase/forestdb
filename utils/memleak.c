@@ -17,6 +17,7 @@
 #define _MALLOC_OVERRIDE
 #define INIT_VAL (0xff)
 #define FREE_VAL (0x11)
+//#define _WARN_NOT_ALLOCATED_MEMORY
 //#define _PRINT_DBG
 
 #ifdef _PRINT_DBG
@@ -172,8 +173,10 @@ void memleak_free(void *addr, char *file, size_t line)
         query.addr = (uint64_t)addr;
         r = rbwrap_search(&rbtree, &query.rb, memleak_cmp);
         if (!r) {
+#ifdef _WARN_NOT_ALLOCATED_MEMORY
             fprintf(stderr, "try to free not allocated memory address 0x%016lx at %s:%ld\n",
                 (long unsigned int)addr, file, line);
+#endif
             spin_unlock(&lock);
             return;
         }
