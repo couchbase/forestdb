@@ -215,13 +215,13 @@ hbtrie_result hbtrie_iterator_init(
 {
     it->trie = *trie;
     it->curkey = (void *)malloc(HBTRIE_MAX_KEYLEN);
+    memset(it->curkey, 0, HBTRIE_MAX_KEYLEN);
 
     if (initial_key) {
         it->keylen = keylen;
         memcpy(it->curkey, initial_key, it->keylen);
     }else{
         it->keylen = 0;
-        memset(it->curkey, 0, HBTRIE_MAX_KEYLEN);
     }
     list_init(&it->btreeit_list);
 
@@ -239,7 +239,7 @@ hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it)
         btree_iterator_free(&item->btree_it);
         mempool_free(item);
     }
-    free(it->curkey);
+    if (it->curkey) free(it->curkey);
     return HBTRIE_RESULT_SUCCESS;
 }
 
@@ -348,11 +348,21 @@ hbtrie_result _hbtrie_next(
 
 hbtrie_result hbtrie_next(struct hbtrie_iterator *it, void *key_buf, size_t *keylen, void *value_buf)
 {
+    hbtrie_result hr;
+
+    if (it->curkey == NULL) return HBTRIE_RESULT_FAIL;
+
     struct list_elem *e = list_begin(&it->btreeit_list);
     struct btreeit_item *item = NULL;
     if (e) item = _get_entry(e, struct btreeit_item, le);
 
-    return _hbtrie_next(it, item, key_buf, keylen, value_buf);
+    hr = _hbtrie_next(it, item, key_buf, keylen, value_buf);
+    if (hr == HBTRIE_RESULT_FAIL) {
+        // this iterator reaches the end of hb-trie
+        free(it->curkey);
+        it->curkey = NULL;
+    }
+    return hr;
 }
 
 void _hbtrie_btree_cascaded_update(struct hbtrie *trie, struct list *btreelist, void *key)

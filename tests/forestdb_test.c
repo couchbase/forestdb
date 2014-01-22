@@ -873,12 +873,173 @@ void incomplete_block_test()
     // close db file
     fdb_close(&db);
 
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
     // free all resources
     fdb_shutdown();
 
     memleak_end();
 
     TEST_RESULT("incomplete block test");
+}
+
+void iterator_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    uint64_t offset;
+    fdb_handle db;
+    fdb_config config;
+    fdb_doc *doc[n], *rdoc;
+    fdb_status status;
+    fdb_iterator iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // configuration
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 0;
+    config.wal_threshold = 1024;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    // remove previous dummy files
+    r = system("rm -rf ./dummy* > errorlog.txt");
+
+    // open db
+    fdb_open(&db, "./dummy1", &config);
+
+    // insert documents of even number
+    for (i=0;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i],
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_flush_wal(&db);
+    fdb_commit(&db);
+
+    // insert documents of odd number
+    for (i=1;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i],
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+    // commit without WAL flush
+    fdb_commit(&db);
+
+    // now even number docs are in hb-trie & odd number docs are in WAL
+
+    // create an iterator for full range
+    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    while(1){
+        status = fdb_iterator_next(&iterator, &rdoc);
+        if (status == FDB_RESULT_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==10);
+    fdb_iterator_close(&iterator);
+
+    // create an iterator with metaonly option
+    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_METAONLY);
+
+    // repeat until fail
+    i=0;
+    while(1){
+        // retrieve the next doc and get the byte offset of the returned doc
+        offset = BLK_NOT_FOUND;
+        status = fdb_iterator_next_offset(&iterator, &rdoc, &offset);
+        if (status == FDB_RESULT_FAIL) break;
+
+        TEST_CHK(offset != BLK_NOT_FOUND);
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(rdoc->body == NULL);
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==10);
+    fdb_iterator_close(&iterator);
+
+    // create another iterator starts from doc[3]
+    sprintf(keybuf, "key%d", 3);
+    fdb_iterator_init(&db, &iterator, keybuf, strlen(keybuf), NULL, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=3;
+    while(1){
+        status = fdb_iterator_next(&iterator, &rdoc);
+        if (status == FDB_RESULT_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==10);
+    fdb_iterator_close(&iterator);
+
+    // create another iterator for the range of doc[4] ~ doc[8]
+    sprintf(keybuf, "key%d", 4);
+    sprintf(temp, "key%d", 8);
+    fdb_iterator_init(&db, &iterator, keybuf, strlen(keybuf), temp, strlen(temp), FDB_ITR_NONE);
+
+    // repeat until fail
+    i=4;
+    while(1){
+        status = fdb_iterator_next(&iterator, &rdoc);
+        if (status == FDB_RESULT_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==9);
+    fdb_iterator_close(&iterator);
+
+    // close db file
+    fdb_close(&db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("iterator test");
 }
 
 int main(){
@@ -890,6 +1051,7 @@ int main(){
     crash_recovery_test();
 #endif
     incomplete_block_test();
+    iterator_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 7);
 
     return 0;

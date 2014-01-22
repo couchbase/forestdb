@@ -81,6 +81,28 @@ typedef struct {
 #endif
 } fdb_handle;
 
+typedef uint8_t fdb_iterator_opt_t;
+enum {
+    FDB_ITR_NONE = 0x0,
+    FDB_ITR_METAONLY = 0x1,
+};
+struct hbtrie_iterator;
+struct rb_root;
+typedef struct {
+    fdb_handle handle;
+    struct hbtrie_iterator *hbtrie_iterator;
+    struct rb_root *wal_rb;
+    struct rb_node *rb_cursor;
+    void *end_key;
+    size_t end_keylen;
+    fdb_iterator_opt_t opt;
+
+    // for temporary buffering previous key & offset
+    void *_key;
+    size_t _keylen;
+    uint64_t _offset;
+} fdb_iterator;
+
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config);
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
     void *body, size_t bodylen);
@@ -94,6 +116,20 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
 #endif
 fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc);
 fdb_status fdb_commit(fdb_handle *handle);
+
+fdb_status fdb_iterator_init(fdb_handle *handle,
+                             fdb_iterator *iterator,
+                             void *start_key,
+                             size_t start_keylen,
+                             void *end_key,
+                             size_t end_keylen,
+                             fdb_iterator_opt_t opt);
+fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc);
+fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
+                                    fdb_doc **doc,
+                                    uint64_t *doc_offset_out);
+fdb_status fdb_iterator_close(fdb_iterator *iterator);
+
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename);
 fdb_status fdb_flush_wal(fdb_handle *handle);
 size_t fdb_estimate_space_used(fdb_handle *handle);

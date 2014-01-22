@@ -39,7 +39,7 @@ HBTRIE = src/hbtrie.o $(BTREE) $(DOCIO) $(BTREEBLOCK) \
 HBTRIETEST = tests/hbtrie_test.o
 
 FDB = \
-	src/forestdb.o src/hbtrie.o src/btree.o src/btree_kv.o \
+	src/forestdb.o src/iterator.o src/hbtrie.o src/btree.o src/btree_kv.o \
 	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
 	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
 	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o \
