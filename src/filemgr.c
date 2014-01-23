@@ -204,6 +204,9 @@ void _filemgr_read_header(struct filemgr *file)
                                    sizeof(filemgr_header_revnum_t));
                             file->header.size = len;
 
+                            // release temp buffer
+                            _filemgr_release_temp_buf(buf);
+
                             return;
                         } else {
                             DBG("Crash Detected: CRC on disk %u != %u\n",
