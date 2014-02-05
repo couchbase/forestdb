@@ -83,6 +83,8 @@ int64_t get_random(struct rndinfo* ri, uint64_t rv1, uint64_t rv2)
     return 0;
 }
 
+#ifdef __RAND_GEN_TEST
+
 void _rand_gen_test()
 {
     int n = 32, m = 1<<20;
@@ -99,7 +101,7 @@ void _rand_gen_test()
     ri.a = 0;
     ri.b = 32;
 
-    for (i=0;i<m;++i){
+    for (i=0;i<m;++i){
         BDR_RNG_NEXTPAIR;
         r = get_random(&ri, rngz, rngz2);
         arr[r]++;
@@ -116,7 +118,7 @@ void _rand_gen_test()
     ri.a = 16;
     ri.b = 2;
 
-    for (i=0;i<m;++i){
+    for (i=0;i<m;++i){
         BDR_RNG_NEXTPAIR;
         r = get_random(&ri, rngz, rngz2);
         if (r<0) r=0;
@@ -130,5 +132,6 @@ void _rand_gen_test()
     }
 }
 
+#endif
 
 #endif

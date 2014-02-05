@@ -573,7 +573,9 @@ void *_worker_thread(void *voidargs)
                     fdb_commit(&db);
                     commit_count++;
 
-                    if (args->compact_term == commit_count && args->compact_term > 0) {
+                    if (args->compact_term == commit_count &&
+                        args->compact_term > 0 &&
+                        db.new_file == NULL) {
                         // do compaction for every COMPACT_TERM batch
                         spin_lock(args->filename_count_lock);
                         *args->filename_count += 1;
@@ -581,9 +583,9 @@ void *_worker_thread(void *voidargs)
                         spin_unlock(args->filename_count_lock);
 
                         sprintf(temp, FILENAME"%d", filename_count);
-                        //DBG("writer %d triggers compaction %s %s\n", args->tid, db.file->filename, temp);
 
-                        fdb_compact(&db, temp);
+                        status = fdb_compact(&db, temp);
+
                         commit_count = 0;
                     }
                 }
@@ -709,6 +711,13 @@ void multi_thread_test(
     for (i=0;i<ndocs;++i){
         fdb_doc_free(doc[i]);
     }
+
+    fprintf(stderr, "compaction recovery..\n");
+    sprintf(temp, FILENAME"_recovered");
+    fdb_open(&db, temp, &config);
+    sprintf(temp, FILENAME"%d", filename_count);
+    fdb_recover_compaction(&db, temp);
+    fdb_close(&db);
 
     // shutdown
     fdb_shutdown();
@@ -1052,7 +1061,7 @@ int main(){
 #endif
     incomplete_block_test();
     iterator_test();
-    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 7);
+    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;
 }

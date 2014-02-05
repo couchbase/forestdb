@@ -303,7 +303,12 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         _filemgr_read_header(file);
 
         file->lock = SPIN_INITIALIZER;
+
+#ifdef __FILEMGR_MUTEX_LOCK
         mutex_init(&file->mutex);
+#else
+        file->mutex = SPIN_INITIALIZER;
+#endif
 
         hash_insert(&hash, &file->e);
 
@@ -558,9 +563,9 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
                 r = file->ops->pread(file->fd, buf, file->blocksize, pos);
                 assert(r == file->blocksize);
 
-                #ifdef __CRC32
-                    _filemgr_crc32_check(file, buf);
-                #endif
+#ifdef __CRC32
+                _filemgr_crc32_check(file, buf);
+#endif
 
                 bcache_write(file, bid, buf, BCACHE_CLEAN);
             }else{
@@ -723,6 +728,16 @@ void filemgr_update_file_status(struct filemgr *file, file_status_t status)
     spin_unlock(&file->lock);
 }
 
+void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file)
+{
+    assert(new_file);
+
+    spin_lock(&old_file->lock);
+    old_file->new_file = new_file;
+    old_file->status = FILE_COMPACT_OLD;
+    spin_unlock(&old_file->lock);
+}
+
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
 {
     assert(new_file);
@@ -751,11 +766,19 @@ file_status_t filemgr_get_file_status(struct filemgr *file)
 
 void filemgr_mutex_lock(struct filemgr *file)
 {
+#ifdef __FILEMGR_MUTEX_LOCK
     mutex_lock(&file->mutex);
+#else
+    spin_lock(&file->mutex);
+#endif
 }
 
 void filemgr_mutex_unlock(struct filemgr *file)
 {
+#ifdef __FILEMGR_MUTEX_LOCK
     mutex_unlock(&file->mutex);
+#else
+    spin_unlock(&file->mutex);
+#endif
 }
 

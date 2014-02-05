@@ -15,6 +15,7 @@ typedef uint64_t fdb_seqnum_t;
 #define FDB_SECTOR_SIZE (512)
 
 //#define DOCIO_BLOCK_ALIGN
+#define DOCIO_LEN_STRUCT_ALIGN
 
 //#define __RAW_BLOCK
 
@@ -26,7 +27,6 @@ typedef uint64_t fdb_seqnum_t;
 #define __BIT_CMP
 
 #define __WAL_KEY_COPY
-#define __WAL_FLUSH_BEFORE_COMMIT
 
 //#define __DEBUG_FDB
 //#define __DEBUG_WAL
@@ -50,6 +50,7 @@ typedef uint64_t fdb_seqnum_t;
 #define BCACHE_FLUSH_UNIT (256*1024)
 
 #define FILEMGR_BULK_READ (16)
+//#define __FILEMGR_MUTEX_LOCK
 
 #define __BTREEBLK_BLOCKPOOL
 //#define __BTREEBLK_CACHE

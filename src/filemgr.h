@@ -69,8 +69,12 @@ struct filemgr {
 
     // spin lock for small region
     spin_t lock;
-    // mutex for larger & higher region (for FDB interfaces)
+    // spin lock for race condition between separate writer
+#ifdef __FILEMGR_MUTEX_LOCK
     mutex_t mutex;
+#else
+    spin_t mutex;
+#endif
 };
 
 struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct filemgr_config *config);
@@ -98,6 +102,7 @@ void filemgr_commit(struct filemgr *file);
 void filemgr_sync(struct filemgr *file);
 void filemgr_shutdown();
 void filemgr_update_file_status(struct filemgr *file, file_status_t status);
+void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
 file_status_t filemgr_get_file_status(struct filemgr *file);
 

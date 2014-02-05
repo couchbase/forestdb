@@ -66,7 +66,9 @@ typedef struct {
     struct hbtrie *trie;
     struct btree *seqtree;
     struct filemgr *file;
+    struct filemgr *new_file;
     struct docio_handle *dhandle;
+    struct docio_handle *new_dhandle;
     struct btreeblk_handle *bhandle;
     struct btree_blk_ops *btreeblkops;
     struct filemgr_ops *fileops;
@@ -103,6 +105,7 @@ typedef struct {
     uint64_t _offset;
 } fdb_iterator;
 
+fdb_status fdb_recover_compaction(fdb_handle *handle, char *new_filename);
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config);
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
     void *body, size_t bodylen);
