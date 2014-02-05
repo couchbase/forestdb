@@ -102,6 +102,7 @@ INLINE void _fdb_restore_wal(fdb_handle *handle)
                 fdb_doc wal_doc;
                 wal_doc.keylen = doc.length.keylen;
                 wal_doc.metalen = doc.length.metalen;
+                wal_doc.bodylen = doc.length.bodylen;
                 wal_doc.key = doc.key;
 #ifdef __FDB_SEQTREE
                 wal_doc.seqnum = doc.seqnum;
