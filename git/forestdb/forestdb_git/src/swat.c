@@ -1,2 +1,0 @@
-
-#include "swat.h"
