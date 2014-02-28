@@ -31,10 +31,10 @@
         #define mutex_init(arg) *(arg) = (0)
     #endif
 
-#elif __linux
+#elif __LINUX__
     #define INLINE __inline
 
-    #define _F64 "ld"
+    #define _F64 "lld"
     #define _FSEC "ld"
     #define _FUSEC "ld"
 

@@ -38,11 +38,15 @@ uint32_t hash_shuffle_2uint(uint64_t a, uint64_t b)
 {
     uint32_t c;
 
-    a ^= bitswap64(a ^ 0xffffffffffffffff);
-    b ^= bitswap64(b ^ 0xffffffffffffffff);
+    a ^= bitswap64(a ^ UINT64_C(0xffffffffffffffff));
+    b ^= bitswap64(b ^ UINT64_C(0xffffffffffffffff));
 
-    a = (a & 0xffff) ^ ((a & 0xffff0000) >> 16) ^ ((a & 0xffff00000000) >> 32) ^ ((a & 0xffff000000000000) >> 48);
-    b = (b & 0xffff) ^ ((b & 0xffff0000) >> 16) ^ ((b & 0xffff00000000) >> 32) ^ ((b & 0xffff000000000000) >> 48);
+    a = (a & 0xffff) ^ ((a & 0xffff0000) >> 16) ^
+        ((a & UINT64_C(0xffff00000000)) >> 32) ^
+        ((a & UINT64_C(0xffff000000000000)) >> 48);
+    b = (b & 0xffff) ^ ((b & 0xffff0000) >> 16) ^
+        ((b & UINT64_C(0xffff00000000)) >> 32) ^
+        ((b & UINT64_C(0xffff000000000000)) >> 48);
 
     c = (((a & 0x0000000f) << 0) |
         ((b & 0x0000000f) << 4) |

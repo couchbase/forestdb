@@ -31,7 +31,7 @@
     offset_var += size
 
 typedef uint64_t bid_t;
-#define BLK_NOT_FOUND (0xffffffffffffffff)
+#define BLK_NOT_FOUND (UINT64_C(0xffffffffffffffff))
 
 typedef uint8_t file_status_t;
 enum{

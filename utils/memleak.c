@@ -73,7 +73,7 @@ void memleak_end()
         r = rb_next(r);
         rb_erase(&item->rb, &rbtree);
 
-        fprintf(stderr, "address 0x%016lx (allocated at %s:%ld, size %ld) is not freed\n",
+        fprintf(stderr, "address 0x%016lx (allocated at %s:%lu, size %lu) is not freed\n",
             (unsigned long)item->addr, item->file, item->line, item->size);
         free(item);
         count++;

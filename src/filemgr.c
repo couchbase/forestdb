@@ -32,7 +32,7 @@
 
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
-#define FILEMGR_MAGIC (0xdeadcafebeefbeef)
+#define FILEMGR_MAGIC (UINT64_C(0xdeadcafebeefbeef))
 
 // global static variables
 static spin_t initial_lock = SPIN_INITIALIZER;

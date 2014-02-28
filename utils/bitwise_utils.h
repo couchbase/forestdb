@@ -26,7 +26,7 @@
 //#ifdef __BIT_CMP
 
 // 64-bit sign mask
-#define _64_SM (0x8000000000000000)
+#define _64_SM (UINT64_C(0x8000000000000000))
 // 32-bit sign mask
 #define _32_SM (0x80000000)
 // 32-bit value mask
