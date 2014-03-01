@@ -31,7 +31,7 @@
         #define mutex_init(arg) *(arg) = (0)
     #endif
 
-#elif __LINUX__
+#elif __linux__
     #define INLINE __inline
 
     #define _F64 "lld"
