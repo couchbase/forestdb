@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <fcntl.h>
+#include <inttypes.h>
 
 #ifdef __APPLE__
     #define INLINE extern inline
@@ -34,7 +35,7 @@
 #elif __linux__
     #define INLINE __inline
 
-    #define _F64 "lld"
+    #define _F64 PRIu64
     #define _FSEC "ld"
     #define _FUSEC "ld"
 
