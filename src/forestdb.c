@@ -92,31 +92,36 @@ INLINE void _fdb_restore_wal(fdb_handle *handle)
         offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
         if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
             continue;
-        } else do {
-            struct docio_object doc;
-            uint64_t _offset;
-            memset(&doc, 0, sizeof(doc));
-            _offset = docio_read_doc(handle->dhandle, offset, &doc);
-            if (doc.key) {
-                fdb_doc wal_doc;
-                wal_doc.keylen = doc.length.keylen;
-                wal_doc.metalen = doc.length.metalen;
-                wal_doc.bodylen = doc.length.bodylen;
-                wal_doc.key = doc.key;
+        } else {
+            do {
+                struct docio_object doc;
+                uint64_t _offset;
+                memset(&doc, 0, sizeof(doc));
+                _offset = docio_read_doc(handle->dhandle, offset, &doc);
+                if (doc.key) {
+                    fdb_doc wal_doc;
+                    wal_doc.keylen = doc.length.keylen;
+                    wal_doc.metalen = doc.length.metalen;
+                    wal_doc.bodylen = doc.length.bodylen;
+                    wal_doc.key = doc.key;
 #ifdef __FDB_SEQTREE
-                wal_doc.seqnum = doc.seqnum;
+                    wal_doc.seqnum = doc.seqnum;
 #endif
-                wal_doc.meta = doc.meta;
-                wal_insert(file, &wal_doc, offset);
-                free(doc.key);
-                free(doc.meta);
-                free(doc.body);
-                offset = _offset;
-            } else {
-                offset = _offset;
-                break;
-            }
-        } while (offset + sizeof(struct docio_length) < header_blk_pos);
+                    wal_doc.meta = doc.meta;
+                    wal_insert(file, &wal_doc, offset);
+                    if (doc.key) free(doc.key);
+                    if (doc.meta) free(doc.meta);
+                    if (doc.body) free(doc.body);
+                    offset = _offset;
+                } else {
+                    if (doc.key) free(doc.key);
+                    if (doc.meta) free(doc.meta);
+                    if (doc.body) free(doc.body);
+                    offset = _offset;
+                    break;
+                }
+            } while (offset + sizeof(struct docio_length) < header_blk_pos);
+        }
     }
     filemgr_mutex_unlock(file);
 }
@@ -144,35 +149,40 @@ fdb_status fdb_recover_compaction(fdb_handle *handle, char *new_filename)
             // this block is not for documents
             continue;
 
-        } else do {
-            struct docio_object doc;
-            uint64_t _offset;
-            memset(&doc, 0, sizeof(doc));
-            _offset = docio_read_doc(&dhandle, offset, &doc);
-            if (doc.key && docio_check_compact_doc(&dhandle, &doc)) {
-                // this document was interleaved during compaction
-                fdb_doc wal_doc;
-                wal_doc.keylen = doc.length.keylen;
-                wal_doc.metalen = doc.length.metalen;
-                wal_doc.bodylen = doc.length.bodylen;
-                wal_doc.key = doc.key;
+        } else {
+            do {
+                struct docio_object doc;
+                uint64_t _offset;
+                memset(&doc, 0, sizeof(doc));
+                _offset = docio_read_doc(&dhandle, offset, &doc);
+                if (doc.key && docio_check_compact_doc(&dhandle, &doc)) {
+                    // this document was interleaved during compaction
+                    fdb_doc wal_doc;
+                    wal_doc.keylen = doc.length.keylen;
+                    wal_doc.metalen = doc.length.metalen;
+                    wal_doc.bodylen = doc.length.bodylen;
+                    wal_doc.key = doc.key;
 #ifdef __FDB_SEQTREE
-                wal_doc.seqnum = doc.seqnum;
+                    wal_doc.seqnum = doc.seqnum;
 #endif
-                wal_doc.meta = doc.meta;
-                wal_doc.body = doc.body;
+                    wal_doc.meta = doc.meta;
+                    wal_doc.body = doc.body;
 
-                fdb_set(handle, &wal_doc);
+                    fdb_set(handle, &wal_doc);
 
-                free(doc.key);
-                free(doc.meta);
-                free(doc.body);
-                offset = _offset;
-            } else {
-                offset = _offset;
-                break;
-            }
-        } while (offset + sizeof(struct docio_length) < new_file->pos);
+                    if (doc.key) free(doc.key);
+                    if (doc.meta) free(doc.meta);
+                    if (doc.body) free(doc.body);
+                    offset = _offset;
+                } else {
+                    if (doc.key) free(doc.key);
+                    if (doc.meta) free(doc.meta);
+                    if (doc.body) free(doc.body);
+                    offset = _offset;
+                    break;
+                }
+            } while (offset + sizeof(struct docio_length) < new_file->pos);
+        }
     }
 
     docio_free(&dhandle);
@@ -1012,6 +1022,7 @@ fdb_status fdb_close(fdb_handle *handle)
     if (handle->new_file) {
         filemgr_close(handle->new_file);
         docio_free(handle->new_dhandle);
+        free(handle->new_dhandle);
         handle->new_file = NULL;
         handle->new_dhandle = NULL;
     }
