@@ -7,10 +7,10 @@
 #define _JSAHN_HASH_H
 
 #include <stdint.h>
-#define _HASH_RBTREE
+#define _HASH_TREE
 
-#ifdef _HASH_RBTREE
-    #include "rbwrap.h"
+#ifdef _HASH_TREE
+    #include "avltree.h"
 #else
     #include "list.h"
 #endif
@@ -21,11 +21,11 @@
 #endif
 
 struct hash_elem {
-    #ifdef _HASH_RBTREE
-        struct rb_node rb_node;
-    #else
-        struct list_elem list_elem;
-    #endif
+#ifdef _HASH_TREE
+    struct avl_node avl;
+#else
+    struct list_elem list_elem;
+#endif
 };
 
 struct hash;
@@ -37,17 +37,17 @@ typedef void hash_free_func(struct hash_elem *e);
 
 struct hash {
     size_t nbuckets;
-    #ifdef _HASH_RBTREE
-        struct rb_root *buckets;
-    #else
-        struct list *buckets;
-    #endif
+#ifdef _HASH_TREE
+    struct avl_tree *buckets;
+#else
+    struct list *buckets;
+#endif
 
     hash_hash_func *hash;
     hash_cmp_func *cmp;
-    #ifdef _HASH_RBTREE
-        rbwrap_cmp_func *rb_cmp;
-    #endif
+#ifdef _HASH_TREE
+    avl_cmp_func *avl_cmp;
+#endif
 
 #ifdef _HASH_LOCK
     // define locks for each bucket

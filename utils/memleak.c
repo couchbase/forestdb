@@ -26,25 +26,25 @@
     #define DBG(args...)
 #endif
 
-#include "rbwrap.h"
+#include "avltree.h"
 
 struct memleak_item {
     uint64_t addr;
     char *file;
     size_t size;
     size_t line;
-    struct rb_node rb;
+    struct avl_node avl;
 };
 
-static struct rb_root rbtree;
+static struct avl_tree tree_index;
 static uint8_t start_sw = 0;
 static spin_t lock = SPIN_INITIALIZER;
 
-int memleak_cmp(struct rb_node *a, struct rb_node *b, void *aux)
+int memleak_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct memleak_item *aa, *bb;
-    aa = _get_entry(a, struct memleak_item, rb);
-    bb = _get_entry(b, struct memleak_item, rb);
+    aa = _get_entry(a, struct memleak_item, avl);
+    bb = _get_entry(b, struct memleak_item, avl);
     if (aa->addr < bb->addr) return -1;
     else if (aa->addr > bb->addr) return 1;
     else return 0;
@@ -53,25 +53,25 @@ int memleak_cmp(struct rb_node *a, struct rb_node *b, void *aux)
 void memleak_start()
 {
     lock = SPIN_INITIALIZER;
-    rbwrap_init(&rbtree, NULL);
+    avl_init(&tree_index, NULL);
     start_sw = 1;
 }
 
 void memleak_end()
 {
     size_t count = 0;
-    struct rb_node *r;
+    struct avl_node *a;
     struct memleak_item *item;
 
     spin_lock(&lock);
 
     start_sw = 0;
 
-    r = rb_first(&rbtree);
-    while(r){
-        item = _get_entry(r, struct memleak_item, rb);
-        r = rb_next(r);
-        rb_erase(&item->rb, &rbtree);
+    a = avl_first(&tree_index);
+    while(a){
+        item = _get_entry(a, struct memleak_item, avl);
+        a = avl_next(a);
+        avl_remove(&tree_index, &item->avl);
 
         fprintf(stderr, "address 0x%016lx (allocated at %s:%lu, size %lu) is not freed\n",
             (unsigned long)item->addr, item->file, item->line, item->size);
@@ -94,7 +94,7 @@ void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uin
 #ifdef INIT_VAL
     memset(addr, init_val, size);
 #endif
-    rbwrap_insert(&rbtree, &item->rb, memleak_cmp);
+    avl_insert(&tree_index, &item->avl, memleak_cmp);
 }
 
 void * memleak_alloc(size_t size, char *file, size_t line)
@@ -143,16 +143,16 @@ void *memleak_realloc(void *ptr, size_t size)
 
     void *addr = realloc(ptr, size);
     if (addr && start_sw) {
-        struct rb_node *r;
+        struct avl_node *a;
         struct memleak_item *item, query;
 
         query.addr = (uint64_t)ptr;
-        r = rbwrap_search(&rbtree, &query.rb, memleak_cmp);
-        if (r) {
-            item = _get_entry(r, struct memleak_item, rb);
+        a = avl_search(&tree_index, &query.avl, memleak_cmp);
+        if (a) {
+            item = _get_entry(a, struct memleak_item, avl);
             DBG("realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n",
                 item->addr, item->file, item->line, item->size, (uint64_t)addr, size);
-            rb_erase(r, &rbtree);
+            avl_remove(&tree_index, a);
             _memleak_add_to_index(addr, size, item->file, item->line, INIT_VAL);
             free(item);
         }
@@ -164,15 +164,15 @@ void *memleak_realloc(void *ptr, size_t size)
 
 void memleak_free(void *addr, char *file, size_t line)
 {
-    struct rb_node *r;
+    struct avl_node *a;
     struct memleak_item *item, query;
     spin_lock(&lock);
 
     if (start_sw) {
 
         query.addr = (uint64_t)addr;
-        r = rbwrap_search(&rbtree, &query.rb, memleak_cmp);
-        if (!r) {
+        a = avl_search(&tree_index, &query.avl, memleak_cmp);
+        if (!a) {
 #ifdef _WARN_NOT_ALLOCATED_MEMORY
             fprintf(stderr, "try to free not allocated memory address 0x%016lx at %s:%ld\n",
                 (long unsigned int)addr, file, line);
@@ -181,14 +181,14 @@ void memleak_free(void *addr, char *file, size_t line)
             return;
         }
 
-        item = _get_entry(r, struct memleak_item, rb);
+        item = _get_entry(a, struct memleak_item, avl);
         DBG("free address 0x%016lx (allocated at %s:%ld, size %ld)\n",
             item->addr, item->file, item->line, item->size);
 #ifdef FREE_VAL
         memset(addr, FREE_VAL, item->size);
 #endif
 
-        rb_erase(r, &rbtree);
+        avl_remove(&tree_index, a);
         free(item);
     }
     free(addr);

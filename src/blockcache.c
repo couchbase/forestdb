@@ -11,9 +11,9 @@
 #include "common.h"
 #include "hash.h"
 #include "list.h"
-#include "rbwrap.h"
 #include "blockcache.h"
 #include "crc32.h"
+#include "avltree.h"
 
 #include "memleak.h"
 
@@ -63,7 +63,7 @@ struct fnamedic_item {
     // list for clean blocks
     struct list cleanlist;
     // red-black tree for dirty blocks
-    struct rb_root rbtree;
+    struct avl_tree tree;
     // hash table for block lookup
     struct hash hashtable;
 
@@ -101,7 +101,7 @@ struct bcache_item {
 
 struct dirty_item {
     struct bcache_item *item;
-    struct rb_node rb;
+    struct avl_node avl;
 };
 
 #ifdef __DEBUG
@@ -139,11 +139,11 @@ void _pl(struct list *list, uint64_t begin, uint64_t n)
 }
 #endif
 
-INLINE int _dirty_cmp(struct rb_node *a, struct rb_node *b, void *aux)
+INLINE int _dirty_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct dirty_item *aa, *bb;
-    aa = _get_entry(a, struct dirty_item, rb);
-    bb = _get_entry(b, struct dirty_item, rb);
+    aa = _get_entry(a, struct dirty_item, avl);
+    bb = _get_entry(b, struct dirty_item, avl);
 
     #ifdef __BIT_CMP
         return _CMP_U64(aa->item->bid , bb->item->bid);
@@ -213,27 +213,25 @@ INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fna
     fname->hash = crc32_8_last8(fname->filename, fname->filename_len, 0);
 }
 
-static size_t _fl_lock, _fl_unlock, _fl_status;
-
 void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
 {
     spin_lock(&filelist_lock);
-    _fl_status = 1; _fl_lock = __LINE__;
 
     if (fname->curlist) list_remove(fname->curlist, &fname->le);
     if (list) list_push_front(list, &fname->le);
     fname->curlist = list;
 
-    _fl_status = 0; _fl_unlock = __LINE__;
     spin_unlock(&filelist_lock);
 }
+
+#define _list_empty(list) (((list).head) == NULL)
+#define _tree_empty(tree) (((tree).root) == NULL)
 
 struct fnamedic_item *_bcache_get_victim()
 {
     struct list_elem *e = NULL;
 
     spin_lock(&filelist_lock);
-    _fl_status = 1; _fl_lock = __LINE__;
 
     e = list_end(&file_lru);
     if (e==NULL) {
@@ -241,14 +239,13 @@ struct fnamedic_item *_bcache_get_victim()
 
         while (e) {
             struct fnamedic_item *fname = _get_entry(e, struct fnamedic_item, le);
-            if (!(fname->cleanlist.head == NULL && fname->rbtree.rb_node == NULL)) {
+            if (!(_list_empty(fname->cleanlist) && _tree_empty(fname->tree))) {
                 break;
             }
             e = list_next(e);
         }
     }
 
-    _fl_status = 0; _fl_unlock = __LINE__;
     spin_unlock(&filelist_lock);
 
     if (e) {
@@ -290,7 +287,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
     // get oldest dirty block
     void *buf = NULL;
     struct list_elem *e, *prevhead;
-    struct rb_node *r;
+    struct avl_node *a;
     struct dirty_item *ditem;
     int count, ret;
     bid_t start_bid, prev_bid;
@@ -307,9 +304,9 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
     count = 0;
 
     // traverse rb-tree in a sequential order
-    r = rb_first(&fname_item->rbtree);
-    while(r) {
-        ditem = _get_entry(r, struct dirty_item, rb);
+    a = avl_first(&fname_item->tree);
+    while(a) {
+        ditem = _get_entry(a, struct dirty_item, avl);
 
         // if BID of next dirty block is not consecutive .. stop
         if (ditem->item->bid != prev_bid + 1 && prev_bid != BLK_NOT_FOUND && sync) break;
@@ -318,7 +315,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 
         // set PREV_BID and go to next block
         prev_bid = ditem->item->bid;
-        r = rb_next(r);
+        a = avl_next(a);
 
         spin_lock(&ditem->item->lock);
         // set PTR and get block MARKER
@@ -340,7 +337,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
         }
 
         // remove from rb-tree
-        rb_erase(&ditem->rb, &fname_item->rbtree);
+        avl_remove(&fname_item->tree, &ditem->avl);
         // move to clean list
         prevhead = fname_item->cleanlist.head;
         list_push_front(&fname_item->cleanlist, &ditem->item->list_elem);
@@ -385,7 +382,7 @@ struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
             spin_lock(&victim->lock);
 
             // check whether this file has at least one block to be evictied
-            if (list_begin(&victim->cleanlist) != NULL || victim->rbtree.rb_node != NULL) {
+            if (!_list_empty(victim->cleanlist) || !_tree_empty(victim->tree)) {
                 // select this file as victim
                 break;
             }else{
@@ -423,7 +420,7 @@ struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
     spin_unlock(&item->lock);
 
     // check whether the victim file has no cached block
-    if (list_begin(&victim->cleanlist) == NULL && victim->rbtree.rb_node == NULL) {
+    if (_list_empty(victim->cleanlist) && _tree_empty(victim->tree)) {
         // remove from FILE_LRU and insert into FILE_EMPTY
         _bcache_move_fname_list(victim, &file_empty);
     }
@@ -452,8 +449,8 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->curfile = file;
     file->bcache = fname_new;
 
-    // initialize rb-tree
-    rbwrap_init(&fname_new->rbtree, NULL);
+    // initialize tree
+    avl_init(&fname_new->tree, NULL);
     // initialize clean list
     list_init(&fname_new->cleanlist);
     // initialize hash table
@@ -469,17 +466,16 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
 
 void _fname_free(struct fnamedic_item *fname)
 {
-    struct rb_node *r;
     struct dirty_item *item;
 
     // remove from corresponding list
     _bcache_move_fname_list(fname, NULL);
 
-    // rb tree must be empty
-    assert(fname->rbtree.rb_node== NULL);
+    // tree must be empty
+    assert(_tree_empty(fname->tree));
 
     // clean list must be empty
-    assert(list_begin(&fname->cleanlist) == NULL);
+    assert(_list_empty(fname->cleanlist));
 
     // free hash
     hash_free(&fname->hashtable);
@@ -615,16 +611,16 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
 
     if (dirty == BCACHE_DIRTY) {
         // DIRTY request
-        // to avoid re-insert already existing item into rb-tree
+        // to avoid re-insert already existing item into tree
         if (!(item->flag & BCACHE_DIRTY)) {
             // dirty block
-            // insert into rb-tree
+            // insert into tree
             struct dirty_item *ditem;
 
             ditem = (struct dirty_item *)mempool_alloc(sizeof(struct dirty_item));
             ditem->item = item;
 
-            rbwrap_insert(&item->fname->rbtree, &ditem->rb, _dirty_cmp);
+            avl_insert(&item->fname->tree, &ditem->avl, _dirty_cmp);
         }
         item->flag |= BCACHE_DIRTY;
     }else{
@@ -689,7 +685,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
     assert(!(item->flag & BCACHE_FREE));
 
     // check whether this is dirty block
-    // to avoid re-insert already existing item into rb-tree
+    // to avoid re-insert already existing item into tree
     if (!(item->flag & BCACHE_DIRTY)) {
         // this block was clean block
         struct dirty_item *ditem;
@@ -700,7 +696,8 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
         ditem = (struct dirty_item *)mempool_alloc(sizeof(struct dirty_item));
         ditem->item = item;
 
-        rbwrap_insert(&item->fname->rbtree, &ditem->rb, _dirty_cmp);
+        // insert into tree
+        avl_insert(&item->fname->tree, &ditem->avl, _dirty_cmp);
     }
 
     // always set this block as dirty
@@ -729,12 +726,12 @@ void bcache_remove_dirty_blocks(struct filemgr *file)
         spin_lock(&fname_item->lock);
 
         // remove all dirty block
-        while(fname_item->rbtree.rb_node) {
+        while(!_tree_empty(fname_item->tree)) {
             _bcache_evict_dirty(fname_item, 0);
         }
 
         // check whether the victim file is empty
-        if (list_begin(&fname_item->cleanlist) == NULL && fname_item->rbtree.rb_node == NULL) {
+        if (_list_empty(fname_item->cleanlist) && _tree_empty(fname_item->tree)) {
             // remove from FILE_LRU and insert into FILE_EMPTY
             _bcache_move_fname_list(fname_item, &file_empty);
         }
@@ -774,7 +771,7 @@ void bcache_remove_clean_blocks(struct filemgr *file)
         }
 
         // check whether the victim file is empty
-        if (list_begin(&fname_item->cleanlist) == NULL && fname_item->rbtree.rb_node == NULL) {
+        if (_list_empty(fname_item->cleanlist) && _tree_empty(fname_item->tree)) {
             // remove from FILE_LRU and insert into FILE_EMPTY
             _bcache_move_fname_list(fname_item, &file_empty);
         }
@@ -797,8 +794,8 @@ void bcache_remove_file(struct filemgr *file)
         // acquire lock
         spin_lock(&bcache_lock);
         spin_lock(&fname_item->lock);
-        assert(fname_item->rbtree.rb_node == NULL);
-        assert(fname_item->cleanlist.head == NULL);
+        assert(_tree_empty(fname_item->tree));
+        assert(_list_empty(fname_item->cleanlist));
 
         // remove from fname dictionary hash table
         hash_remove(&fnamedic, &fname_item->hash_elem);
@@ -828,7 +825,7 @@ void bcache_flush(struct filemgr *file)
         // acquire lock
         spin_lock(&fname_item->lock);
 
-        while(fname_item->rbtree.rb_node) {
+        while(!_tree_empty(fname_item->tree)) {
             _bcache_evict_dirty(fname_item, 1);
         }
 

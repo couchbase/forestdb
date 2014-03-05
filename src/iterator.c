@@ -14,7 +14,7 @@
 #include "forestdb.h"
 #include "common.h"
 #include "wal.h"
-#include "rbwrap.h"
+#include "avltree.h"
 #include "list.h"
 
 #include "memleak.h"
@@ -35,7 +35,7 @@ struct iterator_wal_entry{
     wal_item_action action;
     uint16_t keylen;
     uint64_t offset;
-    struct rb_node rb;
+    struct avl_node avl;
 };
 
 // lexicographically compares two variable-length binary streams
@@ -53,11 +53,11 @@ int _fdb_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
     }
 }
 
-int _fdb_wal_rb_cmp(struct rb_node *a, struct rb_node *b, void *aux)
+int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct iterator_wal_entry *aa, *bb;
-    aa = _get_entry(a, struct iterator_wal_entry, rb);
-    bb = _get_entry(b, struct iterator_wal_entry, rb);
+    aa = _get_entry(a, struct iterator_wal_entry, avl);
+    bb = _get_entry(b, struct iterator_wal_entry, avl);
     return _fdb_keycmp(aa->key, aa->keylen, bb->key, bb->keylen);
 }
 
@@ -104,12 +104,12 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     if (hr == HBTRIE_RESULT_FAIL)
         return FDB_RESULT_FAIL;
 
-    // create a snapshot for WAL (rb-tree)
+    // create a snapshot for WAL (avl-tree)
     // (from the beginning to the last committed element)
 
-    // init rb-tree
-    iterator->wal_rb = (struct rb_root*)malloc(sizeof(struct rb_root));
-    rbwrap_init(iterator->wal_rb, NULL);
+    // init tree
+    iterator->wal_tree = (struct avl_tree*)malloc(sizeof(struct avl_tree));
+    avl_init(iterator->wal_tree, NULL);
 
     spin_lock(&handle->file->wal->lock);
     e = list_begin(&handle->file->wal->list);
@@ -131,14 +131,14 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
             snap_item->action = wal_item->action;
             snap_item->offset = wal_item->offset;
 
-            // insert into rb-tree
-            rbwrap_insert(iterator->wal_rb, &snap_item->rb, _fdb_wal_rb_cmp);
+            // insert into tree
+            avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
         }
 
         if (e == handle->file->wal->last_commit) break;
         e = list_next(e);
     }
-    iterator->rb_cursor = rb_first(iterator->wal_rb);
+    iterator->tree_cursor = avl_first(iterator->wal_tree);
 
     spin_unlock(&handle->file->wal->lock);
 
@@ -173,13 +173,13 @@ start:
     keylen = iterator->_keylen;
     offset = iterator->_offset;
 
-    if (hr == HBTRIE_RESULT_FAIL && iterator->rb_cursor == NULL) {
+    if (hr == HBTRIE_RESULT_FAIL && iterator->tree_cursor == NULL) {
         return FDB_RESULT_FAIL;
     }
 
-    while (iterator->rb_cursor) {
+    while (iterator->tree_cursor) {
         // get the current item of rb-tree
-        snap_item = _get_entry(iterator->rb_cursor, struct iterator_wal_entry, rb);
+        snap_item = _get_entry(iterator->tree_cursor, struct iterator_wal_entry, avl);
         if (hr != HBTRIE_RESULT_FAIL) {
             cmp = _fdb_keycmp(snap_item->key, snap_item->keylen, key, keylen);
         }else{
@@ -189,7 +189,7 @@ start:
 
         if (cmp <= 0) {
             // key[WAL] <= key[hb-trie] .. take key[WAL] first
-            iterator->rb_cursor = rb_next(iterator->rb_cursor);
+            iterator->tree_cursor = avl_next(iterator->tree_cursor);
 
             if (cmp < 0) {
                 if (snap_item->action == WAL_ACT_REMOVE) {
@@ -259,7 +259,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc)
 fdb_status fdb_iterator_close(fdb_iterator *iterator)
 {
     hbtrie_result hr;
-    struct rb_node *r;
+    struct avl_node *a;
     struct iterator_wal_entry *snap_item;
 
     hr = hbtrie_iterator_free(iterator->hbtrie_iterator);
@@ -267,17 +267,17 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     if (iterator->end_key)
         free(iterator->end_key);
 
-    r = rb_first(iterator->wal_rb);
-    while(r) {
-        snap_item = _get_entry(r, struct iterator_wal_entry, rb);
-        r = rb_next(r);
-        rb_erase(&snap_item->rb, iterator->wal_rb);
+    a = avl_first(iterator->wal_tree);
+    while(a) {
+        snap_item = _get_entry(a, struct iterator_wal_entry, avl);
+        a = avl_next(a);
+        avl_remove(iterator->wal_tree, &snap_item->avl);
 
         free(snap_item->key);
         free(snap_item);
     }
 
-    free(iterator->wal_rb);
+    free(iterator->wal_tree);
     free(iterator->_key);
 
     return FDB_RESULT_SUCCESS;

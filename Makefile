@@ -1,11 +1,11 @@
 LIST = src/list.o
 LISTTEST = tests/list_test.o
 
-RBTREE = src/rbtree.o src/rbwrap.o
+AVLTREE = src/avltree.o
 
-MEMLEAK = utils/memleak.o $(RBTREE)
+MEMLEAK = utils/memleak.o $(AVLTREE)
 
-HASH = src/hash.o src/hash_functions.o $(LIST) $(RBTREE) $(MEMLEAK)
+HASH = src/hash.o src/hash_functions.o $(LIST) $(AVLTREE) $(MEMLEAK)
 HASHTEST = tests/hash_test.o
 
 CRC32 = utils/crc32.o $(MEMLEAK)
@@ -17,7 +17,7 @@ MEMPOOLTEST = tests/mempool_test.o
 BTREE = src/btree.o src/btree_kv.o $(MEMLEAK)
 
 BCACHE = src/blockcache.o utils/debug.o \
-	$(HASH) $(RBTREE) $(MEMPOOL) $(CRC32) $(MEMLEAK)
+	$(HASH) $(AVLTREE) $(MEMPOOL) $(CRC32) $(MEMLEAK)
 	
 WAL = src/wal.o $(HASH) $(MEMLEAK)
 
@@ -41,7 +41,7 @@ HBTRIETEST = tests/hbtrie_test.o
 FDB = \
 	src/forestdb.o src/iterator.o src/hbtrie.o src/btree.o src/btree_kv.o \
 	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
-	src/hash_functions.o src/list.o src/rbtree.o src/rbwrap.o \
+	src/hash_functions.o src/list.o src/avltree.o \
 	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o \
 	utils/debug.o \
     utils/memleak.o
@@ -52,7 +52,7 @@ LEVELDB_COUCH = couchstore_api/couchstore_api_leveldb.o
 FDBTEST = tests/forestdb_test.o $(MEMLEAK)
 
 COUCHBENCH = couchstore_api/couchstore_bench.o utils/stopwatch.o utils/iniparser.o \
-    utils/crc32.o utils/memleak.o src/rbtree.o src/rbwrap.o
+    utils/crc32.o utils/memleak.o $(AVLTREE)
 
 LIBDIR=./couchstore_api/libs/
 LIBRARY=forestdb

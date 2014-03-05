@@ -285,10 +285,11 @@ uint64_t print_proc_io_stat(char *buf)
     sprintf(buf, "/proc/%d/io", getpid());
     char str[64];
     int ret;
-    uint64_t i, temp, val=0;
+    unsigned long temp;
+    uint64_t val=0;
     FILE *fp = fopen(buf, "r");
     while(!feof(fp)) {
-        ret = fscanf(fp, "%s "_F64, str, &temp);
+        ret = fscanf(fp, "%s %lu", str, &temp);
         if (!strcmp(str, "write_bytes:")) {
             val = temp;
             printf("[proc IO] %lu bytes written (%s)\n",

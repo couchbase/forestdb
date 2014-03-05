@@ -89,12 +89,13 @@ enum {
     FDB_ITR_METAONLY = 0x1,
 };
 struct hbtrie_iterator;
-struct rb_root;
+struct avl_tree;
+struct avl_node;
 typedef struct {
     fdb_handle handle;
     struct hbtrie_iterator *hbtrie_iterator;
-    struct rb_root *wal_rb;
-    struct rb_node *rb_cursor;
+    struct avl_tree *wal_tree;
+    struct avl_node *tree_cursor;
     void *end_key;
     size_t end_keylen;
     fdb_iterator_opt_t opt;
