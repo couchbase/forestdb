@@ -794,27 +794,40 @@ fdb_status fdb_commit(fdb_handle *handle)
 {
     filemgr_mutex_lock(handle->file);
 
-    btreeblk_end(handle->bhandle);
-    if (wal_get_size(handle->file) > _fdb_get_wal_threshold(handle) ||
-        wal_get_dirty_status(handle->file) == FDB_WAL_PENDING) {
-        // wal flush when
-        // 1. wal size exceeds threshold
-        // 2. wal is already flushed before commit (in this case flush the rest of entries)
-        wal_flush(handle->file, handle, _fdb_wal_flush_func);
-        wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
-    }else{
-        // otherwise just commit wal
-        wal_commit(handle->file);
-    }
+    if (handle->new_file) {
+        // HANDLE->FILE is undergoing compaction ..
+        // just do fsync to HANDLE->NEW_FILE
 
-    if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
-        //3 <not sure whether this is bug-free or not>
-        handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
-    }
-    handle->cur_header_revnum = _fdb_set_file_header(handle);
-    filemgr_commit(handle->file);
+        // relay lock
+        filemgr_mutex_lock(handle->new_file);
+        filemgr_mutex_unlock(handle->file);
 
-    filemgr_mutex_unlock(handle->file);
+        filemgr_sync(handle->new_file);
+        filemgr_mutex_unlock(handle->new_file);
+
+    } else {
+        // normal case
+        btreeblk_end(handle->bhandle);
+        if (wal_get_size(handle->file) > _fdb_get_wal_threshold(handle) ||
+            wal_get_dirty_status(handle->file) == FDB_WAL_PENDING) {
+            // wal flush when
+            // 1. wal size exceeds threshold
+            // 2. wal is already flushed before commit (in this case flush the rest of entries)
+            wal_flush(handle->file, handle, _fdb_wal_flush_func);
+            wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+        }else{
+            // otherwise just commit wal
+            wal_commit(handle->file);
+        }
+
+        if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
+            handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
+        }
+        handle->cur_header_revnum = _fdb_set_file_header(handle);
+        filemgr_commit(handle->file);
+
+        filemgr_mutex_unlock(handle->file);
+    }
     return FDB_RESULT_SUCCESS;
 }
 
