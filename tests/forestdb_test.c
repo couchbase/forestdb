@@ -1068,6 +1068,126 @@ void iterator_test()
     TEST_RESULT("iterator test");
 }
 
+int _cmp_double(void *a, void *b)
+{
+    double aa, bb;
+    aa = *(double *)a;
+    bb = *(double *)b;
+
+    if (aa<bb) {
+        return -1;
+    } else if (aa>bb) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+void custom_compare_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    uint64_t offset;
+    fdb_handle db;
+    fdb_config config;
+    fdb_doc *doc[n], *rdoc;
+    fdb_status status;
+    fdb_iterator iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    double key_double, key_double_prev;
+
+    // configuration
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 0;
+    config.wal_threshold = 1024;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    // remove previous dummy files
+    r = system("rm -rf ./dummy* > errorlog.txt");
+
+    // open db
+    fdb_open(&db, "./dummy1", &config);
+
+    // set custom compare function for double key type
+    fdb_set_custom_cmp(&db, _cmp_double);
+
+    for (i=0;i<n;++i){
+        key_double = 10000/(i*11.0);
+        memcpy(keybuf, &key_double, sizeof(key_double));
+        sprintf(bodybuf, "value: %d, %f", i, key_double);
+        fdb_doc_create(&doc[i], keybuf, sizeof(key_double), NULL, 0, bodybuf, strlen(bodybuf)+1);
+        fdb_set(&db, doc[i]);
+    }
+
+    // range scan (before flushing WAL)
+    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
+    key_double_prev = -1;
+    while(1){
+        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_FAIL)
+            break;
+        memcpy(&key_double, rdoc->key, rdoc->keylen);
+        TEST_CHK(key_double > key_double_prev);
+        key_double_prev = key_double;
+        fdb_doc_free(rdoc);
+    };
+    fdb_iterator_close(&iterator);
+
+    fdb_flush_wal(&db);
+    fdb_commit(&db);
+
+    // range scan (after flushing WAL)
+    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
+    key_double_prev = -1;
+    while(1){
+        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_FAIL)
+            break;
+        memcpy(&key_double, rdoc->key, rdoc->keylen);
+        TEST_CHK(key_double > key_double_prev);
+        key_double_prev = key_double;
+        fdb_doc_free(rdoc);
+    };
+    fdb_iterator_close(&iterator);
+
+    // do compaction
+    fdb_compact(&db, "./dummy2");
+
+    // range scan (after compaction)
+    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
+    key_double_prev = -1;
+    while(1){
+        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_FAIL)
+            break;
+        memcpy(&key_double, rdoc->key, rdoc->keylen);
+        TEST_CHK(key_double > key_double_prev);
+        key_double_prev = key_double;
+        fdb_doc_free(rdoc);
+    };
+    fdb_iterator_close(&iterator);
+
+    // close db file
+    fdb_close(&db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("custom compare test");
+}
+
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -1078,6 +1198,7 @@ int main(){
 #endif
     incomplete_block_test();
     iterator_test();
+    custom_compare_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;

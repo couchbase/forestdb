@@ -70,7 +70,13 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     struct iterator_wal_entry *aa, *bb;
     aa = _get_entry(a, struct iterator_wal_entry, avl);
     bb = _get_entry(b, struct iterator_wal_entry, avl);
-    return _fdb_keycmp(aa->key, aa->keylen, bb->key, bb->keylen);
+    if (aux) {
+        // custom compare function
+        fdb_custom_cmp func = aux;
+        return func(aa->key, bb->key);
+    } else {
+        return _fdb_keycmp(aa->key, aa->keylen, bb->key, bb->keylen);
+    }
 }
 
 fdb_status fdb_iterator_init(fdb_handle *handle,
@@ -121,15 +127,20 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 
     // init tree
     iterator->wal_tree = (struct avl_tree*)malloc(sizeof(struct avl_tree));
-    avl_init(iterator->wal_tree, NULL);
+    avl_init(iterator->wal_tree, (void*)(handle->cmp_func));
 
     spin_lock(&handle->file->wal->lock);
     e = list_begin(&handle->file->wal->list);
     while(e) {
         wal_item = _get_entry(e, struct wal_item, list_elem);
         if (start_key) {
-            cmp = _fdb_keycmp(start_key, start_keylen,
-                wal_item->key, wal_item->keylen);
+            if (handle->cmp_func) {
+                // custom compare function
+                cmp = handle->cmp_func(start_key, wal_item->key);
+            } else {
+                cmp = _fdb_keycmp(start_key, start_keylen,
+                    wal_item->key, wal_item->keylen);
+            }
         }else{
             cmp = 0;
         }
@@ -193,7 +204,12 @@ start:
         // get the current item of rb-tree
         snap_item = _get_entry(iterator->tree_cursor, struct iterator_wal_entry, avl);
         if (hr != HBTRIE_RESULT_FAIL) {
-            cmp = _fdb_keycmp(snap_item->key, snap_item->keylen, key, keylen);
+            if (iterator->handle.cmp_func) {
+                // custom compare function
+                cmp = iterator->handle.cmp_func(snap_item->key, key);
+            } else {
+                cmp = _fdb_keycmp(snap_item->key, snap_item->keylen, key, keylen);
+            }
         }else{
             // no more docs in hb-trie
             cmp = -1;
@@ -229,7 +245,13 @@ start:
     }
 
     if (iterator->end_key) {
-        cmp = _fdb_keycmp(iterator->end_key, iterator->end_keylen, key, keylen);
+        if (iterator->handle.cmp_func) {
+            // custom compare function
+            cmp = iterator->handle.cmp_func(iterator->end_key, key);
+        } else {
+            cmp = _fdb_keycmp(iterator->end_key, iterator->end_keylen, key, keylen);
+        }
+
         if (cmp < 0) {
             // current key (KEY) is lexicographically greater than END_KEY
             // terminate the iteration

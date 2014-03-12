@@ -74,6 +74,8 @@ struct btreeblk_handle;
 struct docio_handle;
 struct btree_blk_ops;
 
+typedef int (*fdb_custom_cmp)(void *a, void *b);
+
 typedef struct {
     struct hbtrie *trie;
     struct btree *seqtree;
@@ -89,6 +91,7 @@ typedef struct {
     uint64_t last_header_bid;
     uint64_t datasize;
     uint64_t ndocs;
+    fdb_custom_cmp cmp_func;
     uint16_t btree_fanout;
 #ifdef __FDB_SEQTREE
     fdb_seqnum_t seqnum;
@@ -119,6 +122,7 @@ typedef struct {
 } fdb_iterator;
 
 fdb_status fdb_recover_compaction(fdb_handle *handle, char *new_filename);
+fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func);
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config);
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
     void *body, size_t bodylen);

@@ -204,6 +204,14 @@ fdb_status fdb_recover_compaction(fdb_handle *handle, char *new_filename)
     return FDB_RESULT_SUCCESS;
 }
 
+fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func)
+{
+    // set custom compare function
+    handle->trie->btree_kv_ops->cmp = cmp_func;
+    handle->cmp_func = cmp_func;
+    return FDB_RESULT_SUCCESS;
+}
+
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 {
     struct filemgr_config fconfig;
@@ -233,6 +241,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
     handle->config = *config;
     handle->btree_fanout = fconfig.blocksize / (config->chunksize+config->offsetsize);
     handle->last_header_bid = BLK_NOT_FOUND;
+    handle->cmp_func = NULL;
 
     handle->new_file = NULL;
     handle->new_dhandle = NULL;
@@ -922,6 +931,9 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     btreeblk_init(new_bhandle, new_file, new_file->blocksize);
     hbtrie_init(new_trie, handle->trie->chunksize, handle->trie->valuelen, new_file->blocksize,
         BLK_NOT_FOUND, new_bhandle, handle->btreeblkops, new_dhandle, _fdb_readkey_wrap);
+    if (handle->cmp_func) {
+        new_trie->btree_kv_ops->cmp = handle->cmp_func;
+    }
 
 #ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
