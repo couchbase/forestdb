@@ -22,7 +22,7 @@
 
 #include "docio.h"
 #include "filemgr.h"
-#include "filemgr_ops_linux.h"
+#include "filemgr_ops.h"
 #include "test.h"
 
 uint32_t _set_doc(struct docio_object *doc, char *key, char *meta, char *body)
@@ -61,7 +61,7 @@ void basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
     docio_init(&handle, file);
 
     docsize = _set_doc(&doc, "this_is_key", "this_is_metadata", "this_is_body_lawiefjaawleif");

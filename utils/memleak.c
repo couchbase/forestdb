@@ -40,7 +40,7 @@ struct memleak_item {
 
 static struct avl_tree tree_index;
 static uint8_t start_sw = 0;
-static spin_t lock = SPIN_INITIALIZER;
+static spin_t lock;
 
 int memleak_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
@@ -54,7 +54,7 @@ int memleak_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 
 void memleak_start()
 {
-    lock = SPIN_INITIALIZER;
+    spin_init(&lock);
     avl_init(&tree_index, NULL);
     start_sw = 1;
 }
@@ -125,6 +125,8 @@ void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
     return addr;
 }
 
+#ifndef WIN32
+// posix only
 int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
 {
     spin_lock(&lock);
@@ -138,6 +140,7 @@ int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *f
     spin_unlock(&lock);
     return ret;
 }
+#endif
 
 void *memleak_realloc(void *ptr, size_t size)
 {

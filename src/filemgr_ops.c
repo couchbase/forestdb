@@ -15,25 +15,19 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_BTREE_KV_H
-#define _JSAHN_BTREE_KV_H
+#include "filemgr_ops.h"
 
-#include <stdint.h>
-#include "common.h"
+struct filemgr_ops * get_win_filemgr_ops();
+struct filemgr_ops * get_linux_filemgr_ops();
 
-#ifdef __cplusplus
-extern "C" {
+struct filemgr_ops * get_filemgr_ops()
+{
+#if defined(WIN32) || defined(_WIN32)
+    // windows
+    return get_win_filemgr_ops();
+#else
+    // linux, mac os x
+    return get_linux_filemgr_ops();
 #endif
-
-INLINE int _cmp_uint64_t(void *key1, void *key2);
-
-struct btree_kv_ops;
-struct btree_kv_ops * btree_kv_get_ku64_vu64();
-struct btree_kv_ops * btree_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops);
-struct btree_kv_ops * btree_kv_get_kb32_vb64(struct btree_kv_ops *kv_ops);
-
-#ifdef __cplusplus
 }
-#endif
 
-#endif

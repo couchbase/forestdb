@@ -10,6 +10,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //#define _LIST_LOCK
 #ifdef _LIST_LOCK
     #include "arch.h"
@@ -51,6 +55,8 @@ struct list_elem *list_end(struct list *list);
 struct list_elem *list_next(struct list_elem *e);
 struct list_elem *list_prev(struct list_elem *e);
 
-
+#ifdef __cplusplus
+}
 #endif
 
+#endif

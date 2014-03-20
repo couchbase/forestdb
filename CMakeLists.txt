@@ -13,6 +13,9 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE -D__DEBUG")
 if (NOT WIN32)
    set(PTHREAD_LIB pthread)
    set(LIBM m)
+   set(FORESTDB_FILE_OPS "src/filemgr_ops_linux.c")
+else (NOT WIN32)
+  set(FORESTDB_FILE_OPS "src/filemgr_ops_windows.c")
 endif(NOT WIN32)
 
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
@@ -29,13 +32,14 @@ add_library(forestdb SHARED
             src/btreeblock.c
             src/docio.c
             src/filemgr.c
-            src/filemgr_ops_linux.c
+            src/filemgr_ops.c
+            ${FORESTDB_FILE_OPS}
             src/forestdb.c
-            src/hash.c
             src/hash_functions.c
             src/hbtrie.c
             src/iterator.c
             src/list.c
+            src/hash.c
             src/mempool.c
             src/wal.c
             utils/crc32.c
@@ -51,7 +55,8 @@ add_library(forestdb_couch SHARED
             src/btreeblock.c
             src/docio.c
             src/filemgr.c
-            src/filemgr_ops_linux.c
+            src/filemgr_ops.c
+            ${FORESTDB_FILE_OPS}
             src/forestdb.c
             src/hash.c
             src/hash_functions.c
@@ -124,7 +129,8 @@ add_executable(bcache_test
                src/avltree.c
                src/blockcache.c
                src/filemgr.c
-               src/filemgr_ops_linux.c
+               src/filemgr_ops.c
+               ${FORESTDB_FILE_OPS}
                src/hash.c
                src/hash_functions.c
                src/list.c
@@ -141,7 +147,8 @@ add_executable(filemgr_test
                src/avltree.c
                src/blockcache.c
                src/filemgr.c
-               src/filemgr_ops_linux.c
+               src/filemgr_ops.c
+               ${FORESTDB_FILE_OPS}
                src/hash.c
                src/hash_functions.c
                src/list.c
@@ -160,7 +167,8 @@ add_executable(btreeblock_test
                src/btree_kv.c
                src/btreeblock.c
                src/filemgr.c
-               src/filemgr_ops_linux.c
+               src/filemgr_ops.c
+               ${FORESTDB_FILE_OPS}
                src/hash.c
                src/hash_functions.c
                src/list.c
@@ -177,7 +185,8 @@ add_executable(docio_test
                src/blockcache.c
                src/docio.c
                src/filemgr.c
-               src/filemgr_ops_linux.c
+               src/filemgr_ops.c
+               ${FORESTDB_FILE_OPS}
                src/hash.c
                src/hash_functions.c
                src/list.c
@@ -197,7 +206,8 @@ add_executable(hbtrie_test
                src/btreeblock.c
                src/docio.c
                src/filemgr.c
-               src/filemgr_ops_linux.c
+               src/filemgr_ops.c
+               ${FORESTDB_FILE_OPS}
                src/hash.c
                src/hash_functions.c
                src/hbtrie.c

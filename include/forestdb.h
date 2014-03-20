@@ -22,6 +22,10 @@
 #include "option.h"
 #include "arch.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     FDB_RESULT_SUCCESS,
     FDB_RESULT_FAIL,
@@ -155,5 +159,9 @@ fdb_status fdb_flush_wal(fdb_handle *handle);
 size_t fdb_estimate_space_used(fdb_handle *handle);
 fdb_status fdb_close(fdb_handle *handle);
 fdb_status fdb_shutdown();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

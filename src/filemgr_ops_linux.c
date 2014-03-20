@@ -22,7 +22,9 @@
 #include <fcntl.h>
 
 #include "filemgr.h"
-#include "filemgr_ops_linux.h"
+#include "filemgr_ops.h"
+
+#if !defined(WIN32) && !defined(_WIN32)
 
 int _filemgr_linux_open(const char *pathname, int flags, mode_t mode)
 {
@@ -49,18 +51,18 @@ off_t _filemgr_linux_goto_eof(int fd)
     return lseek(fd, 0, SEEK_END);
 }
 
-int _filemgr_linux_fdatasync(int fd)
-{
-#ifdef __APPLE__
-    return fsync(fd);
-#elif __linux
-    return fdatasync(fd);
-#endif
-}
-
 int _filemgr_linux_fsync(int fd)
 {
     return fsync(fd);
+}
+
+int _filemgr_linux_fdatasync(int fd)
+{
+#ifdef __linux__
+    return fdatasync(fd);
+#else
+    return _filemgr_linux_fsync(fd);
+#endif
 }
 
 struct filemgr_ops linux_ops = {
@@ -78,4 +80,4 @@ struct filemgr_ops * get_linux_filemgr_ops()
     return &linux_ops;
 }
 
-
+#endif

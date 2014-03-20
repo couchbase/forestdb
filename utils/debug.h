@@ -8,9 +8,9 @@
     #define DBGCMD(command...) command
     #define DBGSW(n, args...) if (_dbg_is_sw_set(n)) {args; }
 #else
-    #define DBG(args...)
-    #define DBGCMD(command...)
-    #define DBGSW(n, args...)
+    #define DBG(...)
+    #define DBGCMD(...)
+    #define DBGSW(n, ...)
 #endif
 
 void _dbg_sw_set(int n);

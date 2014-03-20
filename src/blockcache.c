@@ -222,7 +222,8 @@ INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fna
 {
     fname->filename = file->filename;
     fname->filename_len = file->filename_len;
-    fname->hash = crc32_8_last8(fname->filename, fname->filename_len, 0);
+    fname->hash = crc32_8_last8((void*)fname->filename,
+        fname->filename_len, 0);
 }
 
 void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
@@ -308,8 +309,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 
     // scan and gather rb-tree items sequentially
     if (sync) {
-        ret = posix_memalign(&buf, FDB_SECTOR_SIZE, bcache_flush_unit); assert(ret == 0);
-        //buf = memalign(FDB_SECTOR_SIZE, bcache_flush_unit); assert(buf);
+        malloc_align(buf, FDB_SECTOR_SIZE, bcache_flush_unit);
     }
 
     prev_bid = start_bid = BLK_NOT_FOUND;
@@ -373,7 +373,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             fname_item->curfile->fd, buf, count * bcache_blocksize, start_bid * bcache_blocksize);
 
         assert(ret == count * bcache_blocksize);
-        free(buf);
+        free_align(buf);
     }
 }
 
@@ -455,8 +455,9 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->filename[fname_new->filename_len] = 0;
 
     // calculate hash value
-    fname_new->hash = crc32_8_last8(fname_new->filename, fname_new->filename_len, 0);
-    fname_new->lock = SPIN_INITIALIZER;
+    fname_new->hash = crc32_8_last8((void *)fname_new->filename,
+        fname_new->filename_len, 0);
+    spin_init(&fname_new->lock);
     fname_new->curlist = NULL;
     fname_new->curfile = file;
     file->bcache = fname_new;
@@ -493,6 +494,7 @@ void _fname_free(struct fnamedic_item *fname)
     hash_free(&fname->hashtable);
 
     free(fname->filename);
+    spin_destroy(&fname->lock);
 }
 
 int bcache_read(struct filemgr *file, bid_t bid, void *buf)
@@ -749,7 +751,6 @@ void bcache_remove_dirty_blocks(struct filemgr *file)
         }
 
         spin_unlock(&fname_item->lock);
-        return;
     }
 }
 
@@ -789,7 +790,6 @@ void bcache_remove_clean_blocks(struct filemgr *file)
         }
 
         spin_unlock(&fname_item->lock);
-        return;
     }
 }
 
@@ -818,7 +818,6 @@ void bcache_remove_file(struct filemgr *file)
         spin_unlock(&fname_item->lock);
 
         free(fname_item);
-        return;
     }
 }
 
@@ -842,7 +841,6 @@ void bcache_flush(struct filemgr *file)
         }
 
         spin_unlock(&fname_item->lock);
-        return;
     }
 }
 
@@ -860,9 +858,10 @@ void bcache_init(int nblock, int blocksize)
 
     bcache_blocksize = blocksize;
     bcache_flush_unit = BCACHE_FLUSH_UNIT;
-    bcache_sys_pagesize = sysconf(_SC_PAGESIZE);
     bcache_nblock = nblock;
-    bcache_lock = freelist_lock = filelist_lock = SPIN_INITIALIZER;
+    spin_init(&bcache_lock);
+    spin_init(&freelist_lock);
+    spin_init(&filelist_lock);
 
     for (i=0;i<nblock;++i){
         item = (struct bcache_item *)malloc(sizeof(struct bcache_item));
@@ -870,7 +869,7 @@ void bcache_init(int nblock, int blocksize)
         item->bid = BLK_NOT_FOUND;
         item->fname = NULL;
         item->flag = 0x0 | BCACHE_FREE;
-        item->lock = SPIN_INITIALIZER;
+        spin_init(&item->lock);
 
         list_push_front(&freelist, &item->list_elem);
         freelist_count++;
@@ -915,6 +914,7 @@ void bcache_shutdown()
         item = _get_entry(e, struct bcache_item, list_elem);
         e = list_remove(&freelist, e);
         free(item->addr);
+        spin_destroy(&item->lock);
         free(item);
     }
 

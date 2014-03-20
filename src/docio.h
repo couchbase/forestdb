@@ -21,6 +21,10 @@
 #include "filemgr.h"
 #include "common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef uint16_t keylen_t;
 
 struct docio_handle {
@@ -75,4 +79,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 int docio_check_buffer(struct docio_handle *dhandle, bid_t check_bid);
 int docio_check_compact_doc(struct docio_handle *handle,
                             struct docio_object *doc);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

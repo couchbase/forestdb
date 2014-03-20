@@ -20,11 +20,19 @@
 
 #include <stdlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define _MEMPOOL
 
 void mempool_init();
 void mempool_shutdown();
 void * mempool_alloc(size_t size);
 void mempool_free(void *addr);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

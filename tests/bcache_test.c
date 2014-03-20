@@ -23,7 +23,7 @@
 #include "test.h"
 #include "blockcache.h"
 #include "filemgr.h"
-#include "filemgr_ops_linux.h"
+#include "filemgr_ops.h"
 #include "crc32.h"
 
 #include "memleak.h"
@@ -41,7 +41,7 @@ void basic_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 5;
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file);
@@ -87,7 +87,7 @@ void basic_test2()
     config.blocksize = 4096;
     config.ncacheblock = 5;
     config.flag = 0x0;
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file);
@@ -206,7 +206,7 @@ void multi_thread_test(
     config.blocksize = blocksize;
     config.ncacheblock = cachesize;
     config.flag = 0x0;
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
 
     for (i=0;i<nblocks;++i) {
         memcpy(buf, &i, sizeof(i));

@@ -45,9 +45,9 @@
 #endif
 
 #ifdef __FDB_SEQTREE
-    #define SEQTREE(args...) args
+    #define SEQTREE(...) __VA_ARGS__
 #else
-    #define SEQTREE(args...)
+    #define SEQTREE(...)
 #endif
 
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
@@ -122,7 +122,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     SEQTREE(hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq,
                        _wal_cmp_byseq));
     list_init(&file->wal->list);
-    file->wal->lock = SPIN_INITIALIZER;
+    spin_init(&file->wal->lock);
 
     DBG("wal item size %d\n", (int)sizeof(struct wal_item));
     return WAL_RESULT_SUCCESS;

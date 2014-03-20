@@ -78,7 +78,13 @@ INLINE void _copy_kv(
     int ksize, vsize, kvsize;
     void *ptr_src, *ptr_dst;
 
-    if (node_dst == node_src) return;
+    if (node_dst == node_src) {
+#ifdef _MSC_VER
+        return NULL;
+#else
+        return;
+#endif
+    }
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
     kvsize = ksize + vsize;
@@ -185,26 +191,26 @@ INLINE int _cmp_char64(void *key1, void *key2)
 
 INLINE int _cmp_binary32(void *key1, void *key2)
 {
-    #ifdef __BIT_CMP
-        uint32_t a,b;
-        a = bitswap32(*(uint32_t*)key1);
-        b = bitswap32(*(uint32_t*)key2);
-        return _CMP_U32( a, b );
-    #else
-        return memcmp(key1, key2, 8);
-    #endif
+#ifdef __BIT_CMP
+    uint32_t a,b;
+    a = bitswap32(*(uint32_t*)key1);
+    b = bitswap32(*(uint32_t*)key2);
+    return _CMP_U32( a, b );
+#else
+    return memcmp(key1, key2, 8);
+#endif
 }
 
 INLINE int _cmp_binary64(void *key1, void *key2)
 {
-    #ifdef __BIT_CMP
-        uint64_t a,b;
-        a = bitswap64(*(uint64_t*)key1);
-        b = bitswap64(*(uint64_t*)key2);
-        return _CMP_U64( a , b );
-    #else
-        return memcmp(key1, key2, 8);
-    #endif
+#ifdef __BIT_CMP
+    uint64_t a,b;
+    a = bitswap64(*(uint64_t*)key1);
+    b = bitswap64(*(uint64_t*)key2);
+    return _CMP_U64( a , b );
+#else
+    return memcmp(key1, key2, 8);
+#endif
 }
 
 // key: uint64_t, value: uint64_t

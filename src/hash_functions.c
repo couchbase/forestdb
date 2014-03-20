@@ -4,8 +4,6 @@
  * (C) 2013  Jung-Sang Ahn <jungsang.ahn@gmail.com>
  */
 
-#include <stdint.h>
-
 #include "hash_functions.h"
 #include "common.h"
 

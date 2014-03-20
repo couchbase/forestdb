@@ -15,9 +15,17 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_FILEMGR_OPS_LINUX
-#define _JSAHN_FILEMGR_OPS_LINUX
+#ifndef _JSAHN_FILEMGR_OPS
+#define _JSAHN_FILEMGR_OPS
 
-struct filemgr_ops * get_linux_filemgr_ops();
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct filemgr_ops * get_filemgr_ops();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

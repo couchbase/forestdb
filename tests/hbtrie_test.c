@@ -24,7 +24,7 @@
 #include "btreeblock.h"
 #include "docio.h"
 #include "filemgr.h"
-#include "filemgr_ops_linux.h"
+#include "filemgr_ops.h"
 #include "common.h"
 
 uint32_t _set_doc(struct docio_object *doc, char *key, char *meta, char *body)
@@ -116,7 +116,7 @@ void basic_test()
     config.ncacheblock = 1024;
     config.flag = 0x0;
 
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 
@@ -222,7 +222,7 @@ void large_test()
 
     DBG("filemgr, bcache init .. \n");
     rr = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 

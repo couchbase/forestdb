@@ -9,9 +9,9 @@
 #include "list.h"
 
 #ifdef _LIST_LOCK
-    #define IFDEF_LOCK(command...) command
+    #define IFDEF_LOCK(...) __VA_ARGS__
 #else
-    #define IFDEF_LOCK(command...)
+    #define IFDEF_LOCK(...)
 #endif
 
 
@@ -19,7 +19,7 @@ void list_init(struct list *list)
 {
     list->head = NULL;
     list->tail = NULL;
-    IFDEF_LOCK( list->lock = SPIN_INITIALIZER; );
+    IFDEF_LOCK( spin_init(&list->lock); );
 }
 
 void list_push_front(struct list *list, struct list_elem *e)

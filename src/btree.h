@@ -10,6 +10,10 @@
 #include <stdint.h>
 #include "common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define _get_kvsize(kvsize, ksize, vsize) \
     (ksize) = ((kvsize) & 0xf0) >> 4;    \
     (vsize) = ((kvsize) & 0x0f)
@@ -143,5 +147,9 @@ btree_result btree_find(struct btree *btree, void *key, void *value_buf);
 btree_result btree_insert(struct btree *btree, void *key, void *value);
 btree_result btree_remove(struct btree *btree, void *key);
 btree_result btree_operation_end(struct btree *btree);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -55,8 +55,6 @@ struct btreeblk_block {
 INLINE void _btreeblk_get_aligned_block(
     struct btreeblk_handle *handle, struct btreeblk_block *block)
 {
-    int ret;
-
 #ifdef __BTREEBLK_BLOCKPOOL
     struct list_elem *e;
 
@@ -64,13 +62,17 @@ INLINE void _btreeblk_get_aligned_block(
     if (e) {
         block->addr_item = _get_entry(e, struct btreeblk_addr, le);
         block->addr = block->addr_item->addr;
+#ifdef _MSC_VER
+        return NULL;
+#else
         return;
+#endif
     }
     // no free addr .. create
     block->addr_item = (struct btreeblk_addr *)mempool_alloc(sizeof(struct btreeblk_addr));
 #endif
 
-    ret = posix_memalign(&block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
+    malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
 }
 
 INLINE void _btreeblk_free_aligned_block(
@@ -82,10 +84,14 @@ INLINE void _btreeblk_free_aligned_block(
     block->addr_item->addr = block->addr;
     list_push_front(&handle->blockpool, &block->addr_item->le);
     block->addr_item = NULL;
-    return;
+#ifdef _MSC_VER
+            return NULL;
+#else
+            return;
+#endif
 #endif
 
-    free(block->addr);
+    free_align(block->addr);
 }
 
 void * btreeblk_alloc(void *voidhandle, bid_t *bid)
@@ -188,7 +194,7 @@ INLINE void _btreeblk_empty_recycle_bin(struct btreeblk_handle *handle)
             if (handle->cache[idx] == block) {
                 handle->cache[idx] = NULL;
             }
-            free(block->addr);
+            free_align(block->addr);
             mempool_free(block);
         }
     }
@@ -412,7 +418,7 @@ void btreeblk_free(struct btreeblk_handle *handle)
 
         elm = list_remove(&handle->recycle_bin, elm);
 
-        free(block->addr);
+        free_align(block->addr);
         mempool_free(block);
     }
 #endif
@@ -426,7 +432,7 @@ void btreeblk_free(struct btreeblk_handle *handle)
         item = _get_entry(e, struct btreeblk_addr, le);
         e = list_next(e);
 
-        free(item->addr);
+        free_align(item->addr);
         mempool_free(item);
     }
 #endif

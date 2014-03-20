@@ -8,8 +8,12 @@
 #define _JSAHN_HASH_H
 
 #include <stdint.h>
-#define _HASH_TREE
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define _HASH_TREE
 #ifdef _HASH_TREE
     #include "avltree.h"
 #else
@@ -44,7 +48,7 @@ struct hash {
     struct list *buckets;
 #endif
 
-    hash_hash_func *hash;
+    hash_hash_func *hash_func;
     hash_cmp_func *cmp;
 #ifdef _HASH_TREE
     avl_cmp_func *avl_cmp;
@@ -62,5 +66,9 @@ struct hash_elem * hash_find(struct hash *hash, struct hash_elem *e);
 struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e);
 void hash_free(struct hash *hash);
 void hash_free_active(struct hash *hash, hash_free_func *free_func);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

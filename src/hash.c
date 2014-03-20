@@ -10,9 +10,9 @@
 #include "memleak.h"
 
 #ifdef _HASH_LOCK
-    #define IFDEF_LOCK(command...) command
+    #define IFDEF_LOCK(...) __VA_ARGS__
 #else
-    #define IFDEF_LOCK(command...)
+    #define IFDEF_LOCK(...)
 #endif
 
 #ifdef _HASH_TREE
@@ -43,15 +43,16 @@ void hash_init(struct hash *hash, int nbuckets, hash_hash_func *hash_func, hash_
         list_init(hash->buckets + i);
 #endif
 
-        IFDEF_LOCK( *(hash->locks + i) = SPIN_INITIALIZER );
+        IFDEF_LOCK( spin_init(hash->locks + i); );
     }
-    hash->hash = hash_func;
+
+    hash->hash_func = hash_func;
     hash->cmp = cmp_func;
 }
 
 void hash_insert(struct hash *hash, struct hash_elem *e)
 {
-    int bucket = hash->hash(hash, e);
+    int bucket = hash->hash_func(hash, e);
 
     IFDEF_LOCK( spin_lock(hash->locks + bucket) );
 
@@ -66,7 +67,7 @@ void hash_insert(struct hash *hash, struct hash_elem *e)
 
 struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
 {
-    int bucket = ht->hash(ht, e);
+    int bucket = ht->hash_func(ht, e);
     struct hash_elem *elem = NULL;
 
     IFDEF_LOCK( spin_lock(ht->locks + bucket) );
@@ -97,7 +98,7 @@ struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
 
 struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)
 {
-    int bucket = hash->hash(hash, e);
+    int bucket = hash->hash_func(hash, e);
     struct hash_elem *hash_elem;
 
     IFDEF_LOCK( spin_lock(hash->locks + bucket) );

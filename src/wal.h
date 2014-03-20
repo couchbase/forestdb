@@ -24,6 +24,10 @@
 #include "list.h"
 #include "forestdb.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     WAL_RESULT_SUCCESS,
     WAL_RESULT_FAIL
@@ -95,5 +99,9 @@ size_t wal_get_size(struct filemgr *file);
 size_t wal_get_datasize(struct filemgr *file);
 void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status);
 wal_dirty_t wal_get_dirty_status(struct filemgr *file);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

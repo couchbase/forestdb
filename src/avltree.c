@@ -27,7 +27,7 @@ INLINE int _abs(int n) {
 INLINE void avl_set_parent(struct avl_node *node, struct avl_node *parent)
 {
     node->parent = (struct avl_node *)(
-        (unsigned long)parent | ((unsigned long)node->parent & 0x3));
+        (uint64_t)parent | ((uint64_t)node->parent & 0x3));
 }
 
 #ifdef __AVL_DEBUG
@@ -53,7 +53,7 @@ INLINE void avl_set_bf(struct avl_node *node, int bf)
     node->bf = bf;
 #else
     node->parent = (struct avl_node *)(
-        (unsigned long)avl_parent(node) | (unsigned long)(bf+1));
+        (uint64_t)avl_parent(node) | (uint64_t)(bf+1));
 #endif
 }
 

@@ -64,7 +64,12 @@
     ((STRUCT *) ((uint8_t *) (ELEM) - offsetof (STRUCT, MEMBER)))
 #endif
 
+#ifdef SPIN_INITIALIZER
 static spin_t initial_lock = SPIN_INITIALIZER;
+#else
+static spin_t initial_lock;
+#endif
+
 static int mempool_initialized = 0;
 static int l1cache_linesize;
 
@@ -122,7 +127,7 @@ void mempool_init()
         for (i=MINSIZE; i<=MAXSIZE; i*=2) {
             bucket[c].rvalue = 0;
             bucket[c].size = i;
-            bucket[c].lock = SPIN_INITIALIZER;
+            spin_init(&bucket[c].lock);
 
             n = initial_space[c] / (N_LISTS * bucket[c].size);
 
@@ -132,13 +137,10 @@ void mempool_init()
 
             for (j=0;j<N_LISTS;++j){
                 list_init(&bucket[c].listset[j].list);
-                bucket[c].listset[j].lock = SPIN_INITIALIZER;
+                spin_init(&bucket[c].listset[j].lock);
 
                 for (k=0;k<n;++k){
                     item = (struct mempool_item *)malloc(sizeof(struct mempool_item) + bucket[c].size);
-                    /*
-                    ret = posix_memalign(
-                        (void **)&item, l1cache_linesize, sizeof(struct mempool_item) + bucket[c].size);*/
                     item->listset = &bucket[c].listset[j];
 
                     list_push_front(&item->listset->list, &item->le);
@@ -180,7 +182,7 @@ void mempool_shutdown()
         for (i=MINSIZE; i<=MAXSIZE; i*=2) {
             bucket[c].rvalue = 0;
             bucket[c].size = i;
-            bucket[c].lock = SPIN_INITIALIZER;
+            spin_init(&bucket[c].lock);
 
             n = initial_space[c] / (N_LISTS * bucket[c].size);
 

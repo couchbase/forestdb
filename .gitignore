@@ -1,6 +1,7 @@
 # Keep the entries sorted to reduce the risk for a merge conflict
 *.[ao]
 couchstore_api/couchbench_fdb
+build
 dummy2
 errorlog.txt
 forestdb_test

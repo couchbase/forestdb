@@ -21,7 +21,7 @@
 #include <pthread.h>
 
 #include "filemgr.h"
-#include "filemgr_ops_linux.h"
+#include "filemgr_ops.h"
 #include "test.h"
 
 void basic_test()
@@ -39,13 +39,13 @@ void basic_test()
     config.blocksize = 4096;
     config.ncacheblock = 1024;
 
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
 
     filemgr_update_header(file, dbheader, strlen(dbheader)+1);
 
     filemgr_close(file);
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
 
     memcpy(buf, file->header.data, file->header.size);
     printf("%s\n", buf);

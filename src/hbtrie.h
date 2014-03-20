@@ -21,6 +21,10 @@
 #include "common.h"
 #include "list.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define HBTRIE_MAX_KEYLEN FDB_MAX_KEYLEN
 
 typedef size_t hbtrie_func_readkey(void *handle, uint64_t offset, void *buf);
@@ -71,5 +75,9 @@ hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey, int rawkeylen, void
 hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen);
 hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
             void *value, void *oldvalue_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

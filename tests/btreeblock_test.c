@@ -21,7 +21,7 @@
 #include <pthread.h>
 
 #include "filemgr.h"
-#include "filemgr_ops_linux.h"
+#include "filemgr_ops.h"
 #include "btreeblock.h"
 #include "btree.h"
 #include "btree_kv.h"
@@ -54,7 +54,7 @@ void basic_test()
     config.ncacheblock = 1024;
     config.flag = 0x0;
     r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
@@ -141,7 +141,7 @@ void iterator_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
     r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
@@ -212,7 +212,7 @@ void two_btree_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &config);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
     btreeblk_init(&btreeblk_handle, file, nodesize);
 
     btree_init(&btree_a, (void*)&btreeblk_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
@@ -251,7 +251,7 @@ void range_test()
     fconfig.ncacheblock = 0;
 
     r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_linux_filemgr_ops(), &fconfig);
+    file = filemgr_open("./dummy", get_filemgr_ops(), &fconfig);
     btreeblk_init(&bhandle, file, blocksize);
 
     btree_init(&btree, &bhandle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(),

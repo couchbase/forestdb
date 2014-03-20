@@ -6,7 +6,6 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <pthread.h>
 
 #include "couch_common.h"
 #include "couch_db.h"
@@ -250,14 +249,14 @@ void * pop_thread(void *voidargs)
 
     free(docs);
     free(infos);
-    pthread_exit(NULL);
+    thread_exit(0);
     return NULL;
 }
 
 void population(Db **db, struct bench_info *binfo)
 {
     int i;
-    pthread_t tid[binfo->nthreads];
+    thread_t tid[binfo->nthreads];
     void *ret[binfo->nthreads];
     struct pop_thread_args args[binfo->nthreads];
 
@@ -266,11 +265,11 @@ void population(Db **db, struct bench_info *binfo)
         args[i].n = i;
         args[i].db = db;
         args[i].binfo = binfo;
-        pthread_create(&tid[i], NULL, pop_thread, &args[i]);
+        thread_create(&tid[i], pop_thread, &args[i]);
     }
 
     for (i=0;i<binfo->nthreads;++i){
-        pthread_join(tid[i], &ret[i]);
+        thread_join(tid[i], &ret[i]);
     }
 
     printf("\n");
@@ -698,7 +697,14 @@ struct bench_info get_benchinfo()
     struct bench_info binfo;
     char *str;
     char *filename = (char*)malloc(256);
-    size_t ncores = sysconf(_SC_NPROCESSORS_ONLN);
+    size_t ncores;
+#if defined(WIN32) || defined(_WIN32)
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    ncores = (size_t)sysinfo.dwNumberOfProcessors;
+#else
+    ncores = (size_t)sysconf(_SC_NPROCESSORS_ONLN);
+#endif
 
     binfo.ndocs = iniparser_getint(cfg, "document:ndocs", 10000);
     binfo.filename = filename;

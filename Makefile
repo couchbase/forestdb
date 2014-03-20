@@ -21,7 +21,8 @@ BCACHE = src/blockcache.o utils/debug.o \
 	
 WAL = src/wal.o $(HASH) $(MEMLEAK)
 
-FILEMGR = src/filemgr.o src/filemgr_ops_linux.o utils/debug.o \
+FILEMGR = src/filemgr.o src/filemgr_ops.o src/filemgr_ops_linux.o \
+	src/filemgr_ops_windows.o utils/debug.o \
 	$(HASH) $(BCACHE) $(MEMLEAK) $(WAL)
 
 BCACHETEST = tests/bcache_test.o $(FILEMGR)
@@ -40,11 +41,13 @@ HBTRIETEST = tests/hbtrie_test.o
 
 FDB = \
 	src/forestdb.o src/iterator.o src/hbtrie.o src/btree.o src/btree_kv.o \
-	src/docio.o src/filemgr.o src/filemgr_ops_linux.o src/hash.o \
-	src/hash_functions.o src/list.o src/avltree.o \
+	src/docio.o src/filemgr.o src/filemgr_ops.o \
+    src/filemgr_ops_linux.o src/filemgr_ops_windows.o \
+    src/hash_functions.o src/list.o src/avltree.o src/hash.o \
 	src/btreeblock.o src/mempool.o src/wal.o src/blockcache.o utils/crc32.o \
 	utils/debug.o \
-    utils/memleak.o
+    utils/memleak.o \
+
 FDB_COUCH = $(FDB) couchstore_api/couchstore_api.o
 
 LEVELDB_COUCH = couchstore_api/couchstore_api_leveldb.o

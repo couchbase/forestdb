@@ -20,6 +20,10 @@
 
 #include "filemgr.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     BCACHE_CLEAN,
     BCACHE_DIRTY
@@ -36,5 +40,9 @@ void bcache_flush(struct filemgr *file);
 void bcache_shutdown();
 
 void bcache_update_file_status(struct filemgr *file, file_status_t status);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

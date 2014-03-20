@@ -20,12 +20,14 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <stdint.h>
-#include <pthread.h>
 
 #include "common.h"
 #include "hash.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct filemgr_config {
     int blocksize;
@@ -120,5 +122,9 @@ file_status_t filemgr_get_file_status(struct filemgr *file);
 
 void filemgr_mutex_lock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

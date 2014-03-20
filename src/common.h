@@ -32,11 +32,13 @@
 #include "time_utils.h"
 
 #ifndef _MEMPOOL
-    #define mempool_alloc(args...) malloc(args)
-    #define mempool_free(args...) free(args)
+    #define mempool_alloc malloc
+    #define mempool_free free
 #endif
 
 #define _MEMORY_OVERRIDE
+
+#define alca(type, n) ((type*)alloca(sizeof(type) * (n)))
 
 #define seq_memcpy(dest, src, size, offset_var) \
     memcpy(dest, src, size); \

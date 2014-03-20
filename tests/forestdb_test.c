@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <pthread.h>
 #include <time.h>
 
 #include "hbtrie.h"
@@ -27,12 +26,10 @@
 #include "btreeblock.h"
 #include "docio.h"
 #include "filemgr.h"
-#include "filemgr_ops_linux.h"
+#include "filemgr_ops.h"
 #include "forestdb.h"
 
 #include "memleak.h"
-
-#define NCORES (sysconf(_SC_NPROCESSORS_ONLN))
 
 void _set_random_string(char *str, int len)
 {
@@ -623,7 +620,7 @@ void *_worker_thread(void *voidargs)
     fdb_commit(&db);
 
     fdb_close(&db);
-    pthread_exit(NULL);
+    thread_exit(0);
     return NULL;
 }
 
@@ -635,7 +632,7 @@ void multi_thread_test(
 
     int i, r, idx_digit, temp_len;
     int n = nwriters + nreaders;;
-    pthread_t tid[n];
+    thread_t tid[n];
     void *thread_ret[n];
     struct work_thread_args args[n];
     struct timeval ts_begin, ts_cur, ts_gap;
@@ -645,7 +642,8 @@ void multi_thread_test(
     fdb_status status;
 
     int filename_count = 1;
-    spin_t filename_count_lock = SPIN_INITIALIZER;
+    spin_t filename_count_lock;
+    spin_init(&filename_count_lock);
 
     char keybuf[1024], metabuf[1024], bodybuf[1024], temp[1024];
 
@@ -714,14 +712,14 @@ void multi_thread_test(
         args[i].compact_term = compact_term;
         args[i].filename_count = &filename_count;
         args[i].filename_count_lock = &filename_count_lock;
-        pthread_create(&tid[i], NULL, _worker_thread, &args[i]);
+        thread_create(&tid[i], _worker_thread, &args[i]);
     }
 
     fprintf(stderr, "wait for %d seconds..\n", (int)time_sec);
 
     // wait for thread termination
     for (i=0;i<n;++i){
-        pthread_join(tid[i], &thread_ret[i]);
+        thread_join(tid[i], &thread_ret[i]);
     }
 
     // free all documents

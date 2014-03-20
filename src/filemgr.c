@@ -47,7 +47,13 @@
 #define FILEMGR_MAGIC (UINT64_C(0xdeadcafebeefbeef))
 
 // global static variables
+#ifdef SPIN_INITIALIZER
 static spin_t initial_lock = SPIN_INITIALIZER;
+#else
+static spin_t initial_lock;
+#endif
+
+
 static int filemgr_initialized = 0;
 static struct filemgr_config global_config;
 static struct hash hash;
@@ -67,7 +73,8 @@ uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
     struct filemgr *file = _get_entry(e, struct filemgr, e);
     int len = strlen(file->filename);
     int offset = MIN(len, 8);
-    return hash_djb2(file->filename + (len - offset), offset) & ((unsigned)(NBUCKET-1));
+    return crc32_8((void *)file->filename + (len - offset), offset, 0) &
+        ((unsigned)(NBUCKET-1));
 }
 
 int _file_cmp(struct hash_elem *a, struct hash_elem *b)
@@ -95,7 +102,7 @@ void filemgr_init(struct filemgr_config *config)
     int i, ret;
     uint32_t *temp;
 
-     spin_lock(&initial_lock);
+    spin_lock(&initial_lock);
     if (!filemgr_initialized) {
         global_config = *config;
 
@@ -104,14 +111,12 @@ void filemgr_init(struct filemgr_config *config)
 
         hash_init(&hash, NBUCKET, _file_hash, _file_cmp);
 
-        filemgr_sys_pagesize = sysconf(_SC_PAGESIZE);
-
         // initialize temp buffer
         list_init(&temp_buf);
-        temp_buf_lock = SPIN_INITIALIZER;
+        spin_init(&temp_buf_lock);
 
         // initialize global lock
-        filemgr_openlock = SPIN_INITIALIZER;
+        spin_init(&filemgr_openlock);
 
         // set the initialize flag
         filemgr_initialized = 1;
@@ -131,14 +136,9 @@ void * _filemgr_get_temp_buf()
     }else{
         void *addr;
 
-        int ret = posix_memalign(&addr, FDB_SECTOR_SIZE,
-            global_config.blocksize + sizeof(struct temp_buf_item));
-        assert(ret == 0);
-        /*
-        addr = memalign(FDB_SECTOR_SIZE, global_config.blocksize + sizeof(struct temp_buf_item));
-        assert(addr);*/
+        malloc_align(addr, FDB_SECTOR_SIZE, global_config.blocksize + sizeof(struct temp_buf_item));
 
-        item = addr + global_config.blocksize;
+        item = (struct temp_buf_item *)(addr + global_config.blocksize);
         item->addr = addr;
     }
     spin_unlock(&temp_buf_lock);
@@ -167,7 +167,7 @@ void _filemgr_shutdown_temp_buf()
     while(e){
         item = _get_entry(e, struct temp_buf_item, le);
         e = list_remove(&temp_buf, e);
-        free(item->addr);
+        free_align(item->addr);
         count++;
     }
     spin_unlock(&temp_buf_lock);
@@ -219,7 +219,11 @@ void _filemgr_read_header(struct filemgr *file)
                             // release temp buffer
                             _filemgr_release_temp_buf(buf);
 
+#ifdef _MSC_VER
+                            return NULL;
+#else
                             return;
+#endif
                         } else {
                             DBG("Crash Detected: CRC on disk %u != %u\n",
                                     hdr_crc, crc);
@@ -265,6 +269,15 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     // global initialization
     // initialized only once at first time
     if (!filemgr_initialized) {
+#ifndef SPIN_INITIALIZER
+        void *zerobytes = (void *)malloc(sizeof(spin_t));
+        memset(zerobytes, 0, sizeof(spin_t));
+        if (!memcmp(&initial_lock, zerobytes, sizeof(spin_t))) {
+            // NULL value .. initialize
+            spin_init(&initial_lock);
+        }
+        free(zerobytes);
+#endif
         filemgr_init(config);
     }
 
@@ -314,12 +327,12 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 
         _filemgr_read_header(file);
 
-        file->lock = SPIN_INITIALIZER;
+        spin_init(&file->lock);
 
 #ifdef __FILEMGR_MUTEX_LOCK
         mutex_init(&file->mutex);
 #else
-        file->mutex = SPIN_INITIALIZER;
+        spin_init(&file->mutex);
 #endif
 
         hash_insert(&hash, &file->e);
@@ -413,7 +426,11 @@ void filemgr_close(struct filemgr *file)
             remove(file->filename);
             filemgr_remove_file(file);
 
+#ifdef _MSC_VER
+            return NULL;
+#else
             return;
+#endif
         }else{
             file->status = FILE_CLOSED;
         }
@@ -436,16 +453,25 @@ void _filemgr_free_func(struct hash_elem *h)
     if (wal_is_initialized(file)) {
         wal_shutdown(file);
         hash_free(&file->wal->hash_bykey);
-    #ifdef __FDB_SEQTREE
+#ifdef __FDB_SEQTREE
         hash_free(&file->wal->hash_byseq);
-    #endif
+#endif
     }
 
+    spin_destroy(&file->wal->lock);
     free(file->wal);
 
     // free filename and header
     free(file->filename);
     if (file->header.data) free(file->header.data);
+
+    // destroy locks
+    spin_destroy(&file->lock);
+#ifdef __FILEMGR_MUTEX_LOCK
+    mutex_destroy(&file->mutex);
+#else
+    spin_destroy(&file->mutex);
+#endif
 
     // free file structure
     free(file);
@@ -594,7 +620,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
                     count_bulk = file->last_commit - pos_bulk;
                 }
                 nblocks = count_bulk / file->blocksize;
-                r = posix_memalign(&bulk_buf, FDB_SECTOR_SIZE, count_bulk);
+                malloc_align(bulk_buf, FDB_SECTOR_SIZE, count_bulk);
                 r = file->ops->pread(file->fd, bulk_buf, count_bulk, pos_bulk);
                 assert(r > 0);
 
@@ -604,7 +630,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
                 }
                 memcpy(buf, bulk_buf + (bid*file->blocksize - pos_bulk), file->blocksize);
 
-                free(bulk_buf);
+                free_align(bulk_buf);
             }
         }
     } else {
