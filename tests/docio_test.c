@@ -92,7 +92,7 @@ void basic_test()
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     keylen_t keylen;
-    docio_read_doc_key(&handle, 69, &keylen, keybuf);
+    docio_read_doc_key(&handle, 81, &keylen, keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
     filemgr_commit(file);
