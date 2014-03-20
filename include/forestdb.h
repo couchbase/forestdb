@@ -125,7 +125,6 @@ typedef struct {
     uint64_t _offset;
 } fdb_iterator;
 
-fdb_status fdb_recover_compaction(fdb_handle *handle, char *new_filename);
 fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func);
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config);
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,

@@ -318,6 +318,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->status = FILE_NORMAL;
         file->config = &global_config;
         file->new_file = NULL;
+        file->old_filename = NULL;
 
         file->fd = file->ops->open(file->filename, file_flag, 0666);
         assert(file->fd >= 0);
@@ -464,6 +465,8 @@ void _filemgr_free_func(struct hash_elem *h)
     // free filename and header
     free(file->filename);
     if (file->header.data) free(file->header.data);
+    // free old filename if any
+    free(file->old_filename);
 
     // destroy locks
     spin_destroy(&file->lock);
@@ -759,10 +762,19 @@ void filemgr_sync(struct filemgr *file)
     file->ops->fsync(file->fd);
 }
 
-void filemgr_update_file_status(struct filemgr *file, file_status_t status)
+void filemgr_update_file_status(struct filemgr *file, file_status_t status,
+                                char *old_filename)
 {
     spin_lock(&file->lock);
     file->status = status;
+    if (old_filename) {
+        if (!file->old_filename) {
+        file->old_filename = old_filename;
+        } else {
+            assert(file->ref_count);
+            free(old_filename);
+        }
+    }
     spin_unlock(&file->lock);
 }
 

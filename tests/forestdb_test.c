@@ -504,6 +504,120 @@ void compact_wo_reopen_test()
     TEST_RESULT("compaction without reopen test");
 }
 
+void auto_recover_compact_ok_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 3;
+    fdb_handle db, db_new;
+    fdb_config config;
+    fdb_doc *doc[n], *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // configuration
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 1 * 1024 * 1024;
+    config.wal_threshold = 1024;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    // remove previous dummy files
+    r = system("rm -rf ./dummy* > errorlog.txt");
+
+    // open db
+    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", &config);
+
+    // insert first two documents
+    for (i=0;i<2;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i],
+            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+
+    // remove second doc
+    fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    fdb_set(&db, rdoc);
+    fdb_doc_free(rdoc);
+
+    // manually flush WAL
+    fdb_flush_wal(&db);
+    // commit
+    fdb_commit(&db);
+
+    // perform compaction using one handle
+    fdb_compact(&db, "./dummy2");
+
+    // save the old file after compaction is done ..
+    r = system("cp ./dummy1 ./dummy11 > errorlog.txt");
+
+    // now insert third doc: it should go to the newly compacted file.
+    sprintf(keybuf, "key%d", i);
+    sprintf(metabuf, "meta%d", i);
+    sprintf(bodybuf, "body%d", i);
+    fdb_doc_create(&doc[i],
+        keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+    fdb_set(&db, doc[i]);
+
+    // manually flush WAL
+    fdb_flush_wal(&db);
+    // commit
+    fdb_commit(&db);
+
+    // close both the db files ...
+    fdb_close(&db);
+    fdb_close(&db_new);
+
+    // restore the old file after close is done ..
+    r = system("mv ./dummy11 ./dummy1 > errorlog.txt");
+
+    // now open the old saved compacted file, it should automatically recover
+    // and use the new file since compaction was done successfully
+    fdb_open(&db_new, "./dummy1", &config);
+
+    // retrieve documents using the old handle and expect all 3 docs
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(&db_new, rdoc);
+
+        if (i != 1) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        }else{
+            TEST_CHK(status == FDB_RESULT_FAIL);
+        }
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+    // check this handle's filename it should point to newly compacted file
+    TEST_CHK(!strcmp("./dummy2", db_new.file->filename));
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("auto recovery after compaction test");
+}
+
+
 struct timespec _time_gap(struct timespec a, struct timespec b)
 {
     struct timespec ret;
@@ -731,7 +845,7 @@ void multi_thread_test(
     sprintf(temp, FILENAME"_recovered");
     fdb_open(&db, temp, &config);
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_recover_compaction(&db, temp);
+    // test _fdb_recover_compaction(&db, temp);
     fdb_close(&db);
 
     // shutdown
@@ -1191,6 +1305,7 @@ int main(){
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
+    auto_recover_compact_ok_test();
 #ifdef __CRC32
     crash_recovery_test();
 #endif

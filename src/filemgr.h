@@ -79,6 +79,7 @@ struct filemgr {
     file_status_t status;
     struct filemgr_config *config;
     struct filemgr *new_file;
+    char *old_filename;
     struct fnamedic_item *bcache;
 
     // spin lock for small region
@@ -115,7 +116,8 @@ void filemgr_remove_file(struct filemgr *file);
 void filemgr_commit(struct filemgr *file);
 void filemgr_sync(struct filemgr *file);
 void filemgr_shutdown();
-void filemgr_update_file_status(struct filemgr *file, file_status_t status);
+void filemgr_update_file_status(struct filemgr *file, file_status_t status,
+                                char *old_filename);
 void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
 file_status_t filemgr_get_file_status(struct filemgr *file);
