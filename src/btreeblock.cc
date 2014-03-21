@@ -109,7 +109,7 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
                 curpos = block->pos;
                 block->pos += (handle->nodesize);
                 *bid = block->bid * handle->nnodeperblock + curpos / (handle->nodesize);
-                return (block->addr + curpos);
+                return ((uint8_t *)block->addr + curpos);
             }
         }
     }
@@ -122,7 +122,8 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
     block->dirty = 1;
 
 #ifdef __CRC32
-    memset(block->addr + handle->nodesize - BLK_MARKER_SIZE, BLK_MARKER_BNODE, BLK_MARKER_SIZE);
+    memset((uint8_t *)block->addr + handle->nodesize - BLK_MARKER_SIZE,
+           BLK_MARKER_BNODE, BLK_MARKER_SIZE);
 #endif
 
     // btree bid differs to filemgr bid
@@ -218,7 +219,7 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
     for (elm = list_begin(&handle->read_list); elm; elm = list_next(elm)) {
         block = _get_entry(elm, struct btreeblk_block, le);
         if (block->bid == filebid) {
-            return block->addr + (handle->nodesize) * offset;
+            return (uint8_t *)block->addr + (handle->nodesize) * offset;
         }
     }
     // allocation list (dirty)
@@ -226,7 +227,7 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
         block = _get_entry(elm, struct btreeblk_block, le);
         if (block->bid == filebid &&
             block->pos >= (handle->nodesize) * offset) {
-            return block->addr + (handle->nodesize) * offset;
+            return (uint8_t *)block->addr + (handle->nodesize) * offset;
         }
     }
 
@@ -255,7 +256,7 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
 
     list_push_front(&handle->read_list, &block->le);
 
-    return block->addr + (handle->nodesize) * offset;
+    return (uint8_t *)block->addr + (handle->nodesize) * offset;
 }
 
 void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)

@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 
 #include "test.h"
 #include "blockcache.h"
@@ -37,11 +36,12 @@ void basic_test()
     bid_t bid;
     int i, j;
     uint8_t buf[4096];
+    char *fname = (char *) "./dummy";
 
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 5;
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config);
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file);
@@ -80,14 +80,15 @@ void basic_test2()
     bid_t bid;
     int i, j;
     uint8_t buf[4096];
+    char *fname = (char *) "./dummy";
     int r;
-    r = system("rm -rf ./dummy");
+    r = system(SHELL_DEL " dummy");
 
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 5;
     config.flag = 0x0;
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config);
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file);
@@ -105,19 +106,6 @@ void basic_test2()
 
 }
 
-struct timespec _time_gap(struct timespec a, struct timespec b)
-{
-	struct timespec ret;
-	if (b.tv_nsec >= a.tv_nsec) {
-		ret.tv_nsec = b.tv_nsec - a.tv_nsec;
-		ret.tv_sec = b.tv_sec - a.tv_sec;
-	}else{
-		ret.tv_nsec = 1000000000 + b.tv_nsec - a.tv_nsec;
-		ret.tv_sec = b.tv_sec - a.tv_sec - 1;
-	}
-	return ret;
-}
-
 struct worker_args{
     size_t n;
     struct filemgr *file;
@@ -128,7 +116,7 @@ struct worker_args{
 
 void * worker(void *voidargs)
 {
-    void *buf = (void *)malloc(4096);
+    uint8_t *buf = (uint8_t *)malloc(4096);
     struct worker_args *args = (struct worker_args*)voidargs;
     struct timeval ts_begin, ts_cur, ts_gap;
 
@@ -174,7 +162,7 @@ void * worker(void *voidargs)
     }
 
     free(buf);
-    pthread_exit(NULL);
+    thread_exit(0);
     return NULL;
 }
 
@@ -189,24 +177,25 @@ void multi_thread_test(
     int n = nwriters + nreaders;
     uint64_t i, j;
     uint32_t crc;
-    void *buf;
+    uint8_t *buf;
     int r;
-    pthread_t tid[n];
-    struct worker_args args[n];
-    void *ret[n];
+    char *fname = (char *) "./dummy";
+    thread_t *tid = alca(thread_t, n);
+    struct worker_args *args = alca(struct worker_args, n);
+    void **ret = alca(void *, n);
 
-    r = system("rm -rf ./dummy");
+    r = system(SHELL_DEL " dummy");
 
-    memleak_start();
+    //memleak_start();
 
-    buf = (void *)malloc(4096);
+    buf = (uint8_t *)malloc(4096);
     memset(buf, 0, 4096);
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = cachesize;
     config.flag = 0x0;
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config);
 
     for (i=0;i<nblocks;++i) {
         memcpy(buf, &i, sizeof(i));
@@ -223,12 +212,12 @@ void multi_thread_test(
         args[i].writer = ((i<nwriters)?(1):(0));
         args[i].nblocks = nblocks;
         args[i].time_sec = time_sec;
-        pthread_create(&tid[i], NULL, worker, &args[i]);
+        thread_create(&tid[i], worker, &args[i]);
     }
 
     DBG("wait for %d seconds..\n", time_sec);
     for (i=0;i<n;++i){
-        pthread_join(tid[i], &ret[i]);
+        thread_join(tid[i], &ret[i]);
     }
 
     filemgr_commit(file);
@@ -236,14 +225,14 @@ void multi_thread_test(
     filemgr_shutdown();
     free(buf);
 
-    memleak_end();
+    //memleak_end();
     TEST_RESULT("multi thread test");
 }
 
 int main()
 {
     basic_test2();
-    multi_thread_test(4, 1, 32, 60, 1, 7);
+    multi_thread_test(4, 1, 32, 20, 1, 7);
 
     return 0;
 }

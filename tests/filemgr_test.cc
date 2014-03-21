@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -30,8 +29,8 @@ void basic_test()
 
     struct filemgr *file;
     struct filemgr_config config;
-    char *dbheader = "dbheader";
-    char *dbheader2 = "dbheader2222222222";
+    const char *dbheader = "dbheader";
+    const char *dbheader2 = "dbheader2222222222";
     char buf[256];
     int len;
 
@@ -39,18 +38,18 @@ void basic_test()
     config.blocksize = 4096;
     config.ncacheblock = 1024;
 
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
 
-    filemgr_update_header(file, dbheader, strlen(dbheader)+1);
+    filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1);
 
     filemgr_close(file);
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
 
     memcpy(buf, file->header.data, file->header.size);
     printf("%s\n", buf);
 
-    filemgr_update_header(file, dbheader2, strlen(dbheader2) + 1);
+    filemgr_update_header(file, (void*)dbheader2, strlen(dbheader2) + 1);
 
     filemgr_close(file);
 
@@ -66,7 +65,7 @@ void mt_init_test()
 
 int main()
 {
-    int r = system("rm -rf ./dummy");
+    int r = system(SHELL_DEL" dummy");
 
     basic_test();
     mt_init_test();

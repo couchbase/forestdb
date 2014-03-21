@@ -20,9 +20,15 @@
 
 #include <stdio.h>
 #include <time.h>
+#if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
+#endif
 
 #include "common.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define _TEST_GLOBAL
 #ifdef _TEST_GLOBAL
@@ -51,6 +57,27 @@
 #define TEST_CHK(cond, sw) {if (!(cond)) {fprintf(stderr, "Test failed: %s %d\n", __FILE__, __LINE__); sw=0;}}
 #define TEST_RESULT(name, sw) {if ((sw)) fprintf(stderr, "%s PASSED\n", (name)); else fprintf(stderr, "%s FAILED\n", (name)); }
 
+#endif
+
+#if defined(WIN32) || defined(_WIN32)
+#define SHELL_DEL "del "
+#define SHELL_COPY "copy "
+#define SHELL_MOVE "move "
+#else
+#define SHELL_DEL "rm -rf "
+#define SHELL_COPY "cp "
+#define SHELL_MOVE "mv "
+#endif
+
+#ifdef _MSC_VER
+#define memleak_start(arg)
+#define memleak_end(arg)
+#else
+#include "memleak.h"
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

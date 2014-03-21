@@ -340,12 +340,13 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             #ifdef __CRC32
                 if (marker == BLK_MARKER_BNODE ) {
                     // b-tree node .. calculate crc32 and put it into the block
-                    memset(ptr + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
+                    memset((uint8_t *)(ptr) + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
                     uint32_t crc = crc32_8(ptr, bcache_blocksize, 0);
-                    memcpy(ptr + BTREE_CRC_OFFSET, &crc, sizeof(crc));
+                    memcpy((uint8_t *)(ptr) + BTREE_CRC_OFFSET, &crc, sizeof(crc));
                 }
             #endif
-            memcpy(buf + count*bcache_blocksize, ditem->item->addr, bcache_blocksize);
+            memcpy((uint8_t *)(buf) + count*bcache_blocksize, ditem->item->addr,
+                   bcache_blocksize);
         }
 
         // remove from rb-tree
@@ -719,7 +720,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
 
     spin_unlock(&fname_new->lock);
 
-    memcpy(item->addr + offset, buf, len);
+    memcpy((uint8_t *)(item->addr) + offset, buf, len);
     spin_unlock(&item->lock);
 
     return len;

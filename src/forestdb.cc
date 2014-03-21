@@ -75,24 +75,24 @@ INLINE void _fdb_fetch_header(
     size_t offset = 0;
     uint8_t new_filename_len;
     uint8_t old_filename_len;
-    seq_memcpy(trie_root_bid, header_buf + offset, sizeof(bid_t), offset);
-    seq_memcpy(seq_root_bid, header_buf + offset, sizeof(bid_t), offset);
-    seq_memcpy(seqnum, header_buf + offset, sizeof(fdb_seqnum_t), offset);
-    seq_memcpy(ndocs, header_buf + offset, sizeof(uint64_t), offset);
-    seq_memcpy(datasize, header_buf + offset, sizeof(uint64_t), offset);
-    seq_memcpy(last_header_bid, header_buf + offset,
+    seq_memcpy(trie_root_bid, (uint8_t *)header_buf + offset, sizeof(bid_t), offset);
+    seq_memcpy(seq_root_bid, (uint8_t *)header_buf + offset, sizeof(bid_t), offset);
+    seq_memcpy(seqnum, (uint8_t *)header_buf + offset, sizeof(fdb_seqnum_t), offset);
+    seq_memcpy(ndocs, (uint8_t *)header_buf + offset, sizeof(uint64_t), offset);
+    seq_memcpy(datasize, (uint8_t *)header_buf + offset, sizeof(uint64_t), offset);
+    seq_memcpy(last_header_bid, (uint8_t *)header_buf + offset,
         sizeof(uint64_t), offset);
-    seq_memcpy(&new_filename_len, header_buf + offset, sizeof(uint8_t),
+    seq_memcpy(&new_filename_len, (uint8_t *)header_buf + offset, sizeof(uint8_t),
         offset);
-    seq_memcpy(&old_filename_len, header_buf + offset, sizeof(uint8_t),
+    seq_memcpy(&old_filename_len, (uint8_t *)header_buf + offset, sizeof(uint8_t),
         offset);
     if (new_filename_len) {
-        *new_filename = header_buf + offset;
+        *new_filename = (char*)((uint8_t *)header_buf + offset);
     }
     offset += FDB_MAX_FILENAME_LEN;
     if (old_filename_len) {
         *old_filename = (char *) malloc(old_filename_len);
-        seq_memcpy(*old_filename, header_buf + offset + new_filename_len,
+        seq_memcpy(*old_filename, (uint8_t *)header_buf + offset + new_filename_len,
                    old_filename_len, offset);
     }
 }
@@ -264,6 +264,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func)
 {
     // set custom compare function
@@ -272,6 +273,7 @@ fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func)
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 {
     struct filemgr_config fconfig;
@@ -379,6 +381,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
     void *body, size_t bodylen)
 {
@@ -423,6 +426,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, s
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_doc_update(fdb_doc **doc, void *meta, size_t metalen, void *body, size_t bodylen)
 {
     if (doc == NULL) return FDB_RESULT_FAIL;
@@ -452,6 +456,7 @@ fdb_status fdb_doc_update(fdb_doc **doc, void *meta, size_t metalen, void *body,
 }
 
 // doc MUST BE allocated by malloc
+LIBFDB_API
 fdb_status fdb_doc_free(fdb_doc *doc)
 {
     if (doc->key) free(doc->key);
@@ -573,6 +578,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
     }
 }
 
+LIBFDB_API
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 {
     void *header_buf;
@@ -632,6 +638,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 }
 
 // search document metadata using key
+LIBFDB_API
 fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset)
 {
     uint64_t offset;
@@ -676,6 +683,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
 #ifdef __FDB_SEQTREE
 
 // search document using sequence number
+LIBFDB_API
 fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
@@ -719,6 +727,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 }
 
 // search document metadata using sequence number
+LIBFDB_API
 fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset)
 {
     uint64_t offset;
@@ -739,7 +748,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         btreeblk_end(handle->bhandle);
     }
 
-    if (wr != WAL_RESULT_FAIL || br != HBTRIE_RESULT_FAIL) {
+    if (wr != WAL_RESULT_FAIL || br != BTREE_RESULT_FAIL) {
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
         *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
@@ -769,6 +778,7 @@ uint64_t _fdb_get_wal_threshold(fdb_handle *handle)
     return handle->config.wal_threshold;
 }
 
+LIBFDB_API
 fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
@@ -926,6 +936,7 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     return filemgr_update_header(handle->file, buf, offset);
 }
 
+LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle)
 {
     filemgr_mutex_lock(handle->file);
@@ -985,6 +996,7 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
+LIBFDB_API
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 {
     struct filemgr *new_file, *old_file;
@@ -1075,7 +1087,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     // mark name of new file in old file
     filemgr_set_compaction_old(handle->file, new_file);
     // flush WAL and set DB header
-    wal_flush(handle->file, handle, _fdb_wal_flush_func);
+    wal_flush(handle->file, (void*)handle, _fdb_wal_flush_func);
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
     handle->last_header_bid =
         (handle->file->pos) / handle->file->blocksize;
@@ -1177,6 +1189,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
 }
 
 // manually flush WAL entries into index
+LIBFDB_API
 fdb_status fdb_flush_wal(fdb_handle *handle)
 {
     filemgr_mutex_lock(handle->file);
@@ -1190,6 +1203,7 @@ fdb_status fdb_flush_wal(fdb_handle *handle)
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_close(fdb_handle *handle)
 {
     filemgr_close(handle->file);
@@ -1218,6 +1232,7 @@ fdb_status fdb_close(fdb_handle *handle)
 }
 
 // roughly estimate the space occupied db handle HANDLE
+LIBFDB_API
 size_t fdb_estimate_space_used(fdb_handle *handle)
 {
     size_t ret = 0;
@@ -1237,6 +1252,7 @@ size_t fdb_estimate_space_used(fdb_handle *handle)
     return ret;
 }
 
+LIBFDB_API
 fdb_status fdb_shutdown()
 {
     filemgr_shutdown();

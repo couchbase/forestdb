@@ -29,12 +29,12 @@
 
 uint32_t _set_doc(struct docio_object *doc, char *key, char *meta, char *body)
 {
-    strcpy(doc->key, key);
-    doc->length.keylen = strlen(doc->key);
-    strcpy(doc->meta, meta);
-    doc->length.metalen = strlen(doc->meta);
-    strcpy(doc->body, body);
-    doc->length.bodylen = strlen(doc->body);
+    strcpy((char*)doc->key, key);
+    doc->length.keylen = strlen((char*)doc->key);
+    strcpy((char*)doc->meta, meta);
+    doc->length.metalen = strlen((char*)doc->meta);
+    strcpy((char*)doc->body, body);
+    doc->length.bodylen = strlen((char*)doc->body);
 
     return sizeof(struct docio_length) + doc->length.keylen + doc->length.metalen + doc->length.bodylen;
 }
@@ -55,12 +55,12 @@ void hbtrie_key_test()
 
     trie.chunksize = 4;
 
-    char *key[] = {"abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"};
+    const char *key[] = {"abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"};
     char buf[256];
     int keylen;
 
     for (i=0;i<6;++i){
-        keylen = _hbtrie_reform_key(&trie, key[i], strlen(key[i]), buf);
+        keylen = _hbtrie_reform_key(&trie, (void*)key[i], strlen(key[i]), (void*)buf);
 
         DBG("keylen: %2d , ", keylen);
         for (j=0;j<keylen;++j) {
@@ -102,46 +102,49 @@ void basic_test()
     size_t keylen;
 
     int i, j, n=7, rr;
-    char key[n][256];
-    char *key_ori[] = {"aaaa", "aaab", "aaac", "aba", "aaba", "bbbb", "aaac"};
+    char **key = alca(char*, n);
+    const char *key_ori[] = {"aaaa", "aaab", "aaac", "aba", "aaba", "bbbb", "aaac"};
+    for (i=0;i<n;++i) {
+        key[i] = alca(char, 256);
+    }
 
-    rr = system("rm -rf ./dummy");
+    rr = system(SHELL_DEL " dummy");
 
-    doc.key = keybuf;
-    doc.meta = metabuf;
-    doc.body = bodybuf;
+    doc.key = (void*)keybuf;
+    doc.meta = (void*)metabuf;
+    doc.body = (void*)bodybuf;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     config.flag = 0x0;
 
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
-        &bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
+        (void*)&bhandle, btreeblk_get_ops(), (void*)&dhandle, _readkey_wrap);
 
     for (i=0;i<n;++i){
-        _key_expand(key_ori[i], key[i], 8);
+        _key_expand((char *) key_ori[i], key[i], 8);
         sprintf(dockey, "%s", key[i]);
         sprintf(meta, "metadata_%03d", i);
         sprintf(body, "body_%03d", i);
         docsize = _set_doc(&doc, dockey, meta, body);
         offset = docio_append_doc(&dhandle, &doc);
-        hbtrie_insert(&trie, key[i], strlen(key[i]), &offset, &offset_old);
+        hbtrie_insert(&trie, (void*)key[i], strlen(key[i]), (void*)&offset, (void*)&offset_old);
         btreeblk_end(&bhandle);
     }
 
-    hbtrie_remove(&trie, key[0], strlen(key[0]));
+    hbtrie_remove(&trie, (void*)key[0], strlen(key[0]));
     btreeblk_end(&bhandle);
 
     filemgr_commit(file);
 
     for (i=0;i<n;++i) {
         if (i!=2) {
-            r = hbtrie_find(&trie, key[i], strlen(key[i]), valuebuf);
+            r = hbtrie_find(&trie, (void*)key[i], strlen(key[i]), (void*)valuebuf);
             if (i>0) {
                 TEST_CHK(r != HBTRIE_RESULT_FAIL);
 
@@ -162,7 +165,7 @@ void basic_test()
 
     hbtrie_iterator_init(&trie, &it, NULL, 0);
     while(1){
-        r = hbtrie_next(&it, keybuf, &keylen, &offset);
+        r = hbtrie_next(&it, (void*)keybuf, &keylen, (void*)&offset);
         if (r==HBTRIE_RESULT_FAIL) break;
         docio_read_doc(&dhandle, offset, &doc);
         keybuf[keylen] = 0;
@@ -201,7 +204,7 @@ void large_test()
     uint8_t valuebuf[8];
     hbtrie_result r;
 
-    int i, j, k, n=1000000, m=1, rr;
+    int i, j, k, n=100000, m=1, rr;
     size_t keylen = 8;
     char **key;
     uint64_t *offset;
@@ -211,9 +214,9 @@ void large_test()
     key = (char **)malloc(sizeof(char*) * n);
     offset = (uint64_t *)malloc(sizeof(uint64_t) * n);
 
-    doc.key = keybuf;
-    doc.meta = metabuf;
-    doc.body = bodybuf;
+    doc.key = (void*)keybuf;
+    doc.meta = (void*)metabuf;
+    doc.body = (void*)bodybuf;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
@@ -221,13 +224,13 @@ void large_test()
     config.flag = 0;
 
     DBG("filemgr, bcache init .. \n");
-    rr = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    rr = system(SHELL_DEL" dummy");
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
     docio_init(&dhandle, file);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
-        &bhandle, btreeblk_get_ops(), &dhandle, _readkey_wrap);
+        (void*)&bhandle, btreeblk_get_ops(), (void*)&dhandle, _readkey_wrap);
     TEST_TIME();
 
     for (k=0;k<m;++k) {
@@ -247,7 +250,7 @@ void large_test()
 
         DBG("hbtrie update .. \n");
         for (i=(n/m)*k;i<(n/m)*(k+1);++i){
-            hbtrie_insert(&trie, key[i], strlen(key[i]), offset + i, &_offset);
+            hbtrie_insert(&trie, (void*)key[i], strlen(key[i]), (void*)&offset[i], (void*)&_offset);
             btreeblk_end(&bhandle);
         }
         TEST_TIME();
@@ -270,7 +273,7 @@ void large_test()
 
         DBG("hbtrie update .. \n");
         for (i=(n/m)*k;i<(n/m)*(k+1);++i){
-            hbtrie_insert(&trie, key[i], strlen(key[i]), offset + i, &_offset);
+            hbtrie_insert(&trie, (void*)key[i], strlen(key[i]), (void*)&offset[i], (void*)&_offset);
             btreeblk_end(&bhandle);
         }
         TEST_TIME();
@@ -283,7 +286,7 @@ void large_test()
     DBG("hbtrie search .. \n");
     for (i=0;i<n;++i) {
         //DBG("key %s\n", key[i]);
-        r = hbtrie_find(&trie, key[i], strlen(key[i]), valuebuf);
+        r = hbtrie_find(&trie, (void*)key[i], strlen(key[i]), (void*)valuebuf);
         btreeblk_end(&bhandle);
         TEST_CHK(r != HBTRIE_RESULT_FAIL);
 
@@ -305,7 +308,7 @@ void large_test()
     struct hbtrie_iterator it;
     hbtrie_iterator_init(&trie, &it, NULL, 0);
     for (i=0;i<n;++i){
-        r = hbtrie_next(&it, keybuf, &keylen, &_offset);
+        r = hbtrie_next(&it, (void*)keybuf, &keylen, (void*)&_offset);
         btreeblk_end(&bhandle);
         docio_read_doc(&dhandle, _offset, &doc);
         /*

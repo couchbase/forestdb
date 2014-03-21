@@ -28,11 +28,11 @@ INLINE void _get_kv(struct bnode *node, idx_t idx, void *key, void *value)
     int ksize, vsize;
     void *ptr;
     _get_kvsize(node->kvsize, ksize, vsize);
-    ptr = node->data + (idx * (ksize+vsize));
+    ptr = (uint8_t *)node->data + (idx * (ksize+vsize));
 
     memcpy(key, ptr, ksize);
     if (value) {
-        memcpy(value, ptr + ksize, vsize);
+        memcpy(value, (uint8_t *)ptr + ksize, vsize);
     }
 }
 
@@ -41,10 +41,10 @@ INLINE void _set_kv(struct bnode *node, idx_t idx, void *key, void *value)
     int ksize, vsize;
     void *ptr;
     _get_kvsize(node->kvsize, ksize, vsize);
-    ptr = node->data + (idx * (ksize+vsize));
+    ptr = (uint8_t *)node->data + (idx * (ksize+vsize));
 
     memcpy(ptr, key, ksize);
-    memcpy(ptr + ksize, value, vsize);
+    memcpy((uint8_t *)ptr + ksize, value, vsize);
 }
 
 INLINE void _ins_kv(struct bnode *node, idx_t idx, void *key, void *value)
@@ -58,16 +58,16 @@ INLINE void _ins_kv(struct bnode *node, idx_t idx, void *key, void *value)
     if (key && value) {
         // insert
         memmove(
-            ptr + (idx+1)*kvsize,
-            ptr + idx*kvsize,
+            (uint8_t *)ptr + (idx+1)*kvsize,
+            (uint8_t *)ptr + idx*kvsize,
             (node->nentry - idx)*kvsize);
-        memcpy(ptr + idx*kvsize, key, ksize);
-        memcpy(ptr + idx*kvsize + ksize, value, vsize);
+        memcpy((uint8_t *)ptr + idx*kvsize, key, ksize);
+        memcpy((uint8_t *)ptr + idx*kvsize + ksize, value, vsize);
     }else{
         // remove
         memmove(
-            ptr + idx*kvsize,
-            ptr + (idx+1)*kvsize,
+            (uint8_t *)ptr + idx*kvsize,
+            (uint8_t *)ptr + (idx+1)*kvsize,
             (node->nentry - (idx+1))*kvsize);
     }
 }
@@ -93,8 +93,8 @@ INLINE void _copy_kv(
     ptr_dst = node_dst->data;
 
     memcpy(
-        ptr_dst + kvsize * dst_idx,
-        ptr_src + kvsize * src_idx,
+        (uint8_t *)ptr_dst + kvsize * dst_idx,
+        (uint8_t *)ptr_src + kvsize * src_idx,
         kvsize * len);
 }
 
@@ -108,7 +108,7 @@ INLINE size_t _get_data_size(
 
 INLINE size_t _get_kv_size(struct btree *tree, void *key, void *value)
 {
-    return (key)?tree->ksize:0 + (value)?tree->vsize:0;
+    return ((uint8_t *)key) ? tree->ksize : 0 + ((uint8_t *)value) ? tree->vsize : 0;
 }
 
 INLINE void _init_kv_var(struct btree *tree, void *key, void *value)

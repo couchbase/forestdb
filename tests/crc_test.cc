@@ -34,7 +34,7 @@ void basic_test()
 
     dummy = (void *)malloc(len);
     for (i=0;i<len/sizeof(size_t); i+=sizeof(size_t)) {
-        memcpy(dummy+i, &i, sizeof(size_t));
+        memcpy((uint8_t *)dummy + i, &i, sizeof(size_t));
     }
 
     TEST_TIME();
@@ -47,7 +47,7 @@ void basic_test()
 
     TEST_TIME();
 
-    r3 = hash_djb2(dummy, len);
+    r3 = hash_djb2((uint8_t *)dummy, len);
 
     TEST_TIME();
 
@@ -70,23 +70,23 @@ void endian_test()
     memcpy(buf + 4, &b, sizeof(uint32_t));
     memcpy(buf + 8, &c, sizeof(uint32_t));
 
-    r1 = crc32_8(buf, 12, 0);
-    r2 = crc32_8(&a, 4, 0);
-    r2 = crc32_8(&b, 4, r2);
-    r2 = crc32_8(&c, 4, r2);
+    r1 = crc32_8((void*)buf, 12, 0);
+    r2 = crc32_8((void*)&a, 4, 0);
+    r2 = crc32_8((void*)&b, 4, r2);
+    r2 = crc32_8((void*)&c, 4, r2);
 
     DBG("%u %u\n", r1,r2);
 
     sprintf(str, "1234aaaaaaaa");
-    a = crc32_8_last8(str, strlen(str), 0);
+    a = crc32_8_last8((void*)str, strlen(str), 0);
     sprintf(str, "5678aaaaaaaa");
-    b = crc32_8_last8(str, strlen(str), 0);
+    b = crc32_8_last8((void*)str, strlen(str), 0);
     DBG("%u %u\n", a, b);
 
     sprintf(str, "./dummy12");
-    a = crc32_8_last8(str, strlen(str), 0);
+    a = crc32_8_last8((void*)str, strlen(str), 0);
     sprintf(str, ";/dummy21");
-    b = crc32_8_last8(str, strlen(str), 0);
+    b = crc32_8_last8((void*)str, strlen(str), 0);
     DBG("%u %u\n", a, b);
 
 }

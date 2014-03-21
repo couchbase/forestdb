@@ -72,7 +72,7 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     bb = _get_entry(b, struct iterator_wal_entry, avl);
     if (aux) {
         // custom compare function
-        fdb_custom_cmp func = aux;
+        fdb_custom_cmp func = (fdb_custom_cmp)aux;
         return func(aa->key, bb->key);
     } else {
         return _fdb_keycmp(aa->key, aa->keylen, bb->key, bb->keylen);
@@ -177,7 +177,7 @@ fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
     void *key;
     size_t keylen;
     uint64_t offset;
-    hbtrie_result hr;
+    hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
     fdb_status fs;
     struct docio_object _doc;
     struct iterator_wal_entry *snap_item = NULL;
@@ -190,7 +190,7 @@ start:
         // no key waiting for being returned
         // get next key from hb-trie
         hr = hbtrie_next(
-            iterator->hbtrie_iterator, key, &iterator->_keylen, &iterator->_offset);
+            iterator->hbtrie_iterator, key, &iterator->_keylen, (void*)&iterator->_offset);
         btreeblk_end(iterator->handle.bhandle);
     }
     keylen = iterator->_keylen;

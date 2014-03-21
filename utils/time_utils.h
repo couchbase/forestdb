@@ -20,6 +20,10 @@
 
 #include <time.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static struct timeval _utime_gap(struct timeval a, struct timeval b)
 {
     struct timeval ret;
@@ -32,6 +36,10 @@ static struct timeval _utime_gap(struct timeval a, struct timeval b)
     }
     return ret;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

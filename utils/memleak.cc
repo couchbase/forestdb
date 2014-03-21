@@ -23,9 +23,9 @@
 //#define _PRINT_DBG
 
 #ifdef _PRINT_DBG
-    #define DBG(args...) fprintf(stderr, args)
+    #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
-    #define DBG(args...)
+    #define DBG(...)
 #endif
 
 #include "avltree.h"
@@ -103,7 +103,7 @@ void * memleak_alloc(size_t size, char *file, size_t line)
 {
     spin_lock(&lock);
 
-    void *addr = malloc(size);
+    void *addr = (void*)malloc(size);
     if (addr && start_sw) {
         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
     }
@@ -116,7 +116,7 @@ void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
 {
     spin_lock(&lock);
 
-    void *addr = calloc(nmemb, size);
+    void *addr = (void *)calloc(nmemb, size);
     if (addr && start_sw) {
         _memleak_add_to_index(addr, size, file, line, 0x0);
     }
@@ -146,7 +146,7 @@ void *memleak_realloc(void *ptr, size_t size)
 {
     spin_lock(&lock);
 
-    void *addr = realloc(ptr, size);
+    void *addr = (void *)realloc(ptr, size);
     if (addr && start_sw) {
         struct avl_node *a;
         struct memleak_item *item, query;
@@ -183,7 +183,11 @@ void memleak_free(void *addr, char *file, size_t line)
                 (long unsigned int)addr, file, line);
 #endif
             spin_unlock(&lock);
+#ifdef _MSC_VER
+            return NULL;
+#else
             return;
+#endif
         }
 
         item = _get_entry(a, struct memleak_item, avl);

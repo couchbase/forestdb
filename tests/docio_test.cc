@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 
 #include "docio.h"
 #include "filemgr.h"
@@ -27,12 +26,12 @@
 
 uint32_t _set_doc(struct docio_object *doc, char *key, char *meta, char *body)
 {
-    strcpy(doc->key, key);
-    doc->length.keylen = strlen(doc->key) + 1;
-    strcpy(doc->meta, meta);
-    doc->length.metalen = strlen(doc->meta) + 1;
-    strcpy(doc->body, body);
-    doc->length.bodylen = strlen(doc->body) + 1;
+    strcpy((char*)doc->key, key);
+    doc->length.keylen = strlen((char*)doc->key) + 1;
+    strcpy((char*)doc->meta, meta);
+    doc->length.metalen = strlen((char*)doc->meta) + 1;
+    strcpy((char*)doc->body, body);
+    doc->length.bodylen = strlen((char*)doc->body) + 1;
 
     return sizeof(struct docio_length) + doc->length.keylen + doc->length.metalen + doc->length.bodylen;
 }
@@ -52,35 +51,38 @@ void basic_test()
     char bodybuf[4096];
     struct docio_object doc;
     struct filemgr_config config;
+    char *fname = (char *) "./dummy";
 
-    doc.key = keybuf;
-    doc.meta = metabuf;
-    doc.body = bodybuf;
+    doc.key = (void*)keybuf;
+    doc.meta = (void*)metabuf;
+    doc.body = (void*)bodybuf;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
-    r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    r = system(SHELL_DEL " dummy");
+    file = filemgr_open(fname, get_filemgr_ops(), &config);
     docio_init(&handle, file);
 
-    docsize = _set_doc(&doc, "this_is_key", "this_is_metadata", "this_is_body_lawiefjaawleif");
+    docsize = _set_doc(&doc, (char *) "this_is_key", (char *) "this_is_metadata",
+                       (char *) "this_is_body_lawiefjaawleif");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "this_is_key2", "this_is_metadata2", "hello_world");
+    docsize = _set_doc(&doc, (char *) "this_is_key2", (char *) "this_is_metadata2",
+                       (char *) "hello_world");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "key3", "a", "b");
+    docsize = _set_doc(&doc, (char *) "key3", (char *) "a", (char *) "b");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "key4", "a", "b");
+    docsize = _set_doc(&doc, (char *) "key4", (char *) "a", (char *) "b");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
-    docsize = _set_doc(&doc, "key5", "a", "b");
+    docsize = _set_doc(&doc, (char *) "key5", (char *) "a", (char *) "b");
     offset = docio_append_doc(&handle, &doc);
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
@@ -92,7 +94,7 @@ void basic_test()
     DBG("docsize %d written at %"_F64"\n", docsize, offset);
 
     keylen_t keylen;
-    docio_read_doc_key(&handle, 81, &keylen, keybuf);
+    docio_read_doc_key(&handle, 81, &keylen, (void*)keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
     filemgr_commit(file);

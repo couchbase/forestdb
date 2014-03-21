@@ -53,13 +53,13 @@ void basic_test()
     struct item item[16], query, *result;
     struct hash_elem *e;
     int i;
-    
+
     hash_init(&hash, 4, hash_func, hash_cmp);
 
     for (i=0;i<16;++i){
         item[i].val = i;
         hash_insert(&hash, &item[i].e);
-    }    
+    }
 
     for (i=0;i<16;++i){
         query.val = i;
@@ -70,7 +70,7 @@ void basic_test()
 
     for (i=1;i<16;i+=2){
         query.val = i;
-        e = hash_remove(&hash, &query.e);        
+        e = hash_remove(&hash, &query.e);
         result = _get_entry(e, struct item, e);
         TEST_CHK(result->val == query.val);
     }
@@ -84,7 +84,7 @@ void basic_test()
             TEST_CHK(result->val == query.val);
         }
     }
-    
+
     TEST_RESULT("basic test");
 }
 
@@ -103,32 +103,32 @@ void string_hash_test()
             str[j] = 'a' + random('z'-'a');
         }
         str[j] = 0;
-        b = hash_djb2(str, strlen(str));
+        b = hash_djb2((uint8_t *)str, strlen(str));
         DBG("%s %10u %5u\n",str, b, b&0xfff);
     }
 
     for (i=0;i<16;++i){
         sprintf(str, "asdf%d.%d",i,random(100));
-        b = hash_djb2(str, strlen(str));
+        b = hash_djb2((uint8_t *)str, strlen(str));
         DBG("%s %10u %5u\n",str, b, b&((unsigned)1023));
     }
 
     sprintf(str, "1234aaaaaaaa");
-    a = hash_djb2(str, strlen(str));
+    a = hash_djb2((uint8_t *)str, strlen(str));
     sprintf(str, "5678aaaaaaaa");
-    b = hash_djb2(str, strlen(str));
+    b = hash_djb2((uint8_t *)str, strlen(str));
     DBG("%u %u\n", a, b);
 
     sprintf(str, "1234aaaaaaaa");
-    a = hash_djb2_last8(str, strlen(str));
+    a = hash_djb2_last8((uint8_t *)str, strlen(str));
     sprintf(str, "5678aaaaaaaa");
-    b = hash_djb2_last8(str, strlen(str));
+    b = hash_djb2_last8((uint8_t *)str, strlen(str));
     DBG("%u %u\n", a, b);
-    
+
     sprintf(str, "./dummy0");
-    a = hash_djb2_last8(str, strlen(str));
+    a = hash_djb2_last8((uint8_t *)str, strlen(str));
     sprintf(str, "./dummy01");
-    b = hash_djb2_last8(str, strlen(str));
+    b = hash_djb2_last8((uint8_t *)str, strlen(str));
     DBG("%u %u\n", a, b);
 
     TEST_RESULT("string hash test");
@@ -143,12 +143,12 @@ void twohash_test()
     int n = 64;
     int i,j;
     uint32_t h;
-    int array[n];
-    
+    int *array = alca(int, n);
+
     for (i=100;i<108;++i) {
         for (j=333;j<341;++j){
             printf("(%d,%d) = %u\n", i, j, hash_shuffle_2uint(i,j));
-        }    
+        }
     }
     for (i=0;i<n;++i) array[i] = 0;
     for (i=0;i<1000;++i) {

@@ -22,6 +22,16 @@
 #include "option.h"
 #include "arch.h"
 
+#ifdef _MSC_VER
+    #ifdef forestdb_EXPORTS
+        #define LIBFDB_API extern __declspec(dllexport)
+    #else
+        #define LIBFDB_API extern __declspec(dllimport)
+    #endif
+#else
+    #define LIBFDB_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -125,21 +135,43 @@ typedef struct {
     uint64_t _offset;
 } fdb_iterator;
 
+LIBFDB_API
 fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func);
+
+LIBFDB_API
 fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config);
+
+LIBFDB_API
 fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
     void *body, size_t bodylen);
+
+LIBFDB_API
 fdb_status fdb_doc_update(fdb_doc **doc, void *meta, size_t metalen, void *body, size_t bodylen);
+
+LIBFDB_API
 fdb_status fdb_doc_free(fdb_doc *doc);
+
+LIBFDB_API
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc);
+
+LIBFDB_API
 fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset);
+
 #ifdef __FDB_SEQTREE
+LIBFDB_API
 fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc);
+
+LIBFDB_API
 fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset);
 #endif
+
+LIBFDB_API
 fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc);
+
+LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle);
 
+LIBFDB_API
 fdb_status fdb_iterator_init(fdb_handle *handle,
                              fdb_iterator *iterator,
                              void *start_key,
@@ -147,16 +179,30 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
                              void *end_key,
                              size_t end_keylen,
                              fdb_iterator_opt_t opt);
+LIBFDB_API
 fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc);
+
+LIBFDB_API
 fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
                                     fdb_doc **doc,
                                     uint64_t *doc_offset_out);
+
+LIBFDB_API
 fdb_status fdb_iterator_close(fdb_iterator *iterator);
 
+LIBFDB_API
 fdb_status fdb_compact(fdb_handle *handle, char *new_filename);
+
+LIBFDB_API
 fdb_status fdb_flush_wal(fdb_handle *handle);
+
+LIBFDB_API
 size_t fdb_estimate_space_used(fdb_handle *handle);
+
+LIBFDB_API
 fdb_status fdb_close(fdb_handle *handle);
+
+LIBFDB_API
 fdb_status fdb_shutdown();
 
 #ifdef __cplusplus

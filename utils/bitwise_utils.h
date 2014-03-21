@@ -1,6 +1,11 @@
 #ifndef _JSAHN_BITWISE_UTILS_H
 #define _JSAHN_BITWISE_UTILS_H
 
+#ifndef INT64_C
+#define INT64_C(c) (c ## LL)
+#define UINT64_C(c) (c ## ULL)
+#endif
+
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define CHK_POW2(v) (!((uint64_t)v & ((uint64_t)v - 0x1)))

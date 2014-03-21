@@ -73,7 +73,7 @@ uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
     struct filemgr *file = _get_entry(e, struct filemgr, e);
     int len = strlen(file->filename);
     int offset = MIN(len, 8);
-    return crc32_8((void *)file->filename + (len - offset), offset, 0) &
+    return crc32_8((uint8_t *)file->filename + (len - offset), offset, 0) &
         ((unsigned)(NBUCKET-1));
 }
 
@@ -138,7 +138,7 @@ void * _filemgr_get_temp_buf()
 
         malloc_align(addr, FDB_SECTOR_SIZE, global_config.blocksize + sizeof(struct temp_buf_item));
 
-        item = (struct temp_buf_item *)(addr + global_config.blocksize);
+        item = (struct temp_buf_item *)((uint8_t *) addr + global_config.blocksize);
         item->addr = addr;
     }
     spin_unlock(&temp_buf_lock);
@@ -151,7 +151,7 @@ void _filemgr_release_temp_buf(void *buf)
     struct temp_buf_item *item;
 
     spin_lock(&temp_buf_lock);
-    item = (struct temp_buf_item*)((void*)buf + global_config.blocksize);
+    item = (struct temp_buf_item*)((uint8_t *)buf + global_config.blocksize);
     list_push_front(&temp_buf, &item->le);
     spin_unlock(&temp_buf_lock);
 }
@@ -181,7 +181,7 @@ void _filemgr_read_header(struct filemgr *file)
     uint8_t *buf;
 
     // get temp buffer
-    buf = _filemgr_get_temp_buf();
+    buf = (uint8_t *) _filemgr_get_temp_buf();
 
     if (file->pos > 0) {
         // Crash Recovery Test 1: unaligned last block write
@@ -457,9 +457,9 @@ void _filemgr_free_func(struct hash_elem *h)
 #ifdef __FDB_SEQTREE
         hash_free(&file->wal->hash_byseq);
 #endif
+        spin_destroy(&file->wal->lock);
     }
 
-    spin_destroy(&file->wal->lock);
     free(file->wal);
 
     // free filename and header
@@ -581,8 +581,8 @@ INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
 {
     if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file, crc;
-        memcpy(&crc_file, buf + BTREE_CRC_OFFSET, sizeof(crc_file));
-        memset(buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
+        memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
+        memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
         crc = crc32_8(buf, file->blocksize, 0);
         assert(crc == crc_file);
     }
@@ -629,9 +629,10 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 
                 for (i=0;i<nblocks;++i){
                     bcache_write(file, pos_bulk / file->blocksize + i,
-                        bulk_buf + i*file->blocksize, BCACHE_CLEAN);
+                                 (uint8_t *)bulk_buf + i*file->blocksize, BCACHE_CLEAN);
                 }
-                memcpy(buf, bulk_buf + (bid*file->blocksize - pos_bulk), file->blocksize);
+                memcpy(buf, (uint8_t *)bulk_buf + (bid*file->blocksize - pos_bulk),
+                       file->blocksize);
 
                 free_align(bulk_buf);
             }
@@ -667,7 +668,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
                 void *_buf = _filemgr_get_temp_buf();
 
                 r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
-                memcpy(_buf + offset, buf, len);
+                memcpy((uint8_t *)_buf + offset, buf, len);
                 bcache_write(file, bid, _buf, BCACHE_DIRTY);
 
                 _filemgr_release_temp_buf(_buf);
@@ -679,9 +680,9 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
             if (len == file->blocksize) {
                 uint8_t marker = *((uint8_t*)buf + file->blocksize - 1);
                 if (marker == BLK_MARKER_BNODE) {
-                    memset(buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
+                    memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
                     uint32_t crc32 = crc32_8(buf, file->blocksize, 0);
-                    memcpy(buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));
+                    memcpy((uint8_t *)buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));
                 }
             }
         #endif
@@ -725,18 +726,21 @@ void filemgr_commit(struct filemgr *file)
         // header data
         memcpy(buf, file->header.data, header_len);
         // header rev number
-        memcpy(buf + header_len, &file->header.revnum, sizeof(filemgr_header_revnum_t));
+        memcpy((uint8_t *)buf + header_len, &file->header.revnum,
+               sizeof(filemgr_header_revnum_t));
 
         // header length
-        memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - sizeof(header_len) - BLK_MARKER_SIZE),
-            &header_len, sizeof(header_len));
+        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+               - sizeof(header_len) - BLK_MARKER_SIZE),
+               &header_len, sizeof(header_len));
         // magic number
-        memcpy(buf + (file->blocksize - sizeof(filemgr_magic_t) - BLK_MARKER_SIZE),
-            &magic, sizeof(magic));
+        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+               - BLK_MARKER_SIZE), &magic, sizeof(magic));
 
         // marker
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
-        memcpy(buf + file->blocksize - BLK_MARKER_SIZE, marker, BLK_MARKER_SIZE);
+        memcpy((uint8_t *)buf + file->blocksize - BLK_MARKER_SIZE,
+               marker, BLK_MARKER_SIZE);
 
         file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
         file->pos += file->blocksize;

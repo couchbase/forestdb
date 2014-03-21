@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -48,20 +47,21 @@ void basic_test()
     struct filemgr_config config;
     int i, r;
     uint64_t k,v;
+    char *fname = (char *) "./dummy";
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     config.flag = 0x0;
-    r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    r = system(SHELL_DEL" dummy");
+    file = filemgr_open(fname, get_filemgr_ops(), &config);
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
 
     for (i=0;i<6;++i) {
         k = i; v = i*10;
-        btree_insert(&btree, &k, &v);
+        btree_insert(&btree, (void*)&k, (void*)&v);
     }
 
     btree_print_node(&btree, print_btree);
@@ -69,7 +69,7 @@ void basic_test()
 
     for (i=6;i<12;++i) {
         k = i; v = i*10;
-        btree_insert(&btree, &k, &v);
+        btree_insert(&btree, (void*)&k, (void*)&v);
     }
 
     btree_print_node(&btree, print_btree);
@@ -78,7 +78,7 @@ void basic_test()
 
     k = 4;
     v = 44;
-    btree_insert(&btree, &k, &v);
+    btree_insert(&btree, (void*)&k, (void*)&v);
     btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
 
@@ -87,7 +87,7 @@ void basic_test()
 
     k = 5;
     v = 55;
-    btree_insert(&btree, &k, &v);
+    btree_insert(&btree, (void*)&k, (void*)&v);
     btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
 
@@ -96,7 +96,7 @@ void basic_test()
 
     k = 5;
     v = 59;
-    btree_insert(&btree, &k, &v);
+    btree_insert(&btree, (void*)&k, (void*)&v);
     btree_print_node(&btree, print_btree);
     //btree_operation_end(&btree);
 
@@ -135,20 +135,21 @@ void iterator_test()
     btree_result br;
     int i, r;
     uint64_t k,v;
+    char *fname = (char *) "./dummy";
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 0;
     config.flag = 0x0;
-    r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    r = system(SHELL_DEL" dummy");
+    file = filemgr_open(fname, get_filemgr_ops(), &config);
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
 
     for (i=0;i<6;++i) {
         k = i*2; v = i*10;
-        btree_insert(&btree, &k, &v);
+        btree_insert(&btree, (void*)&k, (void*)&v);
     }
 
     btree_print_node(&btree, print_btree);
@@ -156,7 +157,7 @@ void iterator_test()
 
     for (i=6;i<12;++i) {
         k = i*2; v = i*10;
-        btree_insert(&btree, &k, &v);
+        btree_insert(&btree, (void*)&k, (void*)&v);
     }
 
     btree_print_node(&btree, print_btree);
@@ -166,18 +167,18 @@ void iterator_test()
     filemgr_commit(file);
 
     k = 4;
-    btree_iterator_init(&btree, &bi, &k);
+    btree_iterator_init(&btree, &bi, (void*)&k);
     for (i=0;i<3;++i){
-        btree_next(&bi, &k, &v);
+        btree_next(&bi, (void*)&k, (void*)&v);
         DBG("%"_F64" , %"_F64"\n", k, v);
     }
     btree_iterator_free(&bi);
 
     DBG("\n");
     k = 7;
-    btree_iterator_init(&btree, &bi, &k);
+    btree_iterator_init(&btree, &bi, (void*)&k);
     for (i=0;i<3;++i){
-        btree_next(&bi, &k, &v);
+        btree_next(&bi, (void*)&k, (void*)&v);
         DBG("%"_F64" , %"_F64"\n", k, v);
     }
     btree_iterator_free(&bi);
@@ -185,7 +186,7 @@ void iterator_test()
     DBG("\n");
     btree_iterator_init(&btree, &bi, NULL);
     for (i=0;i<30;++i){
-        br = btree_next(&bi, &k, &v);
+        br = btree_next(&bi, (void*)&k, (void*)&v);
         if (br == BTREE_RESULT_FAIL) break;
         DBG("%"_F64" , %"_F64"\n", k, v);
     }
@@ -208,11 +209,12 @@ void two_btree_test()
     struct btree btree_a, btree_b;
     struct filemgr_config config;
     uint64_t k,v;
+    char *fname = (char *) "./dummy";
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
-    file = filemgr_open("./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config);
     btreeblk_init(&btreeblk_handle, file, nodesize);
 
     btree_init(&btree_a, (void*)&btreeblk_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
@@ -220,10 +222,10 @@ void two_btree_test()
 
     for (i=0;i<12;++i){
         k = i*2; v = k * 10;
-        btree_insert(&btree_a, &k, &v);
+        btree_insert(&btree_a, (void*)&k, (void*)&v);
 
         k = i*2 + 1; v = k*10 + 5;
-        btree_insert(&btree_b, &k, &v);
+        btree_insert(&btree_b, (void*)&k, (void*)&v);
     }
 
     filemgr_commit(file);
@@ -245,27 +247,28 @@ void range_test()
     struct btree btree;
     struct filemgr_config fconfig;
     uint64_t key, value, key_end;
+    char *fname = (char *) "./dummy";
 
     memset(&fconfig, 0, sizeof(fconfig));
     fconfig.blocksize = blocksize;
     fconfig.ncacheblock = 0;
 
-    r = system("rm -rf ./dummy");
-    file = filemgr_open("./dummy", get_filemgr_ops(), &fconfig);
+    r = system(SHELL_DEL" dummy");
+    file = filemgr_open(fname, get_filemgr_ops(), &fconfig);
     btreeblk_init(&bhandle, file, blocksize);
 
-    btree_init(&btree, &bhandle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(),
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(),
         blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
 
     for (i=0;i<n;++i){
         key = i;
         value = i*10;
-        btree_insert(&btree, &key, &value);
+        btree_insert(&btree, (void*)&key, (void*)&value);
         btreeblk_end(&bhandle);
     }
 
     for (i=0;i<den;++i){
-        btree_get_key_range(&btree, i, den, &key, &key_end);
+        btree_get_key_range(&btree, i, den, (void*)&key, (void*)&key_end);
         DBG("%d %d\n", (int)key, (int)key_end);
     }
 
@@ -282,7 +285,7 @@ int main()
         mempool_init();
     #endif
 
-    int r = system("rm -rf ./dummy");
+    int r = system(SHELL_DEL" dummy");
     //basic_test();
     //iterator_test();
     //two_btree_test();

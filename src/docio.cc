@@ -145,7 +145,7 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             handle->curblock = i;
             if (remainsize >= blocksize) {
                 // write entire block
-                filemgr_write(handle->file, i, buf + offset);
+                filemgr_write(handle->file, i, (uint8_t *)buf + offset);
                 //filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
                 _add_blk_marker(handle->file, i, blocksize, marker);
                 offset += blocksize;
@@ -155,7 +155,7 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             }else{
                 // write rest of document
                 assert(i==end);
-                filemgr_write_offset(handle->file, i, 0, remainsize, buf + offset);
+                filemgr_write_offset(handle->file, i, 0, remainsize, (uint8_t *)buf + offset);
                 //filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
                 _add_blk_marker(handle->file, i, blocksize, marker);
                 offset += remainsize;
@@ -205,22 +205,22 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     #endif
     buf = (void *)malloc(docsize);
 
-    memcpy(buf + offset, &length, sizeof(struct docio_length));
+    memcpy((uint8_t *)buf + offset, &length, sizeof(struct docio_length));
     offset += sizeof(struct docio_length);
 
     // copy key
-    memcpy(buf + offset, doc->key, length.keylen);
+    memcpy((uint8_t *)buf + offset, doc->key, length.keylen);
     offset += length.keylen;
 
     #ifdef __FDB_SEQTREE
         // copy seqeunce number (optional)
-        memcpy(buf + offset, &doc->seqnum, sizeof(fdb_seqnum_t));
+        memcpy((uint8_t *)buf + offset, &doc->seqnum, sizeof(fdb_seqnum_t));
         offset += sizeof(fdb_seqnum_t);
     #endif
 
     // copy metadata (optional)
     if (length.metalen > 0) {
-        memcpy(buf + offset, doc->meta, length.metalen);
+        memcpy((uint8_t *)buf + offset, doc->meta, length.metalen);
         offset += length.metalen;
     }
 
@@ -230,14 +230,14 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
             memcpy(buf + offset, compbuf, length.bodylen);
             free(compbuf);
         #else
-            memcpy(buf + offset, doc->body, length.bodylen);
+            memcpy((uint8_t *)buf + offset, doc->body, length.bodylen);
         #endif
         offset += length.bodylen;
     }
 
     #ifdef __CRC32
         crc = crc32_8(buf, docsize - sizeof(crc), 0);
-        memcpy(buf + offset, &crc, sizeof(crc));
+        memcpy((uint8_t *)buf + offset, &crc, sizeof(crc));
     #endif
 
     ret_offset = docio_append_doc_raw(handle, docsize, buf);
@@ -292,16 +292,16 @@ uint64_t _docio_read_length(struct docio_handle *handle, uint64_t offset, struct
     _docio_read_through_buffer(handle, bid);
 
     if (restsize >= sizeof(struct docio_length)) {
-        memcpy(length, buf + pos, sizeof(struct docio_length));
+        memcpy(length, (uint8_t *)buf + pos, sizeof(struct docio_length));
         pos += sizeof(struct docio_length);
 
     }else{
-        memcpy(length, buf + pos, restsize);
+        memcpy(length, (uint8_t *)buf + pos, restsize);
         // read additional block
         bid++;
         _docio_read_through_buffer(handle, bid);
         // memcpy rest of data
-        memcpy((void *)length + restsize, buf, sizeof(struct docio_length) - restsize);
+        memcpy((uint8_t *)length + restsize, buf, sizeof(struct docio_length) - restsize);
         pos = sizeof(struct docio_length) - restsize;
     }
 
@@ -334,11 +334,11 @@ uint64_t _docio_read_doc_component(struct docio_handle *handle,
         restsize = blocksize - pos;
 
         if (restsize >= rest_len) {
-            memcpy(buf_out + (len - rest_len), buf + pos, rest_len);
+            memcpy((uint8_t *)buf_out + (len - rest_len), (uint8_t *)buf + pos, rest_len);
             pos += rest_len;
             rest_len = 0;
         }else{
-            memcpy(buf_out + (len - rest_len), buf + pos, restsize);
+            memcpy((uint8_t *)buf_out + (len - rest_len), (uint8_t *)buf + pos, restsize);
             bid++;
             pos = 0;
             rest_len -= restsize;

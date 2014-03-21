@@ -29,8 +29,6 @@
 #include "filemgr_ops.h"
 #include "forestdb.h"
 
-#include "memleak.h"
-
 void _set_random_string(char *str, int len)
 {
     str[len--] = 0;
@@ -51,13 +49,14 @@ void basic_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 10;
     fdb_handle db;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -71,22 +70,22 @@ void basic_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open and close db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
     fdb_close(&db);
 
     // reopen db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -102,13 +101,14 @@ void basic_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // update document #0 and #1
     for (i=0;i<2;++i){
         sprintf(metabuf, "meta2%d", i);
         sprintf(bodybuf, "body2%d", i);
-        fdb_doc_update(&doc[i], metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+            (void *)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -136,7 +136,7 @@ void basic_test()
     }
 
     // do compaction
-    fdb_compact(&db, "./dummy2");
+    fdb_compact(&db, (char *) "./dummy2");
 
     // retrieve documents after compaction
     for (i=0;i<n;++i){
@@ -183,7 +183,7 @@ void basic_test()
     }
 
     // do one more compaction
-    fdb_compact(&db, "./dummy3");
+    fdb_compact(&db, (char *) "./dummy3");
 
     // close db file
     fdb_close(&db);
@@ -191,7 +191,7 @@ void basic_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("basic test");
 }
@@ -200,13 +200,14 @@ void wal_commit_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 10;
     fdb_handle db;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -220,18 +221,18 @@ void wal_commit_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // insert half documents
     for (i=0;i<n/2;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void *)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -243,8 +244,8 @@ void wal_commit_test()
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void *)keybuf, strlen(keybuf),
+            (void *)metabuf, strlen(metabuf), (void *)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -252,7 +253,7 @@ void wal_commit_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -285,7 +286,7 @@ void wal_commit_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("WAL commit test");
 }
@@ -294,13 +295,14 @@ void multi_version_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 2;
     fdb_handle db, db_new;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -314,18 +316,18 @@ void multi_version_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -335,13 +337,14 @@ void multi_version_test()
     fdb_commit(&db);
 
     // open same db file using a new handle
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db_new, (char *) "./dummy1", &config);
 
     // update documents using the old handle
     for (i=0;i<n;++i){
         sprintf(metabuf, "meta2%d", i);
         sprintf(bodybuf, "body2%d", i);
-        fdb_doc_update(&doc[i], metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_update(&doc[i], (void*)metabuf, strlen(metabuf),
+            (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -379,7 +382,7 @@ void multi_version_test()
 
     // close and re-open the new handle
     fdb_close(&db_new);
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db_new, (char *) "./dummy1", &config);
 
     // retrieve documents using the new handle
     for (i=0;i<n;++i){
@@ -409,7 +412,7 @@ void multi_version_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("multi version test");
 }
@@ -418,13 +421,14 @@ void compact_wo_reopen_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 3;
     fdb_handle db, db_new;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -438,19 +442,19 @@ void compact_wo_reopen_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db_new, (char *) "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -465,7 +469,7 @@ void compact_wo_reopen_test()
     fdb_commit(&db);
 
     // perform compaction using one handle
-    fdb_compact(&db, "./dummy2");
+    fdb_compact(&db, (char *) "./dummy2");
 
     // retrieve documents using the other handle without close/re-open
     for (i=0;i<n;++i){
@@ -499,7 +503,7 @@ void compact_wo_reopen_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("compaction without reopen test");
 }
@@ -508,13 +512,14 @@ void auto_recover_compact_ok_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 3;
     fdb_handle db, db_new;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc *, n);
+    fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -528,19 +533,19 @@ void auto_recover_compact_ok_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db_new, (char *) "./dummy1", &config);
 
     // insert first two documents
     for (i=0;i<2;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -555,17 +560,17 @@ void auto_recover_compact_ok_test()
     fdb_commit(&db);
 
     // perform compaction using one handle
-    fdb_compact(&db, "./dummy2");
+    fdb_compact(&db, (char *) "./dummy2");
 
     // save the old file after compaction is done ..
-    r = system("cp ./dummy1 ./dummy11 > errorlog.txt");
+    r = system(SHELL_COPY " dummy1 dummy11 > errorlog.txt");
 
     // now insert third doc: it should go to the newly compacted file.
     sprintf(keybuf, "key%d", i);
     sprintf(metabuf, "meta%d", i);
     sprintf(bodybuf, "body%d", i);
-    fdb_doc_create(&doc[i],
-        keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+    fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+        (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
     fdb_set(&db, doc[i]);
 
     // manually flush WAL
@@ -578,11 +583,11 @@ void auto_recover_compact_ok_test()
     fdb_close(&db_new);
 
     // restore the old file after close is done ..
-    r = system("mv ./dummy11 ./dummy1 > errorlog.txt");
+    r = system(SHELL_MOVE " dummy11 dummy1 > errorlog.txt");
 
     // now open the old saved compacted file, it should automatically recover
     // and use the new file since compaction was done successfully
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db_new, (char *) "./dummy1", &config);
 
     // retrieve documents using the old handle and expect all 3 docs
     for (i=0;i<n;++i){
@@ -604,6 +609,9 @@ void auto_recover_compact_ok_test()
     // check this handle's filename it should point to newly compacted file
     TEST_CHK(!strcmp("./dummy2", db_new.file->filename));
 
+    // close the file
+    fdb_close(&db_new);
+
     // free all documents
     for (i=0;i<n;++i){
         fdb_doc_free(doc[i]);
@@ -612,23 +620,9 @@ void auto_recover_compact_ok_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("auto recovery after compaction test");
-}
-
-
-struct timespec _time_gap(struct timespec a, struct timespec b)
-{
-    struct timespec ret;
-    if (b.tv_nsec >= a.tv_nsec) {
-        ret.tv_nsec = b.tv_nsec - a.tv_nsec;
-        ret.tv_sec = b.tv_sec - a.tv_sec;
-    }else{
-        ret.tv_nsec = 1000000000 + b.tv_nsec - a.tv_nsec;
-        ret.tv_sec = b.tv_sec - a.tv_sec - 1;
-    }
-    return ret;
 }
 
 struct work_thread_args{
@@ -645,7 +639,7 @@ struct work_thread_args{
 };
 
 //#define FILENAME "./hdd/dummy"
-#define FILENAME "./dummy"
+#define FILENAME "dummy"
 
 #define KSIZE (100)
 #define VSIZE (100)
@@ -685,12 +679,12 @@ void *_worker_thread(void *voidargs)
         if (args->writer) {
             // if writer,
             // copy and parse the counter in body
-            memcpy(cnt_str, rdoc->body+(IDX_DIGIT+1), IDX_DIGIT);
+            memcpy(cnt_str, (uint8_t *)rdoc->body + (IDX_DIGIT+1), IDX_DIGIT);
             cnt_int = atoi(cnt_str);
 
             // increase and rephrase
             sprintf(cnt_str, "%0"IDX_DIGIT_STR"d", ++cnt_int);
-            memcpy(rdoc->body+(IDX_DIGIT+1), cnt_str, IDX_DIGIT);
+            memcpy((uint8_t *)rdoc->body + (IDX_DIGIT+1), cnt_str, IDX_DIGIT);
 
             // update and commit
             status = fdb_set(&db, rdoc);
@@ -746,13 +740,14 @@ void multi_thread_test(
 
     int i, r, idx_digit, temp_len;
     int n = nwriters + nreaders;;
-    thread_t tid[n];
-    void *thread_ret[n];
-    struct work_thread_args args[n];
+    thread_t *tid = alca(thread_t, n);
+    void **thread_ret = alca(void *, n);
+    struct work_thread_args *args = alca(struct work_thread_args, n);
     struct timeval ts_begin, ts_cur, ts_gap;
     fdb_handle db, db_new;
     fdb_config config;
-    fdb_doc *doc[ndocs], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, ndocs);
+    fdb_doc *rdoc;
     fdb_status status;
 
     int filename_count = 1;
@@ -764,9 +759,9 @@ void multi_thread_test(
     idx_digit = IDX_DIGIT;
 
     // remove previous dummy files
-    r = system("rm -rf "FILENAME"* > errorlog.txt");
+    r = system(SHELL_DEL" "FILENAME"* > errorlog.txt");
 
-    memleak_start();
+    //memleak_start();
 
     // configuration
     memset(&config, 0, sizeof(fdb_config));
@@ -796,8 +791,8 @@ void multi_thread_test(
         _set_random_string_smallabt(temp, VSIZE-(IDX_DIGIT*2+1));
         sprintf(bodybuf, "b%0"IDX_DIGIT_STR"d%0"IDX_DIGIT_STR"d%s", i, 0, temp);
 
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -851,7 +846,7 @@ void multi_thread_test(
     // shutdown
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("multi thread test");
 }
@@ -860,13 +855,14 @@ void crash_recovery_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 10;
     fdb_handle db;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -880,18 +876,18 @@ void crash_recovery_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // reopen db
-    fdb_open(&db, "./dummy2", &config);
+    fdb_open(&db, (char *) "./dummy2", &config);
 
     // insert documents
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -909,7 +905,7 @@ void crash_recovery_test()
        "dd if=/dev/zero bs=4096 of=./dummy2 oseek=3 count=2 >> errorlog.txt");
 
     // reopen the same file
-    fdb_open(&db, "./dummy2", &config);
+    fdb_open(&db, (char *) "./dummy2", &config);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -949,7 +945,7 @@ void crash_recovery_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("crash recovery test");
 }
@@ -958,13 +954,14 @@ void incomplete_block_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 2;
     fdb_handle db;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -978,18 +975,18 @@ void incomplete_block_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
 
@@ -1019,7 +1016,7 @@ void incomplete_block_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("incomplete block test");
 }
@@ -1028,14 +1025,15 @@ void iterator_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 10;
     uint64_t offset;
     fdb_handle db;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
     fdb_iterator iterator;
 
@@ -1050,18 +1048,18 @@ void iterator_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // insert documents of even number
     for (i=0;i<n;i+=2){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
     // manually flush WAL & commit
@@ -1073,8 +1071,8 @@ void iterator_test()
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i],
-            keybuf, strlen(keybuf), metabuf, strlen(metabuf), bodybuf, strlen(bodybuf));
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(&db, doc[i]);
     }
     // commit without WAL flush
@@ -1125,7 +1123,7 @@ void iterator_test()
 
     // create another iterator starts from doc[3]
     sprintf(keybuf, "key%d", 3);
-    fdb_iterator_init(&db, &iterator, keybuf, strlen(keybuf), NULL, 0, FDB_ITR_NONE);
+    fdb_iterator_init(&db, &iterator, (void*)keybuf, strlen(keybuf), NULL, 0, FDB_ITR_NONE);
 
     // repeat until fail
     i=3;
@@ -1146,7 +1144,8 @@ void iterator_test()
     // create another iterator for the range of doc[4] ~ doc[8]
     sprintf(keybuf, "key%d", 4);
     sprintf(temp, "key%d", 8);
-    fdb_iterator_init(&db, &iterator, keybuf, strlen(keybuf), temp, strlen(temp), FDB_ITR_NONE);
+    fdb_iterator_init(&db, &iterator, (void*)keybuf, strlen(keybuf),
+        (void*)temp, strlen(temp), FDB_ITR_NONE);
 
     // repeat until fail
     i=4;
@@ -1175,7 +1174,7 @@ void iterator_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("iterator test");
 }
@@ -1199,14 +1198,15 @@ void custom_compare_test()
 {
     TEST_INIT();
 
-    memleak_start();
+    //memleak_start();
 
     int i, r;
     int n = 10;
     uint64_t offset;
     fdb_handle db;
     fdb_config config;
-    fdb_doc *doc[n], *rdoc;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
     fdb_status status;
     fdb_iterator iterator;
 
@@ -1222,10 +1222,10 @@ void custom_compare_test()
     config.flag = 0;
 
     // remove previous dummy files
-    r = system("rm -rf ./dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, (char *) "./dummy1", &config);
 
     // set custom compare function for double key type
     fdb_set_custom_cmp(&db, _cmp_double);
@@ -1234,7 +1234,8 @@ void custom_compare_test()
         key_double = 10000/(i*11.0);
         memcpy(keybuf, &key_double, sizeof(key_double));
         sprintf(bodybuf, "value: %d, %f", i, key_double);
-        fdb_doc_create(&doc[i], keybuf, sizeof(key_double), NULL, 0, bodybuf, strlen(bodybuf)+1);
+        fdb_doc_create(&doc[i], (void*)keybuf, sizeof(key_double), NULL, 0,
+            (void*)bodybuf, strlen(bodybuf)+1);
         fdb_set(&db, doc[i]);
     }
 
@@ -1268,7 +1269,7 @@ void custom_compare_test()
     fdb_iterator_close(&iterator);
 
     // do compaction
-    fdb_compact(&db, "./dummy2");
+    fdb_compact(&db, (char *) "./dummy2");
 
     // range scan (after compaction)
     fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
@@ -1294,7 +1295,7 @@ void custom_compare_test()
     // free all resources
     fdb_shutdown();
 
-    memleak_end();
+    //memleak_end();
 
     TEST_RESULT("custom compare test");
 }

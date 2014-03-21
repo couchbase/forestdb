@@ -42,12 +42,13 @@ INLINE struct bnode *_fetch_bnode(struct btree *btree, void *addr, uint16_t leve
     node = (struct bnode *)addr;
     if (!(node->flag & BNODE_MASK_METADATA)) {
         // no metadata
-        node->data = addr + sizeof(struct bnode);
+        node->data = (uint8_t *)addr + sizeof(struct bnode);
     } else {
         // metadata
         metasize_t metasize;
-        memcpy(&metasize, addr + sizeof(struct bnode), sizeof(metasize_t));
-        node->data = addr + sizeof(struct bnode) + sizeof(metasize_t) + _metasize_align(metasize);
+        memcpy(&metasize, (uint8_t *)addr + sizeof(struct bnode), sizeof(metasize_t));
+        node->data = (uint8_t *)addr + sizeof(struct bnode) + sizeof(metasize_t) +
+                     _metasize_align(metasize);
     }
     return node;
 }
@@ -59,7 +60,7 @@ INLINE int _bnode_size(
 
     if (node->flag & BNODE_MASK_METADATA) {
         metasize_t size;
-        memcpy(&size, (void *)node + sizeof(struct bnode), sizeof(metasize_t));
+        memcpy(&size, (uint8_t *)node + sizeof(struct bnode), sizeof(metasize_t));
         nodesize =
             sizeof(struct bnode) +
             btree->kv_ops->get_data_size(node, new_minkey, key_arr, value_arr, len) +
@@ -138,8 +139,8 @@ INLINE int _bnode_size_check(
         e = list_begin(kv_ins_list);
         while(e){
             item = _get_entry(e, struct kv_ins_item, le);
-            memcpy(key_arr + btree->ksize * i, item->key, btree->ksize);
-            memcpy(value_arr + btree->ksize * i, item->value, btree->ksize);
+            memcpy((uint8_t *)key_arr + btree->ksize * i, item->key, btree->ksize);
+            memcpy((uint8_t *)value_arr + btree->ksize * i, item->value, btree->ksize);
             i++;
             e = list_next(e);
         }
@@ -173,11 +174,13 @@ INLINE struct bnode * _btree_init_node(
     node->flag = flag;
 
     if ((flag & BNODE_MASK_METADATA) && meta) {
-        memcpy(node_addr + sizeof(struct bnode), &meta->size, sizeof(metasize_t));
-        memcpy(node_addr + sizeof(struct bnode) + sizeof(metasize_t), meta->data, meta->size);
-        node->data = node_addr + sizeof(struct bnode) + sizeof(metasize_t) + _metasize_align(meta->size);
+        memcpy((uint8_t *)node_addr + sizeof(struct bnode), &meta->size, sizeof(metasize_t));
+        memcpy((uint8_t *)node_addr + sizeof(struct bnode) + sizeof(metasize_t),
+               meta->data, meta->size);
+        node->data = (uint8_t *)node_addr + sizeof(struct bnode) + sizeof(metasize_t) +
+                     _metasize_align(meta->size);
     }else{
-        node->data = node_addr + sizeof(struct bnode);
+        node->data = (uint8_t *)node_addr + sizeof(struct bnode);
     }
 
     return node;
@@ -196,7 +199,7 @@ INLINE size_t _btree_get_nsplitnode(struct btree *btree, bid_t bid, struct bnode
 
     if (node->flag & BNODE_MASK_METADATA) {
         metasize_t size;
-        memcpy(&size, (void *)node + sizeof(struct bnode), sizeof(metasize_t));
+        memcpy(&size, (uint8_t *)node + sizeof(struct bnode), sizeof(metasize_t));
         headersize = sizeof(struct bnode) + _metasize_align(size) + sizeof(metasize_t);
     }else{
         headersize = sizeof(struct bnode);
@@ -219,9 +222,9 @@ metasize_t btree_read_meta(struct btree *btree, void *buf)
     addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
     node = _fetch_bnode(btree, addr, btree->height);
     if (node->flag & BNODE_MASK_METADATA) {
-        ptr = ((void*)node) + sizeof(struct bnode);
-        memcpy(&size, ptr, sizeof(metasize_t));
-        memcpy(buf, ptr + sizeof(metasize_t), size);
+        ptr = ((uint8_t *)node) + sizeof(struct bnode);
+        memcpy(&size, (uint8_t *)ptr, sizeof(metasize_t));
+        memcpy(buf, (uint8_t *)ptr + sizeof(metasize_t), size);
     } else {
         size = 0;
     }
@@ -242,7 +245,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
     addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
     node = _fetch_bnode(btree, addr, btree->height);
 
-    ptr = ((void*)node) + sizeof(struct bnode);
+    ptr = ((uint8_t *)node) + sizeof(struct bnode);
     metasize = old_metasize = 0;
 
     if (node->flag & BNODE_MASK_METADATA) {
@@ -258,7 +261,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
         // overwrite
         if (meta->size > 0) {
             memcpy(ptr, &metasize, sizeof(metasize_t));
-            memcpy(ptr + sizeof(metasize_t), meta->data, metasize);
+            memcpy((uint8_t *)ptr + sizeof(metasize_t), meta->data, metasize);
             node->flag |= BNODE_MASK_METADATA;
         }else{
             // clear the flag
@@ -267,17 +270,19 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
         // move kv-pairs (only if meta size is changed)
         if (_metasize_align(metasize) < _metasize_align(old_metasize)){
             memmove(
-                ptr + sizeof(metasize_t) + _metasize_align(metasize),
+                (uint8_t *)ptr + sizeof(metasize_t) + _metasize_align(metasize),
                 node->data,
                 btree->kv_ops->get_data_size(node, NULL, NULL, NULL, 0));
-            node->data -= (_metasize_align(old_metasize) - _metasize_align(metasize));
+            node->data = (uint8_t *)node->data - (_metasize_align(old_metasize) -
+                         _metasize_align(metasize));
         }
 
     }else {
         if (node->flag & BNODE_MASK_METADATA) {
             // existing metadata is removed
             memmove(ptr, node->data, btree->kv_ops->get_data_size(node, NULL, NULL, NULL, 0));
-            node->data -= (_metasize_align(old_metasize) + sizeof(metasize_t));
+            node->data = (uint8_t *)node->data - (_metasize_align(old_metasize) +
+                         sizeof(metasize_t));
             // clear the flag
             node->flag &= ~BNODE_MASK_METADATA;
         }

@@ -18,6 +18,8 @@
 #ifndef _JSAHN_ARCH_H
 #define _JSAHN_ARCH_H
 
+#define __STDC_FORMAT_MACROS
+
 #include <stdio.h>
 #include <fcntl.h>
 
@@ -124,6 +126,7 @@
 #ifdef _MSC_VER
     // visual studio CL compiler
     #include <Windows.h>
+    #include "gettimeofday_vs.h"
     // VS CL compiler does not allow arithmetic operation of void *
     // substitute void by uint8_t
     #define void uint8_t
@@ -131,6 +134,7 @@
     //#define alloca(size) _alloca(size)
     #define _F64 "ld"
     #define _CRT_SECURE_NO_WARNINGS
+    #define gettimeofday gettimeofday_vs
     typedef unsigned long mode_t;
 #else
     #include <inttypes.h>

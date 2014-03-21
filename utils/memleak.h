@@ -30,7 +30,6 @@ extern "C" {
 void memleak_start();
 void memleak_end();
 
-
 void * memleak_alloc(size_t size, char *file, size_t line);
 void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line);
 void * memleak_memalign(size_t alignment, size_t size, char *file, size_t line);

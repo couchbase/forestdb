@@ -72,19 +72,20 @@ int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey,
     for (i=0; i<nchunk; ++i) {
         if (i < nchunk-1) {
             // full chunk
-            memcpy(outkey + i * trie->chunksize, rawkey + i * trie->chunksize,
+            memcpy((uint8_t *)outkey + i * trie->chunksize,
+                   (uint8_t *)rawkey + i * trie->chunksize,
                    trie->chunksize);
         } else {
             // the last(rightmost) chunk
-            memset(outkey + i * trie->chunksize, 0, trie->chunksize);
+            memset((uint8_t *)outkey + i * trie->chunksize, 0, trie->chunksize);
             rsize = rawkeylen % trie->chunksize;
             if (rsize) {
-                memcpy(outkey + i * trie->chunksize,
-                       rawkey + i * trie->chunksize, rsize);
+                memcpy((uint8_t *)outkey + i * trie->chunksize,
+                       (uint8_t *)rawkey + i * trie->chunksize, rsize);
             }
             // add EOK mark + last chunk length
             EOK |= (uint8_t)(rsize);
-            memset(outkey + i * trie->chunksize + rsize, EOK, 1);
+            memset((uint8_t *)outkey + i * trie->chunksize + rsize, EOK, 1);
         }
     }
 
@@ -138,11 +139,11 @@ void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize,
     memcpy(&hbmeta->chunkno, buf, sizeof(hbmeta->chunkno));
     offset += sizeof(hbmeta->chunkno);
 
-    memcpy(&valuelen, buf+offset, sizeof(trie->valuelen));
+    memcpy(&valuelen, (uint8_t *)buf + offset, sizeof(trie->valuelen));
     offset += sizeof(trie->valuelen);
 
     if (valuelen > 0) {
-        hbmeta->value = buf+offset;
+        hbmeta->value = (uint8_t *)buf + offset;
         offset += trie->valuelen;
     } else {
         hbmeta->value = NULL;
@@ -150,7 +151,7 @@ void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize,
 
     if (metasize - offset > 0) {
         //memcpy(hbmeta->prefix, buf+offset, metasize - offset);
-        hbmeta->prefix = buf+offset;
+        hbmeta->prefix = (uint8_t *)buf + offset;
     } else {
         hbmeta->prefix = NULL;
     }
@@ -166,17 +167,17 @@ void _hbtrie_store_meta(
     *metasize += sizeof(chunkno);
 
     if (value) {
-        memcpy(buf + *metasize, &trie->valuelen, sizeof(trie->valuelen));
+        memcpy((uint8_t *)buf + *metasize, &trie->valuelen, sizeof(trie->valuelen));
         *metasize += sizeof(trie->valuelen);
-        memcpy(buf + *metasize, value, trie->valuelen);
+        memcpy((uint8_t *)buf + *metasize, value, trie->valuelen);
         *metasize += trie->valuelen;
     }else{
-        memset(buf + *metasize, 0x0, sizeof(trie->valuelen));
+        memset((uint8_t *)buf + *metasize, 0x0, sizeof(trie->valuelen));
         *metasize += sizeof(trie->valuelen);
     }
 
     if (prefixlen > 0) {
-        memcpy(buf + *metasize, prefix, prefixlen);
+        memcpy((uint8_t *)buf + *metasize, prefix, prefixlen);
         *metasize += prefixlen;
     }
 }
@@ -186,7 +187,8 @@ INLINE int _hbtrie_find_diff_chunk(struct hbtrie *trie, void *key1, void *key2, 
     int i = 0;
     for (; i < nchunk; ++i) {
         //if (strncmp(key1 + trie->chunksize*i , key2 + trie->chunksize*i , trie->chunksize)) {
-        if (memcmp(key1 + trie->chunksize*i , key2 + trie->chunksize*i , trie->chunksize)) {
+        if (memcmp((uint8_t *)key1 + trie->chunksize*i,
+                   (uint8_t *)key2 + trie->chunksize*i , trie->chunksize)) {
              return i;
         }
     }
@@ -332,7 +334,7 @@ hbtrie_result _hbtrie_next(
         item_new->chunkno = hbmeta.chunkno;
 
         if ( (item_new->chunkno+1)*trie->chunksize <= it->keylen ) {
-            chunk = it->curkey + item_new->chunkno*trie->chunksize;
+            chunk = (uint8_t *)it->curkey + item_new->chunkno*trie->chunksize;
         }else{
             // chunk number of the b-tree is longer than current iterator's key
             // set smallest key
@@ -350,8 +352,8 @@ hbtrie_result _hbtrie_next(
         // read entire key and return the doc offset
         offset = trie->btree_kv_ops->value2bid(v);
         *keylen = trie->readkey(trie->doc_handle, offset, key_buf);
-        memcpy(it->curkey + item->chunkno*trie->chunksize,
-            key_buf + item->chunkno*trie->chunksize, trie->chunksize);
+        memcpy((uint8_t *)it->curkey + item->chunkno*trie->chunksize,
+               (uint8_t *)key_buf + item->chunkno*trie->chunksize, trie->chunksize);
         memcpy(value_buf, &offset, trie->valuelen);
 
         return HBTRIE_RESULT_SUCCESS;
@@ -399,7 +401,7 @@ void _hbtrie_btree_cascaded_update(struct hbtrie *trie, struct list *btreelist, 
             bid_new = btreeitem_child->btree.root_bid;
             _hbtrie_set_msb(trie, (void *)&bid_new);
             r = btree_insert(&btreeitem->btree,
-                key + btreeitem->chunkno * trie->chunksize, (void *)&bid_new);
+                (uint8_t *)key + btreeitem->chunkno * trie->chunksize, (void *)&bid_new);
         }
         e_child = e;
         e = list_prev(e);
@@ -486,8 +488,8 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
             assert(hbmeta.prefix != NULL);
             // prefix comparison (find the first different chunk)
             int diffchunkno = _hbtrie_find_diff_chunk(trie, hbmeta.prefix,
-                                                      key + trie->chunksize * (prevchunkno+1),
-                                                      curchunkno - (prevchunkno+1));
+                                               (uint8_t *)key + trie->chunksize * (prevchunkno+1),
+                                               curchunkno - (prevchunkno+1));
             if (diffchunkno < curchunkno - (prevchunkno+1)) {
                 // prefix does not match -> retrieval fail
                 return HBTRIE_RESULT_FAIL;
@@ -495,7 +497,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
         }
 
         //3 search b-tree using current chunk
-        chunk = key + curchunkno * trie->chunksize;
+        chunk = (uint8_t *)key + curchunkno * trie->chunksize;
         r = btree_find(btree, chunk, btree_value);
 
         if (r == BTREE_RESULT_FAIL) {
@@ -671,9 +673,12 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                 int new_prefixlen = trie->chunksize * (curchunkno - (prevchunkno + diffchunkno + 1) - 1);
                 if (new_prefixlen > 0) {
                     uint8_t *new_prefix = alca(uint8_t, new_prefixlen);
-                    memcpy(new_prefix, hbmeta.prefix + trie->chunksize * (diffchunkno + 1), new_prefixlen);
-                    _hbtrie_store_meta(trie, &meta.size, curchunkno, new_prefix, new_prefixlen, hbmeta.value, buf);
-                }else{
+                    memcpy(new_prefix,
+                           (uint8_t *)hbmeta.prefix + trie->chunksize * (diffchunkno + 1),
+                           new_prefixlen);
+                    _hbtrie_store_meta(trie, &meta.size, curchunkno, new_prefix,
+                                       new_prefixlen, hbmeta.value, buf);
+                } else {
                     _hbtrie_store_meta(trie, &meta.size, curchunkno, NULL, 0, hbmeta.value, buf);
                 }
                 btree_update_meta(&btreeitem->btree, &meta);
@@ -695,7 +700,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                 chunk_new = key + (prevchunkno + diffchunkno + 1) * trie->chunksize;
                 r = btree_insert(&btreeitem_new->btree, chunk_new, value);
                 // existing btree
-                chunk_new = hbmeta.prefix + diffchunkno * trie->chunksize;
+                chunk_new = (uint8_t *)hbmeta.prefix + diffchunkno * trie->chunksize;
                 btreeitem_new->child_rootbid = bid_new = btreeitem->btree.root_bid;
                 // set MSB
                 _hbtrie_set_msb(trie, (void*)&bid_new);
@@ -793,7 +798,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                         //btreeitem->child_rootbid = btreeitem_new->btree.root_bid;
                         list_push_back(&btreelist, &btreeitem_new->e);
 
-                        chunk_new = key_long + diffchunkno * trie->chunksize;
+                        chunk_new = (uint8_t *)key_long + diffchunkno * trie->chunksize;
                         r = btree_insert(&btreeitem_new->btree, chunk_new, value_long);
 
                     }
