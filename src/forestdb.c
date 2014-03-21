@@ -91,7 +91,7 @@ INLINE void _fdb_fetch_header(
     }
     offset += FDB_MAX_FILENAME_LEN;
     if (old_filename_len) {
-        *old_filename = (char *) malloc(old_filename_len + 1);
+        *old_filename = (char *) malloc(old_filename_len);
         seq_memcpy(*old_filename, header_buf + offset + new_filename_len,
                    old_filename_len, offset);
     }
@@ -171,6 +171,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     fdb_config fconfig = handle->config;
     struct filemgr *new_file;
     struct docio_handle dhandle;
+
     fdb_open(&new_db, new_filename, &fconfig);
     new_file = new_db.file;
     if (new_file->old_filename &&
@@ -357,18 +358,20 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 
     if (prev_filename) {
         // record the old filename into the file handle of current file
-        filemgr_update_file_status(handle->file, handle->file->status,
-                                   prev_filename);
-        /** TODO: find a way to garbage collect old file...
-        struct filemgr_config fconfig;
-        uint32_t blocksize = handle->config.blocksize;
-        memset(&fconfig, 0, sizeof(struct filemgr_config));
-        fconfig.blocksize = blocksize;
-        struct filemgr *old_file = filemgr_open(prev_filename, handle->fileops,
-                                                &fconfig);
-        filemgr_remove_pending(old_file, handle->file);
-        filemgr_close(old_file);
-        */;
+        // and REMOVE old file on the first open
+        // WARNING: snapshots must have been opened before this call
+        if (filemgr_update_file_status(handle->file, handle->file->status,
+                                       prev_filename)) {
+            struct filemgr_config fconfig;
+            uint32_t blocksize = handle->config.blocksize;
+            memset(&fconfig, 0, sizeof(struct filemgr_config));
+            fconfig.blocksize = blocksize;
+            struct filemgr *old_file = filemgr_open(prev_filename,
+                                                    handle->fileops,
+                                                    &fconfig);
+            filemgr_remove_pending(old_file, handle->file);
+            filemgr_close(old_file);
+        }
     }
 
     btreeblk_end(handle->bhandle);
@@ -890,13 +893,13 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
 
     // size of newly compacted target file name
     if (handle->file->new_file) {
-        new_filename_len = strlen(handle->file->new_file->filename);
+        new_filename_len = strlen(handle->file->new_file->filename) + 1;
     }
     seq_memcpy(buf + offset, &new_filename_len, 1, offset);
 
     // size of old filename before compaction
     if (handle->file->old_filename) {
-        old_filename_len = strlen(handle->file->old_filename);
+        old_filename_len = strlen(handle->file->old_filename) + 1;
     }
     seq_memcpy(buf + offset, &old_filename_len, 1, offset);
 

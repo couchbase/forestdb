@@ -762,20 +762,23 @@ void filemgr_sync(struct filemgr *file)
     file->ops->fsync(file->fd);
 }
 
-void filemgr_update_file_status(struct filemgr *file, file_status_t status,
+int filemgr_update_file_status(struct filemgr *file, file_status_t status,
                                 char *old_filename)
 {
+    int ret = 1;
     spin_lock(&file->lock);
     file->status = status;
     if (old_filename) {
         if (!file->old_filename) {
-        file->old_filename = old_filename;
+            file->old_filename = old_filename;
         } else {
+            ret = 0;
             assert(file->ref_count);
             free(old_filename);
         }
     }
     spin_unlock(&file->lock);
+    return ret;
 }
 
 void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file)
