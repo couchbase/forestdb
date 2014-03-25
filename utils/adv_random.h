@@ -4,8 +4,12 @@
 #include <stdint.h>
 #include <math.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef UINT64_MAX
-#define UINT64_MAX ((uint64_t)0xffffffffffffffff);
+#define UINT64_MAX ((uint64_t)0xffffffffffffffff)
 #endif
 
 #define BDR_RNG_VARS  \
@@ -51,7 +55,8 @@
 
 typedef enum {
     RND_UNIFORM,
-    RND_NORMAL
+    RND_NORMAL,
+    RND_ZIPFIAN,
 } rndtype_t;
 
 struct rndinfo{
@@ -66,7 +71,7 @@ struct rndinfo{
 
 static double __PI = 3.141592654;
 
-int64_t get_random(struct rndinfo* ri, uint64_t rv1, uint64_t rv2)
+static int64_t get_random(struct rndinfo* ri, uint64_t rv1, uint64_t rv2)
 {
     if (ri->type == RND_UNIFORM)
     {
@@ -132,6 +137,10 @@ void _rand_gen_test()
     }
 }
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

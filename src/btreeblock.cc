@@ -271,6 +271,8 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
     // move
     memcpy(new_addr, old_addr, (handle->nodesize));
 
+    filemgr_invalidate_block(handle->file, bid);
+
     return new_addr;
 }
 

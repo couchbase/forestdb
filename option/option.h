@@ -23,7 +23,6 @@
 typedef uint64_t fdb_seqnum_t;
 #define SEQNUM_NOT_USED (UINT64_C(0xffffffffffffffff))
 
-
 #define __FDB_SEQTREE
 #define __FDB_BCACHE_USE
 #ifdef __FDB_BCACHE_USE
@@ -39,11 +38,13 @@ typedef uint64_t fdb_seqnum_t;
 #define __CRC32
 #ifdef __CRC32
     #define BTREE_CRC_OFFSET (8)
+    #define BTREE_LEVEL_OFFSET (2)
 #endif
 
 #define __BIT_CMP
 
 #define __WAL_KEY_COPY
+//#define __WAL_FLUSH_BEFORE_COMMIT
 
 //#define __DEBUG_FDB
 //#define __DEBUG_WAL
@@ -59,14 +60,19 @@ typedef uint64_t fdb_seqnum_t;
 #define FDB_WAL_NBUCKET (4*1024)
 #define FDB_MAX_KEYLEN (320)
 #define FDB_WAL_THRESHOLD (4*1024)
+#define FDB_COMP_BUF_MAXSIZE (16*1024*1024)
 
 // MUST BE a power of 2
 //#define BCACHE_NBUCKET (1024*1024)
 #define BCACHE_NBUCKET (4*1024)
 #define BCACHE_NDICBUCKET (4096)
 #define BCACHE_FLUSH_UNIT (256*1024)
+#define BCACHE_EVICT_UNIT (1)
+#define BCACHE_RANDOM_VICTIM_UNIT (2)
+#define __BCACHE_SECOND_CHANCE
+//#define __BCACHE_RANDOM_VICTIM
 
-#define FILEMGR_BULK_READ (16)
+#define FILEMGR_BULK_READ (1)
 //#define __FILEMGR_MUTEX_LOCK
 
 #define __BTREEBLK_BLOCKPOOL

@@ -25,12 +25,13 @@ extern "C" {
 #endif
 
 typedef enum {
-    BCACHE_CLEAN,
-    BCACHE_DIRTY
+    BCACHE_REQ_CLEAN,
+    BCACHE_REQ_DIRTY
 } bcache_dirty_t;
 
 void bcache_init(int nblock, int blocksize);
 int bcache_read(struct filemgr *file, bid_t bid, void *buf);
+void bcache_invalidate_block(struct filemgr *file, bid_t bid);
 int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirty);
 int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offset, size_t len);
 void bcache_remove_dirty_blocks(struct filemgr *file);

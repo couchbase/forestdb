@@ -501,6 +501,12 @@ void filemgr_shutdown()
 
         spin_lock(&initial_lock);
 
+#ifdef __FDB_BENCH
+        if (global_config.ncacheblock > 0) {
+            bcache_print_items();
+        }
+#endif
+
         hash_free_active(&hash, _filemgr_free_func);
         if (global_config.ncacheblock > 0) {
             bcache_shutdown();
@@ -589,6 +595,13 @@ INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
 }
 #endif
 
+void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
+{
+    if (global_config.ncacheblock > 0) {
+        bcache_invalidate_block(file, bid);
+    }
+}
+
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 {
     int r;
@@ -608,7 +621,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
                 _filemgr_crc32_check(file, buf);
 #endif
 
-                bcache_write(file, bid, buf, BCACHE_CLEAN);
+                bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
             }else{
                 // if file is undergoing compaction, bulk read and bulk cache prefetch
                 uint64_t pos_bulk;
@@ -629,7 +642,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 
                 for (i=0;i<nblocks;++i){
                     bcache_write(file, pos_bulk / file->blocksize + i,
-                                 (uint8_t *)bulk_buf + i*file->blocksize, BCACHE_CLEAN);
+                                 (uint8_t *)bulk_buf + i*file->blocksize, BCACHE_REQ_CLEAN);
                 }
                 memcpy(buf, (uint8_t *)bulk_buf + (bid*file->blocksize - pos_bulk),
                        file->blocksize);
@@ -658,7 +671,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
     if (global_config.ncacheblock > 0) {
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
-            bcache_write(file, bid, buf, BCACHE_DIRTY);
+            bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
         }else {
             // partially write buffer cache first
             r = bcache_write_partial(file, bid, buf, offset, len);
@@ -669,7 +682,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
 
                 r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
                 memcpy((uint8_t *)_buf + offset, buf, len);
-                bcache_write(file, bid, _buf, BCACHE_DIRTY);
+                bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
 
                 _filemgr_release_temp_buf(_buf);
             }
@@ -732,7 +745,7 @@ void filemgr_commit(struct filemgr *file)
         // header length
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - BLK_MARKER_SIZE),
-               &header_len, sizeof(header_len));
+            &header_len, sizeof(header_len));
         // magic number
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - BLK_MARKER_SIZE), &magic, sizeof(magic));

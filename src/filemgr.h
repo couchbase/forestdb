@@ -108,6 +108,7 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin, bid_
 bid_t filemgr_alloc_multiple_cond(
     struct filemgr *file, bid_t nextbid, int nblock, bid_t *begin, bid_t *end);
 
+void filemgr_invalidate_block(struct filemgr *file, bid_t bid);
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf);
 void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint64_t len, void *buf);
 void filemgr_write(struct filemgr *file, bid_t bid, void *buf);
