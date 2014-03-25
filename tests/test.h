@@ -59,6 +59,10 @@ extern "C" {
 
 #endif
 
+#ifdef __cplusplus
+}
+#endif
+
 #if defined(WIN32) || defined(_WIN32)
 #define SHELL_DEL "del "
 #define SHELL_COPY "copy "
@@ -74,10 +78,6 @@ extern "C" {
 #define memleak_end(arg)
 #else
 #include "memleak.h"
-#endif
-
-#ifdef __cplusplus
-}
 #endif
 
 #endif

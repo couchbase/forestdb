@@ -186,7 +186,7 @@ void multi_thread_test(
 
     r = system(SHELL_DEL " dummy");
 
-    //memleak_start();
+    memleak_start();
 
     buf = (uint8_t *)malloc(4096);
     memset(buf, 0, 4096);
@@ -225,7 +225,7 @@ void multi_thread_test(
     filemgr_shutdown();
     free(buf);
 
-    //memleak_end();
+    memleak_end();
     TEST_RESULT("multi thread test");
 }
 

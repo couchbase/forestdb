@@ -42,8 +42,7 @@ add_library(forestdb SHARED
             src/hash.cc
             src/wal.cc
             utils/crc32.cc
-            utils/debug.cc
-            utils/memleak.cc)
+            utils/debug.cc)
 
 add_executable(forestdb_test
                src/avltree.cc

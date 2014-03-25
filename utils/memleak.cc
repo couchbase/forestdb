@@ -15,6 +15,7 @@
 #endif
 
 #include "arch.h"
+#include "memleak.h"
 
 #define _MALLOC_OVERRIDE
 #define INIT_VAL (0xff)

@@ -49,7 +49,7 @@ void basic_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 10;
@@ -191,7 +191,7 @@ void basic_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("basic test");
 }
@@ -200,7 +200,7 @@ void wal_commit_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 10;
@@ -286,7 +286,7 @@ void wal_commit_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("WAL commit test");
 }
@@ -295,7 +295,7 @@ void multi_version_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 2;
@@ -412,7 +412,7 @@ void multi_version_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("multi version test");
 }
@@ -421,7 +421,7 @@ void compact_wo_reopen_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 3;
@@ -503,7 +503,7 @@ void compact_wo_reopen_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("compaction without reopen test");
 }
@@ -512,7 +512,7 @@ void auto_recover_compact_ok_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 3;
@@ -620,7 +620,7 @@ void auto_recover_compact_ok_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("auto recovery after compaction test");
 }
@@ -761,7 +761,7 @@ void multi_thread_test(
     // remove previous dummy files
     r = system(SHELL_DEL" "FILENAME"* > errorlog.txt");
 
-    //memleak_start();
+    memleak_start();
 
     // configuration
     memset(&config, 0, sizeof(fdb_config));
@@ -846,7 +846,7 @@ void multi_thread_test(
     // shutdown
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("multi thread test");
 }
@@ -855,7 +855,7 @@ void crash_recovery_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 10;
@@ -945,7 +945,7 @@ void crash_recovery_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("crash recovery test");
 }
@@ -954,7 +954,7 @@ void incomplete_block_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 2;
@@ -1016,7 +1016,7 @@ void incomplete_block_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("incomplete block test");
 }
@@ -1025,7 +1025,7 @@ void iterator_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 10;
@@ -1174,7 +1174,7 @@ void iterator_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("iterator test");
 }
@@ -1198,7 +1198,7 @@ void custom_compare_test()
 {
     TEST_INIT();
 
-    //memleak_start();
+    memleak_start();
 
     int i, r;
     int n = 10;
@@ -1295,7 +1295,7 @@ void custom_compare_test()
     // free all resources
     fdb_shutdown();
 
-    //memleak_end();
+    memleak_end();
 
     TEST_RESULT("custom compare test");
 }
