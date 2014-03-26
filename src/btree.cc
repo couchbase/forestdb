@@ -1100,8 +1100,9 @@ btree_result btree_remove(struct btree *btree, void *key)
             1. non-root node has no kv-pair or
             2. root node has less or equal than one kv-pair
             */
-            if ((node[i]->nentry < 1 && i+1 < btree->height) ||
-                (node[i]->nentry <= 1 && i+1 == btree->height)) {
+            if (((node[i]->nentry < 1 && i+1 < btree->height) ||
+                (node[i]->nentry <= 1 && i+1 == btree->height)) &&
+                btree->height > 1) {
                 // remove the node
                 if (i+1 < btree->height) {
                     // if non-root node

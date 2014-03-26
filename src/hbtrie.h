@@ -35,11 +35,14 @@ typedef enum {
     HBTRIE_RESULT_FAIL
 } hbtrie_result;
 
+#define HBTRIE_FLAG_COMPACT (0x1)
 struct btree_blk_ops;
 struct btree_kv_ops;
 struct hbtrie {
     uint8_t chunksize;
     uint8_t valuelen;
+    uint8_t flag;
+    uint8_t leaf_height_limit;
     uint32_t btree_nodesize;
     bid_t root_bid;
     void *btreeblk_handle;
@@ -47,6 +50,7 @@ struct hbtrie {
 
     struct btree_blk_ops *btree_blk_ops;
     struct btree_kv_ops *btree_kv_ops;
+    struct btree_kv_ops *btree_leaf_kv_ops;
     hbtrie_func_readkey *readkey;
 };
 
@@ -66,12 +70,23 @@ void hbtrie_init(
             void *doc_handle, hbtrie_func_readkey *readkey);
 void hbtrie_free(struct hbtrie *trie);
 
+void hbtrie_set_flag(struct hbtrie *trie, uint8_t flag);
+void hbtrie_set_leaf_height_limit(struct hbtrie *trie, uint8_t limit);
+
 hbtrie_result hbtrie_iterator_init(
     struct hbtrie *trie, struct hbtrie_iterator *it, void *initial_key, size_t keylen);
 hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it);
-hbtrie_result hbtrie_next(struct hbtrie_iterator *it, void *key_buf, size_t *keylen, void *value_buf);
+hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
+                          void *key_buf,
+                          size_t *keylen,
+                          void *value_buf);
+hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
+                                 void *value_buf);
 
 hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey, int rawkeylen, void *valuebuf);
+hbtrie_result hbtrie_find_offset(struct hbtrie *trie, void *rawkey,
+                        int rawkeylen, void *valuebuf);
+
 hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen);
 hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
             void *value, void *oldvalue_out);

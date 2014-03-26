@@ -29,6 +29,7 @@ add_library(forestdb SHARED
             src/blockcache.cc
             src/btree.cc
             src/btree_kv.cc
+            src/btree_prefix_kv.cc
             src/btreeblock.cc
             src/docio.cc
             src/filemgr.cc
@@ -140,6 +141,7 @@ add_executable(hbtrie_test
                src/blockcache.cc
                src/btree.cc
                src/btree_kv.cc
+               src/btree_prefix_kv.cc
                src/btreeblock.cc
                src/docio.cc
                src/filemgr.cc

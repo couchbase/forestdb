@@ -1069,6 +1069,9 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     if (handle->cmp_func) {
         new_trie->btree_kv_ops->cmp = handle->cmp_func;
     }
+    new_trie->flag = handle->trie->flag;
+    new_trie->leaf_height_limit = handle->trie->leaf_height_limit;
+
 
 #ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
