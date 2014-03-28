@@ -26,7 +26,6 @@
 #include "docio.h"
 #include "wal.h"
 #include "hash_functions.h"
-#include "hbtrie.h"
 #include "crc32.h"
 
 #include "memleak.h"
@@ -131,7 +130,10 @@ int wal_is_initialized(struct filemgr *file)
     return file->wal->flag & WAL_FLAG_INITIALIZED;
 }
 
-wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
+wal_result _wal_insert(struct filemgr *file,
+                       fdb_doc *doc,
+                       uint64_t offset,
+                       int is_compactor)
 {
     struct wal_item *item;
     struct wal_item query;
@@ -149,28 +151,37 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
 
     if (e) {
         // already exist
-        item = _get_entry(e, struct wal_item, he_key);
 
-        #ifdef __FDB_SEQTREE
-            hash_remove(&file->wal->hash_byseq, &item->he_seq);
-            item->seqnum = query.seqnum;
-            hash_insert(&file->wal->hash_byseq, &item->he_seq);
-        #endif
+        // if this entry is inserted by compactor, AND
+        // the other entry for the same key already exists,
+        // then we know that the other entry is inserted by the other writer.
+        // AND also the other entry is always fresher than
+        // the entry inserted by compactor.
+        // Thus, we ignore the entry by compactor.
+        if (!is_compactor) {
+            item = _get_entry(e, struct wal_item, he_key);
+            item->flag &= ~WAL_ITEM_FLUSH_READY;
 
-        item->doc_size = _wal_get_docsize(doc);
-        item->offset = offset;
-        item->action = WAL_ACT_INSERT;
+            #ifdef __FDB_SEQTREE
+                hash_remove(&file->wal->hash_byseq, &item->he_seq);
+                item->seqnum = query.seqnum;
+                hash_insert(&file->wal->hash_byseq, &item->he_seq);
+            #endif
 
-        // move to the end of list
-        list_remove(&file->wal->list, &item->list_elem);
-        list_push_back(&file->wal->list, &item->list_elem);
+            item->doc_size = _wal_get_docsize(doc);
+            item->offset = offset;
+            item->action = WAL_ACT_INSERT;
+
+            // move to the end of list
+            list_remove(&file->wal->list, &item->list_elem);
+            list_push_back(&file->wal->list, &item->list_elem);
+        }
 
     }else{
         // not exist .. create new one
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
-
-        //3 KEY should be copied or just be linked?
+        item->flag = 0x0;
     #ifdef __WAL_KEY_COPY
         item->key = (void *)mempool_alloc(item->keylen);
         memcpy(item->key, key, item->keylen);
@@ -193,6 +204,18 @@ wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
     spin_unlock(&file->wal->lock);
 
     return WAL_RESULT_SUCCESS;
+}
+
+wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset)
+{
+    return _wal_insert(file, doc, offset, 0);
+}
+
+wal_result wal_insert_by_compactor(struct filemgr *file,
+                                   fdb_doc *doc,
+                                   uint64_t offset)
+{
+    return _wal_insert(file, doc, offset, 1);
 }
 
 wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
@@ -275,6 +298,7 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
     if (e) {
         // already exist
         item = _get_entry(e, struct wal_item, he_key);
+        item->flag &= ~WAL_ITEM_FLUSH_READY;
 
         #ifdef __FDB_SEQTREE
             hash_remove(&file->wal->hash_byseq, &item->he_seq);
@@ -292,6 +316,7 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
     }else{
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
+        item->flag = 0x0;
     #ifdef __WAL_KEY_COPY
         item->key = (void *)mempool_alloc(item->keylen);
         memcpy(item->key, key, item->keylen);
@@ -319,36 +344,84 @@ wal_result wal_commit(struct filemgr *file)
     return WAL_RESULT_SUCCESS;
 }
 
-wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func)
+int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct wal_item *aa, *bb;
+    aa = _get_entry(a, struct wal_item, avl);
+    bb = _get_entry(b, struct wal_item, avl);
+
+    if (aa->old_offset < bb->old_offset) {
+        return -1;
+    } else if (aa->old_offset > bb->old_offset) {
+        return 1;
+    } else {
+        // old_offset can be 0 if the document was newly inserted
+        if (aa->offset < bb->offset) {
+            return -1;
+        } else if (aa->offset > bb->offset) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+}
+
+wal_result wal_flush(struct filemgr *file,
+                     void *dbhandle,
+                     wal_flush_func *flush_func,
+                     wal_get_old_offset_func *get_old_offset)
 {
     int i;
+    struct avl_tree tree;
+    struct avl_node *a;
     struct list_elem *e;
     struct hash_elem *h;
     struct wal_item *item;
     size_t count = 0;
 
+    // sort by old byte-offset of the document (for sequential access)
     spin_lock(&file->wal->lock);
-
+    avl_init(&tree, NULL);
     e = list_begin(&file->wal->list);
     while(e){
         item = _get_entry(e, struct wal_item, list_elem);
-        e = list_remove(&file->wal->list, e);
-        hash_remove(&file->wal->hash_bykey, &item->he_key);
-        SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
-        func(dbhandle, item);
+        item->old_offset = get_old_offset(dbhandle, item);
+        item->flag |= WAL_ITEM_FLUSH_READY;
+        avl_insert(&tree, &item->avl, _wal_flush_cmp);
+        e = list_next(e);
+        list_remove(&file->wal->list, &item->list_elem);
         count++;
-
-    #ifdef __WAL_KEY_COPY
-        mempool_free(item->key);
-    #endif
-        mempool_free(item);
+        file->wal->size--;
     }
-    file->wal->size = 0;
-    file->wal->last_commit = NULL;
-
+    file->wal->last_commit = list_begin(&file->wal->list);
     spin_unlock(&file->wal->lock);
+
+    // scan and flush entries in the avl-tree
+    a = avl_first(&tree);
+    while (a) {
+        spin_lock(&file->wal->lock);
+
+        item = _get_entry(a, struct wal_item, avl);
+        a = avl_next(a);
+        avl_remove(&tree, &item->avl);
+
+        // check weather this item is updated after insertion into tree
+        if (item->flag & WAL_ITEM_FLUSH_READY) {
+            hash_remove(&file->wal->hash_bykey, &item->he_key);
+            SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
+            flush_func(dbhandle, item);
+#ifdef __WAL_KEY_COPY
+            mempool_free(item->key);
+#endif
+            mempool_free(item);
+        }
+
+        spin_unlock(&file->wal->lock);
+    }
+
     return WAL_RESULT_SUCCESS;
 }
+
 
 // discard entries that are not committed (i.e. all entries after the last commit)
 wal_result wal_close(struct filemgr *file)

@@ -324,6 +324,10 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename,
 
     handle->datasize = handle->ndocs = 0;
 
+    if (handle->config.compaction_buf_maxsize == 0) {
+        handle->config.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;
+    }
+
     if (!wal_is_initialized(handle->file)) {
         wal_init(handle->file, FDB_WAL_NBUCKET);
     }
@@ -504,6 +508,19 @@ INLINE size_t _fdb_get_docsize(struct docio_length len)
     return ret;
 }
 
+INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
+                                        struct wal_item *item)
+{
+    fdb_handle *handle = (fdb_handle *)voidhandle;
+    uint64_t old_offset = 0;
+    hbtrie_result hr;
+
+    hr = hbtrie_find_offset(handle->trie, item->key, item->keylen,
+                            (void*)&old_offset);
+    btreeblk_end(handle->bhandle);
+    return old_offset;
+}
+
 INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 {
     hbtrie_result hr;
@@ -535,8 +552,22 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
             handle->datasize += item->doc_size;
         }
-    }else{
-        // TODO: set delete flag and update
+    } else {
+        // remove
+        hr = hbtrie_remove(handle->trie, item->key, item->keylen);
+        btreeblk_end(handle->bhandle);
+
+        SEQTREE(
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                br = btree_remove(handle->seqtree, (void*)&item->seqnum);
+                btreeblk_end(handle->bhandle);
+            }
+        );
+
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            handle->ndocs--;
+            handle->datasize -= item->doc_size;
+        }
     }
 }
 
@@ -865,7 +896,8 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 
 #ifdef __WAL_FLUSH_BEFORE_COMMIT
     if (wal_get_size(file) > _fdb_get_wal_threshold(handle)) {
-        wal_flush(file, (void *)handle, _fdb_wal_flush_func);
+        wal_flush(file, (void *)handle,
+                  _fdb_wal_flush_func, _fdb_wal_get_old_offset);
         wal_set_dirty_status(file, FDB_WAL_PENDING);
     }
 #endif
@@ -987,7 +1019,8 @@ fdb_status fdb_commit(fdb_handle *handle)
             // wal flush when
             // 1. wal size exceeds threshold
             // 2. wal is already flushed before commit (in this case flush the rest of entries)
-            wal_flush(handle->file, (void *)handle, _fdb_wal_flush_func);
+            wal_flush(handle->file, (void *)handle,
+                      _fdb_wal_flush_func, _fdb_wal_get_old_offset);
             wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
         }else{
             // otherwise just commit wal
@@ -1023,6 +1056,109 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
+INLINE void _fdb_compact_move_docs(fdb_handle *handle,
+                              struct filemgr *new_file,
+                              struct hbtrie *new_trie,
+                              struct btree *new_seqtree,
+                              struct docio_handle *new_dhandle,
+                              struct btreeblk_handle *new_bhandle,
+                              uint64_t *count_out,
+                              uint64_t *new_datasize_out)
+{
+    uint8_t *k = alca(uint8_t, HBTRIE_MAX_KEYLEN);
+    uint64_t offset;
+    uint64_t new_offset;
+    uint64_t *offset_array;
+    size_t i, c, count;
+    size_t offset_array_max;
+    size_t keylen;
+    hbtrie_result hr;
+    struct docio_object doc;
+    struct hbtrie_iterator it;
+    fdb_doc wal_doc;
+    fdb_handle new_handle;
+
+    new_handle = *handle;
+    new_handle.trie = new_trie;
+    new_handle.seqtree = new_seqtree;
+    new_handle.dhandle = new_dhandle;
+    new_handle.bhandle = new_bhandle;
+    new_handle.ndocs = 0;
+    new_handle.datasize = 0;
+
+    offset_array_max =
+        handle->config.compaction_buf_maxsize / sizeof(uint64_t);
+    offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
+    c = count = 0;
+    hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
+
+    while( hr != HBTRIE_RESULT_FAIL ) {
+
+        hr = hbtrie_next_value_only(&it, (void*)&offset);
+        btreeblk_end(handle->bhandle);
+
+        if ( hr != HBTRIE_RESULT_FAIL ) {
+            // add to offset array
+            offset_array[c] = offset;
+            c++;
+        }
+
+        // if array exceeds the threshold, OR
+        // there's no next item (hr == HBTRIE_RESULT_FAIL),
+        // sort and move the documents in the array
+        if (c >= offset_array_max ||
+            (c > 0 && hr == HBTRIE_RESULT_FAIL)) {
+            // quick sort
+            qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
+
+            for (i=0; i<c; ++i) {
+                offset = offset_array[i];
+
+                doc.key = k;
+                doc.meta = NULL;
+                doc.body = NULL;
+                docio_read_doc(handle->dhandle, offset, &doc);
+
+                // re-write to new file
+                filemgr_mutex_lock(new_file);
+                new_offset = docio_append_doc(new_dhandle, &doc);
+
+                wal_doc.keylen = doc.length.keylen;
+                wal_doc.metalen = doc.length.metalen;
+                wal_doc.bodylen = doc.length.bodylen;
+                wal_doc.key = doc.key;
+#ifdef __FDB_SEQTREE
+                wal_doc.seqnum = doc.seqnum;
+#endif
+                wal_doc.meta = doc.meta;
+                wal_doc.body = doc.body;
+
+                wal_insert_by_compactor(new_file, &wal_doc, new_offset);
+
+                filemgr_mutex_unlock(new_file);
+                free(doc.meta);
+                free(doc.body);
+            }
+            // reset to zero
+            c=0;
+            count++;
+
+            // wal flush
+            if (wal_get_size(new_file) > 0) {
+                wal_flush(new_file, (void*)&new_handle,
+                          _fdb_wal_flush_func,
+                          _fdb_wal_get_old_offset);
+                wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+            }
+        }
+    }
+    *(count_out) = new_handle.ndocs;
+    *(new_datasize_out) = new_handle.datasize;
+
+    hr = hbtrie_iterator_free(&it);
+    free(offset_array);
+}
+
 LIBFDB_API
 fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
 {
@@ -1041,7 +1177,6 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     size_t old_filename_len = 0;
     uint64_t offset, new_offset, *offset_arr, i, count, new_datasize;
     fdb_seqnum_t seqnum;
-    hbtrie_result hr;
 
     // prevent update to the target file
     filemgr_mutex_lock(handle->file);
@@ -1117,7 +1252,8 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     // mark name of new file in old file
     filemgr_set_compaction_old(handle->file, new_file);
     // flush WAL and set DB header
-    wal_flush(handle->file, (void*)handle, _fdb_wal_flush_func);
+    wal_flush(handle->file, (void*)handle,
+        _fdb_wal_flush_func, _fdb_wal_get_old_offset);
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
     handle->last_header_bid =
         (handle->file->pos) / handle->file->blocksize;
@@ -1133,44 +1269,8 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     filemgr_mutex_unlock(new_file);
     // now compactor & another writer can be interleaved
 
-    // scan all live documents in the trie
-    hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
-
-    while( hr != HBTRIE_RESULT_FAIL ) {
-
-        hr = hbtrie_next(&it, k, &keylen, (void *)&offset);
-        btreeblk_end(handle->bhandle);
-
-        if ( hr == HBTRIE_RESULT_FAIL ) break;
-
-        doc.key = k;
-        doc.length.keylen = keylen;
-        doc.meta = NULL;
-        doc.body = NULL;
-        docio_read_doc(handle->dhandle, offset, &doc);
-
-        // re-write to new file
-        filemgr_mutex_lock(new_file);
-        new_offset = docio_append_doc(new_dhandle, &doc);
-        free(doc.meta);
-        free(doc.body);
-        new_datasize += _fdb_get_docsize(doc.length);
-
-        hbtrie_insert(new_trie, k, doc.length.keylen, (void *)&new_offset, NULL);
-        btreeblk_end(new_bhandle);
-
-        #ifdef __FDB_SEQTREE
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                btree_insert(new_seqtree, (void *)&doc.seqnum, (void *)&new_offset);
-                btreeblk_end(new_bhandle);
-            }
-        #endif
-        filemgr_mutex_unlock(new_file);
-
-        count++;
-    }
-
-    hr = hbtrie_iterator_free(&it);
+    _fdb_compact_move_docs(handle, new_file, new_trie, new_seqtree,
+                           new_dhandle, new_bhandle, &count, &new_datasize);
 
     filemgr_mutex_lock(new_file);
     handle->ndocs = count;
@@ -1229,7 +1329,8 @@ fdb_status fdb_flush_wal(fdb_handle *handle)
     filemgr_mutex_lock(handle->file);
 
     if (wal_get_size(handle->file) > 0) {
-        wal_flush(handle->file, (void *)handle, _fdb_wal_flush_func);
+        wal_flush(handle->file, (void*)handle,
+                  _fdb_wal_flush_func, _fdb_wal_get_old_offset);
         wal_set_dirty_status(handle->file, FDB_WAL_PENDING);
     }
 

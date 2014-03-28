@@ -864,13 +864,6 @@ void multi_thread_test(
         fdb_doc_free(doc[i]);
     }
 
-    fprintf(stderr, "compaction recovery..\n");
-    sprintf(temp, FILENAME"_recovered");
-    fdb_open(&db, temp, &config);
-    sprintf(temp, FILENAME"%d", filename_count);
-    // test _fdb_recover_compaction(&db, temp);
-    fdb_close(&db);
-
     // shutdown
     fdb_shutdown();
 

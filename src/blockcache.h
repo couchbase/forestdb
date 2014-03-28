@@ -39,7 +39,7 @@ void bcache_remove_clean_blocks(struct filemgr *file);
 void bcache_remove_file(struct filemgr *file);
 void bcache_flush(struct filemgr *file);
 void bcache_shutdown();
-
+void bcache_print_items();
 void bcache_update_file_status(struct filemgr *file, file_status_t status);
 
 #ifdef __cplusplus

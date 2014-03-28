@@ -22,6 +22,7 @@
 #include "libforestdb/forestdb_types.h"
 #include "hash.h"
 #include "list.h"
+#include "avltree.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,33 +33,33 @@ typedef enum {
     WAL_RESULT_FAIL
 } wal_result;
 
-/*
-typedef enum {
-    WAL_ACT_INSERT,
-    WAL_ACT_REMOVE
-} wal_item_action;*/
 typedef uint8_t wal_item_action;
 enum{
     WAL_ACT_INSERT,
     WAL_ACT_REMOVE
 };
 
+#define WAL_ITEM_FLUSH_READY (0x01)
 struct wal_item{
     void *key;
     wal_item_action action;
+    uint8_t flag;
     uint16_t keylen;
     uint32_t doc_size;
     uint64_t offset;
+    uint64_t old_offset;
     struct hash_elem he_key;
 #ifdef __FDB_SEQTREE
     fdb_seqnum_t seqnum;
     struct hash_elem he_seq;
 #endif
     struct list_elem list_elem;
+    struct avl_node avl;
 };
 
-//typedef void wal_flush_func(void *dbhandle, void *key, int keylen, uint64_t offset, wal_item_action action);
 typedef void wal_flush_func(void *dbhandle, struct wal_item *item);
+typedef uint64_t wal_get_old_offset_func(void *dbhandle,
+                                         struct wal_item *item);
 
 #define WAL_FLAG_INITIALIZED 0x1
 
@@ -88,10 +89,16 @@ struct wal {
 wal_result wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
 wal_result wal_insert(struct filemgr *file, fdb_doc *doc, uint64_t offset);
+wal_result wal_insert_by_compactor(struct filemgr *file,
+                                   fdb_doc *doc,
+                                   uint64_t offset);
 wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset);
 wal_result wal_remove(struct filemgr *file, fdb_doc *doc);
 wal_result wal_commit(struct filemgr *file);
-wal_result wal_flush(struct filemgr *file, void *dbhandle, wal_flush_func *func);
+wal_result wal_flush(struct filemgr *file,
+                     void *dbhandle,
+                     wal_flush_func *flush_func,
+                     wal_get_old_offset_func *get_old_offset);
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
 size_t wal_get_size(struct filemgr *file);

@@ -117,6 +117,10 @@ typedef struct {
      */
     uint32_t flag;
     /**
+     * Maximum size of temporary buffer for compaction.
+     */
+    uint32_t compaction_buf_maxsize;
+    /**
      * Auxiliary config options.
      */
     void *aux;

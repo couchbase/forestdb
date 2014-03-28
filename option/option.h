@@ -70,7 +70,7 @@ typedef uint64_t fdb_seqnum_t;
 #define BCACHE_EVICT_UNIT (1)
 #define BCACHE_RANDOM_VICTIM_UNIT (2)
 #define __BCACHE_SECOND_CHANCE
-//#define __BCACHE_RANDOM_VICTIM
+#define __BCACHE_RANDOM_VICTIM
 
 #define FILEMGR_BULK_READ (1)
 //#define __FILEMGR_MUTEX_LOCK
