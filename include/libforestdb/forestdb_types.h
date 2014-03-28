@@ -66,7 +66,11 @@ enum {
      * Asynchronous commit through the direct IO option to bypass
      * the OS page cache.
      */
-    FDB_DRB_ODIRECT_ASYNC = 0x3
+    FDB_DRB_ODIRECT_ASYNC = 0x3,
+    /**
+     * Read-Only mode where all write operations are disallowed
+     */
+     FDB_DRB_RDONLY = 0x4
 };
 
 /**

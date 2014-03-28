@@ -164,11 +164,15 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     uint64_t offset = 0;
     uint32_t blocksize = handle->config.blocksize;
     fdb_handle new_db;
-    fdb_config fconfig = handle->config;
+    fdb_config config = handle->config;
     struct filemgr *new_file;
     struct docio_handle dhandle;
 
-    fdb_open(&new_db, new_filename, &fconfig);
+    config.durability_opt |= FDB_DRB_RDONLY;
+    fdb_status status = fdb_open(&new_db, new_filename, &config);
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
+    }
     new_file = new_db.file;
     if (new_file->old_filename &&
         !strncmp(new_file->old_filename, handle->file->filename,
@@ -254,7 +258,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     }
 
     docio_free(&dhandle);
-    filemgr_close(new_file);
+    fdb_close(&new_db);
     fdb_commit(handle);
 
     return FDB_RESULT_SUCCESS;
@@ -289,13 +293,23 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename,
     fconfig.blocksize = FDB_BLOCKSIZE;
     fconfig.ncacheblock = config->buffercache_size / FDB_BLOCKSIZE;
     fconfig.flag = 0x0;
-    if (config->durability_opt & FDB_DRB_ODIRECT) {fconfig.flag |= _ARCH_O_DIRECT;}
-    if (config->durability_opt & FDB_DRB_ASYNC) {fconfig.async = 1;}
-    else {fconfig.async = 0;}
+    fconfig.options = 0x0;
+    if (config->durability_opt & FDB_DRB_RDONLY) {
+        fconfig.options |= FILEMGR_READONLY;
+    }
+    if (config->durability_opt & FDB_DRB_ASYNC) {
+        fconfig.options |= FILEMGR_ASYNC;
+    }
+    if (config->durability_opt & FDB_DRB_ODIRECT) {
+        fconfig.flag |= _ARCH_O_DIRECT;
+    }
 
     handle->fileops = get_filemgr_ops();
-    handle->btreeblkops = btreeblk_get_ops();
     handle->file = filemgr_open((char *)filename, handle->fileops, &fconfig);
+    if (!handle->file) {
+        return FDB_RESULT_FAIL;
+    }
+    handle->btreeblkops = btreeblk_get_ops();
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
     handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
     handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
@@ -366,11 +380,14 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename,
             uint32_t blocksize = handle->config.blocksize;
             memset(&fconfig, 0, sizeof(struct filemgr_config));
             fconfig.blocksize = blocksize;
+            fconfig.options |= FILEMGR_READONLY;
             struct filemgr *old_file = filemgr_open(prev_filename,
                                                     handle->fileops,
                                                     &fconfig);
-            filemgr_remove_pending(old_file, handle->file);
-            filemgr_close(old_file);
+            if (old_file) {
+                filemgr_remove_pending(old_file, handle->file);
+                filemgr_close(old_file);
+            }
         }
     }
 
@@ -787,6 +804,10 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     struct filemgr *file;
     struct docio_handle *dhandle;
 
+    if (handle->config.durability_opt & FDB_DRB_RDONLY) {
+        return FDB_RESULT_FAIL;
+    }
+
     if ( (doc->key == NULL) || (doc->keylen == 0) ||
         (doc->metalen > 0 && doc->meta == NULL) ||
         (doc->bodylen > 0 && doc->body == NULL)) {
@@ -940,6 +961,10 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
 LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle)
 {
+    if (handle->config.durability_opt & FDB_DRB_RDONLY) {
+        return FDB_RESULT_FAIL;
+    }
+
     filemgr_mutex_lock(handle->file);
 
     if (handle->new_file) {
@@ -1039,18 +1064,18 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     // set filemgr configuration
     fconfig.blocksize = handle->config.blocksize;
     fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
+    fconfig.options = 0x0;
     fconfig.flag = 0x0;
-    if (handle->config.durability_opt & 0x1) {
+    if (handle->config.durability_opt & FDB_DRB_ODIRECT) {
         fconfig.flag |= _ARCH_O_DIRECT;
     }
-    if (handle->config.durability_opt & 0x2) {
-        fconfig.async = 1;
-    }else {
-        fconfig.async = 0;
+    if (handle->config.durability_opt & FDB_DRB_ASYNC) {
+        fconfig.options |= FILEMGR_ASYNC;
     }
 
     // open new file
     new_file = filemgr_open((char *)new_filename, handle->fileops, &fconfig);
+    assert(new_file);
 
     // prevent update to the new_file
     filemgr_mutex_lock(new_file);
@@ -1196,6 +1221,10 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
 LIBFDB_API
 fdb_status fdb_flush_wal(fdb_handle *handle)
 {
+    if (handle->config.durability_opt & FDB_DRB_RDONLY) {
+        return FDB_RESULT_FAIL;
+    }
+
     filemgr_mutex_lock(handle->file);
 
     if (wal_get_size(handle->file) > 0) {

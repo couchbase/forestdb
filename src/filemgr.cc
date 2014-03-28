@@ -258,8 +258,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     struct hash_elem *e = NULL;
     int create_flag = 0x0;
     int file_flag = 0x0;
-
-    create_flag = (O_CREAT);
+    int fd = -1;
+    create_flag = (config->options & FILEMGR_READONLY)? 0 : (O_CREAT);
     file_flag = O_RDWR | create_flag | config->flag;
 
     // global initialization
@@ -293,12 +293,30 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         // if file was closed before
         if (file->status == FILE_CLOSED) {
             file->fd = file->ops->open(file->filename, file_flag, 0666);
+            if (file->fd < 0) {
+                if (config->options & FILEMGR_READONLY) {
+                    file->ref_count--;
+                    spin_unlock(&file->lock);
+                    return NULL;
+                } else {
+                    assert(file->fd >= 0); // TODO:return with OS error
+                }
+            }
             file->status = FILE_NORMAL;
         }
         spin_unlock(&file->lock);
 
     } else {
         // open (newly create)
+        fd = ops->open(filename, file_flag, 0666);
+        if (fd < 0) {
+            if (config->options & FILEMGR_READONLY) {
+                spin_unlock(&filemgr_openlock);
+                return NULL;
+            } else {
+                assert(fd >= 0); // TODO: return the OS error
+            }
+        }
         file = (struct filemgr*)malloc(sizeof(struct filemgr));
         file->filename_len = strlen(filename);
         file->filename = (char*)malloc(file->filename_len + 1);
@@ -316,8 +334,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->new_file = NULL;
         file->old_filename = NULL;
 
-        file->fd = file->ops->open(file->filename, file_flag, 0666);
-        assert(file->fd >= 0);
+        file->fd = fd;
         file->pos = file->last_commit = file->ops->goto_eof(file->fd);
 
         file->bcache = NULL;
@@ -336,7 +353,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 
         spin_unlock(&filemgr_openlock);
     }
-    file->sync = (config->async)?(0):(1);
+    file->sync = (config->options & FILEMGR_ASYNC)?(0):(1);
 
     return file;
 }

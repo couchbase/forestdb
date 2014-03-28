@@ -54,6 +54,7 @@ void basic_test()
     int i, r;
     int n = 10;
     fdb_handle db;
+    fdb_handle db_rdonly;
     fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -71,6 +72,12 @@ void basic_test()
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // Read-Only mode test: Must not create new file..
+    config.durability_opt = FDB_DRB_RDONLY;
+    status = fdb_open(&db, (char *) "./dummy1", &config);
+    TEST_CHK(status == FDB_RESULT_FAIL);
+    config.durability_opt = 0;
 
     // open and close db
     fdb_open(&db, "./dummy1", &config);
@@ -176,6 +183,27 @@ void basic_test()
         // free result document
         fdb_doc_free(rdoc);
     }
+
+    // Read-Only mode test: Open succeeds if file exists, but disallow writes
+    config.durability_opt = FDB_DRB_RDONLY;
+    status = fdb_open(&db_rdonly, (char *) "./dummy2", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(&db_rdonly, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set(&db_rdonly, doc[i]);
+    TEST_CHK(status == FDB_RESULT_FAIL);
+
+    status = fdb_commit(&db_rdonly);
+    TEST_CHK(status == FDB_RESULT_FAIL);
+
+    status = fdb_flush_wal(&db_rdonly);
+    TEST_CHK(status == FDB_RESULT_FAIL);
+
+    fdb_doc_free(rdoc);
+    fdb_close(&db_rdonly);
 
     // free all documents
     for (i=0;i<n;++i){
