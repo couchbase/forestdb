@@ -219,11 +219,7 @@ void _filemgr_read_header(struct filemgr *file)
                             // release temp buffer
                             _filemgr_release_temp_buf(buf);
 
-#ifdef _MSC_VER
-                            return NULL;
-#else
                             return;
-#endif
                         } else {
                             DBG("Crash Detected: CRC on disk %u != %u\n",
                                     hdr_crc, crc);
@@ -427,11 +423,7 @@ void filemgr_close(struct filemgr *file)
             remove(file->filename);
             filemgr_remove_file(file);
 
-#ifdef _MSC_VER
-            return NULL;
-#else
             return;
-#endif
         }else{
             file->status = FILE_CLOSED;
         }

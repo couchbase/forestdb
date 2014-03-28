@@ -29,8 +29,6 @@
 #include "hbtrie.h"
 #include "crc32.h"
 
-#include "forestdb.h"
-
 #include "memleak.h"
 
 #ifdef __DEBUG

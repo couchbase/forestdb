@@ -98,11 +98,7 @@ INLINE void _get_common_prefix(
     *len_out = 0;
     for (*len_out=0 ; *len_out<min ; ++(*len_out)){
         if ( *((uint8_t*)str1 + (*len_out)) != *((uint8_t*)str2 + (*len_out)) ) {
-#ifdef _MSC_VER
-            return NULL;
-#else
             return;
-#endif
         }
     }
 }
@@ -294,11 +290,7 @@ INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
             // prefix is modified .. we have to modify all entries in the node
             _arrange_prefix(node, node->nentry, prefix, prefix_len, new_prefix_len,
                 idx, key_ptr, keylen_ins, value, ARR_OVERWRITE);
-#ifdef _MSC_VER
-            return NULL;
-#else
             return;
-#endif
         }
     } else {
         // if there is no entry && level == 1 .. set the first key as prefix (excluding the last byte)
@@ -420,11 +412,7 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
                 _arrange_prefix(node, node->nentry, prefix, prefix_len,
                                 new_prefix_len, idx, key_ptr, keylen_ins,
                                 value, ARR_INSERT);
-#ifdef _MSC_VER
-                return NULL;
-#else
                 return;
-#endif
             }
         }
 
@@ -470,11 +458,7 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
                                 idx, comp_key, new_prefix_len,
                                 value, ARR_REMOVE);
                 free(comp_key);
-#ifdef _MSC_VER
-                return NULL;
-#else
                 return;
-#endif
             }
         }
         // we have to move idx+1 ~ nentry KVs to appropriate position
@@ -578,11 +562,7 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
                 free(comp_key);
             }
 
-#ifdef _MSC_VER
-            return NULL;
-#else
             return;
-#endif
         }
 
         if (new_prefix_len > 0) {
@@ -615,11 +595,7 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
 
                 src_len += sizeof(key_len_t) + keylen + vsize;
             }
-#ifdef _MSC_VER
-            return NULL;
-#else
             return;
-#endif
         }else{
             // copy original prefix
             memcpy((uint8_t*)ptr_dst + dst_offset, &prefix_src_len,

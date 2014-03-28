@@ -62,11 +62,7 @@ INLINE void _btreeblk_get_aligned_block(
     if (e) {
         block->addr_item = _get_entry(e, struct btreeblk_addr, le);
         block->addr = block->addr_item->addr;
-#ifdef _MSC_VER
-        return NULL;
-#else
         return;
-#endif
     }
     // no free addr .. create
     block->addr_item = (struct btreeblk_addr *)mempool_alloc(sizeof(struct btreeblk_addr));
@@ -84,11 +80,8 @@ INLINE void _btreeblk_free_aligned_block(
     block->addr_item->addr = block->addr;
     list_push_front(&handle->blockpool, &block->addr_item->le);
     block->addr_item = NULL;
-#ifdef _MSC_VER
-            return NULL;
-#else
-            return;
-#endif
+    return;
+
 #endif
 
     free_align(block->addr);

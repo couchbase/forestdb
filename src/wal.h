@@ -19,10 +19,9 @@
 #define _JSAHN_WAL_H
 
 #include <stdint.h>
-#include "forestdb.h"
+#include "libforestdb/forestdb_types.h"
 #include "hash.h"
 #include "list.h"
-#include "forestdb.h"
 
 #ifdef __cplusplus
 extern "C" {

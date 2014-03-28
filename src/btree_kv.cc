@@ -79,11 +79,7 @@ INLINE void _copy_kv(
     void *ptr_src, *ptr_dst;
 
     if (node_dst == node_src) {
-#ifdef _MSC_VER
-        return NULL;
-#else
         return;
-#endif
     }
 
     _get_kvsize(node_src->kvsize, ksize, vsize);

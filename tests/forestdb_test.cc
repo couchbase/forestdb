@@ -21,13 +21,13 @@
 #include <stdint.h>
 #include <time.h>
 
+#include "libforestdb/forestdb.h"
 #include "hbtrie.h"
 #include "test.h"
 #include "btreeblock.h"
 #include "docio.h"
 #include "filemgr.h"
 #include "filemgr_ops.h"
-#include "forestdb.h"
 
 void _set_random_string(char *str, int len)
 {

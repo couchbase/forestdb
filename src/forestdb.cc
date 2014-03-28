@@ -20,13 +20,13 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include "libforestdb/forestdb.h"
 #include "filemgr.h"
 #include "hbtrie.h"
 #include "btree.h"
 #include "btree_kv.h"
 #include "docio.h"
 #include "btreeblock.h"
-#include "forestdb.h"
 #include "common.h"
 #include "wal.h"
 #include "filemgr_ops.h"
@@ -114,11 +114,7 @@ INLINE void _fdb_restore_wal(fdb_handle *handle)
     // OR if WAL already had entries populated, then no crash recovery needed
     if (!header_blk_pos || header_blk_pos <= offset || wal_get_size(file)) {
         filemgr_mutex_unlock(file);
-#ifdef _MSC_VER
-        return NULL;
-#else
         return;
-#endif
     }
 
     for (; offset < header_blk_pos;

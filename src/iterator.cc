@@ -20,10 +20,10 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include "libforestdb/forestdb.h"
 #include "hbtrie.h"
 #include "docio.h"
 #include "btreeblock.h"
-#include "forestdb.h"
 #include "common.h"
 #include "wal.h"
 #include "avltree.h"

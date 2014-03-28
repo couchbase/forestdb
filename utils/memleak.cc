@@ -184,11 +184,7 @@ void memleak_free(void *addr, char *file, size_t line)
                 (long unsigned int)addr, file, line);
 #endif
             spin_unlock(&lock);
-#ifdef _MSC_VER
-            return NULL;
-#else
             return;
-#endif
         }
 
         item = _get_entry(a, struct memleak_item, avl);

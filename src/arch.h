@@ -127,9 +127,6 @@
     // visual studio CL compiler
     #include <Windows.h>
     #include "gettimeofday_vs.h"
-    // VS CL compiler does not allow arithmetic operation of void *
-    // substitute void by uint8_t
-    #define void uint8_t
     #define INLINE
     //#define alloca(size) _alloca(size)
     #define _F64 "ld"
