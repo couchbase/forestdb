@@ -162,7 +162,7 @@ INLINE void _fdb_restore_wal(fdb_handle *handle)
 // restore the documents in NEW_FILENAME (corrupted file during compaction)
 // into the file referred by HANDLE
 INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
-                                          char *new_filename)
+                                          const char *new_filename)
 {
     bid_t bid = 0;
     uint64_t offset = 0;
@@ -274,7 +274,7 @@ fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func)
 }
 
 LIBFDB_API
-fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
+fdb_status fdb_open(fdb_handle *handle, const char *filename, fdb_config *config)
 {
     struct filemgr_config fconfig;
     bid_t trie_root_bid = BLK_NOT_FOUND;
@@ -298,7 +298,7 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 
     handle->fileops = get_filemgr_ops();
     handle->btreeblkops = btreeblk_get_ops();
-    handle->file = filemgr_open(filename, handle->fileops, &fconfig);
+    handle->file = filemgr_open((char *)filename, handle->fileops, &fconfig);
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
     handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
     handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
@@ -382,8 +382,9 @@ fdb_status fdb_open(fdb_handle *handle, char *filename, fdb_config *config)
 }
 
 LIBFDB_API
-fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, size_t metalen,
-    void *body, size_t bodylen)
+fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
+                          const void *meta, size_t metalen,
+                          const void *body, size_t bodylen)
 {
     if (doc == NULL) return FDB_RESULT_FAIL;
     *doc = (fdb_doc*)malloc(sizeof(fdb_doc));
@@ -427,7 +428,9 @@ fdb_status fdb_doc_create(fdb_doc **doc, void *key, size_t keylen, void *meta, s
 }
 
 LIBFDB_API
-fdb_status fdb_doc_update(fdb_doc **doc, void *meta, size_t metalen, void *body, size_t bodylen)
+fdb_status fdb_doc_update(fdb_doc **doc,
+                          const void *meta, size_t metalen,
+                          const void *body, size_t bodylen)
 {
     if (doc == NULL) return FDB_RESULT_FAIL;
     if (*doc == NULL) return FDB_RESULT_FAIL;
@@ -997,7 +1000,7 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 }
 
 LIBFDB_API
-fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
+fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
 {
     struct filemgr *new_file, *old_file;
     struct filemgr_config fconfig;
@@ -1049,7 +1052,7 @@ fdb_status fdb_compact(fdb_handle *handle, char *new_filename)
     }
 
     // open new file
-    new_file = filemgr_open(new_filename, handle->fileops, &fconfig);
+    new_file = filemgr_open((char *)new_filename, handle->fileops, &fconfig);
 
     // prevent update to the new_file
     filemgr_mutex_lock(new_file);

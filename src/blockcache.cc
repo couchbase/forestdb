@@ -225,7 +225,7 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 
 INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fname)
 {
-    fname->filename = file->filename;
+    fname->filename = (char *) file->filename;
     fname->filename_len = file->filename_len;
     fname->hash = crc32_8_last8((void*)fname->filename,
         fname->filename_len, 0);

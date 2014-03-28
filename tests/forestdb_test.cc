@@ -73,11 +73,11 @@ void basic_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open and close db
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
     fdb_close(&db);
 
     // reopen db
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -101,7 +101,7 @@ void basic_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // update document #0 and #1
     for (i=0;i<2;++i){
@@ -224,7 +224,7 @@ void wal_commit_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert half documents
     for (i=0;i<n/2;++i){
@@ -253,7 +253,7 @@ void wal_commit_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -319,7 +319,7 @@ void multi_version_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -337,7 +337,7 @@ void multi_version_test()
     fdb_commit(&db);
 
     // open same db file using a new handle
-    fdb_open(&db_new, (char *) "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // update documents using the old handle
     for (i=0;i<n;++i){
@@ -382,7 +382,7 @@ void multi_version_test()
 
     // close and re-open the new handle
     fdb_close(&db_new);
-    fdb_open(&db_new, (char *) "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // retrieve documents using the new handle
     for (i=0;i<n;++i){
@@ -445,8 +445,8 @@ void compact_wo_reopen_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, (char *) "./dummy1", &config);
-    fdb_open(&db_new, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -536,8 +536,8 @@ void auto_recover_compact_ok_test()
     r = system(SHELL_DEL " dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, (char *) "./dummy1", &config);
-    fdb_open(&db_new, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // insert first two documents
     for (i=0;i<2;++i){
@@ -587,7 +587,7 @@ void auto_recover_compact_ok_test()
 
     // now open the old saved compacted file, it should automatically recover
     // and use the new file since compaction was done successfully
-    fdb_open(&db_new, (char *) "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", &config);
 
     // retrieve documents using the old handle and expect all 3 docs
     for (i=0;i<n;++i){
@@ -879,7 +879,7 @@ void crash_recovery_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // reopen db
-    fdb_open(&db, (char *) "./dummy2", &config);
+    fdb_open(&db, "./dummy2", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -905,7 +905,7 @@ void crash_recovery_test()
        "dd if=/dev/zero bs=4096 of=./dummy2 oseek=3 count=2 >> errorlog.txt");
 
     // reopen the same file
-    fdb_open(&db, (char *) "./dummy2", &config);
+    fdb_open(&db, "./dummy2", &config);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -978,7 +978,7 @@ void incomplete_block_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -1051,7 +1051,7 @@ void iterator_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // insert documents of even number
     for (i=0;i<n;i+=2){
@@ -1225,7 +1225,7 @@ void custom_compare_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, (char *) "./dummy1", &config);
+    fdb_open(&db, "./dummy1", &config);
 
     // set custom compare function for double key type
     fdb_set_custom_cmp(&db, _cmp_double);

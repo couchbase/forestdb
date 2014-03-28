@@ -81,9 +81,9 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 
 fdb_status fdb_iterator_init(fdb_handle *handle,
                              fdb_iterator *iterator,
-                             void *start_key,
+                             const void *start_key,
                              size_t start_keylen,
-                             void *end_key,
+                             const void *end_key,
                              size_t end_keylen,
                              fdb_iterator_opt_t opt)
 {
@@ -116,8 +116,8 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     iterator->end_keylen = end_keylen;
 
     // create an iterator handle for hb-trie
-    hr = hbtrie_iterator_init(
-        handle->trie, iterator->hbtrie_iterator, start_key, start_keylen);
+    hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
+                              (void *)start_key, start_keylen);
 
     if (hr == HBTRIE_RESULT_FAIL)
         return FDB_RESULT_FAIL;
@@ -136,10 +136,10 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         if (start_key) {
             if (handle->cmp_func) {
                 // custom compare function
-                cmp = handle->cmp_func(start_key, wal_item->key);
+                cmp = handle->cmp_func((void *)start_key, wal_item->key);
             } else {
-                cmp = _fdb_keycmp(start_key, start_keylen,
-                    wal_item->key, wal_item->keylen);
+                cmp = _fdb_keycmp((void *)start_key, start_keylen,
+                                  wal_item->key, wal_item->keylen);
             }
         }else{
             cmp = 0;
