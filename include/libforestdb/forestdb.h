@@ -47,7 +47,7 @@ extern "C" {
 LIBFDB_API
 fdb_status fdb_open(fdb_handle *handle,
                     const char *filename,
-                    fdb_config *config);
+                    const fdb_config *config);
 
 /**
  * Pass the customized compare function for B+-Tree traverse.

@@ -270,7 +270,8 @@ fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func)
 }
 
 LIBFDB_API
-fdb_status fdb_open(fdb_handle *handle, const char *filename, fdb_config *config)
+fdb_status fdb_open(fdb_handle *handle, const char *filename,
+                    const fdb_config *config)
 {
     struct filemgr_config fconfig;
     bid_t trie_root_bid = BLK_NOT_FOUND;
@@ -285,7 +286,7 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename, fdb_config *config
     mempool_init();
 #endif
 
-    fconfig.blocksize = config->blocksize = FDB_BLOCKSIZE;
+    fconfig.blocksize = FDB_BLOCKSIZE;
     fconfig.ncacheblock = config->buffercache_size / FDB_BLOCKSIZE;
     fconfig.flag = 0x0;
     if (config->durability_opt & FDB_DRB_ODIRECT) {fconfig.flag |= _ARCH_O_DIRECT;}
@@ -299,6 +300,7 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename, fdb_config *config
     handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
     handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
     handle->config = *config;
+    handle->config.blocksize = fconfig.blocksize;
     handle->btree_fanout = fconfig.blocksize / (config->chunksize+config->offsetsize);
     handle->last_header_bid = BLK_NOT_FOUND;
     handle->cmp_func = NULL;
