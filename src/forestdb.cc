@@ -366,7 +366,8 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename,
 
     _fdb_restore_wal(handle);
 
-    if (compacted_filename) {
+    if (compacted_filename &&
+        filemgr_get_file_status(handle->file) == FILE_NORMAL) {
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
