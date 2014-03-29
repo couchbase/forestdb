@@ -76,9 +76,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
     if (size <= blocksize - handle->curpos) {
         // simply append to current block
         offset = handle->curpos;
-        filemgr_write_offset(handle->file, handle->curblock, offset, size, buf);
-        //filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
         _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
+        filemgr_write_offset(handle->file, handle->curblock, offset, size, buf);
         handle->curpos += size;
 
         return handle->curblock * real_blocksize + offset;
@@ -99,11 +98,10 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             // start from current block
             assert(begin == handle->curblock + 1);
 
+            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
             if (offset > 0) {
                 filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
             }
-            //filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
-            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
             remainsize -= offset;
 
             startpos = handle->curblock * real_blocksize + handle->curpos;
@@ -123,11 +121,10 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             // start from current block
             assert(begin == handle->curblock + 1);
 
+            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
             if (offset > 0) {
                 filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
             }
-            //filemgr_write_offset(handle->file, handle->curblock, blocksize, BLK_MARKER_SIZE, marker);
-            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
             remainsize -= offset;
 
             startpos = handle->curblock * real_blocksize + handle->curpos;
@@ -145,9 +142,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             handle->curblock = i;
             if (remainsize >= blocksize) {
                 // write entire block
-                filemgr_write(handle->file, i, (uint8_t *)buf + offset);
-                //filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
                 _add_blk_marker(handle->file, i, blocksize, marker);
+                filemgr_write(handle->file, i, (uint8_t *)buf + offset);
                 offset += blocksize;
                 remainsize -= blocksize;
                 handle->curpos = blocksize;
@@ -155,9 +151,8 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             }else{
                 // write rest of document
                 assert(i==end);
-                filemgr_write_offset(handle->file, i, 0, remainsize, (uint8_t *)buf + offset);
-                //filemgr_write_offset(handle->file, i, blocksize, BLK_MARKER_SIZE, marker);
                 _add_blk_marker(handle->file, i, blocksize, marker);
+                filemgr_write_offset(handle->file, i, 0, remainsize, (uint8_t *)buf + offset);
                 offset += remainsize;
                 handle->curpos = remainsize;
             }
@@ -442,7 +437,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
 
 #ifdef __FDB_SEQTREE
     // copy seqeunce number (optional)
-    _offset = _docio_read_doc_component(handle, _offset, 
+    _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(fdb_seqnum_t), (void *)&doc->seqnum);
     if (_offset == 0) return offset;
 #endif
@@ -486,7 +481,7 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
 #ifdef __FDB_SEQTREE
     // copy seqeunce number (optional)
-    _offset = _docio_read_doc_component(handle, _offset, 
+    _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(fdb_seqnum_t), (void *)&doc->seqnum);
     if (_offset == 0) return offset;
 #endif

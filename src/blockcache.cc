@@ -88,7 +88,7 @@ struct fnamedic_item {
     struct hash_elem hash_elem;
 
     spin_t lock;
-    uint32_t nvictim;
+    uint64_t nvictim;
     uint32_t nitems;
 };
 
@@ -637,12 +637,12 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
                 list_remove(&item->fname->cleanlist, &item->list_elem);
                 list_push_front(&item->fname->cleanlist, &item->list_elem);
             }
-            _bcache_set_score(item);
 
             // relay lock
             spin_unlock(&fname->lock);
 
             memcpy(buf, item->addr, bcache_blocksize);
+            _bcache_set_score(item);
 
             spin_unlock(&item->lock);
 
@@ -815,11 +815,11 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
             item->flag &= ~(BCACHE_DIRTY);
         }
     }
-    _bcache_set_score(item);
 
     spin_unlock(&fname_new->lock);
 
     memcpy(item->addr, buf, bcache_blocksize);
+    _bcache_set_score(item);
 
     spin_unlock(&item->lock);
 
@@ -885,7 +885,6 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
         // insert into tree
         avl_insert(&item->fname->tree, &ditem->avl, _dirty_cmp);
     }
-    _bcache_set_score(item);
 
     // always set this block as dirty
     item->flag |= BCACHE_DIRTY;
@@ -893,6 +892,8 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
     spin_unlock(&fname_new->lock);
 
     memcpy((uint8_t *)(item->addr) + offset, buf, len);
+    _bcache_set_score(item);
+
     spin_unlock(&item->lock);
 
     return len;
