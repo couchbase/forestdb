@@ -33,9 +33,9 @@
     #undef DBG
     #undef DBGCMD
     #undef DBGSW
-    #define DBG(args...)
-    #define DBGCMD(command...)
-    #define DBGSW(n, command...)
+    #define DBG(...)
+    #define DBGCMD(...)
+    #define DBGSW(n, ...)
 #endif
 #endif
 
