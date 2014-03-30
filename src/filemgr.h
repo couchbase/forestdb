@@ -124,6 +124,7 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
 void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
 file_status_t filemgr_get_file_status(struct filemgr *file);
+uint64_t filemgr_get_pos(struct filemgr *file);
 
 void filemgr_mutex_lock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);

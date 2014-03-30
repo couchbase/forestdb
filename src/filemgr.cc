@@ -510,12 +510,6 @@ void filemgr_shutdown()
 
         spin_lock(&initial_lock);
 
-#ifdef __FDB_BENCH
-        if (global_config.ncacheblock > 0) {
-            bcache_print_items();
-        }
-#endif
-
         hash_free_active(&hash, _filemgr_free_func);
         if (global_config.ncacheblock > 0) {
             bcache_shutdown();
@@ -841,6 +835,14 @@ file_status_t filemgr_get_file_status(struct filemgr *file)
     file_status_t status = file->status;
     spin_unlock(&file->lock);
     return status;
+}
+
+uint64_t filemgr_get_pos(struct filemgr *file)
+{
+    spin_lock(&file->lock);
+    uint64_t pos = file->pos;
+    spin_unlock(&file->lock);
+    return pos;
 }
 
 void filemgr_mutex_lock(struct filemgr *file)

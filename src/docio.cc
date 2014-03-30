@@ -164,9 +164,17 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
     return 0;
 }
 
+INLINE uint8_t _docio_length_checksum(struct docio_length length)
+{
+    return (uint8_t)(
+        crc32_8(&length,
+                sizeof(keylen_t) + sizeof(uint16_t) + sizeof(uint32_t),
+                0)
+        & 0xff);
+}
+
 #define DOCIO_NORMAL (0x00)
 #define DOCIO_COMPACT (0xcc)
-
 INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
 {
     struct docio_length length;
@@ -181,24 +189,27 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 
     length = doc->length;
 
-    #ifdef _DOC_COMP
-        if (doc->length.bodylen > 0) {
-            compbuf_len = snappy_max_compressed_length(length.bodylen);
-            compbuf = (void *)malloc(compbuf_len);
+#ifdef _DOC_COMP
+    if (doc->length.bodylen > 0) {
+        compbuf_len = snappy_max_compressed_length(length.bodylen);
+        compbuf = (void *)malloc(compbuf_len);
 
-            snappy_compress(doc->body, length.bodylen, compbuf, &compbuf_len);
-            length.bodylen = compbuf_len;
-        }
-    #endif
+        snappy_compress(doc->body, length.bodylen, compbuf, &compbuf_len);
+        length.bodylen = compbuf_len;
+    }
+#endif
 
     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
-    #ifdef __FDB_SEQTREE
-        docsize += sizeof(fdb_seqnum_t);
-    #endif
-    #ifdef __CRC32
-        docsize += sizeof(crc);
-    #endif
+#ifdef __FDB_SEQTREE
+    docsize += sizeof(fdb_seqnum_t);
+#endif
+#ifdef __CRC32
+    docsize += sizeof(crc);
+#endif
     buf = (void *)malloc(docsize);
+
+    // calculate checksum of LENGTH using crc
+    length.checksum = _docio_length_checksum(length);
 
     memcpy((uint8_t *)buf + offset, &length, sizeof(struct docio_length));
     offset += sizeof(struct docio_length);
@@ -207,11 +218,11 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     memcpy((uint8_t *)buf + offset, doc->key, length.keylen);
     offset += length.keylen;
 
-    #ifdef __FDB_SEQTREE
-        // copy seqeunce number (optional)
-        memcpy((uint8_t *)buf + offset, &doc->seqnum, sizeof(fdb_seqnum_t));
-        offset += sizeof(fdb_seqnum_t);
-    #endif
+#ifdef __FDB_SEQTREE
+    // copy seqeunce number (optional)
+    memcpy((uint8_t *)buf + offset, &doc->seqnum, sizeof(fdb_seqnum_t));
+    offset += sizeof(fdb_seqnum_t);
+#endif
 
     // copy metadata (optional)
     if (length.metalen > 0) {
@@ -221,19 +232,19 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 
     // copy body (optional)
     if (length.bodylen > 0) {
-        #ifdef _DOC_COMP
-            memcpy(buf + offset, compbuf, length.bodylen);
-            free(compbuf);
-        #else
-            memcpy((uint8_t *)buf + offset, doc->body, length.bodylen);
-        #endif
+#ifdef _DOC_COMP
+        memcpy(buf + offset, compbuf, length.bodylen);
+        free(compbuf);
+#else
+        memcpy((uint8_t *)buf + offset, doc->body, length.bodylen);
+#endif
         offset += length.bodylen;
     }
 
-    #ifdef __CRC32
-        crc = crc32_8(buf, docsize - sizeof(crc), 0);
-        memcpy((uint8_t *)buf + offset, &crc, sizeof(crc));
-    #endif
+#ifdef __CRC32
+    crc = crc32_8(buf, docsize - sizeof(crc), 0);
+    memcpy((uint8_t *)buf + offset, &crc, sizeof(crc));
+#endif
 
     ret_offset = docio_append_doc_raw(handle, docsize, buf);
     free(buf);
@@ -338,7 +349,7 @@ uint64_t _docio_read_doc_component(struct docio_handle *handle,
             pos = 0;
             rest_len -= restsize;
 
-            if (bid >= handle->file->pos / handle->file->blocksize) {
+            if (bid >= filemgr_get_pos(handle->file) / handle->file->blocksize) {
                 // no more data in the file .. the file is corrupted
                 return 0;
             }
@@ -451,6 +462,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
 uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
                         struct docio_object *doc)
 {
+    uint8_t checksum;
     uint64_t _offset;
     int key_alloc = 0;
     int meta_alloc = 0;
@@ -458,6 +470,19 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
     _offset = _docio_read_length(handle, offset, &doc->length);
     if (doc->length.keylen == 0 || doc->length.keylen > FDB_MAX_KEYLEN) {
+        return offset;
+    }
+
+    // checksum check
+    checksum = _docio_length_checksum(doc->length);
+    if (checksum != doc->length.checksum) {
+        return offset;
+    }
+
+    // document size check
+    if (offset + sizeof(struct docio_length) +
+        doc->length.keylen + doc->length.metalen + doc->length.bodylen >
+        filemgr_get_pos(handle->file)) {
         return offset;
     }
 

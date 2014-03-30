@@ -43,6 +43,7 @@ struct docio_handle {
         uint16_t metalen;
         uint32_t bodylen;
         uint8_t flag;
+        uint8_t checksum;
     };
 #else
     // this structure will occupy 9 bytes
@@ -51,6 +52,7 @@ struct docio_handle {
         uint16_t metalen;
         uint32_t bodylen;
         uint8_t flag;
+        uint8_t checksum;
     };
 #endif
 
