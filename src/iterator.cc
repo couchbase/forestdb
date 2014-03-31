@@ -281,6 +281,9 @@ start:
         (*doc)->body = _doc.body;
         (*doc)->bodylen = _doc.length.bodylen;
     }
+#ifdef __FDB_SEQTREE
+    (*doc)->seqnum = _doc.seqnum;
+#endif
 
     return FDB_RESULT_SUCCESS;
 }
