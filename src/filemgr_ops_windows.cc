@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <stdint.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -35,13 +36,35 @@ static inline HANDLE handle_to_win(int fd)
 int _filemgr_win_open(const char *pathname, int flags, mode_t mode)
 {
 #ifdef _MSC_VER
-    return _open(pathname, flags, mode);
+    int fd = _open(pathname, flags, mode);
+    if (fd < 0) {
+        errno_t err;
+        _get_errno(&err);
+        if (err == ENOENT) {
+            return (int) FDB_RESULT_NO_SUCH_FILE;
+        } else {
+            return (int) FDB_RESULT_OPEN_FAIL;
+        }
+    }
+    return fd;
 #else
-    return open(pathname, flags, mode);
+    int fd;
+    do {
+        fd = open(pathname, flags, mode);
+    } while (fd == -1 && errno == EINTR);
+
+    if (fd < 0) {
+        if (errno == ENOENT) {
+            return (int) FDB_RESULT_NO_SUCH_FILE;
+        } else {
+            return (int) FDB_RESULT_OPEN_FAIL;
+        }
+    }
+    return fd;
 #endif
 }
 
-int _filemgr_win_pwrite(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_win_pwrite(int fd, void *buf, size_t count, off_t offset)
 {
     HANDLE file = handle_to_win(fd);
     BOOL rv;
@@ -52,12 +75,12 @@ int _filemgr_win_pwrite(int fd, void *buf, size_t count, off_t offset)
     winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
     rv = WriteFile(file, buf, count, &byteswritten, &winoffs);
     if(!rv) {
-        return 0;
+        return (ssize_t) FDB_RESULT_WRITE_FAIL;
     }
-    return byteswritten;
+    return (ssize_t) byteswritten;
 }
 
-int _filemgr_win_pread(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_win_pread(int fd, void *buf, size_t count, off_t offset)
 {
     HANDLE file = handle_to_win(fd);
     BOOL rv;
@@ -68,40 +91,66 @@ int _filemgr_win_pread(int fd, void *buf, size_t count, off_t offset)
     winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
     rv = ReadFile(file, buf, count, &bytesread, &winoffs);
     if(!rv) {
-        return 0;
+        return (ssize_t) FDB_RESULT_READ_FAIL;
     }
-    return bytesread;
+    return (ssize_t) bytesread;
 }
 
-int _filemgr_win_close(int fd)
+fdb_status _filemgr_win_close(int fd)
 {
 #ifdef _MSC_VER
-    return _close(fd);
+    int rv = 0;
+    if (fd != -1) {
+        rv = _close(fd);
+    }
+
+    if (rv < 0) {
+        return FDB_RESULT_CLOSE_FAIL;
+    }
+    return FDB_RESULT_SUCCESS;
 #else
-    return close(fd);
+    int rv = 0;
+    if (fd != -1) {
+        do {
+            rv = close(fd);
+        } while (rv == -1 && errno == EINTR);
+    }
+
+    if (rv < 0) {
+        return FDB_RESULT_CLOSE_FAIL;
+    }
+    return FDB_RESULT_SUCCESS;
 #endif
 }
 
 off_t _filemgr_win_goto_eof(int fd)
 {
 #ifdef _MSC_VER
-    return _lseek(fd, 0, SEEK_END);
+    off_t rv = _lseek(fd, 0, SEEK_END);
+    if (rv < 0) {
+        return (off_t) FDB_RESULT_READ_FAIL;
+    }
+    return rv;
 #else
-    return lseek(fd, 0, SEEK_END);
+    off_t rv = lseek(fd, 0, SEEK_END);
+    if (rv < 0) {
+        return (off_t) FDB_RESULT_READ_FAIL;
+    }
+    return rv;
 #endif
 }
 
-int _filemgr_win_fsync(int fd)
+fdb_status _filemgr_win_fsync(int fd)
 {
     HANDLE file = handle_to_win(fd);
 
     if (!FlushFileBuffers(file)) {
-        return -1;
+        return FDB_RESULT_COMMIT_FAIL;
     }
-    return 0;
+    return FDB_RESULT_SUCCESS;
 }
 
-int _filemgr_win_fdatasync(int fd)
+fdb_status _filemgr_win_fdatasync(int fd)
 {
     return _filemgr_win_fsync(fd);
 }

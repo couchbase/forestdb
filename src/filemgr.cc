@@ -333,9 +333,17 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->config = &global_config;
         file->new_file = NULL;
         file->old_filename = NULL;
-
         file->fd = fd;
-        file->pos = file->last_commit = file->ops->goto_eof(file->fd);
+
+        off_t offset = file->ops->goto_eof(file->fd);
+        if (offset == FDB_RESULT_READ_FAIL) {
+            free(file->wal);
+            free(file->filename);
+            free(file);
+            spin_unlock(&filemgr_openlock);
+            return NULL;
+        }
+        file->pos = file->last_commit = offset;
 
         file->bcache = NULL;
 
@@ -414,8 +422,9 @@ void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
     return buf;
 }
 
-void filemgr_close(struct filemgr *file)
+fdb_status filemgr_close(struct filemgr *file)
 {
+    fdb_status fs = FDB_RESULT_SUCCESS;
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
     if (--(file->ref_count) == 0) {
@@ -430,7 +439,7 @@ void filemgr_close(struct filemgr *file)
             wal_close(file);
         }
 
-        file->ops->close(file->fd);
+        fs = file->ops->close(file->fd);
         if (file->status == FILE_REMOVED_PENDING) {
             // remove file
 
@@ -440,12 +449,13 @@ void filemgr_close(struct filemgr *file)
             remove(file->filename);
             filemgr_remove_file(file);
 
-            return;
+            return fs;
         }else{
             file->status = FILE_CLOSED;
         }
     }
     spin_unlock(&file->lock);
+    return fs;
 }
 
 void _filemgr_free_func(struct hash_elem *h)
@@ -607,7 +617,7 @@ void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf)
 {
-    int r;
+    ssize_t r;
     uint64_t pos = bid * file->blocksize;
     assert(pos < file->pos);
 
@@ -667,7 +677,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
 {
     assert(offset + len <= file->blocksize);
 
-    int r = 0;
+    ssize_t r = 0;
     uint64_t pos = bid * file->blocksize + offset;
     assert(pos >= file->last_commit);
 
@@ -724,8 +734,9 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
     return cond;
 }
 
-void filemgr_commit(struct filemgr *file)
+fdb_status filemgr_commit(struct filemgr *file)
 {
+    fdb_status fs = FDB_RESULT_SUCCESS;
     uint16_t header_len = file->header.size;
     filemgr_magic_t magic = FILEMGR_MAGIC;
 
@@ -769,17 +780,18 @@ void filemgr_commit(struct filemgr *file)
     spin_unlock(&file->lock);
 
     if (file->sync) {
-        file->ops->fsync(file->fd);
+        fs = file->ops->fsync(file->fd);
     }
+    return fs;
 }
 
-void filemgr_sync(struct filemgr *file)
+fdb_status filemgr_sync(struct filemgr *file)
 {
     if (global_config.ncacheblock > 0) {
         bcache_flush(file);
     }
 
-    file->ops->fsync(file->fd);
+    return file->ops->fsync(file->fd);
 }
 
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,

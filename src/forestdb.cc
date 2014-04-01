@@ -307,7 +307,7 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename,
     handle->fileops = get_filemgr_ops();
     handle->file = filemgr_open((char *)filename, handle->fileops, &fconfig);
     if (!handle->file) {
-        return FDB_RESULT_FAIL;
+        return FDB_RESULT_OPEN_FAIL;
     }
     handle->btreeblkops = btreeblk_get_ops();
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
@@ -406,40 +406,51 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
                           const void *meta, size_t metalen,
                           const void *body, size_t bodylen)
 {
-    if (doc == NULL) return FDB_RESULT_FAIL;
+    if (doc == NULL) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     *doc = (fdb_doc*)malloc(sizeof(fdb_doc));
-    if (*doc == NULL) return FDB_RESULT_FAIL;
+    if (*doc == NULL) {
+        return FDB_RESULT_ALLOC_FAIL;
+    }
 
 #ifdef __FDB_SEQTREE
     (*doc)->seqnum = SEQNUM_NOT_USED;
 #endif
 
-    if (key && keylen>0) {
+    if (key && keylen > 0) {
         (*doc)->key = (void *)malloc(keylen);
-        if ((*doc)->key == NULL) return FDB_RESULT_FAIL;
+        if ((*doc)->key == NULL) {
+            return FDB_RESULT_ALLOC_FAIL;
+        }
         memcpy((*doc)->key, key, keylen);
         (*doc)->keylen = keylen;
-    }else{
+    } else{
         (*doc)->key = NULL;
         (*doc)->keylen = 0;
     }
 
     if (meta && metalen > 0) {
         (*doc)->meta = (void *)malloc(metalen);
-        if ((*doc)->meta == NULL) return FDB_RESULT_FAIL;
+        if ((*doc)->meta == NULL) {
+            return FDB_RESULT_ALLOC_FAIL;
+        }
         memcpy((*doc)->meta, meta, metalen);
         (*doc)->metalen = metalen;
-    }else{
+    } else{
         (*doc)->meta = NULL;
         (*doc)->metalen = 0;
     }
 
     if (body && bodylen > 0) {
         (*doc)->body = (void *)malloc(bodylen);
-        if ((*doc)->body == NULL) return FDB_RESULT_FAIL;
+        if ((*doc)->body == NULL) {
+            return FDB_RESULT_ALLOC_FAIL;
+        }
         memcpy((*doc)->body, body, bodylen);
         (*doc)->bodylen = bodylen;
-    }else{
+    } else{
         (*doc)->body = NULL;
         (*doc)->bodylen = 0;
     }
@@ -452,15 +463,21 @@ fdb_status fdb_doc_update(fdb_doc **doc,
                           const void *meta, size_t metalen,
                           const void *body, size_t bodylen)
 {
-    if (doc == NULL) return FDB_RESULT_FAIL;
-    if (*doc == NULL) return FDB_RESULT_FAIL;
+    if (doc == NULL) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    if (*doc == NULL) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     if (meta && metalen > 0) {
         // free previous metadata
         free((*doc)->meta);
         // allocate new metadata
         (*doc)->meta = (void *)malloc(metalen);
-        if ((*doc)->meta == NULL) return FDB_RESULT_FAIL;
+        if ((*doc)->meta == NULL) {
+            return FDB_RESULT_ALLOC_FAIL;
+        }
         memcpy((*doc)->meta, meta, metalen);
         (*doc)->metalen = metalen;
     }
@@ -470,7 +487,9 @@ fdb_status fdb_doc_update(fdb_doc **doc,
         free((*doc)->body);
         // allocate new body
         (*doc)->body = (void *)malloc(bodylen);
-        if ((*doc)->body == NULL) return FDB_RESULT_FAIL;
+        if ((*doc)->body == NULL) {
+            return FDB_RESULT_ALLOC_FAIL;
+        }
         memcpy((*doc)->body, body, bodylen);
         (*doc)->bodylen = bodylen;
     }
@@ -640,7 +659,9 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     wal_result wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
 
-    if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
+    if (doc->key == NULL || doc->keylen == 0) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
@@ -669,10 +690,12 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         _doc.meta = doc->meta;
         _doc.body = doc->body;
         if (docio_read_doc(dhandle, offset, &_doc) == offset) {
-            return FDB_RESULT_FAIL;
+            return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
+        if (_doc.length.keylen != doc->keylen) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
 
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
@@ -684,7 +707,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         return FDB_RESULT_SUCCESS;
     }
 
-    return FDB_RESULT_FAIL;
+    return FDB_RESULT_KEY_NOT_FOUND;
 }
 
 // search document metadata using key
@@ -696,7 +719,9 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
     wal_result wr;
     hbtrie_result hr;
 
-    if (doc->key == NULL || doc->keylen == 0) return FDB_RESULT_INVALID_ARGS;
+    if (doc->key == NULL || doc->keylen == 0) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
@@ -713,9 +738,13 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         _doc.length.keylen = doc->keylen;
         _doc.meta = _doc.body = NULL;
         *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
-        if (*body_offset == offset) return FDB_RESULT_FAIL;
+        if (*body_offset == offset){
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
 
-        if (_doc.length.keylen != doc->keylen) return FDB_RESULT_FAIL;
+        if (_doc.length.keylen != doc->keylen) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
 
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
@@ -727,7 +756,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         return FDB_RESULT_SUCCESS;
     }
 
-    return FDB_RESULT_FAIL;
+    return FDB_RESULT_KEY_NOT_FOUND;
 }
 
 #ifdef __FDB_SEQTREE
@@ -741,7 +770,9 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
     wal_result wr;
     btree_result br = BTREE_RESULT_FAIL;
 
-    if (doc->seqnum == SEQNUM_NOT_USED) return FDB_RESULT_INVALID_ARGS;
+    if (doc->seqnum == SEQNUM_NOT_USED) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
@@ -758,7 +789,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         _doc.meta = doc->meta;
         _doc.body = doc->body;
         if (docio_read_doc(handle->dhandle, offset, &_doc) == offset) {
-            return FDB_RESULT_FAIL;
+            return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         assert(doc->seqnum == _doc.seqnum);
@@ -773,7 +804,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         return FDB_RESULT_SUCCESS;
     }
 
-    return FDB_RESULT_FAIL;
+    return FDB_RESULT_KEY_NOT_FOUND;
 }
 
 // search document metadata using sequence number
@@ -785,7 +816,9 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     wal_result wr;
     btree_result br;
 
-    if (doc->seqnum == SEQNUM_NOT_USED) return FDB_RESULT_INVALID_ARGS;
+    if (doc->seqnum == SEQNUM_NOT_USED) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
@@ -802,7 +835,9 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
         *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
-        if (*body_offset == offset) return FDB_RESULT_FAIL;
+        if (*body_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
 
         assert(doc->seqnum == _doc.seqnum);
 
@@ -816,7 +851,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         return FDB_RESULT_SUCCESS;
     }
 
-    return FDB_RESULT_FAIL;
+    return FDB_RESULT_KEY_NOT_FOUND;
 }
 #endif
 
@@ -837,7 +872,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     struct docio_handle *dhandle;
 
     if (handle->config.durability_opt & FDB_DRB_RDONLY) {
-        return FDB_RESULT_FAIL;
+        return FDB_RESULT_RONLY_VIOLATION;
     }
 
     if ( (doc->key == NULL) || (doc->keylen == 0) ||
@@ -994,8 +1029,9 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
 LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle)
 {
+    fdb_status fs = FDB_RESULT_SUCCESS;
     if (handle->config.durability_opt & FDB_DRB_RDONLY) {
-        return FDB_RESULT_FAIL;
+        return FDB_RESULT_RONLY_VIOLATION;
     }
 
     filemgr_mutex_lock(handle->file);
@@ -1008,9 +1044,8 @@ fdb_status fdb_commit(fdb_handle *handle)
         filemgr_mutex_lock(handle->new_file);
         filemgr_mutex_unlock(handle->file);
 
-        filemgr_sync(handle->new_file);
+        fs = filemgr_sync(handle->new_file);
         filemgr_mutex_unlock(handle->new_file);
-
     } else {
         // normal case
         btreeblk_end(handle->bhandle);
@@ -1031,11 +1066,11 @@ fdb_status fdb_commit(fdb_handle *handle)
             handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
         }
         handle->cur_header_revnum = _fdb_set_file_header(handle);
-        filemgr_commit(handle->file);
+        fs = filemgr_commit(handle->file);
 
         filemgr_mutex_unlock(handle->file);
     }
-    return FDB_RESULT_SUCCESS;
+    return fs;
 }
 
 INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
@@ -1188,7 +1223,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
         _fdb_check_file_reopen(handle);
         _fdb_sync_db_header(handle);
 
-        return FDB_RESULT_FAIL;
+        return FDB_RESULT_COMPACTION_FAIL;
     }
 
     // invalid filename
@@ -1261,7 +1296,10 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     btreeblk_end(handle->bhandle);
     assert(handle->file->status == FILE_COMPACT_OLD);
     // Commit the current file handle to record the compaction filename
-    filemgr_commit(handle->file);
+    fdb_status fs = filemgr_commit(handle->file);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
 
     // Mark new file as newly compacted
     filemgr_update_file_status(new_file, FILE_COMPACT_NEW, NULL);
@@ -1323,7 +1361,7 @@ LIBFDB_API
 fdb_status fdb_flush_wal(fdb_handle *handle)
 {
     if (handle->config.durability_opt & FDB_DRB_RDONLY) {
-        return FDB_RESULT_FAIL;
+        return FDB_RESULT_RONLY_VIOLATION;
     }
 
     filemgr_mutex_lock(handle->file);
@@ -1341,10 +1379,16 @@ fdb_status fdb_flush_wal(fdb_handle *handle)
 LIBFDB_API
 fdb_status fdb_close(fdb_handle *handle)
 {
-    filemgr_close(handle->file);
+    fdb_status fs = filemgr_close(handle->file);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
     docio_free(handle->dhandle);
     if (handle->new_file) {
-        filemgr_close(handle->new_file);
+        fs = filemgr_close(handle->new_file);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
         docio_free(handle->new_dhandle);
         free(handle->new_dhandle);
         handle->new_file = NULL;

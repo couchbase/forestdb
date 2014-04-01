@@ -119,8 +119,9 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
                               (void *)start_key, start_keylen);
 
-    if (hr == HBTRIE_RESULT_FAIL)
-        return FDB_RESULT_FAIL;
+    if (hr == HBTRIE_RESULT_FAIL) {
+        return FDB_RESULT_ITERATOR_FAIL;
+    }
 
     // create a snapshot for WAL (avl-tree)
     // (from the beginning to the last committed element)
@@ -197,7 +198,7 @@ start:
     offset = iterator->_offset;
 
     if (hr == HBTRIE_RESULT_FAIL && iterator->tree_cursor == NULL) {
-        return FDB_RESULT_FAIL;
+        return FDB_RESULT_ITERATOR_FAIL;
     }
 
     while (iterator->tree_cursor) {
@@ -255,7 +256,7 @@ start:
         if (cmp < 0) {
             // current key (KEY) is lexicographically greater than END_KEY
             // terminate the iteration
-            return FDB_RESULT_FAIL;
+            return FDB_RESULT_ITERATOR_FAIL;
         }
     }
 
@@ -271,8 +272,8 @@ start:
     }
 
     fs = fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0);
-    if (fs == FDB_RESULT_FAIL) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
     }
 
     (*doc)->meta = _doc.meta;

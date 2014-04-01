@@ -120,7 +120,7 @@ void * worker(void *voidargs)
     struct worker_args *args = (struct worker_args*)voidargs;
     struct timeval ts_begin, ts_cur, ts_gap;
 
-    int ret;
+    ssize_t ret;
     bid_t bid;
     uint32_t crc, crc_file;
     uint64_t i, c, run_count=0;
@@ -132,7 +132,8 @@ void * worker(void *voidargs)
         bid = rand() % args->nblocks;
         ret = bcache_read(args->file, bid, buf);
         if (ret <= 0) {
-            ret = args->file->ops->pread(args->file->fd, buf, args->file->blocksize, bid * args->file->blocksize);
+            ret = args->file->ops->pread(args->file->fd, buf,
+                                         args->file->blocksize, bid * args->file->blocksize);
             assert(ret == args->file->blocksize);
             ret = bcache_write(args->file, bid, buf, BCACHE_REQ_CLEAN);
             assert(ret == args->file->blocksize);

@@ -76,7 +76,7 @@ void basic_test()
     // Read-Only mode test: Must not create new file..
     config.durability_opt = FDB_DRB_RDONLY;
     status = fdb_open(&db, (char *) "./dummy1", &config);
-    TEST_CHK(status == FDB_RESULT_FAIL);
+    TEST_CHK(status == FDB_RESULT_OPEN_FAIL);
     config.durability_opt = 0;
 
     // open and close db
@@ -135,7 +135,7 @@ void basic_test()
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         } else {
             // removed document
-            TEST_CHK(status == FDB_RESULT_FAIL);
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
 
         // free result document
@@ -158,7 +158,7 @@ void basic_test()
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         } else {
             // removed document
-            TEST_CHK(status == FDB_RESULT_FAIL);
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
 
         // free result document
@@ -177,7 +177,7 @@ void basic_test()
             TEST_CHK(status == FDB_RESULT_SUCCESS);
         } else {
             // removed document
-            TEST_CHK(status == FDB_RESULT_FAIL);
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
 
         // free result document
@@ -194,13 +194,13 @@ void basic_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_set(&db_rdonly, doc[i]);
-    TEST_CHK(status == FDB_RESULT_FAIL);
+    TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
     status = fdb_commit(&db_rdonly);
-    TEST_CHK(status == FDB_RESULT_FAIL);
+    TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
     status = fdb_flush_wal(&db_rdonly);
-    TEST_CHK(status == FDB_RESULT_FAIL);
+    TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
     fdb_doc_free(rdoc);
     fdb_close(&db_rdonly);
@@ -296,7 +296,7 @@ void wal_commit_test()
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         } else {
             // not committed document
-            TEST_CHK(status == FDB_RESULT_FAIL);
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
 
         // free result document
@@ -510,7 +510,7 @@ void compact_wo_reopen_test()
             TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         }else{
-            TEST_CHK(status == FDB_RESULT_FAIL);
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
 
         // free result document
@@ -628,7 +628,7 @@ void auto_recover_compact_ok_test()
             TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         }else{
-            TEST_CHK(status == FDB_RESULT_FAIL);
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
 
         // free result document
@@ -1108,7 +1108,7 @@ void iterator_test()
     i=0;
     while(1){
         status = fdb_iterator_next(&iterator, &rdoc);
-        if (status == FDB_RESULT_FAIL) break;
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
@@ -1129,7 +1129,7 @@ void iterator_test()
         // retrieve the next doc and get the byte offset of the returned doc
         offset = BLK_NOT_FOUND;
         status = fdb_iterator_next_offset(&iterator, &rdoc, &offset);
-        if (status == FDB_RESULT_FAIL) break;
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(offset != BLK_NOT_FOUND);
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
@@ -1150,7 +1150,7 @@ void iterator_test()
     i=3;
     while(1){
         status = fdb_iterator_next(&iterator, &rdoc);
-        if (status == FDB_RESULT_FAIL) break;
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
@@ -1172,7 +1172,7 @@ void iterator_test()
     i=4;
     while(1){
         status = fdb_iterator_next(&iterator, &rdoc);
-        if (status == FDB_RESULT_FAIL) break;
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
@@ -1264,7 +1264,7 @@ void custom_compare_test()
     fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
     while(1){
-        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_FAIL)
+        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
@@ -1280,7 +1280,7 @@ void custom_compare_test()
     fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
     while(1){
-        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_FAIL)
+        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
@@ -1296,7 +1296,7 @@ void custom_compare_test()
     fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
     while(1){
-        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_FAIL)
+        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);

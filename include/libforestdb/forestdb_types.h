@@ -30,9 +30,62 @@ extern "C" {
  * Status values returned by calling ForestDB APIs.
  */
 typedef enum {
-    FDB_RESULT_SUCCESS,
-    FDB_RESULT_FAIL,
-    FDB_RESULT_INVALID_ARGS
+    /**
+     * ForestDB operation success.
+     */
+    FDB_RESULT_SUCCESS = 0,
+    /**
+     * Invalid parameters to ForestDB APIs.
+     */
+    FDB_RESULT_INVALID_ARGS = -1,
+    /**
+     * Database open operation fails.
+     */
+    FDB_RESULT_OPEN_FAIL = -2,
+    /**
+     * Database file not found.
+     */
+    FDB_RESULT_NO_SUCH_FILE = -3,
+    /**
+     * Database write operation fails.
+     */
+    FDB_RESULT_WRITE_FAIL = -4,
+    /**
+     * Database read operation fails.
+     */
+    FDB_RESULT_READ_FAIL = -5,
+    /**
+     * Database close operation fails.
+     */
+    FDB_RESULT_CLOSE_FAIL = -6,
+    /**
+     * Database commit operation fails.
+     */
+    FDB_RESULT_COMMIT_FAIL = -7,
+    /**
+     * Memory allocation fails.
+     */
+    FDB_RESULT_ALLOC_FAIL = -8,
+    /**
+     * A key not found in database.
+     */
+    FDB_RESULT_KEY_NOT_FOUND = -9,
+    /**
+     * Read-only access violation.
+     */
+    FDB_RESULT_RONLY_VIOLATION = -10,
+    /**
+     * Database compaction fails.
+     */
+    FDB_RESULT_COMPACTION_FAIL = -11,
+    /**
+     * Database iterator operation fails.
+     */
+    FDB_RESULT_ITERATOR_FAIL = -12,
+    /**
+     * General database opertion fails.
+     */
+    FDB_RESULT_FAIL = -100
 } fdb_status;
 
 /**

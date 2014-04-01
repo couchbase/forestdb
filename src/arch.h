@@ -133,6 +133,8 @@
     #define _CRT_SECURE_NO_WARNINGS
     #define gettimeofday gettimeofday_vs
     typedef unsigned long mode_t;
+    #include <BaseTsd.h>
+    typedef SSIZE_T ssize_t;
 #else
     #include <inttypes.h>
     #include <windows.h>

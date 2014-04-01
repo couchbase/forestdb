@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -28,38 +29,99 @@
 
 int _filemgr_linux_open(const char *pathname, int flags, mode_t mode)
 {
-    return open(pathname, flags, mode);
+    int fd;
+    do {
+        fd = open(pathname, flags, mode);
+    } while (fd == -1 && errno == EINTR);
+
+    if (fd < 0) {
+        if (errno == ENOENT) {
+            return (int) FDB_RESULT_NO_SUCH_FILE;
+        } else {
+            return (int) FDB_RESULT_OPEN_FAIL;
+        }
+    }
+    return fd;
 }
 
-int _filemgr_linux_pwrite(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_linux_pwrite(int fd, void *buf, size_t count, off_t offset)
 {
-    return pwrite(fd, buf, count, offset);
+    ssize_t rv;
+    do {
+        rv = pwrite(fd, buf, count, offset);
+    } while (rv == -1 && errno == EINTR);
+
+    if (rv < 0) {
+        return (ssize_t) FDB_RESULT_WRITE_FAIL;
+    }
+    return rv;
 }
 
-int _filemgr_linux_pread(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_linux_pread(int fd, void *buf, size_t count, off_t offset)
 {
-    return pread(fd, buf, count, offset);
+    ssize_t rv;
+    do {
+        rv = pread(fd, buf, count, offset);
+    } while (rv == -1 && errno == EINTR);
+
+    if (rv < 0) {
+        return (ssize_t) FDB_RESULT_READ_FAIL;
+    }
+    return rv;
 }
 
-int _filemgr_linux_close(int fd)
+fdb_status _filemgr_linux_close(int fd)
 {
-    return close(fd);
+    int rv = 0;
+    if (fd != -1) {
+        do {
+            rv = close(fd);
+        } while (rv == -1 && errno == EINTR);
+    }
+
+    if (rv < 0) {
+        return FDB_RESULT_CLOSE_FAIL;
+    }
+
+    return FDB_RESULT_SUCCESS;
 }
 
 off_t _filemgr_linux_goto_eof(int fd)
 {
-    return lseek(fd, 0, SEEK_END);
+    off_t rv = lseek(fd, 0, SEEK_END);
+    if (rv < 0) {
+        return (off_t) FDB_RESULT_READ_FAIL;
+    }
+    return rv;
 }
 
-int _filemgr_linux_fsync(int fd)
+fdb_status _filemgr_linux_fsync(int fd)
 {
-    return fsync(fd);
+    int rv;
+    do {
+        rv = fsync(fd);
+    } while (rv == -1 && errno == EINTR);
+
+    if (rv == -1) {
+        return FDB_RESULT_COMMIT_FAIL;
+    }
+
+    return FDB_RESULT_SUCCESS;
 }
 
-int _filemgr_linux_fdatasync(int fd)
+fdb_status _filemgr_linux_fdatasync(int fd)
 {
 #ifdef __linux__
-    return fdatasync(fd);
+    int rv;
+    do {
+        rv = fdatasync(fd);
+    } while (rv == -1 && errno == EINTR);
+
+    if (rv == -1) {
+        return FDB_RESULT_COMMIT_FAIL;
+    }
+
+    return FDB_RESULT_SUCCESS;
 #else
     return _filemgr_linux_fsync(fd);
 #endif

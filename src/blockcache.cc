@@ -349,7 +349,8 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
     struct list_elem *e, *prevhead;
     struct avl_node *a;
     struct dirty_item *ditem;
-    int count, ret;
+    int count;
+    ssize_t ret;
     bid_t start_bid, prev_bid;
     void *ptr = NULL;
     uint8_t marker = 0x0;

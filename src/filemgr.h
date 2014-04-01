@@ -22,6 +22,8 @@
 #include <sys/stat.h>
 #include <stdint.h>
 
+#include "libforestdb/forestdb_types.h"
+
 #include "common.h"
 #include "hash.h"
 
@@ -40,12 +42,12 @@ struct filemgr_config {
 
 struct filemgr_ops {
     int (*open)(const char *pathname, int flags, mode_t mode);
-    int (*pwrite)(int fd, void *buf, size_t count, off_t offset);
-    int (*pread)(int fd, void *buf, size_t count, off_t offset);
-    int (*close)(int fd);
+    ssize_t (*pwrite)(int fd, void *buf, size_t count, off_t offset);
+    ssize_t (*pread)(int fd, void *buf, size_t count, off_t offset);
+    fdb_status (*close)(int fd);
     off_t (*goto_eof)(int fd);
-    int (*fdatasync)(int fd);
-    int (*fsync)(int fd);
+    fdb_status (*fdatasync)(int fd);
+    fdb_status (*fsync)(int fd);
 };
 
 struct filemgr_buffer{
@@ -102,7 +104,7 @@ char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
 
-void filemgr_close(struct filemgr *file);
+fdb_status filemgr_close(struct filemgr *file);
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file);
 bid_t filemgr_alloc(struct filemgr *file);
@@ -116,8 +118,8 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
 void filemgr_write(struct filemgr *file, bid_t bid, void *buf);
 int filemgr_is_writable(struct filemgr *file, bid_t bid);
 void filemgr_remove_file(struct filemgr *file);
-void filemgr_commit(struct filemgr *file);
-void filemgr_sync(struct filemgr *file);
+fdb_status filemgr_commit(struct filemgr *file);
+fdb_status filemgr_sync(struct filemgr *file);
 void filemgr_shutdown();
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,
                                 char *old_filename);
