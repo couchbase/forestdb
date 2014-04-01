@@ -653,6 +653,89 @@ void auto_recover_compact_ok_test()
     TEST_RESULT("auto recovery after compaction test");
 }
 
+void db_drop_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 3;
+    fdb_handle db;
+    fdb_config config;
+    fdb_doc **doc = alca(fdb_doc *, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // configuration
+    memset(&config, 0, sizeof(fdb_config));
+    config.chunksize = config.offsetsize = sizeof(uint64_t);
+    config.buffercache_size = 1 * 1024 * 1024;
+    config.wal_threshold = 1024;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.flag = 0;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+
+    // open db
+    fdb_open(&db, "./dummy1", &config);
+
+    // insert first two documents
+    for (i=0;i<2;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(&db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(&db);
+    fdb_close(&db);
+
+    // Remove the database file manually.
+    r = system(SHELL_DEL " dummy1 > errorlog.txt");
+
+    // Open the empty db with the same name.
+    fdb_open(&db, "./dummy1", &config);
+
+    // now insert a new doc.
+    sprintf(keybuf, "key%d", 0);
+    sprintf(metabuf, "meta%d", 0);
+    sprintf(bodybuf, "body%d", 0);
+    fdb_doc_create(&doc[0], (void*)keybuf, strlen(keybuf),
+        (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+    fdb_set(&db, doc[0]);
+
+    // commit
+    fdb_commit(&db);
+
+    // search by key
+    fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(&db, rdoc);
+    // Make sure that a doc seqnum starts with zero.
+    assert(rdoc->seqnum == 0);
+
+    fdb_close(&db);
+
+    // free all documents
+    fdb_doc_free(rdoc);
+    for (i=0;i<2;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("Database drop test");
+}
+
 struct work_thread_args{
     int tid;
     size_t ndocs;
@@ -1334,6 +1417,7 @@ int main(){
     incomplete_block_test();
     iterator_test();
     custom_compare_test();
+    db_drop_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;

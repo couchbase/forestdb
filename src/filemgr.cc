@@ -68,6 +68,8 @@ struct temp_buf_item{
 static struct list temp_buf;
 static spin_t temp_buf_lock;
 
+static void _filemgr_free_func(struct hash_elem *h);
+
 uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
     struct filemgr *file = _get_entry(e, struct filemgr, e);
@@ -260,7 +262,6 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     int file_flag = 0x0;
     int fd = -1;
     create_flag = (config->options & FILEMGR_READONLY)? 0 : (O_CREAT);
-    file_flag = O_RDWR | create_flag | config->flag;
 
     // global initialization
     // initialized only once at first time
@@ -287,82 +288,91 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file = _get_entry(e, struct filemgr, e);
 
         spin_lock(&file->lock);
-        spin_unlock(&filemgr_openlock);
-
         file->ref_count++;
-        // if file was closed before
-        if (file->status == FILE_CLOSED) {
+
+        if (file->status == FILE_CLOSED) { // if file was closed before
+            file_flag = O_RDWR | config->flag;
             file->fd = file->ops->open(file->filename, file_flag, 0666);
             if (file->fd < 0) {
-                if (config->options & FILEMGR_READONLY) {
+                if (file->fd == FDB_RESULT_NO_SUCH_FILE) {
+                    // A database file was manually deleted by the user.
+                    // Clean up global hash table, WAL index, and buffer cache.
+                    // Then, retry it with a create option below.
+                    spin_unlock(&file->lock);
+                    assert(hash_remove(&hash, &file->e));
+                    _filemgr_free_func(&file->e);
+                } else {
                     file->ref_count--;
                     spin_unlock(&file->lock);
+                    spin_unlock(&filemgr_openlock);
                     return NULL;
-                } else {
-                    assert(file->fd >= 0); // TODO:return with OS error
                 }
-            }
-            file->status = FILE_NORMAL;
-        }
-        spin_unlock(&file->lock);
-
-    } else {
-        // open (newly create)
-        fd = ops->open(filename, file_flag, 0666);
-        if (fd < 0) {
-            if (config->options & FILEMGR_READONLY) {
+            } else { // Reopening the closed file is succeed.
+                file->status = FILE_NORMAL;
+                file->sync = (config->options & FILEMGR_ASYNC)? 0 : 1;
+                spin_unlock(&file->lock);
                 spin_unlock(&filemgr_openlock);
-                return NULL;
-            } else {
-                assert(fd >= 0); // TODO: return the OS error
+                return file;
             }
-        }
-        file = (struct filemgr*)malloc(sizeof(struct filemgr));
-        file->filename_len = strlen(filename);
-        file->filename = (char*)malloc(file->filename_len + 1);
-        strcpy(file->filename, filename);
-
-        file->ref_count = 1;
-
-        file->wal = (struct wal *)malloc(sizeof(struct wal));
-        file->wal->flag = 0;
-
-        file->ops = ops;
-        file->blocksize = global_config.blocksize;
-        file->status = FILE_NORMAL;
-        file->config = &global_config;
-        file->new_file = NULL;
-        file->old_filename = NULL;
-        file->fd = fd;
-
-        off_t offset = file->ops->goto_eof(file->fd);
-        if (offset == FDB_RESULT_READ_FAIL) {
-            free(file->wal);
-            free(file->filename);
-            free(file);
+        } else { // file is already opened.
+            file->sync = (config->options & FILEMGR_ASYNC)? 0 : 1;
+            spin_unlock(&file->lock);
             spin_unlock(&filemgr_openlock);
-            return NULL;
+            return file;
         }
-        file->pos = file->last_commit = offset;
+    }
 
-        file->bcache = NULL;
+    file_flag = O_RDWR | create_flag | config->flag;
+    // open (newly create)
+    fd = ops->open(filename, file_flag, 0666);
+    if (fd < 0) {
+        spin_unlock(&filemgr_openlock);
+        return NULL;
+    }
+    file = (struct filemgr*)malloc(sizeof(struct filemgr));
+    file->filename_len = strlen(filename);
+    file->filename = (char*)malloc(file->filename_len + 1);
+    strcpy(file->filename, filename);
 
-        _filemgr_read_header(file);
+    file->ref_count = 1;
 
-        spin_init(&file->lock);
+    file->wal = (struct wal *)malloc(sizeof(struct wal));
+    file->wal->flag = 0;
+
+    file->ops = ops;
+    file->blocksize = global_config.blocksize;
+    file->status = FILE_NORMAL;
+    file->config = &global_config;
+    file->new_file = NULL;
+    file->old_filename = NULL;
+    file->fd = fd;
+
+    off_t offset = file->ops->goto_eof(file->fd);
+    if (offset == FDB_RESULT_READ_FAIL) {
+        free(file->wal);
+        free(file->filename);
+        free(file);
+        spin_unlock(&filemgr_openlock);
+        return NULL;
+    }
+    file->pos = file->last_commit = offset;
+
+    file->bcache = NULL;
+
+    _filemgr_read_header(file);
+
+    spin_init(&file->lock);
 
 #ifdef __FILEMGR_MUTEX_LOCK
-        mutex_init(&file->mutex);
+    mutex_init(&file->mutex);
 #else
-        spin_init(&file->mutex);
+    spin_init(&file->mutex);
 #endif
 
-        hash_insert(&hash, &file->e);
+    hash_insert(&hash, &file->e);
+    spin_unlock(&filemgr_openlock);
 
-        spin_unlock(&filemgr_openlock);
-    }
     file->sync = (config->options & FILEMGR_ASYNC)?(0):(1);
-
     return file;
 }
 
@@ -458,7 +468,7 @@ fdb_status filemgr_close(struct filemgr *file)
     return fs;
 }
 
-void _filemgr_free_func(struct hash_elem *h)
+static void _filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
 
