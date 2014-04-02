@@ -716,6 +716,8 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
 {
     uint64_t offset;
     struct docio_object _doc;
+    struct docio_handle *dhandle;
+    struct filemgr *wal_file;
     wal_result wr;
     hbtrie_result hr;
 
@@ -726,18 +728,29 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
 
-    wr = wal_find(handle->file, doc, &offset);
+    if (handle->new_file == NULL) {
+        wal_file = handle->file;
+    }else{
+        wal_file = handle->file->new_file;
+    }
+    dhandle = handle->dhandle;
+
+    wr = wal_find(wal_file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
         hr = hbtrie_find(handle->trie, doc->key, doc->keylen, (void *)&offset);
         btreeblk_end(handle->bhandle);
+    } else {
+        if (wal_file == handle->new_file) {
+            dhandle = handle->new_dhandle;
+        }
     }
 
     if (wr != WAL_RESULT_FAIL || hr != HBTRIE_RESULT_FAIL) {
         _doc.key = doc->key;
         _doc.length.keylen = doc->keylen;
         _doc.meta = _doc.body = NULL;
-        *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
+        *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (*body_offset == offset){
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -767,6 +780,8 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
     struct docio_object _doc;
+    struct docio_handle *dhandle;
+    struct filemgr *wal_file;
     wal_result wr;
     btree_result br = BTREE_RESULT_FAIL;
 
@@ -777,18 +792,29 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
 
-    wr = wal_find(handle->file, doc, &offset);
+    if (handle->new_file == NULL) {
+        wal_file = handle->file;
+    }else{
+        wal_file = handle->file->new_file;
+    }
+    dhandle = handle->dhandle;
+
+    wr = wal_find(wal_file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
         br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
         btreeblk_end(handle->bhandle);
+    } else {
+        if (wal_file == handle->new_file) {
+            dhandle = handle->new_dhandle;
+        }
     }
 
     if (wr != WAL_RESULT_FAIL || br != BTREE_RESULT_FAIL) {
         _doc.key = doc->key;
         _doc.meta = doc->meta;
         _doc.body = doc->body;
-        if (docio_read_doc(handle->dhandle, offset, &_doc) == offset) {
+        if (docio_read_doc(dhandle, offset, &_doc) == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -813,6 +839,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
 {
     uint64_t offset;
     struct docio_object _doc;
+    struct docio_handle *dhandle;
+    struct filemgr *wal_file;
     wal_result wr;
     btree_result br;
 
@@ -823,18 +851,28 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
 
-    wr = wal_find(handle->file, doc, &offset);
+    if (handle->new_file == NULL) {
+        wal_file = handle->file;
+    }else{
+        wal_file = handle->file->new_file;
+    }
+    dhandle = handle->dhandle;
+
+    wr = wal_find(wal_file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
-        //hr = hbtrie_find(handle->trie, doc->key, doc->keylen, &offset);
         br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
         btreeblk_end(handle->bhandle);
+    } else {
+        if (wal_file == handle->new_file) {
+            dhandle = handle->new_dhandle;
+        }
     }
 
     if (wr != WAL_RESULT_FAIL || br != BTREE_RESULT_FAIL) {
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
-        *body_offset = docio_read_doc_key_meta(handle->dhandle, offset, &_doc);
+        *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (*body_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
