@@ -31,6 +31,7 @@ add_library(forestdb SHARED
             src/btree_kv.cc
             src/btree_prefix_kv.cc
             src/btreeblock.cc
+            src/configuration.cc
             src/docio.cc
             src/filemgr.cc
             src/filemgr_ops.cc
@@ -43,14 +44,19 @@ add_library(forestdb SHARED
             src/hash.cc
             src/wal.cc
             utils/crc32.cc
-            utils/debug.cc)
+            utils/debug.cc
+            utils/cJSON.cc)
+
+target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM})
 
 add_executable(forestdb_test
                src/avltree.cc
+               src/filemgr_ops.cc
+               ${FORESTDB_FILE_OPS}
                tests/forestdb_test.cc
                ${GETTIMEOFDAY_VS}
                utils/memleak.cc)
-target_link_libraries(forestdb_test forestdb ${PTHREAD_LIB} ${LIBM})
+target_link_libraries(forestdb_test forestdb)
 
 add_executable(hash_test
                src/avltree.cc

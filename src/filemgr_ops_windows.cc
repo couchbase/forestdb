@@ -140,6 +140,23 @@ off_t _filemgr_win_goto_eof(int fd)
 #endif
 }
 
+off_t _filemgr_win_file_size(const char *filename)
+{
+#ifdef _MSC_VER
+    struct _stat st;
+    if (_stat(filename, &st) == -1) {
+        return (off_t) FDB_RESULT_READ_FAIL;
+    }
+    return st.st_size;
+#else
+    struct stat st;
+    if (stat(filename, &st) == -1) {
+        return (off_t) FDB_RESULT_READ_FAIL;
+    }
+    return st.st_size;
+#endif
+}
+
 fdb_status _filemgr_win_fsync(int fd)
 {
     HANDLE file = handle_to_win(fd);
@@ -161,6 +178,7 @@ struct filemgr_ops win_ops = {
     _filemgr_win_pread,
     _filemgr_win_close,
     _filemgr_win_goto_eof,
+    _filemgr_win_file_size,
     _filemgr_win_fdatasync,
     _filemgr_win_fsync
 };

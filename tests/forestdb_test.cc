@@ -45,6 +45,44 @@ void _set_random_string_smallabt(char *str, int len)
     } while(len--);
 }
 
+void generate_config_json_file(int buffercache_size, int wal_threshold) {
+    char config_data[8192];
+    const char *config =
+        "{\"configs\":"
+            "{\"chunk_size\": {\"default\": 8,"
+                               "\"validator\": {\"range\": { \"max\": 16, \"min\": 4 }}},"
+	          "\"buffer_cache_size\": {\"default\": %d,"
+                                       "\"validator\": {\"range\": {"
+                                                           "\"max\": 18446744073709551616,"
+                                                           "\"min\": 0 }}},"
+              "\"wal_threshold\": {\"default\": %d,"
+                                   "\"validator\": {\"range\": {"
+                                                       "\"max\": 4294967296,"
+                                                       "\"min\": 0 }}},"
+              "\"enable_seq_btree\": {\"default\": \"true\","
+                                      "\"validator\": {\"enum\": ["
+                                                       "\"true\",\"false\" ]}},"
+              "\"durability_option\": {\"default\": \"sync_commit\","
+                                      "\"validator\": {\"enum\": ["
+                                                       "\"sync_commit\","
+                                                       "\"sync_o_direct_commit\","
+                                                       "\"async_commit\","
+                                                       "\"async_o_direct_commit\" ]}},"
+              "\"compaction_buf_size\": {\"default\": 16777216,"
+                                         "\"validator\": {\"range\": {"
+                                                          "\"max\": 4294967296,"
+                                                          "\"min\": 0 }}}"
+       "}}";
+
+    sprintf(config_data, config, buffercache_size, wal_threshold);
+
+    filemgr_ops * fops = get_filemgr_ops();
+    int fd = fops->open("./fdb_test_config.json", O_RDWR | O_CREAT, 0666);
+    fops->pwrite(fd, config_data, strlen(config_data), 0);
+    fops->fsync(fd);
+    fops->close(fd);
+}
+
 void basic_test()
 {
     TEST_INIT();
@@ -55,36 +93,28 @@ void basic_test()
     int n = 10;
     fdb_handle db;
     fdb_handle db_rdonly;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 0 * 1024 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024);
 
     // Read-Only mode test: Must not create new file..
-    config.durability_opt = FDB_DRB_RDONLY;
-    status = fdb_open(&db, (char *) "./dummy1", &config);
+    status = fdb_open(&db, "./dummy1",
+                      FDB_OPEN_FLAG_RDONLY, "./fdb_test_config.json");
     TEST_CHK(status == FDB_RESULT_OPEN_FAIL);
-    config.durability_opt = 0;
 
     // open and close db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
     fdb_close(&db);
 
     // reopen db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -108,7 +138,7 @@ void basic_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // update document #0 and #1
     for (i=0;i<2;++i){
@@ -185,8 +215,8 @@ void basic_test()
     }
 
     // Read-Only mode test: Open succeeds if file exists, but disallow writes
-    config.durability_opt = FDB_DRB_RDONLY;
-    status = fdb_open(&db_rdonly, (char *) "./dummy2", &config);
+    status = fdb_open(&db_rdonly, "./dummy2",
+                      FDB_OPEN_FLAG_RDONLY, "./fdb_test_config.json");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
@@ -233,26 +263,19 @@ void wal_commit_test()
     int i, r;
     int n = 10;
     fdb_handle db;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 0 * 1024 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert half documents
     for (i=0;i<n/2;++i){
@@ -281,7 +304,7 @@ void wal_commit_test()
     fdb_close(&db);
 
     // reopen
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -328,26 +351,19 @@ void multi_version_test()
     int i, r;
     int n = 2;
     fdb_handle db, db_new;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 1 * 1024 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(1048576, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -365,7 +381,7 @@ void multi_version_test()
     fdb_commit(&db);
 
     // open same db file using a new handle
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // update documents using the old handle
     for (i=0;i<n;++i){
@@ -410,7 +426,7 @@ void multi_version_test()
 
     // close and re-open the new handle
     fdb_close(&db_new);
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // retrieve documents using the new handle
     for (i=0;i<n;++i){
@@ -454,27 +470,20 @@ void compact_wo_reopen_test()
     int i, r;
     int n = 3;
     fdb_handle db, db_new;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 1 * 1024 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(16777216, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -545,27 +554,20 @@ void auto_recover_compact_ok_test()
     int i, r;
     int n = 3;
     fdb_handle db, db_new;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc *, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 1 * 1024 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(16777216, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert first two documents
     for (i=0;i<2;++i){
@@ -615,7 +617,7 @@ void auto_recover_compact_ok_test()
 
     // now open the old saved compacted file, it should automatically recover
     // and use the new file since compaction was done successfully
-    fdb_open(&db_new, "./dummy1", &config);
+    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // retrieve documents using the old handle and expect all 3 docs
     for (i=0;i<n;++i){
@@ -662,26 +664,19 @@ void db_drop_test()
     int i, r;
     int n = 3;
     fdb_handle db;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc *, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 1 * 1024 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(16777216, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert first two documents
     for (i=0;i<2;++i){
@@ -701,7 +696,7 @@ void db_drop_test()
     r = system(SHELL_DEL " dummy1 > errorlog.txt");
 
     // Open the empty db with the same name.
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // now insert a new doc.
     sprintf(keybuf, "key%d", 0);
@@ -772,7 +767,7 @@ void *_worker_thread(void *voidargs)
 
     filename_count = *args->filename_count;
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&db, temp, args->config);
+    fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     gettimeofday(&ts_begin, NULL);
 
@@ -856,7 +851,6 @@ void multi_thread_test(
     struct work_thread_args *args = alca(struct work_thread_args, n);
     struct timeval ts_begin, ts_cur, ts_gap;
     fdb_handle db, db_new;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, ndocs);
     fdb_doc *rdoc;
     fdb_status status;
@@ -870,25 +864,18 @@ void multi_thread_test(
     idx_digit = IDX_DIGIT;
 
     // remove previous dummy files
-    r = system(SHELL_DEL" "FILENAME"* > errorlog.txt");
+    r = system(SHELL_DEL" "FILENAME"* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(16777216, 1024);
 
     memleak_start();
-
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = (uint64_t)16 * 1024 * 1024;
-    config.wal_threshold = wal_threshold;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-    config.durability_opt = FDB_DRB_NONE;
 
     // initial population ===
     DBG("Initialize..\n");
 
     // open db
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&db, temp, &config);
+    fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     gettimeofday(&ts_begin, NULL);
 
@@ -925,7 +912,7 @@ void multi_thread_test(
         args[i].tid = i;
         args[i].writer = ((i<nwriters)?(1):(0));
         args[i].ndocs = ndocs;
-        args[i].config = &config;
+        args[i].config = NULL;
         args[i].doc = doc;
         args[i].time_sec = time_sec;
         args[i].nbatch = nbatch;
@@ -964,26 +951,19 @@ void crash_recovery_test()
     int i, r;
     int n = 10;
     fdb_handle db;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 0 * 1024 * 1024;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024);
 
     // reopen db
-    fdb_open(&db, "./dummy2", &config);
+    fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -1009,7 +989,7 @@ void crash_recovery_test()
        "dd if=/dev/zero bs=4096 of=./dummy2 oseek=3 count=2 >> errorlog.txt");
 
     // reopen the same file
-    fdb_open(&db, "./dummy2", &config);
+    fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -1063,26 +1043,19 @@ void incomplete_block_test()
     int i, r;
     int n = 2;
     fdb_handle db;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 0;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -1135,7 +1108,6 @@ void iterator_test()
     int n = 10;
     uint64_t offset;
     fdb_handle db;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1143,19 +1115,13 @@ void iterator_test()
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 0;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert documents of even number
     for (i=0;i<n;i+=2){
@@ -1308,7 +1274,6 @@ void custom_compare_test()
     int n = 10;
     uint64_t offset;
     fdb_handle db;
-    fdb_config config;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1317,19 +1282,13 @@ void custom_compare_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
     double key_double, key_double_prev;
 
-    // configuration
-    memset(&config, 0, sizeof(fdb_config));
-    config.chunksize = config.offsetsize = sizeof(uint64_t);
-    config.buffercache_size = 0;
-    config.wal_threshold = 1024;
-    config.seqtree_opt = FDB_SEQTREE_USE;
-    config.flag = 0;
-
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024);
 
     // open db
-    fdb_open(&db, "./dummy1", &config);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // set custom compare function for double key type
     fdb_set_custom_cmp(&db, _cmp_double);

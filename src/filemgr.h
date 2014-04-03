@@ -46,6 +46,7 @@ struct filemgr_ops {
     ssize_t (*pread)(int fd, void *buf, size_t count, off_t offset);
     fdb_status (*close)(int fd);
     off_t (*goto_eof)(int fd);
+    off_t (*file_size)(const char *filename);
     fdb_status (*fdatasync)(int fd);
     fdb_status (*fsync)(int fd);
 };

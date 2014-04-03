@@ -41,13 +41,14 @@ extern "C" {
  * @param handle Pointer to ForestDB handle that is initialized as a result of
  *        this API call.
  * @param filename Name of database file to be opened.
- * @param config Pointer to ForestDB config instance.
+ * @param fdb_config_file Path to the JSON file that contains ForestDB configs.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_open(fdb_handle *handle,
                     const char *filename,
-                    const fdb_config *config);
+                    fdb_open_flags flags,
+                    const char *fdb_config_file);
 
 /**
  * Pass the customized compare function for B+-Tree traverse.

@@ -31,6 +31,7 @@
 #include "wal.h"
 #include "filemgr_ops.h"
 #include "crc32.h"
+#include "configuration.h"
 
 #include "memleak.h"
 
@@ -52,6 +53,10 @@
 #else
     #define SEQTREE(...)
 #endif
+
+static fdb_status _fdb_open(fdb_handle *handle,
+                            const char *filename,
+                            const fdb_config *config);
 
 INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
@@ -168,8 +173,8 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     struct filemgr *new_file;
     struct docio_handle dhandle;
 
-    config.durability_opt |= FDB_DRB_RDONLY;
-    fdb_status status = fdb_open(&new_db, new_filename, &config);
+    config.flags |= FDB_OPEN_FLAG_RDONLY;
+    fdb_status status = _fdb_open(&new_db, new_filename, &config);
     if (status != FDB_RESULT_SUCCESS) {
         return status;
     }
@@ -274,8 +279,25 @@ fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func)
 }
 
 LIBFDB_API
-fdb_status fdb_open(fdb_handle *handle, const char *filename,
-                    const fdb_config *config)
+fdb_status fdb_open(fdb_handle *handle,
+                    const char *filename,
+                    fdb_open_flags flags,
+                    const char *fdb_config_file)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_config config;
+    parse_fdb_config(fdb_config_file, &config);
+    config.flags = flags;
+
+    return _fdb_open(handle, filename, &config);
+}
+
+static fdb_status _fdb_open(fdb_handle *handle,
+                            const char *filename,
+                            const fdb_config *config)
 {
     struct filemgr_config fconfig;
     bid_t trie_root_bid = BLK_NOT_FOUND;
@@ -286,15 +308,11 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename,
     char *prev_filename = NULL;
     size_t header_len = 0;
 
-#ifdef _MEMPOOL
-    mempool_init();
-#endif
-
-    fconfig.blocksize = FDB_BLOCKSIZE;
-    fconfig.ncacheblock = config->buffercache_size / FDB_BLOCKSIZE;
+    fconfig.blocksize = config->blocksize;
+    fconfig.ncacheblock = config->buffercache_size / config->blocksize;
     fconfig.flag = 0x0;
     fconfig.options = 0x0;
-    if (config->durability_opt & FDB_DRB_RDONLY) {
+    if (config->flags & FDB_OPEN_FLAG_RDONLY) {
         fconfig.options |= FILEMGR_READONLY;
     }
     if (config->durability_opt & FDB_DRB_ASYNC) {
@@ -314,8 +332,7 @@ fdb_status fdb_open(fdb_handle *handle, const char *filename,
     handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
     handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
     handle->config = *config;
-    handle->config.blocksize = fconfig.blocksize;
-    handle->btree_fanout = fconfig.blocksize / (config->chunksize+config->offsetsize);
+    handle->btree_fanout = fconfig.blocksize / (config->chunksize + config->offsetsize);
     handle->last_header_bid = BLK_NOT_FOUND;
     handle->cmp_func = NULL;
 
@@ -632,7 +649,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
         fdb_config config = handle->config;
 
         fdb_close(handle);
-        fdb_open(handle, new_file->filename, &config);
+        _fdb_open(handle, new_file->filename, &config);
     }
 
     if (filemgr_get_file_status(handle->file) == FILE_COMPACT_OLD &&
@@ -909,7 +926,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     struct filemgr *file;
     struct docio_handle *dhandle;
 
-    if (handle->config.durability_opt & FDB_DRB_RDONLY) {
+    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return FDB_RESULT_RONLY_VIOLATION;
     }
 
@@ -1068,7 +1085,7 @@ LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
-    if (handle->config.durability_opt & FDB_DRB_RDONLY) {
+    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return FDB_RESULT_RONLY_VIOLATION;
     }
 
@@ -1398,7 +1415,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
 LIBFDB_API
 fdb_status fdb_flush_wal(fdb_handle *handle)
 {
-    if (handle->config.durability_opt & FDB_DRB_RDONLY) {
+    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return FDB_RESULT_RONLY_VIOLATION;
     }
 

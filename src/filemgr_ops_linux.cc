@@ -95,6 +95,15 @@ off_t _filemgr_linux_goto_eof(int fd)
     return rv;
 }
 
+off_t _filemgr_linux_file_size(const char *filename)
+{
+    struct stat st;
+    if (stat(filename, &st) == -1) {
+        return (off_t) FDB_RESULT_READ_FAIL;
+    }
+    return st.st_size;
+}
+
 fdb_status _filemgr_linux_fsync(int fd)
 {
     int rv;
@@ -133,6 +142,7 @@ struct filemgr_ops linux_ops = {
     _filemgr_linux_pread,
     _filemgr_linux_close,
     _filemgr_linux_goto_eof,
+    _filemgr_linux_file_size,
     _filemgr_linux_fdatasync,
     _filemgr_linux_fsync
 };

@@ -89,6 +89,22 @@ typedef enum {
 } fdb_status;
 
 /**
+ * Flags to be passed to fdb_open() API
+     */
+typedef uint32_t fdb_open_flags;
+enum {
+    /**
+     * Create a new empty ForestDB file if it doesn't exist.
+     */
+    FDB_OPEN_FLAG_CREATE = 1,
+    /**
+     * Open the database in read only mode
+     */
+    FDB_OPEN_FLAG_RDONLY = 2
+};
+
+
+/**
  * Flag to enable / disable a sequence btree.
  */
 typedef uint8_t fdb_seqtree_opt_t;
@@ -119,11 +135,7 @@ enum {
      * Asynchronous commit through the direct IO option to bypass
      * the OS page cache.
      */
-    FDB_DRB_ODIRECT_ASYNC = 0x3,
-    /**
-     * Read-Only mode where all write operations are disallowed
-     */
-     FDB_DRB_RDONLY = 0x4
+    FDB_DRB_ODIRECT_ASYNC = 0x3
 };
 
 /**
@@ -168,7 +180,7 @@ typedef struct {
     /**
      * Flags for fdb_open API. It can be used for specifying read-only mode.
      */
-    uint32_t flag;
+    uint32_t flags;
     /**
      * Maximum size of temporary buffer for compaction.
      */
