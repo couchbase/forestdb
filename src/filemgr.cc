@@ -258,10 +258,9 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     struct filemgr *file = NULL;
     struct filemgr query;
     struct hash_elem *e = NULL;
-    int create_flag = 0x0;
+    int read_only = config->options & FILEMGR_READONLY;
     int file_flag = 0x0;
     int fd = -1;
-    create_flag = (config->options & FILEMGR_READONLY)? 0 : (O_CREAT);
 
     // global initialization
     // initialized only once at first time
@@ -291,7 +290,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         file->ref_count++;
 
         if (file->status == FILE_CLOSED) { // if file was closed before
-            file_flag = O_RDWR | config->flag;
+            file_flag = read_only ? O_RDONLY : O_RDWR;
+            file_flag |= config->flag;
             file->fd = file->ops->open(file->filename, file_flag, 0666);
             if (file->fd < 0) {
                 if (file->fd == FDB_RESULT_NO_SUCH_FILE) {
@@ -322,8 +322,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         }
     }
 
-    file_flag = O_RDWR | create_flag | config->flag;
-    // open (newly create)
+    file_flag = read_only ? O_RDONLY : (O_RDWR | O_CREAT);
+    file_flag |= config->flag;
     fd = ops->open(filename, file_flag, 0666);
     if (fd < 0) {
         spin_unlock(&filemgr_openlock);
