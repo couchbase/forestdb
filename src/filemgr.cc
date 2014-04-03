@@ -347,7 +347,7 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     file->old_filename = NULL;
     file->fd = fd;
 
-    off_t offset = file->ops->goto_eof(file->fd);
+    cs_off_t offset = file->ops->goto_eof(file->fd);
     if (offset == FDB_RESULT_READ_FAIL) {
         free(file->wal);
         free(file->filename);

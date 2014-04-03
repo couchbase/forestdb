@@ -50,7 +50,7 @@ int _filemgr_win_open(const char *pathname, int flags, mode_t mode)
 #else
     int fd;
     do {
-        fd = open(pathname, flags, mode);
+        fd = open(pathname, flags | O_LARGEFILE, mode);
     } while (fd == -1 && errno == EINTR);
 
     if (fd < 0) {
@@ -64,7 +64,7 @@ int _filemgr_win_open(const char *pathname, int flags, mode_t mode)
 #endif
 }
 
-ssize_t _filemgr_win_pwrite(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_win_pwrite(int fd, void *buf, size_t count, cs_off_t offset)
 {
     HANDLE file = handle_to_win(fd);
     BOOL rv;
@@ -80,7 +80,7 @@ ssize_t _filemgr_win_pwrite(int fd, void *buf, size_t count, off_t offset)
     return (ssize_t) byteswritten;
 }
 
-ssize_t _filemgr_win_pread(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_win_pread(int fd, void *buf, size_t count, cs_off_t offset)
 {
     HANDLE file = handle_to_win(fd);
     BOOL rv;
@@ -123,35 +123,35 @@ fdb_status _filemgr_win_close(int fd)
 #endif
 }
 
-off_t _filemgr_win_goto_eof(int fd)
+cs_off_t _filemgr_win_goto_eof(int fd)
 {
 #ifdef _MSC_VER
-    off_t rv = _lseek(fd, 0, SEEK_END);
+    cs_off_t rv = _lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_READ_FAIL;
     }
     return rv;
 #else
-    off_t rv = lseek(fd, 0, SEEK_END);
+    cs_off_t rv = lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_READ_FAIL;
     }
     return rv;
 #endif
 }
 
-off_t _filemgr_win_file_size(const char *filename)
+cs_off_t _filemgr_win_file_size(const char *filename)
 {
 #ifdef _MSC_VER
     struct _stat st;
     if (_stat(filename, &st) == -1) {
-        return (off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_READ_FAIL;
     }
     return st.st_size;
 #else
     struct stat st;
     if (stat(filename, &st) == -1) {
-        return (off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_READ_FAIL;
     }
     return st.st_size;
 #endif

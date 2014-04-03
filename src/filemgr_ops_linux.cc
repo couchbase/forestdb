@@ -31,7 +31,7 @@ int _filemgr_linux_open(const char *pathname, int flags, mode_t mode)
 {
     int fd;
     do {
-        fd = open(pathname, flags, mode);
+        fd = open(pathname, flags | O_LARGEFILE, mode);
     } while (fd == -1 && errno == EINTR);
 
     if (fd < 0) {
@@ -44,7 +44,7 @@ int _filemgr_linux_open(const char *pathname, int flags, mode_t mode)
     return fd;
 }
 
-ssize_t _filemgr_linux_pwrite(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_linux_pwrite(int fd, void *buf, size_t count, cs_off_t offset)
 {
     ssize_t rv;
     do {
@@ -57,7 +57,7 @@ ssize_t _filemgr_linux_pwrite(int fd, void *buf, size_t count, off_t offset)
     return rv;
 }
 
-ssize_t _filemgr_linux_pread(int fd, void *buf, size_t count, off_t offset)
+ssize_t _filemgr_linux_pread(int fd, void *buf, size_t count, cs_off_t offset)
 {
     ssize_t rv;
     do {
@@ -86,20 +86,20 @@ fdb_status _filemgr_linux_close(int fd)
     return FDB_RESULT_SUCCESS;
 }
 
-off_t _filemgr_linux_goto_eof(int fd)
+cs_off_t _filemgr_linux_goto_eof(int fd)
 {
-    off_t rv = lseek(fd, 0, SEEK_END);
+    cs_off_t rv = lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_READ_FAIL;
     }
     return rv;
 }
 
-off_t _filemgr_linux_file_size(const char *filename)
+cs_off_t _filemgr_linux_file_size(const char *filename)
 {
     struct stat st;
     if (stat(filename, &st) == -1) {
-        return (off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_READ_FAIL;
     }
     return st.st_size;
 }

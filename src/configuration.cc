@@ -99,7 +99,7 @@ void parse_fdb_config(const char *fdb_config_file, fdb_config *fconfig) {
 
     if (fdb_config_file) {
         filemgr_ops *file_ops = get_filemgr_ops();
-        off_t file_size = file_ops->file_size(fdb_config_file);
+        cs_off_t file_size = file_ops->file_size(fdb_config_file);
         if (file_size == FDB_RESULT_READ_FAIL) {
             fprintf(stderr, "Error in calling file_size() on an JSON config file \"%s\"\n",
                     fdb_config_file);
@@ -119,7 +119,7 @@ void parse_fdb_config(const char *fdb_config_file, fdb_config *fconfig) {
         json_data[file_size] = '\0';
         char *buf = json_data;
         ssize_t bytesread = 0;
-        off_t offset = 0;
+        cs_off_t offset = 0;
 
         bytesread = file_ops->pread(fd, buf, file_size, offset);
 
