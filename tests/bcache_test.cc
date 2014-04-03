@@ -99,7 +99,7 @@ void basic_test2()
         filemgr_write(file, i, buf);
     }
     filemgr_commit(file);
-    filemgr_close(file);
+    filemgr_close(file, 1);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -222,7 +222,7 @@ void multi_thread_test(
     }
 
     filemgr_commit(file);
-    filemgr_close(file);
+    filemgr_close(file, 1);
     filemgr_shutdown();
     free(buf);
 

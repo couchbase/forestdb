@@ -186,6 +186,10 @@ typedef struct {
      */
     uint32_t compaction_buf_maxsize;
     /**
+     * Clean up all the cache entries when a database file is closed.
+     */
+    uint8_t cleanup_cache_onclose;
+    /**
      * Auxiliary config options.
      */
     void *aux;
@@ -225,6 +229,11 @@ typedef struct fdb_doc_struct {
      * Pointer to doc's body.
      */
     void *body;
+
+    /**
+     * Is a doc deleted?
+     */
+    uint8_t deleted;
 } fdb_doc;
 
 struct hbtrie;

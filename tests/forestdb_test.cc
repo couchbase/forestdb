@@ -71,7 +71,10 @@ void generate_config_json_file(int buffercache_size, int wal_threshold) {
               "\"compaction_buf_size\": {\"default\": 16777216,"
                                          "\"validator\": {\"range\": {"
                                                           "\"max\": 4294967296,"
-                                                          "\"min\": 0 }}}"
+                                                          "\"min\": 0 }}},"
+              "\"cleanup_cache_on_close\": {\"default\": \"true\","
+                                            "\"validator\": {\"enum\": ["
+                                                             "\"true\",\"false\"]}}"
        "}}";
 
     sprintf(config_data, config, buffercache_size, wal_threshold);
@@ -196,12 +199,11 @@ void basic_test()
     }
 
     // retrieve documents by sequence number
-    for (i=0;i<n;++i){
+    for (i=0; i < n+3; ++i){
         // search by seq
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
         rdoc->seqnum = i;
         status = fdb_get_byseq(&db, rdoc);
-
         if ( (i>=2 && i<=4) || (i>=6 && i<=9) || (i>=11 && i<=12)) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);

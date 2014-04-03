@@ -432,7 +432,7 @@ void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
     return buf;
 }
 
-fdb_status filemgr_close(struct filemgr *file)
+fdb_status filemgr_close(struct filemgr *file, uint8_t cleanup_cache_onclose)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
     // remove filemgr structure if no thread refers to the file
@@ -452,16 +452,21 @@ fdb_status filemgr_close(struct filemgr *file)
         fs = file->ops->close(file->fd);
         if (file->status == FILE_REMOVED_PENDING) {
             // remove file
-
             // we can release lock becuase no one will open this file
             spin_unlock(&file->lock);
-
             remove(file->filename);
             filemgr_remove_file(file);
-
             return fs;
-        }else{
-            file->status = FILE_CLOSED;
+        } else {
+            if (cleanup_cache_onclose) {
+                // Clean up global hash table, WAL index, and buffer cache.
+                // Then, retry it with a create option below.
+                spin_unlock(&file->lock);
+                filemgr_remove_file(file);
+                return fs;
+            } else {
+                file->status = FILE_CLOSED;
+            }
         }
     }
     spin_unlock(&file->lock);

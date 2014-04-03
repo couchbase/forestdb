@@ -273,7 +273,7 @@ void range_test()
     }
 
     btreeblk_free(&bhandle);
-    filemgr_close(file);
+    filemgr_close(file, 1);
     filemgr_shutdown();
 
     TEST_RESULT("range test");

@@ -36,7 +36,8 @@ typedef enum {
 typedef uint8_t wal_item_action;
 enum{
     WAL_ACT_INSERT,
-    WAL_ACT_REMOVE
+    WAL_ACT_LOGICAL_REMOVE, // An item is marked as "DELETED" by removing its doc body only.
+    WAL_ACT_REMOVE // An item (key, metadata, body) is removed immediately.
 };
 
 #define WAL_ITEM_FLUSH_READY (0x01)

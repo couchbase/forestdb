@@ -61,6 +61,16 @@
                     "min": 0
                 }
             }
+        },
+        "cleanup_cache_on_close": {
+            "descr": "Destroy all the cached blocks in the global buffer cache when a database file is closed. This is a global config that is used across all ForestDB database instances.",
+            "default": "true",
+            "validator": {
+                "enum": [
+                    "true",
+                    "false"
+                ]
+            }
         }
     }
 }

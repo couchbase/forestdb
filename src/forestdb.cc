@@ -214,7 +214,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
         // remove self: WARNING must not close this handle if snapshots
         // are yet to open this file
         filemgr_remove_pending(old_file, new_db.file);
-        filemgr_close(old_file);
+        filemgr_close(old_file, 0);
         return FDB_RESULT_FAIL;
     }
     docio_init(&dhandle, new_file);
@@ -408,7 +408,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
                                                     &fconfig);
             if (old_file) {
                 filemgr_remove_pending(old_file, handle->file);
-                filemgr_close(old_file);
+                filemgr_close(old_file, 0);
             }
         }
     }
@@ -471,6 +471,8 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         (*doc)->body = NULL;
         (*doc)->bodylen = 0;
     }
+
+    (*doc)->deleted = 0;
 
     return FDB_RESULT_SUCCESS;
 }
@@ -564,7 +566,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     fdb_handle *handle = (fdb_handle *)voidhandle;
     uint64_t old_offset;
 
-    if (item->action == WAL_ACT_INSERT) {
+    if (item->action == WAL_ACT_INSERT || item->action == WAL_ACT_LOGICAL_REMOVE) {
         hr = hbtrie_insert(handle->trie, item->key, item->keylen,
             (void *)&item->offset, (void *)&old_offset);
         btreeblk_end(handle->bhandle);
@@ -589,7 +591,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             handle->datasize += item->doc_size;
         }
     } else {
-        // remove
+        // Immediate remove
         hr = hbtrie_remove(handle->trie, item->key, item->keylen);
         btreeblk_end(handle->bhandle);
 
@@ -706,11 +708,16 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         _doc.length.keylen = doc->keylen;
         _doc.meta = doc->meta;
         _doc.body = doc->body;
+
+        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         if (docio_read_doc(dhandle, offset, &_doc) == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (_doc.length.keylen != doc->keylen) {
+        if (_doc.length.keylen != doc->keylen || _doc.length.bodylen == 0) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -767,12 +774,17 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         _doc.key = doc->key;
         _doc.length.keylen = doc->keylen;
         _doc.meta = _doc.body = NULL;
+
+        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (*body_offset == offset){
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (_doc.length.keylen != doc->keylen) {
+        if (_doc.length.keylen != doc->keylen || _doc.length.bodylen == 0) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -831,7 +843,16 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         _doc.key = doc->key;
         _doc.meta = doc->meta;
         _doc.body = doc->body;
+
+        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         if (docio_read_doc(dhandle, offset, &_doc) == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if (_doc.length.bodylen == 0) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -889,8 +910,17 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     if (wr != WAL_RESULT_FAIL || br != BTREE_RESULT_FAIL) {
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
+
+        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (*body_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if (_doc.length.bodylen == 0) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -969,17 +999,13 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         filemgr_mutex_unlock(handle->file);
     }
 
-    if (_doc.body) {
-        if (dhandle == handle->new_dhandle) {
-            offset = docio_append_doc_compact(dhandle, &_doc);
-        } else {
-            offset = docio_append_doc(dhandle, &_doc);
-        }
-        wal_insert(file, doc, offset);
-    }else{
-        //remove
-        wal_remove(file, doc);
+    if (dhandle == handle->new_dhandle) {
+        offset = docio_append_doc_compact(dhandle, &_doc);
+    } else {
+        offset = docio_append_doc(dhandle, &_doc);
     }
+    wal_insert(file, doc, offset);
+
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
         wal_set_dirty_status(file, FDB_WAL_DIRTY);
     }
@@ -1370,7 +1396,9 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     handle->datasize = new_datasize;
 
     old_file = handle->file;
-    filemgr_close(old_file);
+    // Don't clean up the buffer cache entries for the old file.
+    // They will be cleaned up later.
+    filemgr_close(old_file, 0);
     handle->file = new_file;
 
     btreeblk_free(handle->bhandle);
@@ -1434,13 +1462,13 @@ fdb_status fdb_flush_wal(fdb_handle *handle)
 LIBFDB_API
 fdb_status fdb_close(fdb_handle *handle)
 {
-    fdb_status fs = filemgr_close(handle->file);
+    fdb_status fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose);
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
     docio_free(handle->dhandle);
     if (handle->new_file) {
-        fs = filemgr_close(handle->new_file);
+        fs = filemgr_close(handle->new_file, handle->config.cleanup_cache_onclose);
         if (fs != FDB_RESULT_SUCCESS) {
             return fs;
         }

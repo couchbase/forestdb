@@ -40,6 +40,7 @@ void set_default_fdb_config(fdb_config *fconfig) {
         fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
         fconfig->flags = 0;
         fconfig->compaction_buf_maxsize = 16777216; // 16MB by default.
+        fconfig->cleanup_cache_onclose = 1; // Clean up cache entries when a file is closed.
         fconfig->aux = NULL;
     }
 }
@@ -214,6 +215,19 @@ void parse_fdb_config(const char *fdb_config_file, fdb_config *fconfig) {
                 (uint32_t) cJSON_GetObjectItem(comp_buf_size, "default")->valueint;
         } else {
             fconfig->compaction_buf_maxsize = 16777216; // 16MB by default.
+        }
+
+        cJSON *cleanup_cache_onclose = cJSON_GetObjectItem(configs,
+                                                            "cleanup_cache_on_close");
+        if (validConfigParam(cleanup_cache_onclose)) {
+            char *val = cJSON_GetObjectItem(cleanup_cache_onclose, "default")->valuestring;
+            if (strcmp(val, "true") == 0) {
+                fconfig->cleanup_cache_onclose = 1;
+            } else {
+                fconfig->cleanup_cache_onclose = 0;
+            }
+        } else {
+            fconfig->cleanup_cache_onclose = 1;
         }
 
         fconfig->offsetsize = sizeof(uint64_t);

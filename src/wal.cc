@@ -130,10 +130,10 @@ int wal_is_initialized(struct filemgr *file)
     return file->wal->flag & WAL_FLAG_INITIALIZED;
 }
 
-wal_result _wal_insert(struct filemgr *file,
-                       fdb_doc *doc,
-                       uint64_t offset,
-                       int is_compactor)
+static wal_result _wal_insert(struct filemgr *file,
+                              fdb_doc *doc,
+                              uint64_t offset,
+                              int is_compactor)
 {
     struct wal_item *item;
     struct wal_item query;
@@ -170,7 +170,7 @@ wal_result _wal_insert(struct filemgr *file,
 
             item->doc_size = _wal_get_docsize(doc);
             item->offset = offset;
-            item->action = WAL_ACT_INSERT;
+            item->action = doc->bodylen > 0 ? WAL_ACT_INSERT : WAL_ACT_LOGICAL_REMOVE;
 
             // move to the end of list
             list_remove(&file->wal->list, &item->list_elem);
@@ -190,7 +190,7 @@ wal_result _wal_insert(struct filemgr *file,
     #endif
 
         SEQTREE( item->seqnum = query.seqnum );
-        item->action = WAL_ACT_INSERT;
+        item->action = doc->bodylen > 0 ? WAL_ACT_INSERT : WAL_ACT_LOGICAL_REMOVE;
         item->offset = offset;
         item->doc_size = _wal_get_docsize(doc);
 
@@ -236,12 +236,14 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
         e = hash_find(&file->wal->hash_bykey, &query.he_key);
         if (e) {
             item = _get_entry(e, struct wal_item, he_key);
+            *offset = item->offset;
             if (item->action == WAL_ACT_INSERT) {
-                *offset = item->offset;
-
-                spin_unlock(&file->wal->lock);
-                return WAL_RESULT_SUCCESS;
+                doc->deleted = false;
+            } else {
+                doc->deleted = true;
             }
+            spin_unlock(&file->wal->lock);
+            return WAL_RESULT_SUCCESS;
         }
     } else {
         // search by seqnum
@@ -249,12 +251,14 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
         e = hash_find(&file->wal->hash_byseq, &query.he_seq);
         if (e) {
             item = _get_entry(e, struct wal_item, he_seq);
+            *offset = item->offset;
             if (item->action == WAL_ACT_INSERT) {
-                *offset = item->offset;
-
-                spin_unlock(&file->wal->lock);
-                return WAL_RESULT_SUCCESS;
+                doc->deleted = false;
+            } else {
+                doc->deleted = true;
             }
+            spin_unlock(&file->wal->lock);
+            return WAL_RESULT_SUCCESS;
         }
     }
 #else
@@ -264,12 +268,14 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
     e = hash_find(&file->wal->hash_bykey, &query.he_key);
     if (e) {
         item = _get_entry(e, struct wal_item, he_key);
+        *offset = item->offset;
         if (item->action == WAL_ACT_INSERT) {
-            *offset = item->offset;
-
-            spin_unlock(&file->wal->lock);
-            return WAL_RESULT_SUCCESS;
+            doc->deleted = false;
+        } else {
+            doc->deleted = true;
         }
+        spin_unlock(&file->wal->lock);
+        return WAL_RESULT_SUCCESS;
     }
 #endif
     spin_unlock(&file->wal->lock);
@@ -297,14 +303,15 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
 
     if (e) {
         // already exist
+
         item = _get_entry(e, struct wal_item, he_key);
         item->flag &= ~WAL_ITEM_FLUSH_READY;
 
-        #ifdef __FDB_SEQTREE
-            hash_remove(&file->wal->hash_byseq, &item->he_seq);
-            item->seqnum = query.seqnum;
-            hash_insert(&file->wal->hash_byseq, &item->he_seq);
-        #endif
+#ifdef __FDB_SEQTREE
+        hash_remove(&file->wal->hash_byseq, &item->he_seq);
+        item->seqnum = query.seqnum;
+        hash_insert(&file->wal->hash_byseq, &item->he_seq);
+#endif
         if (item->action == WAL_ACT_INSERT) {
             item->action = WAL_ACT_REMOVE;
         }
@@ -312,17 +319,16 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         // move to the end of list
         list_remove(&file->wal->list, &item->list_elem);
         list_push_back(&file->wal->list, &item->list_elem);
-
-    }else{
+    } else {
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
         item->flag = 0x0;
-    #ifdef __WAL_KEY_COPY
+#ifdef __WAL_KEY_COPY
         item->key = (void *)mempool_alloc(item->keylen);
         memcpy(item->key, key, item->keylen);
-    #else
+#else
         item->key = key;
-    #endif
+#endif
 
         //SEQTREE( item->seqnum = query.seqnum );
         item->action = WAL_ACT_REMOVE;

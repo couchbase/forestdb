@@ -221,13 +221,15 @@ start:
             iterator->tree_cursor = avl_next(iterator->tree_cursor);
 
             if (cmp < 0) {
-                if (snap_item->action == WAL_ACT_REMOVE) {
+                if (snap_item->action == WAL_ACT_REMOVE ||
+                    snap_item->action == WAL_ACT_LOGICAL_REMOVE) {
                     // this key is removed .. get next key[WAL]
                     continue;
                 }
             }else{
                 iterator->_offset = BLK_NOT_FOUND;
-                if (snap_item->action == WAL_ACT_REMOVE) {
+                if (snap_item->action == WAL_ACT_REMOVE ||
+                    snap_item->action == WAL_ACT_LOGICAL_REMOVE) {
                     // the key is removed .. start over again
                     goto start;
                 }

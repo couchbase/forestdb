@@ -23,6 +23,7 @@
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
 #endif
+#include <assert.h>
 
 #include "common.h"
 
@@ -39,7 +40,7 @@ extern "C" {
     gettimeofday(&__test_begin, NULL); \
     __test_cur = __test_begin
 
-#define TEST_CHK(cond) {if (!(cond)) {fprintf(stderr, "Test failed: %s %d\n", __FILE__, __LINE__); __test_pass=0;}}
+#define TEST_CHK(cond) {if (!(cond)) {fprintf(stderr, "Test failed: %s %d\n", __FILE__, __LINE__); __test_pass=0; assert(cond);}}
 #define TEST_RESULT(name) {if ((__test_pass)) fprintf(stderr, "%s PASSED\n", (name)); else fprintf(stderr, "%s FAILED\n", (name)); }
 
 #define TEST_TIME() {\
@@ -54,7 +55,7 @@ extern "C" {
 
 #else
 
-#define TEST_CHK(cond, sw) {if (!(cond)) {fprintf(stderr, "Test failed: %s %d\n", __FILE__, __LINE__); sw=0;}}
+#define TEST_CHK(cond, sw) {if (!(cond)) {fprintf(stderr, "Test failed: %s %d\n", __FILE__, __LINE__); sw=0; assert(cond);}}
 #define TEST_RESULT(name, sw) {if ((sw)) fprintf(stderr, "%s PASSED\n", (name)); else fprintf(stderr, "%s FAILED\n", (name)); }
 
 #endif

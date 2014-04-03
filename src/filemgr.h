@@ -105,7 +105,7 @@ char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
 
-fdb_status filemgr_close(struct filemgr *file);
+fdb_status filemgr_close(struct filemgr *file, uint8_t cleanup_cache_onclose);
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file);
 bid_t filemgr_alloc(struct filemgr *file);
