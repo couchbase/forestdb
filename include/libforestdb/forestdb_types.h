@@ -83,6 +83,10 @@ typedef enum {
      */
     FDB_RESULT_ITERATOR_FAIL = -12,
     /**
+     * Snapshot unavailable
+     */
+    FDB_RESULT_NO_SNAPSHOT = -13,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100
@@ -135,7 +139,11 @@ enum {
      * Asynchronous commit through the direct IO option to bypass
      * the OS page cache.
      */
-    FDB_DRB_ODIRECT_ASYNC = 0x3
+    FDB_DRB_ODIRECT_ASYNC = 0x3,
+    /**
+     * Snapshot mode meaning read-only and no access to current WAL
+     */
+    FDB_DRB_SNAPSHOT = 0x4
 };
 
 /**
@@ -173,6 +181,12 @@ typedef struct {
      * Flag to enable or disable a sequence B+-Tree.
      */
     fdb_seqtree_opt_t seqtree_opt;
+#ifdef __FDB_SEQTREE
+    /**
+     * Snapshot Marker indicating highest readable sequence number.
+     */
+    fdb_seqnum_t max_seqnum;
+#endif
     /**
      * Flag to enable synchronous or asynchronous commit options
      */

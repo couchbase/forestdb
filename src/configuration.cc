@@ -38,6 +38,7 @@ void set_default_fdb_config(fdb_config *fconfig) {
         fconfig->fileops = NULL; // Not to use any customized file ops by default.
         fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
         fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
+        fconfig->max_seqnum = 0; // Only used for snapshots. 0 indicates no snapshot.
         fconfig->flags = 0;
         fconfig->compaction_buf_maxsize = 16777216; // 16MB by default.
         fconfig->cleanup_cache_onclose = 1; // Clean up cache entries when a file is closed.
@@ -233,6 +234,7 @@ void parse_fdb_config(const char *fdb_config_file, fdb_config *fconfig) {
         fconfig->offsetsize = sizeof(uint64_t);
         fconfig->blocksize = FDB_BLOCKSIZE; // 4KB by default.
         fconfig->fileops = NULL; // Not to use any customized file ops by default.
+        fconfig->max_seqnum = 0; // No snapshot marker by default.
         fconfig->flags = 0;
         fconfig->aux = NULL;
 
