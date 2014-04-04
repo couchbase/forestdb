@@ -170,9 +170,9 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 }
 
 // DOC returned by this function must be freed using 'fdb_doc_free'
-fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
-                                    fdb_doc **doc,
-                                    uint64_t *doc_offset_out)
+static fdb_status _fdb_iterator_next(fdb_iterator *iterator,
+                                     fdb_doc **doc,
+                                     uint64_t *doc_offset_out)
 {
     int cmp;
     void *key;
@@ -262,14 +262,16 @@ start:
         }
     }
 
-    if (doc_offset_out) *doc_offset_out = offset;
     _doc.key = key;
     _doc.length.keylen = keylen;
     _doc.meta = NULL;
     _doc.body = NULL;
     if (iterator->opt == FDB_ITR_METAONLY) {
-        docio_read_doc_key_meta(iterator->handle.dhandle, offset, &_doc);
-    }else{
+        offset = docio_read_doc_key_meta(iterator->handle.dhandle, offset, &_doc);
+        if (doc_offset_out && _doc.length.bodylen > 0) {
+            *doc_offset_out = offset;
+        }
+    } else {
         docio_read_doc(iterator->handle.dhandle, offset, &_doc);
     }
 
@@ -287,13 +289,25 @@ start:
 #ifdef __FDB_SEQTREE
     (*doc)->seqnum = _doc.seqnum;
 #endif
+    (*doc)->deleted = (_doc.length.bodylen == 0) ? 1 : 0;
 
     return FDB_RESULT_SUCCESS;
 }
 
+fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
+                                    fdb_doc **doc,
+                                    uint64_t *doc_offset_out)
+{
+    fdb_iterator_opt_t opt = iterator->opt;
+    iterator->opt = FDB_ITR_METAONLY;
+    fdb_status result = _fdb_iterator_next(iterator, doc, doc_offset_out);
+    iterator->opt = opt;
+    return result;
+}
+
 fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc)
 {
-    return fdb_iterator_next_offset(iterator, doc, NULL);
+    return _fdb_iterator_next(iterator, doc, NULL);
 }
 
 fdb_status fdb_iterator_close(fdb_iterator *iterator)

@@ -241,8 +241,8 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator,
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
  *        Note that the API call won't return the doc body, but instead the
  *        offset to the doc body on disk.
- * @param doc_offset_out Pointer to the offset variable that is set as a result
- *        of this API call.
+ * @param doc_offset_out Pointer to the offset of the doc body on disk, which
+ *        is returned as a result of this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
