@@ -546,7 +546,8 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     spin_init(&fname_new->lock);
     fname_new->curlist = NULL;
     fname_new->curfile = file;
-    file->bcache = fname_new;
+    fname_new->nvictim = 0;
+    fname_new->nitems = 0;
 
     // initialize tree
     avl_init(&fname_new->tree, NULL);
@@ -556,12 +557,8 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     hash_init(&fname_new->hashtable, BCACHE_NBUCKET, _bcache_hash, _bcache_cmp);
 
     // insert into fname dictionary
-    spin_lock(&bcache_lock);
     hash_insert(&fnamedic, &fname_new->hash_elem);
-    spin_unlock(&bcache_lock);
-
-    fname_new->nvictim = 0;
-    fname_new->nitems = 0;
+    file->bcache = fname_new;
 
     return fname_new;
 }
@@ -609,7 +606,10 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
     struct bcache_item query;
     struct fnamedic_item fname_query, *fname;
 
+    spin_lock(&bcache_lock);
     fname = file->bcache;
+    spin_unlock(&bcache_lock);
+
     if (fname) {
         // file exists
         // set query
@@ -727,13 +727,13 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
     struct bcache_item query;
     struct fnamedic_item fname_query, *fname_new;
 
+    spin_lock(&bcache_lock);
     fname_new = file->bcache;
     if (fname_new == NULL) {
         // filename doesn't exist in filename dictionary .. create
         fname_new = _fname_create(file);
-    }else{
-        // file already exists
     }
+    spin_unlock(&bcache_lock);
 
     // acquire lock
     spin_lock(&fname_new->lock);
@@ -836,13 +836,13 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
     struct fnamedic_item fname_query, *fname_new;
     uint8_t marker;
 
+    spin_lock(&bcache_lock);
     fname_new = file->bcache;
     if (fname_new == NULL) {
         // filename doesn't exist in filename dictionary .. create
         fname_new = _fname_create(file);
-    }else{
-        // file already exists
     }
+    spin_unlock(&bcache_lock);
 
     // relay lock
     spin_lock(&fname_new->lock);
