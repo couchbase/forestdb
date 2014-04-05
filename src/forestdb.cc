@@ -91,11 +91,11 @@ INLINE void _fdb_fetch_header(
         offset);
     seq_memcpy(&old_filename_len, (uint8_t *)header_buf + offset, sizeof(uint8_t),
         offset);
-    if (new_filename && new_filename_len) {
+    if (new_filename_len) {
         *new_filename = (char*)((uint8_t *)header_buf + offset);
     }
     offset += FDB_MAX_FILENAME_LEN;
-    if (old_filename && old_filename_len) {
+    if (old_filename_len) {
         *old_filename = (char *) malloc(old_filename_len);
         seq_memcpy(*old_filename, (uint8_t *)header_buf + offset + new_filename_len,
                    old_filename_len, offset);
@@ -300,29 +300,13 @@ static fdb_status _fdb_open(fdb_handle *handle,
                             const fdb_config *config)
 {
     struct filemgr_config fconfig;
-    fdb_status ret = FDB_RESULT_FAIL;
-    uint8_t header_buf[FDB_BLOCKSIZE];
-    size_t header_len = 0;
-
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
     fdb_seqnum_t seqnum = 0;
-    uint64_t ndocs = 0;
-    uint64_t datasize = 0;
-    uint64_t last_header_bid = BLK_NOT_FOUND;
+    uint8_t header_buf[FDB_BLOCKSIZE];
     char *compacted_filename = NULL;
-    char *old_filename = NULL;
-
-    bid_t prev_trie_root_bid = BLK_NOT_FOUND;
-    bid_t prev_seq_root_bid = BLK_NOT_FOUND;
-    fdb_seqnum_t prev_seqnum = 0;
-    uint64_t prev_ndocs = 0;
-    uint64_t prev_datasize = 0;
-    uint64_t prev_last_header_bid = 0;
-
-    if (!handle || !filename || !config) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
+    char *prev_filename = NULL;
+    size_t header_len = 0;
 
     fconfig.blocksize = config->blocksize;
     fconfig.ncacheblock = config->buffercache_size / config->blocksize;
@@ -343,44 +327,19 @@ static fdb_status _fdb_open(fdb_handle *handle,
     if (!handle->file) {
         return FDB_RESULT_OPEN_FAIL;
     }
-
-    filemgr_fetch_header(handle->file, header_buf, &header_len);
-    if (header_len > 0) {
-        _fdb_fetch_header(header_buf, header_len, &trie_root_bid,
-                &seq_root_bid, &seqnum, &ndocs,
-                &datasize, &last_header_bid,
-                &compacted_filename, &old_filename);
-    }
-
-#ifdef __FDB_SEQTREE
-    if (config->max_seqnum) { // Given a Snapshot Marker, reverse scan file..
-        assert(config->durability_opt & FDB_DRB_SNAPSHOT);
-        while (header_len && seqnum != config->max_seqnum) {
-            filemgr_fetch_prev_header(handle->file, last_header_bid,
-                                      header_buf, &header_len);
-            if (header_len > 0) {
-                _fdb_fetch_header(header_buf, header_len, &trie_root_bid,
-                        &seq_root_bid, &seqnum, &ndocs,
-                        &datasize, &last_header_bid,
-                        &compacted_filename, &old_filename);
-            }
-        }
-        if (!header_len) { // Snapshot marker MUST match that of DB commit!
-            return FDB_RESULT_NO_SNAPSHOT;
-        }
-    }
-#endif /* __FDB_SEQTREE */
-
     handle->btreeblkops = btreeblk_get_ops();
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
     handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
     handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
     handle->config = *config;
     handle->btree_fanout = fconfig.blocksize / (config->chunksize + config->offsetsize);
+    handle->last_header_bid = BLK_NOT_FOUND;
     handle->cmp_func = NULL;
 
     handle->new_file = NULL;
     handle->new_dhandle = NULL;
+
+    handle->datasize = handle->ndocs = 0;
 
     if (handle->config.compaction_buf_maxsize == 0) {
         handle->config.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;
@@ -393,10 +352,13 @@ static fdb_status _fdb_open(fdb_handle *handle,
     docio_init(handle->dhandle, handle->file);
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
+    filemgr_fetch_header(handle->file, header_buf, &header_len);
+    if (header_len > 0) {
+        _fdb_fetch_header(header_buf, header_len, &trie_root_bid, &seq_root_bid, &seqnum,
+            &handle->ndocs, &handle->datasize, &handle->last_header_bid,
+            &compacted_filename, &prev_filename);
+    }
     handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
-    handle->ndocs = ndocs;
-    handle->datasize = datasize;
-    handle->last_header_bid = last_header_bid;
 
     hbtrie_init(handle->trie, config->chunksize, config->offsetsize,
         handle->file->blocksize, trie_root_bid, (void *)handle->bhandle,
@@ -414,10 +376,10 @@ static fdb_status _fdb_open(fdb_handle *handle,
             btree_init(handle->seqtree, (void *)handle->bhandle, handle->btreeblkops,
                 kv_ops, handle->trie->btree_nodesize, sizeof(fdb_seqnum_t),
                 handle->trie->valuelen, 0x0, NULL);
-        }else{
-            btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
+         }else{
+             btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
                 handle->btreeblkops, kv_ops, handle->trie->btree_nodesize, seq_root_bid);
-        }
+         }
     }else{
         handle->seqtree = NULL;
     }
@@ -430,18 +392,18 @@ static fdb_status _fdb_open(fdb_handle *handle,
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
-    if (old_filename) {
+    if (prev_filename) {
         // record the old filename into the file handle of current file
         // and REMOVE old file on the first open
         // WARNING: snapshots must have been opened before this call
         if (filemgr_update_file_status(handle->file, handle->file->status,
-                                       old_filename)) {
+                                       prev_filename)) {
             struct filemgr_config fconfig;
             uint32_t blocksize = handle->config.blocksize;
             memset(&fconfig, 0, sizeof(struct filemgr_config));
             fconfig.blocksize = blocksize;
             fconfig.options |= FILEMGR_READONLY;
-            struct filemgr *old_file = filemgr_open(old_filename,
+            struct filemgr *old_file = filemgr_open(prev_filename,
                                                     handle->fileops,
                                                     &fconfig);
             if (old_file) {
@@ -658,19 +620,19 @@ void _fdb_sync_db_header(fdb_handle *handle)
         if (header_len > 0) {
             bid_t new_seq_root;
             char *compacted_filename;
-            char *old_filename = NULL;
+            char *prev_filename = NULL;
             _fdb_fetch_header(header_buf, header_len,
                 &handle->trie->root_bid, &new_seq_root, &handle->seqnum,
                 &handle->ndocs, &handle->datasize, &handle->last_header_bid,
-                &compacted_filename, &old_filename);
+                &compacted_filename, &prev_filename);
             if (new_seq_root != handle->seqtree->root_bid) {
                 btree_init_from_bid(
                     handle->seqtree, handle->seqtree->blk_handle,
                     handle->seqtree->blk_ops, handle->seqtree->kv_ops,
                     handle->seqtree->blksize, new_seq_root);
             }
-            if (old_filename) {
-                free(old_filename);
+            if (prev_filename) {
+                free(prev_filename);
             }
         }
         if (header_buf) {
@@ -713,38 +675,31 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     struct docio_object _doc;
     struct filemgr *wal_file;
     struct docio_handle *dhandle;
-    wal_result wr = WAL_RESULT_FAIL;
+    wal_result wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
 
     if (doc->key == NULL || doc->keylen == 0) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (handle->config.durability_opt & FDB_DRB_SNAPSHOT) {
-        dhandle = handle->dhandle;
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
+    if (handle->new_file == NULL) {
+        wal_file = handle->file;
+    }else{
+        wal_file = handle->file->new_file;
+    }
+    dhandle = handle->dhandle;
+
+    wr = wal_find(wal_file, doc, &offset);
+
+    if (wr == WAL_RESULT_FAIL) {
         hr = hbtrie_find(handle->trie, doc->key, doc->keylen, (void *)&offset);
         btreeblk_end(handle->bhandle);
     } else {
-        _fdb_check_file_reopen(handle);
-        _fdb_sync_db_header(handle);
-
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        }else{
-            wal_file = handle->file->new_file;
-        }
-        dhandle = handle->dhandle;
-
-        wr = wal_find(wal_file, doc, &offset);
-
-        if (wr == WAL_RESULT_FAIL) {
-            hr = hbtrie_find(handle->trie, doc->key, doc->keylen,
-                    (void *)&offset);
-            btreeblk_end(handle->bhandle);
-        } else {
-            if (wal_file == handle->new_file) {
-                dhandle = handle->new_dhandle;
-            }
+        if (wal_file == handle->new_file) {
+            dhandle = handle->new_dhandle;
         }
     }
 
@@ -785,38 +740,33 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
 {
     uint64_t offset;
     struct docio_object _doc;
-    struct docio_handle *dhandle = handle->dhandle;
+    struct docio_handle *dhandle;
     struct filemgr *wal_file;
-    wal_result wr = WAL_RESULT_FAIL;
-    hbtrie_result hr = HBTRIE_RESULT_FAIL;
+    wal_result wr;
+    hbtrie_result hr;
 
     if (doc->key == NULL || doc->keylen == 0) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (handle->config.durability_opt & FDB_DRB_SNAPSHOT) {
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
+    if (handle->new_file == NULL) {
+        wal_file = handle->file;
+    }else{
+        wal_file = handle->file->new_file;
+    }
+    dhandle = handle->dhandle;
+
+    wr = wal_find(wal_file, doc, &offset);
+
+    if (wr == WAL_RESULT_FAIL) {
         hr = hbtrie_find(handle->trie, doc->key, doc->keylen, (void *)&offset);
         btreeblk_end(handle->bhandle);
     } else {
-        _fdb_check_file_reopen(handle);
-        _fdb_sync_db_header(handle);
-
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        } else {
-            wal_file = handle->file->new_file;
-        }
-        dhandle = handle->dhandle;
-
-        wr = wal_find(wal_file, doc, &offset);
-
-        if (wr == WAL_RESULT_FAIL) {
-            hr = hbtrie_find(handle->trie, doc->key, doc->keylen, (void *)&offset);
-            btreeblk_end(handle->bhandle);
-        } else {
-            if (wal_file == handle->new_file) {
-                dhandle = handle->new_dhandle;
-            }
+        if (wal_file == handle->new_file) {
+            dhandle = handle->new_dhandle;
         }
     }
 
@@ -859,38 +809,33 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
     struct docio_object _doc;
-    struct docio_handle *dhandle = handle->dhandle;
+    struct docio_handle *dhandle;
     struct filemgr *wal_file;
-    wal_result wr = WAL_RESULT_FAIL;
+    wal_result wr;
     btree_result br = BTREE_RESULT_FAIL;
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (handle->config.durability_opt & FDB_DRB_SNAPSHOT) {
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
+    if (handle->new_file == NULL) {
+        wal_file = handle->file;
+    }else{
+        wal_file = handle->file->new_file;
+    }
+    dhandle = handle->dhandle;
+
+    wr = wal_find(wal_file, doc, &offset);
+
+    if (wr == WAL_RESULT_FAIL) {
         br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
         btreeblk_end(handle->bhandle);
     } else {
-        _fdb_check_file_reopen(handle);
-        _fdb_sync_db_header(handle);
-
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        } else {
-            wal_file = handle->file->new_file;
-        }
-        dhandle = handle->dhandle;
-
-        wr = wal_find(wal_file, doc, &offset);
-
-        if (wr == WAL_RESULT_FAIL) {
-            br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
-            btreeblk_end(handle->bhandle);
-        } else {
-            if (wal_file == handle->new_file) {
-                dhandle = handle->new_dhandle;
-            }
+        if (wal_file == handle->new_file) {
+            dhandle = handle->new_dhandle;
         }
     }
 
@@ -932,38 +877,33 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
 {
     uint64_t offset;
     struct docio_object _doc;
-    struct docio_handle *dhandle = handle->dhandle;
+    struct docio_handle *dhandle;
     struct filemgr *wal_file;
-    wal_result wr = WAL_RESULT_FAIL;
-    btree_result br = BTREE_RESULT_FAIL;
+    wal_result wr;
+    btree_result br;
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (handle->config.durability_opt & FDB_DRB_SNAPSHOT) {
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
+    if (handle->new_file == NULL) {
+        wal_file = handle->file;
+    }else{
+        wal_file = handle->file->new_file;
+    }
+    dhandle = handle->dhandle;
+
+    wr = wal_find(wal_file, doc, &offset);
+
+    if (wr == WAL_RESULT_FAIL) {
         br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
         btreeblk_end(handle->bhandle);
     } else {
-        _fdb_check_file_reopen(handle);
-        _fdb_sync_db_header(handle);
-
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        } else {
-            wal_file = handle->file->new_file;
-        }
-        dhandle = handle->dhandle;
-
-        wr = wal_find(wal_file, doc, &offset);
-
-        if (wr == WAL_RESULT_FAIL) {
-            br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
-            btreeblk_end(handle->bhandle);
-        } else {
-            if (wal_file == handle->new_file) {
-                dhandle = handle->new_dhandle;
-            }
+        if (wal_file == handle->new_file) {
+            dhandle = handle->new_dhandle;
         }
     }
 
@@ -1039,7 +979,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 #ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         //_doc.seqnum = doc->seqnum;
-        _doc.seqnum = doc->seqnum = ++handle->seqnum;
+        _doc.seqnum = doc->seqnum = handle->seqnum++;
     }else{
         _doc.seqnum = SEQNUM_NOT_USED;
     }
@@ -1103,7 +1043,7 @@ fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
 uint64_t _fdb_set_file_header(fdb_handle *handle)
 {
     /*
-   <ForestDB header>
+    <ForestDB header>
     [0000]: BID of root node of root B+Tree of HB+Trie: 8 bytes
     [0008]: BID of root node of seq B+Tree: 8 bytes (optional)
     [0016]: the current DB sequence number: 8 bytes (optional)
@@ -1231,34 +1171,6 @@ fdb_status fdb_commit(fdb_handle *handle)
     }
     return fs;
 }
-
-#ifdef __FDB_SEQTREE
-LIBFDB_API
-fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle *handle_out,
-                             fdb_seqnum_t seqnum)
-{
-    fdb_config config = handle_in->config;
-    if (!handle_in || !handle_out || !seqnum) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    // Sequence trees are a must for snapshot creation
-    if (handle_in->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    // if the max sequence number seen by this handle is lower than the
-    // requested snapshot marker, it means the snapshot is not yet visible
-    // via current fdb_handle
-    if (seqnum > handle_in->seqnum) {
-        return FDB_RESULT_NO_SNAPSHOT;
-    }
-
-    config.max_seqnum = seqnum;
-    config.durability_opt |= FDB_DRB_SNAPSHOT;
-    config.flags |= FDB_OPEN_FLAG_RDONLY;
-    return _fdb_open(handle_out, handle_in->file->filename, &config);
-}
-#endif /* __FDB_SEQTREE */
 
 INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 {
@@ -1399,10 +1311,6 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     size_t old_filename_len = 0;
     uint64_t offset, new_offset, *offset_arr, i, count, new_datasize;
     fdb_seqnum_t seqnum;
-
-    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return FDB_RESULT_FAIL;
-    }
 
     // prevent update to the target file
     filemgr_mutex_lock(handle->file);

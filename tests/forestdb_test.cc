@@ -113,16 +113,11 @@ void basic_test()
     TEST_CHK(status == FDB_RESULT_OPEN_FAIL);
 
     // open and close db
-    status = fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-                      "./fdb_test_config.json");
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-    status = fdb_close(&db);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_close(&db);
 
     // reopen db
-    status = fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-                      "./fdb_test_config.json");
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -131,8 +126,7 @@ void basic_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        status = fdb_set(&db, doc[i]);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_set(&db, doc[i]);
     }
 
     // remove document #5
@@ -142,19 +136,13 @@ void basic_test()
     fdb_doc_free(rdoc);
 
     // commit
-    status = fdb_commit(&db);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_commit(&db);
 
     // close the db
-    status = fdb_close(&db);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_close(&db);
 
     // reopen
-    status = fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-                      "./fdb_test_config.json");
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-    status = fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-                      "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // update document #0 and #1
     for (i=0;i<2;++i){
@@ -162,13 +150,11 @@ void basic_test()
         sprintf(bodybuf, "body2%d", i);
         fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
             (void *)bodybuf, strlen(bodybuf));
-        status = fdb_set(&db, doc[i]);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_set(&db, doc[i]);
     }
 
     // commit
-    status = fdb_commit(&db);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_commit(&db);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -191,8 +177,7 @@ void basic_test()
     }
 
     // do compaction
-    status = fdb_compact(&db, (char *) "./dummy2");
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_compact(&db, (char *) "./dummy2");
 
     // retrieve documents after compaction
     for (i=0;i<n;++i){
@@ -218,7 +203,7 @@ void basic_test()
     for (i=0; i < n+3; ++i){
         // search by seq
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
-        rdoc->seqnum = i + 1;
+        rdoc->seqnum = i;
         status = fdb_get_byseq(&db, rdoc);
         if ( (i>=2 && i<=4) || (i>=6 && i<=9) || (i>=11 && i<=12)) {
             // updated documents
@@ -730,8 +715,8 @@ void db_drop_test()
     // search by key
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
     status = fdb_get(&db, rdoc);
-    // Make sure that a doc seqnum starts with one.
-    assert(rdoc->seqnum == 1);
+    // Make sure that a doc seqnum starts with zero.
+    assert(rdoc->seqnum == 0);
 
     fdb_close(&db);
 
@@ -1027,7 +1012,7 @@ void crash_recovery_test()
     for (i=0;i<n;++i){
         // search by seq
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
-        rdoc->seqnum = i + 1;
+        rdoc->seqnum = i;
         status = fdb_get_byseq(&db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1267,113 +1252,6 @@ void iterator_test()
     TEST_RESULT("iterator test");
 }
 
-void snapshot_test()
-{
-    TEST_INIT();
-
-    memleak_start();
-
-    int i, r;
-    int n = 10;
-    int count;
-    uint64_t offset;
-    fdb_handle db;
-    fdb_handle snap_db;
-    fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
-    fdb_status status;
-    fdb_iterator iterator;
-
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
-
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
-
-    generate_config_json_file(0, 1024);
-
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
-
-    // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-             "./fdb_test_config.json");
-
-    // insert documents of even number
-    for (i=0;i<n;i+=2){
-        sprintf(keybuf, "key%d", i);
-        sprintf(metabuf, "meta%d", i);
-        sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
-            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
-    }
-    // manually flush WAL & commit
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
-
-    // Attempt to take snapshot with out-of-range marker..
-    status = fdb_snapshot_open(&db, &snap_db, 999999);
-    TEST_CHK(status == FDB_RESULT_NO_SNAPSHOT);
-
-    // Init Snapshot of open file with last committed document seqnum as marker
-    status = fdb_snapshot_open(&db, &snap_db, doc[i-2]->seqnum);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-
-    // insert documents of odd number on file using read-write handle
-    for (i=1;i<n;i+=2){
-        sprintf(keybuf, "key%d", i);
-        sprintf(metabuf, "meta%d", i);
-        sprintf(bodybuf, "body%d", i);
-        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
-            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
-    }
-    // commit and also do a WAL flush
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
-
-    // create an iterator on the snapshot for full range
-    fdb_iterator_init(&snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
-
-    // repeat until fail
-    i=0;
-    count=0;
-    while(1){
-        status = fdb_iterator_next(&iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
-
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
-
-        fdb_doc_free(rdoc);
-        i +=2;
-        count++;
-    }
-
-    TEST_CHK(count==5); // Wal items should not affect snapshot
-
-    fdb_iterator_close(&iterator);
-
-    // close db file
-    fdb_close(&db);
-
-    // close snapshot file
-    fdb_close(&snap_db);
-
-    // free all documents
-    for (i=0;i<n;++i){
-        fdb_doc_free(doc[i]);
-    }
-
-    // free all resources
-    fdb_shutdown();
-
-    memleak_end();
-
-    TEST_RESULT("snapshot test");
-}
-
 int _cmp_double(void *a, void *b)
 {
     double aa, bb;
@@ -1424,7 +1302,7 @@ void custom_compare_test()
         sprintf(bodybuf, "value: %d, %f", i, key_double);
         fdb_doc_create(&doc[i], (void*)keybuf, sizeof(key_double), NULL, 0,
             (void*)bodybuf, strlen(bodybuf)+1);
-        TEST_CHK(fdb_set(&db, doc[i]) == FDB_RESULT_SUCCESS);
+        fdb_set(&db, doc[i]);
     }
 
     // range scan (before flushing WAL)
@@ -1500,7 +1378,6 @@ int main(){
 #endif
     incomplete_block_test();
     iterator_test();
-    snapshot_test();
     custom_compare_test();
     db_drop_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);

@@ -104,8 +104,6 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
 char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
-void* filemgr_fetch_prev_header(struct filemgr *file, uint64_t last_header_bid,
-                                void *buf, size_t *len);
 
 fdb_status filemgr_close(struct filemgr *file, uint8_t cleanup_cache_onclose);
 

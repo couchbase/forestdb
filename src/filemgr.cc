@@ -432,50 +432,6 @@ void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
     return buf;
 }
 
-void* filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
-                                void *buf, size_t *len)
-{
-    uint8_t *_buf;
-    uint8_t marker[BLK_MARKER_SIZE];
-    filemgr_magic_t magic;
-    int found = 0;
-
-    if (!bid || bid == BLK_NOT_FOUND) {
-        *len = 0; // No other header available
-        return NULL;
-    }
-    _buf = (uint8_t *)_filemgr_get_temp_buf();
-
-    spin_lock(&file->lock);
-
-    bid--;
-    // Reverse scan the file for a previous DB header
-    do {
-        filemgr_read(file, (bid_t)bid, _buf);
-        memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
-                BLK_MARKER_SIZE);
-
-        if (marker[0] != BLK_MARKER_DBHEADER) {
-            continue;
-        }
-        memcpy(buf, _buf, BLK_DBHEADER_SIZE);
-        *len = BLK_DBHEADER_SIZE;
-        found = 1;
-        break;
-    } while (bid--); // scan even the first block 0
-
-    if (!found) { // no other header found till end of file
-        *len = 0;
-        buf = NULL;
-    }
-
-    spin_unlock(&file->lock);
-
-    _filemgr_release_temp_buf(_buf);
-
-    return buf;
-}
-
 fdb_status filemgr_close(struct filemgr *file, uint8_t cleanup_cache_onclose)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
