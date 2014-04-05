@@ -1082,6 +1082,24 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
+fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
+{
+    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return FDB_RESULT_RONLY_VIOLATION;
+    }
+
+    if ((doc->key == NULL) || (doc->keylen == 0)) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    fdb_doc _doc;
+    _doc = *doc;
+    _doc.body = NULL;
+    _doc.bodylen = 0;
+    return fdb_set(handle, &_doc);
+}
+
 uint64_t _fdb_set_file_header(fdb_handle *handle)
 {
     /*

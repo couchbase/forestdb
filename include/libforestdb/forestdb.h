@@ -179,8 +179,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle,
  * Update the metadata and doc body for a given key.
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, key, keylen, meta, metalen, body, bodylen) before using
- * this API. For a key deletion, its body and bodylen should be set to NULL and
- * 0, respectively, in fdb_doc_create API call.
+ * this API. Setting bodylen to 0 and body to NULL is equivalent to calling
+ * fdb_del api described below
  *
  * @param handle Pointer to ForestDB handle.
  * @param doc Pointer to ForestDB doc instance that is used to update a key.
@@ -188,6 +188,20 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle,
  */
 LIBFDB_API
 fdb_status fdb_set(fdb_handle *handle,
+                   fdb_doc *doc);
+
+/**
+ * Delete a key, its metadata and value
+ * Note that FDB_DOC instance should be created by calling
+ * fdb_doc_create(doc, key, keylen, meta, metalen, body, bodylen) before using
+ * this API.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param doc Pointer to ForestDB doc instance that is used to delete a key.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_del(fdb_handle *handle,
                    fdb_doc *doc);
 
 /**
