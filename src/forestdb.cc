@@ -727,6 +727,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
+        doc->deleted = 0;
 
         return FDB_RESULT_SUCCESS;
     }
@@ -775,16 +776,12 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         _doc.length.keylen = doc->keylen;
         _doc.meta = _doc.body = NULL;
 
-        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
         *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (*body_offset == offset){
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (_doc.length.keylen != doc->keylen || _doc.length.bodylen == 0) {
+        if (_doc.length.keylen != doc->keylen) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -794,6 +791,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
+        doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
 
         return FDB_RESULT_SUCCESS;
     }
@@ -864,6 +862,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
+        doc->deleted = 0;
 
         return FDB_RESULT_SUCCESS;
     }
@@ -911,16 +910,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
 
-        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
         *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (*body_offset == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        if (_doc.length.bodylen == 0) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -932,6 +923,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
+        doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
 
         return FDB_RESULT_SUCCESS;
     }

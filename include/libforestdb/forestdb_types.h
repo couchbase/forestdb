@@ -325,18 +325,24 @@ typedef struct {
 } fdb_handle;
 
 /**
- * ForestDB iterator option.
+ * ForestDB iterator options.Combinational options can be passed to the iterator.
+ * For example, FDB_ITR_METAONLY | FDB_ITR_NO_DELETES means
+ * "Return non-deleted key and its metadata only through iterator".
  */
 typedef uint8_t fdb_iterator_opt_t;
 enum {
     /**
      * Return both key and value through iterator.
      */
-    FDB_ITR_NONE = 0x0,
+    FDB_ITR_NONE = 0x00,
     /**
      * Return key and its metadata only through iterator.
      */
-    FDB_ITR_METAONLY = 0x1
+    FDB_ITR_METAONLY = 0x01,
+    /**
+     * Return only non-deleted items through iterator.
+     */
+    FDB_ITR_NO_DELETES = 0x02
 };
 
 struct hbtrie_iterator;

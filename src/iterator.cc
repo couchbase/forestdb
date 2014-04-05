@@ -219,17 +219,20 @@ start:
         if (cmp <= 0) {
             // key[WAL] <= key[hb-trie] .. take key[WAL] first
             iterator->tree_cursor = avl_next(iterator->tree_cursor);
-
+            uint8_t drop_logical_deletes =
+                (snap_item->action == WAL_ACT_LOGICAL_REMOVE) &&
+                (iterator->opt & FDB_ITR_NO_DELETES);
             if (cmp < 0) {
-                if (snap_item->action == WAL_ACT_REMOVE ||
-                    snap_item->action == WAL_ACT_LOGICAL_REMOVE) {
+                if (snap_item->action == WAL_ACT_REMOVE || drop_logical_deletes) {
+                    if (hr == HBTRIE_RESULT_FAIL && iterator->tree_cursor == NULL) {
+                        return FDB_RESULT_ITERATOR_FAIL;
+                    }
                     // this key is removed .. get next key[WAL]
                     continue;
                 }
             }else{
                 iterator->_offset = BLK_NOT_FOUND;
-                if (snap_item->action == WAL_ACT_REMOVE ||
-                    snap_item->action == WAL_ACT_LOGICAL_REMOVE) {
+                if (snap_item->action == WAL_ACT_REMOVE || drop_logical_deletes) {
                     // the key is removed .. start over again
                     goto start;
                 }
@@ -266,23 +269,34 @@ start:
     _doc.length.keylen = keylen;
     _doc.meta = NULL;
     _doc.body = NULL;
-    if (iterator->opt == FDB_ITR_METAONLY) {
+    if (iterator->opt & FDB_ITR_METAONLY) {
         offset = docio_read_doc_key_meta(iterator->handle.dhandle, offset, &_doc);
+        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+            free(_doc.meta);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
         if (doc_offset_out && _doc.length.bodylen > 0) {
             *doc_offset_out = offset;
         }
     } else {
         docio_read_doc(iterator->handle.dhandle, offset, &_doc);
+        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+            free(_doc.meta);
+            free(_doc.body);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
     }
 
     fs = fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0);
     if (fs != FDB_RESULT_SUCCESS) {
+        free(_doc.meta);
+        free(_doc.body);
         return fs;
     }
 
     (*doc)->meta = _doc.meta;
     (*doc)->metalen = _doc.length.metalen;
-    if (iterator->opt != FDB_ITR_METAONLY) {
+    if (!(iterator->opt & FDB_ITR_METAONLY)) {
         (*doc)->body = _doc.body;
         (*doc)->bodylen = _doc.length.bodylen;
     }
@@ -299,15 +313,20 @@ fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
                                     uint64_t *doc_offset_out)
 {
     fdb_iterator_opt_t opt = iterator->opt;
-    iterator->opt = FDB_ITR_METAONLY;
-    fdb_status result = _fdb_iterator_next(iterator, doc, doc_offset_out);
+    iterator->opt |= FDB_ITR_METAONLY;
+    fdb_status result = FDB_RESULT_SUCCESS;
+    while ((result = _fdb_iterator_next(iterator, doc, doc_offset_out)) ==
+           FDB_RESULT_KEY_NOT_FOUND);
     iterator->opt = opt;
     return result;
 }
 
 fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc)
 {
-    return _fdb_iterator_next(iterator, doc, NULL);
+    fdb_status result = FDB_RESULT_SUCCESS;
+    while ((result = _fdb_iterator_next(iterator, doc, NULL)) ==
+           FDB_RESULT_KEY_NOT_FOUND);
+    return result;
 }
 
 fdb_status fdb_iterator_close(fdb_iterator *iterator)

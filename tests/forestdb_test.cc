@@ -138,6 +138,14 @@ void basic_test()
     // commit
     fdb_commit(&db);
 
+    uint64_t offset = 0;
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get_metaonly(&db, rdoc, &offset);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(rdoc->deleted == 1);
+    TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
+    fdb_doc_free(rdoc);
+
     // close the db
     fdb_close(&db);
 
@@ -1234,6 +1242,79 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==9);
+    fdb_iterator_close(&iterator);
+
+    // remove document #8 and #9
+    fdb_doc_create(&rdoc, doc[8]->key, doc[8]->keylen, doc[8]->meta, doc[8]->metalen, NULL, 0);
+    status = fdb_del(&db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    fdb_doc_create(&rdoc, doc[9]->key, doc[9]->keylen, doc[9]->meta, doc[9]->metalen, NULL, 0);
+    status = fdb_del(&db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    // commit
+    fdb_commit(&db);
+
+    // create an iterator for full range
+    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    // repeat until fail
+    i=0;
+    while(1){
+        status = fdb_iterator_next(&iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        if (i < 8) {
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            TEST_CHK(rdoc->deleted == 1);
+        }
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==10);
+    fdb_iterator_close(&iterator);
+
+    // create an iterator for full range, but no deletes.
+    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
+    // repeat until fail
+    i=0;
+    while(1){
+        status = fdb_iterator_next(&iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==8);
+    fdb_iterator_close(&iterator);
+
+    // create an iterator for range of doc[4] ~ doc[8], but metadata only and no deletes.
+    sprintf(keybuf, "key%d", 4);
+    sprintf(temp, "key%d", 8);
+    fdb_iterator_init(&db, &iterator, keybuf, strlen(keybuf), temp, strlen(temp),
+                      FDB_ITR_METAONLY | FDB_ITR_NO_DELETES);
+    // repeat until fail
+    i=4;
+    while(1){
+        status = fdb_iterator_next(&iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(rdoc->deleted == 0);
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==8);
     fdb_iterator_close(&iterator);
 
     // close db file
