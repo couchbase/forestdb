@@ -197,6 +197,7 @@ void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize,
     uint32_t valuelen = 0;
 
     memcpy(&hbmeta->chunkno, buf, sizeof(hbmeta->chunkno));
+    hbmeta->chunkno = _endian_decode(hbmeta->chunkno);
     offset += sizeof(hbmeta->chunkno);
 
     memcpy(&valuelen, (uint8_t*)buf+offset, sizeof(trie->valuelen));
@@ -224,7 +225,7 @@ typedef enum {
     HBMETA_LEAF,
 } hbmeta_opt;
 void _hbtrie_store_meta(struct hbtrie *trie,
-                        metasize_t *metasize,
+                        metasize_t *metasize_out,
                         chunkno_t chunkno,
                         hbmeta_opt opt,
                         void *prefix,
@@ -232,30 +233,34 @@ void _hbtrie_store_meta(struct hbtrie *trie,
                         void *value,
                         void *buf)
 {
+    chunkno_t _chunkno;
+
     // write hbmeta to buf
-    *metasize = 0;
+    *metasize_out = 0;
 
     if (opt == HBMETA_LEAF) {
         chunkno |= CHUNK_FLAG;
     }
-    memcpy(buf, &chunkno, sizeof(chunkno));
-    *metasize += sizeof(chunkno);
+
+    _chunkno = _endian_encode(chunkno);
+    memcpy(buf, &_chunkno, sizeof(chunkno));
+    *metasize_out += sizeof(chunkno);
 
     if (value) {
-        memcpy((uint8_t*)buf + *metasize,
+        memcpy((uint8_t*)buf + *metasize_out,
                &trie->valuelen, sizeof(trie->valuelen));
-        *metasize += sizeof(trie->valuelen);
-        memcpy((uint8_t*)buf + *metasize,
+        *metasize_out += sizeof(trie->valuelen);
+        memcpy((uint8_t*)buf + *metasize_out,
                value, trie->valuelen);
-        *metasize += trie->valuelen;
+        *metasize_out += trie->valuelen;
     }else{
-        memset((uint8_t*)buf + *metasize, 0x0, sizeof(trie->valuelen));
-        *metasize += sizeof(trie->valuelen);
+        memset((uint8_t*)buf + *metasize_out, 0x0, sizeof(trie->valuelen));
+        *metasize_out += sizeof(trie->valuelen);
     }
 
     if (prefixlen > 0) {
-        memcpy((uint8_t*)buf + *metasize, prefix, prefixlen);
-        *metasize += prefixlen;
+        memcpy((uint8_t*)buf + *metasize_out, prefix, prefixlen);
+        *metasize_out += prefixlen;
     }
 }
 
@@ -276,21 +281,38 @@ INLINE int _hbtrie_find_diff_chunk(struct hbtrie *trie,
     return i;
 }
 
-//3 little endian
+//3 ASSUMPTION: 'VALUE' should be based on same endian to hb+trie
+
+#if defined(__ENDIAN_SAFE) || defined(_BIG_ENDIAN)
+// endian safe option is turned on, OR,
+// the architecture is based on big endian
+INLINE void _hbtrie_set_msb(struct hbtrie *trie, void *value)
+{
+    *((uint8_t*)value) |= (uint8_t)0x80;
+}
+INLINE void _hbtrie_clear_msb(struct hbtrie *trie, void *value)
+{
+    *((uint8_t*)value) &= ~((uint8_t)0x80);
+}
+INLINE int _hbtrie_is_msb_set(struct hbtrie *trie, void *value)
+{
+    return *((uint8_t*)value) & ((uint8_t)0x80);
+}
+#else
+// little endian
 INLINE void _hbtrie_set_msb(struct hbtrie *trie, void *value)
 {
     *((uint8_t*)value + (trie->valuelen-1)) |= (uint8_t)0x80;
 }
-
 INLINE void _hbtrie_clear_msb(struct hbtrie *trie, void *value)
 {
     *((uint8_t*)value + (trie->valuelen-1)) &= ~((uint8_t)0x80);
 }
-
 INLINE int _hbtrie_is_msb_set(struct hbtrie *trie, void *value)
 {
     return *((uint8_t*)value + (trie->valuelen-1)) & ((uint8_t)0x80);
 }
+#endif
 
 struct btreelist_item {
     struct btree btree;
@@ -424,6 +446,7 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             // load sub b-tree and create new iterator for the b-tree
             _hbtrie_clear_msb(trie, v);
             bid = trie->btree_kv_ops->value2bid(v);
+            bid = _endian_decode(bid);
             btree_init_from_bid(
                 &btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
                 trie->btree_nodesize, bid);
@@ -547,7 +570,7 @@ hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
 void _hbtrie_btree_cascaded_update(
     struct hbtrie *trie, struct list *btreelist, void *key, int free_opt)
 {
-    bid_t bid_new;
+    bid_t bid_new, _bid;
     btree_result r;
     struct btreelist_item *btreeitem, *btreeitem_child;
     struct list_elem *e, *e_child;
@@ -565,10 +588,11 @@ void _hbtrie_btree_cascaded_update(
         if (btreeitem->child_rootbid != btreeitem_child->btree.root_bid) {
             // root node of child sub-tree has been moved to another block -> update parent sub-tree
             bid_new = btreeitem_child->btree.root_bid;
-            _hbtrie_set_msb(trie, (void *)&bid_new);
+            _bid = _endian_encode(bid_new);
+            _hbtrie_set_msb(trie, (void *)&_bid);
             r = btree_insert(&btreeitem->btree,
                     (uint8_t*)key + btreeitem->chunkno * trie->chunksize,
-                    (void *)&bid_new);
+                    (void *)&_bid);
         }
         e_child = e;
         e = list_prev(e);
@@ -703,6 +727,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
                 // this is BID of b-tree node (by clearing MSB)
                 _hbtrie_clear_msb(trie, btree_value);
                 bid_new = trie->btree_kv_ops->value2bid(btree_value);
+                bid_new = _endian_decode(bid_new);
 
                 if (btreelist) {
                     btreeitem->child_rootbid = bid_new;
@@ -991,6 +1016,7 @@ void _hbtrie_extend_leaf_tree(
 
 }
 
+// suppose that VALUE and OLDVALUE_OUT are based on the same endian in hb+trie
 hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
             void *value, void *oldvalue_out)
 {
@@ -1028,7 +1054,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
     uint8_t *buf = alca(uint8_t, trie->btree_nodesize);
     uint8_t *btree_value = alca(uint8_t, trie->valuelen);
     void *chunk, *chunk_new;
-    bid_t bid_new;
+    bid_t bid_new, _bid;
 
     meta.data = buf;
     prevchunkno = curchunkno = 0;
@@ -1110,8 +1136,9 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                             diffchunkno * trie->chunksize;
                 btreeitem_new->child_rootbid = bid_new = btreeitem->btree.root_bid;
                 // set MSB
-                _hbtrie_set_msb(trie, (void*)&bid_new);
-                r = btree_insert(&btreeitem_new->btree, chunk_new, (void*)&bid_new);
+                _bid = _endian_encode(bid_new);
+                _hbtrie_set_msb(trie, (void*)&_bid);
+                r = btree_insert(&btreeitem_new->btree, chunk_new, (void*)&_bid);
 
                 break;
             }
@@ -1163,19 +1190,25 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
             break;
 
         }else{
-            // same chunk already exists -> check whether the value points to sub-tree or document
+            // same chunk already exists
+            // -> check whether the value points to sub-tree or document
             // check MSB
             if (_hbtrie_is_msb_set(trie, btree_value)) {
                 // this is BID of b-tree node (by clearing MSB)
                 _hbtrie_clear_msb(trie, btree_value);
-                bid_new = btreeitem->child_rootbid = trie->btree_kv_ops->value2bid(btree_value);
+                bid_new = trie->btree_kv_ops->value2bid(btree_value);
+                bid_new = _endian_decode(bid_new);
+                btreeitem->child_rootbid = bid_new;
                 //3 traverse to the sub-tree
                 // fetch sub-tree
-                btreeitem = (struct btreelist_item*)mempool_alloc(sizeof(struct btreelist_item));
+                btreeitem = (struct btreelist_item*)
+                            mempool_alloc(sizeof(struct btreelist_item));
 
-                r = btree_init_from_bid(
-                    &btreeitem->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
-                    trie->btree_nodesize, bid_new);
+                r = btree_init_from_bid(&btreeitem->btree,
+                                        trie->btreeblk_handle,
+                                        trie->btree_blk_ops,
+                                        trie->btree_kv_ops,
+                                        trie->btree_nodesize, bid_new);
                 list_push_back(&btreelist, &btreeitem->e);
 
             }else{
@@ -1191,6 +1224,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
 
                 // get offset value from btree_value
                 offset = trie->btree_kv_ops->value2bid(btree_value);
+
                 // read entire key
                 docrawkeylen = trie->readkey(trie->doc_handle, offset, docrawkey);
                 dockeylen = _hbtrie_reform_key(trie, docrawkey, docrawkeylen, dockey);
@@ -1338,11 +1372,14 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                 }
 
                 // update previous (parent) b-tree
-                bid_new = btreeitem->child_rootbid = btreeitem_new->btree.root_bid;
+                bid_new = btreeitem_new->btree.root_bid;
+                btreeitem->child_rootbid = bid_new;
+
                 // set MSB
-                _hbtrie_set_msb(trie, (void *)&bid_new);
+                _bid = _endian_encode(bid_new);
+                _hbtrie_set_msb(trie, (void *)&_bid);
                 // ASSUMPTION: parent b-tree always MUST be non-leaf b-tree
-                r = btree_insert(&btreeitem->btree, chunk, (void*)&bid_new);
+                r = btree_insert(&btreeitem->btree, chunk, (void*)&_bid);
 
                 break;
 

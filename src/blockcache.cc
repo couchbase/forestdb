@@ -388,9 +388,10 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 #ifdef __CRC32
             if (marker == BLK_MARKER_BNODE ) {
                 // b-tree node .. calculate crc32 and put it into the block
-                    memset((uint8_t *)(ptr) + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
+                memset((uint8_t *)(ptr) + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
                 uint32_t crc = crc32_8(ptr, bcache_blocksize, 0);
-                    memcpy((uint8_t *)(ptr) + BTREE_CRC_OFFSET, &crc, sizeof(crc));
+                crc = _endian_encode(crc);
+                memcpy((uint8_t *)(ptr) + BTREE_CRC_OFFSET, &crc, sizeof(crc));
             }
 #endif
             memcpy((uint8_t *)(buf) + count*bcache_blocksize, ditem->item->addr,

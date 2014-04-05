@@ -40,6 +40,7 @@ INLINE struct bnode *_fetch_bnode(struct btree *btree, void *addr, uint16_t leve
     struct bnode *node = NULL;
 
     node = (struct bnode *)addr;
+
     if (!(node->flag & BNODE_MASK_METADATA)) {
         // no metadata
         node->data = (uint8_t *)addr + sizeof(struct bnode);
@@ -47,10 +48,22 @@ INLINE struct bnode *_fetch_bnode(struct btree *btree, void *addr, uint16_t leve
         // metadata
         metasize_t metasize;
         memcpy(&metasize, (uint8_t *)addr + sizeof(struct bnode), sizeof(metasize_t));
+        metasize = _endian_decode(metasize);
         node->data = (uint8_t *)addr + sizeof(struct bnode) + sizeof(metasize_t) +
                      _metasize_align(metasize);
     }
     return node;
+}
+
+struct bnode ** btree_get_bnode_array(void *addr, size_t *nnode_out)
+{
+    // original b+tree always has only a single node per block
+    struct bnode **ret;
+    *nnode_out = 1;
+    ret = (struct bnode **)malloc(sizeof(struct bnode*) * (*nnode_out));
+    ret[0] = _fetch_bnode(NULL, addr, 0);
+
+    return ret;
 }
 
 INLINE int _bnode_size(
@@ -61,6 +74,7 @@ INLINE int _bnode_size(
     if (node->flag & BNODE_MASK_METADATA) {
         metasize_t size;
         memcpy(&size, (uint8_t *)node + sizeof(struct bnode), sizeof(metasize_t));
+        size = _endian_decode(size);
         nodesize =
             sizeof(struct bnode) +
             btree->kv_ops->get_data_size(node, new_minkey, key_arr, value_arr, len) +
@@ -165,6 +179,8 @@ INLINE struct bnode * _btree_init_node(
 {
     struct bnode *node;
     void *node_addr;
+    metasize_t _size;
+
     node_addr = addr;
 
     node = (struct bnode *)node_addr;
@@ -174,7 +190,8 @@ INLINE struct bnode * _btree_init_node(
     node->flag = flag;
 
     if ((flag & BNODE_MASK_METADATA) && meta) {
-        memcpy((uint8_t *)node_addr + sizeof(struct bnode), &meta->size, sizeof(metasize_t));
+        _size = _endian_encode(meta->size);
+        memcpy((uint8_t *)node_addr + sizeof(struct bnode), &_size, sizeof(metasize_t));
         memcpy((uint8_t *)node_addr + sizeof(struct bnode) + sizeof(metasize_t),
                meta->data, meta->size);
         node->data = (uint8_t *)node_addr + sizeof(struct bnode) + sizeof(metasize_t) +
@@ -200,6 +217,7 @@ INLINE size_t _btree_get_nsplitnode(struct btree *btree, bid_t bid, struct bnode
     if (node->flag & BNODE_MASK_METADATA) {
         metasize_t size;
         memcpy(&size, (uint8_t *)node + sizeof(struct bnode), sizeof(metasize_t));
+        size = _endian_decode(size);
         headersize = sizeof(struct bnode) + _metasize_align(size) + sizeof(metasize_t);
     }else{
         headersize = sizeof(struct bnode);
@@ -224,6 +242,7 @@ metasize_t btree_read_meta(struct btree *btree, void *buf)
     if (node->flag & BNODE_MASK_METADATA) {
         ptr = ((uint8_t *)node) + sizeof(struct bnode);
         memcpy(&size, (uint8_t *)ptr, sizeof(metasize_t));
+        size = _endian_decode(size);
         memcpy(buf, (uint8_t *)ptr + sizeof(metasize_t), size);
     } else {
         size = 0;
@@ -236,7 +255,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
 {
     void *addr;
     void *ptr;
-    metasize_t metasize;
+    metasize_t metasize, _metasize;
     metasize_t old_metasize;
     struct bnode *node;
     bid_t new_bid;
@@ -250,6 +269,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
 
     if (node->flag & BNODE_MASK_METADATA) {
         memcpy(&old_metasize, ptr, sizeof(metasize_t));
+        old_metasize = _endian_decode(old_metasize);
     }
 
     if (meta) {
@@ -260,7 +280,8 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
 
         // overwrite
         if (meta->size > 0) {
-            memcpy(ptr, &metasize, sizeof(metasize_t));
+            _metasize = _endian_encode(metasize);
+            memcpy(ptr, &_metasize, sizeof(metasize_t));
             memcpy((uint8_t *)ptr + sizeof(metasize_t), meta->data, metasize);
             node->flag |= BNODE_MASK_METADATA;
         }else{
@@ -503,6 +524,7 @@ void _btree_print_node(struct btree *btree, int depth, bid_t bid, btree_print_fu
     uint8_t *k = alca(uint8_t, btree->ksize);
     uint8_t *v = alca(uint8_t, btree->vsize);
     void *addr;
+    bid_t _bid;
     struct bnode *node;
     struct bnode *child;
 
@@ -515,13 +537,17 @@ void _btree_print_node(struct btree *btree, int depth, bid_t bid, btree_print_fu
 
     for (i=0;i<node->nentry;++i){
         btree->kv_ops->get_kv(node, i, k, v);
-        func(btree, k, v);
+        _bid = btree->kv_ops->value2bid(v);
+        _bid = _endian_decode(_bid);
+        func(btree, k, (void*)&_bid);
     }
     fprintf(stderr, "]\n");
     if (depth > 1) {
         for (i=0;i<node->nentry;++i){
             btree->kv_ops->get_kv(node, i, k, v);
-            _btree_print_node(btree, depth-1, btree->kv_ops->value2bid(v), func);
+            _bid = btree->kv_ops->value2bid(v);
+            _bid = _endian_decode(_bid);
+            _btree_print_node(btree, depth-1, _bid, func);
         }
     }
 
@@ -574,6 +600,7 @@ btree_result btree_get_key_range(
         // get first child node (for KEY_BEGIN)
         btree->kv_ops->get_kv(root, idx_begin, k, v);
         bid = btree->kv_ops->value2bid(v);
+        bid = _endian_decode(bid);
         addr = btree->blk_ops->blk_read(btree->blk_handle, bid);
         node = _fetch_bnode(btree, addr, btree->height-1);
 
@@ -584,6 +611,7 @@ btree_result btree_get_key_range(
         if (idx_end != idx_begin) {
             btree->kv_ops->get_kv(root, idx_end, k, v);
             bid = btree->kv_ops->value2bid(v);
+            bid = _endian_decode(bid);
             addr = btree->blk_ops->blk_read(btree->blk_handle, bid);
             node = _fetch_bnode(btree, addr, btree->height-1);
         }
@@ -634,6 +662,7 @@ btree_result btree_find(struct btree *btree, void *key, void *value_buf)
             // index (non-leaf) node
             // get bid of child node from value
             bid[i-1] = btree->kv_ops->value2bid(v);
+            bid[i-1] = _endian_decode(bid[i-1]);
         }else{
             // leaf node
             // return (address of) value if KEY == k
@@ -660,6 +689,7 @@ int _btree_split_node(
     void *addr;
     size_t nnode = nsplitnode;
     int j, *nentry = alca(int, nnode);
+    bid_t _bid;
     bid_t *new_bid = alca(bid_t, nnode);
     idx_t *split_idx = alca(idx_t, nnode+1);
     idx_t *idx_ins = alca(idx_t, btree->height);
@@ -728,7 +758,8 @@ int _btree_split_node(
         // non-root node
         // reserve kv-pair (i.e. splitters) to be inserted into parent node
         for (j=1; j<nnode; ++j){
-            kv_item = _kv_ins_item_create(btree, NULL, (void *)&new_bid[j]);
+            _bid = _endian_encode(new_bid[j]);
+            kv_item = _kv_ins_item_create(btree, NULL, (void *)&_bid);
             btree->kv_ops->get_nth_splitter(new_node[j-1], new_node[j], kv_item->key);
             list_push_back(&kv_ins_list[i+1], &kv_item->le);
         }
@@ -776,12 +807,15 @@ int _btree_split_node(
         // insert kv-pairs pointing to their child nodes
         // original (i.e. the first node)
         btree->kv_ops->get_kv(node[i], 0, k, v);
-        _btree_add_entry(btree, new_root, k, btree->kv_ops->bid2value(&bid[i]));
+        _bid = _endian_encode(bid[i]);
+        _btree_add_entry(btree, new_root, k, btree->kv_ops->bid2value(&_bid));
+
         // the others
         for (j=1;j<nnode;++j){
             //btree->kv_ops->get_kv(new_node[j], 0, k, v);
             btree->kv_ops->get_nth_splitter(new_node[j-1], new_node[j], k);
-            _btree_add_entry(btree, new_root, k, btree->kv_ops->bid2value(&new_bid[j]));
+            _bid = _endian_encode(new_bid[j]);
+            _btree_add_entry(btree, new_root, k, btree->kv_ops->bid2value(&_bid));
         }
 
         return 1;
@@ -800,7 +834,7 @@ int _btree_move_modified_node(
 
     // get new bid[i]
     addr = btree->blk_ops->blk_move(btree->blk_handle, bid[i], &bid[i]);
-    node[i] = _fetch_bnode(btree, addr, i+1);
+    //node[i] = _fetch_bnode(btree, addr, i+1);
     moved[i] = 1;
 
     if (i+1 == btree->height)
@@ -819,6 +853,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
     // index# and block ID for each level
     idx_t *idx = alca(idx_t, btree->height);
     bid_t *bid = alca(bid_t, btree->height);
+    bid_t _bid;
     // flags
     int8_t *modified = alca(int8_t, btree->height);
     int8_t *moved = alca(int8_t, btree->height);
@@ -876,6 +911,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
             // get bid of child node from value
             btree->kv_ops->get_kv(node[i], idx[i], k, v);
             bid[i-1] = btree->kv_ops->value2bid(v);
+            bid[i-1] = _endian_decode(bid[i-1]);
         }else{
             // leaf node .. do nothing
         }
@@ -898,7 +934,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
             // when child node is moved to new block
             if (moved[i-1]) {
                 // replace the bid (value)
-                btree->kv_ops->set_kv(node[i], idx[i], k, btree->kv_ops->bid2value(&bid[i-1]));
+                _bid = _endian_encode(bid[i-1]);
+                btree->kv_ops->set_kv(node[i], idx[i], k, btree->kv_ops->bid2value(&_bid));
                 modified[i] = 1;
             }
         }
@@ -1008,6 +1045,7 @@ btree_result btree_remove(struct btree *btree, void *key)
     // index# and block ID for each level
     idx_t *idx = alca(idx_t, btree->height);
     bid_t *bid= alca(bid_t, btree->height);
+    bid_t _bid;
     // flags
     int8_t *modified = alca(int8_t, btree->height);
     int8_t *moved = alca(int8_t, btree->height);
@@ -1015,7 +1053,7 @@ btree_result btree_remove(struct btree *btree, void *key)
     // index# of removed key
     idx_t *idx_rmv = alca(idx_t, btree->height);
     struct bnode **node = alca(struct bnode *, btree->height);
-    int i;
+    int i, j;
 
     // initialize flags
     for (i=0;i<btree->height;++i) {
@@ -1058,6 +1096,7 @@ btree_result btree_remove(struct btree *btree, void *key)
             // index (non-leaf) node
             // get bid of child node from value
             bid[i-1] = btree->kv_ops->value2bid(v);
+            bid[i-1] = _endian_decode(bid[i-1]);
         }else{
             // leaf node
         }
@@ -1084,7 +1123,8 @@ btree_result btree_remove(struct btree *btree, void *key)
             // when child node is moved to new block
             if (moved[i-1]) {
                 // replace the bid (value)
-                btree->kv_ops->set_kv(node[i], idx[i], k, btree->kv_ops->bid2value(&bid[i-1]));
+                _bid = _endian_encode(bid[i-1]);
+                btree->kv_ops->set_kv(node[i], idx[i], k, btree->kv_ops->bid2value(&_bid));
                 modified[i] = 1;
             }
         }
@@ -1112,6 +1152,7 @@ btree_result btree_remove(struct btree *btree, void *key)
                     btree->height--;
                     btree->kv_ops->get_kv(node[i], 0, k, v);
                     btree->root_bid = btree->kv_ops->value2bid(v);
+                    btree->root_bid = _endian_decode(btree->root_bid);
                 }
             }
         }
@@ -1259,6 +1300,7 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
         if (it->node[depth-1] == NULL) {
             btree->kv_ops->get_kv(node, it->idx[depth], k, v);
             it->bid[depth-1] = btree->kv_ops->value2bid(v);
+            it->bid[depth-1] = _endian_decode(it->bid[depth-1]);
         }
         r = _btree_next(it, key_buf, value_buf, depth-1);
 
@@ -1278,6 +1320,7 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
             }else{
                 btree->kv_ops->get_kv(node, it->idx[depth], k, v);
                 it->bid[depth-1] = btree->kv_ops->value2bid(v);
+                it->bid[depth-1] = _endian_decode(it->bid[depth-1]);
                 // reset child index
                 for (i=depth-1; i>=0; --i) {
                     it->idx[i] = 0;

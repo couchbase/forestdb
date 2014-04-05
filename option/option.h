@@ -43,6 +43,8 @@ typedef uint64_t fdb_seqnum_t;
 
 #define __BIT_CMP
 
+#define __ENDIAN_SAFE
+
 #define __WAL_KEY_COPY
 //#define __WAL_FLUSH_BEFORE_COMMIT
 

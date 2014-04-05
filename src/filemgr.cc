@@ -203,19 +203,26 @@ void _filemgr_read_header(struct filemgr *file)
                 // possible need for byte conversions here
                 memcpy(&magic, buf + file->blocksize - sizeof(magic)
                                - BLK_MARKER_SIZE, sizeof(magic));
+                magic = _endian_decode(magic);
+
                 if (magic == FILEMGR_MAGIC) {
                     memcpy(&len, buf + file->blocksize - sizeof(magic)
                                  - sizeof(len) - BLK_MARKER_SIZE, sizeof(len));
+                    len = _endian_decode(len);
+
                     if (len == BLK_DBHEADER_SIZE) {
-                        uint32_t crc, hdr_crc;
+                        uint32_t crc, crc_file;
                         crc = crc32_8(buf, len - sizeof(crc), 0);
-                        memcpy(&hdr_crc, buf + len - sizeof(crc), sizeof(crc));
-                        if (crc == hdr_crc) {
+                        memcpy(&crc_file, buf + len - sizeof(crc), sizeof(crc));
+                        crc_file = _endian_decode(crc_file);
+                        if (crc == crc_file) {
                             file->header.data = (void *)malloc(len);
 
                             memcpy(file->header.data, buf, len);
                             memcpy(&file->header.revnum, buf + len,
                                    sizeof(filemgr_header_revnum_t));
+                            file->header.revnum =
+                                _endian_decode(file->header.revnum);
                             file->header.size = len;
 
                             // release temp buffer
@@ -224,7 +231,7 @@ void _filemgr_read_header(struct filemgr *file)
                             return;
                         } else {
                             DBG("Crash Detected: CRC on disk %u != %u\n",
-                                    hdr_crc, crc);
+                                    crc_file, crc);
                         }
                     } else {
                         DBG("Crash Detected: Wrong len %u != %u\n", len,
@@ -616,6 +623,7 @@ INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
     if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file, crc;
         memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
+        crc_file = _endian_decode(crc_file);
         memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
         crc = crc32_8(buf, file->blocksize, 0);
         assert(crc == crc_file);
@@ -723,6 +731,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint
                 if (marker == BLK_MARKER_BNODE) {
                     memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
                     uint32_t crc32 = crc32_8(buf, file->blocksize, 0);
+                    crc32 = _endian_encode(crc32);
                     memcpy((uint8_t *)buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));
                 }
             }
@@ -751,9 +760,12 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
 
 fdb_status filemgr_commit(struct filemgr *file)
 {
-    fdb_status fs = FDB_RESULT_SUCCESS;
     uint16_t header_len = file->header.size;
+    uint16_t _header_len;
+    filemgr_header_revnum_t _revnum;
+    fdb_status fs = FDB_RESULT_SUCCESS;
     filemgr_magic_t magic = FILEMGR_MAGIC;
+    filemgr_magic_t _magic;
 
     if (global_config.ncacheblock > 0) {
         bcache_flush(file);
@@ -768,16 +780,19 @@ fdb_status filemgr_commit(struct filemgr *file)
         // header data
         memcpy(buf, file->header.data, header_len);
         // header rev number
-        memcpy((uint8_t *)buf + header_len, &file->header.revnum,
+        _revnum = _endian_encode(file->header.revnum);
+        memcpy((uint8_t *)buf + header_len, &_revnum,
                sizeof(filemgr_header_revnum_t));
 
         // header length
+        _header_len = _endian_encode(header_len);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - BLK_MARKER_SIZE),
-            &header_len, sizeof(header_len));
+               &_header_len, sizeof(header_len));
         // magic number
+        _magic = _endian_encode(magic);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
-               - BLK_MARKER_SIZE), &magic, sizeof(magic));
+               - BLK_MARKER_SIZE), &_magic, sizeof(magic));
 
         // marker
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);

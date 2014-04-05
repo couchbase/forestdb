@@ -43,6 +43,7 @@ uint32_t _set_doc(struct docio_object *doc, char *key, char *meta, char *body)
 size_t _readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
     keylen_t keylen;
+    offset = _endian_decode(offset);
     docio_read_doc_key((struct docio_handle * )handle, offset, &keylen, buf);
     return keylen;
 }
@@ -94,7 +95,7 @@ void basic_test()
     struct hbtrie trie;
     struct docio_object doc;
     struct filemgr_config config;
-    uint64_t offset, offset_old;
+    uint64_t offset, offset_old, _offset;
     uint32_t docsize;
     char keybuf[256], metabuf[256], bodybuf[256];
     char dockey[256], meta[256], body[256];
@@ -135,7 +136,8 @@ void basic_test()
         sprintf(body, "body_%03d", i);
         docsize = _set_doc(&doc, dockey, meta, body);
         offset = docio_append_doc(&dhandle, &doc);
-        hbtrie_insert(&trie, (void*)key[i], strlen(key[i]), (void*)&offset, (void*)&offset_old);
+        _offset = _endian_encode(offset);
+        hbtrie_insert(&trie, (void*)key[i], strlen(key[i]), (void*)&_offset, (void*)&offset_old);
         btreeblk_end(&bhandle);
     }
 
@@ -151,6 +153,7 @@ void basic_test()
                 TEST_CHK(r != HBTRIE_RESULT_FAIL);
 
                 memcpy(&offset, valuebuf, 8);
+                offset = _endian_decode(offset);
                 docio_read_doc(&dhandle, offset, &doc);
                 sprintf(meta, "metadata_%03d", i);
                 sprintf(body, "body_%03d", i);
@@ -169,6 +172,7 @@ void basic_test()
     while(1){
         r = hbtrie_next(&it, (void*)keybuf, &keylen, (void*)&offset);
         if (r==HBTRIE_RESULT_FAIL) break;
+        offset = _endian_decode(offset);
         docio_read_doc(&dhandle, offset, &doc);
         keybuf[keylen] = 0;
         DBG("%s\n", keybuf);
@@ -333,7 +337,9 @@ void large_test()
 char **_skew_key_ptr;
 size_t _readkey_wrap_memory(void *handle, uint64_t offset, void *buf)
 {
-    keylen_t keylen = strlen(_skew_key_ptr[offset]);
+    keylen_t keylen;
+    offset = _endian_decode(offset);
+    keylen = strlen(_skew_key_ptr[offset]);
     memcpy(buf, _skew_key_ptr[offset], keylen);
     return keylen;
 }
@@ -354,7 +360,7 @@ void skew_basic_test()
     hbtrie_result hr;
     size_t keylen;
     void *addr;
-    uint64_t offset;
+    uint64_t offset, _offset;
 
     memleak_start();
 
@@ -411,8 +417,9 @@ void skew_basic_test()
 
     for (i=0;i<n;++i){
         offset = i;
+        _offset = _endian_encode(offset);
         hbtrie_insert(&trie, (void *)key_cpy[i], strlen(key_cpy[i]),
-                      (void *)&offset, (void *)value_buf);
+                      (void *)&_offset, (void *)value_buf);
         btreeblk_end(&bhandle);
     }
 
@@ -421,6 +428,7 @@ void skew_basic_test()
         hbtrie_find(&trie, (void *)key_cpy[i], strlen(key_cpy[i]),
                     (void *)&offset);
         btreeblk_end(&bhandle);
+        offset = _endian_decode(offset);
         printf("%s\n", key_cpy[offset]);
     }
 
@@ -460,20 +468,23 @@ void skew_basic_test()
 
     // update metasection key
     offset = 3;
+    _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
-                       (void*)&offset, (void*)value_buf);
+                       (void*)&_offset, (void*)value_buf);
     btreeblk_end(&bhandle);
 
     // update leaf tree key
     offset = 1;
+    _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
-                       (void*)&offset, (void*)value_buf);
+                       (void*)&_offset, (void*)value_buf);
     btreeblk_end(&bhandle);
 
     // update normal tree key
     offset = 16;
+    _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
-                       (void*)&offset, (void*)value_buf);
+                       (void*)&_offset, (void*)value_buf);
     btreeblk_end(&bhandle);
 
     // range scan from the beginning
@@ -496,6 +507,7 @@ void skew_basic_test()
         btreeblk_end(&bhandle);
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         key_buf[keylen]=0;
+        offset = _endian_decode(offset);
         printf("%s %d\n", key_cpy[offset], (int)offset);
     }
     hbtrie_iterator_free(&it);

@@ -58,39 +58,67 @@ static fdb_status _fdb_open(fdb_handle *handle,
                             const char *filename,
                             const fdb_config *config);
 
+INLINE int _cmp_uint64_t_endian_safe(void *key1, void *key2)
+{
+    uint64_t a,b;
+    a = *(uint64_t*)key1;
+    b = *(uint64_t*)key2;
+    a = _endian_decode(a);
+    b = _endian_decode(b);
+    return _CMP_U64(a, b);
+}
+
 INLINE size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
     keylen_t keylen;
+    offset = _endian_decode(offset);
     docio_read_doc_key((struct docio_handle *)handle, offset, &keylen, buf);
     return keylen;
 }
 
-INLINE void _fdb_fetch_header(
-    void *header_buf,
-    size_t header_len,
-    bid_t *trie_root_bid,
-    bid_t *seq_root_bid,
-    fdb_seqnum_t *seqnum,
-    uint64_t *ndocs,
-    uint64_t *datasize,
-    uint64_t *last_header_bid,
-    char **new_filename,
-    char **old_filename)
+INLINE void _fdb_fetch_header(void *header_buf,
+                              size_t header_len,
+                              bid_t *trie_root_bid,
+                              bid_t *seq_root_bid,
+                              fdb_seqnum_t *seqnum,
+                              uint64_t *ndocs,
+                              uint64_t *datasize,
+                              uint64_t *last_header_bid,
+                              char **new_filename,
+                              char **old_filename)
 {
     size_t offset = 0;
     uint8_t new_filename_len;
     uint8_t old_filename_len;
-    seq_memcpy(trie_root_bid, (uint8_t *)header_buf + offset, sizeof(bid_t), offset);
-    seq_memcpy(seq_root_bid, (uint8_t *)header_buf + offset, sizeof(bid_t), offset);
-    seq_memcpy(seqnum, (uint8_t *)header_buf + offset, sizeof(fdb_seqnum_t), offset);
-    seq_memcpy(ndocs, (uint8_t *)header_buf + offset, sizeof(uint64_t), offset);
-    seq_memcpy(datasize, (uint8_t *)header_buf + offset, sizeof(uint64_t), offset);
+
+    seq_memcpy(trie_root_bid, (uint8_t *)header_buf + offset,
+               sizeof(bid_t), offset);
+    *trie_root_bid = _endian_decode(*trie_root_bid);
+
+    seq_memcpy(seq_root_bid, (uint8_t *)header_buf + offset,
+               sizeof(bid_t), offset);
+    *seq_root_bid = _endian_decode(*seq_root_bid);
+
+    seq_memcpy(seqnum, (uint8_t *)header_buf + offset,
+               sizeof(fdb_seqnum_t), offset);
+    *seqnum = _endian_decode(*seqnum);
+
+    seq_memcpy(ndocs, (uint8_t *)header_buf + offset,
+               sizeof(uint64_t), offset);
+    *ndocs = _endian_decode(*ndocs);
+
+    seq_memcpy(datasize, (uint8_t *)header_buf + offset,
+               sizeof(uint64_t), offset);
+    *datasize = _endian_decode(*datasize);
+
     seq_memcpy(last_header_bid, (uint8_t *)header_buf + offset,
-        sizeof(uint64_t), offset);
-    seq_memcpy(&new_filename_len, (uint8_t *)header_buf + offset, sizeof(uint8_t),
-        offset);
-    seq_memcpy(&old_filename_len, (uint8_t *)header_buf + offset, sizeof(uint8_t),
-        offset);
+               sizeof(uint64_t), offset);
+    *last_header_bid = _endian_decode(*last_header_bid);
+
+    seq_memcpy(&new_filename_len, (uint8_t *)header_buf + offset,
+               sizeof(uint8_t), offset);
+    seq_memcpy(&old_filename_len, (uint8_t *)header_buf + offset,
+               sizeof(uint8_t), offset);
     if (new_filename_len) {
         *new_filename = (char*)((uint8_t *)header_buf + offset);
     }
@@ -369,7 +397,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
         handle->seqnum = seqnum;
         struct btree_kv_ops *kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
         memcpy(kv_ops, handle->trie->btree_kv_ops, sizeof(struct btree_kv_ops));
-        kv_ops->cmp = _cmp_uint64_t;
+        kv_ops->cmp = _cmp_uint64_t_endian_safe;
 
         handle->seqtree = (struct btree*)malloc(sizeof(struct btree));
         if (seq_root_bid == BLK_NOT_FOUND) {
@@ -443,7 +471,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         }
         memcpy((*doc)->key, key, keylen);
         (*doc)->keylen = keylen;
-    } else{
+    } else {
         (*doc)->key = NULL;
         (*doc)->keylen = 0;
     }
@@ -455,7 +483,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         }
         memcpy((*doc)->meta, meta, metalen);
         (*doc)->metalen = metalen;
-    } else{
+    } else {
         (*doc)->meta = NULL;
         (*doc)->metalen = 0;
     }
@@ -467,7 +495,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         }
         memcpy((*doc)->body, body, bodylen);
         (*doc)->bodylen = bodylen;
-    } else{
+    } else {
         (*doc)->body = NULL;
         (*doc)->bodylen = 0;
     }
@@ -556,6 +584,8 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     hr = hbtrie_find_offset(handle->trie, item->key, item->keylen,
                             (void*)&old_offset);
     btreeblk_end(handle->bhandle);
+    old_offset = _endian_decode(old_offset);
+
     return old_offset;
 }
 
@@ -564,16 +594,20 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     hbtrie_result hr;
     btree_result br;
     fdb_handle *handle = (fdb_handle *)voidhandle;
-    uint64_t old_offset;
+    fdb_seqnum_t _seqnum;
+    uint64_t old_offset, _offset;
 
     if (item->action == WAL_ACT_INSERT || item->action == WAL_ACT_LOGICAL_REMOVE) {
+        _offset = _endian_encode(item->offset);
         hr = hbtrie_insert(handle->trie, item->key, item->keylen,
-            (void *)&item->offset, (void *)&old_offset);
+            (void *)&_offset, (void *)&old_offset);
         btreeblk_end(handle->bhandle);
+        old_offset = _endian_decode(old_offset);
 
         SEQTREE(
             if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                br = btree_insert(handle->seqtree, (void *)&item->seqnum, (void *)&item->offset);
+                _seqnum = _endian_encode(item->seqnum);
+                br = btree_insert(handle->seqtree, (void *)&_seqnum, (void *)&_offset);
                 btreeblk_end(handle->bhandle);
             }
         );
@@ -597,7 +631,8 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
         SEQTREE(
             if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                br = btree_remove(handle->seqtree, (void*)&item->seqnum);
+                _seqnum = _endian_encode(item->seqnum);
+                br = btree_remove(handle->seqtree, (void*)&_seqnum);
                 btreeblk_end(handle->bhandle);
             }
         );
@@ -697,6 +732,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     if (wr == WAL_RESULT_FAIL) {
         hr = hbtrie_find(handle->trie, doc->key, doc->keylen, (void *)&offset);
         btreeblk_end(handle->bhandle);
+        offset = _endian_decode(offset);
     } else {
         if (wal_file == handle->new_file) {
             dhandle = handle->new_dhandle;
@@ -765,6 +801,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
     if (wr == WAL_RESULT_FAIL) {
         hr = hbtrie_find(handle->trie, doc->key, doc->keylen, (void *)&offset);
         btreeblk_end(handle->bhandle);
+        offset = _endian_decode(offset);
     } else {
         if (wal_file == handle->new_file) {
             dhandle = handle->new_dhandle;
@@ -811,6 +848,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
     struct filemgr *wal_file;
     wal_result wr;
     btree_result br = BTREE_RESULT_FAIL;
+    fdb_seqnum_t _seqnum;
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
@@ -829,8 +867,10 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
     wr = wal_find(wal_file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
-        br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
+        _seqnum = _endian_encode(doc->seqnum);
+        br = btree_find(handle->seqtree, (void *)&_seqnum, (void *)&offset);
         btreeblk_end(handle->bhandle);
+        offset = _endian_decode(offset);
     } else {
         if (wal_file == handle->new_file) {
             dhandle = handle->new_dhandle;
@@ -880,6 +920,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     struct filemgr *wal_file;
     wal_result wr;
     btree_result br;
+    fdb_seqnum_t _seqnum;
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
@@ -898,8 +939,10 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     wr = wal_find(wal_file, doc, &offset);
 
     if (wr == WAL_RESULT_FAIL) {
-        br = btree_find(handle->seqtree, (void *)&doc->seqnum, (void *)&offset);
+        _seqnum = _endian_encode(doc->seqnum);
+        br = btree_find(handle->seqtree, (void *)&_seqnum, (void *)&offset);
         btreeblk_end(handle->bhandle);
+        offset = _endian_decode(offset);
     } else {
         if (wal_file == handle->new_file) {
             dhandle = handle->new_dhandle;
@@ -1050,21 +1093,25 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     [total size: 566 bytes] BLK_DBHEADER_SIZE must be incremented on new fields
     */
     uint8_t buf[BLK_DBHEADER_SIZE];
-    size_t offset = 0;
     uint32_t crc;
+    uint64_t _edn_safe_64;
+    size_t offset = 0;
     size_t new_filename_len = 0;
     size_t old_filename_len = 0;
 
     // hb+trie root bid
-    seq_memcpy(buf + offset, &handle->trie->root_bid, sizeof(handle->trie->root_bid), offset);
+    _edn_safe_64 = _endian_encode(handle->trie->root_bid);
+    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->trie->root_bid), offset);
 
 #ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // b+tree root bid
-        seq_memcpy(buf + offset, &handle->seqtree->root_bid,
+        _edn_safe_64 = _endian_encode(handle->seqtree->root_bid);
+        seq_memcpy(buf + offset, &_edn_safe_64,
             sizeof(handle->seqtree->root_bid), offset);
         // sequence number
-        seq_memcpy(buf + offset, &handle->seqnum, sizeof(handle->seqnum), offset);
+        _edn_safe_64 = _endian_encode(handle->seqnum);
+        seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->seqnum), offset);
     }else{
         memset(buf + offset, 0, sizeof(uint64_t) + sizeof(handle->seqnum));
         offset += sizeof(uint64_t) + sizeof(handle->seqnum);
@@ -1075,11 +1122,14 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
 #endif
 
     // # docs
-    seq_memcpy(buf + offset, &handle->ndocs, sizeof(handle->ndocs), offset);
+    _edn_safe_64 = _endian_encode(handle->ndocs);
+    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->ndocs), offset);
     // data size
-    seq_memcpy(buf + offset, &handle->datasize, sizeof(handle->datasize), offset);
+    _edn_safe_64 = _endian_encode(handle->datasize);
+    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->datasize), offset);
     // last header bid
-    seq_memcpy(buf + offset, &handle->last_header_bid,
+    _edn_safe_64 = _endian_encode(handle->last_header_bid);
+    seq_memcpy(buf + offset, &_edn_safe_64,
         sizeof(handle->last_header_bid), offset);
 
     // size of newly compacted target file name
@@ -1112,6 +1162,7 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
 
     // crc32
     crc = crc32_8(buf, offset, 0);
+    crc = _endian_encode(crc);
     seq_memcpy(buf + offset, &crc, sizeof(crc), offset);
 
     return filemgr_update_header(handle->file, buf, offset);
@@ -1222,6 +1273,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 
         hr = hbtrie_next_value_only(&it, (void*)&offset);
         btreeblk_end(handle->bhandle);
+        offset = _endian_decode(offset);
 
         if ( hr != HBTRIE_RESULT_FAIL ) {
             // add to offset array

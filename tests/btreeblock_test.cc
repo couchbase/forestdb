@@ -51,7 +51,7 @@ void basic_test()
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
-    config.ncacheblock = 1024;
+    config.ncacheblock = 0;
     config.flag = 0x0;
     r = system(SHELL_DEL" dummy");
     file = filemgr_open(fname, get_filemgr_ops(), &config);
@@ -115,6 +115,9 @@ void basic_test()
     btree_print_node(&btree2, print_btree);
     */
     btreeblk_free(&btree_handle);
+
+    filemgr_close(file, 1);
+    filemgr_shutdown();
 
     TEST_RESULT("basic test");
 }
@@ -192,6 +195,8 @@ void iterator_test()
     }
     btree_iterator_free(&bi);
 
+    filemgr_close(file, 1);
+    filemgr_shutdown();
 
     TEST_RESULT("iterator test");
 }
@@ -229,6 +234,8 @@ void two_btree_test()
     }
 
     filemgr_commit(file);
+    filemgr_close(file, 1);
+    filemgr_shutdown();
 
     btree_print_node(&btree_a, print_btree);
     btree_print_node(&btree_b, print_btree);
@@ -286,10 +293,9 @@ int main()
     #endif
 
     int r = system(SHELL_DEL" dummy");
-    //basic_test();
-    //iterator_test();
-    //two_btree_test();
-    //btreeblk_cache_test();
+    basic_test();
+    iterator_test();
+    two_btree_test();
     range_test();
 
     return 0;

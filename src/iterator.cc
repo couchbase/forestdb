@@ -193,6 +193,7 @@ start:
         hr = hbtrie_next(
             iterator->hbtrie_iterator, key, &iterator->_keylen, (void*)&iterator->_offset);
         btreeblk_end(iterator->handle.bhandle);
+        iterator->_offset = _endian_decode(iterator->_offset);
     }
     keylen = iterator->_keylen;
     offset = iterator->_offset;

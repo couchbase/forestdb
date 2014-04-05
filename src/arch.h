@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 
+#include "forestdb_endian.h"
 /* Large File Support */
 #define _LARGE_FILE 1
 #ifndef _FILE_OFFSET_BITS
@@ -48,7 +49,7 @@
     #define _ARCH_O_DIRECT (0x0)
 
     #define malloc_align(addr, align, size) \
-        int __ret__ = posix_memalign(&(addr), (align), (size))
+        {int __ret__ = posix_memalign(&(addr), (align), (size));}
     #define free_align(addr) free(addr)
 
     #ifndef spin_t
@@ -94,7 +95,7 @@
     #define _ARCH_O_DIRECT (O_DIRECT)
 
     #define malloc_align(addr, align, size) \
-        addr = memalign((align), (size))
+        {int __ret__ = posix_memalign(&(addr), (align), (size));}
     #define free_align(addr) free(addr)
 
     #ifndef spin_t

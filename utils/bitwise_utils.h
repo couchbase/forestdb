@@ -10,22 +10,31 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define CHK_POW2(v) (!((uint64_t)v & ((uint64_t)v - 0x1)))
 
+#ifndef bitswap64
 #define bitswap64(v)    \
-    ((((v) & 0xff00000000000000ULL) >> 56) \
+    ( (((v) & 0xff00000000000000ULL) >> 56) \
     | (((v) & 0x00ff000000000000ULL) >> 40) \
     | (((v) & 0x0000ff0000000000ULL) >> 24) \
     | (((v) & 0x000000ff00000000ULL) >>  8) \
     | (((v) & 0x00000000ff000000ULL) <<  8) \
     | (((v) & 0x0000000000ff0000ULL) << 24) \
     | (((v) & 0x000000000000ff00ULL) << 40) \
-    | (((v) & 0x00000000000000ffULL) << 56))
+    | (((v) & 0x00000000000000ffULL) << 56) )
+#endif
 
+#ifndef bitswap32
 #define bitswap32(v)    \
-    ((((v) & 0xff000000) >> 24) \
-    | (((v) & 0x00ff0000) >> 8) \
-    | (((v) & 0x0000ff00) << 8) \
-    | (((v) & 0x000000ff) << 24))
+    ( (((v) & 0xff000000) >> 24) \
+    | (((v) & 0x00ff0000) >>  8) \
+    | (((v) & 0x0000ff00) <<  8) \
+    | (((v) & 0x000000ff) << 24) )
+#endif
 
+#ifndef bitswap16
+#define bitswap16(v)    \
+    ( (((v) & 0xff00) >> 8) \
+    | (((v) & 0x00ff) << 8) )
+#endif
 
 // can be faster under O3 optimization
 //#ifdef __BIT_CMP

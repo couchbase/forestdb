@@ -35,7 +35,7 @@ typedef enum {
     HBTRIE_RESULT_FAIL
 } hbtrie_result;
 
-#define HBTRIE_FLAG_COMPACT (0x1)
+#define HBTRIE_FLAG_COMPACT (0x01)
 struct btree_blk_ops;
 struct btree_kv_ops;
 struct hbtrie {
