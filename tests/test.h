@@ -74,12 +74,7 @@ extern "C" {
 #define SHELL_MOVE "mv "
 #endif
 
-#ifdef _MSC_VER
-#define memleak_start(arg)
-#define memleak_end(arg)
-#else
 #include "memleak.h"
-#endif
 
 #endif
 

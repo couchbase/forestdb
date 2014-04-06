@@ -16,6 +16,10 @@ else (NOT WIN32)
     set(GETTIMEOFDAY_VS "utils/gettimeofday_vs.cc")
 endif(NOT WIN32)
 
+IF (DEFINED _MEMLEAK)
+    ADD_DEFINITIONS(-D_MEMLEAK_ENABLE=1)
+ENDIF()
+
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments -g -fomit-frame-pointer -pthread")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
@@ -43,6 +47,7 @@ add_library(forestdb SHARED
             src/list.cc
             src/hash.cc
             src/wal.cc
+            utils/memleak.cc
             utils/crc32.cc
             utils/debug.cc
             utils/cJSON.cc)
@@ -54,8 +59,7 @@ add_executable(forestdb_test
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
                tests/forestdb_test.cc
-               ${GETTIMEOFDAY_VS}
-               utils/memleak.cc)
+               ${GETTIMEOFDAY_VS})
 target_link_libraries(forestdb_test forestdb)
 
 add_executable(hash_test

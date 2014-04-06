@@ -15,13 +15,71 @@
 #endif
 
 #include "arch.h"
-#include "memleak.h"
 
 #define _MALLOC_OVERRIDE
 #define INIT_VAL (0xff)
 #define FREE_VAL (0x11)
 //#define _WARN_NOT_ALLOCATED_MEMORY
 //#define _PRINT_DBG
+#if !defined(_WIN32) && !defined(WIN32)
+//#define _STACK_BACKTRACE
+//#define _LIBBFD
+#endif
+
+#include "memleak.h"
+
+#ifdef _STACK_BACKTRACE
+#include <execinfo.h>
+
+#ifdef _LIBBFD
+#include <dlfcn.h>
+#include <signal.h>
+#include <bfd.h>
+#include <unistd.h>
+
+/* globals retained across calls to resolve. */
+static bfd* abfd = 0;
+static asymbol **syms = 0;
+static asection *text = 0;
+
+static void resolve(void *address, char **file, char **func, unsigned *line) {
+    if (!abfd) {
+        char ename[1024];
+        int l = readlink("/proc/self/exe",ename,sizeof(ename));
+        if (l == -1) {
+            perror("failed to find executable\n");
+            return;
+        }
+        ename[l] = 0;
+
+        bfd_init();
+
+        abfd = bfd_openr(ename, 0);
+        if (!abfd) {
+            perror("bfd_openr failed: ");
+            return;
+        }
+
+        bfd_check_format(abfd,bfd_object);
+
+        unsigned storage_needed = bfd_get_symtab_upper_bound(abfd);
+        syms = (asymbol **) malloc(storage_needed);
+        unsigned cSymbols = bfd_canonicalize_symtab(abfd, syms);
+
+        text = bfd_get_section_by_name(abfd, ".text");
+    }
+
+    long offset = ((long)address) - text->vma;
+    if (offset > 0) {
+        bfd_find_nearest_line(abfd, text, syms, offset,
+            (const char**)file, (const char**)func, line);
+    }
+}
+
+#endif  // _LIBBFD
+
+#endif  // _STACK_BACKTRACE
+
 
 #ifdef _PRINT_DBG
     #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -37,6 +95,10 @@ struct memleak_item {
     size_t size;
     size_t line;
     struct avl_node avl;
+#ifdef _STACK_BACKTRACE
+    size_t bt_size;
+    void **btrace;
+#endif
 };
 
 static struct avl_tree tree_index;
@@ -53,6 +115,7 @@ int memleak_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     else return 0;
 }
 
+LIBMEMLEAK_API
 void memleak_start()
 {
     spin_init(&lock);
@@ -60,11 +123,17 @@ void memleak_start()
     start_sw = 1;
 }
 
+LIBMEMLEAK_API
 void memleak_end()
 {
     size_t count = 0;
     struct avl_node *a;
     struct memleak_item *item;
+#ifdef _STACK_BACKTRACE
+    char **strs;
+    char *file, *func;
+    unsigned line;
+#endif
 
     spin_lock(&lock);
 
@@ -78,6 +147,18 @@ void memleak_end()
 
         fprintf(stderr, "address 0x%016lx (allocated at %s:%lu, size %lu) is not freed\n",
             (unsigned long)item->addr, item->file, item->line, item->size);
+#ifdef _STACK_BACKTRACE
+        strs = backtrace_symbols(item->btrace, item->bt_size);
+        for (i=0;i<item->bt_size;++i){
+#ifdef _LIBBFD
+            resolve(item->btrace[i], &file, &func, &line);
+            fprintf(stderr, "    %s [%s:%d]\n", func, file, line);
+#else
+            fprintf(stderr, "    %s\n", strs[i]);
+#endif
+        }
+        free(item->btrace);
+#endif
         free(item);
         count++;
     }
@@ -97,84 +178,79 @@ void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uin
 #ifdef INIT_VAL
     memset(addr, init_val, size);
 #endif
+#ifdef _STACK_BACKTRACE
+    void *temp_stack[256];
+    item->bt_size = backtrace(temp_stack, 256);
+    item->btrace = (void**)malloc(sizeof(void*) * item->bt_size);
+    memcpy(item->btrace, temp_stack, sizeof(void*) * item->bt_size);
+#endif
     avl_insert(&tree_index, &item->avl, memleak_cmp);
 }
 
+LIBMEMLEAK_API
 void * memleak_alloc(size_t size, char *file, size_t line)
 {
-    spin_lock(&lock);
-
     void *addr = (void*)malloc(size);
     if (addr && start_sw) {
+        spin_lock(&lock);
         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
+        spin_unlock(&lock);
     }
 
-    spin_unlock(&lock);
     return addr;
 }
 
+LIBMEMLEAK_API
 void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
 {
-    spin_lock(&lock);
-
     void *addr = (void *)calloc(nmemb, size);
     if (addr && start_sw) {
+        spin_lock(&lock);
         _memleak_add_to_index(addr, size, file, line, 0x0);
+        spin_unlock(&lock);
     }
 
-    spin_unlock(&lock);
     return addr;
 }
 
 #ifndef WIN32
 // posix only
+LIBMEMLEAK_API
 int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
 {
-    spin_lock(&lock);
 
     int ret = posix_memalign(memptr, alignment, size);
     if (ret==0 && start_sw)
     {
+        spin_lock(&lock);
         _memleak_add_to_index(*memptr, size, file, line, INIT_VAL);
+        spin_unlock(&lock);
     }
 
-    spin_unlock(&lock);
     return ret;
 }
-#endif
+#else // WIN32
 
-void *memleak_realloc(void *ptr, size_t size)
+LIBMEMLEAK_API
+void * memleak_aligned_malloc(size_t size, size_t alignment, char *file, size_t line)
 {
-    spin_lock(&lock);
-
-    void *addr = (void *)realloc(ptr, size);
+    void *addr = (void*)_aligned_malloc(size, alignment);
     if (addr && start_sw) {
-        struct avl_node *a;
-        struct memleak_item *item, query;
-
-        query.addr = (uint64_t)ptr;
-        a = avl_search(&tree_index, &query.avl, memleak_cmp);
-        if (a) {
-            item = _get_entry(a, struct memleak_item, avl);
-            DBG("realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n",
-                item->addr, item->file, item->line, item->size, (uint64_t)addr, size);
-            avl_remove(&tree_index, a);
-            _memleak_add_to_index(addr, size, item->file, item->line, INIT_VAL);
-            free(item);
-        }
+        spin_lock(&lock);
+        _memleak_add_to_index(addr, size, file, line, INIT_VAL);
+        spin_unlock(&lock);
     }
-
-    spin_unlock(&lock);
     return addr;
 }
 
-void memleak_free(void *addr, char *file, size_t line)
+LIBMEMLEAK_API
+void memleak_aligned_free(void *addr, char *file, size_t line)
 {
     struct avl_node *a;
     struct memleak_item *item, query;
-    spin_lock(&lock);
 
     if (start_sw) {
+        spin_lock(&lock);
 
         query.addr = (uint64_t)addr;
         a = avl_search(&tree_index, &query.avl, memleak_cmp);
@@ -195,10 +271,80 @@ void memleak_free(void *addr, char *file, size_t line)
 #endif
 
         avl_remove(&tree_index, a);
+#ifdef _STACK_BACKTRACE
+        free(item->btrace);
+#endif
         free(item);
+        spin_unlock(&lock);
+    }
+    _aligned_free(addr);
+}
+
+#endif // WIN32
+
+LIBMEMLEAK_API
+void *memleak_realloc(void *ptr, size_t size)
+{
+
+    void *addr = (void *)realloc(ptr, size);
+    if (addr && start_sw) {
+        spin_lock(&lock);
+        struct avl_node *a;
+        struct memleak_item *item, query;
+
+        query.addr = (uint64_t)ptr;
+        a = avl_search(&tree_index, &query.avl, memleak_cmp);
+        if (a) {
+            item = _get_entry(a, struct memleak_item, avl);
+            DBG("realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n",
+                item->addr, item->file, item->line, item->size, (uint64_t)addr, size);
+            avl_remove(&tree_index, a);
+            _memleak_add_to_index(addr, size, item->file, item->line, INIT_VAL);
+#ifdef _STACK_BACKTRACE
+            free(item->btrace);
+#endif
+            free(item);
+        }
+        spin_unlock(&lock);
+    }
+
+    return addr;
+}
+
+LIBMEMLEAK_API
+void memleak_free(void *addr, char *file, size_t line)
+{
+    struct avl_node *a;
+    struct memleak_item *item, query;
+
+    if (start_sw) {
+        spin_lock(&lock);
+
+        query.addr = (uint64_t)addr;
+        a = avl_search(&tree_index, &query.avl, memleak_cmp);
+        if (!a) {
+#ifdef _WARN_NOT_ALLOCATED_MEMORY
+            fprintf(stderr, "try to free not allocated memory address 0x%016lx at %s:%ld\n",
+                (long unsigned int)addr, file, line);
+#endif
+            spin_unlock(&lock);
+            return;
+        }
+
+        item = _get_entry(a, struct memleak_item, avl);
+        DBG("free address 0x%016lx (allocated at %s:%ld, size %ld)\n",
+            item->addr, item->file, item->line, item->size);
+#ifdef FREE_VAL
+        memset(addr, FREE_VAL, item->size);
+#endif
+
+        avl_remove(&tree_index, a);
+#ifdef _STACK_BACKTRACE
+        free(item->btrace);
+#endif
+        free(item);
+        spin_unlock(&lock);
     }
     free(addr);
-
-    spin_unlock(&lock);
 }
 
