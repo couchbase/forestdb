@@ -206,6 +206,9 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     if (status != FDB_RESULT_SUCCESS) {
         return status;
     }
+    if (handle->cmp_func) {
+        fdb_set_custom_cmp(&new_db, handle->cmp_func);
+    }
     new_file = new_db.file;
     if (new_file->old_filename &&
         !strncmp(new_file->old_filename, handle->file->filename,
