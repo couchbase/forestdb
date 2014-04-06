@@ -217,6 +217,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
         handle->ndocs = new_db.ndocs;
         handle->datasize = new_db.datasize;
 
+        btreeblk_end(handle->bhandle);
         btreeblk_free(handle->bhandle);
         free(handle->bhandle);
         handle->bhandle = new_db.bhandle;
@@ -233,6 +234,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
         handle->file = new_file;
 #ifdef __FDB_SEQTREE
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            free(handle->seqtree->kv_ops);
             free(handle->seqtree);
             if (new_db.config.seqtree_opt == FDB_SEQTREE_USE) {
                 handle->seqtree = new_db.seqtree;
@@ -706,7 +708,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 {
     void *header_buf;
     size_t header_len;
-    uint64_t offset;
+    uint64_t offset, _offset;
     struct docio_object _doc;
     struct filemgr *wal_file;
     struct docio_handle *dhandle;
@@ -749,14 +751,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (docio_read_doc(dhandle, offset, &_doc) == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        if (_doc.length.keylen != doc->keylen || _doc.length.bodylen == 0) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
+        _offset = docio_read_doc(dhandle, offset, &_doc);
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
@@ -764,6 +759,14 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = 0;
+
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if (_doc.length.keylen != doc->keylen || _doc.length.bodylen == 0) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
 
         return FDB_RESULT_SUCCESS;
     }
@@ -814,14 +817,6 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         _doc.meta = _doc.body = NULL;
 
         *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
-        if (*body_offset == offset){
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        if (_doc.length.keylen != doc->keylen) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
@@ -829,6 +824,14 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
+
+        if (*body_offset == offset){
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if (_doc.length.keylen != doc->keylen) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
 
         return FDB_RESULT_SUCCESS;
     }
@@ -842,7 +845,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
 LIBFDB_API
 fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 {
-    uint64_t offset;
+    uint64_t offset, _offset;
     struct docio_object _doc;
     struct docio_handle *dhandle;
     struct filemgr *wal_file;
@@ -886,7 +889,16 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (docio_read_doc(dhandle, offset, &_doc) == offset) {
+        _offset = docio_read_doc(dhandle, offset, &_doc);
+        doc->seqnum = _doc.seqnum;
+        doc->metalen = _doc.length.metalen;
+        doc->bodylen = _doc.length.bodylen;
+        doc->key = _doc.key;
+        doc->meta = _doc.meta;
+        doc->body = _doc.body;
+        doc->deleted = 0;
+
+        if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -895,14 +907,6 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         }
 
         assert(doc->seqnum == _doc.seqnum);
-
-        doc->keylen = _doc.length.keylen;
-        doc->metalen = _doc.length.metalen;
-        doc->bodylen = _doc.length.bodylen;
-        doc->key = _doc.key;
-        doc->meta = _doc.meta;
-        doc->body = _doc.body;
-        doc->deleted = 0;
 
         return FDB_RESULT_SUCCESS;
     }
@@ -954,12 +958,6 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         _doc.meta = _doc.body = NULL;
 
         *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
-        if (*body_offset == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        assert(doc->seqnum == _doc.seqnum);
-
         doc->keylen = _doc.length.keylen;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
@@ -967,6 +965,12 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
+
+        if (*body_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        assert(doc->seqnum == _doc.seqnum);
 
         return FDB_RESULT_SUCCESS;
     }

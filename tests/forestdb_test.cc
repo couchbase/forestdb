@@ -713,6 +713,7 @@ void db_drop_test()
     sprintf(keybuf, "key%d", 0);
     sprintf(metabuf, "meta%d", 0);
     sprintf(bodybuf, "body%d", 0);
+    fdb_doc_free(doc[0]);
     fdb_doc_create(&doc[0], (void*)keybuf, strlen(keybuf),
         (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
     fdb_set(&db, doc[0]);
