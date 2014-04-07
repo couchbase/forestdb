@@ -504,6 +504,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
 {
     uint8_t checksum;
     uint64_t _offset;
+    fdb_seqnum_t _seqnum;
     struct docio_length _length;
 
     _offset = _docio_read_length(handle, offset, &_length);
@@ -535,10 +536,11 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
     if (_offset == 0) return offset;
 
 #ifdef __FDB_SEQTREE
-    // copy seqeunce number (optional)
+    // copy sequence number (optional)
     _offset = _docio_read_doc_component(handle, _offset,
-                                        sizeof(fdb_seqnum_t), (void *)&doc->seqnum);
+                                        sizeof(fdb_seqnum_t), (void *)&_seqnum);
     if (_offset == 0) return offset;
+    doc->seqnum = _endian_decode(_seqnum);
 #endif
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
