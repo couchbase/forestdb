@@ -21,7 +21,7 @@
 #include <stdint.h>
 
 #include "common.h"
-#include "libforestdb/forestdb_types.h"
+#include "internal_types.h"
 
 #ifdef __cplusplus
 extern "C" {

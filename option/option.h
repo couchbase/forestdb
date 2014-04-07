@@ -20,7 +20,6 @@
 
 //#include "mempool.h"
 
-typedef uint64_t fdb_seqnum_t;
 #define SEQNUM_NOT_USED (UINT64_C(0xffffffffffffffff))
 
 #define __FDB_SEQTREE

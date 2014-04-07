@@ -32,6 +32,7 @@
 #include "filemgr_ops.h"
 #include "crc32.h"
 #include "configuration.h"
+#include "internal_types.h"
 
 #include "memleak.h"
 

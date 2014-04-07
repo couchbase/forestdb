@@ -22,8 +22,7 @@
 #include <sys/stat.h>
 #include <stdint.h>
 
-#include "libforestdb/forestdb_types.h"
-
+#include "internal_types.h"
 #include "common.h"
 #include "hash.h"
 

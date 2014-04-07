@@ -28,6 +28,7 @@
 #include "wal.h"
 #include "avltree.h"
 #include "list.h"
+#include "internal_types.h"
 
 #include "memleak.h"
 

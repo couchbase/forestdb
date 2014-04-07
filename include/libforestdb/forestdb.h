@@ -142,7 +142,6 @@ fdb_status fdb_get_metaonly(fdb_handle *handle,
                             fdb_doc *doc,
                             uint64_t *body_offset);
 
-#ifdef __FDB_SEQTREE
 /**
  * Retrieve the metadata and doc body for a given sequence number.
  * Note that FDB_DOC instance should be created by calling
@@ -173,7 +172,6 @@ LIBFDB_API
 fdb_status fdb_get_metaonly_byseq(fdb_handle *handle,
                                   fdb_doc *doc,
                                   uint64_t *body_offset);
-#endif
 
 /**
  * Update the metadata and doc body for a given key.

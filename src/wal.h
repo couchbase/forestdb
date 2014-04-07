@@ -19,7 +19,7 @@
 #define _JSAHN_WAL_H
 
 #include <stdint.h>
-#include "libforestdb/forestdb_types.h"
+#include "internal_types.h"
 #include "hash.h"
 #include "list.h"
 #include "avltree.h"
