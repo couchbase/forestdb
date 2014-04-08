@@ -298,10 +298,8 @@ start:
 
     (*doc)->meta = _doc.meta;
     (*doc)->metalen = _doc.length.metalen;
-    if (!(iterator->opt & FDB_ITR_METAONLY)) {
-        (*doc)->body = _doc.body;
-        (*doc)->bodylen = _doc.length.bodylen;
-    }
+    (*doc)->body = _doc.body;
+    (*doc)->bodylen = _doc.length.bodylen;
 #ifdef __FDB_SEQTREE
     (*doc)->seqnum = _doc.seqnum;
 #endif
