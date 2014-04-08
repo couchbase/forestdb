@@ -59,6 +59,8 @@ static fdb_status _fdb_open(fdb_handle *handle,
                             const char *filename,
                             const fdb_config *config);
 
+static fdb_status _fdb_close(fdb_handle *handle);
+
 INLINE int _cmp_uint64_t_endian_safe(void *key1, void *key2)
 {
     uint64_t a,b;
@@ -297,7 +299,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     }
 
     docio_free(&dhandle);
-    fdb_close(&new_db);
+    _fdb_close(&new_db);
     fdb_commit(handle);
 
     return FDB_RESULT_SUCCESS;
@@ -313,7 +315,7 @@ fdb_status fdb_set_custom_cmp(fdb_handle *handle, fdb_custom_cmp cmp_func)
 }
 
 LIBFDB_API
-fdb_status fdb_open(fdb_handle *handle,
+fdb_status fdb_open(fdb_handle **ptr_handle,
                     const char *filename,
                     fdb_open_flags flags,
                     const char *fdb_config_file)
@@ -326,7 +328,19 @@ fdb_status fdb_open(fdb_handle *handle,
     parse_fdb_config(fdb_config_file, &config);
     config.flags = flags;
 
-    return _fdb_open(handle, filename, &config);
+    fdb_handle *handle = (fdb_handle *) malloc(sizeof(fdb_handle));
+    if (!handle) {
+        return FDB_RESULT_ALLOC_FAIL;
+    }
+
+    fdb_status fs = _fdb_open(handle, filename, &config);
+    if (fs == FDB_RESULT_SUCCESS) {
+        *ptr_handle = handle;
+    } else {
+        *ptr_handle = NULL;
+        free(handle);
+    }
+    return fs;
 }
 
 static fdb_status _fdb_open(fdb_handle *handle,
@@ -688,7 +702,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
         struct filemgr *new_file = handle->file->new_file;
         fdb_config config = handle->config;
 
-        fdb_close(handle);
+        _fdb_close(handle);
         _fdb_open(handle, new_file->filename, &config);
     }
 
@@ -1528,6 +1542,19 @@ fdb_status fdb_flush_wal(fdb_handle *handle)
 
 LIBFDB_API
 fdb_status fdb_close(fdb_handle *handle)
+{
+    if (!handle) {
+        return FDB_RESULT_SUCCESS;
+    }
+
+    fdb_status fs = _fdb_close(handle);
+    if (fs == FDB_RESULT_SUCCESS) {
+        free(handle);
+    }
+    return fs;
+}
+
+static fdb_status _fdb_close(fdb_handle *handle)
 {
     fdb_status fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose);
     if (fs != FDB_RESULT_SUCCESS) {

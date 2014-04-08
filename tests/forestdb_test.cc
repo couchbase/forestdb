@@ -22,10 +22,8 @@
 #include <time.h>
 
 #include "libforestdb/forestdb.h"
-#include "hbtrie.h"
 #include "test.h"
-#include "btreeblock.h"
-#include "docio.h"
+
 #include "filemgr.h"
 #include "filemgr_ops.h"
 
@@ -94,8 +92,8 @@ void basic_test()
 
     int i, r;
     int n = 10;
-    fdb_handle db;
-    fdb_handle db_rdonly;
+    fdb_handle *db;
+    fdb_handle *db_rdonly;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -114,7 +112,7 @@ void basic_test()
 
     // open and close db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
-    fdb_close(&db);
+    fdb_close(db);
 
     // reopen db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -126,28 +124,28 @@ void basic_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // remove document #5
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta, doc[5]->metalen, NULL, 0);
-    status = fdb_del(&db, rdoc);
+    status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
 
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     uint64_t offset = 0;
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
-    status = fdb_get_metaonly(&db, rdoc, &offset);
+    status = fdb_get_metaonly(db, rdoc, &offset);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == 1);
     TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
     fdb_doc_free(rdoc);
 
     // close the db
-    fdb_close(&db);
+    fdb_close(db);
 
     // reopen
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -158,17 +156,17 @@ void basic_test()
         sprintf(bodybuf, "body2%d", i);
         fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
             (void *)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // retrieve documents
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc);
+        status = fdb_get(db, rdoc);
 
         if (i != 5) {
             // updated documents
@@ -185,13 +183,13 @@ void basic_test()
     }
 
     // do compaction
-    fdb_compact(&db, (char *) "./dummy2");
+    fdb_compact(db, (char *) "./dummy2");
 
     // retrieve documents after compaction
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc);
+        status = fdb_get(db, rdoc);
 
         if (i != 5) {
             // updated documents
@@ -212,7 +210,7 @@ void basic_test()
         // search by seq
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
         rdoc->seqnum = i + 1;
-        status = fdb_get_byseq(&db, rdoc);
+        status = fdb_get_byseq(db, rdoc);
         if ( (i>=2 && i<=4) || (i>=6 && i<=9) || (i>=11 && i<=12)) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -231,20 +229,20 @@ void basic_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
-    status = fdb_get(&db_rdonly, rdoc);
+    status = fdb_get(db_rdonly, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_set(&db_rdonly, doc[i]);
+    status = fdb_set(db_rdonly, doc[i]);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
-    status = fdb_commit(&db_rdonly);
+    status = fdb_commit(db_rdonly);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
-    status = fdb_flush_wal(&db_rdonly);
+    status = fdb_flush_wal(db_rdonly);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
     fdb_doc_free(rdoc);
-    fdb_close(&db_rdonly);
+    fdb_close(db_rdonly);
 
     // free all documents
     for (i=0;i<n;++i){
@@ -252,10 +250,10 @@ void basic_test()
     }
 
     // do one more compaction
-    fdb_compact(&db, (char *) "./dummy3");
+    fdb_compact(db, (char *) "./dummy3");
 
     // close db file
-    fdb_close(&db);
+    fdb_close(db);
 
     // free all resources
     fdb_shutdown();
@@ -273,7 +271,7 @@ void wal_commit_test()
 
     int i, r;
     int n = 10;
-    fdb_handle db;
+    fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -295,11 +293,11 @@ void wal_commit_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void *)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // insert the other half documents
     for (i=n/2;i<n;++i){
@@ -308,11 +306,11 @@ void wal_commit_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void *)keybuf, strlen(keybuf),
             (void *)metabuf, strlen(metabuf), (void *)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // close the db
-    fdb_close(&db);
+    fdb_close(db);
 
     // reopen
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -321,7 +319,7 @@ void wal_commit_test()
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc);
+        status = fdb_get(db, rdoc);
 
         if (i < n/2) {
             // committed documents
@@ -343,7 +341,7 @@ void wal_commit_test()
     }
 
     // close db file
-    fdb_close(&db);
+    fdb_close(db);
 
     // free all resources
     fdb_shutdown();
@@ -361,7 +359,8 @@ void multi_version_test()
 
     int i, r;
     int n = 2;
-    fdb_handle db, db_new;
+    fdb_handle *db;
+    fdb_handle *db_new;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -383,13 +382,13 @@ void multi_version_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // manually flush WAL
-    fdb_flush_wal(&db);
+    fdb_flush_wal(db);
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // open same db file using a new handle
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -400,18 +399,18 @@ void multi_version_test()
         sprintf(bodybuf, "body2%d", i);
         fdb_doc_update(&doc[i], (void*)metabuf, strlen(metabuf),
             (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // manually flush WAL and commit using the old handle
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
+    fdb_flush_wal(db);
+    fdb_commit(db);
 
     // retrieve documents using the old handle
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc);
+        status = fdb_get(db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
@@ -425,7 +424,7 @@ void multi_version_test()
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db_new, rdoc);
+        status = fdb_get(db_new, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
@@ -436,14 +435,14 @@ void multi_version_test()
     }
 
     // close and re-open the new handle
-    fdb_close(&db_new);
+    fdb_close(db_new);
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // retrieve documents using the new handle
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db_new, rdoc);
+        status = fdb_get(db_new, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         // the new version of data should be read
@@ -461,8 +460,8 @@ void multi_version_test()
     }
 
     // close db file
-    fdb_close(&db);
-    fdb_close(&db_new);
+    fdb_close(db);
+    fdb_close(db_new);
 
     // free all resources
     fdb_shutdown();
@@ -480,7 +479,8 @@ void compact_wo_reopen_test()
 
     int i, r;
     int n = 3;
-    fdb_handle db, db_new;
+    fdb_handle *db;
+    fdb_handle *db_new;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -503,27 +503,27 @@ void compact_wo_reopen_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // remove doc
     fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
-    fdb_set(&db, rdoc);
+    fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
     // manually flush WAL
-    fdb_flush_wal(&db);
+    fdb_flush_wal(db);
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // perform compaction using one handle
-    fdb_compact(&db, (char *) "./dummy2");
+    fdb_compact(db, (char *) "./dummy2");
 
     // retrieve documents using the other handle without close/re-open
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db_new, rdoc);
+        status = fdb_get(db_new, rdoc);
 
         if (i != 1) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -537,7 +537,7 @@ void compact_wo_reopen_test()
         fdb_doc_free(rdoc);
     }
     // check the other handle's filename
-    TEST_CHK(!strcmp("./dummy2", db_new.file->filename));
+    TEST_CHK(!strcmp("./dummy2", db_new->file->filename));
 
     // free all documents
     for (i=0;i<n;++i){
@@ -545,8 +545,8 @@ void compact_wo_reopen_test()
     }
 
     // close db file
-    fdb_close(&db);
-    fdb_close(&db_new);
+    fdb_close(db);
+    fdb_close(db_new);
 
     // free all resources
     fdb_shutdown();
@@ -564,7 +564,8 @@ void auto_recover_compact_ok_test()
 
     int i, r;
     int n = 3;
-    fdb_handle db, db_new;
+    fdb_handle *db;
+    fdb_handle *db_new;
     fdb_doc **doc = alca(fdb_doc *, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -587,21 +588,21 @@ void auto_recover_compact_ok_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // remove second doc
     fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
-    fdb_set(&db, rdoc);
+    fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
     // manually flush WAL
-    fdb_flush_wal(&db);
+    fdb_flush_wal(db);
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // perform compaction using one handle
-    fdb_compact(&db, (char *) "./dummy2");
+    fdb_compact(db, (char *) "./dummy2");
 
     // save the old file after compaction is done ..
     r = system(SHELL_COPY " dummy1 dummy11 > errorlog.txt");
@@ -612,16 +613,16 @@ void auto_recover_compact_ok_test()
     sprintf(bodybuf, "body%d", i);
     fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
         (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-    fdb_set(&db, doc[i]);
+    fdb_set(db, doc[i]);
 
     // manually flush WAL
-    fdb_flush_wal(&db);
+    fdb_flush_wal(db);
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // close both the db files ...
-    fdb_close(&db);
-    fdb_close(&db_new);
+    fdb_close(db);
+    fdb_close(db_new);
 
     // restore the old file after close is done ..
     r = system(SHELL_MOVE " dummy11 dummy1 > errorlog.txt");
@@ -634,7 +635,7 @@ void auto_recover_compact_ok_test()
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db_new, rdoc);
+        status = fdb_get(db_new, rdoc);
 
         if (i != 1) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -648,10 +649,10 @@ void auto_recover_compact_ok_test()
         fdb_doc_free(rdoc);
     }
     // check this handle's filename it should point to newly compacted file
-    TEST_CHK(!strcmp("./dummy2", db_new.file->filename));
+    TEST_CHK(!strcmp("./dummy2", db_new->file->filename));
 
     // close the file
-    fdb_close(&db_new);
+    fdb_close(db_new);
 
     // free all documents
     for (i=0;i<n;++i){
@@ -674,7 +675,7 @@ void db_drop_test()
 
     int i, r;
     int n = 3;
-    fdb_handle db;
+    fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc *, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -696,12 +697,12 @@ void db_drop_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // commit
-    fdb_commit(&db);
-    fdb_close(&db);
+    fdb_commit(db);
+    fdb_close(db);
 
     // Remove the database file manually.
     r = system(SHELL_DEL " dummy1 > errorlog.txt");
@@ -716,18 +717,18 @@ void db_drop_test()
     fdb_doc_free(doc[0]);
     fdb_doc_create(&doc[0], (void*)keybuf, strlen(keybuf),
         (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-    fdb_set(&db, doc[0]);
+    fdb_set(db, doc[0]);
 
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // search by key
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
-    status = fdb_get(&db, rdoc);
+    status = fdb_get(db, rdoc);
     // Make sure that a doc seqnum starts with one.
     assert(rdoc->seqnum == 1);
 
-    fdb_close(&db);
+    fdb_close(db);
 
     // free all documents
     fdb_doc_free(rdoc);
@@ -747,7 +748,6 @@ struct work_thread_args{
     int tid;
     size_t ndocs;
     size_t writer;
-    fdb_config *config;
     fdb_doc **doc;
     size_t time_sec;
     size_t nbatch;
@@ -769,7 +769,7 @@ void *_worker_thread(void *voidargs)
     struct work_thread_args *args = (struct work_thread_args *)voidargs;
     int i, r, k, c, commit_count, filename_count;
     struct timeval ts_begin, ts_cur, ts_gap;
-    fdb_handle db;
+    fdb_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     char temp[1024];
@@ -789,7 +789,7 @@ void *_worker_thread(void *voidargs)
     while(1){
         i = rand() % args->ndocs;
         fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc);
+        status = fdb_get(db, rdoc);
 
         assert(status == FDB_RESULT_SUCCESS);
         assert(!memcmp(rdoc->body, args->doc[i]->body, (IDX_DIGIT+1)));
@@ -805,17 +805,17 @@ void *_worker_thread(void *voidargs)
             memcpy((uint8_t *)rdoc->body + (IDX_DIGIT+1), cnt_str, IDX_DIGIT);
 
             // update and commit
-            status = fdb_set(&db, rdoc);
+            status = fdb_set(db, rdoc);
 
             if (args->nbatch > 0) {
                 if (c % args->nbatch == 0) {
                     // commit for every NBATCH
-                    fdb_commit(&db);
+                    fdb_commit(db);
                     commit_count++;
 
                     if (args->compact_term == commit_count &&
                         args->compact_term > 0 &&
-                        db.new_file == NULL) {
+                        db->new_file == NULL) {
                         // do compaction for every COMPACT_TERM batch
                         spin_lock(args->filename_count_lock);
                         *args->filename_count += 1;
@@ -824,7 +824,7 @@ void *_worker_thread(void *voidargs)
 
                         sprintf(temp, FILENAME"%d", filename_count);
 
-                        status = fdb_compact(&db, temp);
+                        status = fdb_compact(db, temp);
 
                         commit_count = 0;
                     }
@@ -842,10 +842,10 @@ void *_worker_thread(void *voidargs)
     DBG("Thread #%d (%s) %d ops / %d seconds\n",
         args->tid, (args->writer)?("writer"):("reader"), c, (int)args->time_sec);
 
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
+    fdb_flush_wal(db);
+    fdb_commit(db);
 
-    fdb_close(&db);
+    fdb_close(db);
     thread_exit(0);
     return NULL;
 }
@@ -862,7 +862,8 @@ void multi_thread_test(
     void **thread_ret = alca(void *, n);
     struct work_thread_args *args = alca(struct work_thread_args, n);
     struct timeval ts_begin, ts_cur, ts_gap;
-    fdb_handle db, db_new;
+    fdb_handle *db;
+    fdb_handle *db_new;
     fdb_doc **doc = alca(fdb_doc*, ndocs);
     fdb_doc *rdoc;
     fdb_status status;
@@ -903,17 +904,17 @@ void multi_thread_test(
 
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
+    fdb_flush_wal(db);
+    fdb_commit(db);
 
     gettimeofday(&ts_cur, NULL);
     ts_gap = _utime_gap(ts_begin, ts_cur);
     //DBG("%d.%09d seconds elapsed\n", (int)ts_gap.tv_sec, (int)ts_gap.tv_nsec);
 
-    fdb_close(&db);
+    fdb_close(db);
     // end of population ===
 
     // drop OS's page cache
@@ -924,7 +925,6 @@ void multi_thread_test(
         args[i].tid = i;
         args[i].writer = ((i<nwriters)?(1):(0));
         args[i].ndocs = ndocs;
-        args[i].config = NULL;
         args[i].doc = doc;
         args[i].time_sec = time_sec;
         args[i].nbatch = nbatch;
@@ -962,7 +962,7 @@ void crash_recovery_test()
 
     int i, r;
     int n = 10;
-    fdb_handle db;
+    fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -984,14 +984,14 @@ void crash_recovery_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // close the db
-    fdb_close(&db);
+    fdb_close(db);
 
     // Shutdown forest db in the middle of the test to simulate crash
     fdb_shutdown();
@@ -1007,7 +1007,7 @@ void crash_recovery_test()
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc);
+        status = fdb_get(db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
@@ -1022,7 +1022,7 @@ void crash_recovery_test()
         // search by seq
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
         rdoc->seqnum = i + 1;
-        status = fdb_get_byseq(&db, rdoc);
+        status = fdb_get_byseq(db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -1036,7 +1036,7 @@ void crash_recovery_test()
     }
 
     // close db file
-    fdb_close(&db);
+    fdb_close(db);
 
     // free all resources
     fdb_shutdown();
@@ -1054,7 +1054,7 @@ void incomplete_block_test()
 
     int i, r;
     int n = 2;
-    fdb_handle db;
+    fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1076,14 +1076,14 @@ void incomplete_block_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // retrieve documents
     for (i=0;i<n;++i){
         // search by key
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get(&db, rdoc);
+        status = fdb_get(db, rdoc);
 
         // updated documents
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1095,7 +1095,7 @@ void incomplete_block_test()
     }
 
     // close db file
-    fdb_close(&db);
+    fdb_close(db);
 
     // free all documents
     for (i=0;i<n;++i){
@@ -1119,11 +1119,11 @@ void iterator_test()
     int i, r;
     int n = 10;
     uint64_t offset;
-    fdb_handle db;
+    fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
-    fdb_iterator iterator;
+    fdb_iterator *iterator;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
@@ -1142,11 +1142,11 @@ void iterator_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
     // manually flush WAL & commit
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
+    fdb_flush_wal(db);
+    fdb_commit(db);
 
     // insert documents of odd number
     for (i=1;i<n;i+=2){
@@ -1155,20 +1155,20 @@ void iterator_test()
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
     // commit without WAL flush
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // now even number docs are in hb-trie & odd number docs are in WAL
 
     // create an iterator for full range
-    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
 
     // repeat until fail
     i=0;
     while(1){
-        status = fdb_iterator_next(&iterator, &rdoc);
+        status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
@@ -1179,17 +1179,17 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==10);
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // create an iterator with metaonly option
-    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_METAONLY);
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_METAONLY);
 
     // repeat until fail
     i=0;
     while(1){
         // retrieve the next doc and get the byte offset of the returned doc
         offset = BLK_NOT_FOUND;
-        status = fdb_iterator_next_offset(&iterator, &rdoc, &offset);
+        status = fdb_iterator_next_offset(iterator, &rdoc, &offset);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(offset != BLK_NOT_FOUND);
@@ -1201,16 +1201,16 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==10);
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // create another iterator starts from doc[3]
     sprintf(keybuf, "key%d", 3);
-    fdb_iterator_init(&db, &iterator, (void*)keybuf, strlen(keybuf), NULL, 0, FDB_ITR_NONE);
+    fdb_iterator_init(db, &iterator, (void*)keybuf, strlen(keybuf), NULL, 0, FDB_ITR_NONE);
 
     // repeat until fail
     i=3;
     while(1){
-        status = fdb_iterator_next(&iterator, &rdoc);
+        status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
@@ -1221,18 +1221,18 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==10);
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // create another iterator for the range of doc[4] ~ doc[8]
     sprintf(keybuf, "key%d", 4);
     sprintf(temp, "key%d", 8);
-    fdb_iterator_init(&db, &iterator, (void*)keybuf, strlen(keybuf),
+    fdb_iterator_init(db, &iterator, (void*)keybuf, strlen(keybuf),
         (void*)temp, strlen(temp), FDB_ITR_NONE);
 
     // repeat until fail
     i=4;
     while(1){
-        status = fdb_iterator_next(&iterator, &rdoc);
+        status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
@@ -1243,26 +1243,26 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==9);
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // remove document #8 and #9
     fdb_doc_create(&rdoc, doc[8]->key, doc[8]->keylen, doc[8]->meta, doc[8]->metalen, NULL, 0);
-    status = fdb_del(&db, rdoc);
+    status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
     fdb_doc_create(&rdoc, doc[9]->key, doc[9]->keylen, doc[9]->meta, doc[9]->metalen, NULL, 0);
-    status = fdb_del(&db, rdoc);
+    status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
     // commit
-    fdb_commit(&db);
+    fdb_commit(db);
 
     // create an iterator for full range
-    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
     // repeat until fail
     i=0;
     while(1){
-        status = fdb_iterator_next(&iterator, &rdoc);
+        status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
@@ -1277,14 +1277,14 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==10);
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // create an iterator for full range, but no deletes.
-    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
     // repeat until fail
     i=0;
     while(1){
-        status = fdb_iterator_next(&iterator, &rdoc);
+        status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
@@ -1295,17 +1295,17 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==8);
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // create an iterator for range of doc[4] ~ doc[8], but metadata only and no deletes.
     sprintf(keybuf, "key%d", 4);
     sprintf(temp, "key%d", 8);
-    fdb_iterator_init(&db, &iterator, keybuf, strlen(keybuf), temp, strlen(temp),
+    fdb_iterator_init(db, &iterator, keybuf, strlen(keybuf), temp, strlen(temp),
                       FDB_ITR_METAONLY | FDB_ITR_NO_DELETES);
     // repeat until fail
     i=4;
     while(1){
-        status = fdb_iterator_next(&iterator, &rdoc);
+        status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
@@ -1316,10 +1316,10 @@ void iterator_test()
         i++;
     };
     TEST_CHK(i==8);
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // close db file
-    fdb_close(&db);
+    fdb_close(db);
 
     // free all documents
     for (i=0;i<n;++i){
@@ -1358,11 +1358,11 @@ void custom_compare_test()
     int i, r;
     int n = 10;
     uint64_t offset;
-    fdb_handle db;
+    fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
-    fdb_iterator iterator;
+    fdb_iterator *iterator;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
     double key_double, key_double_prev;
@@ -1376,7 +1376,7 @@ void custom_compare_test()
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
 
     // set custom compare function for double key type
-    fdb_set_custom_cmp(&db, _cmp_double);
+    fdb_set_custom_cmp(db, _cmp_double);
 
     for (i=0;i<n;++i){
         key_double = 10000/(i*11.0);
@@ -1384,56 +1384,56 @@ void custom_compare_test()
         sprintf(bodybuf, "value: %d, %f", i, key_double);
         fdb_doc_create(&doc[i], (void*)keybuf, sizeof(key_double), NULL, 0,
             (void*)bodybuf, strlen(bodybuf)+1);
-        fdb_set(&db, doc[i]);
+        fdb_set(db, doc[i]);
     }
 
     // range scan (before flushing WAL)
-    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
     while(1){
-        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
+        if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
     };
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
-    fdb_flush_wal(&db);
-    fdb_commit(&db);
+    fdb_flush_wal(db);
+    fdb_commit(db);
 
     // range scan (after flushing WAL)
-    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
     while(1){
-        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
+        if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
     };
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // do compaction
-    fdb_compact(&db, (char *) "./dummy2");
+    fdb_compact(db, (char *) "./dummy2");
 
     // range scan (after compaction)
-    fdb_iterator_init(&db, &iterator, NULL, 0, NULL, 0, 0x0);
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
     while(1){
-        if ( (status = fdb_iterator_next(&iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
+        if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
     };
-    fdb_iterator_close(&iterator);
+    fdb_iterator_close(iterator);
 
     // close db file
-    fdb_close(&db);
+    fdb_close(db);
 
     // free all documents
     for (i=0;i<n;++i){

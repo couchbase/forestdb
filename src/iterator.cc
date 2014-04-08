@@ -81,7 +81,7 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 }
 
 fdb_status fdb_iterator_init(fdb_handle *handle,
-                             fdb_iterator *iterator,
+                             fdb_iterator **ptr_iterator,
                              const void *start_key,
                              size_t start_keylen,
                              const void *end_key,
@@ -94,9 +94,11 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     struct wal_item *wal_item;
     struct iterator_wal_entry *snap_item;
 
-    if (handle == NULL || iterator == NULL) {
+    if (handle == NULL) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
 
     iterator->handle = *handle;
     iterator->hbtrie_iterator = (struct hbtrie_iterator *)malloc(sizeof(struct hbtrie_iterator));
@@ -121,6 +123,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
                               (void *)start_key, start_keylen);
 
     if (hr == HBTRIE_RESULT_FAIL) {
+        free(iterator);
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
@@ -166,6 +169,8 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     iterator->tree_cursor = avl_first(iterator->wal_tree);
 
     spin_unlock(&handle->file->wal->lock);
+
+    *ptr_iterator = iterator;
 
     return FDB_RESULT_SUCCESS;
 }
@@ -352,6 +357,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
 
     free(iterator->wal_tree);
     free(iterator->_key);
+    free(iterator);
 
     return FDB_RESULT_SUCCESS;
 }

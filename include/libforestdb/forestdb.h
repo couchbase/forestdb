@@ -38,14 +38,14 @@ extern "C" {
  * Open the database with a given file name.
  * The database should be closed with fdb_close API call.
  *
- * @param handle Pointer to ForestDB handle that is initialized as a result of
- *        this API call.
+ * @param handle Pointer to the place where ForestDB handle is instantiated
+ *        as result of this API call.
  * @param filename Name of database file to be opened.
  * @param fdb_config_file Path to the JSON file that contains ForestDB configs.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_open(fdb_handle *handle,
+fdb_status fdb_open(fdb_handle **handle,
                     const char *filename,
                     fdb_open_flags flags,
                     const char *fdb_config_file);
@@ -215,8 +215,8 @@ fdb_status fdb_commit(fdb_handle *handle);
  * Create an iterator to traverse the ForestDB snapshot.
  *
  * @param handle Pointer to ForestDB handle.
- * @param iterator Pointer to the iterator to be created as a result of
- *        this API call.
+ * @param iterator Pointer to the place where the iterator is created
+ *        as a result of this API call.
  * @param start_key Pointer to the start key. Passing NULL means that
  *        it wants to start with the smallest key in the database.
  * @param start_keylen Length of the start key.
@@ -228,7 +228,7 @@ fdb_status fdb_commit(fdb_handle *handle);
  */
 LIBFDB_API
 fdb_status fdb_iterator_init(fdb_handle *handle,
-                             fdb_iterator *iterator,
+                             fdb_iterator **iterator,
                              const void *start_key,
                              size_t start_keylen,
                              const void *end_key,
