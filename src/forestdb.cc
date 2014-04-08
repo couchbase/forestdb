@@ -432,11 +432,8 @@ static fdb_status _fdb_open(fdb_handle *handle,
         // WARNING: snapshots must have been opened before this call
         if (filemgr_update_file_status(handle->file, handle->file->status,
                                        prev_filename)) {
-            struct filemgr_config fconfig;
-            uint32_t blocksize = handle->config.blocksize;
-            memset(&fconfig, 0, sizeof(struct filemgr_config));
-            fconfig.blocksize = blocksize;
-            fconfig.options |= FILEMGR_READONLY;
+            // Open the old file with read-only mode.
+            fconfig.options = FILEMGR_READONLY;
             struct filemgr *old_file = filemgr_open(prev_filename,
                                                     handle->fileops,
                                                     &fconfig);
