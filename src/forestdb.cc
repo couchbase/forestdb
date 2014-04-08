@@ -741,7 +741,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     if (handle->new_file == NULL) {
         wal_file = handle->file;
     }else{
-        wal_file = handle->file->new_file;
+        wal_file = handle->new_file;
     }
     dhandle = handle->dhandle;
 
@@ -811,7 +811,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
     if (handle->new_file == NULL) {
         wal_file = handle->file;
     }else{
-        wal_file = handle->file->new_file;
+        wal_file = handle->new_file;
     }
     dhandle = handle->dhandle;
 
@@ -879,7 +879,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
     if (handle->new_file == NULL) {
         wal_file = handle->file;
     }else{
-        wal_file = handle->file->new_file;
+        wal_file = handle->new_file;
     }
     dhandle = handle->dhandle;
 
@@ -952,7 +952,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     if (handle->new_file == NULL) {
         wal_file = handle->file;
     }else{
-        wal_file = handle->file->new_file;
+        wal_file = handle->new_file;
     }
     dhandle = handle->dhandle;
 
@@ -1643,5 +1643,3 @@ fdb_status fdb_shutdown()
 
     return FDB_RESULT_SUCCESS;
 }
-
-
