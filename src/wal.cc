@@ -90,25 +90,6 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
 #endif
 
-INLINE size_t _wal_get_docsize(fdb_doc *doc)
-{
-    size_t ret =
-        doc->keylen +
-        doc->metalen +
-        doc->bodylen +
-        sizeof(struct docio_length);
-
-    #ifdef __FDB_SEQTREE
-        ret += sizeof(fdb_seqnum_t);
-    #endif
-
-    #ifdef __CRC32
-        ret += sizeof(uint32_t);
-    #endif
-
-    return ret;
-}
-
 wal_result wal_init(struct filemgr *file, int nbucket)
 {
     file->wal->flag = WAL_FLAG_INITIALIZED;
@@ -168,7 +149,7 @@ static wal_result _wal_insert(struct filemgr *file,
                 hash_insert(&file->wal->hash_byseq, &item->he_seq);
             #endif
 
-            item->doc_size = _wal_get_docsize(doc);
+            item->doc_size = doc->size_ondisk;
             item->offset = offset;
             item->action = doc->bodylen > 0 ? WAL_ACT_INSERT : WAL_ACT_LOGICAL_REMOVE;
 
@@ -192,7 +173,7 @@ static wal_result _wal_insert(struct filemgr *file,
         SEQTREE( item->seqnum = query.seqnum );
         item->action = doc->bodylen > 0 ? WAL_ACT_INSERT : WAL_ACT_LOGICAL_REMOVE;
         item->offset = offset;
-        item->doc_size = _wal_get_docsize(doc);
+        item->doc_size = doc->size_ondisk;
 
         hash_insert(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );

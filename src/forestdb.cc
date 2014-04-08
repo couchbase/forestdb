@@ -133,6 +133,7 @@ INLINE void _fdb_fetch_header(void *header_buf,
     }
 }
 
+INLINE size_t _fdb_get_docsize(struct docio_length len);
 INLINE void _fdb_restore_wal(fdb_handle *handle)
 {
     struct filemgr *file = handle->file;
@@ -173,6 +174,8 @@ INLINE void _fdb_restore_wal(fdb_handle *handle)
                     wal_doc.seqnum = doc.seqnum;
 #endif
                     wal_doc.meta = doc.meta;
+                    wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
+
                     wal_insert(file, &wal_doc, offset);
                     if (doc.key) free(doc.key);
                     if (doc.meta) free(doc.meta);
@@ -254,7 +257,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
         filemgr_close(old_file, 0);
         return FDB_RESULT_FAIL;
     }
-    docio_init(&dhandle, new_file);
+    docio_init(&dhandle, new_file, config.compress_document_body);
 
     for (offset = 0; offset < new_file->pos;
         offset = ((offset/blocksize)+1) * blocksize) {
@@ -398,7 +401,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
         wal_init(handle->file, FDB_WAL_NBUCKET);
     }
 
-    docio_init(handle->dhandle, handle->file);
+    docio_init(handle->dhandle, handle->file, config->compress_document_body);
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
     filemgr_fetch_header(handle->file, header_buf, &header_len);
@@ -518,6 +521,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         (*doc)->bodylen = 0;
     }
 
+    (*doc)->size_ondisk = 0;
     (*doc)->deleted = 0;
 
     return FDB_RESULT_SUCCESS;
@@ -578,7 +582,7 @@ INLINE size_t _fdb_get_docsize(struct docio_length len)
     size_t ret =
         len.keylen +
         len.metalen +
-        len.bodylen +
+        len.bodylen_ondisk +
         sizeof(struct docio_length);
 
     #ifdef __FDB_SEQTREE
@@ -715,7 +719,9 @@ void _fdb_check_file_reopen(fdb_handle *handle)
         handle->new_file = filemgr_open(handle->file->new_file->filename,
             handle->fileops, handle->file->config);
         handle->new_dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
-        docio_init(handle->new_dhandle, handle->new_file);
+        docio_init(handle->new_dhandle,
+                   handle->new_file,
+                   handle->config.compress_document_body);
     }
 }
 
@@ -775,6 +781,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = 0;
+        doc->size_ondisk = _fdb_get_docsize(_doc.length);
 
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -840,6 +847,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
+        doc->size_ondisk = _fdb_get_docsize(_doc.length);
 
         if (*body_offset == offset){
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -913,6 +921,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = 0;
+        doc->size_ondisk = _fdb_get_docsize(_doc.length);
 
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -981,6 +990,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         doc->meta = _doc.meta;
         doc->body = _doc.body;
         doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
+        doc->size_ondisk = _fdb_get_docsize(_doc.length);
 
         if (*body_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -1058,6 +1068,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     } else {
         offset = docio_append_doc(dhandle, &_doc);
     }
+    doc->size_ondisk = _fdb_get_docsize(_doc.length);
     wal_insert(file, doc, offset);
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -1329,6 +1340,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 #endif
                 wal_doc.meta = doc.meta;
                 wal_doc.body = doc.body;
+                wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
 
                 wal_insert_by_compactor(new_file, &wal_doc, new_offset);
 
@@ -1420,7 +1432,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
 
     wal_init(new_file, handle->config.wal_threshold);
-    docio_init(new_dhandle, new_file);
+    docio_init(new_dhandle, new_file, handle->config.compress_document_body);
     btreeblk_init(new_bhandle, new_file, new_file->blocksize);
     hbtrie_init(new_trie, handle->trie->chunksize, handle->trie->valuelen,
         new_file->blocksize, BLK_NOT_FOUND, (void *)new_bhandle,

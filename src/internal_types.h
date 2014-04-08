@@ -121,6 +121,10 @@ typedef struct {
      */
     uint8_t cleanup_cache_onclose;
     /**
+     * Compress the body of documents using snappy.
+     */
+    uint8_t compress_document_body;
+    /**
      * Auxiliary config options.
      */
     void *aux;

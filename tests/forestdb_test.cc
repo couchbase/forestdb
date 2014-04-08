@@ -43,7 +43,9 @@ void _set_random_string_smallabt(char *str, int len)
     } while(len--);
 }
 
-void generate_config_json_file(int buffercache_size, int wal_threshold) {
+void generate_config_json_file(int buffercache_size,
+                               int wal_threshold,
+                               int doc_compression) {
     char config_data[8192];
     const char *config =
         "{\"configs\":"
@@ -72,10 +74,15 @@ void generate_config_json_file(int buffercache_size, int wal_threshold) {
                                                           "\"min\": 0 }}},"
               "\"cleanup_cache_on_close\": {\"default\": \"true\","
                                             "\"validator\": {\"enum\": ["
-                                                             "\"true\",\"false\"]}}"
+                                                             "\"true\",\"false\"]}},"
+            "\"compress_document_body\": {\"default\": \"%s\","
+                                          "\"validator\": {\"enum\": ["
+                                                           "\"true\",\"false\"]}}"
        "}}";
 
-    sprintf(config_data, config, buffercache_size, wal_threshold);
+    sprintf(config_data, config,
+            buffercache_size, wal_threshold,
+            (doc_compression)?("true"):("false"));
 
     filemgr_ops * fops = get_filemgr_ops();
     int fd = fops->open("./fdb_test_config.json", O_RDWR | O_CREAT, 0666);
@@ -103,7 +110,7 @@ void basic_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024);
+    generate_config_json_file(0, 1024, 0);
 
     // Read-Only mode test: Must not create new file..
     status = fdb_open(&db, "./dummy1",
@@ -281,7 +288,7 @@ void wal_commit_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024);
+    generate_config_json_file(0, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -370,7 +377,7 @@ void multi_version_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(1048576, 1024);
+    generate_config_json_file(1048576, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -490,7 +497,7 @@ void compact_wo_reopen_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024);
+    generate_config_json_file(16777216, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -577,7 +584,7 @@ void auto_recover_compact_ok_test()
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024);
+    generate_config_json_file(16777216, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -689,7 +696,7 @@ void db_drop_test()
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024);
+    generate_config_json_file(16777216, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -884,7 +891,7 @@ void multi_thread_test(
     // remove previous dummy files
     r = system(SHELL_DEL" "FILENAME"* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024);
+    generate_config_json_file(16777216, 1024, 0);
 
     memleak_start();
 
@@ -977,7 +984,7 @@ void crash_recovery_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024);
+    generate_config_json_file(0, 1024, 0);
 
     // reopen db
     fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1069,7 +1076,7 @@ void incomplete_block_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024);
+    generate_config_json_file(0, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1135,7 +1142,7 @@ void iterator_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024);
+    generate_config_json_file(0, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1375,7 +1382,7 @@ void custom_compare_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024);
+    generate_config_json_file(0, 1024, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1453,6 +1460,134 @@ void custom_compare_test()
     TEST_RESULT("custom compare test");
 }
 
+void doc_compression_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    int dummy_len = 32;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024, 1);
+
+    // open db
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+
+    // set dummy str
+    memset(temp, 'a', dummy_len);
+    temp[dummy_len]=0;
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d_%s", i, temp);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // remove document #5
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta, doc[5]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+
+    // commit
+    fdb_commit(db);
+
+    // close the db
+    fdb_close(db);
+
+    // reopen
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+
+    // update dummy str
+    dummy_len = 64;
+    memset(temp, 'b', dummy_len);
+    temp[dummy_len]=0;
+
+    // update document #0 and #1
+    for (i=0;i<2;++i){
+        sprintf(metabuf, "newmeta%d", i);
+        sprintf(bodybuf, "newbody%d_%s", i, temp);
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+            (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(db);
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+
+        if (i != 5) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            // removed document
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        }
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // do compaction
+    fdb_compact(db, (char *) "./dummy2");
+
+    // retrieve documents after compaction
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+
+        if (i != 5) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            // removed document
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        }
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // close db file
+    fdb_close(db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("document compression test");
+}
 
 int main(){
     basic_test();
@@ -1467,6 +1602,7 @@ int main(){
     iterator_test();
     custom_compare_test();
     db_drop_test();
+    doc_compression_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;

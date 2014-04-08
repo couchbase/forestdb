@@ -11,6 +11,8 @@ if (NOT WIN32)
     set(PTHREAD_LIB pthread)
     set(LIBM m)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_linux.cc")
+    set(LIBSNAPPY snappy)
+    ADD_DEFINITIONS(-D_DOC_COMP=1)
 else (NOT WIN32)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_windows.cc")
     set(GETTIMEOFDAY_VS "utils/gettimeofday_vs.cc")
@@ -52,7 +54,7 @@ add_library(forestdb SHARED
             utils/debug.cc
             utils/cJSON.cc)
 
-target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM})
+target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
 
 add_executable(forestdb_test
                src/avltree.cc
@@ -143,7 +145,7 @@ add_executable(docio_test
                utils/crc32.cc
                utils/debug.cc
                utils/memleak.cc)
-target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM})
+target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
 
 add_executable(hbtrie_test
                tests/hbtrie_test.cc
@@ -166,7 +168,7 @@ add_executable(hbtrie_test
                utils/crc32.cc
                utils/debug.cc
                utils/memleak.cc)
-target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM})
+target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
 
 add_executable(crc_test
                tests/crc_test.cc

@@ -123,7 +123,7 @@ void basic_test()
     config.flag = 0x0;
 
     file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
-    docio_init(&dhandle, file);
+    docio_init(&dhandle, file, 0);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
@@ -232,7 +232,7 @@ void large_test()
     DBG("filemgr, bcache init .. \n");
     rr = system(SHELL_DEL" dummy");
     file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
-    docio_init(&dhandle, file);
+    docio_init(&dhandle, file, 0);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
@@ -407,7 +407,7 @@ void skew_basic_test()
     config.flag = 0x0;
 
     file = filemgr_open((char*)"./dummy", get_filemgr_ops(), &config);
-    docio_init(&dhandle, file);
+    docio_init(&dhandle, file, 0);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,

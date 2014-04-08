@@ -41,6 +41,7 @@ void set_default_fdb_config(fdb_config *fconfig) {
         fconfig->flags = 0;
         fconfig->compaction_buf_maxsize = 16777216; // 16MB by default.
         fconfig->cleanup_cache_onclose = 1; // Clean up cache entries when a file is closed.
+        fconfig->compress_document_body = 0; // Compress the body of documents using snappy.
         fconfig->aux = NULL;
     }
 }
@@ -228,6 +229,19 @@ void parse_fdb_config(const char *fdb_config_file, fdb_config *fconfig) {
             }
         } else {
             fconfig->cleanup_cache_onclose = 1;
+        }
+
+        cJSON *compress_document_body = cJSON_GetObjectItem(configs,
+                                                            "compress_document_body");
+        if (validConfigParam(compress_document_body)) {
+            char *val = cJSON_GetObjectItem(compress_document_body, "default")->valuestring;
+            if (strcmp(val, "true") == 0) {
+                fconfig->compress_document_body = 1;
+            } else {
+                fconfig->compress_document_body = 0;
+            }
+        } else {
+            fconfig->compress_document_body = 0;
         }
 
         fconfig->offsetsize = sizeof(uint64_t);

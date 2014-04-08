@@ -72,5 +72,15 @@
                 ]
             }
         }
+        "compress_document_body": {
+            "descr": "Compress the body of document when it is written on disk. This is a global config that is used across all ForestDB database instances.",
+            "default": "false",
+            "validator": {
+                "enum": [
+                    "true",
+                    "false"
+                ]
+            }
+        }
     }
 }

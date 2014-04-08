@@ -121,6 +121,10 @@ typedef struct fdb_doc_struct {
      */
     size_t bodylen;
     /**
+     * actual doc size written on disk.
+     */
+    size_t size_ondisk;
+    /**
      * Pointer to doc's key.
      */
     void *key;
