@@ -247,6 +247,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
             }
         }
 #endif
+        filemgr_mutex_unlock(new_file);
         // remove self: WARNING must not close this handle if snapshots
         // are yet to open this file
         filemgr_remove_pending(old_file, new_db.file);
@@ -1041,7 +1042,6 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         file = handle->new_file;
         dhandle = handle->new_dhandle;
         filemgr_mutex_lock(file);
-        filemgr_mutex_unlock(handle->file);
     }
 
 #ifdef __FDB_SEQTREE
@@ -1606,6 +1606,31 @@ size_t fdb_estimate_space_used(fdb_handle *handle)
     ret += wal_get_datasize(handle->file);
 
     return ret;
+}
+
+LIBFDB_API
+fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info)
+{
+    if (!handle || !info) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
+    info->filename = handle->file->filename;
+    if (handle->new_file) {
+        info->new_filename = handle->new_file->filename;
+    } else {
+        info->new_filename = NULL;
+    }
+    info->last_seqnum = handle->seqnum;
+    info->doc_count = handle->ndocs;
+
+    info->space_used = fdb_estimate_space_used(handle);
+    info->file_size = filemgr_get_pos(handle->file);
+
+    return FDB_RESULT_SUCCESS;
 }
 
 LIBFDB_API

@@ -200,6 +200,36 @@ typedef struct _fdb_iterator fdb_iterator;
  */
 typedef int64_t cs_off_t;
 
+/**
+ * Information about a given database file
+ */
+typedef struct {
+    /**
+     * A database file name.
+     */
+    const char* filename;
+    /**
+     * A new database file name that is used after compaction.
+     */
+    const char* new_filename;
+    /**
+     * Last sequence number assigned
+     */
+    fdb_seqnum_t last_seqnum;
+    /**
+     * Total number of non-deleted documents
+     */
+    uint64_t doc_count;
+    /**
+     * Disk space actively used by database
+     */
+    uint64_t space_used;
+    /**
+     * Total disk space used by database, including stale btree nodes and docs.
+     */
+    uint64_t file_size;
+} fdb_info;
+
 #ifdef __cplusplus
 }
 #endif

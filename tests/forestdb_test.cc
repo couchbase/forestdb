@@ -49,7 +49,7 @@ void generate_config_json_file(int buffercache_size, int wal_threshold) {
         "{\"configs\":"
             "{\"chunk_size\": {\"default\": 8,"
                                "\"validator\": {\"range\": { \"max\": 16, \"min\": 4 }}},"
-	          "\"buffer_cache_size\": {\"default\": %d,"
+              "\"buffer_cache_size\": {\"default\": %d,"
                                        "\"validator\": {\"range\": {"
                                                            "\"max\": 18446744073709551616,"
                                                            "\"min\": 0 }}},"
@@ -537,7 +537,9 @@ void compact_wo_reopen_test()
         fdb_doc_free(rdoc);
     }
     // check the other handle's filename
-    TEST_CHK(!strcmp("./dummy2", db_new->file->filename));
+    fdb_info info;
+    fdb_get_dbinfo(db_new, &info);
+    TEST_CHK(!strcmp("./dummy2", info.filename));
 
     // free all documents
     for (i=0;i<n;++i){
@@ -649,7 +651,9 @@ void auto_recover_compact_ok_test()
         fdb_doc_free(rdoc);
     }
     // check this handle's filename it should point to newly compacted file
-    TEST_CHK(!strcmp("./dummy2", db_new->file->filename));
+    fdb_info info;
+    fdb_get_dbinfo(db_new, &info);
+    TEST_CHK(!strcmp("./dummy2", info.filename));
 
     // close the file
     fdb_close(db_new);
@@ -812,10 +816,11 @@ void *_worker_thread(void *voidargs)
                     // commit for every NBATCH
                     fdb_commit(db);
                     commit_count++;
-
+                    fdb_info info;
+                    fdb_get_dbinfo(db, &info);
                     if (args->compact_term == commit_count &&
                         args->compact_term > 0 &&
-                        db->new_file == NULL) {
+                        info.new_filename == NULL) {
                         // do compaction for every COMPACT_TERM batch
                         spin_lock(args->filename_count_lock);
                         *args->filename_count += 1;

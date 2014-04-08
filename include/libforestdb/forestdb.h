@@ -292,13 +292,25 @@ LIBFDB_API
 fdb_status fdb_flush_wal(fdb_handle *handle);
 
 /**
- * Return the overall space used by the current database file.
+ * Return the overall disk space actively used by the current database file.
+ * Note that this doesn't include the disk space used by stale btree nodes
+ * and docs.
  *
  * @param handle Pointer to ForestDB handle.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 size_t fdb_estimate_space_used(fdb_handle *handle);
+
+/**
+ * Return the information about a given database handle.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param info Pointer to ForestDB Info instance.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info);
 
 /**
  * Close the database file.
