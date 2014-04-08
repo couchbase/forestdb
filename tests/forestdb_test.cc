@@ -211,7 +211,7 @@ void basic_test()
     for (i=0; i < n+3; ++i){
         // search by seq
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
-        rdoc->seqnum = i;
+        rdoc->seqnum = i + 1;
         status = fdb_get_byseq(&db, rdoc);
         if ( (i>=2 && i<=4) || (i>=6 && i<=9) || (i>=11 && i<=12)) {
             // updated documents
@@ -724,8 +724,8 @@ void db_drop_test()
     // search by key
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
     status = fdb_get(&db, rdoc);
-    // Make sure that a doc seqnum starts with zero.
-    assert(rdoc->seqnum == 0);
+    // Make sure that a doc seqnum starts with one.
+    assert(rdoc->seqnum == 1);
 
     fdb_close(&db);
 
@@ -1021,7 +1021,7 @@ void crash_recovery_test()
     for (i=0;i<n;++i){
         // search by seq
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
-        rdoc->seqnum = i;
+        rdoc->seqnum = i + 1;
         status = fdb_get_byseq(&db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);

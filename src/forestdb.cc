@@ -1019,15 +1019,6 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     _doc.length.bodylen = doc->bodylen;
     _doc.key = doc->key;
 
-#ifdef __FDB_SEQTREE
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        //_doc.seqnum = doc->seqnum;
-        _doc.seqnum = doc->seqnum = handle->seqnum++;
-    }else{
-        _doc.seqnum = SEQNUM_NOT_USED;
-    }
-#endif
-
     _doc.meta = doc->meta;
     _doc.body = doc->body;
 
@@ -1041,6 +1032,15 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         filemgr_mutex_lock(file);
         filemgr_mutex_unlock(handle->file);
     }
+
+#ifdef __FDB_SEQTREE
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        //_doc.seqnum = doc->seqnum;
+        _doc.seqnum = doc->seqnum = ++handle->seqnum;
+    }else{
+        _doc.seqnum = SEQNUM_NOT_USED;
+    }
+#endif
 
     if (dhandle == handle->new_dhandle) {
         offset = docio_append_doc_compact(dhandle, &_doc);
