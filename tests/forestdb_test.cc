@@ -565,6 +565,95 @@ void compact_wo_reopen_test()
     TEST_RESULT("compaction without reopen test");
 }
 
+void compact_with_reopen_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 100;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(16777216, 1024, 0);
+
+    // open db
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // remove doc
+    fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    fdb_set(db, rdoc);
+    fdb_doc_free(rdoc);
+
+    // manually flush WAL
+    fdb_flush_wal(db);
+    // commit
+    fdb_commit(db);
+
+    // perform compaction using one handle
+    fdb_compact(db, (char *) "./dummy2");
+
+    // close db file
+    fdb_close(db);
+
+    r = system(SHELL_MOVE " dummy2 dummy1 > errorlog.txt");
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+
+    // retrieve documents using the other handle without close/re-open
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+
+        if (i != 1) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        }else{
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        }
+
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+    // check the other handle's filename
+    fdb_info info;
+    fdb_get_dbinfo(db, &info);
+    TEST_CHK(!strcmp("./dummy1", info.filename));
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    fdb_close(db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("compaction without reopen test");
+}
+
 void auto_recover_compact_ok_test()
 {
     TEST_INIT();
@@ -1594,6 +1683,7 @@ int main(){
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
+    compact_with_reopen_test();
     auto_recover_compact_ok_test();
 #ifdef __CRC32
     crash_recovery_test();
