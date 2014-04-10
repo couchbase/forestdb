@@ -651,7 +651,7 @@ void compact_with_reopen_test()
 
     memleak_end();
 
-    TEST_RESULT("compaction without reopen test");
+    TEST_RESULT("compaction with reopen test");
 }
 
 void auto_recover_compact_ok_test()

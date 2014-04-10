@@ -130,6 +130,7 @@ void memleak_end()
     struct avl_node *a;
     struct memleak_item *item;
 #ifdef _STACK_BACKTRACE
+    int i;
     char **strs;
     char *file, *func;
     unsigned line;

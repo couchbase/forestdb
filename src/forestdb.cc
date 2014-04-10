@@ -444,21 +444,25 @@ static fdb_status _fdb_open(fdb_handle *handle,
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
-    if (prev_filename && strcmp(prev_filename, handle->file->filename)) {
-        // record the old filename into the file handle of current file
-        // and REMOVE old file on the first open
-        // WARNING: snapshots must have been opened before this call
-        if (filemgr_update_file_status(handle->file, handle->file->status,
-                                       prev_filename)) {
-            // Open the old file with read-only mode.
-            fconfig.options = FILEMGR_READONLY;
-            struct filemgr *old_file = filemgr_open(prev_filename,
-                                                    handle->fileops,
-                                                    &fconfig);
-            if (old_file) {
-                filemgr_remove_pending(old_file, handle->file);
-                filemgr_close(old_file, 0);
+    if (prev_filename) {
+        if (strcmp(prev_filename, handle->file->filename)) {
+            // record the old filename into the file handle of current file
+            // and REMOVE old file on the first open
+            // WARNING: snapshots must have been opened before this call
+            if (filemgr_update_file_status(handle->file, handle->file->status,
+                                           prev_filename)) {
+                // Open the old file with read-only mode.
+                fconfig.options = FILEMGR_READONLY;
+                struct filemgr *old_file = filemgr_open(prev_filename,
+                                                        handle->fileops,
+                                                        &fconfig);
+                if (old_file) {
+                    filemgr_remove_pending(old_file, handle->file);
+                    filemgr_close(old_file, 0);
+                }
             }
+        } else {
+            free(prev_filename);
         }
     }
 
