@@ -208,6 +208,7 @@ INLINE uint8_t _docio_length_checksum(struct docio_length length)
 #define DOCIO_COMPRESSED (0x02)
 INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
 {
+    int ret;
     size_t _len;
     uint32_t offset = 0;
     uint32_t crc;
@@ -228,7 +229,13 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
         compbuf = (void *)malloc(compbuf_len);
 
         _len = compbuf_len;
-        snappy_compress((char*)doc->body, length.bodylen, (char*)compbuf, &_len);
+        ret = snappy_compress((char*)doc->body, length.bodylen, (char*)compbuf, &_len);
+        if (ret < 0) {
+            // we use BLK_NOT_FOUND for error code of appending instead of 0
+            // because document can be written at the byte offset 0
+            return BLK_NOT_FOUND;
+        }
+
         length.bodylen_ondisk = compbuf_len = _len;
         length.flag |= DOCIO_COMPRESSED;
 
@@ -416,18 +423,20 @@ uint64_t _docio_read_doc_component_comp(struct docio_handle *handle,
                                         void *buf_out,
                                         void *comp_data_out)
 {
+    int ret;
     size_t uncomp_size;
     uint64_t _offset;
 
     _offset = _docio_read_doc_component(handle, offset,
-                comp_len, comp_data_out);
+                                        comp_len, comp_data_out);
     if (_offset == 0) {
         return 0;
     }
 
     uncomp_size = len;
-    snappy_uncompress((char*)comp_data_out, comp_len,
-        (char*)buf_out, &uncomp_size);
+    ret = snappy_uncompress((char*)comp_data_out, comp_len,
+                            (char*)buf_out, &uncomp_size);
+    if (ret < 0) return 0;
 
     assert(uncomp_size == len);
     return _offset;

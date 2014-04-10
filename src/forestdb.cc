@@ -1068,6 +1068,10 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     } else {
         offset = docio_append_doc(dhandle, &_doc);
     }
+    if (offset == BLK_NOT_FOUND) {
+        return FDB_RESULT_WRITE_FAIL;
+    }
+
     doc->size_ondisk = _fdb_get_docsize(_doc.length);
     wal_insert(file, doc, offset);
 
