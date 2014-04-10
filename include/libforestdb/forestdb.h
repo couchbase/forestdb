@@ -133,14 +133,14 @@ fdb_status fdb_get(fdb_handle *handle,
  * @param handle Pointer to ForestDB handle.
  * @param doc Pointer to ForestDB doc instance whose metadata is populated
  *        as a result of this API call.
- * @param body_offset Pointer to the offset variable that is populated as
- *        a result of this API call.
+ * @param doc_offset Pointer to the offset value of the doc (header + key +
+ *        metadata + body) on disk, which is returned from this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_get_metaonly(fdb_handle *handle,
                             fdb_doc *doc,
-                            uint64_t *body_offset);
+                            uint64_t *doc_offset);
 
 /**
  * Retrieve the metadata and doc body for a given sequence number.
@@ -164,14 +164,33 @@ fdb_status fdb_get_byseq(fdb_handle *handle,
  * @param handle Pointer to ForestDB handle.
  * @param doc Pointer to ForestDB doc instance whose key and metadata are
  *        populated as a result of this API call.
- * @param body_offset Pointer to the offset variable that is populated as
- *        a result of this API call.
+ * @param doc_offset Pointer to the offset value of the doc (header + key +
+ *        metadata + body) on disk, which is returned from this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_get_metaonly_byseq(fdb_handle *handle,
                                   fdb_doc *doc,
-                                  uint64_t *body_offset);
+                                  uint64_t *doc_offset);
+
+/**
+ * Retrieve a doc's metadata and body with a given doc offset in the database file.
+ * Note that FDB_DOC instance should be first instantiated and populated
+ * by calling fdb_get_metaonly, fdb_get_metaonly_byseq, or
+ * fdb_iterator_next_offset, which returns an offset to a doc. Then,
+ * the FDB_DOC instance and the offset should be passed together to this API.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param doc Pointer to ForestDB doc instance whose doc body is
+ *        populated as a result of this API call.
+ * @param offset Offset to a doc (header + key + metadata + body)
+ *        in a database file.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_get_byoffset(fdb_handle *handle,
+                            fdb_doc *doc,
+                            uint64_t offset);
 
 /**
  * Update the metadata and doc body for a given key.
@@ -252,9 +271,9 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator,
  * @param iterator Pointer to the iterator.
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
  *        Note that the API call won't return the doc body, but instead the
- *        offset to the doc body on disk.
- * @param doc_offset_out Pointer to the offset of the doc body on disk, which
- *        is returned as a result of this API call.
+ *        offset to the doc on disk.
+ * @param doc_offset_out Pointer to the offset value of the doc (header + key +
+ *        metadata + body) on disk, which is returned from this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API

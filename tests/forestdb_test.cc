@@ -1678,6 +1678,104 @@ void doc_compression_test()
     TEST_RESULT("document compression test");
 }
 
+void read_doc_by_offset_test() {
+	TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 100;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024, 0);
+
+    // open db
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(db);
+
+    // update documents from #0 to #49
+    for (i=0;i<n/2;++i){
+        sprintf(metabuf, "meta2%d", i);
+        sprintf(bodybuf, "body2%d", i);
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+            (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // remove document #50
+    fdb_doc_create(&rdoc, doc[50]->key, doc[50]->keylen, doc[50]->meta,
+                   doc[50]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+
+    // commit
+    fdb_commit(db);
+
+    uint64_t offset = 0;
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get_metaonly(db, rdoc, &offset);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(rdoc->deleted == 0);
+    TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
+    // Fetch #5 doc using its offset.
+    status = fdb_get_byoffset(db, rdoc, offset);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(rdoc->deleted == 0);
+    TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
+    TEST_CHK(!memcmp(rdoc->body, doc[5]->body, rdoc->bodylen));
+    fdb_doc_free(rdoc);
+
+    // do compaction
+    fdb_compact(db, (char *) "./dummy2");
+
+    fdb_doc_create(&rdoc, doc[50]->key, doc[50]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get_metaonly(db, rdoc, &offset);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(rdoc->deleted == 1);
+    TEST_CHK(!memcmp(rdoc->meta, doc[50]->meta, rdoc->metalen));
+    // Fetch #50 doc using its offset.
+    status = fdb_get_byoffset(db, rdoc, offset);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    TEST_CHK(rdoc->deleted == 1);
+    fdb_doc_free(rdoc);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // close db file
+    fdb_close(db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("read_doc_by_offset test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -1693,6 +1791,7 @@ int main(){
     custom_compare_test();
     db_drop_test();
     doc_compression_test();
+    read_doc_by_offset_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;

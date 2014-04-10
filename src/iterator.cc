@@ -274,19 +274,27 @@ start:
 
     _doc.key = key;
     _doc.length.keylen = keylen;
+    _doc.length.bodylen = 0;
     _doc.meta = NULL;
     _doc.body = NULL;
     if (iterator->opt & FDB_ITR_METAONLY) {
-        offset = docio_read_doc_key_meta(iterator->handle.dhandle, offset, &_doc);
+        uint64_t _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
+                                                   offset, &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
         if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
             free(_doc.meta);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
-        if (doc_offset_out && _doc.length.bodylen > 0) {
+        if (doc_offset_out) {
             *doc_offset_out = offset;
         }
     } else {
-        docio_read_doc(iterator->handle.dhandle, offset, &_doc);
+        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset, &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
         if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
             free(_doc.meta);
             free(_doc.body);

@@ -342,9 +342,12 @@ uint64_t _docio_read_length(struct docio_handle *handle, uint64_t offset, struct
     blocksize -= BLK_MARKER_SIZE;
 #endif
 
+    if (filemgr_get_pos(handle->file) < (offset + sizeof(struct docio_length))) {
+        return offset;
+    }
+
     bid_t bid = offset / real_blocksize;
     uint32_t pos = offset % real_blocksize;
-    //uint8_t buf[handle->file->blocksize];
     void *buf = handle->readbuffer;
     uint32_t restsize;
 
@@ -452,6 +455,10 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     struct docio_length length, _length;
 
     _offset = _docio_read_length(handle, offset, &_length);
+    if (_offset == offset) {
+        length.keylen = 0;
+        return length;
+    }
 
     // checksum check
     checksum = _docio_length_checksum(_length);
@@ -485,6 +492,10 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *
     struct docio_length length, _length;
 
     _offset = _docio_read_length(handle, offset, &_length);
+    if (_offset == offset) {
+        *keylen = 0;
+        return;
+    }
 
     // checksum check
     checksum = _docio_length_checksum(_length);
@@ -513,14 +524,40 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *
     *keylen = length.keylen;
 }
 
-uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, struct docio_object *doc)
+static void free_docio_object(struct docio_object *doc, uint8_t key_alloc,
+                              uint8_t meta_alloc, uint8_t body_alloc) {
+    if (!doc) {
+        return;
+    }
+
+    if (key_alloc) {
+        free(doc->key);
+        doc->key = NULL;
+    }
+    if (meta_alloc) {
+        free(doc->meta);
+        doc->meta = NULL;
+    }
+    if (body_alloc) {
+        free(doc->body);
+        doc->body = NULL;
+    }
+}
+
+uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
+                                 struct docio_object *doc)
 {
     uint8_t checksum;
     uint64_t _offset;
+    int key_alloc = 0;
+    int meta_alloc = 0;
     fdb_seqnum_t _seqnum;
     struct docio_length _length;
 
     _offset = _docio_read_length(handle, offset, &_length);
+    if (_offset == offset) {
+        return offset;
+    }
 
     // checksum check
     checksum = _docio_length_checksum(_length);
@@ -540,24 +577,39 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset, s
         return offset;
     }
 
-    if (doc->key == NULL) doc->key = (void *)malloc(doc->length.keylen);
-    if (doc->meta == NULL) doc->meta = (void *)malloc(doc->length.metalen);
+    if (doc->key == NULL) {
+        doc->key = (void *)malloc(doc->length.keylen);
+        key_alloc = 1;
+    }
+    if (doc->meta == NULL) {
+        doc->meta = (void *)malloc(doc->length.metalen);
+        meta_alloc = 1;
+    }
 
     assert(doc->key && doc->meta);
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
-    if (_offset == 0) return offset;
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        return offset;
+    }
 
 #ifdef __FDB_SEQTREE
     // copy sequence number (optional)
     _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(fdb_seqnum_t), (void *)&_seqnum);
-    if (_offset == 0) return offset;
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        return offset;
+    }
     doc->seqnum = _endian_decode(_seqnum);
 #endif
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
-    if (_offset == 0) return offset;
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        return offset;
+    }
 
     return _offset;
 }
@@ -576,6 +628,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     struct docio_length _length;
 
     _offset = _docio_read_length(handle, offset, &_length);
+    if (_offset == offset) {
+        return offset;
+    }
 
     // checksum check
     checksum = _docio_length_checksum(_length);
@@ -611,18 +666,27 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     assert(doc->key && doc->meta && doc->body);
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
-    if (_offset == 0) return offset;
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+        return offset;
+    }
 
 #ifdef __FDB_SEQTREE
     // copy seqeunce number (optional)
     _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(fdb_seqnum_t), (void *)&_seqnum);
-    if (_offset == 0) return offset;
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+        return offset;
+    }
     doc->seqnum = _endian_decode(_seqnum);
 #endif
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
-    if (_offset == 0) return offset;
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+        return offset;
+    }
 
 #ifdef _DOC_COMP
     if (doc->length.flag & DOCIO_COMPRESSED) {
@@ -631,17 +695,26 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
             handle, _offset, doc->length.bodylen, doc->length.bodylen_ondisk,
             doc->body, comp_body);
         if (_offset == 0) {
-            if (comp_body) free(comp_body);
+            if (comp_body) {
+                free(comp_body);
+            }
+            free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
             return offset;
         }
     } else {
         _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen, doc->body);
-        if (_offset == 0) return offset;
+        if (_offset == 0) {
+            free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+            return offset;
+        }
     }
 #else
     _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen, doc->body);
     if (_offset == 0) {
-        if (comp_body) free(comp_body);
+        if (comp_body) {
+            free(comp_body);
+        }
+        free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }
 #endif
@@ -650,7 +723,10 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     uint32_t crc_file, crc;
     _offset = _docio_read_doc_component(handle, _offset, sizeof(crc_file), (void *)&crc_file);
     if (_offset == 0) {
-        if (comp_body) free(comp_body);
+        if (comp_body) {
+            free(comp_body);
+        }
+        free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }
 
@@ -660,23 +736,14 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     crc = crc32_8(doc->meta, doc->length.metalen, crc);
     if (doc->length.flag & DOCIO_COMPRESSED) {
         crc = crc32_8(comp_body, doc->length.bodylen_ondisk, crc);
-        if (comp_body) free(comp_body);
+        if (comp_body) {
+            free(comp_body);
+        }
     } else {
         crc = crc32_8(doc->body, doc->length.bodylen, crc);
     }
     if (crc != crc_file) {
-        if (key_alloc) {
-            free(doc->key);
-            doc->key = NULL;
-        }
-        if (meta_alloc) {
-            free(doc->meta);
-            doc->meta = NULL;
-        }
-        if (body_alloc) {
-            free(doc->body);
-            doc->body = NULL;
-        }
+        free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }
 #endif

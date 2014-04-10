@@ -486,6 +486,8 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
     }
 
 #ifdef __FDB_SEQTREE
+    (*doc)->seqnum = 0;
+#else
     (*doc)->seqnum = SEQNUM_NOT_USED;
 #endif
 
@@ -778,18 +780,18 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         }
 
         _offset = docio_read_doc(dhandle, offset, &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = 0;
+        doc->deleted = _doc.length.bodylen == 0;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-
-        if (_offset == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
 
         if (_doc.length.keylen != doc->keylen || _doc.length.bodylen == 0) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -803,7 +805,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 
 // search document metadata using key
 LIBFDB_API
-fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset)
+fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *doc_offset)
 {
     uint64_t offset;
     struct docio_object _doc;
@@ -843,19 +845,20 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *body_off
         _doc.length.keylen = doc->keylen;
         _doc.meta = _doc.body = NULL;
 
-        *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        if (body_offset == offset){
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
+        doc->deleted = _doc.length.bodylen == 0;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-
-        if (*body_offset == offset){
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
+        *doc_offset = offset;
 
         if (_doc.length.keylen != doc->keylen) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -918,18 +921,18 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         }
 
         _offset = docio_read_doc(dhandle, offset, &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = 0;
+        doc->deleted = _doc.length.bodylen == 0;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-
-        if (_offset == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
 
         if (_doc.length.bodylen == 0) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -945,7 +948,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 
 // search document metadata using sequence number
 LIBFDB_API
-fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *body_offset)
+fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *doc_offset)
 {
     uint64_t offset;
     struct docio_object _doc;
@@ -986,19 +989,20 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
 
-        *body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        if (body_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         doc->keylen = _doc.length.keylen;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = (_doc.length.bodylen > 0) ? 0 : 1;
+        doc->deleted = _doc.length.bodylen == 0;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-
-        if (*body_offset == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
+        *doc_offset = offset;
 
         assert(doc->seqnum == _doc.seqnum);
 
@@ -1008,6 +1012,102 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *bo
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 #endif
+
+static uint8_t equal_docs(fdb_doc *doc, struct docio_object *_doc) {
+    uint8_t rv = 1;
+    // Compare a seq num if seq tree is enabled.
+    if (doc->seqnum != SEQNUM_NOT_USED) {
+        if (doc->seqnum != _doc->seqnum) {
+            free(_doc->key);
+            free(_doc->meta);
+            free(_doc->body);
+            _doc->key = _doc->meta = _doc->body = NULL;
+            rv = 0;
+        }
+    } else { // Compare key and metadata
+        if ((doc->key && memcmp(doc->key, _doc->key, doc->keylen)) ||
+            (doc->meta && memcmp(doc->meta, _doc->meta, doc->metalen))) {
+            free(_doc->key);
+            free(_doc->meta);
+            free(_doc->body);
+            _doc->key = _doc->meta = _doc->body = NULL;
+            rv = 0;
+        }
+    }
+    return rv;
+}
+
+// Retrieve a doc's metadata and body with a given doc offset in the database file.
+LIBFDB_API
+fdb_status fdb_get_byoffset(fdb_handle *handle,
+                            fdb_doc *doc,
+                            uint64_t offset)
+{
+    uint64_t _offset;
+    struct docio_object _doc;
+
+    memset(&_doc, 0, sizeof(struct docio_object));
+
+    _offset = docio_read_doc(handle->dhandle, offset, &_doc);
+    if (_offset == offset) {
+        if (handle->new_dhandle) { // Look up the new file being compacted
+            _offset = docio_read_doc(handle->new_dhandle, offset, &_doc);
+            if (_offset == offset) {
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
+            if (!equal_docs(doc, &_doc)) {
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
+        } else {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+    } else {
+        if (!equal_docs(doc, &_doc)) {
+            if (handle->new_dhandle) { // Look up the new file being compacted
+                _offset = docio_read_doc(handle->new_dhandle, offset, &_doc);
+                if (_offset == offset) {
+                    return FDB_RESULT_KEY_NOT_FOUND;
+                }
+                if (!equal_docs(doc, &_doc)) {
+                    return FDB_RESULT_KEY_NOT_FOUND;
+                }
+            } else {
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
+        }
+    }
+
+    doc->seqnum = _doc.seqnum;
+    doc->keylen = _doc.length.keylen;
+    doc->metalen = _doc.length.metalen;
+    doc->bodylen = _doc.length.bodylen;
+    if (doc->key) {
+        free(_doc.key);
+    } else {
+        doc->key = _doc.key;
+    }
+    if (doc->meta) {
+        free(_doc.meta);
+    } else {
+        doc->meta = _doc.meta;
+    }
+    if (doc->body) {
+        if (_doc.length.bodylen > 0) {
+            memcpy(doc->body, _doc.body, _doc.length.bodylen);
+        }
+        free(_doc.body);
+    } else {
+        doc->body = _doc.body;
+    }
+    doc->deleted = _doc.length.bodylen == 0;
+    doc->size_ondisk = _fdb_get_docsize(_doc.length);
+
+    if (_doc.length.bodylen == 0) {
+        return FDB_RESULT_KEY_NOT_FOUND;
+    }
+
+    return FDB_RESULT_SUCCESS;
+}
 
 uint64_t _fdb_get_wal_threshold(fdb_handle *handle)
 {
@@ -1058,14 +1158,12 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         filemgr_mutex_lock(file);
     }
 
-#ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         //_doc.seqnum = doc->seqnum;
         _doc.seqnum = doc->seqnum = ++handle->seqnum;
-    }else{
+    } else{
         _doc.seqnum = SEQNUM_NOT_USED;
     }
-#endif
 
     if (dhandle == handle->new_dhandle) {
         offset = docio_append_doc_compact(dhandle, &_doc);
