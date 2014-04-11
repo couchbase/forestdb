@@ -22,6 +22,8 @@
 #include <sys/stat.h>
 #include <stdint.h>
 
+#include "libforestdb/fdb_errors.h"
+
 #include "internal_types.h"
 #include "common.h"
 #include "hash.h"

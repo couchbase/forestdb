@@ -18,7 +18,8 @@
 #ifndef _JSAHN_FDB_H
 #define _JSAHN_FDB_H
 
-#include "forestdb_types.h"
+#include "fdb_errors.h"
+#include "fdb_types.h"
 
 #ifdef _MSC_VER
     #ifdef forestdb_EXPORTS

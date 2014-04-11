@@ -20,7 +20,7 @@
 
 #include <stdint.h>
 
-#include "libforestdb/forestdb_types.h"
+#include "libforestdb/fdb_types.h"
 #include "option.h"
 #include "arch.h"
 
