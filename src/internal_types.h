@@ -223,6 +223,18 @@ struct _fdb_iterator {
      */
     struct hbtrie_iterator *hbtrie_iterator;
     /**
+     * B-Tree iterator for sequence number iteration
+     */
+     struct btree_iterator *btree_iterator;
+    /**
+     * Current seqnum pointed by the iterator.
+     */
+    fdb_seqnum_t _seqnum;
+    /**
+     * Iterator end seqnum.
+     */
+    fdb_seqnum_t end_seqnum;
+    /**
      * AVL tree for WAL entries.
      */
     struct avl_tree *wal_tree;

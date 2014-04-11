@@ -231,7 +231,7 @@ LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle);
 
 /**
- * Create an iterator to traverse the ForestDB snapshot.
+ * Create an iterator to traverse a ForestDB snapshot by key range
  *
  * @param handle Pointer to ForestDB handle.
  * @param iterator Pointer to the place where the iterator is created
@@ -252,6 +252,26 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
                              size_t start_keylen,
                              const void *end_key,
                              size_t end_keylen,
+                             fdb_iterator_opt_t opt);
+
+/**
+ * Create an iterator to traverse a ForestDB snapshot by sequence number range
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param iterator Pointer to the iterator to be created as a result of
+ *        this API call.
+ * @param start_seq Starting document sequence number to begin iteration from
+ * @param end_seq Ending sequence number indicating last iterated item. Passing
+ *        -1 means that it wants to end with the latest key
+ *
+ * @param opt Iterator option.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
+                             fdb_iterator **iterator,
+                             const fdb_seqnum_t start_seq,
+                             const fdb_seqnum_t end_seq,
                              fdb_iterator_opt_t opt);
 
 /**

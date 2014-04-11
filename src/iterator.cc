@@ -45,6 +45,7 @@
 
 struct iterator_wal_entry{
     void *key;
+    fdb_seqnum_t seqnum;
     wal_item_action action;
     uint16_t keylen;
     uint64_t offset;
@@ -64,6 +65,14 @@ int _fdb_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
             return (int)((int)keylen1 - (int)keylen2);
         }
     }
+}
+
+int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct iterator_wal_entry *aa, *bb;
+    aa = _get_entry(a, struct iterator_wal_entry, avl);
+    bb = _get_entry(b, struct iterator_wal_entry, avl);
+    return (aa->seqnum - bb->seqnum);
 }
 
 int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
@@ -107,6 +116,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     iterator->_key = (void*)malloc(FDB_MAX_KEYLEN);
     iterator->_keylen = 0;
     iterator->_offset = BLK_NOT_FOUND;
+    iterator->btree_iterator = NULL;
 
     if (start_key == NULL) start_keylen = 0;
     if (end_key == NULL) {
@@ -161,6 +171,81 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 
             // insert into tree
             avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
+        }
+
+        if (e == handle->file->wal->last_commit) break;
+        e = list_next(e);
+    }
+    iterator->tree_cursor = avl_first(iterator->wal_tree);
+
+    spin_unlock(&handle->file->wal->lock);
+
+    *ptr_iterator = iterator;
+
+    return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
+fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
+                                      fdb_iterator **ptr_iterator,
+                                      const fdb_seqnum_t start_seq,
+                                      const fdb_seqnum_t end_seq,
+                                      fdb_iterator_opt_t opt)
+{
+    struct list_elem *e;
+    struct wal_item *wal_item;
+    struct iterator_wal_entry *snap_item;
+    fdb_seqnum_t _start_seq = _endian_encode(start_seq);
+
+    if (handle == NULL || ptr_iterator == NULL ||
+        start_seq > end_seq) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
+
+    iterator->handle = *handle;
+    iterator->hbtrie_iterator = NULL;
+    iterator->btree_iterator = (struct btree_iterator *)malloc(sizeof(
+                                                       struct btree_iterator));
+    iterator->_key = NULL;
+    iterator->_keylen = 0;
+    iterator->opt = opt;
+    iterator->_offset = BLK_NOT_FOUND;
+    iterator->_seqnum = start_seq;
+    iterator->end_seqnum = end_seq;
+
+    iterator->end_key = NULL;
+    iterator->end_keylen = 0;
+
+    // create an iterator handle for b-tree
+    btree_iterator_init(handle->seqtree, iterator->btree_iterator,
+                        (void *)(start_seq ? &_start_seq : NULL));
+
+    // create a snapshot for WAL (avl-tree)
+    // (from the beginning to the last committed element)
+
+    // init tree
+    iterator->wal_tree = (struct avl_tree*)malloc(sizeof(struct avl_tree));
+    avl_init(iterator->wal_tree, (void*)_fdb_seqnum_cmp);
+
+    spin_lock(&handle->file->wal->lock);
+    e = list_begin(&handle->file->wal->list);
+    while(e) {
+        wal_item = _get_entry(e, struct wal_item, list_elem);
+        if (start_seq <= wal_item->seqnum && wal_item->seqnum <= end_seq) {
+            // copy from WAL_ITEM
+            snap_item = (struct iterator_wal_entry*)malloc(sizeof(
+                                                   struct iterator_wal_entry));
+            snap_item->keylen = wal_item->keylen;
+            snap_item->key = (void*)malloc(snap_item->keylen);
+            memcpy(snap_item->key, wal_item->key, snap_item->keylen);
+            snap_item->seqnum = wal_item->seqnum;
+            snap_item->action = wal_item->action;
+            snap_item->offset = wal_item->offset;
+
+            // insert into tree
+            avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_seqnum_cmp);
         }
 
         if (e == handle->file->wal->last_commit) break;
@@ -313,9 +398,168 @@ start:
     (*doc)->metalen = _doc.length.metalen;
     (*doc)->body = _doc.body;
     (*doc)->bodylen = _doc.length.bodylen;
-#ifdef __FDB_SEQTREE
     (*doc)->seqnum = _doc.seqnum;
-#endif
+    (*doc)->deleted = (_doc.length.bodylen == 0) ? 1 : 0;
+
+    return FDB_RESULT_SUCCESS;
+}
+
+// DOC returned by this function must be freed using 'fdb_doc_free'
+static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator,
+                                     fdb_doc **doc,
+                                     uint64_t *doc_offset_out)
+{
+    uint64_t offset;
+    btree_result br = BTREE_RESULT_FAIL;
+    hbtrie_result hr;
+    fdb_status fs;
+    struct docio_object _doc;
+    struct docio_object _hbdoc;
+    struct iterator_wal_entry *snap_item = NULL;
+    fdb_seqnum_t seqnum;
+    fdb_status ret = FDB_RESULT_SUCCESS;
+    struct avl_node *cursor;
+
+start_seq:
+    seqnum = iterator->_seqnum;
+
+    // retrieve from sequence b-tree first
+    if (iterator->_offset == BLK_NOT_FOUND) {
+        br = btree_next(iterator->btree_iterator, &seqnum, (void *) &offset);
+        if (br == BTREE_RESULT_SUCCESS) {
+            seqnum = _endian_decode(seqnum);
+            iterator->_seqnum = seqnum;
+            if (seqnum > iterator->end_seqnum) {
+                return FDB_RESULT_ITERATOR_FAIL;
+            }
+            offset = _endian_decode(offset);
+        }
+    }
+
+    if (br == BTREE_RESULT_FAIL) {
+        if (iterator->tree_cursor == NULL) {
+            return FDB_RESULT_ITERATOR_FAIL;
+        } else {
+            while (iterator->tree_cursor) {
+                // get the current item of avl tree
+                snap_item = _get_entry(iterator->tree_cursor,
+                                       struct iterator_wal_entry, avl);
+                iterator->tree_cursor = avl_next(iterator->tree_cursor);
+                uint8_t drop_logical_deletes =
+                    (snap_item->action == WAL_ACT_LOGICAL_REMOVE) &&
+                    (iterator->opt & FDB_ITR_NO_DELETES);
+                if (snap_item->action == WAL_ACT_REMOVE ||
+                    drop_logical_deletes) {
+                    if (br == BTREE_RESULT_FAIL && !iterator->tree_cursor) {
+                        return FDB_RESULT_ITERATOR_FAIL;
+                    }
+
+                    // this key is removed .. get next key[WAL]
+                    continue;
+                }
+
+                offset = snap_item->offset;
+                iterator->_offset = offset; // stops b-tree lookups. favor wal
+                break;
+            }
+        }
+    }
+
+    _doc.key = NULL;
+    _doc.length.keylen = 0;
+    _doc.meta = NULL;
+    _doc.body = NULL;
+    if (iterator->opt & FDB_ITR_METAONLY) {
+        uint64_t _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
+                                                   offset, &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+            free(_doc.key);
+            free(_doc.meta);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+        if (doc_offset_out) {
+            *doc_offset_out = offset;
+        }
+    } else {
+        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset,
+                                          &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+            free(_doc.key);
+            free(_doc.meta);
+            free(_doc.body);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+    }
+
+    // To prevent returning duplicate items from sequence iterator, only return
+    // those b-tree items that exist in HB-trie but not WAL (visit WAL later)
+    if (br == BTREE_RESULT_SUCCESS) {
+        for (cursor = iterator->tree_cursor; cursor;
+             cursor = avl_next(cursor)) {
+            // get the current item of avl tree
+            snap_item = _get_entry(cursor, struct iterator_wal_entry, avl);
+            if (!memcmp(snap_item->key, _doc.key, snap_item->keylen)) {
+                free(_doc.key);
+                free(_doc.meta);
+                free(_doc.body);
+                goto start_seq; // B-tree item exists in WAL, skip for now
+            }
+        }
+
+        // Also look in HB-Trie to eliminate duplicates
+        hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
+                         (void *)&offset);
+        btreeblk_end(iterator->handle.bhandle);
+
+        if (hr == HBTRIE_RESULT_FAIL) {
+            free(_doc.key);
+            free(_doc.meta);
+            free(_doc.body);
+            goto start_seq;
+        } else { // If present in HB-trie ensure it's seqnum is in range
+            uint64_t _offset;
+            _hbdoc.key = _doc.key;
+            _hbdoc.meta = _doc.meta;
+            offset = _endian_decode(offset);
+            _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
+                                              offset, &_hbdoc);
+            if (_offset == offset) {
+                free(_doc.key);
+                free(_doc.meta);
+                free(_doc.body);
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
+            if (_doc.seqnum < _hbdoc.seqnum &&
+                _hbdoc.seqnum <= iterator->end_seqnum) {
+                free(_doc.key);
+                free(_doc.meta);
+                free(_doc.body);
+                goto start_seq;
+            }
+        }
+    }
+
+    ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
+    if (ret != FDB_RESULT_SUCCESS) {
+        free(_doc.key);
+        free(_doc.meta);
+        free(_doc.body);
+        return ret;
+    }
+
+    (*doc)->key = _doc.key;
+    (*doc)->keylen = _doc.length.keylen;
+    (*doc)->meta = _doc.meta;
+    (*doc)->metalen = _doc.length.metalen;
+    (*doc)->body = _doc.body;
+    (*doc)->bodylen = _doc.length.bodylen;
+    (*doc)->seqnum = _doc.seqnum;
     (*doc)->deleted = (_doc.length.bodylen == 0) ? 1 : 0;
 
     return FDB_RESULT_SUCCESS;
@@ -328,8 +572,14 @@ fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
     fdb_iterator_opt_t opt = iterator->opt;
     iterator->opt |= FDB_ITR_METAONLY;
     fdb_status result = FDB_RESULT_SUCCESS;
-    while ((result = _fdb_iterator_next(iterator, doc, doc_offset_out)) ==
-           FDB_RESULT_KEY_NOT_FOUND);
+    if (iterator->hbtrie_iterator) {
+        while ((result = _fdb_iterator_next(iterator, doc, doc_offset_out)) ==
+                FDB_RESULT_KEY_NOT_FOUND);
+    } else {
+        while ((result = _fdb_iterator_seq_next(iterator, doc,
+                                                doc_offset_out)) ==
+                FDB_RESULT_KEY_NOT_FOUND);
+    }
     iterator->opt = opt;
     return result;
 }
@@ -337,8 +587,13 @@ fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
 fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
-    while ((result = _fdb_iterator_next(iterator, doc, NULL)) ==
-           FDB_RESULT_KEY_NOT_FOUND);
+    if (iterator->hbtrie_iterator) {
+        while ((result = _fdb_iterator_next(iterator, doc, NULL)) ==
+                FDB_RESULT_KEY_NOT_FOUND);
+    } else {
+        while ((result = _fdb_iterator_seq_next(iterator, doc, NULL)) ==
+                FDB_RESULT_KEY_NOT_FOUND);
+    }
     return result;
 }
 
@@ -348,8 +603,15 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     struct avl_node *a;
     struct iterator_wal_entry *snap_item;
 
-    hr = hbtrie_iterator_free(iterator->hbtrie_iterator);
-    free(iterator->hbtrie_iterator);
+    if (iterator->hbtrie_iterator) {
+        hr = hbtrie_iterator_free(iterator->hbtrie_iterator);
+        free(iterator->hbtrie_iterator);
+    }
+    if (iterator->btree_iterator) {
+        btree_iterator_free(iterator->btree_iterator);
+        free(iterator->btree_iterator);
+    }
+
     if (iterator->end_key)
         free(iterator->end_key);
 

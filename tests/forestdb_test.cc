@@ -1435,6 +1435,225 @@ void iterator_test()
     TEST_RESULT("iterator test");
 }
 
+void sequence_iterator_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    int count;
+    uint64_t offset;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024, 0);
+
+    // open db
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+
+    // insert documents of even number
+    for (i=0;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_flush_wal(db);
+    fdb_commit(db);
+
+    // insert documents of odd number
+    for (i=1;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without WAL flush
+    fdb_commit(db);
+
+    // now even number docs are in hb-trie & odd number docs are in WAL
+
+    // create an iterator over sequence number range over FULL RANGE
+    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count = 0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
+        count++;
+    };
+    TEST_CHK(count==n);
+    fdb_iterator_close(iterator);
+
+    // create an iterator over sequence number with META ONLY
+    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_METAONLY);
+
+    // repeat until fail
+    i=0;
+    count = 0;
+    while(1){
+        offset = BLK_NOT_FOUND;
+        status = fdb_iterator_next_offset(iterator, &rdoc, &offset);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(rdoc->body == NULL);
+
+        fdb_doc_free(rdoc);
+        i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
+        count++;
+    };
+    TEST_CHK(count==n);
+    fdb_iterator_close(iterator);
+
+    // create another iterator starts from seq number 2 and ends at 9
+    fdb_iterator_sequence_init(db, &iterator, 2, 7, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=2;
+    count = 0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
+        count++;
+    };
+    TEST_CHK(count==6);
+    fdb_iterator_close(iterator);
+    // remove document #8 and #9
+    fdb_doc_create(&rdoc, doc[8]->key, doc[8]->keylen, doc[8]->meta, doc[8]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    fdb_doc_create(&rdoc, doc[9]->key, doc[9]->keylen, doc[9]->meta, doc[9]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    // commit
+    fdb_commit(db);
+
+    // create an iterator for full range
+    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NONE);
+    // repeat until fail
+    i=0;
+    count=0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        if (count != 8 && count != 9) { // do not look validate key8 and key9
+            TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            TEST_CHK(rdoc->deleted == 1);
+        }
+
+        fdb_doc_free(rdoc);
+        // Turn around when we hit 8 as the last items, key8 and key9 are gone
+        i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
+        count++;
+    };
+    TEST_CHK(count==10); // 10 items, with 2 deletions
+    fdb_iterator_close(iterator);
+
+    // create an iterator for full range, but no deletes.
+    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NO_DELETES);
+    // repeat until fail
+    i=0;
+    count=0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        if (i != 8 && i != 9) { // key8 and key9 are deleted
+            TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        }
+
+        fdb_doc_free(rdoc);
+        i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
+        count++;
+    };
+    TEST_CHK(count==8); // 10 items, with 2 deletions
+    fdb_iterator_close(iterator);
+
+    // Update first document and test for absence of duplicates
+    *((char *)doc[0]->body) = 'K'; // update key0 to Key0
+    fdb_set(db, doc[0]);
+    fdb_commit(db);
+
+    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NO_DELETES);
+    // repeat until fail
+    i=2; // i == 0 should not appear until the end
+    count=0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        if (i != 8 && i != 9) { // key8 and key9 are deleted
+            TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        }
+
+        fdb_doc_free(rdoc);
+        i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
+        if (count == 6) i = 0; // go back to test for i=0 at the end
+        count++;
+    };
+    TEST_CHK(count==8); // 10 items, with 2 deletions
+    fdb_iterator_close(iterator);
+
+    // close db file
+    fdb_close(db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("sequence iterator test");
+}
+
+
 int _cmp_double(void *a, void *b)
 {
     double aa, bb;
@@ -1788,6 +2007,7 @@ int main(){
 #endif
     incomplete_block_test();
     iterator_test();
+    sequence_iterator_test();
     custom_compare_test();
     db_drop_test();
     doc_compression_test();
