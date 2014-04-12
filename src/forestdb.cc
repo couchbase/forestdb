@@ -641,15 +641,27 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         );
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            handle->ndocs++;
+            if (item->action == WAL_ACT_INSERT) {
+                ++handle->ndocs;
+            }
             handle->datasize += item->doc_size;
-        }else{
-            // update
+        } else { // update or logical delete
             struct docio_length len;
-            // this block is already cached when we call HBTRIE_INSERT .. no additional block access
+            // This block is already cached when we call HBTRIE_INSERT.
+            // No additional block access.
             len = docio_read_doc_length(handle->dhandle, old_offset);
-            handle->datasize -= _fdb_get_docsize(len);
 
+            if (len.bodylen) {
+                if (item->action == WAL_ACT_LOGICAL_REMOVE) {
+                    --handle->ndocs;
+                }
+            } else {
+                if (item->action == WAL_ACT_INSERT) {
+                    ++handle->ndocs;
+                }
+            }
+
+            handle->datasize -= _fdb_get_docsize(len);
             handle->datasize += item->doc_size;
         }
     } else {
@@ -666,7 +678,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         );
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            handle->ndocs--;
+            --handle->ndocs;
             handle->datasize -= item->doc_size;
         }
     }
@@ -1715,6 +1727,9 @@ size_t fdb_estimate_space_used(fdb_handle *handle)
     fanout = fanout / 3;
 #endif
 
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
     ret += handle->datasize;
     // hb-trie size (estimated as worst case)
     ret += (handle->ndocs / (fanout * 3 / 4)) * handle->config.blocksize;
@@ -1743,7 +1758,22 @@ fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info)
         info->new_filename = NULL;
     }
     info->last_seqnum = handle->seqnum;
-    info->doc_count = handle->ndocs;
+    // Note that doc_count includes the number of WAL entries, which might
+    // incur an incorrect estimation. However, after the WAL flush, the doc
+    // counter becomes consistent. We plan to devise a new way of tracking
+    // the number of docs in a database instance.
+    size_t wal_size = wal_get_size(handle->file);
+    size_t wal_deletes = wal_get_num_deletes(handle->file);
+    size_t wal_insert = wal_size - wal_deletes;
+    if (handle->ndocs + wal_insert < wal_deletes) {
+        info->doc_count = 0;
+    } else {
+        if (handle->ndocs) {
+            info->doc_count = handle->ndocs + wal_insert - wal_deletes;
+        } else {
+            info->doc_count = wal_insert;
+        }
+    }
 
     info->space_used = fdb_estimate_space_used(handle);
     info->file_size = filemgr_get_pos(handle->file);

@@ -75,6 +75,7 @@ enum {
 struct wal {
     uint8_t flag;
     size_t size;
+    size_t num_deletes;
     struct hash hash_bykey;
 #ifdef __FDB_SEQTREE
     struct hash hash_byseq;
@@ -103,6 +104,7 @@ wal_result wal_flush(struct filemgr *file,
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
 size_t wal_get_size(struct filemgr *file);
+size_t wal_get_num_deletes(struct filemgr *file);
 size_t wal_get_datasize(struct filemgr *file);
 void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status);
 wal_dirty_t wal_get_dirty_status(struct filemgr *file);

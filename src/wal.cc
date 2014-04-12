@@ -94,6 +94,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
 {
     file->wal->flag = WAL_FLAG_INITIALIZED;
     file->wal->size = 0;
+    file->wal->num_deletes = 0;
     file->wal->last_commit = NULL;
     file->wal->wal_dirty = FDB_WAL_CLEAN;
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
@@ -149,6 +150,16 @@ static wal_result _wal_insert(struct filemgr *file,
                 hash_insert(&file->wal->hash_byseq, &item->he_seq);
             #endif
 
+            if (item->action == WAL_ACT_INSERT) {
+                if (!doc->bodylen) {
+                    ++file->wal->num_deletes;
+                }
+            } else {
+                if (doc->bodylen) {
+                    --file->wal->num_deletes;
+                }
+            }
+
             item->doc_size = doc->size_ondisk;
             item->offset = offset;
             item->action = doc->bodylen > 0 ? WAL_ACT_INSERT : WAL_ACT_LOGICAL_REMOVE;
@@ -158,7 +169,7 @@ static wal_result _wal_insert(struct filemgr *file,
             list_push_back(&file->wal->list, &item->list_elem);
         }
 
-    }else{
+    } else {
         // not exist .. create new one
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
@@ -179,7 +190,10 @@ static wal_result _wal_insert(struct filemgr *file,
         SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
 
         list_push_back(&file->wal->list, &item->list_elem);
-        file->wal->size++;
+        ++file->wal->size;
+        if (!doc->bodylen) {
+            ++file->wal->num_deletes;
+        }
     }
 
     spin_unlock(&file->wal->lock);
@@ -295,6 +309,7 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
 #endif
         if (item->action == WAL_ACT_INSERT) {
             item->action = WAL_ACT_REMOVE;
+            ++file->wal->num_deletes;
         }
 
         // move to the end of list
@@ -316,7 +331,8 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         hash_insert(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
         list_push_back(&file->wal->list, &item->list_elem);
-        file->wal->size++;
+        ++file->wal->size;
+        ++file->wal->num_deletes;
     }
 
     spin_unlock(&file->wal->lock);
@@ -372,6 +388,10 @@ wal_result wal_flush(struct filemgr *file,
     e = list_begin(&file->wal->list);
     while(e){
         item = _get_entry(e, struct wal_item, list_elem);
+        if (item->action == WAL_ACT_LOGICAL_REMOVE ||
+            item->action == WAL_ACT_REMOVE) {
+            --file->wal->num_deletes;
+        }
         item->old_offset = get_old_offset(dbhandle, item);
         item->flag |= WAL_ITEM_FLUSH_READY;
         avl_insert(&tree, &item->avl, _wal_flush_cmp);
@@ -428,6 +448,10 @@ wal_result wal_close(struct filemgr *file)
 
     while(e){
         item = _get_entry(e, struct wal_item, list_elem);
+        if (item->action == WAL_ACT_LOGICAL_REMOVE ||
+            item->action == WAL_ACT_REMOVE) {
+            --file->wal->num_deletes;
+        }
         e = list_remove(&file->wal->list, e);
         hash_remove(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
@@ -454,6 +478,10 @@ wal_result wal_shutdown(struct filemgr *file)
 size_t wal_get_size(struct filemgr *file)
 {
     return file->wal->size;
+}
+
+size_t wal_get_num_deletes(struct filemgr *file) {
+    return file->wal->num_deletes;
 }
 
 size_t wal_get_datasize(struct filemgr *file)

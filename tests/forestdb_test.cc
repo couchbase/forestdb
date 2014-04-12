@@ -143,6 +143,12 @@ void basic_test()
     // commit
     fdb_commit(db);
 
+    // check the db info
+    fdb_info info;
+    fdb_get_dbinfo(db, &info);
+    TEST_CHK(info.doc_count == 9);
+    TEST_CHK(info.space_used > 0);
+
     uint64_t offset = 0;
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
     status = fdb_get_metaonly(db, rdoc, &offset);
