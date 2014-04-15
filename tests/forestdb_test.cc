@@ -1675,7 +1675,7 @@ int _cmp_double(void *a, void *b)
     }
 }
 
-void custom_compare_test()
+void custom_compare_primitive_test()
 {
     TEST_INIT();
 
@@ -1698,11 +1698,9 @@ void custom_compare_test()
 
     generate_config_json_file(0, 1024, 0);
 
-    // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
-
-    // set custom compare function for double key type
-    fdb_set_custom_cmp(db, _cmp_double);
+    // open db with custom compare function for double key type
+    fdb_open_cmp_fixed(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
+                       "./fdb_test_config.json", _cmp_double);
 
     for (i=0;i<n;++i){
         key_double = 10000/(i*11.0);
@@ -1771,8 +1769,153 @@ void custom_compare_test()
 
     memleak_end();
 
-    TEST_RESULT("custom compare test");
+    TEST_RESULT("custom compare function for primitive key test");
 }
+
+size_t _get_key_sum(void *key, size_t keylen)
+{
+    size_t sum = 0;
+    while(keylen--) {
+        sum += (*((uint8_t*)key + keylen) - 'a');
+    }
+    return sum;
+}
+
+int _cmp_variable(void *key1, size_t keylen1, void *key2, size_t keylen2)
+{
+    size_t sum1, sum2;
+
+    if (keylen1 == 0 && keylen2 > 0) {
+        return -1;
+    } else if (keylen1 > 0 && keylen2 == 0) {
+        return 1;
+    } else if (keylen1 == 0 && keylen2 == 0) {
+        return 0;
+    }
+
+    sum1 = _get_key_sum(key1, keylen1);
+    sum2 = _get_key_sum(key2, keylen2);
+
+    if (sum1 < sum2) {
+        return -1;
+    } else if (sum1 > sum2) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+void custom_compare_variable_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, r;
+    int n = 10;
+    uint64_t offset;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    size_t keylen = 16;
+    size_t keysum, keysum_prev;
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024, 0);
+
+    // open db with custom compare function for double key type
+    fdb_open_cmp_variable(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
+                       "./fdb_test_config.json", _cmp_variable);
+
+    for (i=0;i<n;++i){
+        for (j=0;j<keylen;++j){
+            keybuf[j] = 'a' + rand()%('z'-'a');
+        }
+        sprintf(bodybuf, "value: %d, %d", i, (int)_get_key_sum(keybuf, keylen));
+        fdb_doc_create(&doc[i], (void*)keybuf, keylen, NULL, 0,
+            (void*)bodybuf, strlen(bodybuf)+1);
+        fdb_set(db, doc[i]);
+    }
+
+    // point query
+    for (i=0;i<n;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(rdoc->bodylen == doc[i]->bodylen);
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+    }
+
+    // range scan (before flushing WAL)
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
+    keysum_prev = 0;
+    while(1){
+        if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
+            break;
+        keysum = _get_key_sum(rdoc->key, rdoc->keylen);
+        TEST_CHK(keysum >= keysum_prev);
+        keysum_prev = keysum;
+        fdb_doc_free(rdoc);
+    };
+    fdb_iterator_close(iterator);
+
+    fdb_flush_wal(db);
+    fdb_commit(db);
+
+    // range scan (after flushing WAL)
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
+    keysum_prev = 0;
+    while(1){
+        if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
+            break;
+        keysum = _get_key_sum(rdoc->key, rdoc->keylen);
+        TEST_CHK(keysum >= keysum_prev);
+        keysum_prev = keysum;
+        fdb_doc_free(rdoc);
+    };
+    fdb_iterator_close(iterator);
+
+    // do compaction
+    fdb_compact(db, (char *) "./dummy2");
+
+    // range scan (after compaction)
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
+    keysum_prev = 0;
+    while(1){
+        if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
+            break;
+        keysum = _get_key_sum(rdoc->key, rdoc->keylen);
+        TEST_CHK(keysum >= keysum_prev);
+        keysum_prev = keysum;
+        fdb_doc_free(rdoc);
+    };
+    fdb_iterator_close(iterator);
+
+    // close db file
+    fdb_close(db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("custom compare function for variable length key test");
+}
+
 
 void doc_compression_test()
 {
@@ -2014,7 +2157,8 @@ int main(){
     incomplete_block_test();
     iterator_test();
     sequence_iterator_test();
-    custom_compare_test();
+    custom_compare_primitive_test();
+    custom_compare_variable_test();
     db_drop_test();
     doc_compression_test();
     read_doc_by_offset_test();

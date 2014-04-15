@@ -86,9 +86,15 @@ typedef struct fdb_doc_struct {
 } fdb_doc;
 
 /**
- * Pointer type definition of a customized compare function.
+ * Pointer type definition of a customized compare function for fixed size key.
  */
-typedef int (*fdb_custom_cmp)(void *a, void *b);
+typedef int (*fdb_custom_cmp_fixed)(void *a, void *b);
+
+/**
+ * Pointer type definition of a customized compare function for variable length key.
+ */
+typedef int (*fdb_custom_cmp_variable)(void *a, size_t len_a,
+                                       void *b, size_t len_b);
 
 /**
  *Opaque reference to the database handle, which is exposed in public APIs.

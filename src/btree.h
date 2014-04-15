@@ -80,6 +80,7 @@ struct btree {
     struct btree_blk_ops *blk_ops;
     struct btree_kv_ops *kv_ops;
     bnode_flag_t root_flag;
+    void *aux;
 
 #ifdef __UTREE
     uint16_t leafsize;
@@ -107,7 +108,7 @@ struct btree_kv_ops {
     //void (*get_nth_splitter)(struct bnode *node, idx_t num, idx_t den, void *key);
     void (*get_nth_splitter)(struct bnode *prev_node, struct bnode *node, void *key);
 
-    int (*cmp)(void *key1, void *key2);
+    int (*cmp)(void *key1, void *key2, void* aux);
     bid_t (*value2bid)(void *value);
     voidref (*bid2value)(bid_t *bid);
 };

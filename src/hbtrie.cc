@@ -397,6 +397,7 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
         btree_init_from_bid(
             &btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
             trie->btree_nodesize, trie->root_bid);
+        btree.aux = trie->aux;
 
         item = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
         item->chunkno = 0;
@@ -425,7 +426,8 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             _free_leaf_key(k);
         } else {
             chunk = (uint8_t*)it->curkey + item->chunkno * trie->chunksize;
-            if (item->btree_it.btree.kv_ops->cmp(k, chunk) != 0) {
+            if (item->btree_it.btree.kv_ops->cmp(k, chunk,
+                    item->btree_it.btree.aux) != 0) {
                 // not exact match key .. the rest of string is not necessary anymore
                 it->keylen = (item->chunkno+1) * trie->chunksize;
             }
@@ -450,6 +452,7 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             btree_init_from_bid(
                 &btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
                 trie->btree_nodesize, bid);
+            btree.aux = trie->aux;
 
             // get sub b-tree's chunk number
             bmeta.data = (void *)mempool_alloc(trie->btree_nodesize);
@@ -660,6 +663,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
         r = btree_init_from_bid(btree, trie->btreeblk_handle, trie->btree_blk_ops,
                                 trie->btree_kv_ops, trie->btree_nodesize,
                                 trie->root_bid);
+        btree->aux = trie->aux;
         assert(btree->ksize == trie->chunksize && btree->vsize == trie->valuelen);
     }
 
@@ -740,6 +744,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
                 // fetch sub-tree
                 r = btree_init_from_bid(btree, trie->btreeblk_handle, trie->btree_blk_ops,
                                         trie->btree_kv_ops, trie->btree_nodesize, bid_new);
+                btree->aux = trie->aux;
             } else {
                 // this is offset of document (as it is)
                 // read entire key
@@ -985,6 +990,7 @@ void _hbtrie_extend_leaf_tree(
     btree_init(&new_btree, trie->btreeblk_handle, trie->btree_blk_ops,
         trie->btree_kv_ops, trie->btree_nodesize, chunksize, trie->valuelen,
         0x0, &meta);
+    new_btree.aux = trie->aux;
 
     // reset BTREEITEM
     btreeitem->btree = new_btree;
@@ -1077,6 +1083,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
             &btreeitem->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
             trie->btree_nodesize, trie->root_bid);
     }
+    btreeitem->btree.aux = trie->aux;
 
     while(curchunkno < nchunk){
         // get current chunk number
@@ -1126,6 +1133,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                 r = btree_init(
                         &btreeitem_new->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
                         trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
+                btreeitem_new->btree.aux = trie->aux;
                 list_insert_before(&btreelist, &btreeitem->e, &btreeitem_new->e);
 
                 // key
@@ -1209,6 +1217,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                                         trie->btree_blk_ops,
                                         trie->btree_kv_ops,
                                         trie->btree_nodesize, bid_new);
+                btreeitem->btree.aux = trie->aux;
                 list_push_back(&btreelist, &btreeitem->e);
 
             }else{
@@ -1316,6 +1325,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                             &btreeitem_new->btree, trie->btreeblk_handle,
                             trie->btree_blk_ops, kv_ops,
                             trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
+                    btreeitem_new->btree.aux = trie->aux;
 
                     list_push_back(&btreelist, &btreeitem_new->e);
 
@@ -1345,6 +1355,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                             &btreeitem_new->btree, trie->btreeblk_handle,
                             trie->btree_blk_ops, kv_ops,
                             trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
+                    btreeitem_new->btree.aux = trie->aux;
 
                     list_push_back(&btreelist, &btreeitem_new->e);
 

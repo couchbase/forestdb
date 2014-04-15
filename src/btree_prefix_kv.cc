@@ -36,6 +36,7 @@ INLINE void _get_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     int ksize, vsize, i;
     void *key_ptr, *ptr, *prefix;
     key_len_t keylen, prefix_len, temp_keylen;
+    key_len_t _keylen, _prefix_len, _temp_keylen;
     size_t offset;
 
     _get_kvsize(node->kvsize, ksize, vsize);
@@ -48,7 +49,8 @@ INLINE void _get_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     prefix = NULL;
     if (node->level == 1) {
         if (node->nentry > 0) {
-            memcpy(&prefix_len, ptr, sizeof(key_len_t));
+            memcpy(&_prefix_len, ptr, sizeof(key_len_t));
+            prefix_len = _endian_decode(_prefix_len);
             offset += sizeof(key_len_t) + prefix_len;
             prefix = (uint8_t*)ptr + sizeof(key_len_t);
         }
@@ -56,7 +58,8 @@ INLINE void _get_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
 
     // linear search
     for (i=0;i<idx;++i){
-        memcpy(&keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+        memcpy(&_keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
         offset += sizeof(key_len_t)+keylen + vsize;
     }
 
@@ -67,12 +70,14 @@ INLINE void _get_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     }
 
     // allocate space for key
-    memcpy(&keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+    memcpy(&_keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+    keylen = _endian_decode(_keylen);
     key_ptr = (void*)malloc(sizeof(key_len_t) + keylen + prefix_len);
 
-    // copy key
+    // copy keylen
     temp_keylen = keylen + prefix_len;
-    memcpy(key_ptr, &temp_keylen, sizeof(key_len_t));
+    _temp_keylen = _endian_encode(temp_keylen);
+    memcpy(key_ptr, &_temp_keylen, sizeof(key_len_t));
     // copy prefix
     if (prefix_len > 0) {
         memcpy((uint8_t*)key_ptr + sizeof(key_len_t), prefix, prefix_len);
@@ -103,7 +108,7 @@ INLINE void _get_common_prefix(
     }
 }
 
-#define BUFFERSIZE (65536)
+#define BUFFERSIZE (FDB_BLOCKSIZE)
 
 typedef enum {
     ARR_OVERWRITE,
@@ -127,23 +132,26 @@ INLINE void _arrange_prefix(
     size_t ksize, vsize;
     void *buffer, *ptr;
     key_len_t temp_keylen, keylen;
+    key_len_t _temp_keylen, _keylen, _new_prefix_len;
     size_t offset, offset_buffer, i;
 
     _get_kvsize(node->kvsize, ksize, vsize);
     ksize = sizeof(void *);
     ptr = node->data;
 
-    buffer = (void *)malloc(BUFFERSIZE);
+    buffer = (void *)alca(uint8_t, BUFFERSIZE);
     offset_buffer = offset = 0;
 
     // copy new prefix to buffer
-    memcpy(buffer, &new_prefix_len, sizeof(key_len_t));
+    _new_prefix_len = _endian_encode(new_prefix_len);
+    memcpy(buffer, &_new_prefix_len, sizeof(key_len_t));
     memcpy((uint8_t*)buffer + sizeof(key_len_t),
            (uint8_t*)key_ptr + sizeof(key_len_t), new_prefix_len);
     offset_buffer += sizeof(key_len_t) + new_prefix_len;
 
     // read previous prefix in the node
-    memcpy(&keylen, ptr, sizeof(key_len_t));
+    memcpy(&_keylen, ptr, sizeof(key_len_t));
+    keylen = _endian_decode(_keylen);
     offset += sizeof(key_len_t) + keylen;
 
     for (i=0 ; i< ((idx < nentry)?(nentry):(idx+1)) ; ++i){
@@ -151,8 +159,9 @@ INLINE void _arrange_prefix(
         if ( (arrange_option == ARR_INSERT || arrange_option == ARR_OVERWRITE) && i == idx) {
             // copy idx (new key value)
             temp_keylen = keylen_ins - new_prefix_len;
+            _temp_keylen = _endian_encode(temp_keylen);
             memcpy((uint8_t*)buffer + offset_buffer,
-                   &temp_keylen, sizeof(key_len_t));
+                   &_temp_keylen, sizeof(key_len_t));
             memcpy((uint8_t*)buffer + offset_buffer + sizeof(key_len_t),
                    (uint8_t*)key_ptr + sizeof(key_len_t) + new_prefix_len,
                    temp_keylen);
@@ -168,11 +177,13 @@ INLINE void _arrange_prefix(
             arrange_option == ARR_NONE) {
 
             // copy keylen + alpha
-            memcpy(&keylen, (uint8_t*)ptr + offset, sizeof(key_len_t));
+            memcpy(&_keylen, (uint8_t*)ptr + offset, sizeof(key_len_t));
+            keylen = _endian_decode(_keylen);
             temp_keylen = keylen + (prefix_len - new_prefix_len);
 
+            _temp_keylen = _endian_encode(temp_keylen);
             memcpy((uint8_t*)buffer + offset_buffer,
-                   &temp_keylen, sizeof(key_len_t));
+                   &_temp_keylen, sizeof(key_len_t));
             if (new_prefix_len < prefix_len) {
                 // when prefix is shrinked
                 // copy skipped prefix
@@ -197,14 +208,14 @@ INLINE void _arrange_prefix(
             offset += sizeof(key_len_t) + keylen + vsize;
         }else if (arrange_option == ARR_REMOVE && i == idx) {
             // copy keylen and skip
-            memcpy(&keylen, (uint8_t*)ptr + offset, sizeof(key_len_t));
+            memcpy(&_keylen, (uint8_t*)ptr + offset, sizeof(key_len_t));
+            keylen = _endian_decode(_keylen);
             offset += sizeof(key_len_t) + keylen + vsize;
         }
     }
 
     // swap buffer <-> node->data
     memcpy(ptr, buffer, offset_buffer);
-    free(buffer);
 }
 
 INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value)
@@ -212,6 +223,7 @@ INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     int ksize, vsize, i;
     void *prefix, *key_ptr, *ptr, *first_key, *last_key;
     key_len_t prefix_len, keylen, keylen_ins, keylen_idx = 0;
+    key_len_t _prefix_len, _keylen, _keylen_ins, _temp_keylen;
     key_len_t new_prefix_len, temp_keylen, first_keylen, last_keylen;
     size_t offset, offset_idx, offset_next, next_len;
 
@@ -225,7 +237,8 @@ INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     prefix = NULL;
     if (node->level == 1) {
         if (node->nentry > 0) {
-            memcpy(&prefix_len, ptr, sizeof(key_len_t));
+            memcpy(&_prefix_len, ptr, sizeof(key_len_t));
+            prefix_len = _endian_decode(_prefix_len);
             offset += sizeof(key_len_t) + prefix_len;
             prefix = (uint8_t*)ptr + sizeof(key_len_t);
         }
@@ -236,7 +249,8 @@ INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     first_key = last_key = NULL;
     first_keylen = last_keylen = next_len = 0;
     for (i=0;i<node->nentry;++i){
-        memcpy(&keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+        memcpy(&_keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
 
         if (i==0) {
             first_key = (uint8_t*)ptr + offset + sizeof(key_len_t);
@@ -257,7 +271,8 @@ INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
 
     // copy key info from KEY
     memcpy(&key_ptr, key, ksize);
-    memcpy(&keylen_ins, key_ptr, sizeof(key_len_t));
+    memcpy(&_keylen_ins, key_ptr, sizeof(key_len_t));
+    keylen_ins = _endian_decode(_keylen_ins);
 
     if ((idx ==0 || idx >= node->nentry-1) &&
         node->nentry > 0 && node->level == 1) {
@@ -298,7 +313,8 @@ INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
             prefix = (uint8_t*)key_ptr + sizeof(key_len_t);
             prefix_len = keylen_ins - 1;
 
-            memcpy(ptr, &prefix_len, sizeof(key_len_t));
+            _prefix_len = _endian_encode(prefix_len);
+            memcpy(ptr, &_prefix_len, sizeof(key_len_t));
             memcpy((uint8_t*)ptr + sizeof(key_len_t), prefix, prefix_len);
             offset_idx += sizeof(key_len_t) + prefix_len;
         }
@@ -312,7 +328,8 @@ INLINE void _set_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     }
 
     // copy key into the node
-    memcpy((uint8_t*)ptr + offset_idx, &temp_keylen, sizeof(key_len_t));
+    _temp_keylen = _endian_encode(temp_keylen);
+    memcpy((uint8_t*)ptr + offset_idx, &_temp_keylen, sizeof(key_len_t));
     memcpy((uint8_t*)ptr + offset_idx + sizeof(key_len_t),
            (uint8_t*)key_ptr + sizeof(key_len_t) + prefix_len,
            temp_keylen);
@@ -325,7 +342,9 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
 {
     int ksize, vsize, i;
     void *key_ptr, *ptr, *prefix, *first_key, *last_key;
-    key_len_t keylen, keylen_ins, prefix_len, first_keylen, last_keylen, temp_keylen, new_prefix_len;
+    key_len_t keylen, keylen_ins, prefix_len;
+    key_len_t _keylen, _keylen_ins, _prefix_len, _temp_keylen, _new_prefix_len;
+    key_len_t first_keylen, last_keylen, temp_keylen, new_prefix_len;
     size_t offset, offset_idx, offset_next, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
@@ -340,7 +359,8 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     prefix = NULL;
     if (node->level == 1) {
         if (node->nentry > 0) {
-            memcpy(&prefix_len, ptr, sizeof(key_len_t));
+            memcpy(&_prefix_len, ptr, sizeof(key_len_t));
+            prefix_len = _endian_decode(_prefix_len);
             offset += sizeof(key_len_t) + prefix_len;
             prefix = (uint8_t*)ptr + sizeof(key_len_t);
         }
@@ -351,7 +371,8 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
     first_key = last_key = NULL;
     first_keylen = last_keylen = next_len = 0;
     for (i=0;i<node->nentry;++i){
-        memcpy(&keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+        memcpy(&_keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
 
         if (key && value) {
             // insert
@@ -388,7 +409,8 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
 
         // copy key info from KEY
         memcpy(&key_ptr, key, ksize);
-        memcpy(&keylen_ins, key_ptr, sizeof(key_len_t));
+        memcpy(&_keylen_ins, key_ptr, sizeof(key_len_t));
+        keylen_ins = _endian_decode(_keylen_ins);
 
         if (idx == 0 && node->nentry > 0 && node->level == 1) {
             void *comp_key;
@@ -423,7 +445,8 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
                 (uint8_t*)ptr + offset_idx, next_len);
 
         // copy key into the node
-        memcpy((uint8_t*)ptr + offset_idx, &temp_keylen, sizeof(key_len_t));
+        _temp_keylen = _endian_encode(temp_keylen);
+        memcpy((uint8_t*)ptr + offset_idx, &_temp_keylen, sizeof(key_len_t));
         memcpy((uint8_t*)ptr + offset_idx + sizeof(key_len_t),
                (uint8_t*)key_ptr + sizeof(key_len_t) + prefix_len,
                temp_keylen);
@@ -446,7 +469,8 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
                 // we have to modify all entries in the node
                 comp_key = (void*)malloc(sizeof(key_len_t) +
                                          prefix_len + new_prefix_len);
-                memcpy(comp_key, &new_prefix_len, sizeof(key_len_t));
+                _new_prefix_len = _endian_encode(new_prefix_len);
+                memcpy(comp_key, &_new_prefix_len, sizeof(key_len_t));
                 memcpy((uint8_t*)comp_key + sizeof(key_len_t),
                        prefix, prefix_len);
                 memcpy((uint8_t*)comp_key + sizeof(key_len_t) + prefix_len,
@@ -482,6 +506,8 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
     void *key_ptr;
     key_len_t keylen, new_prefix_len, temp_keylen;
     key_len_t prefix_src_len, prefix_dst_len, first_keylen, last_keylen;
+    key_len_t _keylen, _prefix_src_len, _comp_keylen;
+    key_len_t _prefix_dst_len, _temp_keylen;
     size_t src_offset, src_len, dst_offset;
 
     // not support when dst_idx != 0
@@ -502,7 +528,8 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
     src_offset = 0;
     if (node_src->level == 1) {
         if (node_src->nentry > 0) {
-            memcpy(&prefix_src_len, ptr_src, sizeof(key_len_t));
+            memcpy(&_prefix_src_len, ptr_src, sizeof(key_len_t));
+            prefix_src_len = _endian_decode(_prefix_src_len);
             src_offset += sizeof(key_len_t) + prefix_src_len;
             prefix_src = (uint8_t*)ptr_src + sizeof(key_len_t);
         }
@@ -510,15 +537,17 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
 
     // calculate offset of 0 ~ src_idx-1
     for (i=0;i<src_idx;++i){
-        memcpy(&keylen, (uint8_t*)ptr_src + src_offset, sizeof(key_len_t));
+        memcpy(&_keylen, (uint8_t*)ptr_src + src_offset, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
         src_offset += sizeof(key_len_t) + keylen + vsize;
     }
 
     // calculate data length to be copied & check common prefix among entries to be copied
     src_len = 0;
     for (i=src_idx ; i<src_idx+len ; ++i){
-        memcpy(&keylen, (uint8_t*)ptr_src + src_offset + src_len,
+        memcpy(&_keylen, (uint8_t*)ptr_src + src_offset + src_len,
                sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
         if (i==src_idx) {
             first_key = (uint8_t*)ptr_src + src_offset + src_len +
                                   sizeof(key_len_t);
@@ -546,7 +575,8 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
                 // KEY and the last key
                 comp_keylen = prefix_src_len + last_keylen;
                 comp_key = (void*)malloc(sizeof(key_len_t) + comp_keylen);
-                memcpy(comp_key, &comp_keylen, sizeof(key_len_t));
+                _comp_keylen = _endian_encode(comp_keylen);
+                memcpy(comp_key, &_comp_keylen, sizeof(key_len_t));
                 if (prefix_src_len) {
                     memcpy((uint8_t*)comp_key + sizeof(key_len_t),
                            prefix_src, prefix_src_len);
@@ -568,8 +598,9 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
         if (new_prefix_len > 0) {
             prefix_dst_len = prefix_src_len + new_prefix_len;
             // copy original prefix
+            _prefix_dst_len = _endian_encode(prefix_dst_len);
             memcpy((uint8_t*)ptr_dst + dst_offset,
-                   &prefix_dst_len, sizeof(key_len_t));
+                   &_prefix_dst_len, sizeof(key_len_t));
             memcpy((uint8_t*)ptr_dst + dst_offset + sizeof(key_len_t),
                    prefix_src, prefix_src_len);
             // copy rest of prefix
@@ -580,12 +611,14 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
             // copy entries
             src_len = 0;
             for (i=src_idx ; i<src_idx+len ; ++i){
-                memcpy(&keylen, (uint8_t*)ptr_src + src_offset + src_len,
+                memcpy(&_keylen, (uint8_t*)ptr_src + src_offset + src_len,
                        sizeof(key_len_t));
+                keylen = _endian_decode(_keylen);
 
                 // copy key + value
                 temp_keylen = keylen - new_prefix_len;
-                memcpy((uint8_t*)ptr_dst + dst_offset, &temp_keylen,
+                _temp_keylen = _endian_encode(temp_keylen);
+                memcpy((uint8_t*)ptr_dst + dst_offset, &_temp_keylen,
                        sizeof(key_len_t));
                 memcpy((uint8_t*)ptr_dst + dst_offset + sizeof(key_len_t),
                        (uint8_t*)ptr_src + src_offset + src_len +
@@ -598,7 +631,8 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
             return;
         }else{
             // copy original prefix
-            memcpy((uint8_t*)ptr_dst + dst_offset, &prefix_src_len,
+            _prefix_src_len = _endian_encode(prefix_src_len);
+            memcpy((uint8_t*)ptr_dst + dst_offset, &_prefix_src_len,
                    sizeof(key_len_t));
             memcpy((uint8_t*)ptr_dst + dst_offset + sizeof(key_len_t),
                    prefix_src, prefix_src_len);
@@ -608,7 +642,8 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
 
     // calculate offset of 0 ~ dst_idx-1
     for (i=0;i<dst_idx;++i){
-        memcpy(&keylen, (uint8_t*)ptr_dst + dst_offset, sizeof(key_len_t));
+        memcpy(&_keylen, (uint8_t*)ptr_dst + dst_offset, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
         dst_offset += sizeof(key_len_t) + keylen + vsize;
     }
 
@@ -620,11 +655,12 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
 INLINE size_t _get_prefix_kv_size(struct btree *tree, void *key, void *value)
 {
     void *key_ptr;
-    key_len_t keylen;
+    key_len_t keylen, _keylen;
 
     if (key) {
         memcpy(&key_ptr, key, sizeof(void *));
-        memcpy(&keylen, key_ptr, sizeof(key_len_t));
+        memcpy(&_keylen, key_ptr, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
     }
 
     return ((key)?(sizeof(key_len_t) + keylen):0) + ((value)?tree->vsize:0);
@@ -637,6 +673,7 @@ INLINE size_t _get_prefix_data_size(
     void *ptr, *key_ptr, *prefix;
     size_t offset, offset_ins, size, ret;
     key_len_t keylen, prefix_len, new_prefix_len;
+    key_len_t _keylen, _prefix_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
     ksize = sizeof(void*);
@@ -648,7 +685,8 @@ INLINE size_t _get_prefix_data_size(
     prefix = NULL;
     if (node->level == 1) {
         if (node->nentry > 0) {
-            memcpy(&prefix_len, ptr, sizeof(key_len_t));
+            memcpy(&_prefix_len, ptr, sizeof(key_len_t));
+            prefix_len = _endian_decode(_prefix_len);
             offset += sizeof(key_len_t) + prefix_len;
             prefix = (uint8_t*)ptr + sizeof(key_len_t);
         }
@@ -657,13 +695,15 @@ INLINE size_t _get_prefix_data_size(
     size = offset;
 
     for (i=0;i<node->nentry;++i){
-        memcpy(&keylen, (uint8_t*)ptr + offset, sizeof(key_len_t));
+        memcpy(&_keylen, (uint8_t*)ptr + offset, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
         offset += sizeof(key_len_t) + keylen + vsize;
 
         if (new_minkey && i==0) {
             // if the minimum key should be replaced to NEW_MINKEY
             memcpy(&key_ptr, new_minkey, ksize);
-            memcpy(&keylen, key_ptr, sizeof(key_len_t));
+            memcpy(&_keylen, key_ptr, sizeof(key_len_t));
+            keylen = _endian_decode(_keylen);
             if (node->level == 1 && prefix_len > 0) {
                 _get_common_prefix(prefix, new_prefix_len,
                                    (uint8_t*)key_ptr + sizeof(key_len_t),
@@ -677,7 +717,8 @@ INLINE size_t _get_prefix_data_size(
     if (key_arr && value_arr && len > 0) {
         for (i=0;i<len;++i){
             memcpy(&key_ptr, (uint8_t*)key_arr + ksize*i, ksize);
-            memcpy(&keylen, key_ptr, sizeof(key_len_t));
+            memcpy(&_keylen, key_ptr, sizeof(key_len_t));
+            keylen = _endian_decode(_keylen);
             if (node->level == 1 && prefix_len > 0) {
                 _get_common_prefix(
                     prefix, new_prefix_len,
@@ -717,10 +758,11 @@ INLINE void _free_prefix_kv_var(struct btree *tree, void *key, void *value)
 INLINE void _set_prefix_key(struct btree *tree, void *dst, void *src)
 {
     void *key_ptr_old, *key_ptr_new;
-    key_len_t keylen_new;
+    key_len_t keylen_new, _keylen_new;
 
     memcpy(&key_ptr_new, src, sizeof(void *));
-    memcpy(&keylen_new, key_ptr_new, sizeof(key_len_t));
+    memcpy(&_keylen_new, key_ptr_new, sizeof(key_len_t));
+    keylen_new = _endian_decode(_keylen_new);
 
     // free previous key (if exist)
     memcpy(&key_ptr_old, dst, sizeof(void *));
@@ -749,10 +791,11 @@ INLINE void _get_prefix_nth_idx(struct bnode *node,
 void btree_prefix_kv_set_key(void *key, void *str, size_t len)
 {
     void *key_ptr;
-    key_len_t keylen = len;
+    key_len_t _keylen, keylen = len;
 
     key_ptr = (void *)malloc(sizeof(key_len_t) + keylen);
-    memcpy(key_ptr, &keylen, sizeof(key_len_t));
+    _keylen = _endian_encode(keylen);
+    memcpy(key_ptr, &_keylen, sizeof(key_len_t));
     memcpy((uint8_t*)key_ptr + sizeof(key_len_t), str, keylen);
     memcpy(key, &key_ptr, sizeof(void *));
 }
@@ -760,12 +803,17 @@ void btree_prefix_kv_set_key(void *key, void *str, size_t len)
 void btree_prefix_kv_get_key(void *key, void *strbuf, size_t *len)
 {
     void *key_ptr;
-    key_len_t keylen;
+    key_len_t keylen, _keylen;
 
     memcpy(&key_ptr, key, sizeof(void *));
-    memcpy(&keylen, key_ptr, sizeof(key_len_t));
-    memcpy(strbuf, (uint8_t*)key_ptr + sizeof(key_len_t), keylen);
-    *len = keylen;
+    if (key_ptr) {
+        memcpy(&_keylen, key_ptr, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
+        memcpy(strbuf, (uint8_t*)key_ptr + sizeof(key_len_t), keylen);
+        *len = keylen;
+    } else {
+        *len = 0;
+    }
 }
 
 void btree_prefix_kv_free_key(void *key)
@@ -787,6 +835,7 @@ INLINE void _get_prefix_nth_splitter(struct bnode *prev_node, struct bnode *node
     uint8_t *key2 = alca(uint8_t, ksize);
     void *key1_ptr, *key2_ptr;
     key_len_t key1_len, key2_len, prefix_len;
+    key_len_t _key1_len, _key2_len;
 
     key1_len = key2_len = 0;
     memset(key1, 0, ksize);
@@ -797,8 +846,10 @@ INLINE void _get_prefix_nth_splitter(struct bnode *prev_node, struct bnode *node
 
     memcpy(&key1_ptr, key1, sizeof(void *));
     memcpy(&key2_ptr, key2, sizeof(void *));
-    memcpy(&key1_len, key1_ptr, sizeof(key_len_t));
-    memcpy(&key2_len, key2_ptr, sizeof(key_len_t));
+    memcpy(&_key1_len, key1_ptr, sizeof(key_len_t));
+    key1_len = _endian_decode(_key1_len);
+    memcpy(&_key2_len, key2_ptr, sizeof(key_len_t));
+    key2_len = _endian_decode(_key2_len);
 
     _get_common_prefix(
        (uint8_t*)key1_ptr + sizeof(key_len_t), key1_len,
@@ -824,10 +875,11 @@ INLINE void* _prefix_bid_to_value_64(bid_t *bid)
     return (void *)bid;
 }
 
-INLINE int _cmp_prefix64(void *key1, void *key2)
+INLINE int _cmp_prefix64(void *key1, void *key2, void *aux)
 {
     void *key_ptr1, *key_ptr2;
     key_len_t keylen1, keylen2;
+    key_len_t _keylen1, _keylen2;
 
     memcpy(&key_ptr1, key1, sizeof(void *));
     memcpy(&key_ptr2, key2, sizeof(void *));
@@ -840,8 +892,10 @@ INLINE int _cmp_prefix64(void *key1, void *key2)
         return 1;
     }
 
-    memcpy(&keylen1, key_ptr1, sizeof(key_len_t));
-    memcpy(&keylen2, key_ptr2, sizeof(key_len_t));
+    memcpy(&_keylen1, key_ptr1, sizeof(key_len_t));
+    keylen1 = _endian_decode(_keylen1);
+    memcpy(&_keylen2, key_ptr2, sizeof(key_len_t));
+    keylen2 = _endian_decode(_keylen2);
 
     if (keylen1 == keylen2) {
         return memcmp((uint8_t*)key_ptr1 + sizeof(key_len_t),

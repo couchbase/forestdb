@@ -148,8 +148,9 @@ INLINE void* _bid_to_value_64(bid_t *bid)
     return (void *)bid;
 }
 
-INLINE int _cmp_int32_t(void *key1, void *key2)
+INLINE int _cmp_int32_t(void *key1, void *key2, void *aux)
 {
+    (void) aux;
     int32_t *a,*b;
     a = (int32_t*)key1;
     b = (int32_t*)key2;
@@ -158,8 +159,9 @@ INLINE int _cmp_int32_t(void *key1, void *key2)
     return 0;
 }
 
-INLINE int _cmp_uint32_t(void *key1, void *key2)
+INLINE int _cmp_uint32_t(void *key1, void *key2, void *aux)
 {
+    (void) aux;
     uint32_t *a,*b;
     a = (uint32_t*)key1;
     b = (uint32_t*)key2;
@@ -168,8 +170,9 @@ INLINE int _cmp_uint32_t(void *key1, void *key2)
     return 0;
 }
 
-INLINE int _cmp_uint64_t(void *key1, void *key2)
+INLINE int _cmp_uint64_t(void *key1, void *key2, void *aux)
 {
+    (void) aux;
     uint64_t a,b;
     a = *(uint64_t*)key1;
     b = *(uint64_t*)key2;
@@ -180,13 +183,15 @@ INLINE int _cmp_uint64_t(void *key1, void *key2)
     return _CMP_U64(a, b);
 }
 
-INLINE int _cmp_char64(void *key1, void *key2)
+INLINE int _cmp_char64(void *key1, void *key2, void *aux)
 {
+    (void) aux;
     return strncmp((char*)key1, (char*)key2, 8);
 }
 
-INLINE int _cmp_binary32(void *key1, void *key2)
+INLINE int _cmp_binary32(void *key1, void *key2, void *aux)
 {
+    (void) aux;
 #ifdef __BIT_CMP
     uint32_t a,b;
     a = bitswap32(*(uint32_t*)key1);
@@ -197,8 +202,9 @@ INLINE int _cmp_binary32(void *key1, void *key2)
 #endif
 }
 
-INLINE int _cmp_binary64(void *key1, void *key2)
+INLINE int _cmp_binary64(void *key1, void *key2, void *aux)
 {
+    (void) aux;
 #ifdef __BIT_CMP
     uint64_t a,b;
     a = bitswap64(*(uint64_t*)key1);

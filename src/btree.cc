@@ -394,7 +394,7 @@ idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
         // compare with smallest key
         btree->kv_ops->get_kv(node, 0, k, NULL);
         // smaller than smallest key
-        if (btree->kv_ops->cmp(key, k) < 0) {
+        if (btree->kv_ops->cmp(key, k, btree->aux) < 0) {
             if (btree->kv_ops->free_kv_var) btree->kv_ops->free_kv_var(btree, k, NULL);
             return BTREE_IDX_NOT_FOUND;
         }
@@ -402,7 +402,7 @@ idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
         // compare with largest key
         btree->kv_ops->get_kv(node, end-1, k, NULL);
         // larger than largest key
-        if (btree->kv_ops->cmp(key, k) >= 0) {
+        if (btree->kv_ops->cmp(key, k, btree->aux) >= 0) {
             if (btree->kv_ops->free_kv_var) btree->kv_ops->free_kv_var(btree, k, NULL);
             return end-1;
         }
@@ -413,7 +413,7 @@ idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
 
             // get key at middle
             btree->kv_ops->get_kv(node, middle, k, NULL);
-            cmp = btree->kv_ops->cmp(key, k);
+            cmp = btree->kv_ops->cmp(key, k, btree->aux);
 
             #ifdef __BIT_CMP
                 cmp = _MAP(cmp) + 1;
@@ -450,7 +450,7 @@ idx_t _btree_add_entry(struct btree *btree, struct bnode *node, void *key, void 
         if (idx == BTREE_IDX_NOT_FOUND) idx_insert = 0;
         else {
             btree->kv_ops->get_kv(node, idx, k, NULL);
-            if (!btree->kv_ops->cmp(key, k)) {
+            if (!btree->kv_ops->cmp(key, k, btree->aux)) {
                 // if same key already exists -> update its value
                 btree->kv_ops->set_kv(node, idx, key, value);
                 if (btree->kv_ops->free_kv_var) btree->kv_ops->free_kv_var(btree, k, NULL);
@@ -666,7 +666,7 @@ btree_result btree_find(struct btree *btree, void *key, void *value_buf)
         }else{
             // leaf node
             // return (address of) value if KEY == k
-            if (!btree->kv_ops->cmp(key, k)) {
+            if (!btree->kv_ops->cmp(key, k, btree->aux)) {
                 btree->kv_ops->set_value(btree, value_buf, v);
             }else{
                 if (btree->blk_ops->blk_operation_end)
@@ -734,7 +734,7 @@ int _btree_split_node(
             idx_ins[i] = BTREE_IDX_NOT_FOUND;
             for (j=1;j<nnode;++j){
                 btree->kv_ops->get_kv(new_node[j], 0, k, v);
-                if (btree->kv_ops->cmp(kv_item->key, k) < 0) {
+                if (btree->kv_ops->cmp(kv_item->key, k, btree->aux) < 0) {
                     idx_ins[i] =
                         _btree_add_entry(btree, new_node[j-1], kv_item->key, kv_item->value);
                     break;
@@ -926,7 +926,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
         if (i > 0) {
             // in case of index node
             // when KEY is smaller than smallest key in index node
-            if (idx[i] == 0 && btree->kv_ops->cmp(key, k) < 0) {
+            if (idx[i] == 0 && btree->kv_ops->cmp(key, k, btree->aux) < 0) {
                 // change node's smallest key
                 minkey_replace[i] = 1;
             }
@@ -953,7 +953,8 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                 e = list_begin(&kv_ins_list[i]);
                 kv_item = _get_entry(e, struct kv_ins_item, le);
                 _is_update =
-                    (idx[i] != BTREE_IDX_NOT_FOUND && !btree->kv_ops->cmp(kv_item->key, k));
+                    (idx[i] != BTREE_IDX_NOT_FOUND &&
+                     !btree->kv_ops->cmp(kv_item->key, k, btree->aux));
             }
 
         check_node:;
@@ -1111,7 +1112,7 @@ btree_result btree_remove(struct btree *btree, void *key)
             // when child node's smallest key is changed due to remove
               if (node[i-1]->nentry > 0) {
                 btree->kv_ops->get_kv(node[i-1], 0, kk, vv);
-                if (btree->kv_ops->cmp(kk, k)) {
+                if (btree->kv_ops->cmp(kk, k, btree->aux)) {
                     // change current node's corresponding key
                     btree->kv_ops->set_kv(node[i], idx[i], kk, v);
                     //memcpy(k, kk, btree->ksize);
@@ -1267,7 +1268,9 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
 
     if (node->nentry <= 0) {
         if (it->btree.kv_ops->free_kv_var) it->btree.kv_ops->free_kv_var(&it->btree, k, v);
-        assert(0);
+        if (it->node[depth] != NULL) mempool_free(it->addr[depth]);
+        it->node[depth] = NULL;
+        it->addr[depth] = NULL;
         return BTREE_RESULT_FAIL;
     }
 
@@ -1278,7 +1281,8 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
             it->idx[depth] = 0;
         }
         btree->kv_ops->get_kv(node, it->idx[depth], key_buf, value_buf);
-        if (btree->kv_ops->cmp(it->curkey, key_buf) > 0 && depth == 0) {
+        if (btree->kv_ops->cmp(it->curkey, key_buf, btree->aux) > 0 &&
+            depth == 0) {
             // in leaf node, next key must be larger than previous key (i.e. it->curkey)
             it->idx[depth]++;
         }

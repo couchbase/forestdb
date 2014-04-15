@@ -29,6 +29,7 @@
 #include "avltree.h"
 #include "list.h"
 #include "internal_types.h"
+#include "btree_var_kv_ops.h"
 
 #include "memleak.h"
 
@@ -77,13 +78,18 @@ int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 
 int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
+    fdb_handle *handle = (fdb_handle*)aux;
     struct iterator_wal_entry *aa, *bb;
     aa = _get_entry(a, struct iterator_wal_entry, avl);
     bb = _get_entry(b, struct iterator_wal_entry, avl);
-    if (aux) {
-        // custom compare function
-        fdb_custom_cmp func = (fdb_custom_cmp)aux;
-        return func(aa->key, bb->key);
+
+    if (handle->config.cmp_fixed) {
+        // custom compare function for fixed-size key
+        return handle->config.cmp_fixed(aa->key, bb->key);
+    } else if (handle->config.cmp_variable) {
+        // custom compare function for variable-length key
+        return handle->config.cmp_variable(aa->key, aa->keylen,
+                                           bb->key, bb->keylen);
     } else {
         return _fdb_keycmp(aa->key, aa->keylen, bb->key, bb->keylen);
     }
@@ -99,6 +105,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 {
     int cmp;
     hbtrie_result hr;
+    btree_result br;
     struct list_elem *e;
     struct wal_item *wal_item;
     struct iterator_wal_entry *snap_item;
@@ -110,13 +117,14 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
 
     iterator->handle = *handle;
-    iterator->hbtrie_iterator = (struct hbtrie_iterator *)malloc(sizeof(struct hbtrie_iterator));
     iterator->opt = opt;
 
     iterator->_key = (void*)malloc(FDB_MAX_KEYLEN);
     iterator->_keylen = 0;
     iterator->_offset = BLK_NOT_FOUND;
-    iterator->btree_iterator = NULL;
+    iterator->hbtrie_iterator = NULL;
+    iterator->idtree_iterator = NULL;
+    iterator->seqtree_iterator = NULL;
 
     if (start_key == NULL) start_keylen = 0;
     if (end_key == NULL) {
@@ -128,13 +136,32 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     }
     iterator->end_keylen = end_keylen;
 
-    // create an iterator handle for hb-trie
-    hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
-                              (void *)start_key, start_keylen);
+    if (handle->config.cmp_variable) {
+        // custom compare function for variable length key
+        uint8_t *initial_key = alca(uint8_t, handle->config.chunksize);
+        iterator->idtree_iterator = (struct btree_iterator *)malloc(sizeof(struct btree_iterator));
 
-    if (hr == HBTRIE_RESULT_FAIL) {
-        free(iterator);
-        return FDB_RESULT_ITERATOR_FAIL;
+        if (start_key) {
+            _set_var_key(initial_key, (void*)start_key, start_keylen);
+            br = btree_iterator_init(handle->idtree, iterator->idtree_iterator, initial_key);
+            _free_var_key(initial_key);
+        } else {
+            br = btree_iterator_init(handle->idtree, iterator->idtree_iterator, NULL);
+        }
+
+        if (br == BTREE_RESULT_FAIL) {
+            free(iterator);
+            return FDB_RESULT_ITERATOR_FAIL;
+        }
+    } else {
+        // create an iterator handle for hb-trie
+        iterator->hbtrie_iterator = (struct hbtrie_iterator *)malloc(sizeof(struct hbtrie_iterator));
+        hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
+                                  (void *)start_key, start_keylen);
+        if (hr == HBTRIE_RESULT_FAIL) {
+            free(iterator);
+            return FDB_RESULT_ITERATOR_FAIL;
+        }
     }
 
     // create a snapshot for WAL (avl-tree)
@@ -142,16 +169,21 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 
     // init tree
     iterator->wal_tree = (struct avl_tree*)malloc(sizeof(struct avl_tree));
-    avl_init(iterator->wal_tree, (void*)(handle->cmp_func));
+    avl_init(iterator->wal_tree, (void*)handle);
 
     spin_lock(&handle->file->wal->lock);
     e = list_begin(&handle->file->wal->list);
     while(e) {
         wal_item = _get_entry(e, struct wal_item, list_elem);
         if (start_key) {
-            if (handle->cmp_func) {
-                // custom compare function
-                cmp = handle->cmp_func((void *)start_key, wal_item->key);
+            if (handle->config.cmp_fixed) {
+                // custom compare function for fixed size key
+                cmp = handle->config.cmp_fixed((void*)start_key, wal_item->key);
+            } else if (handle->config.cmp_variable) {
+                // custom compare function for variable length key
+                cmp = handle->config.cmp_variable(
+                          (void*)start_key, start_keylen,
+                          wal_item->key, wal_item->keylen);
             } else {
                 cmp = _fdb_keycmp((void *)start_key, start_keylen,
                                   wal_item->key, wal_item->keylen);
@@ -206,8 +238,9 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
 
     iterator->handle = *handle;
     iterator->hbtrie_iterator = NULL;
-    iterator->btree_iterator = (struct btree_iterator *)malloc(sizeof(
-                                                       struct btree_iterator));
+    iterator->idtree_iterator = NULL;
+    iterator->seqtree_iterator = (struct btree_iterator *)
+                                 malloc(sizeof(struct btree_iterator));
     iterator->_key = NULL;
     iterator->_keylen = 0;
     iterator->opt = opt;
@@ -219,7 +252,7 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
     iterator->end_keylen = 0;
 
     // create an iterator handle for b-tree
-    btree_iterator_init(handle->seqtree, iterator->btree_iterator,
+    btree_iterator_init(handle->seqtree, iterator->seqtree_iterator,
                         (void *)(start_seq ? &_start_seq : NULL));
 
     // create a snapshot for WAL (avl-tree)
@@ -270,6 +303,7 @@ static fdb_status _fdb_iterator_next(fdb_iterator *iterator,
     size_t keylen;
     uint64_t offset;
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
+    btree_result br;
     fdb_status fs;
     struct docio_object _doc;
     struct iterator_wal_entry *snap_item = NULL;
@@ -280,9 +314,22 @@ start:
     // retrieve from hb-trie
     if (iterator->_offset == BLK_NOT_FOUND) {
         // no key waiting for being returned
-        // get next key from hb-trie
-        hr = hbtrie_next(
-            iterator->hbtrie_iterator, key, &iterator->_keylen, (void*)&iterator->_offset);
+        // get next key from hb-trie (or idtree)
+        if (iterator->handle.config.cmp_variable) {
+            uint8_t *var_key = alca(uint8_t, iterator->handle.config.chunksize);
+            memset(var_key, 0, iterator->handle.config.chunksize);
+
+            br = btree_next(iterator->idtree_iterator, var_key, (void*)&iterator->_offset);
+            if (br == BTREE_RESULT_FAIL) {
+                hr = HBTRIE_RESULT_FAIL;
+            } else {
+                _get_var_key(var_key, key, &iterator->_keylen);
+                _free_var_key(var_key);
+            }
+        } else {
+            hr = hbtrie_next(
+                iterator->hbtrie_iterator, key, &iterator->_keylen, (void*)&iterator->_offset);
+        }
         btreeblk_end(iterator->handle.bhandle);
         iterator->_offset = _endian_decode(iterator->_offset);
     }
@@ -297,9 +344,15 @@ start:
         // get the current item of rb-tree
         snap_item = _get_entry(iterator->tree_cursor, struct iterator_wal_entry, avl);
         if (hr != HBTRIE_RESULT_FAIL) {
-            if (iterator->handle.cmp_func) {
-                // custom compare function
-                cmp = iterator->handle.cmp_func(snap_item->key, key);
+            if (iterator->handle.config.cmp_fixed) {
+                // custom compare function for fixed size key
+                cmp = iterator->handle.config.cmp_fixed(
+                          snap_item->key, key);
+            } else if (iterator->handle.config.cmp_variable) {
+                // custom compare function for variable length key
+                cmp = iterator->handle.config.cmp_variable(
+                          snap_item->key, snap_item->keylen,
+                          key, keylen);
             } else {
                 cmp = _fdb_keycmp(snap_item->key, snap_item->keylen, key, keylen);
             }
@@ -343,9 +396,16 @@ start:
     }
 
     if (iterator->end_key) {
-        if (iterator->handle.cmp_func) {
-            // custom compare function
-            cmp = iterator->handle.cmp_func(iterator->end_key, key);
+
+        if (iterator->handle.config.cmp_fixed) {
+            // custom compare function for fixed size key
+            cmp = iterator->handle.config.cmp_fixed(
+                      iterator->end_key, key);
+        } else if (iterator->handle.config.cmp_variable) {
+            // custom compare function for variable length key
+            cmp = iterator->handle.config.cmp_variable(
+                      iterator->end_key, iterator->end_keylen,
+                      key, keylen);
         } else {
             cmp = _fdb_keycmp(iterator->end_key, iterator->end_keylen, key, keylen);
         }
@@ -425,7 +485,7 @@ start_seq:
 
     // retrieve from sequence b-tree first
     if (iterator->_offset == BLK_NOT_FOUND) {
-        br = btree_next(iterator->btree_iterator, &seqnum, (void *) &offset);
+        br = btree_next(iterator->seqtree_iterator, &seqnum, (void *) &offset);
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
             iterator->_seqnum = seqnum;
@@ -587,7 +647,7 @@ fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
 fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
-    if (iterator->hbtrie_iterator) {
+    if (iterator->hbtrie_iterator || iterator->idtree_iterator) {
         while ((result = _fdb_iterator_next(iterator, doc, NULL)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
     } else {
@@ -607,9 +667,13 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         hr = hbtrie_iterator_free(iterator->hbtrie_iterator);
         free(iterator->hbtrie_iterator);
     }
-    if (iterator->btree_iterator) {
-        btree_iterator_free(iterator->btree_iterator);
-        free(iterator->btree_iterator);
+    if (iterator->idtree_iterator) {
+        btree_iterator_free(iterator->idtree_iterator);
+        free(iterator->idtree_iterator);
+    }
+    if (iterator->seqtree_iterator) {
+        btree_iterator_free(iterator->seqtree_iterator);
+        free(iterator->seqtree_iterator);
     }
 
     if (iterator->end_key)

@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-int _cmp_uint64_t(void *key1, void *key2);
+int _cmp_uint64_t(void *key1, void *key2, void *aux);
 
 struct btree_kv_ops;
 struct btree_kv_ops * btree_kv_get_ku64_vu64();

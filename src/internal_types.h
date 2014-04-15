@@ -128,6 +128,14 @@ typedef struct {
      * Auxiliary config options.
      */
     void *aux;
+    /**
+     * Customized compare function for fixed size key.
+     */
+    fdb_custom_cmp_fixed cmp_fixed;
+    /**
+     * Customized compare function for variable length key.
+     */
+    fdb_custom_cmp_variable cmp_variable;
 } fdb_config;
 
 /**
@@ -138,6 +146,11 @@ struct _fdb_handle {
      * HB+-Tree Trie instance.
      */
     struct hbtrie *trie;
+    /**
+     * Document key B+-Tree instance.
+     * Used for custom compare function of variable length key
+     */
+    struct btree *idtree;
     /**
      * Sequence B+-Tree instance.
      */
@@ -191,10 +204,6 @@ struct _fdb_handle {
      */
     uint64_t ndocs;
     /**
-     * Customized compare function.
-     */
-    fdb_custom_cmp cmp_func;
-    /**
      * B+-Tree fanout degree.
      */
     uint16_t btree_fanout;
@@ -223,9 +232,13 @@ struct _fdb_iterator {
      */
     struct hbtrie_iterator *hbtrie_iterator;
     /**
+     * B-Tree iterator for custom compare function
+     */
+     struct btree_iterator *idtree_iterator;
+    /**
      * B-Tree iterator for sequence number iteration
      */
-     struct btree_iterator *btree_iterator;
+     struct btree_iterator *seqtree_iterator;
     /**
      * Current seqnum pointed by the iterator.
      */

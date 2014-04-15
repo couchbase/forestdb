@@ -47,6 +47,7 @@ struct hbtrie {
     bid_t root_bid;
     void *btreeblk_handle;
     void *doc_handle;
+    void *aux;
 
     struct btree_blk_ops *btree_blk_ops;
     struct btree_kv_ops *btree_kv_ops;

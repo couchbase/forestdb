@@ -52,15 +52,47 @@ fdb_status fdb_open(fdb_handle **handle,
                     const char *fdb_config_file);
 
 /**
- * Pass the customized compare function for B+-Tree traverse.
+ * Open the database with a given file name.
+ * The documents in the database will be indexed using the customized compare
+ * function. The key size MUST be fixed and same as the chunk_size in the
+ * configuration. The typical example is to use a primitive type (e.g., int,
+ * double) as a primary key and the numeric compare function as a custom
+ * function.
+ * The database should be closed with fdb_close API call.
  *
- * @param handle Pointer to ForestDB handle.
+ * @param handle Pointer to the place where ForestDB handle is instantiated
+ *        as result of this API call.
+ * @param filename Name of database file to be opened.
+ * @param fdb_config_file Path to the JSON file that contains ForestDB configs.
  * @param cmp_func Customized compare function to be used.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_set_custom_cmp(fdb_handle *handle,
-                              fdb_custom_cmp cmp_func);
+fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
+                              const char *filename,
+                              fdb_open_flags flags,
+                              const char *fdb_config_file,
+                              fdb_custom_cmp_fixed cmp_func);
+
+/**
+ * Open the database with a given file name.
+ * The documents in the database will be indexed using the customized compare
+ * function. The key size can be variable.
+ * The database should be closed with fdb_close API call.
+ *
+ * @param handle Pointer to the place where ForestDB handle is instantiated
+ *        as result of this API call.
+ * @param filename Name of database file to be opened.
+ * @param fdb_config_file Path to the JSON file that contains ForestDB configs.
+ * @param cmp_func Customized compare function to be used.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
+                                 const char *filename,
+                                 fdb_open_flags flags,
+                                 const char *fdb_config_file,
+                                 fdb_custom_cmp_variable cmp_func);
 
 /**
  * Create a new FDB_DOC instance on heap with a given key, its metadata, and
