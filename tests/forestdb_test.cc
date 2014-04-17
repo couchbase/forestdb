@@ -1829,7 +1829,7 @@ void custom_compare_variable_test()
 
     generate_config_json_file(0, 1024, 0);
 
-    // open db with custom compare function for double key type
+    // open db with custom compare function for variable length key type
     fdb_open_cmp_variable(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
                        "./fdb_test_config.json", _cmp_variable);
 

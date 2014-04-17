@@ -1018,9 +1018,8 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *doc_offs
             btree_result br = btree_find(handle->idtree, (void*)var_key, (void *)&offset);
             _free_var_key((void *)var_key);
 
-            if (br == BTREE_RESULT_FAIL) {
-                hr = HBTRIE_RESULT_FAIL;
-            }
+            hr = (br == BTREE_RESULT_FAIL)?(HBTRIE_RESULT_FAIL):
+                                           (HBTRIE_RESULT_SUCCESS);
         }
 
         btreeblk_end(handle->bhandle);
