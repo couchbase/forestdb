@@ -40,6 +40,23 @@ enum {
     FDB_OPEN_FLAG_RDONLY = 2
 };
 
+/**
+ * Options to be passed to fdb_commit() API.
+ * Combinational options can be possible.
+ */
+typedef uint8_t fdb_commit_opt_t;
+enum {
+    /**
+     * Perform commit without any options.
+     */
+    FDB_COMMIT_NORMAL = 0x00,
+    /**
+     * Manually flush WAL entries even though it doesn't
+     * reach the configured threshold
+     */
+    FDB_COMMIT_MANUAL_WAL_FLUSH = 0x01
+};
+
 typedef uint64_t fdb_seqnum_t;
 
 /**

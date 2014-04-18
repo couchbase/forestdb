@@ -324,7 +324,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
 
     docio_free(&dhandle);
     _fdb_close(&new_db);
-    fdb_commit(handle);
+    fdb_commit(handle, FDB_COMMIT_NORMAL);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1514,7 +1514,7 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
 }
 
 LIBFDB_API
-fdb_status fdb_commit(fdb_handle *handle)
+fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
@@ -1537,10 +1537,12 @@ fdb_status fdb_commit(fdb_handle *handle)
         // normal case
         btreeblk_end(handle->bhandle);
         if (wal_get_size(handle->file) > _fdb_get_wal_threshold(handle) ||
-            wal_get_dirty_status(handle->file) == FDB_WAL_PENDING) {
+            wal_get_dirty_status(handle->file) == FDB_WAL_PENDING ||
+            opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
             // wal flush when
             // 1. wal size exceeds threshold
             // 2. wal is already flushed before commit (in this case flush the rest of entries)
+            // 3. user forces to manually flush wal
             wal_flush(handle->file, (void *)handle,
                       _fdb_wal_flush_func, _fdb_wal_get_old_offset);
             wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
@@ -1881,33 +1883,13 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     filemgr_mutex_unlock(new_file);
 
     // commit new file
-    fdb_commit(handle);
+    fdb_commit(handle, FDB_COMMIT_NORMAL);
 
     wal_shutdown(old_file);
 
     // removing file is pended until there is no handle referring the file
     filemgr_remove_pending(old_file, new_file);
 
-    return FDB_RESULT_SUCCESS;
-}
-
-// manually flush WAL entries into index
-LIBFDB_API
-fdb_status fdb_flush_wal(fdb_handle *handle)
-{
-    if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        return FDB_RESULT_RONLY_VIOLATION;
-    }
-
-    filemgr_mutex_lock(handle->file);
-
-    if (wal_get_size(handle->file) > 0) {
-        wal_flush(handle->file, (void*)handle,
-                  _fdb_wal_flush_func, _fdb_wal_get_old_offset);
-        wal_set_dirty_status(handle->file, FDB_WAL_PENDING);
-    }
-
-    filemgr_mutex_unlock(handle->file);
     return FDB_RESULT_SUCCESS;
 }
 

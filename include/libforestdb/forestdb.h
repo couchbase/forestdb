@@ -258,10 +258,11 @@ fdb_status fdb_del(fdb_handle *handle,
  * Commit all pending changes into disk.
  *
  * @param handle Pointer to ForestDB handle.
+ * @param opt Commit option.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_commit(fdb_handle *handle);
+fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt);
 
 /**
  * Create an iterator to traverse a ForestDB snapshot by key range
@@ -353,15 +354,6 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator);
 LIBFDB_API
 fdb_status fdb_compact(fdb_handle *handle,
                        const char *new_filename);
-
-/**
- * Flush the in-memory WAL index entries to update the HB+-Tree instance.
- *
- * @param handle Pointer to ForestDB handle.
- * @return FDB_RESULT_SUCCESS on success.
- */
-LIBFDB_API
-fdb_status fdb_flush_wal(fdb_handle *handle);
 
 /**
  * Return the overall disk space actively used by the current database file.

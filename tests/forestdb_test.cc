@@ -141,7 +141,7 @@ void basic_test()
     fdb_doc_free(rdoc);
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // check the db info
     fdb_info info;
@@ -173,7 +173,7 @@ void basic_test()
     }
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -248,10 +248,7 @@ void basic_test()
     status = fdb_set(db_rdonly, doc[i]);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
-    status = fdb_commit(db_rdonly);
-    TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
-
-    status = fdb_flush_wal(db_rdonly);
+    status = fdb_commit(db_rdonly, FDB_COMMIT_NORMAL);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
     fdb_doc_free(rdoc);
@@ -310,7 +307,7 @@ void wal_commit_test()
     }
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // insert the other half documents
     for (i=n/2;i<n;++i){
@@ -398,10 +395,8 @@ void multi_version_test()
         fdb_set(db, doc[i]);
     }
 
-    // manually flush WAL
-    fdb_flush_wal(db);
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // open same db file using a new handle
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -416,8 +411,7 @@ void multi_version_test()
     }
 
     // manually flush WAL and commit using the old handle
-    fdb_flush_wal(db);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // retrieve documents using the old handle
     for (i=0;i<n;++i){
@@ -524,10 +518,8 @@ void compact_wo_reopen_test()
     fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
-    // manually flush WAL
-    fdb_flush_wal(db);
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // perform compaction using one handle
     fdb_compact(db, (char *) "./dummy2");
@@ -609,10 +601,8 @@ void compact_with_reopen_test()
     fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
-    // manually flush WAL
-    fdb_flush_wal(db);
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // perform compaction using one handle
     fdb_compact(db, (char *) "./dummy2");
@@ -700,10 +690,8 @@ void auto_recover_compact_ok_test()
     fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
-    // manually flush WAL
-    fdb_flush_wal(db);
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // perform compaction using one handle
     fdb_compact(db, (char *) "./dummy2");
@@ -719,10 +707,8 @@ void auto_recover_compact_ok_test()
         (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
     fdb_set(db, doc[i]);
 
-    // manually flush WAL
-    fdb_flush_wal(db);
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // close both the db files ...
     fdb_close(db);
@@ -807,7 +793,7 @@ void db_drop_test()
     }
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
     fdb_close(db);
 
     // Remove the database file manually.
@@ -826,7 +812,7 @@ void db_drop_test()
     fdb_set(db, doc[0]);
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // search by key
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
@@ -916,7 +902,7 @@ void *_worker_thread(void *voidargs)
             if (args->nbatch > 0) {
                 if (c % args->nbatch == 0) {
                     // commit for every NBATCH
-                    fdb_commit(db);
+                    fdb_commit(db, FDB_COMMIT_NORMAL);
                     commit_count++;
                     fdb_info info;
                     fdb_get_dbinfo(db, &info);
@@ -949,8 +935,7 @@ void *_worker_thread(void *voidargs)
     DBG("Thread #%d (%s) %d ops / %d seconds\n",
         args->tid, (args->writer)?("writer"):("reader"), c, (int)args->time_sec);
 
-    fdb_flush_wal(db);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     fdb_close(db);
     thread_exit(0);
@@ -1014,8 +999,7 @@ void multi_thread_test(
         fdb_set(db, doc[i]);
     }
 
-    fdb_flush_wal(db);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     gettimeofday(&ts_cur, NULL);
     ts_gap = _utime_gap(ts_begin, ts_cur);
@@ -1095,7 +1079,7 @@ void crash_recovery_test()
     }
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // close the db
     fdb_close(db);
@@ -1252,8 +1236,7 @@ void iterator_test()
         fdb_set(db, doc[i]);
     }
     // manually flush WAL & commit
-    fdb_flush_wal(db);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // insert documents of odd number
     for (i=1;i<n;i+=2){
@@ -1265,7 +1248,7 @@ void iterator_test()
         fdb_set(db, doc[i]);
     }
     // commit without WAL flush
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // now even number docs are in hb-trie & odd number docs are in WAL
 
@@ -1362,7 +1345,7 @@ void iterator_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // create an iterator for full range
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
@@ -1477,8 +1460,7 @@ void sequence_iterator_test()
         fdb_set(db, doc[i]);
     }
     // manually flush WAL & commit
-    fdb_flush_wal(db);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // insert documents of odd number
     for (i=1;i<n;i+=2){
@@ -1490,7 +1472,7 @@ void sequence_iterator_test()
         fdb_set(db, doc[i]);
     }
     // commit without WAL flush
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // now even number docs are in hb-trie & odd number docs are in WAL
 
@@ -1567,7 +1549,7 @@ void sequence_iterator_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // create an iterator for full range
     fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NONE);
@@ -1619,7 +1601,7 @@ void sequence_iterator_test()
     // Update first document and test for absence of duplicates
     *((char *)doc[0]->body) = 'K'; // update key0 to Key0
     fdb_set(db, doc[0]);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NO_DELETES);
     // repeat until fail
@@ -1724,8 +1706,7 @@ void custom_compare_primitive_test()
     };
     fdb_iterator_close(iterator);
 
-    fdb_flush_wal(db);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // range scan (after flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
@@ -1868,8 +1849,7 @@ void custom_compare_variable_test()
     };
     fdb_iterator_close(iterator);
 
-    fdb_flush_wal(db);
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // range scan (after flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
@@ -1962,7 +1942,7 @@ void doc_compression_test()
     fdb_doc_free(rdoc);
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // close the db
     fdb_close(db);
@@ -1985,7 +1965,7 @@ void doc_compression_test()
     }
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -2079,7 +2059,7 @@ void read_doc_by_offset_test() {
     }
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // update documents from #0 to #49
     for (i=0;i<n/2;++i){
@@ -2098,7 +2078,7 @@ void read_doc_by_offset_test() {
     fdb_doc_free(rdoc);
 
     // commit
-    fdb_commit(db);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
 
     uint64_t offset = 0;
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
