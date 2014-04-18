@@ -847,22 +847,37 @@ void _fdb_sync_db_header(fdb_handle *handle)
 
         header_buf = filemgr_fetch_header(handle->file, NULL, &header_len);
         if (header_len > 0) {
+            bid_t idtree_root;
             bid_t new_seq_root;
             char *compacted_filename;
             char *prev_filename = NULL;
+
             _fdb_fetch_header(header_buf, header_len,
-                &handle->trie->root_bid, &new_seq_root, &handle->seqnum,
+                &idtree_root, &new_seq_root, &handle->seqnum,
                 &handle->ndocs, &handle->datasize, &handle->last_header_bid,
                 &compacted_filename, &prev_filename);
+
+            if (!handle->config.cmp_variable) {
+                handle->trie->root_bid = idtree_root;
+            } else {
+                btree_init_from_bid(
+                    handle->idtree, handle->idtree->blk_handle,
+                    handle->idtree->blk_ops, handle->idtree->kv_ops,
+                    handle->idtree->blksize, idtree_root);
+            }
+
             if (new_seq_root != handle->seqtree->root_bid) {
                 btree_init_from_bid(
                     handle->seqtree, handle->seqtree->blk_handle,
                     handle->seqtree->blk_ops, handle->seqtree->kv_ops,
                     handle->seqtree->blksize, new_seq_root);
             }
+
             if (prev_filename) {
                 free(prev_filename);
             }
+
+            handle->cur_header_revnum = cur_revnum;
         }
         if (header_buf) {
             free(header_buf);
