@@ -585,8 +585,8 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
                                  prefix_src_len,
                        last_key, last_keylen);
 
-                _arrange_prefix(node_dst, len, prefix_src,
-                                prefix_src_len, new_prefix_len, 0,
+                _arrange_prefix(node_dst, len, prefix_src, prefix_src_len,
+                                prefix_src_len + new_prefix_len, 0,
                                 comp_key, comp_keylen, NULL, ARR_NONE);
 
                 free(comp_key);
