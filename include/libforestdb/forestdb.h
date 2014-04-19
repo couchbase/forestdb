@@ -95,6 +95,21 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
                                  fdb_custom_cmp_variable cmp_func);
 
 /**
+ * Set up the error logging callback that allows an application to process
+ * error code and message from ForestDB.
+ * @param handle Pointer to ForestDB handle.
+ * @param log_callback Logging callback function that receives and processes
+ *        error codes and messages from ForestDB.
+ * @param ctx_data Pointer to application-specific context data that is going
+ *        to be passed to the logging callback function.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_set_log_callback(fdb_handle *handle,
+                                fdb_log_callback log_callback,
+                                void *ctx_data);
+
+/**
  * Create a new FDB_DOC instance on heap with a given key, its metadata, and
  * its doc body.
  *

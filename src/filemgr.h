@@ -45,11 +45,12 @@ struct filemgr_ops {
     int (*open)(const char *pathname, int flags, mode_t mode);
     ssize_t (*pwrite)(int fd, void *buf, size_t count, cs_off_t offset);
     ssize_t (*pread)(int fd, void *buf, size_t count, cs_off_t offset);
-    fdb_status (*close)(int fd);
+    int (*close)(int fd);
     cs_off_t (*goto_eof)(int fd);
     cs_off_t (*file_size)(const char *filename);
-    fdb_status (*fdatasync)(int fd);
-    fdb_status (*fsync)(int fd);
+    int (*fdatasync)(int fd);
+    int (*fsync)(int fd);
+    void (*get_errno_str)(char *buf, size_t size);
 };
 
 struct filemgr_buffer{
@@ -98,7 +99,10 @@ struct filemgr {
 #endif
 };
 
-struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops, struct filemgr_config *config);
+struct filemgr * filemgr_open(char *filename,
+                              struct filemgr_ops *ops,
+                              struct filemgr_config *config,
+                              err_log_callback *log_callback);
 
 uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
@@ -106,22 +110,36 @@ char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
 
-fdb_status filemgr_close(struct filemgr *file, uint8_t cleanup_cache_onclose);
+fdb_status filemgr_close(struct filemgr *file,
+                         uint8_t cleanup_cache_onclose,
+                         err_log_callback *log_callback);
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file);
-bid_t filemgr_alloc(struct filemgr *file);
-void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin, bid_t *end);
-bid_t filemgr_alloc_multiple_cond(
-    struct filemgr *file, bid_t nextbid, int nblock, bid_t *begin, bid_t *end);
+bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback);
+void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
+                            bid_t *end, err_log_callback *log_callback);
+bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nblock,
+                                  bid_t *begin, bid_t *end,
+                                  err_log_callback *log_callback);
 
 void filemgr_invalidate_block(struct filemgr *file, bid_t bid);
-void filemgr_read(struct filemgr *file, bid_t bid, void *buf);
-void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset, uint64_t len, void *buf);
-void filemgr_write(struct filemgr *file, bid_t bid, void *buf);
+
+void filemgr_read(struct filemgr *file,
+                  bid_t bid, void *buf,
+                  err_log_callback *log_callback);
+
+void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
+                          uint64_t len, void *buf, err_log_callback *log_callback);
+void filemgr_write(struct filemgr *file, bid_t bid, void *buf,
+                   err_log_callback *log_callback);
 int filemgr_is_writable(struct filemgr *file, bid_t bid);
 void filemgr_remove_file(struct filemgr *file);
-fdb_status filemgr_commit(struct filemgr *file);
-fdb_status filemgr_sync(struct filemgr *file);
+
+fdb_status filemgr_commit(struct filemgr *file,
+                          err_log_callback *log_callback);
+fdb_status filemgr_sync(struct filemgr *file,
+                        err_log_callback *log_callback);
+
 void filemgr_shutdown();
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,
                                 char *old_filename);

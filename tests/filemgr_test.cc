@@ -38,20 +38,20 @@ void basic_test()
     config.blocksize = 4096;
     config.ncacheblock = 1024;
 
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
 
     filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1);
 
-    filemgr_close(file, 1);
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
+    filemgr_close(file, 1, NULL);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
 
     memcpy(buf, file->header.data, file->header.size);
     printf("%s\n", buf);
 
     filemgr_update_header(file, (void*)dbheader2, strlen(dbheader2) + 1);
 
-    filemgr_close(file, 1);
+    filemgr_close(file, 1, NULL);
 
     TEST_RESULT("basic test");
 }

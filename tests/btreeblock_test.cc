@@ -54,7 +54,7 @@ void basic_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
     r = system(SHELL_DEL" dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
@@ -83,7 +83,7 @@ void basic_test()
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
 
     k = 5;
     v = 55;
@@ -92,7 +92,7 @@ void basic_test()
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
 
     k = 5;
     v = 59;
@@ -101,7 +101,7 @@ void basic_test()
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
 
 
     struct btree btree2;
@@ -116,7 +116,7 @@ void basic_test()
     */
     btreeblk_free(&btree_handle);
 
-    filemgr_close(file, 1);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -145,7 +145,7 @@ void iterator_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
     r = system(SHELL_DEL" dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
@@ -167,7 +167,7 @@ void iterator_test()
     btreeblk_end(&btree_handle);
     //btree_operation_end(&btree);
 
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
 
     k = 4;
     btree_iterator_init(&btree, &bi, (void*)&k);
@@ -195,7 +195,7 @@ void iterator_test()
     }
     btree_iterator_free(&bi);
 
-    filemgr_close(file, 1);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("iterator test");
@@ -219,7 +219,7 @@ void two_btree_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
-    file = filemgr_open(fname, get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     btreeblk_init(&btreeblk_handle, file, nodesize);
 
     btree_init(&btree_a, (void*)&btreeblk_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
@@ -233,8 +233,8 @@ void two_btree_test()
         btree_insert(&btree_b, (void*)&k, (void*)&v);
     }
 
-    filemgr_commit(file);
-    filemgr_close(file, 1);
+    filemgr_commit(file, NULL);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     btree_print_node(&btree_a, print_btree);
@@ -261,7 +261,7 @@ void range_test()
     fconfig.ncacheblock = 0;
 
     r = system(SHELL_DEL" dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &fconfig);
+    file = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     btreeblk_init(&bhandle, file, blocksize);
 
     btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(),
@@ -280,7 +280,7 @@ void range_test()
     }
 
     btreeblk_free(&bhandle);
-    filemgr_close(file, 1);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("range test");

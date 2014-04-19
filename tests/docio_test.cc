@@ -53,6 +53,8 @@ void basic_test()
     struct filemgr_config config;
     char *fname = (char *) "./dummy";
 
+    handle.log_callback = NULL;
+
     doc.key = (void*)keybuf;
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
@@ -61,7 +63,7 @@ void basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     r = system(SHELL_DEL " dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     docio_init(&handle, file, 0);
 
     docsize = _set_doc(&doc, (char *) "this_is_key", (char *) "this_is_metadata",
@@ -97,8 +99,8 @@ void basic_test()
     docio_read_doc_key(&handle, 81, &keylen, (void*)keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
-    filemgr_commit(file);
-    filemgr_close(file, 1);
+    filemgr_commit(file, NULL);
+    filemgr_close(file, 1, NULL);
 
     TEST_RESULT("basic test");
 }

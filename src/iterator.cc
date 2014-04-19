@@ -544,8 +544,7 @@ start_seq:
             *doc_offset_out = offset;
         }
     } else {
-        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset,
-                                          &_doc);
+        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -587,8 +586,7 @@ start_seq:
             _hbdoc.key = _doc.key;
             _hbdoc.meta = _doc.meta;
             offset = _endian_decode(offset);
-            _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
-                                              offset, &_hbdoc);
+            _offset = docio_read_doc_key_meta(iterator->handle.dhandle, offset, &_hbdoc);
             if (_offset == offset) {
                 free(_doc.key);
                 free(_doc.meta);

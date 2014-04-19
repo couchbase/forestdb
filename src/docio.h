@@ -35,6 +35,7 @@ struct docio_handle {
     // for buffer purpose
     bid_t lastbid;
     void *readbuffer;
+    err_log_callback *log_callback;
     uint8_t compress_document_body;
 };
 
@@ -74,13 +75,13 @@ void docio_init(struct docio_handle *handle,
                 uint8_t compress_document_body);
 void docio_free(struct docio_handle *handle);
 
-INLINE bid_t docio_append_doc_raw(struct docio_handle *handle,
-                                  uint64_t size,
-                                  void *buf);
-
+bid_t docio_append_doc_raw(struct docio_handle *handle,
+                           uint64_t size,
+                           void *buf);
 bid_t docio_append_doc_compact(struct docio_handle *handle,
                                struct docio_object *doc);
-bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc);
+bid_t docio_append_doc(struct docio_handle *handle,
+                       struct docio_object *doc);
 
 struct docio_length docio_read_doc_length(struct docio_handle *handle,
                                           uint64_t offset);
@@ -94,6 +95,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle,
 uint64_t docio_read_doc(struct docio_handle *handle,
                         uint64_t offset,
                         struct docio_object *doc);
+
 int docio_check_buffer(struct docio_handle *dhandle, bid_t check_bid);
 int docio_check_compact_doc(struct docio_handle *handle,
                             struct docio_object *doc);

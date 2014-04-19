@@ -112,7 +112,7 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
     _btreeblk_get_aligned_block(handle, block);
     block->pos = handle->nodesize;
-    block->bid = filemgr_alloc(handle->file);
+    block->bid = filemgr_alloc(handle->file, handle->log_callback);
     block->dirty = 1;
 
 #ifdef __CRC32
@@ -210,7 +210,7 @@ void * btreeblk_read(void *voidhandle, bid_t bid)
     block->dirty = 0;
 
     _btreeblk_get_aligned_block(handle, block);
-    filemgr_read(handle->file, block->bid, block->addr);
+    filemgr_read(handle->file, block->bid, block->addr, handle->log_callback);
     _btreeblk_decode(handle, block);
 
     list_push_front(&handle->read_list, &block->le);
@@ -285,7 +285,7 @@ INLINE void _btreeblk_write_dirty_block(
     //2 MUST BE modified to support multiple nodes in a block
 
     _btreeblk_encode(handle, block);
-    filemgr_write(handle->file, block->bid, block->addr);
+    filemgr_write(handle->file, block->bid, block->addr, handle->log_callback);
 }
 
 void btreeblk_operation_end(void *voidhandle)

@@ -122,7 +122,7 @@ void basic_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
 
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
     docio_init(&dhandle, file, 0);
     btreeblk_init(&bhandle, file, blocksize);
 
@@ -144,7 +144,7 @@ void basic_test()
     hbtrie_remove(&trie, (void*)key[0], strlen(key[0]));
     btreeblk_end(&bhandle);
 
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
 
     for (i=0;i<n;++i) {
         if (i!=2) {
@@ -179,7 +179,7 @@ void basic_test()
     }
     r = hbtrie_iterator_free(&it);
 
-    filemgr_close(file, 1);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -231,7 +231,7 @@ void large_test()
 
     DBG("filemgr, bcache init .. \n");
     rr = system(SHELL_DEL" dummy");
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
     docio_init(&dhandle, file, 0);
     btreeblk_init(&bhandle, file, blocksize);
 
@@ -262,7 +262,7 @@ void large_test()
         TEST_TIME();
 
         DBG("filemgr commit .. \n");
-        filemgr_commit(file);
+        filemgr_commit(file, NULL);
         TEST_TIME();
     }
 
@@ -285,7 +285,7 @@ void large_test()
         TEST_TIME();
 
         DBG("filemgr commit .. \n");
-        filemgr_commit(file);
+        filemgr_commit(file, NULL);
         TEST_TIME();
     }
 
@@ -328,7 +328,7 @@ void large_test()
 
     DBG("trie root bid %"_F64"\n", trie.root_bid);
 
-    filemgr_close(file, 1);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("large test");
@@ -406,7 +406,7 @@ void skew_basic_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
 
-    file = filemgr_open((char*)"./dummy", get_filemgr_ops(), &config);
+    file = filemgr_open((char*)"./dummy", get_filemgr_ops(), &config, NULL);
     docio_init(&dhandle, file, 0);
     btreeblk_init(&bhandle, file, blocksize);
 
@@ -512,12 +512,12 @@ void skew_basic_test()
     }
     hbtrie_iterator_free(&it);
 
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
 
     hbtrie_free(&trie);
     docio_free(&dhandle);
     btreeblk_free(&bhandle);
-    filemgr_close(file, 1);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     memleak_end();

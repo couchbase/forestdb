@@ -114,6 +114,11 @@ typedef int (*fdb_custom_cmp_variable)(void *a, size_t len_a,
                                        void *b, size_t len_b);
 
 /**
+ * Pointer type definition of an error logging callback function.
+ */
+typedef void (*fdb_log_callback)(int err_code, const char *err_msg, void *ctx_data);
+
+/**
  *Opaque reference to the database handle, which is exposed in public APIs.
  */
 typedef struct _fdb_handle fdb_handle;

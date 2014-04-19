@@ -20,7 +20,9 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <errno.h>
+#include <string.h>
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -70,7 +72,7 @@ ssize_t _filemgr_linux_pread(int fd, void *buf, size_t count, cs_off_t offset)
     return rv;
 }
 
-fdb_status _filemgr_linux_close(int fd)
+int _filemgr_linux_close(int fd)
 {
     int rv = 0;
     if (fd != -1) {
@@ -90,7 +92,7 @@ cs_off_t _filemgr_linux_goto_eof(int fd)
 {
     cs_off_t rv = lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (cs_off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_SEEK_FAIL;
     }
     return rv;
 }
@@ -104,7 +106,7 @@ cs_off_t _filemgr_linux_file_size(const char *filename)
     return st.st_size;
 }
 
-fdb_status _filemgr_linux_fsync(int fd)
+int _filemgr_linux_fsync(int fd)
 {
     int rv;
     do {
@@ -112,13 +114,13 @@ fdb_status _filemgr_linux_fsync(int fd)
     } while (rv == -1 && errno == EINTR);
 
     if (rv == -1) {
-        return FDB_RESULT_COMMIT_FAIL;
+        return FDB_RESULT_FSYNC_FAIL;
     }
 
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status _filemgr_linux_fdatasync(int fd)
+int _filemgr_linux_fdatasync(int fd)
 {
 #ifdef __linux__
     int rv;
@@ -127,13 +129,20 @@ fdb_status _filemgr_linux_fdatasync(int fd)
     } while (rv == -1 && errno == EINTR);
 
     if (rv == -1) {
-        return FDB_RESULT_COMMIT_FAIL;
+        return FDB_RESULT_FSYNC_FAIL;
     }
 
     return FDB_RESULT_SUCCESS;
 #else
     return _filemgr_linux_fsync(fd);
 #endif
+}
+
+void _filemgr_linux_get_errno_str(char *buf, size_t size) {
+    if (!buf) {
+        return;
+    }
+    snprintf(buf, size, "errno = %d: '%s'", errno, strerror(errno));
 }
 
 struct filemgr_ops linux_ops = {
@@ -144,7 +153,8 @@ struct filemgr_ops linux_ops = {
     _filemgr_linux_goto_eof,
     _filemgr_linux_file_size,
     _filemgr_linux_fdatasync,
-    _filemgr_linux_fsync
+    _filemgr_linux_fsync,
+    _filemgr_linux_get_errno_str
 };
 
 struct filemgr_ops * get_linux_filemgr_ops()

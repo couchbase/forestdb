@@ -144,6 +144,21 @@ typedef struct {
 } fdb_config;
 
 /**
+ * Error logging callback struct definition.
+ */
+typedef struct {
+    /**
+     * Error logging callback function.
+     */
+    fdb_log_callback callback;
+    /**
+     * Application-specific context data that is passed to the logging callback
+     * function.
+     */
+    void *ctx_data;
+} err_log_callback;
+
+/**
  * ForestDB database handle definition.
  */
 struct _fdb_handle {
@@ -192,6 +207,10 @@ struct _fdb_handle {
      * ForestDB config.
      */
     fdb_config config;
+    /**
+     * Error logging callback.
+     */
+    err_log_callback log_callback;
     /**
      * Database header revision number.
      */

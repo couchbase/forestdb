@@ -35,6 +35,7 @@ struct btreeblk_handle{
     struct list alc_list;
     struct list read_list;
     struct filemgr *file;
+    err_log_callback *log_callback;
 
 #ifdef __BTREEBLK_BLOCKPOOL
     struct list blockpool;

@@ -48,19 +48,20 @@ void docio_free(struct docio_handle *handle)
 }
 
 #ifdef __CRC32
-    #define _add_blk_marker(file, bid, blocksize, marker) \
-        filemgr_write_offset((file), (bid), (blocksize), BLK_MARKER_SIZE, (marker))
+#define _add_blk_marker(file, bid, blocksize, marker, log_callback) \
+    filemgr_write_offset((file), (bid), (blocksize), BLK_MARKER_SIZE, (marker), (log_callback))
 #else
-    #define _add_blk_marker(file, bid, blocksize, marker)
+#define _add_blk_marker(file, bid, blocksize, marker, log_callback)
 #endif
 
-INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)
+bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)
 {
     bid_t bid;
     uint32_t offset;
     uint8_t marker[BLK_MARKER_SIZE];
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
+    err_log_callback *log_callback = handle->log_callback;
 #ifdef __CRC32
     blocksize -= BLK_MARKER_SIZE;
     memset(marker, BLK_MARKER_DOC, BLK_MARKER_SIZE);
@@ -68,20 +69,20 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
 
     if (handle->curblock == BLK_NOT_FOUND) {
         // allocate new block
-        handle->curblock = filemgr_alloc(handle->file);
+        handle->curblock = filemgr_alloc(handle->file, log_callback);
         handle->curpos = 0;
     }
     if (!filemgr_is_writable(handle->file, handle->curblock)) {
         // allocate new block
-        handle->curblock = filemgr_alloc(handle->file);
+        handle->curblock = filemgr_alloc(handle->file, log_callback);
         handle->curpos = 0;
     }
 
     if (size <= blocksize - handle->curpos) {
         // simply append to current block
         offset = handle->curpos;
-        _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
-        filemgr_write_offset(handle->file, handle->curblock, offset, size, buf);
+        _add_blk_marker(handle->file, handle->curblock, blocksize, marker, log_callback);
+        filemgr_write_offset(handle->file, handle->curblock, offset, size, buf, log_callback);
         handle->curpos += size;
 
         return handle->curblock * real_blocksize + offset;
@@ -97,21 +98,24 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
         offset = blocksize - handle->curpos;
         if (remain <= blocksize - handle->curpos &&
             filemgr_alloc_multiple_cond(handle->file, handle->curblock+1,
-                nblock + ((remain>offset)?1:0), &begin, &end) == handle->curblock+1) {
+                                        nblock + ((remain>offset)?1:0), &begin, &end,
+                                        log_callback) == handle->curblock+1) {
 
             // start from current block
             assert(begin == handle->curblock + 1);
 
-            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
+            _add_blk_marker(handle->file, handle->curblock, blocksize, marker, log_callback);
             if (offset > 0) {
-                filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
+                filemgr_write_offset(handle->file, handle->curblock, handle->curpos,
+                                     offset, buf, log_callback);
             }
             remainsize -= offset;
 
             startpos = handle->curblock * real_blocksize + handle->curpos;
-        }else {
+        } else {
             // next block to be allocated is not continuous .. allocate new multiple blocks
-            filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0), &begin, &end);
+            filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0),
+                                   &begin, &end, log_callback);
             offset = 0;
 
             startpos = begin * real_blocksize;
@@ -121,20 +125,23 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
         // simple append mode .. always append at the end of file
         offset = blocksize - handle->curpos;
         if (filemgr_alloc_multiple_cond(handle->file, handle->curblock+1,
-                nblock + ((remain>offset)?1:0), &begin, &end) == handle->curblock+1) {
+                                        nblock + ((remain>offset)?1:0), &begin, &end,
+                                        log_callback) == handle->curblock+1) {
             // start from current block
             assert(begin == handle->curblock + 1);
 
-            _add_blk_marker(handle->file, handle->curblock, blocksize, marker);
+            _add_blk_marker(handle->file, handle->curblock, blocksize, marker, log_callback);
             if (offset > 0) {
-                filemgr_write_offset(handle->file, handle->curblock, handle->curpos, offset, buf);
+                filemgr_write_offset(handle->file, handle->curblock, handle->curpos,
+                                     offset, buf, log_callback);
             }
             remainsize -= offset;
 
             startpos = handle->curblock * real_blocksize + handle->curpos;
-        }else {
+        } else {
             // next block to be allocated is not continuous .. allocate new multiple blocks
-            filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0), &begin, &end);
+            filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0),
+                                   &begin, &end, log_callback);
             offset = 0;
 
             startpos = begin * real_blocksize;
@@ -146,17 +153,18 @@ INLINE bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, vo
             handle->curblock = i;
             if (remainsize >= blocksize) {
                 // write entire block
-                _add_blk_marker(handle->file, i, blocksize, marker);
-                filemgr_write(handle->file, i, (uint8_t *)buf + offset);
+                _add_blk_marker(handle->file, i, blocksize, marker, log_callback);
+                filemgr_write(handle->file, i, (uint8_t *)buf + offset, log_callback);
                 offset += blocksize;
                 remainsize -= blocksize;
                 handle->curpos = blocksize;
 
-            }else{
+            } else {
                 // write rest of document
                 assert(i==end);
-                _add_blk_marker(handle->file, i, blocksize, marker);
-                filemgr_write_offset(handle->file, i, 0, remainsize, (uint8_t *)buf + offset);
+                _add_blk_marker(handle->file, i, blocksize, marker, log_callback);
+                filemgr_write_offset(handle->file, i, 0, remainsize,
+                                     (uint8_t *)buf + offset, log_callback);
                 offset += remainsize;
                 handle->curpos = remainsize;
             }
@@ -220,6 +228,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
     struct docio_length length, _length;
+    err_log_callback *log_callback = handle->log_callback;
 
     length = doc->length;
     length.bodylen_ondisk = length.bodylen;
@@ -232,6 +241,13 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
         _len = compbuf_len;
         ret = snappy_compress((char*)doc->body, length.bodylen, (char*)compbuf, &_len);
         if (ret < 0) {
+            if (log_callback && log_callback->callback) {
+                char msg[1024];
+                sprintf(msg, "Error in compressing the doc body of key '%s'",
+                        (char *) doc->key);
+                log_callback->callback(FDB_RESULT_COMPRESSION_FAIL, msg,
+                                       log_callback->ctx_data);
+            }
             // we use BLK_NOT_FOUND for error code of appending instead of 0
             // because document can be written at the byte offset 0
             return BLK_NOT_FOUND;
@@ -326,11 +342,12 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
     return _docio_append_doc(handle, doc);
 }
 
-INLINE void _docio_read_through_buffer(struct docio_handle *handle, bid_t bid)
+INLINE void _docio_read_through_buffer(struct docio_handle *handle, bid_t bid,
+                                       err_log_callback *log_callback)
 {
     // to reduce the overhead from memcpy the same block
     if (handle->lastbid != bid) {
-        filemgr_read(handle->file, bid, handle->readbuffer);
+        filemgr_read(handle->file, bid, handle->readbuffer, log_callback);
 
         if (filemgr_is_writable(handle->file, bid)) {
             // this block can be modified later .. must be re-read
@@ -341,7 +358,10 @@ INLINE void _docio_read_through_buffer(struct docio_handle *handle, bid_t bid)
     }
 }
 
-uint64_t _docio_read_length(struct docio_handle *handle, uint64_t offset, struct docio_length *length)
+uint64_t _docio_read_length(struct docio_handle *handle,
+                            uint64_t offset,
+                            struct docio_length *length,
+                            err_log_callback *log_callback)
 {
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
@@ -360,7 +380,7 @@ uint64_t _docio_read_length(struct docio_handle *handle, uint64_t offset, struct
 
     restsize = blocksize - pos;
     // read length structure
-    _docio_read_through_buffer(handle, bid);
+    _docio_read_through_buffer(handle, bid, log_callback);
 
     if (restsize >= sizeof(struct docio_length)) {
         memcpy(length, (uint8_t *)buf + pos, sizeof(struct docio_length));
@@ -370,7 +390,7 @@ uint64_t _docio_read_length(struct docio_handle *handle, uint64_t offset, struct
         memcpy(length, (uint8_t *)buf + pos, restsize);
         // read additional block
         bid++;
-        _docio_read_through_buffer(handle, bid);
+        _docio_read_through_buffer(handle, bid, log_callback);
         // memcpy rest of data
         memcpy((uint8_t *)length + restsize, buf, sizeof(struct docio_length) - restsize);
         pos = sizeof(struct docio_length) - restsize;
@@ -382,7 +402,8 @@ uint64_t _docio_read_length(struct docio_handle *handle, uint64_t offset, struct
 uint64_t _docio_read_doc_component(struct docio_handle *handle,
                                    uint64_t offset,
                                    uint32_t len,
-                                   void *buf_out)
+                                   void *buf_out,
+                                   err_log_callback *log_callback)
 {
     uint32_t rest_len;
     size_t blocksize = handle->file->blocksize;
@@ -400,7 +421,7 @@ uint64_t _docio_read_doc_component(struct docio_handle *handle,
     rest_len = len;
 
     while(rest_len > 0) {
-        _docio_read_through_buffer(handle, bid);
+        _docio_read_through_buffer(handle, bid, log_callback);
         restsize = blocksize - pos;
 
         if (restsize >= rest_len) {
@@ -416,6 +437,14 @@ uint64_t _docio_read_doc_component(struct docio_handle *handle,
             if (rest_len > 0 &&
                 bid >= filemgr_get_pos(handle->file) / handle->file->blocksize) {
                 // no more data in the file .. the file is corrupted
+                if (log_callback && log_callback->callback) {
+                    char msg[1024];
+                    sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
+                            handle->file->filename);
+                    log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
+                                           log_callback->ctx_data);
+                }
+                // TODO: Need to return a better error code.
                 return 0;
             }
         }
@@ -431,14 +460,15 @@ uint64_t _docio_read_doc_component_comp(struct docio_handle *handle,
                                         uint32_t len,
                                         uint32_t comp_len,
                                         void *buf_out,
-                                        void *comp_data_out)
+                                        void *comp_data_out,
+                                        err_log_callback *log_callback)
 {
     int ret;
     size_t uncomp_size;
     uint64_t _offset;
 
     _offset = _docio_read_doc_component(handle, offset,
-                                        comp_len, comp_data_out);
+                                        comp_len, comp_data_out, log_callback);
     if (_offset == 0) {
         return 0;
     }
@@ -460,8 +490,9 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     uint8_t checksum;
     uint64_t _offset;
     struct docio_length length, _length;
+    err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback);
     if (_offset == offset) {
         length.keylen = 0;
         return length;
@@ -470,6 +501,12 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
+        }
         length.keylen = 0;
         return length;
     }
@@ -484,6 +521,13 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     if (offset + sizeof(struct docio_length) +
         length.keylen + length.metalen + length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
+                                   log_callback->ctx_data);
+        }
         length.keylen = 0;
         return length;
     }
@@ -492,13 +536,15 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
 }
 
 // return length.keylen = 0 if failure
-void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *keylen, void *keybuf)
+void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
+                        keylen_t *keylen, void *keybuf)
 {
     uint8_t checksum;
     uint64_t _offset;
     struct docio_length length, _length;
+    err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback);
     if (_offset == offset) {
         *keylen = 0;
         return;
@@ -507,6 +553,12 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
+        }
         *keylen = 0;
         return;
     }
@@ -521,13 +573,20 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset, keylen_t *
     if (offset + sizeof(struct docio_length) +
         length.keylen + length.metalen + length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
+                                   log_callback->ctx_data);
+        }
         *keylen = 0;
         return;
     }
 
     assert(length.keylen < FDB_MAX_KEYLEN);
 
-    _offset = _docio_read_doc_component(handle, _offset, length.keylen, keybuf);
+    _offset = _docio_read_doc_component(handle, _offset, length.keylen, keybuf, log_callback);
     *keylen = length.keylen;
 }
 
@@ -561,8 +620,9 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
     struct docio_length _length;
+    err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback);
     if (_offset == offset) {
         return offset;
     }
@@ -570,6 +630,12 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
+        }
         return offset;
     }
 
@@ -582,6 +648,13 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     if (offset + sizeof(struct docio_length) +
         doc->length.keylen + doc->length.metalen + doc->length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
+                                   log_callback->ctx_data);
+        }
         return offset;
     }
 
@@ -596,7 +669,8 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
 
     assert(doc->key && doc->meta);
 
-    _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
+    _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen,
+                                        doc->key, log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, 0);
         return offset;
@@ -605,7 +679,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     // read timestamp
     _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(timestamp_t),
-                                        &_timestamp);
+                                        &_timestamp, log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, 0);
         return offset;
@@ -614,8 +688,8 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
 
 #ifdef __FDB_SEQTREE
     // copy sequence number (optional)
-    _offset = _docio_read_doc_component(handle, _offset,
-                                        sizeof(fdb_seqnum_t), (void *)&_seqnum);
+    _offset = _docio_read_doc_component(handle, _offset, sizeof(fdb_seqnum_t),
+                                        (void *)&_seqnum, log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, 0);
         return offset;
@@ -623,7 +697,8 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     doc->seqnum = _endian_decode(_seqnum);
 #endif
 
-    _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
+    _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen,
+                                        doc->meta, log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, 0);
         return offset;
@@ -645,8 +720,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     timestamp_t _timestamp;
     void *comp_body = NULL;
     struct docio_length _length;
+    err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback);
     if (_offset == offset) {
         return offset;
     }
@@ -654,6 +730,12 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
+        }
         return offset;
     }
 
@@ -666,6 +748,13 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     if (offset + sizeof(struct docio_length) +
         doc->length.keylen + doc->length.metalen + doc->length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
+                                   log_callback->ctx_data);
+        }
         return offset;
     }
 
@@ -686,7 +775,8 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
     _offset = _docio_read_doc_component(handle, _offset,
                                         doc->length.keylen,
-                                        doc->key);
+                                        doc->key,
+                                        log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
@@ -695,7 +785,8 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     // read timestamp
     _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(timestamp_t),
-                                        &_timestamp);
+                                        &_timestamp,
+                                        log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
@@ -706,7 +797,8 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     // copy seqeunce number (optional)
     _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(fdb_seqnum_t),
-                                        (void *)&_seqnum);
+                                        (void *)&_seqnum,
+                                        log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
@@ -714,7 +806,8 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     doc->seqnum = _endian_decode(_seqnum);
 #endif
 
-    _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen, doc->meta);
+    _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen,
+                                        doc->meta, log_callback);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
@@ -723,9 +816,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 #ifdef _DOC_COMP
     if (doc->length.flag & DOCIO_COMPRESSED) {
         comp_body = (void*)malloc(doc->length.bodylen_ondisk);
-        _offset = _docio_read_doc_component_comp(
-            handle, _offset, doc->length.bodylen, doc->length.bodylen_ondisk,
-            doc->body, comp_body);
+        _offset = _docio_read_doc_component_comp(handle, _offset, doc->length.bodylen,
+                                                 doc->length.bodylen_ondisk, doc->body,
+                                                 comp_body, log_callback);
         if (_offset == 0) {
             if (comp_body) {
                 free(comp_body);
@@ -734,14 +827,16 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
             return offset;
         }
     } else {
-        _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen, doc->body);
+        _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen,
+                                            doc->body, log_callback);
         if (_offset == 0) {
             free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
             return offset;
         }
     }
 #else
-    _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen, doc->body);
+    _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen,
+                                        doc->body, log_callback);
     if (_offset == 0) {
         if (comp_body) {
             free(comp_body);
@@ -753,7 +848,8 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
 #ifdef __CRC32
     uint32_t crc_file, crc;
-    _offset = _docio_read_doc_component(handle, _offset, sizeof(crc_file), (void *)&crc_file);
+    _offset = _docio_read_doc_component(handle, _offset, sizeof(crc_file),
+                                        (void *)&crc_file, log_callback);
     if (_offset == 0) {
         if (comp_body) {
             free(comp_body);
@@ -776,6 +872,12 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         crc = crc32_8(doc->body, doc->length.bodylen, crc);
     }
     if (crc != crc_file) {
+        if (log_callback && log_callback->callback) {
+            char msg[1024];
+            sprintf(msg, "doc_body checksum mismatch error in a database file '%s'",
+                    handle->file->filename);
+            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
+        }
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }
@@ -786,7 +888,8 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 int docio_check_buffer(struct docio_handle *handle, bid_t bid)
 {
     uint8_t marker[BLK_MARKER_SIZE];
-    _docio_read_through_buffer(handle, bid);
+    err_log_callback *log_callback = handle->log_callback;
+    _docio_read_through_buffer(handle, bid, log_callback);
     marker[0] = *(((uint8_t *)handle->readbuffer)
                  + handle->file->blocksize - BLK_MARKER_SIZE);
     return (marker[0] == BLK_MARKER_DOC);

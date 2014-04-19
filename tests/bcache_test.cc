@@ -41,32 +41,32 @@ void basic_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 5;
-    file = filemgr_open(fname, get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
 
     for (i=0;i<5;++i) {
-        filemgr_alloc(file);
-        filemgr_write(file, i, buf);
+        filemgr_alloc(file, NULL);
+        filemgr_write(file, i, buf, NULL);
     }
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
     for (i=5;i<10;++i) {
-        filemgr_alloc(file);
-        filemgr_write(file, i, buf);
+        filemgr_alloc(file, NULL);
+        filemgr_write(file, i, buf, NULL);
     }
-    filemgr_commit(file);
+    filemgr_commit(file, NULL);
 
-    filemgr_read(file, 8, buf);
-    filemgr_read(file, 9, buf);
+    filemgr_read(file, 8, buf, NULL);
+    filemgr_read(file, 9, buf, NULL);
 
-    filemgr_read(file, 1, buf);
-    filemgr_read(file, 2, buf);
-    filemgr_read(file, 3, buf);
+    filemgr_read(file, 1, buf, NULL);
+    filemgr_read(file, 2, buf, NULL);
+    filemgr_read(file, 3, buf, NULL);
 
-    filemgr_read(file, 7, buf);
-    filemgr_read(file, 1, buf);
-    filemgr_read(file, 9, buf);
+    filemgr_read(file, 7, buf, NULL);
+    filemgr_read(file, 1, buf, NULL);
+    filemgr_read(file, 9, buf, NULL);
 
-    filemgr_alloc(file);
-    filemgr_write(file, 10, buf);
+    filemgr_alloc(file, NULL);
+    filemgr_write(file, 10, buf, NULL);
 
     TEST_RESULT("basic test");
 }
@@ -88,18 +88,18 @@ void basic_test2()
     config.blocksize = 4096;
     config.ncacheblock = 5;
     config.flag = 0x0;
-    file = filemgr_open(fname, get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
 
     for (i=0;i<5;++i) {
-        filemgr_alloc(file);
-        filemgr_write(file, i, buf);
+        filemgr_alloc(file, NULL);
+        filemgr_write(file, i, buf, NULL);
     }
     for (i=5;i<10;++i) {
-        filemgr_alloc(file);
-        filemgr_write(file, i, buf);
+        filemgr_alloc(file, NULL);
+        filemgr_write(file, i, buf, NULL);
     }
-    filemgr_commit(file);
-    filemgr_close(file, 1);
+    filemgr_commit(file, NULL);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -196,7 +196,7 @@ void multi_thread_test(
     config.blocksize = blocksize;
     config.ncacheblock = cachesize;
     config.flag = 0x0;
-    file = filemgr_open(fname, get_filemgr_ops(), &config);
+    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
 
     for (i=0;i<nblocks;++i) {
         memcpy(buf, &i, sizeof(i));
@@ -221,8 +221,8 @@ void multi_thread_test(
         thread_join(tid[i], &ret[i]);
     }
 
-    filemgr_commit(file);
-    filemgr_close(file, 1);
+    filemgr_commit(file, NULL);
+    filemgr_close(file, 1, NULL);
     filemgr_shutdown();
     free(buf);
 

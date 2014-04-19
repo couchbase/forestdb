@@ -99,6 +99,13 @@ void generate_config_json_file(int buffercache_size,
     fops->close(fd);
 }
 
+void logCallbackFunc(int err_code,
+                     const char *err_msg,
+                     void *pCtxData) {
+    fprintf(stderr, "%s - error code: %d, error message: %s\n",
+            (char *) pCtxData, err_code, err_msg);
+}
+
 void basic_test()
 {
     TEST_INIT();
@@ -251,6 +258,10 @@ void basic_test()
 
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
     status = fdb_get(db_rdonly, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set_log_callback(db_rdonly, logCallbackFunc,
+                                  (void *) "basic_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_set(db_rdonly, doc[i]);
