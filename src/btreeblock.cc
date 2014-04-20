@@ -124,6 +124,8 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid)
     *bid = block->bid * handle->nnodeperblock;
     list_push_back(&handle->alc_list, &block->le);
 
+    handle->nlivenodes++;
+
     return block->addr;
 }
 
@@ -224,6 +226,7 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
 
     old_addr = btreeblk_read(voidhandle, bid);
     new_addr = btreeblk_alloc(voidhandle, new_bid);
+    handle->nlivenodes--;
 
     // move
     memcpy(new_addr, old_addr, (handle->nodesize));
@@ -231,6 +234,14 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
     filemgr_invalidate_block(handle->file, bid);
 
     return new_addr;
+}
+
+void btreeblk_remove(void *voidhandle, bid_t bid)
+{
+    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
+    handle->nlivenodes--;
+
+    filemgr_invalidate_block(handle->file, bid);
 }
 
 int btreeblk_is_writable(void *voidhandle, bid_t bid)
@@ -328,6 +339,7 @@ struct btree_blk_ops btreeblk_ops = {
     btreeblk_alloc,
     btreeblk_read,
     btreeblk_move,
+    btreeblk_remove,
     btreeblk_is_writable,
     btreeblk_set_dirty,
     NULL
@@ -345,6 +357,8 @@ void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nod
     handle->file = file;
     handle->nodesize = nodesize;
     handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
+    handle->nlivenodes = 0;
+
     list_init(&handle->alc_list);
     list_init(&handle->read_list);
 

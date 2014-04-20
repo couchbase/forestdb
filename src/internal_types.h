@@ -203,10 +203,6 @@ struct _fdb_handle {
      * Number of documents in database.
      */
     uint64_t ndocs;
-    /**
-     * B+-Tree fanout degree.
-     */
-    uint16_t btree_fanout;
 #ifdef __FDB_SEQTREE
     /**
      * Database's current sequence number.

@@ -107,6 +107,7 @@ INLINE void _fdb_fetch_header(void *header_buf,
                               bid_t *seq_root_bid,
                               fdb_seqnum_t *seqnum,
                               uint64_t *ndocs,
+                              uint64_t *nlivenodes,
                               uint64_t *datasize,
                               uint64_t *last_header_bid,
                               char **new_filename,
@@ -131,6 +132,10 @@ INLINE void _fdb_fetch_header(void *header_buf,
     seq_memcpy(ndocs, (uint8_t *)header_buf + offset,
                sizeof(uint64_t), offset);
     *ndocs = _endian_decode(*ndocs);
+
+    seq_memcpy(nlivenodes, (uint8_t *)header_buf + offset,
+               sizeof(uint64_t), offset);
+    *nlivenodes = _endian_decode(*nlivenodes);
 
     seq_memcpy(datasize, (uint8_t *)header_buf + offset,
                sizeof(uint64_t), offset);
@@ -464,7 +469,6 @@ static fdb_status _fdb_open(fdb_handle *handle,
     handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
     handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
     handle->config = *config;
-    handle->btree_fanout = fconfig.blocksize / (config->chunksize + config->offsetsize);
     handle->last_header_bid = BLK_NOT_FOUND;
 
     handle->new_file = NULL;
@@ -485,9 +489,11 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
     filemgr_fetch_header(handle->file, header_buf, &header_len);
     if (header_len > 0) {
-        _fdb_fetch_header(header_buf, header_len, &trie_root_bid, &seq_root_bid, &seqnum,
-            &handle->ndocs, &handle->datasize, &handle->last_header_bid,
-            &compacted_filename, &prev_filename);
+        _fdb_fetch_header(header_buf, header_len, &trie_root_bid,
+                          &seq_root_bid, &seqnum,
+                          &handle->ndocs, &handle->bhandle->nlivenodes,
+                          &handle->datasize, &handle->last_header_bid,
+                          &compacted_filename, &prev_filename);
     }
     handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
 
@@ -852,10 +858,11 @@ void _fdb_sync_db_header(fdb_handle *handle)
             char *compacted_filename;
             char *prev_filename = NULL;
 
-            _fdb_fetch_header(header_buf, header_len,
-                &idtree_root, &new_seq_root, &handle->seqnum,
-                &handle->ndocs, &handle->datasize, &handle->last_header_bid,
-                &compacted_filename, &prev_filename);
+            _fdb_fetch_header(header_buf, header_len, &idtree_root,
+                              &new_seq_root, &handle->seqnum,
+                              &handle->ndocs, &handle->bhandle->nlivenodes,
+                              &handle->datasize, &handle->last_header_bid,
+                              &compacted_filename, &prev_filename);
 
             if (!handle->config.cmp_variable) {
                 handle->trie->root_bid = idtree_root;
@@ -1424,14 +1431,15 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     [0008]: BID of root node of seq B+Tree: 8 bytes (optional)
     [0016]: the current DB sequence number: 8 bytes (optional)
     [0024]: # of live documents: 8 bytes
-    [0032]: Data size (byte): 8 bytes
-    [0040]: File offset of the DB header created when last WAL flush: 8 bytes
-    [0048]: Size of newly compacted target file name : 1 byte
-    [0049]: Size of old file name before compaction :  1 byte
-    [0050]: File name of newly compacted file : 256 bytes
-    [0306]: File name of old file before compcation : 256 bytes
-    [0562]: CRC32: 4 bytes
-    [total size: 566 bytes] BLK_DBHEADER_SIZE must be incremented on new fields
+    [0032]: # of live B+Tree nodes: 8 bytes
+    [0040]: Data size (byte): 8 bytes
+    [0048]: File offset of the DB header created when last WAL flush: 8 bytes
+    [0056]: Size of newly compacted target file name : 1 byte
+    [0057]: Size of old file name before compaction :  1 byte
+    [0058]: File name of newly compacted file : 256 bytes
+    [0314]: File name of old file before compcation : 256 bytes
+    [0570]: CRC32: 4 bytes
+    [total size: 574 bytes] BLK_DBHEADER_SIZE must be incremented on new fields
     */
     uint8_t buf[BLK_DBHEADER_SIZE];
     uint32_t crc;
@@ -1469,6 +1477,10 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     // # docs
     _edn_safe_64 = _endian_encode(handle->ndocs);
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->ndocs), offset);
+    // # live nodes
+    _edn_safe_64 = _endian_encode(handle->bhandle->nlivenodes);
+    seq_memcpy(buf + offset, &_edn_safe_64,
+               sizeof(handle->bhandle->nlivenodes), offset);
     // data size
     _edn_safe_64 = _endian_encode(handle->datasize);
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->datasize), offset);
@@ -1952,19 +1964,12 @@ LIBFDB_API
 size_t fdb_estimate_space_used(fdb_handle *handle)
 {
     size_t ret = 0;
-    size_t fanout = handle->btree_fanout;
-#ifdef __UTREE
-    fanout = fanout / 3;
-#endif
 
     _fdb_check_file_reopen(handle);
     _fdb_sync_db_header(handle);
 
     ret += handle->datasize;
-    // hb-trie size (estimated as worst case)
-    ret += (handle->ndocs / (fanout * 3 / 4)) * handle->config.blocksize;
-    // b-tree size (estimated as worst case)
-    ret += (handle->ndocs / (fanout * 3 / 4)) * handle->config.blocksize;
+    ret += handle->bhandle->nlivenodes * handle->config.blocksize;
 
     ret += wal_get_datasize(handle->file);
 

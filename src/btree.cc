@@ -1145,6 +1145,7 @@ btree_result btree_remove(struct btree *btree, void *key)
                 (node[i]->nentry <= 1 && i+1 == btree->height)) &&
                 btree->height > 1) {
                 // remove the node
+                btree->blk_ops->blk_remove(btree->blk_handle, bid[i]);
                 if (i+1 < btree->height) {
                     // if non-root node
                     rmv[i+1] = 1;

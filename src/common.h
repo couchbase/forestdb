@@ -61,7 +61,7 @@ enum{
 #define BLK_MARKER_DBHEADER (0xee)
 #define BLK_MARKER_DOC (0xdd)
 #define BLK_MARKER_SIZE (1)
-#define BLK_DBHEADER_SIZE (566)
+#define BLK_DBHEADER_SIZE (574)
 #define FDB_MAX_FILENAME_LEN (256)
 
 #define randomize() srand((unsigned)time(NULL))

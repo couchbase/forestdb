@@ -65,6 +65,7 @@ struct btree_blk_ops {
     voidref (*blk_alloc)(void *handle, bid_t *bid);
     voidref (*blk_read)(void *handle, bid_t bid);
     voidref (*blk_move)(void *handle, bid_t bid, bid_t *new_bid);
+    void (*blk_remove)(void *handle, bid_t bid);
     int (*blk_is_writable)(void *handle, bid_t bid);
     void (*blk_set_dirty)(void *handle, bid_t bid);
     void (*blk_operation_end)(void *handle); // optional
