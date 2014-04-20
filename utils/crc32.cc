@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "crc32.h"
+#include "arch.h"
 
 
 /// look-up table, already declared above
@@ -349,6 +350,12 @@ uint32_t crc32_8(void* data, size_t len, uint32_t prev_value)
 uint32_t crc32_8_last8(void *data, size_t len, uint32_t prev_value)
 {
     size_t min = MIN(len, 8);
-    return crc32_8((char*)data + (len-min), min, prev_value);
+    void *src = (char*)data + (len-min);
+#ifdef _ALIGN_MEM_ACCESS
+    uint64_t temp; // aligned
+    memcpy(&temp, src, min);
+    src = &temp;
+#endif
+    return crc32_8(src, min, prev_value);
 }
 

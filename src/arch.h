@@ -39,6 +39,7 @@
 #ifdef __APPLE__
     #include <inttypes.h>
     #include <alloca.h>
+    #include <TargetConditionals.h>
 
     #define INLINE extern inline
 
@@ -47,6 +48,10 @@
     #define _FUSEC "d"
 
     #define _ARCH_O_DIRECT (0x0)
+
+    #if TARGET_CPU_ARM
+    #define _ALIGN_MEM_ACCESS
+    #endif
 
     #define malloc_align(addr, align, size) \
         {int __ret__ = posix_memalign(&(addr), (align), (size));}

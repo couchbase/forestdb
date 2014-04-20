@@ -74,9 +74,7 @@ uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
     struct filemgr *file = _get_entry(e, struct filemgr, e);
     int len = strlen(file->filename);
-    int offset = MIN(len, 8);
-    return crc32_8((uint8_t *)file->filename + (len - offset), offset, 0) &
-        ((unsigned)(NBUCKET-1));
+    return crc32_8_last8(file->filename, len, 0) & ((unsigned)(NBUCKET-1));
 }
 
 int _file_cmp(struct hash_elem *a, struct hash_elem *b)
