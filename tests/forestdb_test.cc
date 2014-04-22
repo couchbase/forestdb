@@ -20,6 +20,9 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#if !defined(WIN32) && !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #include "libforestdb/forestdb.h"
 #include "test.h"
@@ -45,43 +48,48 @@ void _set_random_string_smallabt(char *str, int len)
 
 void generate_config_json_file(int buffercache_size,
                                int wal_threshold,
-                               int doc_compression) {
+                               int doc_compression,
+                               int purging_interval) {
     char config_data[8192];
     const char *config =
         "{\"configs\":"
             "{\"chunk_size\": {\"default\": 8,"
-                               "\"validator\": {\"range\": { \"max\": 16, \"min\": 4 }}},"
-              "\"buffer_cache_size\": {\"default\": %d,"
-                                       "\"validator\": {\"range\": {"
-                                                           "\"max\": 18446744073709551616,"
-                                                           "\"min\": 0 }}},"
-              "\"wal_threshold\": {\"default\": %d,"
-                                   "\"validator\": {\"range\": {"
-                                                       "\"max\": 4294967296,"
-                                                       "\"min\": 0 }}},"
-              "\"enable_seq_btree\": {\"default\": \"true\","
-                                      "\"validator\": {\"enum\": ["
-                                                       "\"true\",\"false\" ]}},"
-              "\"durability_option\": {\"default\": \"sync_commit\","
-                                      "\"validator\": {\"enum\": ["
+                              "\"validator\": {\"range\": { \"max\": 16, \"min\": 4 }}},"
+             "\"buffer_cache_size\": {\"default\": %d,"
+                                     "\"validator\": {\"range\": {"
+                                                         "\"max\": 18446744073709551616,"
+                                                         "\"min\": 0 }}},"
+             "\"wal_threshold\": {\"default\": %d,"
+                                 "\"validator\": {\"range\": {"
+                                                     "\"max\": 4294967296,"
+                                                     "\"min\": 0 }}},"
+             "\"purging_deleted_doc_interval\": {\"default\": %d,"
+                                                "\"validator\": {\"range\": {"
+                                                                "\"max\": 4294967296,"
+                                                                "\"min\": 0 }}},"
+             "\"enable_seq_btree\": {\"default\": \"true\","
+                                    "\"validator\": {\"enum\": ["
+                                                        "\"true\",\"false\" ]}},"
+             "\"durability_option\": {\"default\": \"sync_commit\","
+                                     "\"validator\": {\"enum\": ["
                                                        "\"sync_commit\","
                                                        "\"sync_o_direct_commit\","
                                                        "\"async_commit\","
                                                        "\"async_o_direct_commit\" ]}},"
-              "\"compaction_buf_size\": {\"default\": 16777216,"
-                                         "\"validator\": {\"range\": {"
-                                                          "\"max\": 4294967296,"
-                                                          "\"min\": 0 }}},"
-              "\"cleanup_cache_on_close\": {\"default\": \"true\","
-                                            "\"validator\": {\"enum\": ["
-                                                             "\"true\",\"false\"]}},"
-            "\"compress_document_body\": {\"default\": \"%s\","
+             "\"compaction_buf_size\": {\"default\": 16777216,"
+                                       "\"validator\": {\"range\": {"
+                                                         "\"max\": 4294967296,"
+                                                         "\"min\": 0 }}},"
+             "\"cleanup_cache_on_close\": {\"default\": \"true\","
                                           "\"validator\": {\"enum\": ["
-                                                           "\"true\",\"false\"]}}"
+                                                            "\"true\",\"false\"]}},"
+             "\"compress_document_body\": {\"default\": \"%s\","
+                                          "\"validator\": {\"enum\": ["
+                                                            "\"true\",\"false\"]}}"
        "}}";
 
     sprintf(config_data, config,
-            buffercache_size, wal_threshold,
+            buffercache_size, wal_threshold, purging_interval,
             (doc_compression)?("true"):("false"));
 
     filemgr_ops * fops = get_filemgr_ops();
@@ -110,7 +118,7 @@ void basic_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // Read-Only mode test: Must not create new file..
     status = fdb_open(&db, "./dummy1",
@@ -291,7 +299,7 @@ void wal_commit_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -380,7 +388,7 @@ void multi_version_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(1048576, 1024, 0);
+    generate_config_json_file(1048576, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -497,7 +505,7 @@ void compact_wo_reopen_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0);
+    generate_config_json_file(16777216, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -581,7 +589,7 @@ void compact_with_reopen_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0);
+    generate_config_json_file(16777216, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -669,7 +677,7 @@ void auto_recover_compact_ok_test()
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0);
+    generate_config_json_file(16777216, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -777,7 +785,7 @@ void db_drop_test()
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0);
+    generate_config_json_file(16777216, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -971,7 +979,7 @@ void multi_thread_test(
     // remove previous dummy files
     r = system(SHELL_DEL" "FILENAME"* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0);
+    generate_config_json_file(16777216, 1024, 0, 0);
 
     memleak_start();
 
@@ -1063,7 +1071,7 @@ void crash_recovery_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // reopen db
     fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1155,7 +1163,7 @@ void incomplete_block_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1221,7 +1229,7 @@ void iterator_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1445,7 +1453,7 @@ void sequence_iterator_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -1678,7 +1686,7 @@ void custom_compare_primitive_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // open db with custom compare function for double key type
     fdb_open_cmp_fixed(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
@@ -1808,7 +1816,7 @@ void custom_compare_variable_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 0);
 
     // open db with custom compare function for variable length key type
     fdb_open_cmp_variable(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
@@ -1916,7 +1924,7 @@ void doc_compression_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 1);
+    generate_config_json_file(0, 1024, 1, 0);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -2043,7 +2051,7 @@ void read_doc_by_offset_test() {
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0);
+    generate_config_json_file(0, 1024, 0, 3600);
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
@@ -2124,6 +2132,131 @@ void read_doc_by_offset_test() {
     TEST_RESULT("read_doc_by_offset test");
 }
 
+void purge_logically_deleted_doc_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_handle *db;
+    fdb_handle *db_rdonly;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    uint64_t doc_offset;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024, 0, 2);
+
+    // open db
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // remove document #5
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta, doc[5]->metalen, NULL, 0);
+    status = fdb_del(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+
+    // commit
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // do compaction
+    fdb_compact(db, (char *) "./dummy2");
+
+    // retrieve documents after compaction
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+
+        if (i != 5) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            // removed document
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        }
+        // free result document
+        fdb_doc_free(rdoc);
+
+        // retrieve metadata
+        // all documents including logically deleted document should exist
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get_metaonly(db, rdoc, &doc_offset);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+
+    printf("wait for 3 seconds..\n");
+    sleep(3);
+
+    // do one more compaction
+    fdb_compact(db, (char *) "./dummy3");
+
+    // retrieve documents after compaction
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+
+        if (i != 5) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        } else {
+            // removed document
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        }
+        // free result document
+        fdb_doc_free(rdoc);
+
+        // retrieve metadata
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get_metaonly(db, rdoc, &doc_offset);
+        if (i != 5) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            // logically deletec document must be purged during the compaction
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // close db file
+    fdb_close(db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("purge logically deleted doc test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -2142,6 +2275,7 @@ int main(){
     db_drop_test();
     doc_compression_test();
     read_doc_by_offset_test();
+    purge_logically_deleted_doc_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;

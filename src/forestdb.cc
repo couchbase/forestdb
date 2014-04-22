@@ -19,6 +19,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <time.h>
+#if !defined(WIN32) && !defined(_WIN32)
+#include <sys/time.h>
+#endif
 
 #include "libforestdb/forestdb.h"
 #include "filemgr.h"
@@ -715,13 +719,15 @@ INLINE size_t _fdb_get_docsize(struct docio_length len)
         len.bodylen_ondisk +
         sizeof(struct docio_length);
 
-    #ifdef __FDB_SEQTREE
-        ret += sizeof(fdb_seqnum_t);
-    #endif
+    ret += sizeof(timestamp_t);
 
-    #ifdef __CRC32
-        ret += sizeof(uint32_t);
-    #endif
+#ifdef __FDB_SEQTREE
+    ret += sizeof(fdb_seqnum_t);
+#endif
+
+#ifdef __CRC32
+    ret += sizeof(uint32_t);
+#endif
 
     return ret;
 }
@@ -1336,6 +1342,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     struct docio_object _doc;
     struct filemgr *file;
     struct docio_handle *dhandle;
+    struct timeval tv;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return FDB_RESULT_RONLY_VIOLATION;
@@ -1375,6 +1382,14 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         _doc.seqnum = doc->seqnum = ++handle->seqnum;
     } else{
         _doc.seqnum = SEQNUM_NOT_USED;
+    }
+
+    if (_doc.length.bodylen == 0 || !_doc.body) {
+        // set timestamp
+        gettimeofday(&tv, NULL);
+        _doc.timestamp = (timestamp_t)tv.tv_sec;
+    } else {
+        _doc.timestamp = 0;
     }
 
     if (dhandle == handle->new_dhandle) {
@@ -1615,8 +1630,13 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
     struct docio_object doc;
     struct hbtrie_iterator it;
     struct btree_iterator bit;
+    struct timeval tv;
     fdb_doc wal_doc;
     fdb_handle new_handle;
+    timestamp_t cur_timestamp;
+
+    gettimeofday(&tv, NULL);
+    cur_timestamp = tv.tv_sec;
 
     new_handle = *handle;
     new_handle.file = new_file;
@@ -1678,24 +1698,32 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                 doc.body = NULL;
                 docio_read_doc(handle->dhandle, offset, &doc);
 
-                // re-write to new file
-                filemgr_mutex_lock(new_file);
-                new_offset = docio_append_doc(new_dhandle, &doc);
+                // compare timestamp
+                if (doc.length.bodylen > 0 ||
+                    (cur_timestamp < doc.timestamp + handle->config.purging_interval &&
+                     doc.length.bodylen == 0)) {
+                    // re-write the document to new file when
+                    // 1. the document is not deleted
+                    // 2. the document is logically deleted but
+                    //    its timestamp isn't overdue
+                    filemgr_mutex_lock(new_file);
+                    new_offset = docio_append_doc(new_dhandle, &doc);
 
-                wal_doc.keylen = doc.length.keylen;
-                wal_doc.metalen = doc.length.metalen;
-                wal_doc.bodylen = doc.length.bodylen;
-                wal_doc.key = doc.key;
+                    wal_doc.keylen = doc.length.keylen;
+                    wal_doc.metalen = doc.length.metalen;
+                    wal_doc.bodylen = doc.length.bodylen;
+                    wal_doc.key = doc.key;
 #ifdef __FDB_SEQTREE
-                wal_doc.seqnum = doc.seqnum;
+                    wal_doc.seqnum = doc.seqnum;
 #endif
-                wal_doc.meta = doc.meta;
-                wal_doc.body = doc.body;
-                wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
+                    wal_doc.meta = doc.meta;
+                    wal_doc.body = doc.body;
+                    wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
 
-                wal_insert_by_compactor(new_file, &wal_doc, new_offset);
+                    wal_insert_by_compactor(new_file, &wal_doc, new_offset);
 
-                filemgr_mutex_unlock(new_file);
+                    filemgr_mutex_unlock(new_file);
+                }
                 free(doc.meta);
                 free(doc.body);
             }

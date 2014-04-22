@@ -95,6 +95,11 @@ typedef struct {
      */
     uint64_t wal_threshold;
     /**
+     * Interval for purging logically deleted documents in the unit of second.
+     * It is set to 0 second (purge during next compaction) by default.
+     */
+    uint32_t purging_interval;
+    /**
      * Abstract file raw IO APIs that allow a user to pass their
      * platform-specific raw IO implementation. If it is not given, it is
      * selected among Linux, Mac OS, and Windows.

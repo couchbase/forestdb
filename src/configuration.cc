@@ -35,6 +35,7 @@ void set_default_fdb_config(fdb_config *fconfig) {
         fconfig->blocksize = FDB_BLOCKSIZE; // 4KB by default.
         fconfig->buffercache_size = 134217728; // 128MB by default.
         fconfig->wal_threshold = 4096; // 4096 WAL entries by default.
+        fconfig->purging_interval = 0; // 0 second by default.
         fconfig->fileops = NULL; // Not to use any customized file ops by default.
         fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
         fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
@@ -180,6 +181,14 @@ void parse_fdb_config(const char *fdb_config_file, fdb_config *fconfig) {
                 (uint64_t) cJSON_GetObjectItem(wal_threshold, "default")->valuedouble;
         } else {
             fconfig->wal_threshold = 4096;
+        }
+
+        cJSON *purging_interval = cJSON_GetObjectItem(configs, "purging_deleted_doc_interval");
+        if (validConfigParam(purging_interval)) {
+            fconfig->purging_interval =
+                (uint32_t) cJSON_GetObjectItem(purging_interval, "default")->valuedouble;
+        } else {
+            fconfig->purging_interval = 0;
         }
 
         cJSON *enable_seqtree = cJSON_GetObjectItem(configs, "enable_seq_btree");

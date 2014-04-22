@@ -150,6 +150,7 @@
     #define _F64 "ld"
     #define _CRT_SECURE_NO_WARNINGS
     #define gettimeofday gettimeofday_vs
+    #define sleep(sec) Sleep((sec)*1000)
     typedef unsigned long mode_t;
     #include <BaseTsd.h>
     typedef SSIZE_T ssize_t;

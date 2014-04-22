@@ -30,6 +30,16 @@
                 }
             }
         },
+        "purging_deleted_doc_interval": {
+            "descr": "Interval for purging logically deleted documents in the unit of second. This is a local config to each ForestDB database instance.",
+            "default": 0,
+            "validator": {
+                "range": {
+                    "max": 4294967296,
+                    "min": 0
+                }
+            }
+        },
         "enable_seq_btree": {
             "descr": "Enable or disable a sequence B+-Tree. This is a local config to each ForestDB database instance.",
             "default": "true",

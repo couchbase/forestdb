@@ -49,6 +49,7 @@ add_library(forestdb SHARED
             src/list.cc
             src/hash.cc
             src/wal.cc
+            ${GETTIMEOFDAY_VS}
             utils/memleak.cc
             utils/crc32.cc
             utils/debug.cc

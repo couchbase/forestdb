@@ -26,6 +26,7 @@ extern "C" {
 #endif
 
 typedef uint16_t keylen_t;
+typedef uint32_t timestamp_t;
 
 struct docio_handle {
     struct filemgr *file;
@@ -61,6 +62,7 @@ struct docio_handle {
 
 struct docio_object {
     struct docio_length length;
+    timestamp_t timestamp;
     void *key;
     fdb_seqnum_t seqnum;
     void *meta;

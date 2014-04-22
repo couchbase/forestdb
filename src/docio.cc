@@ -218,6 +218,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     void *compbuf;
     bid_t ret_offset;
     fdb_seqnum_t _seqnum;
+    timestamp_t _timestamp;
     struct docio_length length, _length;
 
     length = doc->length;
@@ -247,6 +248,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 #else
     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
 #endif
+    docsize += sizeof(timestamp_t);
 
 #ifdef __FDB_SEQTREE
     docsize += sizeof(fdb_seqnum_t);
@@ -269,6 +271,11 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     // copy key
     memcpy((uint8_t *)buf + offset, doc->key, length.keylen);
     offset += length.keylen;
+
+    // copy timestamp
+    _timestamp = _endian_encode(doc->timestamp);
+    memcpy((uint8_t*)buf + offset, &_timestamp, sizeof(_timestamp));
+    offset += sizeof(_timestamp);
 
 #ifdef __FDB_SEQTREE
     // copy seqeunce number (optional)
@@ -552,6 +559,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     int key_alloc = 0;
     int meta_alloc = 0;
     fdb_seqnum_t _seqnum;
+    timestamp_t _timestamp;
     struct docio_length _length;
 
     _offset = _docio_read_length(handle, offset, &_length);
@@ -594,6 +602,16 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
         return offset;
     }
 
+    // read timestamp
+    _offset = _docio_read_doc_component(handle, _offset,
+                                        sizeof(timestamp_t),
+                                        &_timestamp);
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        return offset;
+    }
+    doc->timestamp = _endian_decode(_timestamp);
+
 #ifdef __FDB_SEQTREE
     // copy sequence number (optional)
     _offset = _docio_read_doc_component(handle, _offset,
@@ -624,6 +642,7 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     int meta_alloc = 0;
     int body_alloc = 0;
     fdb_seqnum_t _seqnum;
+    timestamp_t _timestamp;
     void *comp_body = NULL;
     struct docio_length _length;
 
@@ -665,16 +684,29 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
     assert(doc->key && doc->meta && doc->body);
 
-    _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen, doc->key);
+    _offset = _docio_read_doc_component(handle, _offset,
+                                        doc->length.keylen,
+                                        doc->key);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }
 
+    // read timestamp
+    _offset = _docio_read_doc_component(handle, _offset,
+                                        sizeof(timestamp_t),
+                                        &_timestamp);
+    if (_offset == 0) {
+        free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+        return offset;
+    }
+    doc->timestamp = _endian_decode(_timestamp);
+
 #ifdef __FDB_SEQTREE
     // copy seqeunce number (optional)
     _offset = _docio_read_doc_component(handle, _offset,
-                                        sizeof(fdb_seqnum_t), (void *)&_seqnum);
+                                        sizeof(fdb_seqnum_t),
+                                        (void *)&_seqnum);
     if (_offset == 0) {
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
@@ -732,6 +764,7 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
     crc = crc32_8((void *)&_length, sizeof(_length), 0);
     crc = crc32_8(doc->key, doc->length.keylen, crc);
+    crc = crc32_8((void *)&_timestamp, sizeof(timestamp_t), crc);
     crc = crc32_8((void *)&_seqnum, sizeof(fdb_seqnum_t), crc);
     crc = crc32_8(doc->meta, doc->length.metalen, crc);
     if (doc->length.flag & DOCIO_COMPRESSED) {
