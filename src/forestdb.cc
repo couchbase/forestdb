@@ -904,11 +904,12 @@ void _fdb_check_file_reopen(fdb_handle *handle)
 
         assert(handle->file->new_file);
 
-        struct filemgr *new_file = handle->file->new_file;
+        char *new_filename = alca(char, handle->file->new_file->filename_len+1);
         fdb_config config = handle->config;
 
+        strcpy(new_filename, handle->file->new_file->filename);
         _fdb_close(handle);
-        _fdb_open(handle, new_file->filename, &config);
+        _fdb_open(handle, new_filename, &config);
     }
 
     if (filemgr_get_file_status(handle->file) == FILE_COMPACT_OLD &&
