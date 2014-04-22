@@ -1741,6 +1741,9 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
             }
         }
     }
+    // *(count_out) can be smaller than handle->ndocs
+    // when there are new updates by other writers
+    // so that wal have to be flushed one more time.
     *(count_out) = new_handle.ndocs;
     *(new_datasize_out) = new_handle.datasize;
 
@@ -1924,7 +1927,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     filemgr_mutex_unlock(new_file);
 
     // commit new file
-    fdb_commit(handle, FDB_COMMIT_NORMAL);
+    fdb_commit(handle, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     wal_shutdown(old_file);
 

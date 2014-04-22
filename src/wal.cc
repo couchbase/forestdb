@@ -380,7 +380,6 @@ wal_result wal_flush(struct filemgr *file,
     struct list_elem *e;
     struct hash_elem *h;
     struct wal_item *item;
-    size_t count = 0;
 
     // sort by old byte-offset of the document (for sequential access)
     spin_lock(&file->wal->lock);
@@ -388,19 +387,14 @@ wal_result wal_flush(struct filemgr *file,
     e = list_begin(&file->wal->list);
     while(e){
         item = _get_entry(e, struct wal_item, list_elem);
-        if (item->action == WAL_ACT_LOGICAL_REMOVE ||
-            item->action == WAL_ACT_REMOVE) {
-            --file->wal->num_deletes;
+        if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
+            item->old_offset = get_old_offset(dbhandle, item);
+            item->flag |= WAL_ITEM_FLUSH_READY;
+            avl_insert(&tree, &item->avl, _wal_flush_cmp);
         }
-        item->old_offset = get_old_offset(dbhandle, item);
-        item->flag |= WAL_ITEM_FLUSH_READY;
-        avl_insert(&tree, &item->avl, _wal_flush_cmp);
         e = list_next(e);
-        list_remove(&file->wal->list, &item->list_elem);
-        count++;
-        file->wal->size--;
     }
-    file->wal->last_commit = list_begin(&file->wal->list);
+    file->wal->last_commit = NULL;
     spin_unlock(&file->wal->lock);
 
     // scan and flush entries in the avl-tree
@@ -415,8 +409,16 @@ wal_result wal_flush(struct filemgr *file,
         // check weather this item is updated after insertion into tree
         if (item->flag & WAL_ITEM_FLUSH_READY) {
             hash_remove(&file->wal->hash_bykey, &item->he_key);
+            list_remove(&file->wal->list, &item->list_elem);
             SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
             flush_func(dbhandle, item);
+
+            if (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                item->action == WAL_ACT_REMOVE) {
+                --file->wal->num_deletes;
+            }
+            file->wal->size--;
+
 #ifdef __WAL_KEY_COPY
             mempool_free(item->key);
 #endif
