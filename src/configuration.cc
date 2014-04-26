@@ -48,6 +48,10 @@ void set_default_fdb_config(fdb_config *fconfig) {
 }
 
 static int validConfigParam(cJSON *param) {
+    if (param == NULL) {
+        return 0;
+    }
+
     cJSON *default_value = cJSON_GetObjectItem(param, "default");
     if (!default_value) {
         return 0;
