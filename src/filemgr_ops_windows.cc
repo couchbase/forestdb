@@ -20,6 +20,8 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -96,7 +98,7 @@ ssize_t _filemgr_win_pread(int fd, void *buf, size_t count, cs_off_t offset)
     return (ssize_t) bytesread;
 }
 
-fdb_status _filemgr_win_close(int fd)
+int _filemgr_win_close(int fd)
 {
 #ifdef _MSC_VER
     int rv = 0;
@@ -128,13 +130,13 @@ cs_off_t _filemgr_win_goto_eof(int fd)
 #ifdef _MSC_VER
     cs_off_t rv = _lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (cs_off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_SEEK_FAIL;
     }
     return rv;
 #else
     cs_off_t rv = lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (cs_off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) FDB_RESULT_SEEK_FAIL;
     }
     return rv;
 #endif
@@ -157,19 +159,38 @@ cs_off_t _filemgr_win_file_size(const char *filename)
 #endif
 }
 
-fdb_status _filemgr_win_fsync(int fd)
+int _filemgr_win_fsync(int fd)
 {
     HANDLE file = handle_to_win(fd);
 
     if (!FlushFileBuffers(file)) {
-        return FDB_RESULT_COMMIT_FAIL;
+        return FDB_RESULT_FSYNC_FAIL;
     }
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status _filemgr_win_fdatasync(int fd)
+int _filemgr_win_fdatasync(int fd)
 {
     return _filemgr_win_fsync(fd);
+}
+
+void _filemgr_win_get_errno_str(char *buf, size_t size)
+{
+    if (!buf) {
+        return;
+    }
+
+    char* win_msg = NULL;
+    DWORD err = GetLastError();
+    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                   FORMAT_MESSAGE_FROM_SYSTEM |
+                   FORMAT_MESSAGE_IGNORE_INSERTS,
+                   NULL, err,
+                   MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                   (LPTSTR) &win_msg,
+                   0, NULL);
+    _snprintf(buf, size, "errno = %d: '%s'", err, win_msg);
+    LocalFree(win_msg);
 }
 
 struct filemgr_ops win_ops = {
@@ -180,7 +201,8 @@ struct filemgr_ops win_ops = {
     _filemgr_win_goto_eof,
     _filemgr_win_file_size,
     _filemgr_win_fdatasync,
-    _filemgr_win_fsync
+    _filemgr_win_fsync,
+    _filemgr_win_get_errno_str
 };
 
 struct filemgr_ops * get_win_filemgr_ops()

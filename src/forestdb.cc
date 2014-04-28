@@ -238,9 +238,18 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     struct filemgr *new_file;
     struct docio_handle dhandle;
 
+    new_db.log_callback.callback = handle->log_callback.callback;
+    new_db.log_callback.ctx_data = handle->log_callback.ctx_data;
+    dhandle.log_callback = &handle->log_callback;
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     fdb_status status = _fdb_open(&new_db, new_filename, &config);
     if (status != FDB_RESULT_SUCCESS) {
+        if (handle->log_callback.callback) {
+            char msg[1024];
+            sprintf(msg, "Error in opening a partially compacted file '%s' "
+                    "for recovery.", new_filename);
+            handle->log_callback.callback(status, msg, handle->log_callback.ctx_data);
+        }
         return status;
     }
 
@@ -283,7 +292,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
         // remove self: WARNING must not close this handle if snapshots
         // are yet to open this file
         filemgr_remove_pending(old_file, new_db.file);
-        filemgr_close(old_file, 0);
+        filemgr_close(old_file, 0, &handle->log_callback);
         return FDB_RESULT_FAIL;
     }
     docio_init(&dhandle, new_file, config.compress_document_body);
@@ -352,7 +361,7 @@ fdb_status fdb_open(fdb_handle **ptr_handle,
     parse_fdb_config(fdb_config_file, &config);
     config.flags = flags;
 
-    fdb_handle *handle = (fdb_handle *) malloc(sizeof(fdb_handle));
+    fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -385,7 +394,7 @@ fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
     parse_fdb_config(fdb_config_file, &config);
     config.flags = flags;
 
-    fdb_handle *handle = (fdb_handle *) malloc(sizeof(fdb_handle));
+    fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -418,7 +427,7 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
     parse_fdb_config(fdb_config_file, &config);
     config.flags = flags;
 
-    fdb_handle *handle = (fdb_handle *) malloc(sizeof(fdb_handle));
+    fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -465,13 +474,17 @@ static fdb_status _fdb_open(fdb_handle *handle,
     }
 
     handle->fileops = get_filemgr_ops();
-    handle->file = filemgr_open((char *)filename, handle->fileops, &fconfig);
+    handle->file = filemgr_open((char *)filename, handle->fileops,
+                                &fconfig, &handle->log_callback);
     if (!handle->file) {
         return FDB_RESULT_OPEN_FAIL;
     }
     handle->btreeblkops = btreeblk_get_ops();
-    handle->bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
-    handle->dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
+    handle->bhandle = (struct btreeblk_handle *)calloc(1, sizeof(struct btreeblk_handle));
+    handle->bhandle->log_callback = &handle->log_callback;
+    handle->dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
+    handle->dhandle->log_callback = &handle->log_callback;
+
     handle->config = *config;
     handle->last_header_bid = BLK_NOT_FOUND;
 
@@ -583,10 +596,11 @@ static fdb_status _fdb_open(fdb_handle *handle,
                 fconfig.options = FILEMGR_READONLY;
                 struct filemgr *old_file = filemgr_open(prev_filename,
                                                         handle->fileops,
-                                                        &fconfig);
+                                                        &fconfig,
+                                                        &handle->log_callback);
                 if (old_file) {
                     filemgr_remove_pending(old_file, handle->file);
-                    filemgr_close(old_file, 0);
+                    filemgr_close(old_file, 0, &handle->log_callback);
                 }
             }
         } else {
@@ -596,6 +610,16 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
     btreeblk_end(handle->bhandle);
 
+    return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
+fdb_status fdb_set_log_callback(fdb_handle *handle,
+                                fdb_log_callback log_callback,
+                                void *ctx_data)
+{
+    handle->log_callback.callback = log_callback;
+    handle->log_callback.ctx_data = ctx_data;
     return FDB_RESULT_SUCCESS;
 }
 
@@ -751,6 +775,14 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     }
     btreeblk_end(handle->bhandle);
     old_offset = _endian_decode(old_offset);
+
+    if (!old_offset && handle->log_callback.callback) {
+        char msg[1024];
+        sprintf(msg, "Failed to retrieve an offset for key "
+                "'%s' because its offset is returned with zero.", (char *) item->key);
+        handle->log_callback.callback(FDB_RESULT_READ_FAIL, msg,
+                                      handle->log_callback.ctx_data);
+    }
 
     return old_offset;
 }
@@ -918,8 +950,10 @@ void _fdb_check_file_reopen(fdb_handle *handle)
 
         // open new file and new dhandle
         handle->new_file = filemgr_open(handle->file->new_file->filename,
-            handle->fileops, handle->file->config);
-        handle->new_dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
+                                        handle->fileops, handle->file->config,
+                                        &handle->log_callback);
+        handle->new_dhandle = (struct docio_handle *) calloc(1, sizeof(struct docio_handle));
+        handle->new_dhandle->log_callback = &handle->log_callback;
         docio_init(handle->new_dhandle,
                    handle->new_file,
                    handle->config.compress_document_body);
@@ -1346,6 +1380,13 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     struct timeval tv;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        if (handle->log_callback.callback) {
+            char msg[1024];
+            sprintf(msg, "Warning: SET is not allowed on the read-only DB file '%s'.",
+                    handle->file->filename);
+            handle->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
+                                          handle->log_callback.ctx_data);
+        }
         return FDB_RESULT_RONLY_VIOLATION;
     }
 
@@ -1425,6 +1466,13 @@ LIBFDB_API
 fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
 {
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        if (handle->log_callback.callback) {
+            char msg[1024];
+            sprintf(msg, "Warning: DEL is not allowed on the read-only DB file '%s'.",
+                    handle->file->filename);
+            handle->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
+                                          handle->log_callback.ctx_data);
+        }
         return FDB_RESULT_RONLY_VIOLATION;
     }
 
@@ -1546,6 +1594,13 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        if (handle->log_callback.callback) {
+            char msg[1024];
+            sprintf(msg, "Warning: Commit is not allowed on the read-only DB file '%s'.",
+                    handle->file->filename);
+            handle->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
+                                          handle->log_callback.ctx_data);
+        }
         return FDB_RESULT_RONLY_VIOLATION;
     }
 
@@ -1559,7 +1614,7 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
         filemgr_mutex_lock(handle->new_file);
         filemgr_mutex_unlock(handle->file);
 
-        fs = filemgr_sync(handle->new_file);
+        fs = filemgr_sync(handle->new_file, &handle->log_callback);
         filemgr_mutex_unlock(handle->new_file);
     } else {
         // normal case
@@ -1583,7 +1638,7 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
             handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
         }
         handle->cur_header_revnum = _fdb_set_file_header(handle);
-        fs = filemgr_commit(handle->file);
+        fs = filemgr_commit(handle->file, &handle->log_callback);
 
         filemgr_mutex_unlock(handle->file);
     }
@@ -1806,15 +1861,18 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     }
 
     // open new file
-    new_file = filemgr_open((char *)new_filename, handle->fileops, &fconfig);
+    new_file = filemgr_open((char *)new_filename, handle->fileops, &fconfig,
+                            &handle->log_callback);
     assert(new_file);
 
     // prevent update to the new_file
     filemgr_mutex_lock(new_file);
 
     // create new hb-trie and related handles
-    new_bhandle = (struct btreeblk_handle *)malloc(sizeof(struct btreeblk_handle));
-    new_dhandle = (struct docio_handle *)malloc(sizeof(struct docio_handle));
+    new_bhandle = (struct btreeblk_handle *)calloc(1, sizeof(struct btreeblk_handle));
+    new_bhandle->log_callback = &handle->log_callback;
+    new_dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
+    new_dhandle->log_callback = &handle->log_callback;
 
     wal_init(new_file, handle->config.wal_threshold);
     docio_init(new_dhandle, new_file, handle->config.compress_document_body);
@@ -1870,7 +1928,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     btreeblk_end(handle->bhandle);
     assert(handle->file->status == FILE_COMPACT_OLD);
     // Commit the current file handle to record the compaction filename
-    fdb_status fs = filemgr_commit(handle->file);
+    fdb_status fs = filemgr_commit(handle->file, &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
@@ -1891,7 +1949,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     old_file = handle->file;
     // Don't clean up the buffer cache entries for the old file.
     // They will be cleaned up later.
-    filemgr_close(old_file, 0);
+    filemgr_close(old_file, 0, &handle->log_callback);
     handle->file = new_file;
 
     btreeblk_free(handle->bhandle);
@@ -1953,13 +2011,15 @@ fdb_status fdb_close(fdb_handle *handle)
 
 static fdb_status _fdb_close(fdb_handle *handle)
 {
-    fdb_status fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose);
+    fdb_status fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose,
+                                  &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
     docio_free(handle->dhandle);
     if (handle->new_file) {
-        fs = filemgr_close(handle->new_file, handle->config.cleanup_cache_onclose);
+        fs = filemgr_close(handle->new_file, handle->config.cleanup_cache_onclose,
+                           &handle->log_callback);
         if (fs != FDB_RESULT_SUCCESS) {
             return fs;
         }
@@ -1988,7 +2048,7 @@ static fdb_status _fdb_close(fdb_handle *handle)
 #endif
     free(handle->bhandle);
     free(handle->dhandle);
-    return FDB_RESULT_SUCCESS;
+    return fs;
 }
 
 // roughly estimate the space occupied db handle HANDLE

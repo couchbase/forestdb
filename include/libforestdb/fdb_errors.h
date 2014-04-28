@@ -82,6 +82,26 @@ typedef enum {
      */
     FDB_RESULT_ITERATOR_FAIL = -12,
     /**
+     * ForestDB I/O seek failure.
+     */
+    FDB_RESULT_SEEK_FAIL = -13,
+    /**
+     * ForestDB I/O fsync failure.
+     */
+    FDB_RESULT_FSYNC_FAIL = -14,
+    /**
+     * ForestDB I/O checksum error.
+     */
+    FDB_RESULT_CHECKSUM_ERROR = -15,
+    /**
+     * ForestDB I/O file corruption.
+     */
+    FDB_RESULT_FILE_CORRUPTION = -16,
+    /**
+     * ForestDB I/O compression error.
+     */
+    FDB_RESULT_COMPRESSION_FAIL = -17,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100
