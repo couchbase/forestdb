@@ -190,6 +190,8 @@ void _filemgr_read_header(struct filemgr *file)
         if (remain) {
             file->pos -= remain;
             file->last_commit = file->pos;
+            DBG("Crash Detected: %llu non-block aligned bytes discarded\n",
+                remain);
         }
 
         do {
@@ -237,7 +239,7 @@ void _filemgr_read_header(struct filemgr *file)
                                 BLK_DBHEADER_SIZE);
                     }
                 } else {
-                    DBG("Crash Detected: Wrong Magic %zu != %zu\n", magic,
+                    DBG("Crash Detected: Wrong Magic %llu != %llu\n", magic,
                             FILEMGR_MAGIC);
                 }
             } else {

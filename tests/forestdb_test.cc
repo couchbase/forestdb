@@ -1162,6 +1162,10 @@ void crash_recovery_test()
     r = system(
        "dd if=/dev/zero bs=4096 of=./dummy2 oseek=3 count=2 >> errorlog.txt");
 
+    // Write 1024 bytes of non-block aligned garbage to end of file
+    r = system(
+       "dd if=/dev/zero bs=1024 of=./dummy2 oseek=20 count=1 >> errorlog.txt");
+
     // reopen the same file
     fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
     status = fdb_set_log_callback(db, logCallbackFunc,
