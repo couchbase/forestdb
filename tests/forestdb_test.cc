@@ -138,6 +138,8 @@ void basic_test()
 
     // reopen db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "basic_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -177,6 +179,8 @@ void basic_test()
 
     // reopen
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "basic_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // update document #0 and #1
     for (i=0;i<2;++i){
@@ -314,6 +318,7 @@ void wal_commit_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "wal_commit_test");
 
     // insert half documents
     for (i=0;i<n/2;++i){
@@ -343,6 +348,7 @@ void wal_commit_test()
 
     // reopen
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "wal_commit_test");
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -403,6 +409,7 @@ void multi_version_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "multi_version_test");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -419,6 +426,7 @@ void multi_version_test()
 
     // open same db file using a new handle
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db_new, logCallbackFunc, (void *) "multi_version_test");
 
     // update documents using the old handle
     for (i=0;i<n;++i){
@@ -463,6 +471,7 @@ void multi_version_test()
     // close and re-open the new handle
     fdb_close(db_new);
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db_new, logCallbackFunc, (void *) "multi_version_test");
 
     // retrieve documents using the new handle
     for (i=0;i<n;++i){
@@ -520,7 +529,11 @@ void compact_wo_reopen_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_wo_reopen_test");
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db_new, logCallbackFunc,
+                                  (void *) "compact_wo_reopen_test");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -604,6 +617,8 @@ void compact_with_reopen_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_with_reopen_test");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -631,6 +646,8 @@ void compact_with_reopen_test()
 
     r = system(SHELL_MOVE " dummy2 dummy1 > errorlog.txt");
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_with_reopen_test");
 
     // retrieve documents using the other handle without close/re-open
     for (i=0;i<n;++i){
@@ -692,7 +709,11 @@ void auto_recover_compact_ok_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "auto_recover_compact_ok_test");
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db_new, logCallbackFunc,
+                                  (void *) "auto_recover_compact_ok_test");
 
     // insert first two documents
     for (i=0;i<2;++i){
@@ -739,6 +760,8 @@ void auto_recover_compact_ok_test()
     // now open the old saved compacted file, it should automatically recover
     // and use the new file since compaction was done successfully
     fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db_new, logCallbackFunc,
+                                  (void *) "auto_recover_compact_ok_test");
 
     // retrieve documents using the old handle and expect all 3 docs
     for (i=0;i<n;++i){
@@ -800,6 +823,8 @@ void db_drop_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "db_drop_test");
 
     // insert first two documents
     for (i=0;i<2;++i){
@@ -820,6 +845,8 @@ void db_drop_test()
 
     // Open the empty db with the same name.
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "db_drop_test");
 
     // now insert a new doc.
     sprintf(keybuf, "key%d", 0);
@@ -891,6 +918,8 @@ void *_worker_thread(void *voidargs)
     filename_count = *args->filename_count;
     sprintf(temp, FILENAME"%d", filename_count);
     fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "worker_thread");
 
     gettimeofday(&ts_begin, NULL);
 
@@ -1000,6 +1029,8 @@ void multi_thread_test(
     // open db
     sprintf(temp, FILENAME"%d", filename_count);
     fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "multi_thread_test");
 
     gettimeofday(&ts_begin, NULL);
 
@@ -1086,6 +1117,8 @@ void crash_recovery_test()
 
     // reopen db
     fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "crash_recovery_test");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -1112,6 +1145,8 @@ void crash_recovery_test()
 
     // reopen the same file
     fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "crash_recovery_test");
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -1178,6 +1213,8 @@ void incomplete_block_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "incomplete_block_test");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -1244,6 +1281,8 @@ void iterator_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "iterator_test");
 
     // insert documents of even number
     for (i=0;i<n;i+=2){
@@ -1468,6 +1507,8 @@ void sequence_iterator_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "sequence_iterator_test");
 
     // insert documents of even number
     for (i=0;i<n;i+=2){
@@ -1702,6 +1743,8 @@ void custom_compare_primitive_test()
     // open db with custom compare function for double key type
     fdb_open_cmp_fixed(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
                        "./fdb_test_config.json", _cmp_double);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "custom_compare_primitive_test");
 
     for (i=0;i<n;++i){
         key_double = 10000/(i*11.0);
@@ -1832,6 +1875,8 @@ void custom_compare_variable_test()
     // open db with custom compare function for variable length key type
     fdb_open_cmp_variable(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
                        "./fdb_test_config.json", _cmp_variable);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "custom_compare_variable_test");
 
     for (i=0;i<n;++i){
         for (j=0;j<keylen;++j){
@@ -1939,6 +1984,8 @@ void doc_compression_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "doc_compression_test");
 
     // set dummy str
     memset(temp, 'a', dummy_len);
@@ -1968,6 +2015,8 @@ void doc_compression_test()
 
     // reopen
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "doc_compression_test");
 
     // update dummy str
     dummy_len = 64;
@@ -2066,6 +2115,8 @@ void read_doc_by_offset_test() {
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "read_doc_by_offset_test");
 
     // insert documents
     for (i=0;i<n;++i){
@@ -2167,6 +2218,8 @@ void purge_logically_deleted_doc_test()
 
     // open db
     fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "purge_logically_deleted_doc_test");
 
     // insert documents
     for (i=0;i<n;++i){

@@ -776,14 +776,6 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     btreeblk_end(handle->bhandle);
     old_offset = _endian_decode(old_offset);
 
-    if (!old_offset && handle->log_callback.callback) {
-        char msg[1024];
-        sprintf(msg, "Failed to retrieve an offset for key "
-                "'%s' because its offset is returned with zero.", (char *) item->key);
-        handle->log_callback.callback(FDB_RESULT_READ_FAIL, msg,
-                                      handle->log_callback.ctx_data);
-    }
-
     return old_offset;
 }
 
