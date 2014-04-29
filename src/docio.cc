@@ -211,9 +211,6 @@ INLINE uint8_t _docio_length_checksum(struct docio_length length)
         & 0xff);
 }
 
-#define DOCIO_NORMAL (0x00)
-#define DOCIO_COMPACT (0x01)
-#define DOCIO_COMPRESSED (0x02)
 INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
 {
     int ret;
@@ -330,15 +327,23 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     return ret_offset;
 }
 
-bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object *doc)
+bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object *doc,
+                               uint8_t deleted)
 {
     doc->length.flag = DOCIO_COMPACT;
+    if (deleted) {
+        doc->length.flag |= DOCIO_DELETED;
+    }
     return _docio_append_doc(handle, doc);
 }
 
-bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
+bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
+                       uint8_t deleted)
 {
     doc->length.flag = DOCIO_NORMAL;
+    if (deleted) {
+        doc->length.flag |= DOCIO_DELETED;
+    }
     return _docio_append_doc(handle, doc);
 }
 
@@ -882,6 +887,11 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         return offset;
     }
 #endif
+
+    uint8_t free_meta = meta_alloc && !doc->length.metalen;
+    uint8_t free_body = body_alloc && !doc->length.bodylen;
+    free_docio_object(doc, 0, free_meta, free_body);
+
     return _offset;
 }
 

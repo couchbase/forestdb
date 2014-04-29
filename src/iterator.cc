@@ -433,7 +433,7 @@ start:
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
-        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+        if (_doc.length.flag & DOCIO_DELETED && (iterator->opt & FDB_ITR_NO_DELETES)) {
             free(_doc.meta);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -445,7 +445,7 @@ start:
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
-        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+        if (_doc.length.flag & DOCIO_DELETED && (iterator->opt & FDB_ITR_NO_DELETES)) {
             free(_doc.meta);
             free(_doc.body);
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -464,7 +464,7 @@ start:
     (*doc)->body = _doc.body;
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;
-    (*doc)->deleted = (_doc.length.bodylen == 0) ? 1 : 0;
+    (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
 
     return FDB_RESULT_SUCCESS;
 }
@@ -540,7 +540,7 @@ start_seq:
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
-        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+        if (_doc.length.flag & DOCIO_DELETED && (iterator->opt & FDB_ITR_NO_DELETES)) {
             free(_doc.key);
             free(_doc.meta);
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -553,7 +553,7 @@ start_seq:
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
-        if (_doc.length.bodylen == 0 && (iterator->opt & FDB_ITR_NO_DELETES)) {
+        if (_doc.length.flag & DOCIO_DELETED && (iterator->opt & FDB_ITR_NO_DELETES)) {
             free(_doc.key);
             free(_doc.meta);
             free(_doc.body);
@@ -623,7 +623,7 @@ start_seq:
     (*doc)->body = _doc.body;
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;
-    (*doc)->deleted = (_doc.length.bodylen == 0) ? 1 : 0;
+    (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
 
     return FDB_RESULT_SUCCESS;
 }

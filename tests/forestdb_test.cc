@@ -170,7 +170,7 @@ void basic_test()
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
     status = fdb_get_metaonly(db, rdoc, &offset);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    TEST_CHK(rdoc->deleted == 1);
+    TEST_CHK(rdoc->deleted == true);
     TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
     fdb_doc_free(rdoc);
 
@@ -254,6 +254,22 @@ void basic_test()
         // free result document
         fdb_doc_free(rdoc);
     }
+
+    // update document #5 with an empty doc body.
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta, doc[5]->metalen, NULL, 0);
+    status = fdb_set(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // Check document #5 with respect to metadata and doc body.
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen) == 0);
+    TEST_CHK(rdoc->body == NULL);
+    TEST_CHK(rdoc->bodylen == 0);
+    fdb_doc_free(rdoc);
 
     // Read-Only mode test: Open succeeds if file exists, but disallow writes
     status = fdb_open(&db_rdonly, "./dummy2",
@@ -547,6 +563,7 @@ void compact_wo_reopen_test()
 
     // remove doc
     fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    rdoc->deleted = true;
     fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
@@ -632,6 +649,7 @@ void compact_with_reopen_test()
 
     // remove doc
     fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    rdoc->deleted = true;
     fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
@@ -727,6 +745,7 @@ void auto_recover_compact_ok_test()
 
     // remove second doc
     fdb_doc_create(&rdoc, doc[1]->key, doc[1]->keylen, doc[1]->meta, doc[1]->metalen, NULL, 0);
+    rdoc->deleted = true;
     fdb_set(db, rdoc);
     fdb_doc_free(rdoc);
 
@@ -1418,7 +1437,7 @@ void iterator_test()
         if (i < 8) {
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         } else {
-            TEST_CHK(rdoc->deleted == 1);
+            TEST_CHK(rdoc->deleted == true);
         }
 
         fdb_doc_free(rdoc);
@@ -1458,7 +1477,7 @@ void iterator_test()
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(rdoc->deleted == 0);
+        TEST_CHK(rdoc->deleted == false);
 
         fdb_doc_free(rdoc);
         i++;
@@ -1625,7 +1644,7 @@ void sequence_iterator_test()
             TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
             TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         } else {
-            TEST_CHK(rdoc->deleted == 1);
+            TEST_CHK(rdoc->deleted == true);
         }
 
         fdb_doc_free(rdoc);
@@ -2315,12 +2334,12 @@ void read_doc_by_offset_test() {
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
     status = fdb_get_metaonly(db, rdoc, &offset);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    TEST_CHK(rdoc->deleted == 0);
+    TEST_CHK(rdoc->deleted == false);
     TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
     // Fetch #5 doc using its offset.
     status = fdb_get_byoffset(db, rdoc, offset);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    TEST_CHK(rdoc->deleted == 0);
+    TEST_CHK(rdoc->deleted == false);
     TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
     TEST_CHK(!memcmp(rdoc->body, doc[5]->body, rdoc->bodylen));
     fdb_doc_free(rdoc);
@@ -2331,12 +2350,12 @@ void read_doc_by_offset_test() {
     fdb_doc_create(&rdoc, doc[50]->key, doc[50]->keylen, NULL, 0, NULL, 0);
     status = fdb_get_metaonly(db, rdoc, &offset);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    TEST_CHK(rdoc->deleted == 1);
+    TEST_CHK(rdoc->deleted == true);
     TEST_CHK(!memcmp(rdoc->meta, doc[50]->meta, rdoc->metalen));
     // Fetch #50 doc using its offset.
     status = fdb_get_byoffset(db, rdoc, offset);
     TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
-    TEST_CHK(rdoc->deleted == 1);
+    TEST_CHK(rdoc->deleted == true);
     fdb_doc_free(rdoc);
 
     // free all documents

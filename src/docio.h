@@ -25,6 +25,11 @@
 extern "C" {
 #endif
 
+#define DOCIO_NORMAL (0x00)
+#define DOCIO_COMPACT (0x01)
+#define DOCIO_COMPRESSED (0x02)
+#define DOCIO_DELETED (0x04)
+
 typedef uint16_t keylen_t;
 typedef uint32_t timestamp_t;
 
@@ -79,9 +84,11 @@ bid_t docio_append_doc_raw(struct docio_handle *handle,
                            uint64_t size,
                            void *buf);
 bid_t docio_append_doc_compact(struct docio_handle *handle,
-                               struct docio_object *doc);
+                               struct docio_object *doc,
+                               uint8_t deleted);
 bid_t docio_append_doc(struct docio_handle *handle,
-                       struct docio_object *doc);
+                       struct docio_object *doc,
+                       uint8_t deleted);
 
 struct docio_length docio_read_doc_length(struct docio_handle *handle,
                                           uint64_t offset);

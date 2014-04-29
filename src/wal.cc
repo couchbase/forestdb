@@ -151,18 +151,18 @@ static wal_result _wal_insert(struct filemgr *file,
             #endif
 
             if (item->action == WAL_ACT_INSERT) {
-                if (!doc->bodylen) {
+                if (doc->deleted) {
                     ++file->wal->num_deletes;
                 }
             } else {
-                if (doc->bodylen) {
+                if (!doc->deleted) {
                     --file->wal->num_deletes;
                 }
             }
 
             item->doc_size = doc->size_ondisk;
             item->offset = offset;
-            item->action = doc->bodylen > 0 ? WAL_ACT_INSERT : WAL_ACT_LOGICAL_REMOVE;
+            item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
 
             // move to the end of list
             list_remove(&file->wal->list, &item->list_elem);
@@ -182,7 +182,7 @@ static wal_result _wal_insert(struct filemgr *file,
     #endif
 
         SEQTREE( item->seqnum = query.seqnum );
-        item->action = doc->bodylen > 0 ? WAL_ACT_INSERT : WAL_ACT_LOGICAL_REMOVE;
+        item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
         item->doc_size = doc->size_ondisk;
 
@@ -191,7 +191,7 @@ static wal_result _wal_insert(struct filemgr *file,
 
         list_push_back(&file->wal->list, &item->list_elem);
         ++file->wal->size;
-        if (!doc->bodylen) {
+        if (doc->deleted) {
             ++file->wal->num_deletes;
         }
     }

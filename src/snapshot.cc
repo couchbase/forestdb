@@ -117,8 +117,7 @@ wal_result snap_insert(struct snap_handle *shandle, fdb_doc *doc,
         item->keylen = doc->keylen;
         item->key = doc->key;
         item->seqnum = doc->seqnum;
-        item->action = (doc->bodylen > 0) ? WAL_ACT_INSERT :
-                                            WAL_ACT_LOGICAL_REMOVE;
+        item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
         avl_insert(shandle->key_tree, &item->avl, _snp_wal_cmp);
         avl_insert(shandle->seq_tree, &item->avl_seq, _snp_seqnum_cmp);
@@ -134,8 +133,7 @@ wal_result snap_insert(struct snap_handle *shandle, fdb_doc *doc,
             avl_remove(shandle->seq_tree, &item->avl_seq);
             avl_insert(shandle->seq_tree, &item->avl_seq, _snp_seqnum_cmp);
         }
-        item->action = (doc->bodylen > 0) ? WAL_ACT_INSERT :
-                                            WAL_ACT_LOGICAL_REMOVE;
+        item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
     }
 
@@ -163,9 +161,9 @@ wal_result snap_find(struct snap_handle *shandle, fdb_doc *doc,
             item = _get_entry(node, struct snap_wal_entry, avl);
             *offset = item->offset;
             if (item->action == WAL_ACT_INSERT) {
-                doc->deleted = true;
-            } else {
                 doc->deleted = false;
+            } else {
+                doc->deleted = true;
             }
             return WAL_RESULT_SUCCESS;
         }
@@ -183,9 +181,9 @@ wal_result snap_find(struct snap_handle *shandle, fdb_doc *doc,
             item = _get_entry(node, struct snap_wal_entry, avl_seq);
             *offset = item->offset;
             if (item->action == WAL_ACT_INSERT) {
-                doc->deleted = true;
-            } else {
                 doc->deleted = false;
+            } else {
+                doc->deleted = true;
             }
             return WAL_RESULT_SUCCESS;
         }

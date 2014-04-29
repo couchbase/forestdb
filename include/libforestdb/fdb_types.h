@@ -99,7 +99,7 @@ typedef struct fdb_doc_struct {
     /**
      * Is a doc deleted?
      */
-    uint8_t deleted;
+    bool deleted;
 } fdb_doc;
 
 /**

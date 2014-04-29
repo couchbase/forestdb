@@ -244,8 +244,8 @@ fdb_status fdb_get_byoffset(fdb_handle *handle,
  * Update the metadata and doc body for a given key.
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, key, keylen, meta, metalen, body, bodylen) before using
- * this API. Setting bodylen to 0 and body to NULL is equivalent to calling
- * fdb_del api described below
+ * this API. Setting "deleted" flag in FDB_DOC instance to true is equivalent to
+ * calling fdb_del api described below.
  *
  * @param handle Pointer to ForestDB handle.
  * @param doc Pointer to ForestDB doc instance that is used to update a key.

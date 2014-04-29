@@ -207,6 +207,7 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
                     wal_doc.bodylen = doc.length.bodylen;
                     wal_doc.key = doc.key;
                     wal_doc.seqnum = doc.seqnum;
+                    wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
 
                     if (!handle->shandle) {
                         wal_doc.metalen = doc.length.metalen;
@@ -332,6 +333,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
 #endif
                     wal_doc.meta = doc.meta;
                     wal_doc.body = doc.body;
+                    wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
 
                     fdb_set(handle, &wal_doc);
 
@@ -731,7 +733,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    *doc = (fdb_doc*)malloc(sizeof(fdb_doc));
+    *doc = (fdb_doc*)calloc(1, sizeof(fdb_doc));
     if (*doc == NULL) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -779,7 +781,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
     }
 
     (*doc)->size_ondisk = 0;
-    (*doc)->deleted = 0;
+    (*doc)->deleted = false;
 
     return FDB_RESULT_SUCCESS;
 }
@@ -931,7 +933,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             // No additional block access.
             len = docio_read_doc_length(handle->dhandle, old_offset);
 
-            if (len.bodylen) {
+            if (!(len.flag & DOCIO_DELETED)) {
                 if (item->action == WAL_ACT_LOGICAL_REMOVE) {
                     --handle->ndocs;
                 }
@@ -1127,10 +1129,10 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = _doc.length.bodylen == 0;
+        doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
 
-        if (_doc.length.keylen != doc->keylen || _doc.length.bodylen == 0) {
+        if (_doc.length.keylen != doc->keylen || _doc.length.flag & DOCIO_DELETED) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -1210,7 +1212,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *doc_offs
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = _doc.length.bodylen == 0;
+        doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         *doc_offset = offset;
 
@@ -1290,10 +1292,10 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = _doc.length.bodylen == 0;
+        doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
 
-        if (_doc.length.bodylen == 0) {
+        if (_doc.length.flag & DOCIO_DELETED) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -1364,7 +1366,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *do
         doc->key = _doc.key;
         doc->meta = _doc.meta;
         doc->body = _doc.body;
-        doc->deleted = _doc.length.bodylen == 0;
+        doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         *doc_offset = offset;
 
@@ -1465,10 +1467,10 @@ fdb_status fdb_get_byoffset(fdb_handle *handle,
     } else {
         doc->body = _doc.body;
     }
-    doc->deleted = _doc.length.bodylen == 0;
+    doc->deleted = _doc.length.flag & DOCIO_DELETED;
     doc->size_ondisk = _fdb_get_docsize(_doc.length);
 
-    if (_doc.length.bodylen == 0) {
+    if (_doc.length.flag & DOCIO_DELETED) {
         return FDB_RESULT_KEY_NOT_FOUND;
     }
 
@@ -1516,11 +1518,11 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
 
     _doc.length.keylen = doc->keylen;
     _doc.length.metalen = doc->metalen;
-    _doc.length.bodylen = doc->bodylen;
+    _doc.length.bodylen = doc->deleted ? 0 : doc->bodylen;
     _doc.key = doc->key;
 
     _doc.meta = doc->meta;
-    _doc.body = doc->body;
+    _doc.body = doc->deleted ? NULL : doc->body;
 
     if (handle->new_file == NULL) {
         file = handle->file;
@@ -1539,7 +1541,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         _doc.seqnum = SEQNUM_NOT_USED;
     }
 
-    if (_doc.length.bodylen == 0 || !_doc.body) {
+    if (doc->deleted) {
         // set timestamp
         gettimeofday(&tv, NULL);
         _doc.timestamp = (timestamp_t)tv.tv_sec;
@@ -1548,9 +1550,9 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     }
 
     if (dhandle == handle->new_dhandle) {
-        offset = docio_append_doc_compact(dhandle, &_doc);
+        offset = docio_append_doc_compact(dhandle, &_doc, doc->deleted);
     } else {
-        offset = docio_append_doc(dhandle, &_doc);
+        offset = docio_append_doc(dhandle, &_doc, doc->deleted);
     }
     if (offset == BLK_NOT_FOUND) {
         return FDB_RESULT_WRITE_FAIL;
@@ -1593,10 +1595,9 @@ fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    doc->deleted = true;
     fdb_doc _doc;
     _doc = *doc;
-    _doc.body = NULL;
-    _doc.bodylen = 0;
     return fdb_set(handle, &_doc);
 }
 
@@ -1866,17 +1867,18 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                 doc.meta = NULL;
                 doc.body = NULL;
                 docio_read_doc(handle->dhandle, offset, &doc);
+                uint8_t deleted = doc.length.flag & DOCIO_DELETED;
 
                 // compare timestamp
-                if (doc.length.bodylen > 0 ||
+                if (!deleted ||
                     (cur_timestamp < doc.timestamp + handle->config.purging_interval &&
-                     doc.length.bodylen == 0)) {
+                     deleted)) {
                     // re-write the document to new file when
                     // 1. the document is not deleted
                     // 2. the document is logically deleted but
                     //    its timestamp isn't overdue
                     filemgr_mutex_lock(new_file);
-                    new_offset = docio_append_doc(new_dhandle, &doc);
+                    new_offset = docio_append_doc(new_dhandle, &doc, deleted);
 
                     wal_doc.keylen = doc.length.keylen;
                     wal_doc.metalen = doc.length.metalen;
@@ -1888,6 +1890,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                     wal_doc.meta = doc.meta;
                     wal_doc.body = doc.body;
                     wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
+                    wal_doc.deleted = deleted;
 
                     wal_insert_by_compactor(new_file, &wal_doc, new_offset);
 
