@@ -20,6 +20,16 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#ifndef _MSC_VER
+#include <stdbool.h>
+#else
+#ifndef __cplusplus
+#pragma once
+#define false (0)
+#define true (1)
+#define bool int
+#endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
