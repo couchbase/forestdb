@@ -102,6 +102,10 @@ typedef enum {
      */
     FDB_RESULT_COMPRESSION_FAIL = -17,
     /**
+     * No database snapshot was found.
+     */
+    FDB_RESULT_NO_SNAPSHOT = -18,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

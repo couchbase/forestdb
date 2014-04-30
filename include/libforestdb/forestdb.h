@@ -280,6 +280,22 @@ LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt);
 
 /**
+ * Create an snapshot of a database file in ForestDB.
+ *
+ * @param handle_in ForestDB handle pointer from which snapshot is to be made
+ * @param handle_out Pointer to snapshot handle, close with fdb_close()
+ * @param snapshot_seqnum The sequence number or snapshot marker of snapshot.
+ *        Note that this seq number should correspond to one of the commits
+ *        that have been persisted in the same database instance.
+ * @return FDB_RESULT_SUCCESS on success.
+ *         FDB_RESULT_INVALID_ARGS if any input param is NULL, or,
+ *                                 if sequence number tree is not enabled
+ *         Any other error from fdb_open may be returned
+ */
+LIBFDB_API
+fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **handle_out,
+                             fdb_seqnum_t snapshot_seqnum);
+/**
  * Create an iterator to traverse a ForestDB snapshot by key range
  *
  * @param handle Pointer to ForestDB handle.

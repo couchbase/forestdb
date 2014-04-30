@@ -1960,6 +1960,167 @@ void custom_compare_variable_test()
     TEST_RESULT("custom compare function for variable length key test");
 }
 
+void snapshot_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    int count;
+    uint64_t offset;
+    fdb_handle *db;
+    fdb_handle *snap_db;
+    fdb_seqnum_t snap_seq;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024, 0, 0);
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // open db
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
+             "./fdb_test_config.json");
+
+   // ------- Setup test ----------------------------------
+   // insert documents of 0-4
+    for (i=0; i<n/4; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 4 - 8
+    for (; i < n/2 - 1; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // We want to create:
+    // |WALFlushHDR|Key-Value1|HDR|Key-Value2|SnapshotHDR|Key-Value1|HDR|
+    // Insert doc 9 with a different value to test duplicate elimination..
+    sprintf(keybuf, "key%d", i);
+    sprintf(metabuf, "meta%d", i);
+    sprintf(bodybuf, "Body%d", i);
+    fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+    fdb_set(db, doc[i]);
+
+    // commit again without a WAL flush (last doc goes into the AVL tree)
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // Insert doc 9 now again with expected value..
+    *(char *)doc[i]->body = 'b';
+    fdb_set(db, doc[i]);
+    // commit again without a WAL flush (these documents go into the AVL trees)
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // TAKE SNAPSHOT: pick up sequence number of a commit without a WAL flush
+    snap_seq = doc[i]->seqnum;
+
+    // Now re-insert doc 9 as another duplicate (only newwer sequence number)
+    fdb_set(db, doc[i]);
+    // commit again without a WAL flush (last doc goes into the AVL tree)
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // insert documents from 10-14 into HB-trie
+    for (++i; i < (n/2 + n/4); i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "snapshot_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // ---------- Snapshot tests begin -----------------------
+    // Attempt to take snapshot with out-of-range marker..
+    status = fdb_snapshot_open(db, &snap_db, 999999);
+    TEST_CHK(status == FDB_RESULT_NO_SNAPSHOT);
+
+    // Init Snapshot of open file with saved document seqnum as marker
+    status = fdb_snapshot_open(db, &snap_db, snap_seq);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert documents from 15 - 19 on file into the WAL
+    for (; i < n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without a WAL flush (This WAL must not affect snapshot)
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // create an iterator on the snapshot for full range
+    fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count=0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i ++;
+        count++;
+    }
+
+    TEST_CHK(count==n/2); // Only unique items from the first half
+
+    fdb_iterator_close(iterator);
+
+    // close db file
+    fdb_close(db);
+
+    // close snapshot file
+    fdb_close(snap_db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("snapshot test");
+}
+
 
 void doc_compression_test()
 {
@@ -2336,6 +2497,7 @@ int main(){
     sequence_iterator_test();
     custom_compare_primitive_test();
     custom_compare_variable_test();
+    snapshot_test();
     db_drop_test();
     doc_compression_test();
     read_doc_by_offset_test();

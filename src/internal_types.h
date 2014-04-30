@@ -34,6 +34,7 @@ struct filemgr;
 struct btreeblk_handle;
 struct docio_handle;
 struct btree_blk_ops;
+struct snap_handle;
 
 /**
  * Flag to enable / disable a sequence btree.
@@ -228,6 +229,10 @@ struct _fdb_handle {
      */
     uint64_t ndocs;
 #ifdef __FDB_SEQTREE
+    /**
+     * Snapshot Information.
+     */
+    struct snap_handle *shandle;
     /**
      * Database's current sequence number.
      */

@@ -50,6 +50,7 @@ add_library(forestdb SHARED
             src/hash.cc
             src/wal.cc
             ${GETTIMEOFDAY_VS}
+            src/snapshot.cc
             utils/memleak.cc
             utils/crc32.cc
             utils/debug.cc
@@ -87,6 +88,7 @@ add_executable(bcache_test
                src/hash_functions.cc
                src/list.cc
                src/wal.cc
+               src/snapshot.cc
                utils/crc32.cc
                utils/debug.cc
                utils/memleak.cc)
@@ -105,6 +107,7 @@ add_executable(filemgr_test
                src/hash_functions.cc
                src/list.cc
                src/wal.cc
+               src/snapshot.cc
                utils/crc32.cc
                utils/debug.cc
                utils/memleak.cc)
@@ -125,6 +128,7 @@ add_executable(btreeblock_test
                src/hash_functions.cc
                src/list.cc
                src/wal.cc
+               src/snapshot.cc
                utils/crc32.cc
                utils/debug.cc
                utils/memleak.cc)
@@ -143,6 +147,7 @@ add_executable(docio_test
                src/hash_functions.cc
                src/list.cc
                src/wal.cc
+               src/snapshot.cc
                utils/crc32.cc
                utils/debug.cc
                utils/memleak.cc)
@@ -166,6 +171,7 @@ add_executable(hbtrie_test
                src/hbtrie.cc
                src/list.cc
                src/wal.cc
+               src/snapshot.cc
                utils/crc32.cc
                utils/debug.cc
                utils/memleak.cc)
