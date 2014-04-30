@@ -102,9 +102,13 @@ typedef enum {
      */
     FDB_RESULT_COMPRESSION_FAIL = -17,
     /**
-     * No database snapshot was found.
+     * A database instance with a given sequence number was not found.
      */
-    FDB_RESULT_NO_SNAPSHOT = -18,
+    FDB_RESULT_NO_DB_INSTANCE = -18,
+    /**
+     * Requested FDB operation failed as rollback is currently being executed.
+     */
+    FDB_RESULT_FAIL_BY_ROLLBACK = -19,
     /**
      * General database opertion fails.
      */

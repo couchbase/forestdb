@@ -237,6 +237,10 @@ struct _fdb_handle {
      * Database's current sequence number.
      */
     fdb_seqnum_t seqnum;
+    /**
+     * Database's max sequence number for snapshot or rollback
+     */
+    fdb_seqnum_t max_seqnum;
 #endif
 };
 

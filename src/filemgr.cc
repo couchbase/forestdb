@@ -319,13 +319,23 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
                 }
             } else { // Reopening the closed file is succeed.
                 file->status = FILE_NORMAL;
-                file->sync = (config->options & FILEMGR_ASYNC)? 0 : 1;
+                if (config->options & FILEMGR_SYNC) {
+                    file->fflags |= FILEMGR_SYNC;
+                } else {
+                    file->fflags &= ~FILEMGR_SYNC;
+                }
                 spin_unlock(&file->lock);
                 spin_unlock(&filemgr_openlock);
                 return file;
             }
         } else { // file is already opened.
-            file->sync = (config->options & FILEMGR_ASYNC)? 0 : 1;
+
+            if (config->options & FILEMGR_SYNC) {
+                file->fflags |= FILEMGR_SYNC;
+            } else {
+                file->fflags &= ~FILEMGR_SYNC;
+            }
+
             spin_unlock(&file->lock);
             spin_unlock(&filemgr_openlock);
             return file;
@@ -342,14 +352,14 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         spin_unlock(&filemgr_openlock);
         return NULL;
     }
-    file = (struct filemgr*)malloc(sizeof(struct filemgr));
+    file = (struct filemgr*)calloc(1, sizeof(struct filemgr));
     file->filename_len = strlen(filename);
     file->filename = (char*)malloc(file->filename_len + 1);
     strcpy(file->filename, filename);
 
     file->ref_count = 1;
 
-    file->wal = (struct wal *)malloc(sizeof(struct wal));
+    file->wal = (struct wal *)calloc(1, sizeof(struct wal));
     file->wal->flag = 0;
 
     file->ops = ops;
@@ -388,7 +398,11 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     hash_insert(&hash, &file->e);
     spin_unlock(&filemgr_openlock);
 
-    file->sync = (config->options & FILEMGR_ASYNC)?(0):(1);
+    if (config->options & FILEMGR_SYNC) {
+        file->fflags |= FILEMGR_SYNC;
+    } else {
+        file->fflags &= ~FILEMGR_SYNC;
+    }
     return file;
 }
 
@@ -932,7 +946,7 @@ fdb_status filemgr_commit(struct filemgr *file,
 
     spin_unlock(&file->lock);
 
-    if (file->sync) {
+    if (file->fflags & FILEMGR_SYNC) {
         result = file->ops->fsync(file->fd);
         if (result != FDB_RESULT_SUCCESS) {
             char msg[1024];
@@ -1019,6 +1033,22 @@ uint64_t filemgr_get_pos(struct filemgr *file)
     uint64_t pos = file->pos;
     spin_unlock(&file->lock);
     return pos;
+}
+
+uint8_t filemgr_is_rollback_on(struct filemgr *file)
+{
+    return (file->fflags & FILEMGR_ROLLBACK_IN_PROG);
+}
+
+void filemgr_set_rollback(struct filemgr *file, uint8_t new_val)
+{
+    spin_lock(&file->lock);
+    if (new_val) {
+        file->fflags |= FILEMGR_ROLLBACK_IN_PROG;
+    } else {
+        file->fflags &= ~FILEMGR_ROLLBACK_IN_PROG;
+    }
+    spin_unlock(&file->lock);
 }
 
 void filemgr_mutex_lock(struct filemgr *file)

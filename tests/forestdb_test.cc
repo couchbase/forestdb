@@ -2080,7 +2080,7 @@ void snapshot_test()
     // ---------- Snapshot tests begin -----------------------
     // Attempt to take snapshot with out-of-range marker..
     status = fdb_snapshot_open(db, &snap_db, 999999);
-    TEST_CHK(status == FDB_RESULT_NO_SNAPSHOT);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
 
     // Init Snapshot of open file with saved document seqnum as marker
     status = fdb_snapshot_open(db, &snap_db, snap_seq);
@@ -2140,6 +2140,149 @@ void snapshot_test()
     TEST_RESULT("snapshot test");
 }
 
+void rollback_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    int count;
+    uint64_t offset;
+    fdb_handle *db;
+    fdb_seqnum_t rollback_seq;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+
+    generate_config_json_file(0, 1024, 0, 0);
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // open db
+    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
+             "./fdb_test_config.json");
+
+   // ------- Setup test ----------------------------------
+   // insert documents of 0-4
+    for (i=0; i<n/4; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 4 - 9
+    for (; i < n/2; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit again without a WAL flush
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // ROLLBACK POINT: pick up sequence number of a commit without a WAL flush
+    rollback_seq = doc[i-1]->seqnum;
+
+    // insert documents from 10-14 into HB-trie
+    for (; i < (n/2 + n/4); i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 15 - 19 on file into the WAL
+    for (; i < n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without a WAL flush
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "rollback_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // ---------- Rollback tests begin -----------------------
+    // We have DB file with 5 HB-trie docs, 5 unflushed WAL docs occuring twice
+    // Attempt to rollback to out-of-range marker..
+    status = fdb_rollback(&db, 999999);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+
+    // Rollback to saved marker from above
+    status = fdb_rollback(&db, rollback_seq);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Modify an item and update into the rollbacked file..
+    i = n/2;
+    *(char *)doc[i]->body = 'B';
+    fdb_set(db, doc[i]);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // create an iterator on the rollback for full range
+    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count=0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i ++;
+        count++;
+    }
+
+    TEST_CHK(count==n/2 + 1); // Items from first half and newly set item
+
+    fdb_iterator_close(iterator);
+
+    // close db file
+    fdb_close(db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("rollback test");
+}
 
 void doc_compression_test()
 {
@@ -2517,6 +2660,7 @@ int main(){
     custom_compare_primitive_test();
     custom_compare_variable_test();
     snapshot_test();
+    rollback_test();
     db_drop_test();
     doc_compression_test();
     read_doc_by_offset_test();

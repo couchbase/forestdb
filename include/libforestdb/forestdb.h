@@ -295,6 +295,20 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt);
 LIBFDB_API
 fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **handle_out,
                              fdb_seqnum_t snapshot_seqnum);
+
+/**
+ * Rollback a database to a specified point represented by the sequence number
+ *
+ * @param handle_ptr ForestDB database handle that needs to be rolled back
+ * @param rollback_seqnum sequence number or rollback point marker of snapshot
+ * @return FDB_RESULT_SUCCESS on success.
+ *         FDB_RESULT_INVALID_ARGS if any input param is NULL, or,
+ *                                 if sequence number tree is not enabled
+ *         Any other error from fdb_open may be returned
+ */
+LIBFDB_API
+fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t rollback_seqnum);
+
 /**
  * Create an iterator to traverse a ForestDB snapshot by key range
  *

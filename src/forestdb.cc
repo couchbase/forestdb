@@ -483,7 +483,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     // requested snapshot marker, it means the snapshot is not yet visible
     // even via the current fdb_handle
     if (seqnum > handle_in->seqnum) {
-        return FDB_RESULT_NO_SNAPSHOT;
+        return FDB_RESULT_NO_DB_INSTANCE;
     }
 
     handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
@@ -496,7 +496,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     if (!handle->shandle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
-    handle->shandle->max_seqnum = seqnum;
+    handle->max_seqnum = seqnum;
 
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     fs = _fdb_open(handle, handle_in->file->filename, &config);
@@ -507,6 +507,58 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
         *ptr_handle = NULL;
         free(handle);
     }
+    return fs;
+}
+
+LIBFDB_API
+fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_config config;
+    fdb_handle *handle_in, *handle;
+    fdb_status fs;
+    if (!handle_ptr || !seqnum) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    handle_in = *handle_ptr;
+    config = handle_in->config;
+
+    // if the max sequence number seen by this handle is lower than the
+    // requested snapshot marker, it means the snapshot is not yet visible
+    // even via the current fdb_handle
+    if (seqnum > handle_in->seqnum) {
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    if (!handle) {
+        return FDB_RESULT_ALLOC_FAIL;
+    }
+
+    filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
+    handle->log_callback = handle_in->log_callback;
+    handle->max_seqnum = seqnum;
+
+    fs = _fdb_open(handle, handle_in->file->filename, &config);
+    filemgr_set_rollback(handle_in->file, 0); // allow mutations
+
+    if (fs == FDB_RESULT_SUCCESS) {
+        fs = fdb_commit(handle, FDB_COMMIT_NORMAL);
+        if (fs == FDB_RESULT_SUCCESS) {
+            fdb_close(handle_in);
+            handle->max_seqnum = 0;
+            *handle_ptr = handle;
+        } else {
+            free(handle);
+        }
+    } else {
+        free(handle);
+    }
+
     return fs;
 }
 
@@ -543,8 +595,8 @@ static fdb_status _fdb_open(fdb_handle *handle,
     if (config->flags & FDB_OPEN_FLAG_RDONLY) {
         fconfig.options |= FILEMGR_READONLY;
     }
-    if (config->durability_opt & FDB_DRB_ASYNC) {
-        fconfig.options |= FILEMGR_ASYNC;
+    if (!(config->durability_opt & FDB_DRB_ASYNC)) {
+        fconfig.options |= FILEMGR_SYNC;
     }
     if (config->durability_opt & FDB_DRB_ODIRECT) {
         fconfig.flag |= _ARCH_O_DIRECT;
@@ -567,8 +619,8 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
     hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
     hdr_bid = hdr_bid ? --hdr_bid : 0;
-    if (handle->shandle) { // Given a Snapshot Marker, reverse scan file..
-        while (header_len && seqnum != handle->shandle->max_seqnum) {
+    if (handle->max_seqnum) { // Given Marker, reverse scan file..
+        while (header_len && seqnum != handle->max_seqnum) {
             hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                       header_buf, &header_len,
                                       &handle->log_callback);
@@ -580,8 +632,12 @@ static fdb_status _fdb_open(fdb_handle *handle,
                         &compacted_filename, NULL);
             }
         }
-        if (!header_len) { // Snapshot marker MUST match that of DB commit!
-            return FDB_RESULT_NO_SNAPSHOT;
+        if (!header_len) { // Marker MUST match that of DB commit!
+            return FDB_RESULT_NO_DB_INSTANCE;
+        }
+
+        if (!handle->shandle) { // Rollback mode, destroy file WAL..
+            wal_shutdown(handle->file);
         }
     }
 
@@ -1534,6 +1590,10 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
         filemgr_mutex_lock(file);
     }
 
+    if (filemgr_is_rollback_on(file)) {
+        filemgr_mutex_unlock(file);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         //_doc.seqnum = doc->seqnum;
         _doc.seqnum = doc->seqnum = ++handle->seqnum;
@@ -1720,6 +1780,11 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
     }
 
     filemgr_mutex_lock(handle->file);
+
+    if (filemgr_is_rollback_on(handle->file)) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
 
     if (handle->new_file) {
         // HANDLE->FILE is undergoing compaction ..
@@ -1965,6 +2030,11 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    if (filemgr_is_rollback_on(handle->file)) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
     // set filemgr configuration
     fconfig.blocksize = handle->config.blocksize;
     fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
@@ -1973,8 +2043,8 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     if (handle->config.durability_opt & FDB_DRB_ODIRECT) {
         fconfig.flag |= _ARCH_O_DIRECT;
     }
-    if (handle->config.durability_opt & FDB_DRB_ASYNC) {
-        fconfig.options |= FILEMGR_ASYNC;
+    if (!(handle->config.durability_opt & FDB_DRB_ASYNC)) {
+        fconfig.options |= FILEMGR_SYNC;
     }
 
     // open new file
@@ -2103,6 +2173,17 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
 
     // commit new file
     fdb_commit(handle, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // before shutting down wal of old file check if rollback was set on it..
+    filemgr_mutex_lock(handle->file);
+
+    if (filemgr_is_rollback_on(handle->file)) {
+        filemgr_remove_pending(new_file, old_file);
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
+    filemgr_mutex_unlock(handle->file);
 
     wal_shutdown(old_file);
 

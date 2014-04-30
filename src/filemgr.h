@@ -37,8 +37,9 @@ struct filemgr_config {
     int ncacheblock;
     int flag;
     uint8_t options;
-#define FILEMGR_ASYNC 0x01
+#define FILEMGR_SYNC 0x01
 #define FILEMGR_READONLY 0x02
+#define FILEMGR_ROLLBACK_IN_PROG 0x04
 };
 
 struct filemgr_ops {
@@ -73,7 +74,7 @@ struct fnamedic_item;
 struct filemgr {
     char *filename;
     uint8_t ref_count;
-    uint8_t sync;
+    uint8_t fflags;
     uint16_t filename_len;
     uint32_t blocksize;
     int fd;
@@ -151,6 +152,9 @@ void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_fi
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
 file_status_t filemgr_get_file_status(struct filemgr *file);
 uint64_t filemgr_get_pos(struct filemgr *file);
+
+uint8_t filemgr_is_rollback_on(struct filemgr *file);
+void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
 
 void filemgr_mutex_lock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);
