@@ -911,6 +911,7 @@ struct work_thread_args{
     size_t compact_term;
     int *filename_count;
     spin_t *filename_count_lock;
+    size_t nops;
 };
 
 //#define FILENAME "./hdd/dummy"
@@ -923,6 +924,8 @@ struct work_thread_args{
 
 void *_worker_thread(void *voidargs)
 {
+    TEST_INIT();
+
     struct work_thread_args *args = (struct work_thread_args *)voidargs;
     int i, r, k, c, commit_count, filename_count;
     struct timeval ts_begin, ts_cur, ts_gap;
@@ -1001,6 +1004,7 @@ void *_worker_thread(void *voidargs)
 
     DBG("Thread #%d (%s) %d ops / %d seconds\n",
         args->tid, (args->writer)?("writer"):("reader"), c, (int)args->time_sec);
+    args->nops = c;
 
     fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
@@ -1015,6 +1019,7 @@ void multi_thread_test(
 {
     TEST_INIT();
 
+    size_t nwrites, nreads;
     int i, r, idx_digit, temp_len;
     int n = nwriters + nreaders;;
     thread_t *tid = alca(thread_t, n);
@@ -1025,6 +1030,7 @@ void multi_thread_test(
     fdb_handle *db_new;
     fdb_doc **doc = alca(fdb_doc*, ndocs);
     fdb_doc *rdoc;
+    fdb_info info;
     fdb_status status;
 
     int filename_count = 1;
@@ -1094,7 +1100,7 @@ void multi_thread_test(
         thread_create(&tid[i], _worker_thread, &args[i]);
     }
 
-    fprintf(stderr, "wait for %d seconds..\n", (int)time_sec);
+    printf("wait for %d seconds..\n", (int)time_sec);
 
     // wait for thread termination
     for (i=0;i<n;++i){
@@ -1105,6 +1111,24 @@ void multi_thread_test(
     for (i=0;i<ndocs;++i){
         fdb_doc_free(doc[i]);
     }
+
+    nwrites = nreads = 0;
+    for (i=0;i<n;++i){
+        if (args[i].writer) {
+            nwrites += args[i].nops;
+        } else {
+            nreads += args[i].nops;
+        }
+    }
+    printf("read: %.1f ops/sec\n", (double)nreads/time_sec);
+    printf("write: %.1f ops/sec\n", (double)nwrites/time_sec);
+
+    // check sequence number
+    sprintf(temp, FILENAME"%d", filename_count);
+    fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_get_dbinfo(db, &info);
+    TEST_CHK(info.last_seqnum == ndocs+nwrites);
+    fdb_close(db);
 
     // shutdown
     fdb_shutdown();

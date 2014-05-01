@@ -66,6 +66,7 @@ typedef uint64_t filemgr_header_revnum_t;
 struct filemgr_header{
     filemgr_header_len_t size;
     filemgr_header_revnum_t revnum;
+    fdb_seqnum_t seqnum;
     void *data;
 };
 
@@ -107,12 +108,15 @@ struct filemgr * filemgr_open(char *filename,
 
 uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
+
+fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file);
+void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
+
 char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
-uint64_t filemgr_fetch_prev_header(struct filemgr *file,
-                                   uint64_t last_header_bid,
-                                   void *buf, size_t *len,
+uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
+                                   void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    err_log_callback *log_callback);
 
 fdb_status filemgr_close(struct filemgr *file,

@@ -222,8 +222,13 @@ void _filemgr_read_header(struct filemgr *file)
                             memcpy(file->header.data, buf, len);
                             memcpy(&file->header.revnum, buf + len,
                                    sizeof(filemgr_header_revnum_t));
+                            memcpy(&file->header.seqnum,
+                                    buf + len + sizeof(filemgr_header_revnum_t),
+                                    sizeof(fdb_seqnum_t));
                             file->header.revnum =
                                 _endian_decode(file->header.revnum);
+                            file->header.seqnum =
+                                _endian_decode(file->header.seqnum);
                             file->header.size = len;
 
                             // release temp buffer
@@ -257,6 +262,7 @@ void _filemgr_read_header(struct filemgr *file)
 
     file->header.size = 0;
     file->header.revnum = 0;
+    file->header.seqnum = 0;
     file->header.data = NULL;
 }
 
@@ -438,6 +444,18 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
     return ret;
 }
 
+// 'filemgr_get_seqnum' & 'filemgr_set_seqnum' have to be protected by
+// 'filemgr_mutex_lock' & 'filemgr_mutex_unlock'.
+fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file)
+{
+    return file->header.seqnum;
+}
+
+void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum)
+{
+    file->header.seqnum = seqnum;
+}
+
 char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len)
 {
     spin_lock(&file->lock);
@@ -465,12 +483,14 @@ void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
 }
 
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
-                                   void *buf, size_t *len,
+                                   void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    err_log_callback *log_callback)
 {
     uint8_t *_buf;
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
+    fdb_seqnum_t _seqnum;
+    filemgr_header_revnum_t _revnum;
     int found = 0;
 
     if (!bid || bid == BLK_NOT_FOUND) {
@@ -490,6 +510,12 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
             continue;
         }
         memcpy(buf, _buf, BLK_DBHEADER_SIZE);
+        memcpy(&_revnum, _buf + BLK_DBHEADER_SIZE,
+               sizeof(filemgr_header_revnum_t));
+        memcpy(&_seqnum,
+               _buf + BLK_DBHEADER_SIZE + sizeof(filemgr_header_revnum_t),
+               sizeof(fdb_seqnum_t));
+        *seqnum = _endian_decode(_seqnum);
         *len = BLK_DBHEADER_SIZE;
         found = 1;
         break;
@@ -892,6 +918,7 @@ fdb_status filemgr_commit(struct filemgr *file,
 {
     uint16_t header_len = file->header.size;
     uint16_t _header_len;
+    fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
     filemgr_magic_t magic = FILEMGR_MAGIC;
@@ -907,12 +934,20 @@ fdb_status filemgr_commit(struct filemgr *file,
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
 
+        // <-------------------------- block size --------------------------->
+        // <-  len -><---  8 ---><-  8 ->             <-- 2 --><- 8 -><-  1 ->
+        // [hdr data][hdr revnum][seqnum] ..(empty).. [hdr len][magic][marker]
+
         // header data
         memcpy(buf, file->header.data, header_len);
         // header rev number
         _revnum = _endian_encode(file->header.revnum);
         memcpy((uint8_t *)buf + header_len, &_revnum,
                sizeof(filemgr_header_revnum_t));
+        // file's sequence number
+        _seqnum = _endian_encode(file->header.seqnum);
+        memcpy((uint8_t *)buf + header_len + sizeof(filemgr_header_revnum_t),
+               &_seqnum, sizeof(fdb_seqnum_t));
 
         // header length
         _header_len = _endian_encode(header_len);
