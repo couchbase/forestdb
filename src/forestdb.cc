@@ -191,6 +191,12 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
         snap_init(handle->shandle, handle);
     }
 
+    // Temporarily disable the error logging callback as there are false positive
+    // checksum errors in docio_read_doc.
+    // TODO: Need to adapt docio_read_doc to separate false checksum errors.
+    err_log_callback *log_callback = handle->dhandle->log_callback;
+    handle->dhandle->log_callback = NULL;
+
     for (; offset < hdr_off;
         offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
         if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
@@ -233,6 +239,7 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
         }
     }
     filemgr_mutex_unlock(file);
+    handle->dhandle->log_callback = log_callback;
 }
 
 // restore the documents in NEW_FILENAME (corrupted file during compaction)
@@ -251,7 +258,10 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     memset(&new_db, 0, sizeof(new_db));
     new_db.log_callback.callback = handle->log_callback.callback;
     new_db.log_callback.ctx_data = handle->log_callback.ctx_data;
-    dhandle.log_callback = &handle->log_callback;
+    // Disable the error logging callback as there are false positive
+    // checksum errors in docio_read_doc.
+    // TODO: Need to adapt docio_read_doc to separate false checksum errors.
+    dhandle.log_callback = NULL;
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     fdb_status status = _fdb_open(&new_db, new_filename, &config);
     if (status != FDB_RESULT_SUCCESS) {
