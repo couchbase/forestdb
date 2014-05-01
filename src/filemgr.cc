@@ -479,8 +479,6 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     }
     _buf = (uint8_t *)_filemgr_get_temp_buf();
 
-    spin_lock(&file->lock);
-
     bid--;
     // Reverse scan the file for a previous DB header
     do {
@@ -500,8 +498,6 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     if (!found) { // no other header found till end of file
         *len = 0;
     }
-
-    spin_unlock(&file->lock);
 
     _filemgr_release_temp_buf(_buf);
 
