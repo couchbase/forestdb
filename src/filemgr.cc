@@ -403,6 +403,11 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     spin_init(&file->mutex);
 #endif
 
+    // initialize WAL
+    if (!wal_is_initialized(file)) {
+        wal_init(file, FDB_WAL_NBUCKET);
+    }
+
     hash_insert(&hash, &file->e);
     spin_unlock(&filemgr_openlock);
 

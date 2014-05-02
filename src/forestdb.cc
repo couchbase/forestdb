@@ -664,10 +664,6 @@ static fdb_status _fdb_open(fdb_handle *handle,
         handle->config.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;
     }
 
-    if (!wal_is_initialized(handle->file)) {
-        wal_init(handle->file, FDB_WAL_NBUCKET);
-    }
-
     docio_init(handle->dhandle, handle->file, config->compress_document_body);
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
@@ -2210,7 +2206,6 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     new_dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
     new_dhandle->log_callback = &handle->log_callback;
 
-    wal_init(new_file, handle->config.wal_threshold);
     docio_init(new_dhandle, new_file, handle->config.compress_document_body);
     btreeblk_init(new_bhandle, new_file, new_file->blocksize);
 
