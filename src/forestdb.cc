@@ -1279,6 +1279,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
+        doc->offset = 0;
 
         if (_doc.length.keylen != doc->keylen || _doc.length.flag & DOCIO_DELETED) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -1292,7 +1293,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 
 // search document metadata using key
 LIBFDB_API
-fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *doc_offset)
+fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
     struct docio_object _doc;
@@ -1363,7 +1364,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc, uint64_t *doc_offs
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        *doc_offset = offset;
+        doc->offset = offset;
 
         if (_doc.length.keylen != doc->keylen) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -1444,6 +1445,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
+        doc->offset = 0;
 
         if (_doc.length.flag & DOCIO_DELETED) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -1459,7 +1461,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 
 // search document metadata using sequence number
 LIBFDB_API
-fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *doc_offset)
+fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
     struct docio_object _doc;
@@ -1519,7 +1521,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc, uint64_t *do
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        *doc_offset = offset;
+        doc->offset = offset;
 
         assert(doc->seqnum == _doc.seqnum);
 
@@ -1556,16 +1558,18 @@ static uint8_t equal_docs(fdb_doc *doc, struct docio_object *_doc) {
 
 // Retrieve a doc's metadata and body with a given doc offset in the database file.
 LIBFDB_API
-fdb_status fdb_get_byoffset(fdb_handle *handle,
-                            fdb_doc *doc,
-                            uint64_t offset)
+fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
 {
-    uint64_t _offset;
+    uint64_t offset = doc->offset;
     struct docio_object _doc;
+
+    if (!offset) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     memset(&_doc, 0, sizeof(struct docio_object));
 
-    _offset = docio_read_doc(handle->dhandle, offset, &_doc);
+    uint64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc);
     if (_offset == offset) {
         if (handle->new_dhandle && !handle->shandle) {
             // Look up the new file being compacted

@@ -166,9 +166,8 @@ void basic_test()
     TEST_CHK(info.doc_count == 9);
     TEST_CHK(info.space_used > 0);
 
-    uint64_t offset = 0;
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
-    status = fdb_get_metaonly(db, rdoc, &offset);
+    status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == true);
     TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
@@ -2501,14 +2500,13 @@ void read_doc_by_offset_test() {
     // commit
     fdb_commit(db, FDB_COMMIT_NORMAL);
 
-    uint64_t offset = 0;
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
-    status = fdb_get_metaonly(db, rdoc, &offset);
+    status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == false);
     TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
     // Fetch #5 doc using its offset.
-    status = fdb_get_byoffset(db, rdoc, offset);
+    status = fdb_get_byoffset(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == false);
     TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
@@ -2519,12 +2517,12 @@ void read_doc_by_offset_test() {
     fdb_compact(db, (char *) "./dummy2");
 
     fdb_doc_create(&rdoc, doc[50]->key, doc[50]->keylen, NULL, 0, NULL, 0);
-    status = fdb_get_metaonly(db, rdoc, &offset);
+    status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == true);
     TEST_CHK(!memcmp(rdoc->meta, doc[50]->meta, rdoc->metalen));
     // Fetch #50 doc using its offset.
-    status = fdb_get_byoffset(db, rdoc, offset);
+    status = fdb_get_byoffset(db, rdoc);
     TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
     TEST_CHK(rdoc->deleted == true);
     fdb_doc_free(rdoc);
@@ -2558,7 +2556,6 @@ void purge_logically_deleted_doc_test()
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
-    uint64_t doc_offset;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
@@ -2615,7 +2612,7 @@ void purge_logically_deleted_doc_test()
         // retrieve metadata
         // all documents including logically deleted document should exist
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get_metaonly(db, rdoc, &doc_offset);
+        status = fdb_get_metaonly(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
     }
@@ -2646,7 +2643,7 @@ void purge_logically_deleted_doc_test()
 
         // retrieve metadata
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        status = fdb_get_metaonly(db, rdoc, &doc_offset);
+        status = fdb_get_metaonly(db, rdoc);
         if (i != 5) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
         } else {

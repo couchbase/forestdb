@@ -98,6 +98,10 @@ typedef struct fdb_doc_struct {
      */
     fdb_seqnum_t seqnum;
     /**
+     * Offset to the doc (header + key + metadata + body) on disk.
+     */
+    uint64_t offset;
+    /**
      * Pointer to doc's metadata.
      */
     void *meta;
