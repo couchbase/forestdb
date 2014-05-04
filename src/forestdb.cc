@@ -1438,6 +1438,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         }
 
         doc->seqnum = _doc.seqnum;
+        doc->keylen = _doc.length.keylen;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->key = _doc.key;
