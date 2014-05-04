@@ -1279,7 +1279,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        doc->offset = 0;
+        doc->offset = offset;
 
         if (_doc.length.keylen != doc->keylen || _doc.length.flag & DOCIO_DELETED) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -1446,7 +1446,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         doc->body = _doc.body;
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        doc->offset = 0;
+        doc->offset = offset;
 
         if (_doc.length.flag & DOCIO_DELETED) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -1741,6 +1741,7 @@ fdb_set_start:
     }
 
     doc->size_ondisk = _fdb_get_docsize(_doc.length);
+    doc->offset = offset;
     wal_insert(file, doc, offset);
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {

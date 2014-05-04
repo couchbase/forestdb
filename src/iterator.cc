@@ -465,6 +465,7 @@ start:
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
+    (*doc)->offset = offset;
 
     return FDB_RESULT_SUCCESS;
 }
@@ -577,8 +578,9 @@ start_seq:
         }
 
         // Also look in HB-Trie to eliminate duplicates
+        uint64_t hboffset;
         hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
-                         (void *)&offset);
+                         (void *)&hboffset);
         btreeblk_end(iterator->handle.bhandle);
 
         if (hr == HBTRIE_RESULT_FAIL) {
@@ -590,9 +592,9 @@ start_seq:
             uint64_t _offset;
             _hbdoc.key = _doc.key;
             _hbdoc.meta = _doc.meta;
-            offset = _endian_decode(offset);
-            _offset = docio_read_doc_key_meta(iterator->handle.dhandle, offset, &_hbdoc);
-            if (_offset == offset) {
+            hboffset = _endian_decode(hboffset);
+            _offset = docio_read_doc_key_meta(iterator->handle.dhandle, hboffset, &_hbdoc);
+            if (_offset == hboffset) {
                 free(_doc.key);
                 free(_doc.meta);
                 free(_doc.body);
@@ -624,6 +626,7 @@ start_seq:
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
+    (*doc)->offset = offset;
 
     return FDB_RESULT_SUCCESS;
 }
