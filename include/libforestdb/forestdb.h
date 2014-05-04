@@ -366,14 +366,11 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator,
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
  *        Note that the API call won't return the doc body, but instead the
  *        offset to the doc on disk.
- * @param doc_offset_out Pointer to the offset value of the doc (header + key +
- *        metadata + body) on disk, which is returned from this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
-                                    fdb_doc **doc,
-                                    uint64_t *doc_offset_out);
+fdb_status fdb_iterator_next_metaonly(fdb_iterator *iterator,
+                                      fdb_doc **doc);
 
 /**
  * Close the iterator and free its associated resources.

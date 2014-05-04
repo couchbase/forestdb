@@ -1382,11 +1382,10 @@ void iterator_test()
     i=0;
     while(1){
         // retrieve the next doc and get the byte offset of the returned doc
-        offset = BLK_NOT_FOUND;
-        status = fdb_iterator_next_offset(iterator, &rdoc, &offset);
+        status = fdb_iterator_next_metaonly(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
-        TEST_CHK(offset != BLK_NOT_FOUND);
+        TEST_CHK(rdoc->offset != BLK_NOT_FOUND);
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(rdoc->body == NULL);
@@ -1610,8 +1609,7 @@ void sequence_iterator_test()
     i=0;
     count = 0;
     while(1){
-        offset = BLK_NOT_FOUND;
-        status = fdb_iterator_next_offset(iterator, &rdoc, &offset);
+        status = fdb_iterator_next_metaonly(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));

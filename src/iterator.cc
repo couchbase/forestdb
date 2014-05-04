@@ -300,8 +300,7 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
 
 // DOC returned by this function must be freed using 'fdb_doc_free'
 static fdb_status _fdb_iterator_next(fdb_iterator *iterator,
-                                     fdb_doc **doc,
-                                     uint64_t *doc_offset_out)
+                                     fdb_doc **doc)
 {
     int cmp;
     void *key;
@@ -437,9 +436,6 @@ start:
             free(_doc.meta);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
-        if (doc_offset_out) {
-            *doc_offset_out = offset;
-        }
     } else {
         uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset, &_doc);
         if (_offset == offset) {
@@ -472,8 +468,7 @@ start:
 
 // DOC returned by this function must be freed using 'fdb_doc_free'
 static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator,
-                                     fdb_doc **doc,
-                                     uint64_t *doc_offset_out)
+                                     fdb_doc **doc)
 {
     uint64_t offset;
     btree_result br = BTREE_RESULT_FAIL;
@@ -545,9 +540,6 @@ start_seq:
             free(_doc.key);
             free(_doc.meta);
             return FDB_RESULT_KEY_NOT_FOUND;
-        }
-        if (doc_offset_out) {
-            *doc_offset_out = offset;
         }
     } else {
         uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset, &_doc);
@@ -631,21 +623,12 @@ start_seq:
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status fdb_iterator_next_offset(fdb_iterator *iterator,
-                                    fdb_doc **doc,
-                                    uint64_t *doc_offset_out)
+fdb_status fdb_iterator_next_metaonly(fdb_iterator *iterator,
+                                    fdb_doc **doc)
 {
     fdb_iterator_opt_t opt = iterator->opt;
     iterator->opt |= FDB_ITR_METAONLY;
-    fdb_status result = FDB_RESULT_SUCCESS;
-    if (iterator->hbtrie_iterator) {
-        while ((result = _fdb_iterator_next(iterator, doc, doc_offset_out)) ==
-                FDB_RESULT_KEY_NOT_FOUND);
-    } else {
-        while ((result = _fdb_iterator_seq_next(iterator, doc,
-                                                doc_offset_out)) ==
-                FDB_RESULT_KEY_NOT_FOUND);
-    }
+    fdb_status result = fdb_iterator_next(iterator, doc);
     iterator->opt = opt;
     return result;
 }
@@ -654,10 +637,10 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
     if (iterator->hbtrie_iterator || iterator->idtree_iterator) {
-        while ((result = _fdb_iterator_next(iterator, doc, NULL)) ==
+        while ((result = _fdb_iterator_next(iterator, doc)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
     } else {
-        while ((result = _fdb_iterator_seq_next(iterator, doc, NULL)) ==
+        while ((result = _fdb_iterator_seq_next(iterator, doc)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
     }
     return result;
