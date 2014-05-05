@@ -2019,6 +2019,7 @@ void snapshot_test()
     fdb_seqnum_t snap_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
+    fdb_info info;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -2111,6 +2112,10 @@ void snapshot_test()
     status = fdb_snapshot_open(db, &snap_db, snap_seq);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    // check snapshot's sequence number
+    fdb_get_dbinfo(snap_db, &info);
+    TEST_CHK(info.last_seqnum == snap_seq);
+
     // insert documents from 15 - 19 on file into the WAL
     for (; i < n; i++){
         sprintf(keybuf, "key%d", i);
@@ -2179,6 +2184,7 @@ void rollback_test()
     fdb_seqnum_t rollback_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
+    fdb_info info;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -2263,6 +2269,10 @@ void rollback_test()
     // Rollback to saved marker from above
     status = fdb_rollback(&db, rollback_seq);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // check handle's sequence number
+    fdb_get_dbinfo(db, &info);
+    TEST_CHK(info.last_seqnum == rollback_seq);
 
     // Modify an item and update into the rollbacked file..
     i = n/2;

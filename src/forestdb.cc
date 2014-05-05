@@ -524,6 +524,8 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
     fdb_config config;
     fdb_handle *handle_in, *handle;
     fdb_status fs;
+    fdb_seqnum_t old_seqnum;
+
     if (!handle_ptr || !seqnum) {
         return FDB_RESULT_INVALID_ARGS;
     }
@@ -551,12 +553,22 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
     filemgr_set_rollback(handle_in->file, 0); // allow mutations
 
     if (fs == FDB_RESULT_SUCCESS) {
+        // rollback the file's sequence number
+        filemgr_mutex_lock(handle_in->file);
+        old_seqnum = filemgr_get_seqnum(handle_in->file);
+        filemgr_set_seqnum(handle_in->file, seqnum);
+        filemgr_mutex_unlock(handle_in->file);
+
         fs = fdb_commit(handle, FDB_COMMIT_NORMAL);
         if (fs == FDB_RESULT_SUCCESS) {
             fdb_close(handle_in);
             handle->max_seqnum = 0;
             *handle_ptr = handle;
         } else {
+            // cancel the rolling-back of the sequence number
+            filemgr_mutex_lock(handle_in->file);
+            filemgr_set_seqnum(handle_in->file, old_seqnum);
+            filemgr_mutex_unlock(handle_in->file);
             free(handle);
         }
     } else {
@@ -2421,16 +2433,23 @@ fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info)
     _fdb_sync_db_header(handle);
 
     info->filename = handle->file->filename;
-    if (handle->new_file) {
-        info->new_filename = handle->new_file->filename;
-        filemgr_mutex_lock(handle->new_file);
-        info->last_seqnum = filemgr_get_seqnum(handle->new_file);
-        filemgr_mutex_unlock(handle->new_file);
+
+    if (handle->shandle) {
+        // handle for snapshot
+        // return MAX_SEQNUM instead of the file's sequence number
+        info->last_seqnum = handle->max_seqnum;
     } else {
-        info->new_filename = NULL;
-        filemgr_mutex_lock(handle->file);
-        info->last_seqnum = filemgr_get_seqnum(handle->file);
-        filemgr_mutex_unlock(handle->file);
+        if (handle->new_file) {
+            info->new_filename = handle->new_file->filename;
+            filemgr_mutex_lock(handle->new_file);
+            info->last_seqnum = filemgr_get_seqnum(handle->new_file);
+            filemgr_mutex_unlock(handle->new_file);
+        } else {
+            info->new_filename = NULL;
+            filemgr_mutex_lock(handle->file);
+            info->last_seqnum = filemgr_get_seqnum(handle->file);
+            filemgr_mutex_unlock(handle->file);
+        }
     }
 
     // Note that doc_count includes the number of WAL entries, which might
