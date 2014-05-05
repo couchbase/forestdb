@@ -977,7 +977,8 @@ void *_worker_thread(void *voidargs)
                     fdb_get_dbinfo(db, &info);
                     if (args->compact_term == commit_count &&
                         args->compact_term > 0 &&
-                        info.new_filename == NULL) {
+                        info.new_filename == NULL &&
+                        args->tid == 0) {
                         // do compaction for every COMPACT_TERM batch
                         spin_lock(args->filename_count_lock);
                         *args->filename_count += 1;
@@ -987,6 +988,12 @@ void *_worker_thread(void *voidargs)
                         sprintf(temp, FILENAME"%d", filename_count);
 
                         status = fdb_compact(db, temp);
+                        if (status != FDB_RESULT_SUCCESS) {
+                            spin_lock(args->filename_count_lock);
+                            *args->filename_count -= 1;
+                            filename_count = *args->filename_count;
+                            spin_unlock(args->filename_count_lock);
+                        }
 
                         commit_count = 0;
                     }
