@@ -172,7 +172,7 @@ INLINE void _arrange_prefix(
         }
 
         if ( (arrange_option == ARR_OVERWRITE && i != idx) ||
-            (arrange_option == ARR_INSERT) ||
+            (arrange_option == ARR_INSERT && i<nentry) ||
             (arrange_option == ARR_REMOVE && i != idx) ||
             arrange_option == ARR_NONE) {
 
@@ -412,7 +412,8 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
         memcpy(&_keylen_ins, key_ptr, sizeof(key_len_t));
         keylen_ins = _endian_decode(_keylen_ins);
 
-        if (idx == 0 && node->nentry > 0 && node->level == 1) {
+        if ((idx ==0 || idx >= node->nentry) &&
+            node->nentry > 0 && node->level == 1) {
             void *comp_key;
             key_len_t comp_keylen;
 
