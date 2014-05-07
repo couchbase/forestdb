@@ -36,30 +36,56 @@
 
 #endif
 
-#ifndef bitswap64
-#define bitswap64(v)    \
-    ( (((v) & 0xff00000000000000ULL) >> 56) \
-    | (((v) & 0x00ff000000000000ULL) >> 40) \
-    | (((v) & 0x0000ff0000000000ULL) >> 24) \
-    | (((v) & 0x000000ff00000000ULL) >>  8) \
-    | (((v) & 0x00000000ff000000ULL) <<  8) \
-    | (((v) & 0x0000000000ff0000ULL) << 24) \
-    | (((v) & 0x000000000000ff00ULL) << 40) \
-    | (((v) & 0x00000000000000ffULL) << 56) )
-#endif
+#if defined(__GNUC__) || defined(__clang__)
+    #ifndef bitswap64
+    #define bitswap64(v) __builtin_bswap64(v)
+    #endif
 
-#ifndef bitswap32
-#define bitswap32(v)    \
-    ( (((v) & 0xff000000) >> 24) \
-    | (((v) & 0x00ff0000) >>  8) \
-    | (((v) & 0x0000ff00) <<  8) \
-    | (((v) & 0x000000ff) << 24) )
-#endif
+    #ifndef bitswap32
+    #define bitswap32(v) __builtin_bswap32(v)
+    #endif
 
-#ifndef bitswap16
-#define bitswap16(v)    \
-    ( (((v) & 0xff00) >> 8) \
-    | (((v) & 0x00ff) << 8) )
+    /*
+     * There is a bug that is missing __builtin_bswap16 on gcc earlier than
+     * version 4.8. We comment below lines and use our custom swap instead.
+     */
+    /*
+    #ifndef bitswap16
+    #define bitswap16(v) __builtin_bswap16(v)
+    #endif
+    */
+    #ifndef bitswap16
+    #define bitswap16(v)    \
+        ( (((v) & 0xff00) >> 8) \
+        | (((v) & 0x00ff) << 8) )
+    #endif
+
+#else
+    #ifndef bitswap64
+    #define bitswap64(v)    \
+        ( (((v) & 0xff00000000000000ULL) >> 56) \
+        | (((v) & 0x00ff000000000000ULL) >> 40) \
+        | (((v) & 0x0000ff0000000000ULL) >> 24) \
+        | (((v) & 0x000000ff00000000ULL) >>  8) \
+        | (((v) & 0x00000000ff000000ULL) <<  8) \
+        | (((v) & 0x0000000000ff0000ULL) << 24) \
+        | (((v) & 0x000000000000ff00ULL) << 40) \
+        | (((v) & 0x00000000000000ffULL) << 56) )
+    #endif
+
+    #ifndef bitswap32
+    #define bitswap32(v)    \
+        ( (((v) & 0xff000000) >> 24) \
+        | (((v) & 0x00ff0000) >>  8) \
+        | (((v) & 0x0000ff00) <<  8) \
+        | (((v) & 0x000000ff) << 24) )
+    #endif
+
+    #ifndef bitswap16
+    #define bitswap16(v)    \
+        ( (((v) & 0xff00) >> 8) \
+        | (((v) & 0x00ff) << 8) )
+    #endif
 #endif
 
 #if defined(_LITTLE_ENDIAN)

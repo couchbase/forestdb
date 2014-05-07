@@ -319,24 +319,37 @@ uint32_t crc32_1(void* data, size_t len, uint32_t prev_value)
     return ~crc;
 }
 
-
 uint32_t crc32_8(void* data, size_t len, uint32_t prev_value)
 {
     uint32_t *cur = (uint32_t*) data;
     uint32_t crc = ~prev_value;
 
     while (len >= 8) {
+#ifdef _BIG_ENDIAN
+        uint32_t one = *cur++ ^ bitswap32(crc);
+        uint32_t two = *cur++;
+        crc =
+            crc_lookup[7][(one>>24) & 0xFF] ^
+            crc_lookup[6][(one>>16) & 0xFF] ^
+            crc_lookup[5][(one>> 8) & 0xFF] ^
+            crc_lookup[4][(one    ) & 0xFF] ^
+            crc_lookup[3][(two>>24) & 0xFF] ^
+            crc_lookup[2][(two>>16) & 0xFF] ^
+            crc_lookup[1][(two>> 8) & 0xFF] ^
+            crc_lookup[0][(two    ) & 0xFF];
+#else
         uint32_t one = *cur++ ^ crc;
         uint32_t two = *cur++;
         crc =
-            crc_lookup[7][one & 0xFF] ^
+            crc_lookup[7][(one    ) & 0xFF] ^
             crc_lookup[6][(one>> 8) & 0xFF] ^
             crc_lookup[5][(one>>16) & 0xFF] ^
-            crc_lookup[4][one>>24] ^
-            crc_lookup[3][two & 0xFF] ^
+            crc_lookup[4][(one>>24) & 0xFF] ^
+            crc_lookup[3][(two    ) & 0xFF] ^
             crc_lookup[2][(two>> 8) & 0xFF] ^
             crc_lookup[1][(two>>16) & 0xFF] ^
-            crc_lookup[0][two>>24];
+            crc_lookup[0][(two>>24) & 0xFF];
+#endif
         len -= 8;
     }
 
