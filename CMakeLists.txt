@@ -31,6 +31,7 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 endif()
 
 add_library(forestdb SHARED
+            src/api_wrapper.cc
             src/avltree.cc
             src/blockcache.cc
             src/btree.cc

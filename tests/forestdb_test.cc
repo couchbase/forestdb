@@ -2942,6 +2942,92 @@ void compaction_daemon_test(size_t time_sec)
     TEST_RESULT("compaction daemon test");
 }
 
+void api_wrapper_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    size_t valuelen;
+    void *value;
+    fdb_handle *db;
+    fdb_status status;
+
+    char keybuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig;
+    _test_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "purge_logically_deleted_doc_test");
+
+    // error check
+    status = fdb_set_kv(db, NULL, 0, NULL, 0);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    // insert key-value pairs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+    }
+
+    // remove key5
+    sprintf(keybuf, "key%d", 5);
+    status = fdb_del_kv(db, keybuf, strlen(keybuf));
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // error check
+    status = fdb_del_kv(db, NULL, 0);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    // retrieve key-value pairs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
+
+        if (i != 5) {
+            // updated documents
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            sprintf(temp, "body%d", i);
+            TEST_CHK(!memcmp(value, temp, valuelen));
+            free(value);
+        } else {
+            // removed document
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        }
+    }
+
+    // error check
+    status = fdb_get_kv(db, NULL, 0, &value, &valuelen);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    status = fdb_get_kv(db, keybuf, strlen(keybuf), NULL, NULL);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    // close db file
+    fdb_close(db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("API wrapper test");
+}
+
 
 int main(){
     basic_test();
@@ -2964,6 +3050,7 @@ int main(){
     doc_compression_test();
     read_doc_by_offset_test();
     purge_logically_deleted_doc_test();
+    api_wrapper_test();
     compaction_daemon_test(20);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 

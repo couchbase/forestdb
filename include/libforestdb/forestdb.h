@@ -265,6 +265,52 @@ fdb_status fdb_del(fdb_handle *handle,
                    fdb_doc *doc);
 
 /**
+ * Simplified API for fdb_get:
+ * Retrieve the value (doc body in fdb_get) for a given key.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param key Pointer to the key to be retrieved.
+ * @param keylen Length of the key.
+ * @param value_out Pointer to the value as a result of this API call. Note that this
+ *        pointer should be released using free().
+ * @param valuelen_out Length of the value as a result of this API call.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_get_kv(fdb_handle *handle,
+                      void *key, size_t keylen,
+                      void **value_out, size_t *valuelen_out);
+
+/**
+ * Simplified API for fdb_set:
+ * Update the value (doc body in fdb_set) for a given key.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param key Pointer to the key to be updated.
+ * @param keylen Length of the key.
+ * @param value Pointer to the value corresponding to the key.
+ * @param valuelen Length of the value.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_set_kv(fdb_handle *handle,
+                      void *key, size_t keylen,
+                      void *value, size_t valuelen);
+
+/**
+ * Simplified API for fdb_del:
+ * Delete a key, and its value (doc body in fdb_del).
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param key Pointer to the key to be deleted.
+ * @param keylen Length of the key.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_del_kv(fdb_handle *handle,
+                      void *key, size_t keylen);
+
+/**
  * Commit all pending changes into disk.
  *
  * @param handle Pointer to ForestDB handle.
