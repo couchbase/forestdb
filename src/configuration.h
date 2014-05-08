@@ -29,7 +29,7 @@ extern "C" {
 
     void set_default_fdb_config(fdb_config *fconfig);
 
-    void parse_fdb_config(const char *fdb_config_file, fdb_config *fconfig);
+    bool validate_fdb_config(fdb_config *fconfig);
 
 #ifdef __cplusplus
 }

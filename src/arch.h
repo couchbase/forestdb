@@ -36,6 +36,17 @@
 # define O_LARGEFILE 0
 #endif
 
+#ifndef _MSC_VER
+#include <stdbool.h>
+#else
+#ifndef __cplusplus
+#pragma once
+#define false (0)
+#define true (1)
+#define bool int
+#endif
+#endif
+
 #ifdef __APPLE__
     #include <inttypes.h>
     #include <alloca.h>

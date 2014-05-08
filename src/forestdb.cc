@@ -60,6 +60,8 @@
     #define SEQTREE(...)
 #endif
 
+static const uint16_t OFFSET_SIZE = sizeof(uint64_t);
+
 static fdb_status _fdb_open(fdb_handle *handle,
                             const char *filename,
                             const fdb_config *config);
@@ -366,16 +368,21 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
 LIBFDB_API
 fdb_status fdb_open(fdb_handle **ptr_handle,
                     const char *filename,
-                    fdb_open_flags flags,
-                    const char *fdb_config_file)
+                    fdb_config *fconfig)
 {
 #ifdef _MEMPOOL
     mempool_init();
 #endif
-
     fdb_config config;
-    parse_fdb_config(fdb_config_file, &config);
-    config.flags = flags;
+    if (fconfig) {
+        if (validate_fdb_config(fconfig)) {
+            config = *fconfig;
+        } else {
+            return FDB_RESULT_INVALID_CONFIG;
+        }
+    } else {
+        set_default_fdb_config(&config);
+    }
 
     fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
     if (!handle) {
@@ -399,24 +406,28 @@ fdb_status fdb_open(fdb_handle **ptr_handle,
 LIBFDB_API
 fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
                               const char *filename,
-                              fdb_open_flags flags,
-                              const char *fdb_config_file,
-                              fdb_custom_cmp_fixed cmp_func)
+                              fdb_config *fconfig)
 {
 #ifdef _MEMPOOL
     mempool_init();
 #endif
 
     fdb_config config;
-    parse_fdb_config(fdb_config_file, &config);
-    config.flags = flags;
+    if (fconfig) {
+        if (validate_fdb_config(fconfig)) {
+            config = *fconfig;
+        } else {
+            return FDB_RESULT_INVALID_CONFIG;
+        }
+    } else {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
 
-    config.cmp_fixed = cmp_func;
     config.cmp_variable = NULL;
     handle->shandle = NULL;
 
@@ -433,17 +444,22 @@ fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
 LIBFDB_API
 fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
                                  const char *filename,
-                                 fdb_open_flags flags,
-                                 const char *fdb_config_file,
-                                 fdb_custom_cmp_variable cmp_func)
+                                 fdb_config *fconfig)
 {
 #ifdef _MEMPOOL
     mempool_init();
 #endif
 
     fdb_config config;
-    parse_fdb_config(fdb_config_file, &config);
-    config.flags = flags;
+    if (fconfig) {
+        if (validate_fdb_config(fconfig)) {
+            config = *fconfig;
+        } else {
+            return FDB_RESULT_INVALID_CONFIG;
+        }
+    } else {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
     if (!handle) {
@@ -451,7 +467,6 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
     }
 
     config.cmp_fixed = NULL;
-    config.cmp_variable = cmp_func;
     handle->shandle = NULL;
 
     fdb_status fs = _fdb_open(handle, filename, &config);
@@ -688,7 +703,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     if (!handle->config.cmp_variable) {
         handle->idtree = NULL;
         handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
-        hbtrie_init(handle->trie, config->chunksize, config->offsetsize,
+        hbtrie_init(handle->trie, config->chunksize, OFFSET_SIZE,
             handle->file->blocksize, trie_root_bid, (void *)handle->bhandle,
             handle->btreeblkops, (void *)handle->dhandle, _fdb_readkey_wrap);
         handle->trie->aux = NULL;
@@ -717,7 +732,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
         if (trie_root_bid == BLK_NOT_FOUND) {
             btree_init(handle->idtree, (void *)handle->bhandle, handle->btreeblkops,
                 main_kv_ops, handle->config.blocksize, handle->config.chunksize,
-                handle->config.offsetsize, 0x0, NULL);
+                OFFSET_SIZE, 0x0, NULL);
         } else {
             btree_init_from_bid(handle->idtree, (void *)handle->bhandle,
                 handle->btreeblkops, main_kv_ops, handle->config.blocksize, trie_root_bid);
@@ -739,7 +754,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
         if (seq_root_bid == BLK_NOT_FOUND) {
             btree_init(handle->seqtree, (void *)handle->bhandle, handle->btreeblkops,
                 seq_kv_ops, handle->config.blocksize, sizeof(fdb_seqnum_t),
-                handle->config.offsetsize, 0x0, NULL);
+                OFFSET_SIZE, 0x0, NULL);
          }else{
              btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
                 handle->btreeblkops, seq_kv_ops, handle->config.blocksize, seq_root_bid);
@@ -1151,7 +1166,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
                                handle->idtree->kv_ops,
                                handle->config.blocksize,
                                handle->config.chunksize,
-                               handle->config.offsetsize, 0x0, NULL);
+                               OFFSET_SIZE, 0x0, NULL);
                 }
             }
 
@@ -1169,7 +1184,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
                                handle->seqtree->kv_ops,
                                handle->config.blocksize,
                                sizeof(fdb_seqnum_t),
-                               handle->config.offsetsize, 0x0, NULL);
+                               OFFSET_SIZE, 0x0, NULL);
                 }
             }
 
@@ -2246,7 +2261,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
         new_idtree = (struct btree*)malloc(sizeof(struct btree));
         btree_init(new_idtree, (void *)new_bhandle, handle->btreeblkops,
             handle->idtree->kv_ops, handle->config.blocksize, handle->config.chunksize,
-            handle->config.offsetsize, 0x0, NULL);
+            OFFSET_SIZE, 0x0, NULL);
         // set aux
         new_idtree->aux = (void*)handle;
     }

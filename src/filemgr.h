@@ -120,7 +120,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    err_log_callback *log_callback);
 
 fdb_status filemgr_close(struct filemgr *file,
-                         uint8_t cleanup_cache_onclose,
+                         bool cleanup_cache_onclose,
                          err_log_callback *log_callback);
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file);

@@ -116,7 +116,7 @@ void basic_test()
     */
     btreeblk_free(&btree_handle);
 
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -195,7 +195,7 @@ void iterator_test()
     }
     btree_iterator_free(&bi);
 
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("iterator test");
@@ -234,7 +234,7 @@ void two_btree_test()
     }
 
     filemgr_commit(file, NULL);
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     filemgr_shutdown();
 
     btree_print_node(&btree_a, print_btree);
@@ -280,7 +280,7 @@ void range_test()
     }
 
     btreeblk_free(&bhandle);
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("range test");

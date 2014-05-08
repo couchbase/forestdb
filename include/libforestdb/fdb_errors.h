@@ -110,6 +110,10 @@ typedef enum {
      */
     FDB_RESULT_FAIL_BY_ROLLBACK = -19,
     /**
+     * ForestDB config value is invalid.
+     */
+    FDB_RESULT_INVALID_CONFIG = -20,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

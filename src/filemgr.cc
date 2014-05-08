@@ -535,7 +535,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     return bid;
 }
 
-fdb_status filemgr_close(struct filemgr *file, uint8_t cleanup_cache_onclose,
+fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                          err_log_callback *log_callback)
 {
     int rv = FDB_RESULT_SUCCESS;

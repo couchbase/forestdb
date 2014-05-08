@@ -43,7 +43,7 @@ void basic_test()
 
     filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1);
 
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
 
     memcpy(buf, file->header.data, file->header.size);
@@ -51,7 +51,7 @@ void basic_test()
 
     filemgr_update_header(file, (void*)dbheader2, strlen(dbheader2) + 1);
 
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
 
     TEST_RESULT("basic test");
 }

@@ -39,17 +39,17 @@ extern "C" {
  * Open the database with a given file name.
  * The database should be closed with fdb_close API call.
  *
- * @param handle Pointer to the place where ForestDB handle is instantiated
+ * @param ptr_handle Pointer to the place where ForestDB handle is instantiated
  *        as result of this API call.
  * @param filename Name of database file to be opened.
- * @param fdb_config_file Path to the JSON file that contains ForestDB configs.
+ * @param fconfig Pointer to the config instance that contains ForestDB configs.
+ *        If NULL is passed, then we use default settings of ForestDB configs.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_open(fdb_handle **handle,
+fdb_status fdb_open(fdb_handle **ptr_handle,
                     const char *filename,
-                    fdb_open_flags flags,
-                    const char *fdb_config_file);
+                    fdb_config *fconfig);
 
 /**
  * Open the database with a given file name.
@@ -60,19 +60,19 @@ fdb_status fdb_open(fdb_handle **handle,
  * function.
  * The database should be closed with fdb_close API call.
  *
- * @param handle Pointer to the place where ForestDB handle is instantiated
+ * @param ptr_handle Pointer to the place where ForestDB handle is instantiated
  *        as result of this API call.
  * @param filename Name of database file to be opened.
- * @param fdb_config_file Path to the JSON file that contains ForestDB configs.
- * @param cmp_func Customized compare function to be used.
+ * @param fconfig Pointer to the config instance that contains ForestDB configs.
+ *        If NULL is passed, then it returns FDB_RESULT_INVALID_ARGS to the caller.
+ *        The function pointer "fdb_custom_cmp_fixed" in fdb_config should be
+ *        set by an application.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
                               const char *filename,
-                              fdb_open_flags flags,
-                              const char *fdb_config_file,
-                              fdb_custom_cmp_fixed cmp_func);
+                              fdb_config *fconfig);
 
 /**
  * Open the database with a given file name.
@@ -80,19 +80,19 @@ fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
  * function. The key size can be variable.
  * The database should be closed with fdb_close API call.
  *
- * @param handle Pointer to the place where ForestDB handle is instantiated
+ * @param ptr_handle Pointer to the place where ForestDB handle is instantiated
  *        as result of this API call.
  * @param filename Name of database file to be opened.
- * @param fdb_config_file Path to the JSON file that contains ForestDB configs.
- * @param cmp_func Customized compare function to be used.
+ * @param fconfig Pointer to the config instance that contains ForestDB configs.
+ *        If NULL is passed, then it returns FDB_RESULT_INVALID_ARGS to the caller.
+ *        The function pointer "fdb_custom_cmp_variable" in fdb_config should be
+ *        set by an application.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
                                  const char *filename,
-                                 fdb_open_flags flags,
-                                 const char *fdb_config_file,
-                                 fdb_custom_cmp_variable cmp_func);
+                                 fdb_config *fconfig);
 
 /**
  * Set up the error logging callback that allows an application to process

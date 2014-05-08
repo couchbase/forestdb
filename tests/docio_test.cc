@@ -64,7 +64,7 @@ void basic_test()
     config.ncacheblock = 1024;
     r = system(SHELL_DEL " dummy");
     file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
-    docio_init(&handle, file, 0);
+    docio_init(&handle, file, false);
 
     docsize = _set_doc(&doc, (char *) "this_is_key", (char *) "this_is_metadata",
                        (char *) "this_is_body_lawiefjaawleif");
@@ -100,7 +100,7 @@ void basic_test()
     DBG("keylen %d %s\n", keylen, keybuf);
 
     filemgr_commit(file, NULL);
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
 
     TEST_RESULT("basic test");
 }

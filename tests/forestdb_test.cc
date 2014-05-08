@@ -46,57 +46,22 @@ void _set_random_string_smallabt(char *str, int len)
     } while(len--);
 }
 
-void generate_config_json_file(int buffercache_size,
-                               int wal_threshold,
-                               int doc_compression,
-                               int purging_interval) {
-    char config_data[8192];
-    const char *config =
-        "{\"configs\":"
-            "{\"chunk_size\": {\"default\": 8,"
-                              "\"validator\": {\"range\": { \"max\": 16, \"min\": 4 }}},"
-             "\"buffer_cache_size\": {\"default\": %d,"
-                                     "\"validator\": {\"range\": {"
-                                                         "\"max\": 18446744073709551616,"
-                                                         "\"min\": 0 }}},"
-             "\"wal_threshold\": {\"default\": %d,"
-                                 "\"validator\": {\"range\": {"
-                                                     "\"max\": 4294967296,"
-                                                     "\"min\": 0 }}},"
-             "\"purging_deleted_doc_interval\": {\"default\": %d,"
-                                                "\"validator\": {\"range\": {"
-                                                                "\"max\": 4294967296,"
-                                                                "\"min\": 0 }}},"
-             "\"enable_seq_btree\": {\"default\": \"true\","
-                                    "\"validator\": {\"enum\": ["
-                                                        "\"true\",\"false\" ]}},"
-             "\"durability_option\": {\"default\": \"sync_commit\","
-                                     "\"validator\": {\"enum\": ["
-                                                       "\"sync_commit\","
-                                                       "\"sync_o_direct_commit\","
-                                                       "\"async_commit\","
-                                                       "\"async_o_direct_commit\" ]}},"
-             "\"compaction_buf_size\": {\"default\": 16777216,"
-                                       "\"validator\": {\"range\": {"
-                                                         "\"max\": 4294967296,"
-                                                         "\"min\": 0 }}},"
-             "\"cleanup_cache_on_close\": {\"default\": \"true\","
-                                          "\"validator\": {\"enum\": ["
-                                                            "\"true\",\"false\"]}},"
-             "\"compress_document_body\": {\"default\": \"%s\","
-                                          "\"validator\": {\"enum\": ["
-                                                            "\"true\",\"false\"]}}"
-       "}}";
-
-    sprintf(config_data, config,
-            buffercache_size, wal_threshold, purging_interval,
-            (doc_compression)?("true"):("false"));
-
-    filemgr_ops * fops = get_filemgr_ops();
-    int fd = fops->open("./fdb_test_config.json", O_RDWR | O_CREAT, 0666);
-    fops->pwrite(fd, config_data, strlen(config_data), 0);
-    fops->fsync(fd);
-    fops->close(fd);
+void set_default_fdb_config(fdb_config *fconfig) {
+    if (fconfig) {
+        fconfig->chunksize = sizeof(uint64_t);
+        fconfig->blocksize = FDB_BLOCKSIZE; // 4KB by default.
+        fconfig->buffercache_size = 134217728; // 128MB by default.
+        fconfig->wal_threshold = 4096; // 4096 WAL entries by default.
+        fconfig->purging_interval = 0; // 0 second by default.
+        fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
+        fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
+        fconfig->flags = FDB_OPEN_FLAG_CREATE;
+        fconfig->compaction_buf_maxsize = 16777216; // 16MB by default.
+        fconfig->cleanup_cache_onclose = true; // Clean up cache entries when a file is closed.
+        fconfig->compress_document_body = false; // Compress the body of documents using snappy.
+        fconfig->cmp_fixed = NULL;
+        fconfig->cmp_variable = NULL;
+    }
 }
 
 void logCallbackFunc(int err_code,
@@ -123,21 +88,24 @@ void basic_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
 
     // Read-Only mode test: Must not create new file..
-    status = fdb_open(&db, "./dummy1",
-                      FDB_OPEN_FLAG_RDONLY, "./fdb_test_config.json");
+    status = fdb_open(&db, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_OPEN_FAIL);
 
     // open and close db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fdb_open(&db, "./dummy1", &fconfig);
     fdb_close(db);
 
     // reopen db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1",&fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "basic_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -177,7 +145,7 @@ void basic_test()
     fdb_close(db);
 
     // reopen
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "basic_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -271,8 +239,8 @@ void basic_test()
     fdb_doc_free(rdoc);
 
     // Read-Only mode test: Open succeeds if file exists, but disallow writes
-    status = fdb_open(&db_rdonly, "./dummy2",
-                      FDB_OPEN_FLAG_RDONLY, "./fdb_test_config.json");
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
+    status = fdb_open(&db_rdonly, "./dummy2", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
@@ -327,12 +295,16 @@ void wal_commit_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "wal_commit_test");
 
     // insert half documents
@@ -362,7 +334,7 @@ void wal_commit_test()
     fdb_close(db);
 
     // reopen
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "wal_commit_test");
 
     // retrieve documents
@@ -418,12 +390,16 @@ void multi_version_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(1048576, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 1048576;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "multi_version_test");
 
     // insert documents
@@ -440,7 +416,7 @@ void multi_version_test()
     fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // open same db file using a new handle
-    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db_new, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db_new, logCallbackFunc, (void *) "multi_version_test");
 
     // update documents using the old handle
@@ -485,7 +461,7 @@ void multi_version_test()
 
     // close and re-open the new handle
     fdb_close(db_new);
-    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db_new, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db_new, logCallbackFunc, (void *) "multi_version_test");
 
     // retrieve documents using the new handle
@@ -538,15 +514,19 @@ void compact_wo_reopen_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_wo_reopen_test");
-    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db_new, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db_new, logCallbackFunc,
                                   (void *) "compact_wo_reopen_test");
 
@@ -627,12 +607,16 @@ void compact_with_reopen_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
 
@@ -662,7 +646,7 @@ void compact_with_reopen_test()
     fdb_close(db);
 
     r = system(SHELL_MOVE " dummy2 dummy1 > errorlog.txt");
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
 
@@ -720,15 +704,19 @@ void auto_recover_compact_ok_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "auto_recover_compact_ok_test");
-    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db_new, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db_new, logCallbackFunc,
                                   (void *) "auto_recover_compact_ok_test");
 
@@ -777,7 +765,7 @@ void auto_recover_compact_ok_test()
 
     // now open the old saved compacted file, it should automatically recover
     // and use the new file since compaction was done successfully
-    fdb_open(&db_new, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db_new, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db_new, logCallbackFunc,
                                   (void *) "auto_recover_compact_ok_test");
 
@@ -835,12 +823,16 @@ void db_drop_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL " dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "db_drop_test");
 
@@ -862,7 +854,7 @@ void db_drop_test()
     r = system(SHELL_DEL " dummy1 > errorlog.txt");
 
     // Open the empty db with the same name.
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "db_drop_test");
 
@@ -938,7 +930,7 @@ void *_worker_thread(void *voidargs)
 
     filename_count = *args->filename_count;
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, temp, NULL);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "worker_thread");
 
@@ -1048,9 +1040,13 @@ void multi_thread_test(
     idx_digit = IDX_DIGIT;
 
     // remove previous dummy files
-    r = system(SHELL_DEL" "FILENAME"* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" "FILENAME"* > errorlog.txt");
 
-    generate_config_json_file(16777216, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     memleak_start();
 
@@ -1059,7 +1055,7 @@ void multi_thread_test(
 
     // open db
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, temp, &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "multi_thread_test");
 
@@ -1131,7 +1127,7 @@ void multi_thread_test(
 
     // check sequence number
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&db, temp, FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, temp, &fconfig);
     fdb_get_dbinfo(db, &info);
     TEST_CHK(info.last_seqnum == ndocs+nwrites);
     fdb_close(db);
@@ -1160,12 +1156,16 @@ void crash_recovery_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // reopen db
-    fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy2", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
 
@@ -1197,7 +1197,7 @@ void crash_recovery_test()
        "dd if=/dev/zero bs=1024 of=./dummy2 oseek=20 count=1 >> errorlog.txt");
 
     // reopen the same file
-    fdb_open(&db, "./dummy2", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy2", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
 
@@ -1260,12 +1260,16 @@ void incomplete_block_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "incomplete_block_test");
 
@@ -1328,12 +1332,16 @@ void iterator_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "iterator_test");
 
@@ -1555,10 +1563,14 @@ void sequence_iterator_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "sequence_iterator_test");
 
@@ -1787,13 +1799,17 @@ void custom_compare_primitive_test()
     double key_double, key_double_prev;
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.cmp_fixed = _cmp_double;
 
     // open db with custom compare function for double key type
-    fdb_open_cmp_fixed(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-                       "./fdb_test_config.json", _cmp_double);
+    fdb_open_cmp_fixed(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "custom_compare_primitive_test");
 
@@ -1919,13 +1935,17 @@ void custom_compare_variable_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.cmp_variable = _cmp_variable;
 
     // open db with custom compare function for variable length key type
-    fdb_open_cmp_variable(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-                       "./fdb_test_config.json", _cmp_variable);
+    fdb_open_cmp_variable(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "custom_compare_variable_test");
 
@@ -2033,16 +2053,19 @@ void snapshot_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-             "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
 
    // ------- Setup test ----------------------------------
    // insert documents of 0-4
@@ -2198,16 +2221,19 @@ void rollback_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE,
-             "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
 
    // ------- Setup test ----------------------------------
    // insert documents of 0-4
@@ -2343,12 +2369,17 @@ void doc_compression_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 1, 0);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compress_document_body = true;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "doc_compression_test");
 
@@ -2379,7 +2410,7 @@ void doc_compression_test()
     fdb_close(db);
 
     // reopen
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "doc_compression_test");
 
@@ -2474,12 +2505,17 @@ void read_doc_by_offset_test() {
     char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 3600);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 3600;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "read_doc_by_offset_test");
 
@@ -2577,10 +2613,15 @@ void purge_logically_deleted_doc_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    generate_config_json_file(0, 1024, 0, 2);
+    fdb_config fconfig;
+    set_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 2;
 
     // open db
-    fdb_open(&db, "./dummy1", FDB_OPEN_FLAG_CREATE, "./fdb_test_config.json");
+    fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "purge_logically_deleted_doc_test");
 

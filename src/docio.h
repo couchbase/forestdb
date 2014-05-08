@@ -41,7 +41,7 @@ struct docio_handle {
     bid_t lastbid;
     void *readbuffer;
     err_log_callback *log_callback;
-    uint8_t compress_document_body;
+    bool compress_document_body;
 };
 
 #ifdef DOCIO_LEN_STRUCT_ALIGN
@@ -77,7 +77,7 @@ struct docio_object {
 
 void docio_init(struct docio_handle *handle,
                 struct filemgr *file,
-                uint8_t compress_document_body);
+                bool compress_document_body);
 void docio_free(struct docio_handle *handle);
 
 bid_t docio_append_doc_raw(struct docio_handle *handle,

@@ -30,7 +30,7 @@
 
 void docio_init(struct docio_handle *handle,
                 struct filemgr *file,
-                uint8_t compress_document_body)
+                bool compress_document_body)
 {
     int ret;
 

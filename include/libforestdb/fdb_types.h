@@ -37,7 +37,7 @@ extern "C" {
 
 /**
  * Flags to be passed to fdb_open() API
-     */
+ */
 typedef uint32_t fdb_open_flags;
 enum {
     /**
@@ -66,6 +66,131 @@ enum {
      */
     FDB_COMMIT_MANUAL_WAL_FLUSH = 0x01
 };
+
+/**
+ * Flag to enable / disable a sequence btree.
+ */
+typedef uint8_t fdb_seqtree_opt_t;
+enum {
+    FDB_SEQTREE_NOT_USE = 0,
+    FDB_SEQTREE_USE = 1
+};
+
+/**
+ * Durability options for ForestDB.
+ */
+typedef uint8_t fdb_durability_opt_t;
+enum {
+    /**
+     * Synchronous commit through OS page cache.
+     */
+    FDB_DRB_NONE = 0x0,
+    /**
+     * Synchronous commit through the direct IO option to bypass
+     * the OS page cache.
+     */
+    FDB_DRB_ODIRECT = 0x1,
+    /**
+     * Asynchronous commit through OS page cache.
+     */
+    FDB_DRB_ASYNC = 0x2,
+    /**
+     * Asynchronous commit through the direct IO option to bypass
+     * the OS page cache.
+     */
+    FDB_DRB_ODIRECT_ASYNC = 0x3
+};
+
+/**
+ * Pointer type definition of a customized compare function for fixed size key.
+ */
+typedef int (*fdb_custom_cmp_fixed)(void *a, void *b);
+
+/**
+ * Pointer type definition of a customized compare function for variable length key.
+ */
+typedef int (*fdb_custom_cmp_variable)(void *a, size_t len_a,
+                                       void *b, size_t len_b);
+
+/**
+ * ForestDB config options that are passed to fdb_open API.
+ */
+typedef struct {
+    /**
+     * Chunk size (bytes) that is used to build B+-tree at each level.
+     * It is set to 8 bytes by default and has a min value of 4 bytes
+     * and a max value of 64 bytes.
+     * This is a local config to each ForestDB database instance.
+     */
+    uint16_t chunksize;
+    /**
+     * Size of block that is a unit of IO operations.
+     * It is set to 4KB by default and has a min value of 1KB and a max value of
+     * 128KB. This is a global config that is used across all ForestDB database
+     * instances.
+     */
+    uint32_t blocksize;
+    /**
+     * Buffer cache size in bytes. If the size is set to zero, then the buffer
+     * cache is disabled. This is a global config that is used across all
+     * ForestDB database instances.
+     */
+    uint64_t buffercache_size;
+    /**
+     * WAL index size threshold in memory (4096 entries by default).
+     * This is a local config to each ForestDB database instance.
+     */
+    uint64_t wal_threshold;
+    /**
+     * Interval for purging logically deleted documents in the unit of second.
+     * It is set to 0 second (purge during next compaction) by default.
+     * This is a local config to each ForestDB database instance.
+     */
+    uint32_t purging_interval;
+    /**
+     * Flag to enable or disable a sequence B+-Tree.
+     * This is a local config to each ForestDB database instance.
+     */
+    fdb_seqtree_opt_t seqtree_opt;
+    /**
+     * Flag to enable synchronous or asynchronous commit options.
+     * This is a local config to each ForestDB database instance.
+     */
+    fdb_durability_opt_t durability_opt;
+    /**
+     * Flags for fdb_open API. It can be used for specifying read-only mode.
+     * This is a local config to each ForestDB database instance.
+     */
+    fdb_open_flags flags;
+    /**
+     * Maximum size (bytes) of temporary buffer for compaction (16MB by default).
+     * This is a local config to each ForestDB database instance.
+     */
+    uint32_t compaction_buf_maxsize;
+    /**
+     * Destroy all the cached blocks in the global buffer cache when a database
+     * file is closed. It is set to true by default. This is a global config
+     * that is used across all ForestDB database instances.
+     */
+    bool cleanup_cache_onclose;
+    /**
+     * Compress the body of document when it is written on disk. The compression
+     * is disabled by default. This is a global config that is used across all
+     * ForestDB database instances.
+     */
+    bool compress_document_body;
+    /**
+     * Customized compare function for fixed size key.
+     * This is a local config to each ForestDB database instance.
+     */
+    fdb_custom_cmp_fixed cmp_fixed;
+    /**
+     * Customized compare function for variable length key.
+     * This is a local config to each ForestDB database instance.
+     */
+    fdb_custom_cmp_variable cmp_variable;
+} fdb_config;
+
 
 typedef uint64_t fdb_seqnum_t;
 
@@ -115,17 +240,6 @@ typedef struct fdb_doc_struct {
      */
     bool deleted;
 } fdb_doc;
-
-/**
- * Pointer type definition of a customized compare function for fixed size key.
- */
-typedef int (*fdb_custom_cmp_fixed)(void *a, void *b);
-
-/**
- * Pointer type definition of a customized compare function for variable length key.
- */
-typedef int (*fdb_custom_cmp_variable)(void *a, size_t len_a,
-                                       void *b, size_t len_b);
 
 /**
  * Pointer type definition of an error logging callback function.

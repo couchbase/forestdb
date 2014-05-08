@@ -123,7 +123,7 @@ void basic_test()
     config.flag = 0x0;
 
     file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
-    docio_init(&dhandle, file, 0);
+    docio_init(&dhandle, file, false);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
@@ -179,7 +179,7 @@ void basic_test()
     }
     r = hbtrie_iterator_free(&it);
 
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -232,7 +232,7 @@ void large_test()
     DBG("filemgr, bcache init .. \n");
     rr = system(SHELL_DEL" dummy");
     file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
-    docio_init(&dhandle, file, 0);
+    docio_init(&dhandle, file, false);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
@@ -328,7 +328,7 @@ void large_test()
 
     DBG("trie root bid %"_F64"\n", trie.root_bid);
 
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("large test");
@@ -407,7 +407,7 @@ void skew_basic_test()
     config.flag = 0x0;
 
     file = filemgr_open((char*)"./dummy", get_filemgr_ops(), &config, NULL);
-    docio_init(&dhandle, file, 0);
+    docio_init(&dhandle, file, false);
     btreeblk_init(&bhandle, file, blocksize);
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
@@ -517,7 +517,7 @@ void skew_basic_test()
     hbtrie_free(&trie);
     docio_free(&dhandle);
     btreeblk_free(&bhandle);
-    filemgr_close(file, 1, NULL);
+    filemgr_close(file, true, NULL);
     filemgr_shutdown();
 
     memleak_end();
