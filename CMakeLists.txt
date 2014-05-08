@@ -37,6 +37,7 @@ add_library(forestdb SHARED
             src/btree_kv.cc
             src/btree_prefix_kv.cc
             src/btreeblock.cc
+            src/compactor.cc
             src/configuration.cc
             src/docio.cc
             src/filemgr.cc

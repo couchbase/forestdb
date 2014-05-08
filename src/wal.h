@@ -76,6 +76,7 @@ struct wal {
     uint8_t flag;
     size_t size;
     size_t num_deletes;
+    uint64_t datasize;
     struct hash hash_bykey;
 #ifdef __FDB_SEQTREE
     struct hash hash_byseq;

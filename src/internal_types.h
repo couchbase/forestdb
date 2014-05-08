@@ -133,6 +133,11 @@ struct _fdb_handle {
      * Database's max sequence number for snapshot or rollback
      */
     fdb_seqnum_t max_seqnum;
+    /**
+     * Virtual filename (DB instance filename given by users).
+     * Only used when compaction daemon is enabled.
+     */
+    char *filename;
 #endif
 };
 

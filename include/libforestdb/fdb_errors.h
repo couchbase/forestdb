@@ -114,6 +114,10 @@ typedef enum {
      */
     FDB_RESULT_INVALID_CONFIG = -20,
     /**
+     * Try to perform manual compaction when compaction daemon is enabled.
+     */
+    FDB_RESULT_MANUAL_COMPACTION_FAIL = -21,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

@@ -95,6 +95,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     file->wal->flag = WAL_FLAG_INITIALIZED;
     file->wal->size = 0;
     file->wal->num_deletes = 0;
+    file->wal->datasize = 0;
     file->wal->last_commit = NULL;
     file->wal->wal_dirty = FDB_WAL_CLEAN;
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
@@ -160,6 +161,8 @@ static wal_result _wal_insert(struct filemgr *file,
                 }
             }
 
+            file->wal->datasize -= item->doc_size;
+            file->wal->datasize += doc->size_ondisk;
             item->doc_size = doc->size_ondisk;
             item->offset = offset;
             item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
@@ -185,6 +188,7 @@ static wal_result _wal_insert(struct filemgr *file,
         item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
         item->doc_size = doc->size_ondisk;
+        file->wal->datasize += doc->size_ondisk;
 
         hash_insert(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
@@ -319,6 +323,7 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         item = (struct wal_item *)mempool_alloc(sizeof(struct wal_item));
         item->keylen = keylen;
         item->flag = 0x0;
+        item->doc_size = 0;
 #ifdef __WAL_KEY_COPY
         item->key = (void *)mempool_alloc(item->keylen);
         memcpy(item->key, key, item->keylen);
@@ -418,6 +423,9 @@ wal_result wal_flush(struct filemgr *file,
                 --file->wal->num_deletes;
             }
             file->wal->size--;
+            if (item->action != WAL_ACT_REMOVE) {
+                file->wal->datasize -= item->doc_size;
+            }
 
 #ifdef __WAL_KEY_COPY
             mempool_free(item->key);
@@ -458,9 +466,13 @@ wal_result wal_close(struct filemgr *file)
         hash_remove(&file->wal->hash_bykey, &item->he_key);
         SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
 
-    #ifdef __WAL_KEY_COPY
+        if (item->action != WAL_ACT_REMOVE) {
+            file->wal->datasize -= item->doc_size;
+        }
+
+#ifdef __WAL_KEY_COPY
         mempool_free(item->key);
-    #endif
+#endif
         mempool_free(item);
 
         file->wal->size--;
@@ -489,18 +501,8 @@ size_t wal_get_num_deletes(struct filemgr *file) {
 size_t wal_get_datasize(struct filemgr *file)
 {
     size_t datasize = 0;
-    struct list_elem *e;
-    struct hash_elem *h;
-    struct wal_item *item;
-
     spin_lock(&file->wal->lock);
-
-    e = list_begin(&file->wal->list);
-    while(e){
-        item = _get_entry(e, struct wal_item, list_elem);
-        datasize += item->doc_size;
-        e = list_next(e);
-    }
+    datasize = file->wal->datasize;
     spin_unlock(&file->wal->lock);
 
     return datasize;

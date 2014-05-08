@@ -39,6 +39,7 @@
 #include "crc32.h"
 #include "configuration.h"
 #include "internal_types.h"
+#include "compactor.h"
 #include "memleak.h"
 
 #ifdef __DEBUG
@@ -49,8 +50,6 @@
     #define DBG(...)
     #define DBGCMD(...)
     #define DBGSW(n, ...)
-#else
-    static int compact_count=0;
 #endif
 #endif
 
@@ -108,15 +107,15 @@ int _fdb_cmp_variable_wrap(void *key1, void *key2, void *aux)
     return handle->config.cmp_variable(keystr1, keylen1, keystr2, keylen2);
 }
 
-INLINE void _fdb_fetch_header(void *header_buf,
-                              bid_t *trie_root_bid,
-                              bid_t *seq_root_bid,
-                              uint64_t *ndocs,
-                              uint64_t *nlivenodes,
-                              uint64_t *datasize,
-                              uint64_t *last_header_bid,
-                              char **new_filename,
-                              char **old_filename)
+void _fdb_fetch_header(void *header_buf,
+                       bid_t *trie_root_bid,
+                       bid_t *seq_root_bid,
+                       uint64_t *ndocs,
+                       uint64_t *nlivenodes,
+                       uint64_t *datasize,
+                       uint64_t *last_header_bid,
+                       char **new_filename,
+                       char **old_filename)
 {
     size_t offset = 0;
     uint8_t new_filename_len;
@@ -373,7 +372,10 @@ fdb_status fdb_open(fdb_handle **ptr_handle,
 #ifdef _MEMPOOL
     mempool_init();
 #endif
+
     fdb_config config;
+    compactor_config c_config;
+
     if (fconfig) {
         if (validate_fdb_config(fconfig)) {
             config = *fconfig;
@@ -393,7 +395,34 @@ fdb_status fdb_open(fdb_handle **ptr_handle,
     config.cmp_variable = NULL;
     handle->shandle = NULL;
 
+    c_config.sleep_duration = fconfig->compactor_sleep_duration;
+    compactor_init(&c_config);
+
     fdb_status fs = _fdb_open(handle, filename, &config);
+    if (fs == FDB_RESULT_SUCCESS) {
+        *ptr_handle = handle;
+    } else {
+        *ptr_handle = NULL;
+        free(handle);
+    }
+    return fs;
+}
+
+fdb_status fdb_open_for_compactor(fdb_handle **ptr_handle,
+                                  const char *filename,
+                                  fdb_config *config)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    if (!handle) {
+        return FDB_RESULT_ALLOC_FAIL;
+    }
+    handle->shandle = NULL;
+
+    fdb_status fs = _fdb_open(handle, filename, config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_handle = handle;
     } else {
@@ -413,8 +442,11 @@ fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
 #endif
 
     fdb_config config;
+    compactor_config c_config;
+
     if (fconfig) {
-        if (validate_fdb_config(fconfig)) {
+        if (validate_fdb_config(fconfig) &&
+            fconfig->cmp_fixed) {
             config = *fconfig;
         } else {
             return FDB_RESULT_INVALID_CONFIG;
@@ -430,6 +462,9 @@ fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
 
     config.cmp_variable = NULL;
     handle->shandle = NULL;
+
+    c_config.sleep_duration = fconfig->compactor_sleep_duration;
+    compactor_init(&c_config);
 
     fdb_status fs = _fdb_open(handle, filename, &config);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -451,8 +486,11 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
 #endif
 
     fdb_config config;
+    compactor_config c_config;
+
     if (fconfig) {
-        if (validate_fdb_config(fconfig)) {
+        if (validate_fdb_config(fconfig) &&
+            fconfig->cmp_variable) {
             config = *fconfig;
         } else {
             return FDB_RESULT_INVALID_CONFIG;
@@ -468,6 +506,9 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
 
     config.cmp_fixed = NULL;
     handle->shandle = NULL;
+
+    c_config.sleep_duration = fconfig->compactor_sleep_duration;
+    compactor_init(&c_config);
 
     fdb_status fs = _fdb_open(handle, filename, &config);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -518,6 +559,8 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     handle->max_seqnum = seqnum;
 
     config.flags |= FDB_OPEN_FLAG_RDONLY;
+    // do not perform compaction for snapshot
+    config.compaction_threshold = 0;
     fs = _fdb_open(handle, handle_in->file->filename, &config);
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -618,6 +661,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     uint64_t prev_datasize = 0;
     uint64_t prev_last_header_bid = 0;
     bid_t hdr_bid;
+    char actual_filename[256];
 
     fconfig.blocksize = config->blocksize;
     fconfig.ncacheblock = config->buffercache_size / config->blocksize;
@@ -633,8 +677,21 @@ static fdb_status _fdb_open(fdb_handle *handle,
         fconfig.flag |= _ARCH_O_DIRECT;
     }
 
+    if (config->compaction_threshold > 0) {
+        compactor_get_actual_filename(filename, actual_filename);
+        if (handle->filename) {
+            handle->filename = (char *)realloc(handle->filename, strlen(filename)+1);
+        } else {
+            handle->filename = (char*)malloc(strlen(filename)+1);
+        }
+        strcpy(handle->filename, filename);
+    } else {
+        strcpy(actual_filename, filename);
+        handle->filename = NULL;
+    }
+
     handle->fileops = get_filemgr_ops();
-    handle->file = filemgr_open((char *)filename, handle->fileops,
+    handle->file = filemgr_open((char *)actual_filename, handle->fileops,
                                 &fconfig, &handle->log_callback);
     if (!handle->file) {
         return FDB_RESULT_OPEN_FAIL;
@@ -796,6 +853,11 @@ static fdb_status _fdb_open(fdb_handle *handle,
     }
 
     btreeblk_end(handle->bhandle);
+
+    // do not register read-only handles
+    if (!(config->flags & FDB_OPEN_FLAG_RDONLY)) {
+        compactor_register_file(handle->file, (fdb_config *)config);
+    }
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1194,16 +1256,28 @@ void _fdb_check_file_reopen(fdb_handle *handle)
             handle->bhandle->nlivenodes = nlivenodes;
             handle->datasize = datasize;
 
+            // note that we don't need to call 'compactor_deregister_file'
+            // because the old file is already removed when compaction is complete.
+            compactor_register_file(handle->file, &handle->config);
+
         } else {
             // close the current file and newly open the new file
-            filemgr_fetch_header(handle->file, buf, &header_len);
-            _fdb_fetch_header(buf,
-                              &trie_root_bid, &seq_root_bid,
-                              &ndocs, &nlivenodes, &datasize, &last_header_bid,
-                              &new_filename, NULL);
+            if (handle->config.compaction_threshold) {
+                // compaction daemon mode .. just close and then open
+                char filename[256];
+                strcpy(filename, handle->filename);
+                _fdb_close(handle);
+                _fdb_open(handle, filename, &config);
 
-            _fdb_close(handle);
-            _fdb_open(handle, new_filename, &config);
+            } else {
+                filemgr_fetch_header(handle->file, buf, &header_len);
+                _fdb_fetch_header(buf,
+                                  &trie_root_bid, &seq_root_bid,
+                                  &ndocs, &nlivenodes, &datasize, &last_header_bid,
+                                  &new_filename, NULL);
+                _fdb_close(handle);
+                _fdb_open(handle, new_filename, &config);
+            }
         }
     }
 }
@@ -1999,6 +2073,10 @@ void _fdb_commit_and_remove_pending(fdb_handle *handle,
     // and this will be pended until there is no handle referring the file
     filemgr_remove_pending(old_file, new_file);
 
+    // Don't clean up the buffer cache entries for the old file.
+    // They will be cleaned up later.
+    filemgr_close(old_file, 0, &handle->log_callback);
+
     filemgr_mutex_unlock(handle->file);
 }
 
@@ -2032,15 +2110,16 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 {
     uint8_t *k = alca(uint8_t, HBTRIE_MAX_KEYLEN);
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
+    uint8_t deleted;
     uint64_t offset;
     uint64_t new_offset;
     uint64_t *offset_array;
-    size_t i, c, count;
+    size_t i, j, c, count;
     size_t offset_array_max;
     size_t keylen;
     hbtrie_result hr;
     btree_result br;
-    struct docio_object doc;
+    struct docio_object doc[FDB_COMPACTION_BATCHSIZE];
     struct hbtrie_iterator it;
     struct btree_iterator bit;
     struct timeval tv;
@@ -2103,44 +2182,49 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
             // quick sort
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
 
-            for (i=0; i<c; ++i) {
-                offset = offset_array[i];
+            for (i=0; i<c; i+=FDB_COMPACTION_BATCHSIZE) {
+                for(j=i; j<MIN(c, i+FDB_COMPACTION_BATCHSIZE); ++j){
+                    offset = offset_array[j];
 
-                doc.key = k;
-                doc.meta = NULL;
-                doc.body = NULL;
-                docio_read_doc(handle->dhandle, offset, &doc);
-                uint8_t deleted = doc.length.flag & DOCIO_DELETED;
-
-                // compare timestamp
-                if (!deleted ||
-                    (cur_timestamp < doc.timestamp + handle->config.purging_interval &&
-                     deleted)) {
-                    // re-write the document to new file when
-                    // 1. the document is not deleted
-                    // 2. the document is logically deleted but
-                    //    its timestamp isn't overdue
-                    filemgr_mutex_lock(new_file);
-                    new_offset = docio_append_doc(new_dhandle, &doc, deleted);
-
-                    wal_doc.keylen = doc.length.keylen;
-                    wal_doc.metalen = doc.length.metalen;
-                    wal_doc.bodylen = doc.length.bodylen;
-                    wal_doc.key = doc.key;
-#ifdef __FDB_SEQTREE
-                    wal_doc.seqnum = doc.seqnum;
-#endif
-                    wal_doc.meta = doc.meta;
-                    wal_doc.body = doc.body;
-                    wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
-                    wal_doc.deleted = deleted;
-
-                    wal_insert_by_compactor(new_file, &wal_doc, new_offset);
-
-                    filemgr_mutex_unlock(new_file);
+                    doc[j-i].key = NULL;
+                    doc[j-i].meta = NULL;
+                    doc[j-i].body = NULL;
+                    docio_read_doc(handle->dhandle, offset, &doc[j-i]);
                 }
-                free(doc.meta);
-                free(doc.body);
+
+                filemgr_mutex_lock(new_file);
+                for(j=i; j<MIN(c, i+FDB_COMPACTION_BATCHSIZE); ++j){
+                    // compare timestamp
+                    deleted = doc[j-i].length.flag & DOCIO_DELETED;
+                    if (!deleted ||
+                        (cur_timestamp < doc[j-i].timestamp + handle->config.purging_interval &&
+                         deleted)) {
+                        // re-write the document to new file when
+                        // 1. the document is not deleted
+                        // 2. the document is logically deleted but
+                        //    its timestamp isn't overdue
+                        new_offset = docio_append_doc(new_dhandle, &doc[j-i], deleted);
+
+                        wal_doc.keylen = doc[j-i].length.keylen;
+                        wal_doc.metalen = doc[j-i].length.metalen;
+                        wal_doc.bodylen = doc[j-i].length.bodylen;
+                        wal_doc.key = doc[j-i].key;
+#ifdef __FDB_SEQTREE
+                        wal_doc.seqnum = doc[j-i].seqnum;
+#endif
+                        wal_doc.meta = doc[j-i].meta;
+                        wal_doc.body = doc[j-i].body;
+                        wal_doc.size_ondisk= _fdb_get_docsize(doc[j-i].length);
+                        wal_doc.deleted = deleted;
+
+                        wal_insert_by_compactor(new_file, &wal_doc, new_offset);
+
+                    }
+                    free(doc[j-i].key);
+                    free(doc[j-i].meta);
+                    free(doc[j-i].body);
+                }
+                filemgr_mutex_unlock(new_file);
             }
             // reset to zero
             c=0;
@@ -2169,8 +2253,9 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
     free(offset_array);
 }
 
-LIBFDB_API
-fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
+fdb_status _fdb_compact(fdb_handle *handle,
+                        const char *new_filename,
+                        bool called_by_compactor)
 {
     struct filemgr *new_file, *old_file;
     struct filemgr_config fconfig;
@@ -2200,6 +2285,12 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
         _fdb_sync_db_header(handle);
 
         return FDB_RESULT_COMPACTION_FAIL;
+    }
+
+    // not able to compact if compaction daemon is enabled.
+    if (handle->config.compaction_threshold && !called_by_compactor) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_MANUAL_COMPACTION_FAIL;
     }
 
     // invalid filename
@@ -2315,9 +2406,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     handle->datasize = new_datasize;
 
     old_file = handle->file;
-    // Don't clean up the buffer cache entries for the old file.
-    // They will be cleaned up later.
-    filemgr_close(old_file, 0, &handle->log_callback);
+    compactor_switch_file(old_file, new_file);
     handle->file = new_file;
 
     btreeblk_free(handle->bhandle);
@@ -2352,10 +2441,20 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     // allow update to new_file
     filemgr_mutex_unlock(new_file);
 
-    // commit new file and set remove pending flag of the old file
+    // atomically perform
+    // 1) commit new file
+    // 2) set remove pending flag of the old file
+    // 3) close the old file
     _fdb_commit_and_remove_pending(handle, old_file, new_file);
 
     return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
+fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
+{
+    // called by user (manual compaction)
+    return _fdb_compact(handle, new_filename, false);
 }
 
 LIBFDB_API
@@ -2374,6 +2473,10 @@ fdb_status fdb_close(fdb_handle *handle)
 
 static fdb_status _fdb_close(fdb_handle *handle)
 {
+    if (handle->config.flags & FDB_OPEN_FLAG_CREATE) {
+        compactor_deregister_file(handle->file);
+    }
+
     fdb_status fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose,
                                   &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
@@ -2415,6 +2518,10 @@ static fdb_status _fdb_close(fdb_handle *handle)
         snap_close(handle->shandle);
         free(handle->shandle);
     }
+    if (handle->filename) {
+        free(handle->filename);
+        handle->filename = NULL;
+    }
     return fs;
 }
 
@@ -2447,7 +2554,12 @@ fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info)
     _fdb_link_new_file(handle);
     _fdb_sync_db_header(handle);
 
-    info->filename = handle->file->filename;
+    if (handle->filename) {
+        // compaction daemon mode
+        info->filename = handle->filename;
+    } else {
+        info->filename = handle->file->filename;
+    }
 
     if (handle->shandle) {
         // handle for snapshot
@@ -2493,6 +2605,7 @@ fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info)
 LIBFDB_API
 fdb_status fdb_shutdown()
 {
+    compactor_shutdown();
     filemgr_shutdown();
 #ifdef _MEMPOOL
     mempool_shutdown();

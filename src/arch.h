@@ -95,6 +95,7 @@
         #define thread_create(tid, func, args) \
             pthread_create((tid), NULL, (func), (args))
         #define thread_join(tid, ret) pthread_join(tid, ret)
+        #define thread_cancel(tid) pthread_cancel(tid)
         #define thread_exit(code) pthread_exit(code)
     #endif
 
@@ -141,6 +142,7 @@
         #define thread_create(tid, func, args) \
             pthread_create((tid), NULL, (func), (args))
         #define thread_join(tid, ret) pthread_join(tid, ret)
+        #define thread_cancel(tid) pthread_cancel(tid)
         #define thread_exit(code) pthread_exit(code)
     #endif
 
@@ -203,6 +205,7 @@
                 (LPTHREAD_START_ROUTINE)(func), (args), 0, &__dt__); \
             }
         #define thread_join(tid, ret) WaitForSingleObject(tid, INFINITE)
+        #define thread_cancel(tid) TerminateThread(tid, 0);
         #define thread_exit(code) ExitThread(code)
     #endif
 
@@ -250,6 +253,7 @@
         #define thread_create(tid, func, args) \
             pthread_create((tid), NULL, (func), (args))
         #define thread_join(tid, ret) pthread_join(tid, ret)
+        #define thread_cancel(tid) pthread_cancel(tid)
         #define thread_exit(code) pthread_exit(code)
     #endif
 

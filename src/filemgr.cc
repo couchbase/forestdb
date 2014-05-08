@@ -50,6 +50,7 @@
 #ifdef SPIN_INITIALIZER
 static spin_t initial_lock = SPIN_INITIALIZER;
 #else
+static volatile unsigned int initial_lock_status = 0;
 static spin_t initial_lock;
 #endif
 
@@ -281,13 +282,17 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     // initialized only once at first time
     if (!filemgr_initialized) {
 #ifndef SPIN_INITIALIZER
-        void *zerobytes = (void *)malloc(sizeof(spin_t));
-        memset(zerobytes, 0, sizeof(spin_t));
-        if (!memcmp(&initial_lock, zerobytes, sizeof(spin_t))) {
-            // NULL value .. initialize
+        // Note that only Windows passes through this routine
+        if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
+            // atomically initialize spin lock only once
             spin_init(&initial_lock);
+            initial_lock_status = 2;
+        } else {
+            // the others .. wait until initializing 'initial_lock' is done
+            while (initial_lock_status != 2) {
+                Sleep(1);
+            }
         }
-        free(zerobytes);
 #endif
         filemgr_init(config);
     }
@@ -663,6 +668,12 @@ void filemgr_shutdown()
             bcache_shutdown();
         }
         filemgr_initialized = 0;
+#ifndef SPIN_INITIALIZER
+        initial_lock_status = 0;
+        spin_destroy(&initial_lock);
+#else
+        initial_lock = SPIN_INITIALIZER;
+#endif
         _filemgr_shutdown_temp_buf();
 
         spin_unlock(&initial_lock);

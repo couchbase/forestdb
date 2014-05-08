@@ -185,6 +185,26 @@ typedef struct {
      */
     bool compress_document_body;
     /**
+     * Compaction threshold in the unit of percentage (%). It can be calculated
+     * as '(stale data size)/(total file size)'. The compaction daemon triggers
+     * compaction if this threshold is satisfied.
+     * The compaction daemon is disabled when this value is set to zero,
+     * and compaction will not be performed when this value is set to 100.
+     * This is a local config to each ForestDB database instance.
+     */
+    uint8_t compaction_threshold;
+    /**
+     * The minimum filesize to perform compaction.
+     * This is a local config to each ForestDB database instance.
+     */
+    uint64_t compaction_minimum_filesize;
+    /**
+     * Duration that the compaction daemon periodically waks up, in the unit of
+     * second. This is a global config that is used across all ForestDB database
+     * instances.
+     */
+    uint64_t compactor_sleep_duration;
+    /**
      * Customized compare function for fixed size key.
      * This is a local config to each ForestDB database instance.
      */

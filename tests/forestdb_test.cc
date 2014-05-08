@@ -46,7 +46,7 @@ void _set_random_string_smallabt(char *str, int len)
     } while(len--);
 }
 
-void set_default_fdb_config(fdb_config *fconfig) {
+void _test_default_fdb_config(fdb_config *fconfig) {
     if (fconfig) {
         fconfig->chunksize = sizeof(uint64_t);
         fconfig->blocksize = FDB_BLOCKSIZE; // 4KB by default.
@@ -56,11 +56,14 @@ void set_default_fdb_config(fdb_config *fconfig) {
         fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
         fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
         fconfig->flags = FDB_OPEN_FLAG_CREATE;
-        fconfig->compaction_buf_maxsize = 16777216; // 16MB by default.
+        fconfig->compaction_buf_maxsize = 4194304; // 4MB by default.
         fconfig->cleanup_cache_onclose = true; // Clean up cache entries when a file is closed.
         fconfig->compress_document_body = false; // Compress the body of documents using snappy.
         fconfig->cmp_fixed = NULL;
         fconfig->cmp_variable = NULL;
+        fconfig->compaction_threshold = 0; // Compaction threshold, 0% (disable) by default
+        fconfig->compaction_minimum_filesize = 1048576; // 1MB by default
+        fconfig->compactor_sleep_duration = 1; // 1 second by default for quick test
     }
 }
 
@@ -91,9 +94,10 @@ void basic_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
+    fconfig.compaction_threshold = 0;
 
     // Read-Only mode test: Must not create new file..
     status = fdb_open(&db, "./dummy1", &fconfig);
@@ -298,10 +302,11 @@ void wal_commit_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -393,10 +398,11 @@ void multi_version_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 1048576;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -517,10 +523,11 @@ void compact_wo_reopen_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -610,10 +617,11 @@ void compact_with_reopen_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -707,10 +715,11 @@ void auto_recover_compact_ok_test()
     r = system(SHELL_DEL " dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -826,10 +835,11 @@ void db_drop_test()
     r = system(SHELL_DEL " dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -903,6 +913,7 @@ struct work_thread_args{
     int *filename_count;
     spin_t *filename_count_lock;
     size_t nops;
+    fdb_config *config;
 };
 
 //#define FILENAME "./hdd/dummy"
@@ -930,7 +941,7 @@ void *_worker_thread(void *voidargs)
 
     filename_count = *args->filename_count;
     sprintf(temp, FILENAME"%d", filename_count);
-    fdb_open(&db, temp, NULL);
+    fdb_open(&db, temp, args->config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "worker_thread");
 
@@ -1043,10 +1054,11 @@ void multi_thread_test(
     r = system(SHELL_DEL" "FILENAME"* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     memleak_start();
 
@@ -1099,6 +1111,7 @@ void multi_thread_test(
         args[i].compact_term = compact_term;
         args[i].filename_count = &filename_count;
         args[i].filename_count_lock = &filename_count_lock;
+        args[i].config = &fconfig;
         thread_create(&tid[i], _worker_thread, &args[i]);
     }
 
@@ -1159,10 +1172,11 @@ void crash_recovery_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // reopen db
     fdb_open(&db, "./dummy2", &fconfig);
@@ -1263,10 +1277,11 @@ void incomplete_block_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -1335,10 +1350,11 @@ void iterator_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -1564,10 +1580,11 @@ void sequence_iterator_test()
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -1802,11 +1819,12 @@ void custom_compare_primitive_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.cmp_fixed = _cmp_double;
+    fconfig.compaction_threshold = 0;
 
     // open db with custom compare function for double key type
     fdb_open_cmp_fixed(&db, "./dummy1", &fconfig);
@@ -1938,11 +1956,12 @@ void custom_compare_variable_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.cmp_variable = _cmp_variable;
+    fconfig.compaction_threshold = 0;
 
     // open db with custom compare function for variable length key type
     fdb_open_cmp_variable(&db, "./dummy1", &fconfig);
@@ -2056,10 +2075,11 @@ void snapshot_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2224,10 +2244,11 @@ void rollback_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2372,11 +2393,12 @@ void doc_compression_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compress_document_body = true;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -2508,11 +2530,12 @@ void read_doc_by_offset_test() {
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.purging_interval = 3600;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -2614,11 +2637,12 @@ void purge_logically_deleted_doc_test()
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
     fdb_config fconfig;
-    set_default_fdb_config(&fconfig);
+    _test_default_fdb_config(&fconfig);
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.purging_interval = 2;
+    fconfig.compaction_threshold = 0;
 
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
@@ -2725,6 +2749,200 @@ void purge_logically_deleted_doc_test()
     TEST_RESULT("purge logically deleted doc test");
 }
 
+void compaction_daemon_test(size_t time_sec)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, r;
+    int n = 10000;
+    int compaction_threshold = 30;
+    int escape = 0;
+    fdb_handle *db, *db_less, *db_non;
+    fdb_handle *snapshot;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_info info;
+    fdb_status status;
+    struct timeval ts_begin, ts_cur, ts_gap;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig;
+    _test_default_fdb_config(&fconfig);
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = compaction_threshold;
+
+    // open db
+    fdb_open(&db, "dummy", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_daemon_test");
+    // insert documents
+    printf("Initialize..\n");
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%04d", i);
+        sprintf(metabuf, "meta%04d", i);
+        sprintf(bodybuf, "body%04d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf)+1,
+            (void*)metabuf, strlen(metabuf)+1, (void*)bodybuf, strlen(bodybuf)+1);
+        fdb_set(db, doc[i]);
+    }
+    // commit
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+    // close db file
+    fdb_close(db);
+
+    // ---- basic retrieve test ------------------------
+    // reopen db file
+    status = fdb_open(&db, "dummy", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_daemon_test");
+    // check db filename
+    fdb_get_dbinfo(db, &info);
+    TEST_CHK(!strcmp(info.filename, "dummy"));
+
+    // retrieve documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%04d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf)+1,
+            NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        //printf("%s %s\n", rdoc->key, rdoc->body);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    // create a snapshot
+    status = fdb_snapshot_open(db, &snapshot, n);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // close snapshot
+    fdb_close(snapshot);
+
+    // try to perform manual compaction
+    status = fdb_compact(db, "dummy_new");
+    TEST_CHK(status == FDB_RESULT_MANUAL_COMPACTION_FAIL);
+
+    // close db file
+    fdb_close(db);
+
+    // ---- handling when metafile is removed ------------
+    // remove meta file
+    r = system(SHELL_DEL" dummy.meta > errorlog.txt");
+    // reopen db file
+    status = fdb_open(&db, "dummy", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_daemon_test");
+    // retrieve documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%04d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf)+1,
+            NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        //printf("%s %s\n", rdoc->key, rdoc->body);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+    // close db file
+    fdb_close(db);
+
+    // ---- handling when metafile points to non-exist file ------------
+    // remove meta file
+    r = system(SHELL_MOVE" dummy.0 dummy.23 > errorlog.txt");
+    // reopen db file
+    status = fdb_open(&db, "dummy", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_daemon_test");
+    // retrieve documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%04d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf)+1,
+            NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        //printf("%s %s\n", rdoc->key, rdoc->body);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+    // close db file
+    fdb_close(db);
+
+    // ---- compaction daemon test -------------------
+    // db: DB instance to be compacted
+    // db_less: DB instance to be compacted but with much lower update throughput
+    // db_non: DB instance not to be compacted
+
+    // open & create db_less and db_non
+    status = fdb_open(&db_less, "dummy_less", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fconfig.compaction_threshold = 0;
+    status = fdb_open(&db_non, "dummy_non", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // reopen db file
+    fconfig.compaction_threshold = compaction_threshold;
+    status = fdb_open(&db, "dummy", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compaction_daemon_test");
+    // continuously update documents
+    printf("wait for %d seconds..\n", (int)time_sec);
+    gettimeofday(&ts_begin, NULL);
+    while(!escape) {
+        for (i=0;i<n;++i){
+            // update db
+            fdb_set(db, doc[i]);
+            fdb_commit(db, FDB_COMMIT_NORMAL);
+
+            // update db_less (1/100 throughput)
+            if (i%100 == 0){
+                fdb_set(db_less, doc[i]);
+                fdb_commit(db_less, FDB_COMMIT_NORMAL);
+            }
+
+            // update db_non
+            fdb_set(db_non, doc[i]);
+            fdb_commit(db_non, FDB_COMMIT_NORMAL);
+
+            gettimeofday(&ts_cur, NULL);
+            ts_gap = _utime_gap(ts_begin, ts_cur);
+            if (ts_gap.tv_sec >= time_sec) {
+                escape = 1;
+                break;
+            }
+        }
+    }
+
+    // close db file
+    fdb_close(db);
+    fdb_close(db_non);
+    fdb_close(db_less);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("compaction daemon test");
+}
+
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -2746,6 +2964,7 @@ int main(){
     doc_compression_test();
     read_doc_by_offset_test();
     purge_logically_deleted_doc_test();
+    compaction_daemon_test(20);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;

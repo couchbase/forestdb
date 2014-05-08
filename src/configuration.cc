@@ -33,11 +33,14 @@ void set_default_fdb_config(fdb_config *fconfig) {
         fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
         fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
         fconfig->flags = FDB_OPEN_FLAG_CREATE;
-        fconfig->compaction_buf_maxsize = 16777216; // 16MB by default.
+        fconfig->compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE; // 4MB by default.
         fconfig->cleanup_cache_onclose = true; // Clean up cache entries when a file is closed.
         fconfig->compress_document_body = false; // Compress the body of documents using snappy.
         fconfig->cmp_fixed = NULL;
         fconfig->cmp_variable = NULL;
+        fconfig->compaction_threshold = 0; // Compaction threshold, 0% (disable) by default
+        fconfig->compaction_minimum_filesize = 1048576; // 1MB by default
+        fconfig->compactor_sleep_duration = 10; // 10 seconds by default
     }
 }
 
@@ -64,6 +67,14 @@ bool validate_fdb_config(fdb_config *fconfig) {
     }
     if (fconfig->flags != FDB_OPEN_FLAG_CREATE &&
         fconfig->flags != FDB_OPEN_FLAG_RDONLY) {
+        return false;
+    }
+    if (fconfig->compaction_threshold > 100) {
+        // Compaction threshold should be equal or less then 100 (%).
+        return false;
+    }
+    if (fconfig->compactor_sleep_duration == 0) {
+        // Sleep duration should be larger than zero
         return false;
     }
 
