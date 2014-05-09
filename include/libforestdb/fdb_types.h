@@ -142,6 +142,11 @@ typedef struct {
      */
     uint64_t wal_threshold;
     /**
+     * Flag to enable flushing the WAL whenever it reaches its threshold size.
+     * This reduces memory usage when a lot of data is written before a commit.
+     */
+    bool wal_flush_before_commit;
+    /**
      * Interval for purging logically deleted documents in the unit of second.
      * It is set to 0 second (purge during next compaction) by default.
      * This is a local config to each ForestDB database instance.

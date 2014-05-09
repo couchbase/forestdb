@@ -1775,13 +1775,13 @@ fdb_set_start:
         wal_set_dirty_status(file, FDB_WAL_DIRTY);
     }
 
-#ifdef __WAL_FLUSH_BEFORE_COMMIT
-    if (wal_get_size(file) > _fdb_get_wal_threshold(handle)) {
+    if (handle->config.wal_flush_before_commit &&
+            filemgr_get_file_status(handle->file) == FILE_NORMAL &&
+            wal_get_size(file) > _fdb_get_wal_threshold(handle)) {
         wal_flush(file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset);
         wal_set_dirty_status(file, FDB_WAL_PENDING);
     }
-#endif
 
     filemgr_mutex_unlock(file);
     return FDB_RESULT_SUCCESS;

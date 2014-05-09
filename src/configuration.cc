@@ -28,6 +28,7 @@ void set_default_fdb_config(fdb_config *fconfig) {
         fconfig->blocksize = FDB_BLOCKSIZE; // 4KB by default.
         fconfig->buffercache_size = 134217728; // 128MB by default.
         fconfig->wal_threshold = 4096; // 4096 WAL entries by default.
+        fconfig->wal_flush_before_commit = false;
         fconfig->purging_interval = 0; // 0 second by default.
         fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
         fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
