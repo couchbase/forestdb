@@ -40,6 +40,7 @@ struct filemgr_config {
 #define FILEMGR_SYNC 0x01
 #define FILEMGR_READONLY 0x02
 #define FILEMGR_ROLLBACK_IN_PROG 0x04
+#define FILEMGR_CREATE 0x08
 };
 
 struct filemgr_ops {
@@ -101,10 +102,15 @@ struct filemgr {
 #endif
 };
 
-struct filemgr * filemgr_open(char *filename,
-                              struct filemgr_ops *ops,
-                              struct filemgr_config *config,
-                              err_log_callback *log_callback);
+typedef struct {
+    struct filemgr *file;
+    int rv;
+} filemgr_open_result;
+
+filemgr_open_result filemgr_open(char *filename,
+                                 struct filemgr_ops *ops,
+                                 struct filemgr_config *config,
+                                 err_log_callback *log_callback);
 
 uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);

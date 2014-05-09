@@ -37,14 +37,19 @@ void basic_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 1024;
+    config.options = FILEMGR_CREATE;
 
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = filemgr_open((char *) "./dummy",
+                                              get_filemgr_ops(), &config, NULL);
+    file = result.file;
+    result = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    file = result.file;
 
     filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1);
 
     filemgr_close(file, true, NULL);
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    result = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    file = result.file;
 
     memcpy(buf, file->header.data, file->header.size);
     printf("%s\n", buf);

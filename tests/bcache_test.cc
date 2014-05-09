@@ -41,7 +41,9 @@ void basic_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
     config.ncacheblock = 5;
-    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    config.options = FILEMGR_CREATE;
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = result.file;
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file, NULL);
@@ -88,7 +90,9 @@ void basic_test2()
     config.blocksize = 4096;
     config.ncacheblock = 5;
     config.flag = 0x0;
-    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    config.options = FILEMGR_CREATE;
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = result.file;
 
     for (i=0;i<5;++i) {
         filemgr_alloc(file, NULL);
@@ -196,7 +200,9 @@ void multi_thread_test(
     config.blocksize = blocksize;
     config.ncacheblock = cachesize;
     config.flag = 0x0;
-    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    config.options = FILEMGR_CREATE;
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = result.file;
 
     for (i=0;i<nblocks;++i) {
         memcpy(buf, &i, sizeof(i));

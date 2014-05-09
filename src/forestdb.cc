@@ -667,6 +667,9 @@ static fdb_status _fdb_open(fdb_handle *handle,
     fconfig.ncacheblock = config->buffercache_size / config->blocksize;
     fconfig.flag = 0x0;
     fconfig.options = 0x0;
+    if (config->flags & FDB_OPEN_FLAG_CREATE) {
+        fconfig.options |= FILEMGR_CREATE;
+    }
     if (config->flags & FDB_OPEN_FLAG_RDONLY) {
         fconfig.options |= FILEMGR_READONLY;
     }
@@ -691,12 +694,13 @@ static fdb_status _fdb_open(fdb_handle *handle,
     }
 
     handle->fileops = get_filemgr_ops();
-    handle->file = filemgr_open((char *)actual_filename, handle->fileops,
-                                &fconfig, &handle->log_callback);
-    if (!handle->file) {
-        return FDB_RESULT_OPEN_FAIL;
+    filemgr_open_result result = filemgr_open((char *)actual_filename, handle->fileops,
+                                              &fconfig, &handle->log_callback);
+    if (result.rv != FDB_RESULT_SUCCESS) {
+        return (fdb_status) result.rv;
     }
 
+    handle->file = result.file;
     filemgr_mutex_lock(handle->file);
     filemgr_fetch_header(handle->file, header_buf, &header_len);
     if (header_len > 0) {
@@ -838,13 +842,13 @@ static fdb_status _fdb_open(fdb_handle *handle,
                                            prev_filename)) {
                 // Open the old file with read-only mode.
                 fconfig.options = FILEMGR_READONLY;
-                struct filemgr *old_file = filemgr_open(prev_filename,
-                                                        handle->fileops,
-                                                        &fconfig,
-                                                        &handle->log_callback);
-                if (old_file) {
-                    filemgr_remove_pending(old_file, handle->file);
-                    filemgr_close(old_file, 0, &handle->log_callback);
+                filemgr_open_result result = filemgr_open(prev_filename,
+                                                          handle->fileops,
+                                                          &fconfig,
+                                                          &handle->log_callback);
+                if (result.file) {
+                    filemgr_remove_pending(result.file, handle->file);
+                    filemgr_close(result.file, 0, &handle->log_callback);
                 }
             }
         } else {
@@ -1290,9 +1294,10 @@ void _fdb_link_new_file(fdb_handle *handle)
         assert(handle->file->new_file);
 
         // open new file and new dhandle
-        handle->new_file = filemgr_open(handle->file->new_file->filename,
-                                        handle->fileops, handle->file->config,
-                                        &handle->log_callback);
+        filemgr_open_result result = filemgr_open(handle->file->new_file->filename,
+                                                  handle->fileops, handle->file->config,
+                                                  &handle->log_callback);
+        handle->new_file = result.file;
         handle->new_dhandle = (struct docio_handle *) calloc(1, sizeof(struct docio_handle));
         handle->new_dhandle->log_callback = &handle->log_callback;
         docio_init(handle->new_dhandle,
@@ -2307,7 +2312,7 @@ fdb_status _fdb_compact(fdb_handle *handle,
     // set filemgr configuration
     fconfig.blocksize = handle->config.blocksize;
     fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
-    fconfig.options = 0x0;
+    fconfig.options = FILEMGR_CREATE;
     fconfig.flag = 0x0;
     if (handle->config.durability_opt & FDB_DRB_ODIRECT) {
         fconfig.flag |= _ARCH_O_DIRECT;
@@ -2317,8 +2322,13 @@ fdb_status _fdb_compact(fdb_handle *handle,
     }
 
     // open new file
-    new_file = filemgr_open((char *)new_filename, handle->fileops, &fconfig,
-                            &handle->log_callback);
+    filemgr_open_result result = filemgr_open((char *)new_filename, handle->fileops, &fconfig,
+                                              &handle->log_callback);
+    if (result.rv != FDB_RESULT_SUCCESS) {
+        return (fdb_status) result.rv;
+    }
+
+    new_file = result.file;
     assert(new_file);
 
     // prevent update to the new_file

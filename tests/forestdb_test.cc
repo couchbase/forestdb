@@ -101,7 +101,7 @@ void basic_test()
 
     // Read-Only mode test: Must not create new file..
     status = fdb_open(&db, "./dummy1", &fconfig);
-    TEST_CHK(status == FDB_RESULT_OPEN_FAIL);
+    TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
 
     // open and close db
     fconfig.flags = FDB_OPEN_FLAG_CREATE;

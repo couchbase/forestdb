@@ -62,8 +62,10 @@ void basic_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
+    config.options = FILEMGR_CREATE;
     r = system(SHELL_DEL " dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = result.file;
     docio_init(&handle, file, false);
 
     docsize = _set_doc(&doc, (char *) "this_is_key", (char *) "this_is_metadata",

@@ -41,11 +41,13 @@ extern "C" {
 typedef uint32_t fdb_open_flags;
 enum {
     /**
-     * Create a new empty ForestDB file if it doesn't exist.
+     * Open the database with read-write mode and
+     * create a new empty ForestDB file if it doesn't exist.
      */
     FDB_OPEN_FLAG_CREATE = 1,
     /**
-     * Open the database in read only mode
+     * Open the database in read only mode, but
+     * return an error if a file doesn't exist.
      */
     FDB_OPEN_FLAG_RDONLY = 2
 };

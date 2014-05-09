@@ -53,8 +53,10 @@ void basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 0;
     config.flag = 0x0;
+    config.options = FILEMGR_CREATE;
     r = system(SHELL_DEL" dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
@@ -144,8 +146,10 @@ void iterator_test()
     config.blocksize = blocksize;
     config.ncacheblock = 0;
     config.flag = 0x0;
+    config.options = FILEMGR_CREATE;
     r = system(SHELL_DEL" dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
 
     btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
@@ -219,7 +223,9 @@ void two_btree_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
-    file = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    config.options = FILEMGR_CREATE;
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = result.file;
     btreeblk_init(&btreeblk_handle, file, nodesize);
 
     btree_init(&btree_a, (void*)&btreeblk_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
@@ -259,9 +265,11 @@ void range_test()
     memset(&fconfig, 0, sizeof(fconfig));
     fconfig.blocksize = blocksize;
     fconfig.ncacheblock = 0;
+    fconfig.options = FILEMGR_CREATE;
 
     r = system(SHELL_DEL" dummy");
-    file = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
 
     btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(),

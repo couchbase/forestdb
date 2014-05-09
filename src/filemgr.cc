@@ -267,16 +267,18 @@ void _filemgr_read_header(struct filemgr *file)
     file->header.data = NULL;
 }
 
-struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
-                              struct filemgr_config *config,
-                              err_log_callback *log_callback)
+filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
+                                 struct filemgr_config *config,
+                                 err_log_callback *log_callback)
 {
     struct filemgr *file = NULL;
     struct filemgr query;
     struct hash_elem *e = NULL;
-    int read_only = config->options & FILEMGR_READONLY;
+    bool read_only = config->options & FILEMGR_READONLY;
+    bool create = config->options & FILEMGR_CREATE;
     int file_flag = 0x0;
     int fd = -1;
+    filemgr_open_result result = {NULL, FDB_RESULT_OPEN_FAIL};
 
     // global initialization
     // initialized only once at first time
@@ -311,6 +313,9 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 
         if (file->status == FILE_CLOSED) { // if file was closed before
             file_flag = read_only ? O_RDONLY : O_RDWR;
+            if (create) {
+                file_flag |= O_CREAT;
+            }
             file_flag |= config->flag;
             file->fd = file->ops->open(file->filename, file_flag, 0666);
             if (file->fd < 0) {
@@ -328,7 +333,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
                     file->ref_count--;
                     spin_unlock(&file->lock);
                     spin_unlock(&filemgr_openlock);
-                    return NULL;
+                    result.rv = file->fd;
+                    return result;
                 }
             } else { // Reopening the closed file is succeed.
                 file->status = FILE_NORMAL;
@@ -339,7 +345,9 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
                 }
                 spin_unlock(&file->lock);
                 spin_unlock(&filemgr_openlock);
-                return file;
+                result.file = file;
+                result.rv = FDB_RESULT_SUCCESS;
+                return result;
             }
         } else { // file is already opened.
 
@@ -351,11 +359,16 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
 
             spin_unlock(&file->lock);
             spin_unlock(&filemgr_openlock);
-            return file;
+            result.file = file;
+            result.rv = FDB_RESULT_SUCCESS;
+            return result;
         }
     }
 
-    file_flag = read_only ? O_RDONLY : (O_RDWR | O_CREAT);
+    file_flag = read_only ? O_RDONLY : O_RDWR;
+    if (create) {
+        file_flag |= O_CREAT;
+    }
     file_flag |= config->flag;
     fd = ops->open(filename, file_flag, 0666);
     if (fd < 0) {
@@ -363,7 +376,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         sprintf(msg, "Error in OPEN on a database file '%s', ", filename);
         _log_errno_str(ops, log_callback, msg, fd);
         spin_unlock(&filemgr_openlock);
-        return NULL;
+        result.rv = fd;
+        return result;
     }
     file = (struct filemgr*)calloc(1, sizeof(struct filemgr));
     file->filename_len = strlen(filename);
@@ -392,7 +406,8 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
         free(file->filename);
         free(file);
         spin_unlock(&filemgr_openlock);
-        return NULL;
+        result.rv = FDB_RESULT_SEEK_FAIL;
+        return result;
     }
     file->pos = file->last_commit = offset;
 
@@ -421,7 +436,10 @@ struct filemgr * filemgr_open(char *filename, struct filemgr_ops *ops,
     } else {
         file->fflags &= ~FILEMGR_SYNC;
     }
-    return file;
+
+    result.file = file;
+    result.rv = FDB_RESULT_SUCCESS;
+    return result;
 }
 
 uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len)

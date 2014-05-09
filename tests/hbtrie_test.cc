@@ -121,8 +121,11 @@ void basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 0;
     config.flag = 0x0;
+    config.options = FILEMGR_CREATE;
 
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = filemgr_open((char *) "./dummy",
+                                              get_filemgr_ops(), &config, NULL);
+    file = result.file;
     docio_init(&dhandle, file, false);
     btreeblk_init(&bhandle, file, blocksize);
 
@@ -228,10 +231,13 @@ void large_test()
     config.blocksize = blocksize;
     config.ncacheblock = 0 * 1024 * 128;
     config.flag = 0;
+    config.options = FILEMGR_CREATE;
 
     DBG("filemgr, bcache init .. \n");
     rr = system(SHELL_DEL" dummy");
-    file = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = filemgr_open((char *) "./dummy",
+                                              get_filemgr_ops(), &config, NULL);
+    file = result.file;
     docio_init(&dhandle, file, false);
     btreeblk_init(&bhandle, file, blocksize);
 
@@ -405,8 +411,11 @@ void skew_basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 0;
     config.flag = 0x0;
+    config.options = FILEMGR_CREATE;
 
-    file = filemgr_open((char*)"./dummy", get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = filemgr_open((char*)"./dummy",
+                                              get_filemgr_ops(), &config, NULL);
+    file = result.file;
     docio_init(&dhandle, file, false);
     btreeblk_init(&bhandle, file, blocksize);
 
