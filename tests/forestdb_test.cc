@@ -46,27 +46,6 @@ void _set_random_string_smallabt(char *str, int len)
     } while(len--);
 }
 
-void _test_default_fdb_config(fdb_config *fconfig) {
-    if (fconfig) {
-        fconfig->chunksize = sizeof(uint64_t);
-        fconfig->blocksize = FDB_BLOCKSIZE; // 4KB by default.
-        fconfig->buffercache_size = 134217728; // 128MB by default.
-        fconfig->wal_threshold = 4096; // 4096 WAL entries by default.
-        fconfig->purging_interval = 0; // 0 second by default.
-        fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
-        fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
-        fconfig->flags = FDB_OPEN_FLAG_CREATE;
-        fconfig->compaction_buf_maxsize = 4194304; // 4MB by default.
-        fconfig->cleanup_cache_onclose = true; // Clean up cache entries when a file is closed.
-        fconfig->compress_document_body = false; // Compress the body of documents using snappy.
-        fconfig->cmp_fixed = NULL;
-        fconfig->cmp_variable = NULL;
-        fconfig->compaction_threshold = 0; // Compaction threshold, 0% (disable) by default
-        fconfig->compaction_minimum_filesize = 1048576; // 1MB by default
-        fconfig->compactor_sleep_duration = 1; // 1 second by default for quick test
-    }
-}
-
 void logCallbackFunc(int err_code,
                      const char *err_msg,
                      void *pCtxData) {
@@ -93,8 +72,7 @@ void basic_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
     fconfig.compaction_threshold = 0;
@@ -301,8 +279,7 @@ void wal_commit_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -397,8 +374,7 @@ void multi_version_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 1048576;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -522,8 +498,7 @@ void compact_wo_reopen_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -616,8 +591,7 @@ void compact_with_reopen_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -714,8 +688,7 @@ void auto_recover_compact_ok_test()
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -834,8 +807,7 @@ void db_drop_test()
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -1053,8 +1025,7 @@ void multi_thread_test(
     // remove previous dummy files
     r = system(SHELL_DEL" "FILENAME"* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 16777216;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -1171,8 +1142,7 @@ void crash_recovery_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -1276,8 +1246,7 @@ void incomplete_block_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -1349,8 +1318,7 @@ void iterator_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -1579,8 +1547,7 @@ void sequence_iterator_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -1818,8 +1785,7 @@ void custom_compare_primitive_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -1955,8 +1921,7 @@ void custom_compare_variable_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -2074,8 +2039,7 @@ void snapshot_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -2243,8 +2207,7 @@ void rollback_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -2392,8 +2355,7 @@ void doc_compression_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -2529,8 +2491,7 @@ void read_doc_by_offset_test() {
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -2636,8 +2597,7 @@ void purge_logically_deleted_doc_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -2772,12 +2732,12 @@ void compaction_daemon_test(size_t time_sec)
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = compaction_threshold;
+    fconfig.compactor_sleep_duration = 1; // for quick test
 
     // open db
     fdb_open(&db, "dummy", &fconfig);
@@ -2960,8 +2920,7 @@ void api_wrapper_test()
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
-    fdb_config fconfig;
-    _test_default_fdb_config(&fconfig);
+    fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;

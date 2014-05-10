@@ -27,7 +27,7 @@
 extern "C" {
 #endif
 
-    void set_default_fdb_config(fdb_config *fconfig);
+    fdb_config get_default_config(void);
 
     bool validate_fdb_config(fdb_config *fconfig);
 

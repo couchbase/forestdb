@@ -365,6 +365,11 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
 }
 
 LIBFDB_API
+fdb_config fdb_get_default_config(void) {
+    return get_default_config();
+}
+
+LIBFDB_API
 fdb_status fdb_open(fdb_handle **ptr_handle,
                     const char *filename,
                     fdb_config *fconfig)
@@ -383,7 +388,7 @@ fdb_status fdb_open(fdb_handle **ptr_handle,
             return FDB_RESULT_INVALID_CONFIG;
         }
     } else {
-        set_default_fdb_config(&config);
+        config = get_default_config();
     }
 
     fdb_handle *handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));

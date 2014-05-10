@@ -36,6 +36,16 @@ extern "C" {
 #endif
 
 /**
+ * Get the default ForestDB configs.
+ * The general recommendation is to invoke this API to get the default configs
+ * and change some configs if necessary and then pass them to fdb_open APIs.
+ *
+ * @return fdb_config instance that contains the default configs.
+ */
+LIBFDB_API
+fdb_config fdb_get_default_config(void);
+
+/**
  * Open the database with a given file name.
  * The database should be closed with fdb_close API call.
  *

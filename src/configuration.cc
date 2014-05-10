@@ -22,26 +22,28 @@
 #include "configuration.h"
 
 
-void set_default_fdb_config(fdb_config *fconfig) {
-    if (fconfig) {
-        fconfig->chunksize = sizeof(uint64_t);
-        fconfig->blocksize = FDB_BLOCKSIZE; // 4KB by default.
-        fconfig->buffercache_size = 134217728; // 128MB by default.
-        fconfig->wal_threshold = 4096; // 4096 WAL entries by default.
-        fconfig->wal_flush_before_commit = false;
-        fconfig->purging_interval = 0; // 0 second by default.
-        fconfig->seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
-        fconfig->durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
-        fconfig->flags = FDB_OPEN_FLAG_CREATE;
-        fconfig->compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE; // 4MB by default.
-        fconfig->cleanup_cache_onclose = true; // Clean up cache entries when a file is closed.
-        fconfig->compress_document_body = false; // Compress the body of documents using snappy.
-        fconfig->cmp_fixed = NULL;
-        fconfig->cmp_variable = NULL;
-        fconfig->compaction_threshold = 0; // Compaction threshold, 0% (disable) by default
-        fconfig->compaction_minimum_filesize = 1048576; // 1MB by default
-        fconfig->compactor_sleep_duration = 10; // 10 seconds by default
-    }
+fdb_config get_default_config(void) {
+    fdb_config fconfig;
+
+    fconfig.chunksize = sizeof(uint64_t);
+    fconfig.blocksize = FDB_BLOCKSIZE; // 4KB by default.
+    fconfig.buffercache_size = 134217728; // 128MB by default.
+    fconfig.wal_threshold = 4096; // 4096 WAL entries by default.
+    fconfig.wal_flush_before_commit = false;
+    fconfig.purging_interval = 0; // 0 second by default.
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
+    fconfig.durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE; // 4MB by default.
+    fconfig.cleanup_cache_onclose = true; // Clean up cache entries when a file is closed.
+    fconfig.compress_document_body = false; // Compress the body of documents using snappy.
+    fconfig.cmp_fixed = NULL;
+    fconfig.cmp_variable = NULL;
+    fconfig.compaction_threshold = 0; // Compaction threshold, 0% (disable) by default
+    fconfig.compaction_minimum_filesize = 1048576; // 1MB by default
+    fconfig.compactor_sleep_duration = 10; // 10 seconds by default
+
+    return fconfig;
 }
 
 bool validate_fdb_config(fdb_config *fconfig) {
