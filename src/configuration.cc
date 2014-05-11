@@ -67,8 +67,8 @@ bool validate_fdb_config(fdb_config *fconfig) {
         fconfig->durability_opt != FDB_DRB_ODIRECT_ASYNC) {
         return false;
     }
-    if (fconfig->flags != FDB_OPEN_FLAG_CREATE &&
-        fconfig->flags != FDB_OPEN_FLAG_RDONLY) {
+    if ((fconfig->flags & FDB_OPEN_FLAG_CREATE) &&
+        (fconfig->flags & FDB_OPEN_FLAG_RDONLY)) {
         return false;
     }
     if (fconfig->compaction_threshold > 100) {

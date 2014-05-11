@@ -74,16 +74,27 @@ void basic_test()
 
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
-    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
     fconfig.compaction_threshold = 0;
 
-    // Read-Only mode test: Must not create new file..
+    // Read-Write mode test without a create flag.
+    fconfig.flags = 0;
     status = fdb_open(&db, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
 
-    // open and close db
+    // Read-Only mode test: Must not create new file.
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
+
+    // Read-Only and Create mode: Must not create a new file.
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY | FDB_OPEN_FLAG_CREATE;
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_CONFIG);
+
+    // open and close db with a create flag.
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
-    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_close(db);
 
     // reopen db
