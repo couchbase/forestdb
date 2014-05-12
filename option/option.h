@@ -22,7 +22,6 @@
 
 #define SEQNUM_NOT_USED (UINT64_C(0xffffffffffffffff))
 
-#define __FDB_SEQTREE
 #define __FDB_BCACHE_USE
 #ifdef __FDB_BCACHE_USE
     //#define __FDB_SORTED_COMPACTION

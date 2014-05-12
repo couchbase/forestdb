@@ -120,7 +120,6 @@ struct _fdb_handle {
      * Number of documents in database.
      */
     uint64_t ndocs;
-#ifdef __FDB_SEQTREE
     /**
      * Snapshot Information.
      */
@@ -138,7 +137,6 @@ struct _fdb_handle {
      * Only used when compaction daemon is enabled.
      */
     char *filename;
-#endif
 };
 
 struct hbtrie_iterator;

@@ -41,12 +41,6 @@
 #endif
 #endif
 
-#ifdef __FDB_SEQTREE
-    #define SEQTREE(...) __VA_ARGS__
-#else
-    #define SEQTREE(...)
-#endif
-
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item *item = _get_entry(e, struct wal_item, he_key);
@@ -71,8 +65,6 @@ INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
     }
 }
 
-#ifdef __FDB_SEQTREE
-
 INLINE uint32_t _wal_hash_byseq(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item *item = _get_entry(e, struct wal_item, he_seq);
@@ -88,8 +80,6 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
     return _CMP_U64(aa->seqnum, bb->seqnum);
 }
 
-#endif
-
 wal_result wal_init(struct filemgr *file, int nbucket)
 {
     file->wal->flag = WAL_FLAG_INITIALIZED;
@@ -99,8 +89,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     file->wal->last_commit = NULL;
     file->wal->wal_dirty = FDB_WAL_CLEAN;
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
-    SEQTREE(hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq,
-                       _wal_cmp_byseq));
+    hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq);
     list_init(&file->wal->list);
     spin_init(&file->wal->lock);
 
@@ -126,7 +115,7 @@ static wal_result _wal_insert(struct filemgr *file,
 
     query.key = key;
     query.keylen = keylen;
-    SEQTREE( query.seqnum = doc->seqnum; );
+    query.seqnum = doc->seqnum;
 
     spin_lock(&file->wal->lock);
 
@@ -145,11 +134,9 @@ static wal_result _wal_insert(struct filemgr *file,
             item = _get_entry(e, struct wal_item, he_key);
             item->flag &= ~WAL_ITEM_FLUSH_READY;
 
-            #ifdef __FDB_SEQTREE
-                hash_remove(&file->wal->hash_byseq, &item->he_seq);
-                item->seqnum = query.seqnum;
-                hash_insert(&file->wal->hash_byseq, &item->he_seq);
-            #endif
+            hash_remove(&file->wal->hash_byseq, &item->he_seq);
+            item->seqnum = query.seqnum;
+            hash_insert(&file->wal->hash_byseq, &item->he_seq);
 
             if (item->action == WAL_ACT_INSERT) {
                 if (doc->deleted) {
@@ -184,14 +171,14 @@ static wal_result _wal_insert(struct filemgr *file,
         item->key = key;
     #endif
 
-        SEQTREE( item->seqnum = query.seqnum );
+        item->seqnum = query.seqnum;
         item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
         item->doc_size = doc->size_ondisk;
         file->wal->datasize += doc->size_ondisk;
 
         hash_insert(&file->wal->hash_bykey, &item->he_key);
-        SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
+        hash_insert(&file->wal->hash_byseq, &item->he_seq);
 
         list_push_back(&file->wal->list, &item->list_elem);
         ++file->wal->size;
@@ -227,7 +214,6 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
 
     spin_lock(&file->wal->lock);
 
-#ifdef __FDB_SEQTREE
     if (doc->seqnum == SEQNUM_NOT_USED || (key && keylen>0)) {
         // search by key
         query.key = key;
@@ -260,23 +246,7 @@ wal_result wal_find(struct filemgr *file, fdb_doc *doc, uint64_t *offset)
             return WAL_RESULT_SUCCESS;
         }
     }
-#else
-    // seq-tree is not used .. just search by key
-    query.key = key;
-    query.keylen = keylen;
-    e = hash_find(&file->wal->hash_bykey, &query.he_key);
-    if (e) {
-        item = _get_entry(e, struct wal_item, he_key);
-        *offset = item->offset;
-        if (item->action == WAL_ACT_INSERT) {
-            doc->deleted = false;
-        } else {
-            doc->deleted = true;
-        }
-        spin_unlock(&file->wal->lock);
-        return WAL_RESULT_SUCCESS;
-    }
-#endif
+
     spin_unlock(&file->wal->lock);
     return WAL_RESULT_FAIL;
 }
@@ -292,9 +262,7 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
 
     query.key = key;
     query.keylen = keylen;
-    SEQTREE(
-        query.seqnum = doc->seqnum;
-    );
+    query.seqnum = doc->seqnum;
 
     spin_lock(&file->wal->lock);
 
@@ -306,11 +274,10 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         item = _get_entry(e, struct wal_item, he_key);
         item->flag &= ~WAL_ITEM_FLUSH_READY;
 
-#ifdef __FDB_SEQTREE
         hash_remove(&file->wal->hash_byseq, &item->he_seq);
         item->seqnum = query.seqnum;
         hash_insert(&file->wal->hash_byseq, &item->he_seq);
-#endif
+
         if (item->action == WAL_ACT_INSERT) {
             item->action = WAL_ACT_REMOVE;
             ++file->wal->num_deletes;
@@ -334,7 +301,7 @@ wal_result wal_remove(struct filemgr *file, fdb_doc *doc)
         //SEQTREE( item->seqnum = query.seqnum );
         item->action = WAL_ACT_REMOVE;
         hash_insert(&file->wal->hash_bykey, &item->he_key);
-        SEQTREE( hash_insert(&file->wal->hash_byseq, &item->he_seq) );
+        hash_insert(&file->wal->hash_byseq, &item->he_seq);
         list_push_back(&file->wal->list, &item->list_elem);
         ++file->wal->size;
         ++file->wal->num_deletes;
@@ -415,7 +382,7 @@ wal_result wal_flush(struct filemgr *file,
         if (item->flag & WAL_ITEM_FLUSH_READY) {
             hash_remove(&file->wal->hash_bykey, &item->he_key);
             list_remove(&file->wal->list, &item->list_elem);
-            SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
+            hash_remove(&file->wal->hash_byseq, &item->he_seq);
             flush_func(dbhandle, item);
 
             if (item->action == WAL_ACT_LOGICAL_REMOVE ||
@@ -464,7 +431,7 @@ wal_result wal_close(struct filemgr *file)
         }
         e = list_remove(&file->wal->list, e);
         hash_remove(&file->wal->hash_bykey, &item->he_key);
-        SEQTREE( hash_remove(&file->wal->hash_byseq, &item->he_seq) );
+        hash_remove(&file->wal->hash_byseq, &item->he_seq);
 
         if (item->action != WAL_ACT_REMOVE) {
             file->wal->datasize -= item->doc_size;

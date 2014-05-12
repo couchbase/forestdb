@@ -634,9 +634,7 @@ static void _filemgr_free_func(struct hash_elem *h)
     if (wal_is_initialized(file)) {
         wal_shutdown(file);
         hash_free(&file->wal->hash_bykey);
-#ifdef __FDB_SEQTREE
         hash_free(&file->wal->hash_byseq);
-#endif
         spin_destroy(&file->wal->lock);
     }
 

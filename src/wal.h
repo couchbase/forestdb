@@ -50,10 +50,8 @@ struct wal_item{
     uint64_t offset;
     uint64_t old_offset;
     struct hash_elem he_key;
-#ifdef __FDB_SEQTREE
     fdb_seqnum_t seqnum;
     struct hash_elem he_seq;
-#endif
     struct list_elem list_elem;
     struct avl_node avl;
 };
@@ -78,9 +76,7 @@ struct wal {
     size_t num_deletes;
     uint64_t datasize;
     struct hash hash_bykey;
-#ifdef __FDB_SEQTREE
     struct hash hash_byseq;
-#endif
     struct list list;
     struct list_elem *last_commit;
     wal_dirty_t wal_dirty;

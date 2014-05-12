@@ -53,12 +53,6 @@
 #endif
 #endif
 
-#ifdef __FDB_SEQTREE
-    #define SEQTREE(...) __VA_ARGS__
-#else
-    #define SEQTREE(...)
-#endif
-
 static const uint16_t OFFSET_SIZE = sizeof(uint64_t);
 
 static fdb_status _fdb_open(fdb_handle *handle,
@@ -295,7 +289,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
 
         wal_shutdown(handle->file);
         handle->file = new_file;
-#ifdef __FDB_SEQTREE
+
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             free(handle->seqtree->kv_ops);
             free(handle->seqtree);
@@ -303,7 +297,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
                 handle->seqtree = new_db.seqtree;
             }
         }
-#endif
+
         filemgr_mutex_unlock(new_file);
         // remove self: WARNING must not close this handle if snapshots
         // are yet to open this file
@@ -333,9 +327,8 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
                     wal_doc.metalen = doc.length.metalen;
                     wal_doc.bodylen = doc.length.bodylen;
                     wal_doc.key = doc.key;
-#ifdef __FDB_SEQTREE
                     wal_doc.seqnum = doc.seqnum;
-#endif
+
                     wal_doc.meta = doc.meta;
                     wal_doc.body = doc.body;
                     wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
@@ -807,7 +800,6 @@ static fdb_status _fdb_open(fdb_handle *handle,
         handle->idtree->aux = (void*)handle;
     }
 
-#ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         handle->seqnum = seqnum;
         struct btree_kv_ops *seq_kv_ops =
@@ -828,7 +820,6 @@ static fdb_status _fdb_open(fdb_handle *handle,
     }else{
         handle->seqtree = NULL;
     }
-#endif
 
     _fdb_restore_wal(handle, hdr_bid);
 
@@ -895,11 +886,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         return FDB_RESULT_ALLOC_FAIL;
     }
 
-#ifdef __FDB_SEQTREE
     (*doc)->seqnum = 0;
-#else
-    (*doc)->seqnum = SEQNUM_NOT_USED;
-#endif
 
     if (key && keylen > 0) {
         (*doc)->key = (void *)malloc(keylen);
@@ -1003,9 +990,7 @@ INLINE size_t _fdb_get_docsize(struct docio_length len)
 
     ret += sizeof(timestamp_t);
 
-#ifdef __FDB_SEQTREE
     ret += sizeof(fdb_seqnum_t);
-#endif
 
 #ifdef __CRC32
     ret += sizeof(uint32_t);
@@ -1071,13 +1056,11 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         btreeblk_end(handle->bhandle);
         old_offset = _endian_decode(old_offset);
 
-        SEQTREE(
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                _seqnum = _endian_encode(item->seqnum);
-                br = btree_insert(handle->seqtree, (void *)&_seqnum, (void *)&_offset);
-                btreeblk_end(handle->bhandle);
-            }
-        );
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            _seqnum = _endian_encode(item->seqnum);
+            br = btree_insert(handle->seqtree, (void *)&_seqnum, (void *)&_offset);
+            btreeblk_end(handle->bhandle);
+        }
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
             if (item->action == WAL_ACT_INSERT) {
@@ -1117,13 +1100,11 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
         btreeblk_end(handle->bhandle);
 
-        SEQTREE(
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                _seqnum = _endian_encode(item->seqnum);
-                br = btree_remove(handle->seqtree, (void*)&_seqnum);
-                btreeblk_end(handle->bhandle);
-            }
-        );
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            _seqnum = _endian_encode(item->seqnum);
+            br = btree_remove(handle->seqtree, (void*)&_seqnum);
+            btreeblk_end(handle->bhandle);
+        }
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
             --handle->ndocs;
@@ -1487,8 +1468,6 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
-#ifdef __FDB_SEQTREE
-
 // search document using sequence number
 LIBFDB_API
 fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
@@ -1642,7 +1621,6 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc)
 
     return FDB_RESULT_KEY_NOT_FOUND;
 }
-#endif
 
 static uint8_t equal_docs(fdb_doc *doc, struct docio_object *_doc) {
     uint8_t rv = 1;
@@ -1931,7 +1909,6 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     }
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->trie->root_bid), offset);
 
-#ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // b+tree root bid
         _edn_safe_64 = _endian_encode(handle->seqtree->root_bid);
@@ -1941,10 +1918,6 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
         memset(buf + offset, 0, sizeof(uint64_t));
         offset += sizeof(uint64_t);
     }
-#else
-    memset(buf + offset, 0, sizeof(uint64_t));
-    offset += sizeof(uint64_t);
-#endif
 
     // # docs
     _edn_safe_64 = _endian_encode(handle->ndocs);
@@ -2222,9 +2195,8 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                         wal_doc.metalen = doc[j-i].length.metalen;
                         wal_doc.bodylen = doc[j-i].length.bodylen;
                         wal_doc.key = doc[j-i].key;
-#ifdef __FDB_SEQTREE
                         wal_doc.seqnum = doc[j-i].seqnum;
-#endif
+
                         wal_doc.meta = doc[j-i].meta;
                         wal_doc.body = doc[j-i].body;
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j-i].length);
@@ -2375,7 +2347,6 @@ fdb_status _fdb_compact(fdb_handle *handle,
         new_idtree->aux = (void*)handle;
     }
 
-#ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // if we use sequence number tree
         new_seqtree = (struct btree *)malloc(sizeof(struct btree));
@@ -2389,7 +2360,6 @@ fdb_status _fdb_compact(fdb_handle *handle,
         seqnum = filemgr_get_seqnum(handle->file);
         filemgr_set_seqnum(new_file, seqnum);
     }
-#endif
 
     count = new_datasize = 0;
 
@@ -2444,12 +2414,10 @@ fdb_status _fdb_compact(fdb_handle *handle,
         handle->idtree = new_idtree;
     }
 
-#ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         free(handle->seqtree);
         handle->seqtree = new_seqtree;
     }
-#endif
 
     old_filename_len = strlen(old_file->filename) + 1;
     old_filename = (char *) malloc(old_filename_len);
@@ -2524,12 +2492,11 @@ static fdb_status _fdb_close(fdb_handle *handle)
         free(handle->idtree);
     }
 
-#ifdef __FDB_SEQTREE
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         free(handle->seqtree->kv_ops);
         free(handle->seqtree);
     }
-#endif
+
     free(handle->bhandle);
     free(handle->dhandle);
     if (handle->shandle) {

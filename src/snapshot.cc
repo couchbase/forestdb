@@ -37,12 +37,6 @@
 #endif
 #endif
 
-#ifdef __FDB_SEQTREE
-    #define SEQTREE(...) __VA_ARGS__
-#else
-    #define SEQTREE(...)
-#endif
-
 // lexicographically compares two variable-length binary streams
 int _snp_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {

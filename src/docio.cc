@@ -263,9 +263,8 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 #endif
     docsize += sizeof(timestamp_t);
 
-#ifdef __FDB_SEQTREE
     docsize += sizeof(fdb_seqnum_t);
-#endif
+
 #ifdef __CRC32
     docsize += sizeof(crc);
 #endif
@@ -290,12 +289,10 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     memcpy((uint8_t*)buf + offset, &_timestamp, sizeof(_timestamp));
     offset += sizeof(_timestamp);
 
-#ifdef __FDB_SEQTREE
     // copy seqeunce number (optional)
     _seqnum = _endian_encode(doc->seqnum);
     memcpy((uint8_t *)buf + offset, &_seqnum, sizeof(fdb_seqnum_t));
     offset += sizeof(fdb_seqnum_t);
-#endif
 
     // copy metadata (optional)
     if (length.metalen > 0) {
@@ -691,7 +688,6 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     }
     doc->timestamp = _endian_decode(_timestamp);
 
-#ifdef __FDB_SEQTREE
     // copy sequence number (optional)
     _offset = _docio_read_doc_component(handle, _offset, sizeof(fdb_seqnum_t),
                                         (void *)&_seqnum, log_callback);
@@ -700,7 +696,6 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
         return offset;
     }
     doc->seqnum = _endian_decode(_seqnum);
-#endif
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen,
                                         doc->meta, log_callback);
@@ -798,7 +793,6 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     }
     doc->timestamp = _endian_decode(_timestamp);
 
-#ifdef __FDB_SEQTREE
     // copy seqeunce number (optional)
     _offset = _docio_read_doc_component(handle, _offset,
                                         sizeof(fdb_seqnum_t),
@@ -809,7 +803,6 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         return offset;
     }
     doc->seqnum = _endian_decode(_seqnum);
-#endif
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.metalen,
                                         doc->meta, log_callback);
