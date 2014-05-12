@@ -15,7 +15,6 @@
  *   limitations under the License.
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -148,55 +147,55 @@ INLINE void* _bid_to_value_64(bid_t *bid)
     return (void *)bid;
 }
 
-INLINE int _cmp_int32_t(void *key1, void *key2, void *aux)
-{
-    (void) aux;
-    int32_t *a,*b;
-    a = (int32_t*)key1;
-    b = (int32_t*)key2;
-    if (*a<*b) return -1;
-    if (*a>*b) return 1;
-    return 0;
-}
-
 INLINE int _cmp_uint32_t(void *key1, void *key2, void *aux)
 {
     (void) aux;
-    uint32_t *a,*b;
-    a = (uint32_t*)key1;
-    b = (uint32_t*)key2;
-    if (*a<*b) return -1;
-    if (*a>*b) return 1;
-    return 0;
+    uint32_t a, b;
+    a = deref32(key1);
+    b = deref32(key2);
+
+#ifdef __BIT_CMP
+    return _CMP_U32(a, b);
+#else
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+#endif
 }
 
 INLINE int _cmp_uint64_t(void *key1, void *key2, void *aux)
 {
     (void) aux;
     uint64_t a,b;
-    a = *(uint64_t*)key1;
-    b = *(uint64_t*)key2;
-    /*
-    if (*a<*b) return -1;
-    if (*a>*b) return 1;
-    return 0;*/
-    return _CMP_U64(a, b);
-}
+    a = deref64(key1);
+    b = deref64(key2);
 
-INLINE int _cmp_char64(void *key1, void *key2, void *aux)
-{
-    (void) aux;
-    return strncmp((char*)key1, (char*)key2, 8);
+#ifdef __BIT_CMP
+    return _CMP_U64(a, b);
+#else
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+#endif
 }
 
 INLINE int _cmp_binary32(void *key1, void *key2, void *aux)
 {
     (void) aux;
+
 #ifdef __BIT_CMP
     uint32_t a,b;
-    a = bitswap32(*(uint32_t*)key1);
-    b = bitswap32(*(uint32_t*)key2);
-    return _CMP_U32( a, b );
+    a = _endian_encode(deref32(key1));
+    b = _endian_encode(deref32(key2));
+    return _CMP_U32(a, b);
 #else
     return memcmp(key1, key2, 8);
 #endif
@@ -207,9 +206,9 @@ INLINE int _cmp_binary64(void *key1, void *key2, void *aux)
     (void) aux;
 #ifdef __BIT_CMP
     uint64_t a,b;
-    a = bitswap64(*(uint64_t*)key1);
-    b = bitswap64(*(uint64_t*)key2);
-    return _CMP_U64( a , b );
+    a = _endian_encode(deref64(key1));
+    b = _endian_encode(deref64(key2));
+    return _CMP_U64(a, b);
 #else
     return memcmp(key1, key2, 8);
 #endif

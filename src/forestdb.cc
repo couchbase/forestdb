@@ -2092,19 +2092,22 @@ void _fdb_commit_and_remove_pending(fdb_handle *handle,
 
 INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 {
-#ifdef __BIT_CMP
-
     uint64_t a,b;
-    a = *(uint64_t*)key1;
-    b = *(uint64_t*)key2;
+    // must ensure that key1 and key2 are pointers to uint64_t values
+    a = deref64(key1);
+    b = deref64(key2);
+
+#ifdef __BIT_CMP
     return _CMP_U64(a, b);
 
 #else
-
-    if (*a<*b) return -1;
-    if (*a>*b) return 1;
-    return 0;
-
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
 #endif
 }
 

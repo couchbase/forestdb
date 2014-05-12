@@ -18,6 +18,7 @@
 #ifndef _JSAHN_BTREE_KV_H
 #define _JSAHN_BTREE_KV_H
 
+#include <stdio.h>
 #include <stdint.h>
 #include "common.h"
 
@@ -25,7 +26,33 @@
 extern "C" {
 #endif
 
-int _cmp_uint64_t(void *key1, void *key2, void *aux);
+INLINE uint32_t deref32(const void *ptr)
+{
+#ifdef _ALIGN_MEM_ACCESS
+    // 4-byte align check (rightmost 2 bits must be '00')
+    if ( (size_t)ptr & 0x3 ) {
+        uint32_t value;
+        memcpy(&value, ptr, sizeof(uint32_t));
+        return value;
+    }
+#endif
+    return *(uint32_t*)ptr;
+}
+
+INLINE uint64_t deref64(const void *ptr)
+{
+#ifdef _ALIGN_MEM_ACCESS
+    // 8-byte align check (rightmost 3 bits must be '000')
+    // Not sure whether 8-byte integer should be aligned in
+    // 8-byte boundary or just 4-byte boundary.
+    if ( (size_t)ptr & 0x7 ) {
+        uint64_t value;
+        memcpy(&value, ptr, sizeof(uint64_t));
+        return value;
+    }
+#endif
+    return *(uint64_t*)ptr;
+}
 
 struct btree_kv_ops;
 struct btree_kv_ops * btree_kv_get_ku64_vu64();
