@@ -1248,6 +1248,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
 
             // note that we don't need to call 'compactor_deregister_file'
             // because the old file is already removed when compaction is complete.
+            // (assume that this file is not read-only)
             compactor_register_file(handle->file, &handle->config);
 
         } else {
@@ -2459,7 +2460,8 @@ fdb_status fdb_close(fdb_handle *handle)
 
 static fdb_status _fdb_close(fdb_handle *handle)
 {
-    if (handle->config.flags & FDB_OPEN_FLAG_CREATE) {
+    if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
+        // read-only file is not registered in compactor
         compactor_deregister_file(handle->file);
     }
 
