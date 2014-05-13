@@ -57,7 +57,6 @@ add_library(forestdb SHARED
             utils/crc32.cc
             utils/debug.cc
             utils/cJSON.cc)
-
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
 
 add_executable(forestdb_test
@@ -67,6 +66,38 @@ add_executable(forestdb_test
                tests/forestdb_test.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(forestdb_test forestdb)
+
+add_executable(forestdb_dump
+               tools/forestdb_dump.cc
+               src/api_wrapper.cc
+               src/avltree.cc
+               src/blockcache.cc
+               src/btree.cc
+               src/btree_kv.cc
+               src/btree_prefix_kv.cc
+               src/btreeblock.cc
+               src/compactor.cc
+               src/configuration.cc
+               src/docio.cc
+               src/filemgr.cc
+               src/filemgr_ops.cc
+               ${FORESTDB_FILE_OPS}
+               src/forestdb.cc
+               src/hash_functions.cc
+               src/hbtrie.cc
+               src/iterator.cc
+               src/list.cc
+               src/hash.cc
+               src/wal.cc
+               ${GETTIMEOFDAY_VS}
+               src/snapshot.cc
+               utils/memleak.cc
+               utils/crc32.cc
+               utils/debug.cc
+               utils/cJSON.cc
+               utils/iniparser.cc)
+target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
+set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(hash_test
                src/avltree.cc

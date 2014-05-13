@@ -21,7 +21,7 @@
 #include "fdb_errors.h"
 #include "fdb_types.h"
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(_FDB_TOOLS)
     #ifdef forestdb_EXPORTS
         #define LIBFDB_API extern __declspec(dllexport)
     #else
