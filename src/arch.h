@@ -158,7 +158,7 @@
     // visual studio CL compiler
     #include <Windows.h>
     #include "gettimeofday_vs.h"
-    #define INLINE
+    #define INLINE static inline
     //#define alloca(size) _alloca(size)
     #define _F64 "ld"
     #define _CRT_SECURE_NO_WARNINGS
