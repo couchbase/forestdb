@@ -209,7 +209,11 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         iterator->wal_tree = handle->shandle->key_tree;
     }
 
-    iterator->tree_cursor = avl_first(iterator->wal_tree);
+    if (iterator->wal_tree) {
+        iterator->tree_cursor = avl_first(iterator->wal_tree);
+    } else {
+        iterator->tree_cursor = NULL;
+    }
 
     *ptr_iterator = iterator;
 
@@ -291,7 +295,11 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
         iterator->wal_tree = handle->shandle->seq_tree;
     }
 
-    iterator->tree_cursor = avl_first(iterator->wal_tree);
+    if (iterator->wal_tree) {
+        iterator->tree_cursor = avl_first(iterator->wal_tree);
+    } else {
+        iterator->tree_cursor = NULL;
+    }
 
     *ptr_iterator = iterator;
 

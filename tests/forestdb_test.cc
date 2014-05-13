@@ -2060,10 +2060,25 @@ void snapshot_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     // open db
-    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-   // ------- Setup test ----------------------------------
-   // insert documents of 0-4
+    // Create a snapshot from an empty database file
+    status = fdb_snapshot_open(db, &snap_db, 0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // check if snapshot's sequence number is zero.
+    fdb_get_dbinfo(snap_db, &info);
+    TEST_CHK(info.last_seqnum == 0);
+    // create an iterator on the snapshot for full range
+    fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    // Iterator should not return any items.
+    status = fdb_iterator_next(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(iterator);
+    fdb_close(snap_db);
+
+    // ------- Setup test ----------------------------------
+    // insert documents of 0-4
     for (i=0; i<n/4; i++){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);

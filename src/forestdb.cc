@@ -529,7 +529,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     fdb_config config = handle_in->config;
     fdb_handle *handle;
     fdb_status fs;
-    if (!handle_in || !ptr_handle || !seqnum) {
+    if (!handle_in || !ptr_handle) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -731,6 +731,14 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
         if (!handle->shandle) { // Rollback mode, destroy file WAL..
             wal_shutdown(handle->file);
+        }
+    } else {
+        if (handle->shandle) { // fdb_snapshot_open API call
+            if (seqnum) {
+                // Database currently has a non-zero seq number, but the snapshot was
+                // requested with a seq number zero.
+                return FDB_RESULT_NO_DB_INSTANCE;
+            }
         }
     }
 
