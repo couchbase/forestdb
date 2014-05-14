@@ -495,6 +495,7 @@ start_seq:
     // retrieve from sequence b-tree first
     if (iterator->_offset == BLK_NOT_FOUND) {
         br = btree_next(iterator->seqtree_iterator, &seqnum, (void *) &offset);
+        btreeblk_end(iterator->handle.bhandle);
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
             iterator->_seqnum = seqnum;
