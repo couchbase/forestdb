@@ -107,6 +107,7 @@ typedef struct {
     int rv;
 } filemgr_open_result;
 
+size_t filemgr_get_ref_count(struct filemgr *file);
 filemgr_open_result filemgr_open(char *filename,
                                  struct filemgr_ops *ops,
                                  struct filemgr_config *config,

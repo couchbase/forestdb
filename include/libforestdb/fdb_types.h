@@ -104,6 +104,15 @@ enum {
 };
 
 /**
+ * Options for compaction mode.
+ */
+typedef uint8_t fdb_compaction_mode_t;
+enum {
+    FDB_COMPACTION_MANUAL = 0,
+    FDB_COMPACTION_AUTO = 1
+};
+
+/**
  * Pointer type definition of a customized compare function for fixed size key.
  */
 typedef int (*fdb_custom_cmp_fixed)(void *a, void *b);
@@ -187,11 +196,16 @@ typedef struct {
      */
     bool compress_document_body;
     /**
+     * Flag to enable auto compaction for the file. The auto compaction is disabled
+     * by default.
+     * This is a local config to each ForestDB database instance.
+     */
+    fdb_compaction_mode_t compaction_mode;
+    /**
      * Compaction threshold in the unit of percentage (%). It can be calculated
      * as '(stale data size)/(total file size)'. The compaction daemon triggers
      * compaction if this threshold is satisfied.
-     * The compaction daemon is disabled when this value is set to zero,
-     * and compaction will not be performed when this value is set to 100.
+     * Compaction will not be performed when this value is set to zero or 100.
      * This is a local config to each ForestDB database instance.
      */
     uint8_t compaction_threshold;

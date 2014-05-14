@@ -267,6 +267,15 @@ void _filemgr_read_header(struct filemgr *file)
     file->header.data = NULL;
 }
 
+size_t filemgr_get_ref_count(struct filemgr *file)
+{
+    size_t ret = 0;
+    spin_lock(&file->lock);
+    ret = file->ref_count;
+    spin_unlock(&file->lock);
+    return ret;
+}
+
 filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                  struct filemgr_config *config,
                                  err_log_callback *log_callback)

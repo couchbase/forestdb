@@ -118,6 +118,22 @@ typedef enum {
      */
     FDB_RESULT_MANUAL_COMPACTION_FAIL = -21,
     /**
+     * Open a file with invalid compaction mode.
+     */
+    FDB_RESULT_INVALID_COMPACTION_MODE = -22,
+    /**
+     * Other thread is opening the file.
+     */
+    FDB_RESULT_FILE_IS_BUSY = -23,
+    /**
+     * Database file remove operation fails.
+     */
+    FDB_RESULT_FILE_REMOVE_FAIL = -24,
+    /**
+     * Database file rename operation fails.
+     */
+    FDB_RESULT_FILE_RENAME_FAIL = -25,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

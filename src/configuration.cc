@@ -26,22 +26,35 @@ fdb_config get_default_config(void) {
     fdb_config fconfig;
 
     fconfig.chunksize = sizeof(uint64_t);
-    fconfig.blocksize = FDB_BLOCKSIZE; // 4KB by default.
-    fconfig.buffercache_size = 134217728; // 128MB by default.
-    fconfig.wal_threshold = 4096; // 4096 WAL entries by default.
+    // 4KB by default.
+    fconfig.blocksize = FDB_BLOCKSIZE;
+    // 128MB by default.
+    fconfig.buffercache_size = 134217728;
+    // 4096 WAL entries by default.
+    fconfig.wal_threshold = 4096;
     fconfig.wal_flush_before_commit = false;
-    fconfig.purging_interval = 0; // 0 second by default.
-    fconfig.seqtree_opt = FDB_SEQTREE_USE; // Use a seq btree by default.
-    fconfig.durability_opt = FDB_DRB_NONE; // Use a synchronous commit by default.
+    // 0 second by default.
+    fconfig.purging_interval = 0;
+    // Use a seq btree by default.
+    fconfig.seqtree_opt = FDB_SEQTREE_USE;
+    // Use a synchronous commit by default.
+    fconfig.durability_opt = FDB_DRB_NONE;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
-    fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE; // 4MB by default.
-    fconfig.cleanup_cache_onclose = true; // Clean up cache entries when a file is closed.
-    fconfig.compress_document_body = false; // Compress the body of documents using snappy.
+    // 4MB by default.
+    fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;
+    // Clean up cache entries when a file is closed.
+    fconfig.cleanup_cache_onclose = true;
+    // Compress the body of documents using snappy.
+    fconfig.compress_document_body = false;
     fconfig.cmp_fixed = NULL;
     fconfig.cmp_variable = NULL;
-    fconfig.compaction_threshold = 0; // Compaction threshold, 0% (disable) by default
+    // Auto compaction is disabled by default
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    // Compaction threshold, 30% by default
+    fconfig.compaction_threshold = FDB_DEFAULT_COMPACTION_THRESHOLD;
     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default
-    fconfig.compactor_sleep_duration = 10; // 10 seconds by default
+    // 10 seconds by default
+    fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
 
     return fconfig;
 }

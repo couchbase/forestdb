@@ -2745,7 +2745,7 @@ void compaction_daemon_test(size_t time_sec)
     int n = 10000;
     int compaction_threshold = 30;
     int escape = 0;
-    fdb_handle *db, *db_less, *db_non;
+    fdb_handle *db, *db_less, *db_non, *db_manual, *db_new;
     fdb_handle *snapshot;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -2762,6 +2762,7 @@ void compaction_daemon_test(size_t time_sec)
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_mode = FDB_COMPACTION_AUTO;
     fconfig.compaction_threshold = compaction_threshold;
     fconfig.compactor_sleep_duration = 1; // for quick test
 
@@ -2811,10 +2812,6 @@ void compaction_daemon_test(size_t time_sec)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     // close snapshot
     fdb_close(snapshot);
-
-    // try to perform manual compaction
-    status = fdb_compact(db, "dummy_new");
-    TEST_CHK(status == FDB_RESULT_MANUAL_COMPACTION_FAIL);
 
     // close db file
     fdb_close(db);
@@ -2866,9 +2863,10 @@ void compaction_daemon_test(size_t time_sec)
     // ---- compaction daemon test -------------------
     // db: DB instance to be compacted
     // db_less: DB instance to be compacted but with much lower update throughput
-    // db_non: DB instance not to be compacted
+    // db_non: DB instance not to be compacted (auto compaction with threshold = 0)
+    // db_manual: DB instance not to be compacted (manual compaction)
 
-    // open & create db_less and db_non
+    // open & create db_less, db_non and db_manual
     status = fdb_open(&db_less, "dummy_less", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -2876,8 +2874,13 @@ void compaction_daemon_test(size_t time_sec)
     status = fdb_open(&db_non, "dummy_non", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    status = fdb_open(&db_manual, "dummy_manual", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     // reopen db file
-    fconfig.compaction_threshold = compaction_threshold;
+    fconfig.compaction_threshold = 30;
+    fconfig.compaction_mode = FDB_COMPACTION_AUTO;
     status = fdb_open(&db, "dummy", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
@@ -2901,6 +2904,10 @@ void compaction_daemon_test(size_t time_sec)
             fdb_set(db_non, doc[i]);
             fdb_commit(db_non, FDB_COMMIT_NORMAL);
 
+            // update db_manual
+            fdb_set(db_manual, doc[i]);
+            fdb_commit(db_manual, FDB_COMMIT_NORMAL);
+
             gettimeofday(&ts_cur, NULL);
             ts_gap = _utime_gap(ts_begin, ts_cur);
             if (ts_gap.tv_sec >= time_sec) {
@@ -2910,10 +2917,65 @@ void compaction_daemon_test(size_t time_sec)
         }
     }
 
-    // close db file
+    // perform manual compaction of auto-compact file
+    status = fdb_compact(db_non, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // try to perform manual compaction of manual-compact file using NULL filename
+    status = fdb_compact(db_manual, NULL);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    // perform manual compaction of manual-compact file
+    status = fdb_compact(db_manual, "dummy_manual_compacted");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // open dummy_manual_compacted using new db handle
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    status = fdb_open(&db_new, "dummy_manual_compacted", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // try to switch compaction mode
+    status = fdb_switch_compaction_mode(db_manual, FDB_COMPACTION_AUTO, 30);
+    TEST_CHK(status == FDB_RESULT_FILE_IS_BUSY);
+
+    // close db_new
+    status = fdb_close(db_new);
+
+    // switch compaction mode of 'db_manual' from MANUAL to AUTO
+    status = fdb_switch_compaction_mode(db_manual, FDB_COMPACTION_AUTO, 30);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close and open with auto-compact option
+    status = fdb_close(db_manual);
+    fconfig.compaction_mode = FDB_COMPACTION_AUTO;
+    status = fdb_open(&db_manual, "dummy_manual_compacted", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // switch compaction mode of 'db_non' from AUTO to MANUAL
+    status = fdb_switch_compaction_mode(db_non, FDB_COMPACTION_MANUAL, 0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close and open with manual-compact option
+    status = fdb_close(db_non);
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    status = fdb_open(&db_non, "dummy_non", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db files
     fdb_close(db);
-    fdb_close(db_non);
     fdb_close(db_less);
+    fdb_close(db_non);
+    fdb_close(db_manual);
+
+    // open manual compact file (dummy_non) using auto compact mode
+    fconfig.compaction_mode = FDB_COMPACTION_AUTO;
+    status = fdb_open(&db, "dummy_non", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
+
+    // open auto copmact file (dummy_manual_compacted) using manual compact mode
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    status = fdb_open(&db, "dummy_manual_compacted", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
 
     // free all documents
     for (i=0;i<n;++i){
@@ -3012,7 +3074,6 @@ void api_wrapper_test()
 
     TEST_RESULT("API wrapper test");
 }
-
 
 int main(){
     basic_test();

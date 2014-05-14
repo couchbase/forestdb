@@ -558,7 +558,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
 
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     // do not perform compaction for snapshot
-    config.compaction_threshold = 0;
+    config.compaction_mode = FDB_COMPACTION_MANUAL;
     fs = _fdb_open(handle, handle_in->file->filename, &config);
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -678,7 +678,12 @@ static fdb_status _fdb_open(fdb_handle *handle,
         fconfig.flag |= _ARCH_O_DIRECT;
     }
 
-    if (config->compaction_threshold > 0) {
+    if (!compactor_is_valid_mode(filename, (fdb_config *)config)) {
+        return FDB_RESULT_INVALID_COMPACTION_MODE;
+    }
+
+    if (config->compaction_mode == FDB_COMPACTION_AUTO) {
+        // auto compaction mode
         compactor_get_actual_filename(filename, actual_filename);
         if (handle->filename) {
             handle->filename = (char *)realloc(handle->filename, strlen(filename)+1);
@@ -687,6 +692,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
         }
         strcpy(handle->filename, filename);
     } else {
+        // manual compaction mode
         strcpy(actual_filename, filename);
         handle->filename = NULL;
     }
@@ -863,7 +869,8 @@ static fdb_status _fdb_open(fdb_handle *handle,
     btreeblk_end(handle->bhandle);
 
     // do not register read-only handles
-    if (!(config->flags & FDB_OPEN_FLAG_RDONLY)) {
+    if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
+        config->compaction_mode == FDB_COMPACTION_AUTO) {
         compactor_register_file(handle->file, (fdb_config *)config);
     }
 
@@ -1256,12 +1263,14 @@ void _fdb_check_file_reopen(fdb_handle *handle)
 
             // note that we don't need to call 'compactor_deregister_file'
             // because the old file is already removed when compaction is complete.
-            // (assume that this file is not read-only)
-            compactor_register_file(handle->file, &handle->config);
+            if (!(config.flags & FDB_OPEN_FLAG_RDONLY) &&
+                config.compaction_mode == FDB_COMPACTION_AUTO) {
+                compactor_register_file(handle->file, &config);
+            }
 
         } else {
             // close the current file and newly open the new file
-            if (handle->config.compaction_threshold) {
+            if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
                 // compaction daemon mode .. just close and then open
                 char filename[256];
                 strcpy(filename, handle->filename);
@@ -2248,8 +2257,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 }
 
 fdb_status _fdb_compact(fdb_handle *handle,
-                        const char *new_filename,
-                        bool called_by_compactor)
+                        const char *new_filename)
 {
     struct filemgr *new_file, *old_file;
     struct filemgr_config fconfig;
@@ -2281,13 +2289,11 @@ fdb_status _fdb_compact(fdb_handle *handle,
         return FDB_RESULT_COMPACTION_FAIL;
     }
 
-    // not able to compact if compaction daemon is enabled.
-    if (handle->config.compaction_threshold && !called_by_compactor) {
-        filemgr_mutex_unlock(handle->file);
-        return FDB_RESULT_MANUAL_COMPACTION_FAIL;
-    }
-
     // invalid filename
+    if (!new_filename) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_INVALID_ARGS;
+    }
     if (!strcmp(new_filename, handle->file->filename)) {
         filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_INVALID_ARGS;
@@ -2311,7 +2317,9 @@ fdb_status _fdb_compact(fdb_handle *handle,
     }
 
     // open new file
-    filemgr_open_result result = filemgr_open((char *)new_filename, handle->fileops, &fconfig,
+    filemgr_open_result result = filemgr_open((char *)new_filename,
+                                              handle->fileops,
+                                              &fconfig,
                                               &handle->log_callback);
     if (result.rv != FDB_RESULT_SUCCESS) {
         return (fdb_status) result.rv;
@@ -2335,8 +2343,9 @@ fdb_status _fdb_compact(fdb_handle *handle,
     if (!handle->config.cmp_variable) {
         new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
         hbtrie_init(new_trie, handle->trie->chunksize, handle->trie->valuelen,
-            new_file->blocksize, BLK_NOT_FOUND, (void *)new_bhandle,
-            handle->btreeblkops, (void*)new_dhandle, _fdb_readkey_wrap);
+                    new_file->blocksize, BLK_NOT_FOUND,
+                    (void *)new_bhandle, handle->btreeblkops,
+                    (void*)new_dhandle, _fdb_readkey_wrap);
 
         if (handle->config.cmp_fixed) {
             // custom compare function for fixed size key
@@ -2349,9 +2358,10 @@ fdb_status _fdb_compact(fdb_handle *handle,
     } else {
         // custom compare function for variable length key
         new_idtree = (struct btree*)malloc(sizeof(struct btree));
-        btree_init(new_idtree, (void *)new_bhandle, handle->btreeblkops,
-            handle->idtree->kv_ops, handle->config.blocksize, handle->config.chunksize,
-            OFFSET_SIZE, 0x0, NULL);
+        btree_init(new_idtree, (void *)new_bhandle,
+                   handle->btreeblkops, handle->idtree->kv_ops,
+                   handle->config.blocksize, handle->config.chunksize,
+                   OFFSET_SIZE, 0x0, NULL);
         // set aux
         new_idtree->aux = (void*)handle;
     }
@@ -2361,9 +2371,10 @@ fdb_status _fdb_compact(fdb_handle *handle,
         new_seqtree = (struct btree *)malloc(sizeof(struct btree));
         old_seqtree = handle->seqtree;
 
-        btree_init(new_seqtree, (void *)new_bhandle, old_seqtree->blk_ops,
-            old_seqtree->kv_ops, old_seqtree->blksize, old_seqtree->ksize, old_seqtree->vsize,
-            0x0, NULL);
+        btree_init(new_seqtree, (void *)new_bhandle,
+                   old_seqtree->blk_ops, old_seqtree->kv_ops,
+                   old_seqtree->blksize, old_seqtree->ksize,
+                   old_seqtree->vsize, 0x0, NULL);
 
         // copy old file's seqnum to new file
         seqnum = filemgr_get_seqnum(handle->file);
@@ -2376,10 +2387,9 @@ fdb_status _fdb_compact(fdb_handle *handle,
     filemgr_set_compaction_old(handle->file, new_file);
     // flush WAL and set DB header
     wal_flush(handle->file, (void*)handle,
-        _fdb_wal_flush_func, _fdb_wal_get_old_offset);
+              _fdb_wal_flush_func, _fdb_wal_get_old_offset);
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
-    handle->last_header_bid =
-        (handle->file->pos) / handle->file->blocksize;
+    handle->last_header_bid = (handle->file->pos) / handle->file->blocksize;
     handle->cur_header_revnum = _fdb_set_file_header(handle);
     btreeblk_end(handle->bhandle);
     assert(handle->file->status == FILE_COMPACT_OLD);
@@ -2448,8 +2458,123 @@ fdb_status _fdb_compact(fdb_handle *handle,
 LIBFDB_API
 fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
 {
-    // called by user (manual compaction)
-    return _fdb_compact(handle, new_filename, false);
+    if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
+        // manual compaction
+        return _fdb_compact(handle, new_filename);
+
+    } else if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+        // auto compaction
+        bool ret;
+        char nextfile[256];
+        fdb_status fs;
+        // set compaction flag
+        ret = compactor_switch_compaction_flag(handle->file, true);
+        if (!ret) {
+            // the file is already being compacted by other thread
+            return FDB_RESULT_FILE_IS_BUSY;
+        }
+        // get next filename
+        compactor_get_next_filename(handle->file->filename, nextfile);
+        fs = _fdb_compact(handle, nextfile);
+        if (fs == FDB_RESULT_SUCCESS) {
+            // compaction succeeded
+            // clear compaction flag
+            ret = compactor_switch_compaction_flag(handle->file, false);
+            return fs;
+        }
+        // compaction failed
+        // clear compaction flag
+        ret = compactor_switch_compaction_flag(handle->file, false);
+        return fs;
+    }
+    return FDB_RESULT_MANUAL_COMPACTION_FAIL;
+}
+
+LIBFDB_API
+fdb_status fdb_switch_compaction_mode(fdb_handle *handle,
+                                      fdb_compaction_mode_t mode,
+                                      size_t new_threshold)
+{
+    int ret;
+    fdb_status fs;
+    fdb_config config;
+    char vfilename[256];
+    char filename[256];
+    char metafile[256];
+
+    if (!handle || new_threshold > 100) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    config = handle->config;
+    if (handle->config.compaction_mode != mode) {
+        if (filemgr_get_ref_count(handle->file) > 1) {
+            // all the other handles referring this file should be closed
+            return FDB_RESULT_FILE_IS_BUSY;
+        }
+        /* TODO: In current code, we assume that all the other handles referring
+         * the same database file should be closed before calling this API and
+         * any open API calls should not be made until the completion of this API.
+         */
+
+        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+            // 1. deregieter from compactor (by calling fdb_close)
+            // 2. remove [filename].meta
+            // 3. rename [filename].[n] as [filename]
+
+            // set compaction flag to avoid auto compaction.
+            // we will not clear this flag again becuase this file will be
+            // deregistered by calling _fdb_close().
+            if (compactor_switch_compaction_flag(handle->file, true) == false) {
+                return FDB_RESULT_FILE_IS_BUSY;
+            }
+
+            strcpy(vfilename, handle->filename);
+            strcpy(filename, handle->file->filename);
+            fs = _fdb_close(handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+            sprintf(metafile, "%s.meta", vfilename);
+            if ((ret = remove(metafile)) < 0) {
+                return FDB_RESULT_FILE_REMOVE_FAIL;
+            }
+            if ((ret = rename(filename, vfilename)) < 0) {
+                return FDB_RESULT_FILE_RENAME_FAIL;
+            }
+            config.compaction_mode = FDB_COMPACTION_MANUAL;
+            fs = _fdb_open(handle, vfilename, &config);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+        } else if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
+            // 1. rename [filename] as [filename].0
+            strcpy(vfilename, handle->file->filename);
+            sprintf(filename, "%s.0", handle->file->filename);
+            fs = _fdb_close(handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+            if ((ret = rename(vfilename, filename) < 0)) {
+                return FDB_RESULT_FILE_RENAME_FAIL;
+            }
+            config.compaction_mode = FDB_COMPACTION_AUTO;
+            config.compaction_threshold = new_threshold;
+            fs = _fdb_open(handle, vfilename, &config);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
+
+        } else {
+            return FDB_RESULT_INVALID_ARGS;
+        }
+    } else {
+        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+            // change compaction threshold of the existing file
+            compactor_change_threshold(handle->file, new_threshold);
+        }
+    }
+    return FDB_RESULT_SUCCESS;
 }
 
 LIBFDB_API
@@ -2468,7 +2593,8 @@ fdb_status fdb_close(fdb_handle *handle)
 
 static fdb_status _fdb_close(fdb_handle *handle)
 {
-    if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
+    if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY) &&
+        handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
         // read-only file is not registered in compactor
         compactor_deregister_file(handle->file);
     }

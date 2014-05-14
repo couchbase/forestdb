@@ -439,6 +439,8 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator);
 
 /**
  * Compact the current database file and create a new compacted file.
+ * Note that new_filename will be ignored if the compaction mode of the handle is
+ * set to FDB_COMPACTION_AUTO.
  *
  * @param handle Pointer to ForestDB handle.
  * @param new_filename Name of a new compacted database file.
@@ -468,6 +470,23 @@ size_t fdb_estimate_space_used(fdb_handle *handle);
  */
 LIBFDB_API
 fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info);
+
+/**
+ * Change the compaction mode of a given database handle. If the mode is changed
+ * to FDB_COMPACTION_AUTO, the compaction threshold is set to the given threshold.
+ * Note that all the other handles referring the same database file should be closed
+ * before this API call, and no concurrent operation should be performed on the same
+ * file until the mode switching is done.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param mode New compaction mode to be set.
+ * @param new_threshold New compaction threshold to be set.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_switch_compaction_mode(fdb_handle *handle,
+                                      fdb_compaction_mode_t mode,
+                                      size_t new_threshold);
 
 /**
  * Close the database file.

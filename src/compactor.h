@@ -30,11 +30,16 @@ struct compactor_config{
 
 void compactor_init(struct compactor_config *config);
 void compactor_shutdown();
+bool compactor_switch_compaction_flag(struct filemgr *file, bool flag);
 void compactor_register_file(struct filemgr *file, fdb_config *config);
 void compactor_deregister_file(struct filemgr *file);
+void compactor_change_threshold(struct filemgr *file, size_t new_threshold);
 void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file);
 fdb_status compactor_get_actual_filename(const char *filename,
                                          char *actual_filename);
+void compactor_get_next_filename(char *file, char *nextfile);
+bool compactor_is_valid_mode(const char *filename, fdb_config *config);
+
 
 fdb_status fdb_open_for_compactor(fdb_handle **ptr_handle,
                                   const char *filename,
@@ -49,8 +54,7 @@ void _fdb_fetch_header(void *header_buf,
                        char **new_filename,
                        char **old_filename);
 fdb_status _fdb_compact(fdb_handle *handle,
-                        const char *new_filename,
-                        bool called_by_compactor);
+                        const char *new_filename);
 
 #ifdef __cplusplus
 }

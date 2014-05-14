@@ -50,6 +50,7 @@
 #endif
 
 #define COMPACTOR_META_VERSION (1)
+#define MAX_FNAMELEN (256)
 
 // variables for initialization
 static uint8_t compactor_initialized = 0;
@@ -81,6 +82,7 @@ struct openfiles_elem {
     struct filemgr *file;
     fdb_config config;
     uint32_t register_count;
+    bool compaction_flag; // set when the file is being compacted
     struct avl_node avl;
 };
 
@@ -90,7 +92,7 @@ struct compactor_args {
 
 struct compactor_meta{
     uint32_t version;
-    char filename[256];
+    char filename[MAX_FNAMELEN];
     uint32_t crc;
 };
 
@@ -147,7 +149,9 @@ INLINE int _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
     }
 
     threshold = elem->config.compaction_threshold;
-    if (threshold > 0) {
+    if (elem->config.compaction_mode == FDB_COMPACTION_AUTO &&
+        threshold > 0 && !elem->compaction_flag)
+        {
         filesize = filemgr_get_pos(elem->file);
         active_data = _compactor_estimate_space(elem);
         if (active_data == 0 ||
@@ -198,7 +202,7 @@ void _compactor_convert_dbfile_to_metafile(char *dbfile, char *metafile)
     }
 }
 
-void _compactor_next_filename(char *file, char *nextfile)
+void compactor_get_next_filename(char *file, char *nextfile)
 {
     int compaction_no = 0;
     int prefix_len = _compactor_prefix_len(file);
@@ -213,11 +217,37 @@ void _compactor_next_filename(char *file, char *nextfile)
     }
 }
 
+bool compactor_switch_compaction_flag(struct filemgr *file, bool flag)
+{
+    struct avl_node *a = NULL;
+    struct openfiles_elem query, *elem;
+
+    spin_lock(&cpt_lock);
+    query.file = file;
+    a = avl_search(&openfiles, &query.avl, _compactor_cmp);
+    if (a) {
+        // found
+        elem = _get_entry(a, struct openfiles_elem, avl);
+        if (elem->compaction_flag == flag) {
+            // already switched by other thread .. return false
+            spin_unlock(&cpt_lock);
+            return false;
+        }
+        // switch
+        elem->compaction_flag = flag;
+        spin_unlock(&cpt_lock);
+        return true;
+    }
+    // file doesn't exist .. already compacted or deregistered
+    spin_unlock(&cpt_lock);
+    return false;
+}
+
 void * compactor_thread(void *voidargs)
 {
-    char filename[256];
-    char vfilename[256];
-    char new_filename[256];
+    char filename[MAX_FNAMELEN];
+    char vfilename[MAX_FNAMELEN];
+    char new_filename[MAX_FNAMELEN];
     fdb_handle *handle;
     fdb_config config;
     fdb_status fs;
@@ -241,12 +271,14 @@ void * compactor_thread(void *voidargs)
                 compactor_status = CPT_WORKING;
                 // set target_cursor to avoid deregistering of the 'elem'
                 target_cursor = &elem->avl;
+                // set compaction flag
+                elem->compaction_flag = true;
                 spin_unlock(&cpt_lock);
 
                 fs = fdb_open_for_compactor(&handle, vfilename, &config);
                 if (fs == FDB_RESULT_SUCCESS) {
-                    _compactor_next_filename(filename, new_filename);
-                    fs = _fdb_compact(handle, new_filename, true);
+                    compactor_get_next_filename(filename, new_filename);
+                    fs = _fdb_compact(handle, new_filename);
 
                     spin_lock(&cpt_lock);
                     a = avl_next(target_cursor);
@@ -265,6 +297,8 @@ void * compactor_thread(void *voidargs)
                     a = avl_next(target_cursor);
                     target_cursor = NULL;
                 }
+                // clear compaction flag
+                elem->compaction_flag = false;
             } else {
                 a = avl_next(a);
             }
@@ -395,8 +429,11 @@ void compactor_shutdown()
 #endif
 }
 
+fdb_status _compactor_store_metafile(char *metafile,
+                                     struct compactor_meta *metadata);
 void compactor_register_file(struct filemgr *file, fdb_config *config)
 {
+    fdb_status fs;
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
@@ -407,12 +444,22 @@ void compactor_register_file(struct filemgr *file, fdb_config *config)
     if (a == NULL) {
         // doesn't exist
         // create elem and insert into tree
+        char path[MAX_FNAMELEN];
+        struct compactor_meta meta;
+
         elem = (struct openfiles_elem *)malloc(sizeof(struct openfiles_elem));
         elem->file = file;
         elem->config = *config;
         elem->register_count = 1;
+        elem->compaction_flag = false;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
+
+        // store in metafile
+        _compactor_convert_dbfile_to_metafile(file->filename, path);
+        strcpy(meta.filename, file->filename);
+        fs = _compactor_store_metafile(path, &meta);
     } else {
+        // already exists
         elem = _get_entry(a, struct openfiles_elem, avl);
         elem->register_count++;
     }
@@ -432,15 +479,31 @@ void compactor_deregister_file(struct filemgr *file)
         if ((--elem->register_count) == 0) {
             // if no handle refers this file
             if (target_cursor == &elem->avl) {
-                // this file is waiting for compaction .. do not remove 'elem' now.
-                // the 'elem' will be automatically replaced after the compaction
-                // by calling 'compactor_switch_file()'.
+                // This file is waiting for compaction by compactor (but not opened
+                // yet). Do not remove 'elem' for now. The 'elem' will be automatically
+                // replaced after the compaction is done by calling
+                // 'compactor_switch_file()'.
             } else {
                 // remove from the tree
                 avl_remove(&openfiles, &elem->avl);
                 free(elem);
             }
         }
+    }
+    spin_unlock(&cpt_lock);
+}
+
+void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
+{
+    struct avl_node *a = NULL;
+    struct openfiles_elem query, *elem;
+
+    spin_lock(&cpt_lock);
+    query.file = file;
+    a = avl_search(&openfiles, &query.avl, _compactor_cmp);
+    if (a) {
+        elem = _get_entry(a, struct openfiles_elem, avl);
+        elem->config.compaction_threshold = new_threshold;
     }
     spin_unlock(&cpt_lock);
 }
@@ -492,7 +555,7 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
 }
 
 fdb_status _compactor_store_metafile(char *metafile,
-    struct compactor_meta *metadata)
+                                     struct compactor_meta *metadata)
 {
     int fd_meta;
     ssize_t ret;
@@ -533,7 +596,7 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file)
     query.file = old_file;
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
-        char metafile[256];
+        char metafile[MAX_FNAMELEN];
 
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openfiles, a);
@@ -541,7 +604,7 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file)
         elem->register_count = 1;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
 
-        if (elem->config.compaction_threshold > 0) {
+        if (elem->config.compaction_mode == FDB_COMPACTION_AUTO) {
             _compactor_convert_dbfile_to_metafile(new_file->filename, metafile);
             strcpy(meta.filename, new_file->filename);
             _compactor_store_metafile(metafile, &meta);
@@ -561,8 +624,8 @@ fdb_status compactor_get_actual_filename(const char *filename,
     int filename_len;
     int dirname_len;
     int compaction_no, max_compaction_no = -1;
-    char path[256];
-    char dirname[256], prefix[256];
+    char path[MAX_FNAMELEN];
+    char dirname[MAX_FNAMELEN], prefix[MAX_FNAMELEN];
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct compactor_meta meta, *meta_ptr;
 
@@ -630,7 +693,7 @@ fdb_status compactor_get_actual_filename(const char *filename,
 
         WIN32_FIND_DATA filedata;
         HANDLE hfind;
-        char query_str[256];
+        char query_str[MAX_FNAMELEN];
 
         // find all files start with 'prefix'
         sprintf(query_str, "%s*", prefix);
@@ -663,7 +726,6 @@ fdb_status compactor_get_actual_filename(const char *filename,
             sprintf(meta.filename, "%s.%d", filename, max_compaction_no);
             fs = FDB_RESULT_SUCCESS;
         }
-        fs = _compactor_store_metafile(path, &meta);
         if (fs == FDB_RESULT_SUCCESS) {
             strcpy(actual_filename, meta.filename);
         }
@@ -676,4 +738,38 @@ fdb_status compactor_get_actual_filename(const char *filename,
     }
 }
 
+bool compactor_is_valid_mode(const char *filename, fdb_config *config)
+{
+    int fd;
+    char path[MAX_FNAMELEN];
+    struct filemgr_ops *ops;
+
+    ops = get_filemgr_ops();
+
+    if (config->compaction_mode == FDB_COMPACTION_AUTO) {
+        // auto compaction mode: invalid when
+        // the file '[filename]' exists
+        fd = ops->open(filename, O_RDONLY, 0644);
+        if (fd != FDB_RESULT_NO_SUCH_FILE) {
+            ops->close(fd);
+            return false;
+        }
+
+    } else if (config->compaction_mode == FDB_COMPACTION_MANUAL) {
+        // manual compaction mode: invalid when
+        // the file '[filename].meta' exists
+        sprintf(path, "%s.meta", filename);
+        fd = ops->open(path, O_RDONLY, 0644);
+        if (fd != FDB_RESULT_NO_SUCH_FILE) {
+            ops->close(fd);
+            return false;
+        }
+
+    } else {
+        // unknown mode
+        return false;
+    }
+
+    return true;
+}
 
