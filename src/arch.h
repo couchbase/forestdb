@@ -92,11 +92,22 @@
             // thread
         #include <pthread.h>
         #define thread_t pthread_t
+        #define thread_cond_t pthread_cond_t
         #define thread_create(tid, func, args) \
             pthread_create((tid), NULL, (func), (args))
         #define thread_join(tid, ret) pthread_join(tid, ret)
         #define thread_cancel(tid) pthread_cancel(tid)
         #define thread_exit(code) pthread_exit(code)
+        #define thread_cond_init(cond) pthread_cond_init(cond, NULL)
+        #define thread_cond_destroy(cond) pthread_cond_destroy(cond)
+        #define thread_cond_wait(cond, mutex) pthread_cond_wait(cond, mutex)
+        #define thread_cond_timedwait(cond, mutex, ms) \
+            { \
+            struct timespec ts = convert_reltime_to_abstime(ms); \
+            pthread_cond_timedwait(cond, mutex, &ts); \
+            }
+        #define thread_cond_signal(cond) pthread_cond_signal(cond)
+        #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
     #endif
 
 #elif __linux__
@@ -139,11 +150,22 @@
         // thread
         #include <pthread.h>
         #define thread_t pthread_t
+        #define thread_cond_t pthread_cond_t
         #define thread_create(tid, func, args) \
             pthread_create((tid), NULL, (func), (args))
         #define thread_join(tid, ret) pthread_join(tid, ret)
         #define thread_cancel(tid) pthread_cancel(tid)
         #define thread_exit(code) pthread_exit(code)
+        #define thread_cond_init(cond) pthread_cond_init(cond, NULL)
+        #define thread_cond_destroy(cond) pthread_cond_destroy(cond)
+        #define thread_cond_wait(cond, mutex) pthread_cond_wait(cond, mutex)
+        #define thread_cond_timedwait(cond, mutex, ms) \
+            { \
+            struct timespec ts = convert_reltime_to_abstime(ms); \
+            pthread_cond_timedwait(cond, mutex, &ts); \
+            }
+        #define thread_cond_signal(cond) pthread_cond_signal(cond)
+        #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
     #endif
 
 #elif defined(WIN32) || defined(_WIN32)
@@ -198,6 +220,7 @@
     #ifndef thread_t
         // thread
         #define thread_t HANDLE
+        #define thread_cond_t CONDITION_VARIABLE
         #define thread_create(tid, func, args) \
             { \
             DWORD __dt__; \
@@ -207,6 +230,13 @@
         #define thread_join(tid, ret) WaitForSingleObject(tid, INFINITE)
         #define thread_cancel(tid) TerminateThread(tid, 0);
         #define thread_exit(code) ExitThread(code)
+        #define thread_cond_init(cond) InitializeConditionVariable(cond)
+        #define thread_cond_destroy(cond) (void)cond
+        #define thread_cond_wait(cond, mutex) SleepConditionVariableCS(cond, mutex, INFINITE)
+        #define thread_cond_timedwait(cond, mutex, msec) \
+            SleepConditionVariableCS(cond, mutex, msec)
+        #define thread_cond_signal(cond) WakeConditionVariable(cond)
+        #define thread_cond_broadcast(cond) WakeAllConditionVariable(cond)
     #endif
 
 #elif __CYGWIN__
@@ -250,11 +280,22 @@
         // thread
         #include <pthread.h>
         #define thread_t pthread_t
+        #define thread_cond_t pthread_cond_t
         #define thread_create(tid, func, args) \
             pthread_create((tid), NULL, (func), (args))
         #define thread_join(tid, ret) pthread_join(tid, ret)
         #define thread_cancel(tid) pthread_cancel(tid)
         #define thread_exit(code) pthread_exit(code)
+        #define thread_cond_init(cond) pthread_cond_init(cond, NULL)
+        #define thread_cond_destroy(cond) pthread_cond_destroy(cond)
+        #define thread_cond_wait(cond, mutex) pthread_cond_wait(cond, mutex)
+        #define thread_cond_timedwait(cond, mutex, ms) \
+            { \
+            struct timespec ts = convert_reltime_to_abstime(ms); \
+            pthread_cond_timedwait(cond, mutex, &ts); \
+            }
+        #define thread_cond_signal(cond) pthread_cond_signal(cond)
+        #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
     #endif
 
 #else

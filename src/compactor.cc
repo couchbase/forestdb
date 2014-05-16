@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
-#include <time.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
 #include <dirent.h>
@@ -64,6 +63,9 @@ static spin_t cpt_lock;
 static thread_t compactor_tid;
 static size_t sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
 
+static mutex_t sync_mutex;
+static thread_cond_t sync_cond;
+
 typedef uint8_t compactor_status_t;
 enum{
     CPT_IDLE = 0,
@@ -95,6 +97,33 @@ struct compactor_meta{
     char filename[MAX_FNAMELEN];
     uint32_t crc;
 };
+
+#if !defined(WIN32) && !defined(_WIN32)
+struct timespec convert_reltime_to_abstime(unsigned int ms) {
+    struct timespec ts;
+    struct timeval tp;
+    int ret;
+    uint64_t wakeup;
+
+    memset(&ts, 0, sizeof(ts));
+
+    /*
+     * Unfortunately pthread_cond_timedwait doesn't support relative sleeps
+     * so we need to convert back to an absolute time.
+     */
+    gettimeofday(&tp, NULL);
+    wakeup = ((uint64_t)(tp.tv_sec) * 1000) + (tp.tv_usec / 1000) + ms;
+    /* Round up for sub ms */
+    if ((tp.tv_usec % 1000) > 499) {
+        ++wakeup;
+    }
+
+    ts.tv_sec = wakeup / 1000;
+    wakeup %= 1000;
+    ts.tv_nsec = wakeup * 1000000;
+    return ts;
+}
+#endif
 
 // compares file names
 int _compactor_cmp(struct avl_node *a, struct avl_node *b, void *aux)
@@ -302,38 +331,24 @@ void * compactor_thread(void *voidargs)
             } else {
                 a = avl_next(a);
             }
-        }
-        spin_unlock(&cpt_lock);
-
-#if !defined(WIN32) && !defined(_WIN32)
-        // Not windows: thread can be immediately terminated during sleep
-        if (compactor_terminate_signal) {
-            break;
-        }
-        // periodically wake up
-        sleep(sleep_duration);
-#else
-        // Windows: thread terminates after sleep.
-        // This causes several synchronization errors
-        // because compactor_shutdown() must ensure
-        // the termination of this thread.
-        struct timeval tv_begin, tv_cur, tv_gap;
-        gettimeofday(&tv_begin, NULL);
-        while(true) {
-            gettimeofday(&tv_cur, NULL);
-            tv_gap = _utime_gap(tv_begin, tv_cur);
-            if (tv_gap.tv_sec >= sleep_duration) {
-                // wake up
-                break;
-            }
-            // sleep 10ms
-            Sleep(10);
             if (compactor_terminate_signal) {
-                // terminate
+                spin_unlock(&cpt_lock);
                 return NULL;
             }
         }
-#endif
+        spin_unlock(&cpt_lock);
+
+        mutex_lock(&sync_mutex);
+        if (compactor_terminate_signal) {
+            mutex_unlock(&sync_mutex);
+            break;
+        }
+        thread_cond_timedwait(&sync_cond, &sync_mutex, sleep_duration * 1000);
+        if (compactor_terminate_signal) {
+            mutex_unlock(&sync_mutex);
+            break;
+        }
+        mutex_unlock(&sync_mutex);
     }
     return NULL;
 }
@@ -370,6 +385,9 @@ void compactor_init(struct compactor_config *config)
             compactor_status = CPT_IDLE;
             compactor_terminate_signal = 0;
 
+            mutex_init(&sync_mutex);
+            thread_cond_init(&sync_cond);
+
             // create worker thread
             thread_create(&compactor_tid, compactor_thread, NULL);
 
@@ -386,25 +404,12 @@ void compactor_shutdown()
     struct openfiles_elem *elem;
 
     // set terminate signal
+    mutex_lock(&sync_mutex);
     compactor_terminate_signal = 1;
+    thread_cond_signal(&sync_cond);
+    mutex_unlock(&sync_mutex);
 
-#if !defined(WIN32) && !defined(_WIN32)
-    // Not windows: use thread_cancel to terminate the daemon thread
-    spin_lock(&cpt_lock);
-    if (compactor_status == CPT_WORKING) {
-        // wait until the daemon terminates
-        spin_unlock(&cpt_lock);
-        thread_join(compactor_tid, &ret);
-    } else if (compactor_status == CPT_IDLE) {
-        // immediately terminate
-        spin_unlock(&cpt_lock);
-        thread_cancel(compactor_tid);
-        thread_join(compactor_tid, &ret);
-    }
-#else
-    // Windows: wait until the termination of the daemon thread
     thread_join(compactor_tid, &ret);
-#endif
 
     spin_lock(&cpt_lock);
     // free all elems in the tree
@@ -419,6 +424,8 @@ void compactor_shutdown()
 
     sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
     compactor_initialized = 0;
+    mutex_destroy(&sync_mutex);
+    thread_cond_destroy(&sync_cond);
     spin_unlock(&cpt_lock);
 
 #ifndef SPIN_INITIALIZER

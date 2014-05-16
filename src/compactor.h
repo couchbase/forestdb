@@ -18,6 +18,8 @@
 #ifndef _FDB_COMPACTOR_H
 #define _FDB_COMPACTOR_H
 
+#include <time.h>
+
 #include "internal_types.h"
 
 #ifdef __cplusplus
@@ -55,6 +57,10 @@ void _fdb_fetch_header(void *header_buf,
                        char **old_filename);
 fdb_status _fdb_compact(fdb_handle *handle,
                         const char *new_filename);
+
+#if !defined(WIN32) && !defined(_WIN32)
+struct timespec convert_reltime_to_abstime(unsigned int ms);
+#endif
 
 #ifdef __cplusplus
 }
