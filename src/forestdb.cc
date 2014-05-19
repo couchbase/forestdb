@@ -988,10 +988,12 @@ fdb_status fdb_doc_update(fdb_doc **doc,
 LIBFDB_API
 fdb_status fdb_doc_free(fdb_doc *doc)
 {
-    if (doc->key) free(doc->key);
-    if (doc->meta) free(doc->meta);
-    if (doc->body) free(doc->body);
-    free(doc);
+    if (doc) {
+        free(doc->key);
+        free(doc->meta);
+        free(doc->body);
+        free(doc);
+    }
     return FDB_RESULT_SUCCESS;
 }
 
