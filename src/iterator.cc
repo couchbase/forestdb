@@ -87,6 +87,22 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
+int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
+                 void *key2, size_t keylen2) {
+    int cmp;
+    if (iterator->handle.config.cmp_fixed) {
+        // custom compare function for fixed size key
+        cmp = iterator->handle.config.cmp_fixed(key1, key2);
+    } else if (iterator->handle.config.cmp_variable) {
+        // custom compare function for variable length key
+        cmp = iterator->handle.config.cmp_variable(key1, keylen1,
+                                                   key2, keylen2);
+    } else {
+        cmp = _fdb_keycmp(key1, keylen1, key2, keylen2);
+    }
+    return cmp;
+}
+
 fdb_status fdb_iterator_init(fdb_handle *handle,
                              fdb_iterator **ptr_iterator,
                              const void *start_key,
@@ -169,20 +185,9 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         while(e) {
             wal_item = _get_entry(e, struct wal_item, list_elem);
             if (start_key) {
-                if (handle->config.cmp_fixed) {
-                    // custom compare function for fixed size key
-                    cmp = handle->config.cmp_fixed((void*)start_key,
-                                                   wal_item->key);
-                } else if (handle->config.cmp_variable) {
-                    // custom compare function for variable length key
-                    cmp = handle->config.cmp_variable(
-                            (void*)start_key, start_keylen,
-                            wal_item->key, wal_item->keylen);
-                } else {
-                    cmp = _fdb_keycmp((void *)start_key, start_keylen,
-                            wal_item->key, wal_item->keylen);
-                }
-            }else{
+                cmp = _fdb_key_cmp(iterator, (void *)start_key, start_keylen,
+                                   wal_item->key, wal_item->keylen);
+            } else {
                 cmp = 0;
             }
 
@@ -356,19 +361,9 @@ start:
         // get the current item of avl-tree
         snap_item = _get_entry(iterator->tree_cursor, struct snap_wal_entry, avl);
         if (hr != HBTRIE_RESULT_FAIL) {
-            if (iterator->handle.config.cmp_fixed) {
-                // custom compare function for fixed size key
-                cmp = iterator->handle.config.cmp_fixed(
-                          snap_item->key, key);
-            } else if (iterator->handle.config.cmp_variable) {
-                // custom compare function for variable length key
-                cmp = iterator->handle.config.cmp_variable(
-                          snap_item->key, snap_item->keylen,
-                          key, keylen);
-            } else {
-                cmp = _fdb_keycmp(snap_item->key, snap_item->keylen, key, keylen);
-            }
-        }else{
+            cmp = _fdb_key_cmp(iterator, snap_item->key, snap_item->keylen,
+                               key, keylen);
+        } else {
             // no more docs in hb-trie
             cmp = -1;
         }
@@ -408,19 +403,8 @@ start:
     }
 
     if (iterator->end_key) {
-
-        if (iterator->handle.config.cmp_fixed) {
-            // custom compare function for fixed size key
-            cmp = iterator->handle.config.cmp_fixed(
-                      iterator->end_key, key);
-        } else if (iterator->handle.config.cmp_variable) {
-            // custom compare function for variable length key
-            cmp = iterator->handle.config.cmp_variable(
-                      iterator->end_key, iterator->end_keylen,
-                      key, keylen);
-        } else {
-            cmp = _fdb_keycmp(iterator->end_key, iterator->end_keylen, key, keylen);
-        }
+        cmp = _fdb_key_cmp(iterator, iterator->end_key, iterator->end_keylen,
+                           key, keylen);
 
         if (cmp < 0) {
             // current key (KEY) is lexicographically greater than END_KEY
@@ -471,6 +455,73 @@ start:
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
     (*doc)->offset = offset;
 
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
+                             const size_t seek_keylen) {
+    hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
+    btree_result br;
+    struct snap_wal_entry *snap_item = NULL;
+    if (!iterator || !seek_key || !iterator->_key) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    // disable seeking beyond the end key...
+    if (iterator->end_key && _fdb_key_cmp(iterator, (void *)iterator->end_key,
+                                         iterator->end_keylen,
+                                         (void *)seek_key, seek_keylen) <= 0) {
+        memcpy(iterator->_key, seek_key, seek_keylen);
+        iterator->_keylen = seek_keylen;
+        iterator->_offset = 0;
+        iterator->tree_cursor = NULL;
+        return FDB_RESULT_ITERATOR_FAIL;
+    }
+
+    // Roll the hb-trie/btree iterator forward to seek key
+    while (hr == HBTRIE_RESULT_SUCCESS) {
+        if (_fdb_key_cmp(iterator, (void *)seek_key, seek_keylen,
+                    (void *)iterator->_key, iterator->_keylen) <= 0) {
+            // iterator->_key and iterator->_offset will help return seek_key
+            // on fdb_iterator_next() if we went past & pulled out a higher key
+            break;
+        }
+
+        // get next key from hb-trie (or idtree)
+        if (iterator->handle.config.cmp_variable) {
+            uint8_t *var_key = alca(uint8_t,
+                    iterator->handle.config.chunksize);
+            memset(var_key, 0, iterator->handle.config.chunksize);
+
+            br = btree_next(iterator->idtree_iterator, var_key,
+                    (void*)&iterator->_offset);
+            if (br == BTREE_RESULT_FAIL) {
+                hr = HBTRIE_RESULT_FAIL;
+            } else {
+                _get_var_key(var_key, iterator->_key, &iterator->_keylen);
+                _free_var_key(var_key);
+            }
+        } else {
+            hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
+                    &iterator->_keylen, (void*)&iterator->_offset);
+        }
+        btreeblk_end(iterator->handle.bhandle);
+        iterator->_offset = _endian_decode(iterator->_offset);
+    }
+
+    // Roll the WAL iterator forward too to the seek_key
+    while (iterator->tree_cursor) {
+        int cmp;
+        snap_item = _get_entry(iterator->tree_cursor, struct snap_wal_entry,
+                               avl);
+        cmp = _fdb_key_cmp(iterator, (void *)snap_item->key, snap_item->keylen,
+                         (void *)seek_key, seek_keylen);
+        if ( cmp < 0) {
+            iterator->tree_cursor = avl_next(iterator->tree_cursor);
+        } else {
+            break;
+        }
+    }
     return FDB_RESULT_SUCCESS;
 }
 

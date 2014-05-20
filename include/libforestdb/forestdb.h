@@ -429,6 +429,19 @@ fdb_status fdb_iterator_next_metaonly(fdb_iterator *iterator,
                                       fdb_doc **doc);
 
 /**
+ * Fast forward an iterator to return documents after the given seek_key
+ * If the key does not exist, seek forward to the next sorted key.
+ *
+ * @param iterator Pointer to the iterator.
+ * @param seek_key Pointer to the key to seek to.
+ * @param seek_keylen Length of the seek_key
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
+                             const size_t seek_keylen);
+
+/**
  * Close the iterator and free its associated resources.
  *
  * @param iterator Pointer to the iterator.

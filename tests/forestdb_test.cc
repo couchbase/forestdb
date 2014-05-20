@@ -1537,6 +1537,111 @@ void iterator_test()
     TEST_RESULT("iterator test");
 }
 
+void iterator_seek_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    uint64_t offset;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "iterator_seek_test");
+
+    // insert documents of odd number
+    for (i=1;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents of even number
+    for (i=0;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without WAL flush
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // now odd number docs are in hb-trie & even number docs are in WAL
+
+    // create an iterator for full range
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // seek current iterator to inside the WAL's avl tree..
+    status = fdb_iterator_next(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CHK(!memcmp(rdoc->key, doc[0]->key, rdoc->keylen));
+    TEST_CHK(!memcmp(rdoc->meta, doc[0]->meta, rdoc->metalen));
+    TEST_CHK(!memcmp(rdoc->body, doc[0]->body, rdoc->bodylen));
+    fdb_doc_free(rdoc);
+
+    // seek forward to 2nd key ..
+    status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf));
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // repeat until fail
+    i=2;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==10);
+    fdb_iterator_close(iterator);
+
+    // close db file
+    fdb_close(db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("iterator seek test");
+}
+
 void sequence_iterator_test()
 {
     TEST_INIT();
@@ -3087,6 +3192,7 @@ int main(){
 #endif
     incomplete_block_test();
     iterator_test();
+    iterator_seek_test();
     sequence_iterator_test();
     custom_compare_primitive_test();
     custom_compare_variable_test();
