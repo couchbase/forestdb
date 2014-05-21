@@ -55,7 +55,7 @@ static spin_t initial_lock;
 #endif
 
 
-static int filemgr_initialized = 0;
+static volatile uint8_t filemgr_initialized = 0;
 static struct filemgr_config global_config;
 static struct hash hash;
 static spin_t filemgr_openlock;
@@ -104,26 +104,44 @@ void filemgr_init(struct filemgr_config *config)
     int i, ret;
     uint32_t *temp;
 
-    spin_lock(&initial_lock);
+    // global initialization
+    // initialized only once at first time
     if (!filemgr_initialized) {
-        global_config = *config;
+#ifndef SPIN_INITIALIZER
+        // Note that only Windows passes through this routine
+        if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
+            // atomically initialize spin lock only once
+            spin_init(&initial_lock);
+            initial_lock_status = 2;
+        } else {
+            // the others .. wait until initializing 'initial_lock' is done
+            while (initial_lock_status != 2) {
+                Sleep(1);
+            }
+        }
+#endif
 
-        if (global_config.ncacheblock > 0)
-            bcache_init(global_config.ncacheblock, global_config.blocksize);
+        spin_lock(&initial_lock);
+        if (!filemgr_initialized) {
+            global_config = *config;
 
-        hash_init(&hash, NBUCKET, _file_hash, _file_cmp);
+            if (global_config.ncacheblock > 0)
+                bcache_init(global_config.ncacheblock, global_config.blocksize);
 
-        // initialize temp buffer
-        list_init(&temp_buf);
-        spin_init(&temp_buf_lock);
+            hash_init(&hash, NBUCKET, _file_hash, _file_cmp);
 
-        // initialize global lock
-        spin_init(&filemgr_openlock);
+            // initialize temp buffer
+            list_init(&temp_buf);
+            spin_init(&temp_buf_lock);
 
-        // set the initialize flag
-        filemgr_initialized = 1;
+            // initialize global lock
+            spin_init(&filemgr_openlock);
+
+            // set the initialize flag
+            filemgr_initialized = 1;
+        }
+        spin_unlock(&initial_lock);
     }
-    spin_unlock(&initial_lock);
 }
 
 void * _filemgr_get_temp_buf()
@@ -289,24 +307,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     int fd = -1;
     filemgr_open_result result = {NULL, FDB_RESULT_OPEN_FAIL};
 
-    // global initialization
-    // initialized only once at first time
-    if (!filemgr_initialized) {
-#ifndef SPIN_INITIALIZER
-        // Note that only Windows passes through this routine
-        if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
-            // atomically initialize spin lock only once
-            spin_init(&initial_lock);
-            initial_lock_status = 2;
-        } else {
-            // the others .. wait until initializing 'initial_lock' is done
-            while (initial_lock_status != 2) {
-                Sleep(1);
-            }
-        }
-#endif
-        filemgr_init(config);
-    }
+    filemgr_init(config);
 
     // check whether file is already opened or not
     query.filename = filename;
@@ -421,6 +422,11 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->pos = file->last_commit = offset;
 
     file->bcache = NULL;
+
+    // init global transaction for the file
+    file->global_txn.handle = NULL;
+    file->global_txn.items = (struct list *)malloc(sizeof(struct list));
+    list_init(file->global_txn.items);
 
     _filemgr_read_header(file);
 
@@ -654,6 +660,9 @@ static void _filemgr_free_func(struct hash_elem *h)
     if (file->header.data) free(file->header.data);
     // free old filename if any
     free(file->old_filename);
+
+    // free global transaction
+    free(file->global_txn.items);
 
     // destroy locks
     spin_destroy(&file->lock);

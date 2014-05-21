@@ -36,6 +36,18 @@ extern "C" {
 #endif
 
 /**
+ * Initialize all global resources (e.g., buffer cache, daemon compaction thread, etc.)
+ * for ForestDB engine, using the given configurations. Note that all open API
+ * calls automatically invoke this API if ForestDB engine is not initialized.
+ *
+ * @param config Pointer to the config instance that contains ForestDB configs.
+ *               If NULL is passed, then we use default settings of ForestDB configs.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_init(fdb_config *config);
+
+/**
  * Get the default ForestDB configs.
  * The general recommendation is to invoke this API to get the default configs
  * and change some configs if necessary and then pass them to fdb_open APIs.
@@ -107,6 +119,7 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
 /**
  * Set up the error logging callback that allows an application to process
  * error code and message from ForestDB.
+ *
  * @param handle Pointer to ForestDB handle.
  * @param log_callback Logging callback function that receives and processes
  *        error codes and messages from ForestDB.
@@ -529,6 +542,44 @@ fdb_status fdb_close(fdb_handle *handle);
  */
 LIBFDB_API
 fdb_status fdb_shutdown();
+
+/**
+ * Begin a transaction for the given database handle.
+ * The transaction should be closed with fdb_end_transaction API call.
+ * Dirty updates belonging to a transaction cannot be seen by other handles
+ * until the transaction is committed.
+ * The current isolation level is "read committed", which meant that both
+ * non-repeatable reads and phantoms may occur, and concurrent transactions
+ * will not be serialized. Please refer to the following link:
+ * http://en.wikipedia.org/wiki/Isolation_level
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_begin_transaction(fdb_handle *handle);
+
+/**
+ * End a transaction for the given database handle by commiting all the dirty
+ * updates and releasing all the resouces allocated for that transaction.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @param opt Commit option.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_end_transaction(fdb_handle *handle, fdb_commit_opt_t opt);
+
+/**
+ * Abort the transaction for a given handle.
+ * All uncommitted dirty updates in the handle will be discarded.
+ *
+ * @param handle Pointer to ForestDB handle.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_abort_transaction(fdb_handle *handle);
+
 
 #ifdef __cplusplus
 }

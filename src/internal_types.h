@@ -51,6 +51,8 @@ typedef struct {
     void *ctx_data;
 } err_log_callback;
 
+typedef struct _fdb_transaction fdb_txn;
+
 /**
  * ForestDB database handle definition.
  */
@@ -137,11 +139,16 @@ struct _fdb_handle {
      * Only used when compaction daemon is enabled.
      */
     char *filename;
+    /**
+     * Transaction handle
+     */
+    fdb_txn *txn;
 };
 
 struct hbtrie_iterator;
 struct avl_tree;
 struct avl_node;
+struct list;
 
 /**
  * ForestDB iterator structure definition.
@@ -204,6 +211,20 @@ struct _fdb_iterator {
      * Key offset.
      */
     uint64_t _offset;
+};
+
+/**
+ * ForestDB transaction structure definition.
+ */
+struct _fdb_transaction {
+    /**
+     * ForestDB database handle.
+     */
+    fdb_handle *handle;
+    /**
+     * List of dirty WAL items.
+     */
+    struct list *items;
 };
 
 #ifdef __cplusplus

@@ -138,7 +138,7 @@ void basic_test()
         sprintf(meta, "metadata_%03d", i);
         sprintf(body, "body_%03d", i);
         docsize = _set_doc(&doc, dockey, meta, body);
-        offset = docio_append_doc(&dhandle, &doc, 0);
+        offset = docio_append_doc(&dhandle, &doc, 0, 0);
         _offset = _endian_encode(offset);
         hbtrie_insert(&trie, (void*)key[i], strlen(key[i]), (void*)&_offset, (void*)&offset_old);
         btreeblk_end(&bhandle);
@@ -256,7 +256,7 @@ void large_test()
             sprintf(meta, "m");
             sprintf(body, "body_%3d", i);
             docsize = _set_doc(&doc, dockey, meta, body);
-            offset[i] = docio_append_doc(&dhandle, &doc, 0);
+            offset[i] = docio_append_doc(&dhandle, &doc, 0, 0);
         }
         TEST_TIME();
 
@@ -279,7 +279,7 @@ void large_test()
             sprintf(meta, "me");
             sprintf(body, "body2_%3d", i);
             docsize = _set_doc(&doc, dockey, meta, body);
-            offset[i] = docio_append_doc(&dhandle, &doc, 0);
+            offset[i] = docio_append_doc(&dhandle, &doc, 0, 0);
         }
         TEST_TIME();
 

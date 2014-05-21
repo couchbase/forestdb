@@ -52,7 +52,7 @@
 #define MAX_FNAMELEN (256)
 
 // variables for initialization
-static uint8_t compactor_initialized = 0;
+static volatile uint8_t compactor_initialized = 0;
 #ifdef SPIN_INITIALIZER
 static spin_t cpt_lock = SPIN_INITIALIZER;
 #else

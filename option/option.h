@@ -43,8 +43,6 @@
 
 #define __ENDIAN_SAFE
 
-#define __WAL_KEY_COPY
-
 //#define __DEBUG_FDB
 //#define __DEBUG_WAL
 //#define __DEBUG_HBTRIE

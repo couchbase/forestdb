@@ -114,7 +114,8 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     int cmp;
     hbtrie_result hr;
     btree_result br;
-    struct list_elem *e;
+    struct list_elem *he, *ie;
+    struct wal_item_header *wal_item_header;
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
 
@@ -181,32 +182,36 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         avl_init(iterator->wal_tree, (void*)handle);
 
         spin_lock(&handle->file->wal->lock);
-        e = list_begin(&handle->file->wal->list);
-        while(e) {
-            wal_item = _get_entry(e, struct wal_item, list_elem);
-            if (start_key) {
-                cmp = _fdb_key_cmp(iterator, (void *)start_key, start_keylen,
-                                   wal_item->key, wal_item->keylen);
-            } else {
-                cmp = 0;
+        he = list_begin(&handle->file->wal->list);
+        while(he) {
+            wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
+
+            // compare committed item only (at the end of the list)
+            ie = list_end(&wal_item_header->items);
+            wal_item = _get_entry(ie, struct wal_item, list_elem);
+            if (wal_item->flag & WAL_ITEM_COMMITTED) {
+                if (start_key) {
+                    cmp = _fdb_key_cmp(iterator, (void *)start_key, start_keylen,
+                                       wal_item_header->key, wal_item_header->keylen);
+                }else{
+                    cmp = 0;
+                }
+
+                if (cmp <= 0) {
+                    // copy from 'wal_item_header'
+                    snap_item = (struct snap_wal_entry*)malloc(sizeof(
+                                                        struct snap_wal_entry));
+                    snap_item->keylen = wal_item_header->keylen;
+                    snap_item->key = (void*)malloc(snap_item->keylen);
+                    memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
+                    snap_item->action = wal_item->action;
+                    snap_item->offset = wal_item->offset;
+
+                    // insert into tree
+                    avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
+                }
             }
-
-            if (cmp <= 0) {
-                // copy from WAL_ITEM
-                snap_item = (struct snap_wal_entry*)malloc(sizeof(
-                                                    struct snap_wal_entry));
-                snap_item->keylen = wal_item->keylen;
-                snap_item->key = (void*)malloc(snap_item->keylen);
-                memcpy(snap_item->key, wal_item->key, snap_item->keylen);
-                snap_item->action = wal_item->action;
-                snap_item->offset = wal_item->offset;
-
-                // insert into tree
-                avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
-            }
-
-            if (e == handle->file->wal->last_commit) break;
-            e = list_next(e);
+            he = list_next(he);
         }
 
         spin_unlock(&handle->file->wal->lock);
@@ -232,7 +237,8 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
                                       const fdb_seqnum_t end_seq,
                                       fdb_iterator_opt_t opt)
 {
-    struct list_elem *e;
+    struct list_elem *he, *ie;
+    struct wal_item_header *wal_item_header;
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
     fdb_seqnum_t _start_seq = _endian_encode(start_seq);
@@ -273,27 +279,31 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
         avl_init(iterator->wal_tree, (void*)_fdb_seqnum_cmp);
 
         spin_lock(&handle->file->wal->lock);
-        e = list_begin(&handle->file->wal->list);
-        while(e) {
-            wal_item = _get_entry(e, struct wal_item, list_elem);
-            if (start_seq <= wal_item->seqnum && wal_item->seqnum <= end_seq) {
-                // copy from WAL_ITEM
-                snap_item = (struct snap_wal_entry*)malloc(sizeof(
-                            struct snap_wal_entry));
-                snap_item->keylen = wal_item->keylen;
-                snap_item->key = (void*)malloc(snap_item->keylen);
-                memcpy(snap_item->key, wal_item->key, snap_item->keylen);
-                snap_item->seqnum = wal_item->seqnum;
-                snap_item->action = wal_item->action;
-                snap_item->offset = wal_item->offset;
+        he = list_begin(&handle->file->wal->list);
+        while(he) {
+            wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
 
-                // insert into tree
-                avl_insert(iterator->wal_tree, &snap_item->avl,
-                           _fdb_seqnum_cmp);
+            // compare committed item only (at the end of the list)
+            ie = list_end(&wal_item_header->items);
+            wal_item = _get_entry(ie, struct wal_item, list_elem);
+            if (wal_item->flag & WAL_ITEM_COMMITTED) {
+                if (start_seq <= wal_item->seqnum && wal_item->seqnum <= end_seq) {
+                    // copy from WAL_ITEM
+                    snap_item = (struct snap_wal_entry*)malloc(sizeof(
+                                struct snap_wal_entry));
+                    snap_item->keylen = wal_item_header->keylen;
+                    snap_item->key = (void*)malloc(snap_item->keylen);
+                    memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
+                    snap_item->seqnum = wal_item->seqnum;
+                    snap_item->action = wal_item->action;
+                    snap_item->offset = wal_item->offset;
+
+                    // insert into tree
+                    avl_insert(iterator->wal_tree, &snap_item->avl,
+                               _fdb_seqnum_cmp);
+                }
             }
-
-            if (e == handle->file->wal->last_commit) break;
-            e = list_next(e);
+            he = list_next(he);
         }
         spin_unlock(&handle->file->wal->lock);
     } else {

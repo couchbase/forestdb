@@ -53,6 +53,7 @@ add_library(forestdb SHARED
             src/wal.cc
             ${GETTIMEOFDAY_VS}
             src/snapshot.cc
+            src/transaction.cc
             utils/memleak.cc
             utils/crc32.cc
             utils/debug.cc
@@ -91,6 +92,7 @@ add_executable(forestdb_dump
                src/wal.cc
                ${GETTIMEOFDAY_VS}
                src/snapshot.cc
+               src/transaction.cc
                utils/memleak.cc
                utils/crc32.cc
                utils/debug.cc

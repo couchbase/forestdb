@@ -3123,7 +3123,7 @@ void api_wrapper_test()
     // open db
     fdb_open(&db, "./dummy1", &fconfig);
     status = fdb_set_log_callback(db, logCallbackFunc,
-                                  (void *) "purge_logically_deleted_doc_test");
+                                  (void *) "api_wrapper_test");
 
     // error check
     status = fdb_set_kv(db, NULL, 0, NULL, 0);
@@ -3180,6 +3180,443 @@ void api_wrapper_test()
     TEST_RESULT("API wrapper test");
 }
 
+void transaction_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    size_t valuelen;
+    void *value;
+    fdb_handle *db, *db_txn1, *db_txn2;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "transaction_test");
+
+    // open db and begin transactions
+    fdb_open(&db_txn1, "dummy1", &fconfig);
+    fdb_open(&db_txn2, "dummy1", &fconfig);
+    fdb_begin_transaction(db_txn1);
+    fdb_begin_transaction(db_txn2);
+
+    // insert half docs into txn1
+    for (i=0;i<n/2;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db_txn1, doc[i]);
+    }
+
+    // insert other half docs into txn2
+    for (i=n/2;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db_txn2, doc[i]);
+    }
+
+    // uncommitted docs should not be read by the other transaction
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db_txn1, rdoc);
+        if (i<n/2) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            TEST_CHK(status != FDB_RESULT_SUCCESS);
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // commit and end txn1
+    fdb_end_transaction(db_txn1, FDB_COMMIT_NORMAL);
+
+    // uncommitted docs should not be read generally
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        if (i<n/2) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            TEST_CHK(status != FDB_RESULT_SUCCESS);
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // read uncommitted docs using the same transaction
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db_txn2, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+
+    // abort txn2
+    fdb_abort_transaction(db_txn2);
+
+    // close & re-open db file
+    fdb_close(db);
+    fdb_open(&db, "dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "transaction_test");
+
+    // uncommitted docs should not be read after reopening the file either
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        if (i<n/2) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            TEST_CHK(status != FDB_RESULT_SUCCESS);
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // insert other half docs & commit
+    for (i=n/2;i<n;++i){
+        fdb_set(db, doc[i]);
+    }
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // now all docs can be read generally
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+
+    // begin transactions
+    fdb_begin_transaction(db_txn1);
+    fdb_begin_transaction(db_txn2);
+
+    // concurrently update docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d_txn1", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db_txn1, rdoc);
+        fdb_doc_free(rdoc);
+
+        sprintf(bodybuf, "body%d_txn2", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db_txn2, rdoc);
+        fdb_doc_free(rdoc);
+    }
+
+    // retrieve check
+    for (i=0;i<n;++i){
+        // general retrieval
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+
+        // get from txn1
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db_txn1, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        sprintf(bodybuf, "body%d_txn1", i);
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+
+        // get from txn2
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db_txn2, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        sprintf(bodybuf, "body%d_txn2", i);
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    // commit txn2 & retrieve check
+    fdb_end_transaction(db_txn2, FDB_COMMIT_NORMAL);
+    for (i=0;i<n;++i){
+        // general retrieval
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        sprintf(bodybuf, "body%d_txn2", i);
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+
+        // get from txn1
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db_txn1, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        sprintf(bodybuf, "body%d_txn1", i);
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    // commit txn1 & retrieve check
+    fdb_end_transaction(db_txn1, FDB_COMMIT_NORMAL);
+    for (i=0;i<n;++i){
+        // general retrieval
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        sprintf(bodybuf, "body%d_txn1", i);
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    // begin new transaction
+    fdb_begin_transaction(db_txn1);
+    // update doc#5
+    i = 5;
+    sprintf(keybuf, "key%d", i);
+    sprintf(metabuf, "meta%d", i);
+    sprintf(bodybuf, "body%d_before_compaction", i);
+    fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
+                            (void*)metabuf, strlen(metabuf),
+                            (void*)bodybuf, strlen(bodybuf));
+    fdb_set(db_txn1, rdoc);
+    fdb_doc_free(rdoc);
+
+    // do compaction
+    fdb_compact(db, "dummy2");
+
+    // retrieve doc#5
+    // using txn1
+    fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+    status = fdb_get(db_txn1, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+    fdb_doc_free(rdoc);
+
+    // general retrieval
+    fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    sprintf(bodybuf, "body%d_txn1", i);
+    TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+    fdb_doc_free(rdoc);
+
+    // commit transaction
+    fdb_end_transaction(db_txn1, FDB_COMMIT_NORMAL);
+    // retrieve check
+    for (i=0;i<n;++i){
+        // general get
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if (i != 5) {
+            sprintf(bodybuf, "body%d_txn1", i);
+        } else {
+            sprintf(bodybuf, "body%d_before_compaction", i);
+        }
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    // close & re-open db file
+    fdb_close(db);
+    fdb_open(&db, "dummy2", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "transaction_test");
+    // retrieve check again
+    for (i=0;i<n;++i){
+        // general get
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if (i != 5) {
+            sprintf(bodybuf, "body%d_txn1", i);
+        } else {
+            sprintf(bodybuf, "body%d_before_compaction", i);
+        }
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    // close db file
+    fdb_close(db);
+    fdb_close(db_txn1);
+    fdb_close(db_txn2);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("transaction test");
+}
+
+void transaction_simple_api_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    size_t valuelen;
+    void *value;
+    fdb_handle *db, *db_txn1, *db_txn2;
+    fdb_status status;
+
+    char keybuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "transaction_simple_api_test");
+
+    // insert key-value pairs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+    }
+
+    // commit
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // open db and begin transactions
+    fdb_open(&db_txn1, "./dummy1", &fconfig);
+    fdb_open(&db_txn2, "./dummy1", &fconfig);
+    fdb_begin_transaction(db_txn1);
+    fdb_begin_transaction(db_txn2);
+
+    // concurrently update docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn1", i);
+        fdb_set_kv(db_txn1, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn2", i);
+        fdb_set_kv(db_txn2, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+    }
+
+    // retrieve key-value pairs
+    for (i=0;i<n;++i){
+        // general retrieval
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        free(value);
+
+        // txn1
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn1", i);
+        status = fdb_get_kv(db_txn1, keybuf, strlen(keybuf), &value, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        free(value);
+
+        // txn2
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn2", i);
+        status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        free(value);
+    }
+
+    // commit txn1
+    fdb_end_transaction(db_txn1, FDB_COMMIT_NORMAL);
+    for (i=0;i<n;++i){
+        // general retrieval
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn1", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        free(value);
+
+        // txn2
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn2", i);
+        status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        free(value);
+    }
+
+    // commit txn2
+    fdb_end_transaction(db_txn2, FDB_COMMIT_NORMAL);
+    for (i=0;i<n;++i){
+        // general retrieval
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn2", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        free(value);
+    }
+
+    // close db file
+    fdb_close(db);
+    fdb_close(db_txn1);
+    fdb_close(db_txn2);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("transaction simple API test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -3201,8 +3638,10 @@ int main(){
     db_drop_test();
     doc_compression_test();
     read_doc_by_offset_test();
-    purge_logically_deleted_doc_test();
     api_wrapper_test();
+    transaction_test();
+    transaction_simple_api_test();
+    purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 

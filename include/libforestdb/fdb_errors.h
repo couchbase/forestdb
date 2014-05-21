@@ -134,6 +134,10 @@ typedef enum {
      */
     FDB_RESULT_FILE_RENAME_FAIL = -25,
     /**
+     * Transaction operation fails.
+     */
+    FDB_RESULT_TRANSACTION_FAIL = -26,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

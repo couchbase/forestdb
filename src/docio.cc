@@ -324,22 +324,62 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     return ret_offset;
 }
 
+bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset)
+{
+    uint32_t offset = 0;
+    uint64_t docsize;
+    uint64_t _doc_offset;
+    void *buf;
+    bid_t ret_offset;
+    struct docio_length length, _length;
+
+    memset(&length, 0, sizeof(struct docio_length));
+    length.flag = DOCIO_TXN_COMMITTED;
+
+    docsize = sizeof(struct docio_length) + sizeof(doc_offset);
+    buf = (void *)malloc(docsize);
+
+    _length = _docio_length_encode(length);
+
+    // calculate checksum of LENGTH using crc
+    _length.checksum = _docio_length_checksum(_length);
+
+    memcpy((uint8_t *)buf + offset, &_length, sizeof(struct docio_length));
+    offset += sizeof(struct docio_length);
+
+    // copy doc_offset
+    _doc_offset = _endian_encode(doc_offset);
+    memcpy((uint8_t *)buf + offset, &_doc_offset, sizeof(_doc_offset));
+    offset += sizeof(_doc_offset);
+
+    ret_offset = docio_append_doc_raw(handle, docsize, buf);
+    free(buf);
+
+    return ret_offset;
+}
+
 bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object *doc,
-                               uint8_t deleted)
+                               uint8_t deleted, uint8_t txn_enabled)
 {
     doc->length.flag = DOCIO_COMPACT;
     if (deleted) {
         doc->length.flag |= DOCIO_DELETED;
     }
+    if (txn_enabled) {
+        doc->length.flag |= DOCIO_TXN_DIRTY;
+    }
     return _docio_append_doc(handle, doc);
 }
 
 bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
-                       uint8_t deleted)
+                       uint8_t deleted, uint8_t txn_enabled)
 {
     doc->length.flag = DOCIO_NORMAL;
     if (deleted) {
         doc->length.flag |= DOCIO_DELETED;
+    }
+    if (txn_enabled) {
+        doc->length.flag |= DOCIO_TXN_DIRTY;
     }
     return _docio_append_doc(handle, doc);
 }
@@ -740,6 +780,21 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     }
 
     doc->length = _docio_length_decode(_length);
+    if (doc->length.flag & DOCIO_TXN_COMMITTED) {
+        // transaction commit mark
+        // read the corresponding doc offset
+        uint64_t doc_offset;
+        _offset = _docio_read_doc_component(handle, _offset,
+                                            sizeof(doc_offset), &doc_offset,
+                                            log_callback);
+        if (_offset == 0) {
+            free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+            return offset;
+        }
+        doc->doc_offset = _endian_decode(doc_offset);
+        return _offset;
+    }
+
     if (doc->length.keylen == 0 || doc->length.keylen > FDB_MAX_KEYLEN) {
         return offset;
     }

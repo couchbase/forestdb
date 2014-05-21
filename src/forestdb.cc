@@ -27,6 +27,7 @@
 #include "libforestdb/forestdb.h"
 #include "filemgr.h"
 #include "hbtrie.h"
+#include "list.h"
 #include "btree.h"
 #include "btree_kv.h"
 #include "btree_var_kv_ops.h"
@@ -40,6 +41,7 @@
 #include "configuration.h"
 #include "internal_types.h"
 #include "compactor.h"
+#include "transaction.h"
 #include "memleak.h"
 
 #ifdef __DEBUG
@@ -51,6 +53,14 @@
     #define DBGCMD(...)
     #define DBGSW(n, ...)
 #endif
+#endif
+
+static volatile uint8_t fdb_initialized = 0;
+#ifdef SPIN_INITIALIZER
+static spin_t initial_lock = SPIN_INITIALIZER;
+#else
+static volatile unsigned int initial_lock_status = 0;
+static spin_t initial_lock;
 #endif
 
 static const uint16_t OFFSET_SIZE = sizeof(uint64_t);
@@ -194,33 +204,64 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
             do {
                 struct docio_object doc;
                 uint64_t _offset;
+                uint64_t doc_offset;
                 memset(&doc, 0, sizeof(doc));
                 _offset = docio_read_doc(handle->dhandle, offset, &doc);
-                if (doc.key) {
-                    fdb_doc wal_doc;
-                    wal_doc.keylen = doc.length.keylen;
-                    wal_doc.bodylen = doc.length.bodylen;
-                    wal_doc.key = doc.key;
-                    wal_doc.seqnum = doc.seqnum;
-                    wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
+                if (doc.key || (doc.length.flag & DOCIO_TXN_COMMITTED)) {
+                    // check if the doc is transactional or not
+                    if (!(doc.length.flag & DOCIO_TXN_DIRTY)) {
+                        if (doc.length.flag & DOCIO_TXN_COMMITTED) {
+                            // commit mark .. read doc offset
+                            uint64_t _offset_temp;
+                            doc_offset = doc.doc_offset;
+                            // read the previously skipped doc
+                            _offset_temp = docio_read_doc(handle->dhandle,
+                                                          doc_offset, &doc);
+                            if (doc.key == NULL) {
+                                // doc read error
+                                free(doc.key);
+                                free(doc.meta);
+                                free(doc.body);
+                                offset = _offset;
+                                continue;
+                            }
+                        } else {
+                            doc_offset = offset;
+                        }
 
-                    if (!handle->shandle) {
-                        wal_doc.metalen = doc.length.metalen;
-                        wal_doc.meta = doc.meta;
-                        wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
+                        // restore document
+                        fdb_doc wal_doc;
+                        wal_doc.keylen = doc.length.keylen;
+                        wal_doc.bodylen = doc.length.bodylen;
+                        wal_doc.key = doc.key;
+                        wal_doc.seqnum = doc.seqnum;
+                        wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
 
-                        wal_insert(file, &wal_doc, offset);
-                        if (doc.key) free(doc.key);
+                        if (!handle->shandle) {
+                            wal_doc.metalen = doc.length.metalen;
+                            wal_doc.meta = doc.meta;
+                            wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
+
+                            wal_insert(&file->global_txn, file, &wal_doc, doc_offset);
+                            if (doc.key) free(doc.key);
+                        } else {
+                            snap_insert(handle->shandle, &wal_doc, doc_offset);
+                        }
+                        free(doc.meta);
+                        free(doc.body);
+                        offset = _offset;
                     } else {
-                        snap_insert(handle->shandle, &wal_doc, offset);
+                        // skip transactional document once
+                        free(doc.key);
+                        free(doc.meta);
+                        free(doc.body);
+                        offset = _offset;
+                        // do not break.. read next doc
                     }
-                    if (doc.meta) free(doc.meta);
-                    if (doc.body) free(doc.body);
-                    offset = _offset;
                 } else {
-                    if (doc.key) free(doc.key);
-                    if (doc.meta) free(doc.meta);
-                    if (doc.body) free(doc.body);
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
                     offset = _offset;
                     break;
                 }
@@ -318,31 +359,62 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
             do {
                 struct docio_object doc;
                 uint64_t _offset;
+                uint64_t doc_offset;
                 memset(&doc, 0, sizeof(doc));
                 _offset = docio_read_doc(&dhandle, offset, &doc);
-                if (doc.key && docio_check_compact_doc(&dhandle, &doc)) {
-                    // this document was interleaved during compaction
-                    fdb_doc wal_doc;
-                    wal_doc.keylen = doc.length.keylen;
-                    wal_doc.metalen = doc.length.metalen;
-                    wal_doc.bodylen = doc.length.bodylen;
-                    wal_doc.key = doc.key;
-                    wal_doc.seqnum = doc.seqnum;
+                if ((doc.key || (doc.length.flag & DOCIO_TXN_COMMITTED)) &&
+                    docio_check_compact_doc(&dhandle, &doc)) {
+                    // check if the doc is transactional or not
+                    if (!(doc.length.flag & DOCIO_TXN_DIRTY)) {
+                        if (doc.length.flag & DOCIO_TXN_COMMITTED) {
+                            // commit mark .. read doc offset
+                            uint64_t _offset_temp;
+                            doc_offset = doc.doc_offset;
+                            // read the previously skipped doc
+                            _offset_temp = docio_read_doc(handle->dhandle,
+                                                          doc_offset, &doc);
+                            if (doc.key == NULL) {
+                                // doc read error
+                                if (doc.key) free(doc.key);
+                                if (doc.meta) free(doc.meta);
+                                if (doc.body) free(doc.body);
+                                offset = _offset;
+                                continue;
+                            }
+                        } else {
+                            doc_offset = offset;
+                        }
 
-                    wal_doc.meta = doc.meta;
-                    wal_doc.body = doc.body;
-                    wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
+                        // this document was interleaved during compaction
+                        fdb_doc wal_doc;
+                        wal_doc.keylen = doc.length.keylen;
+                        wal_doc.metalen = doc.length.metalen;
+                        wal_doc.bodylen = doc.length.bodylen;
+                        wal_doc.key = doc.key;
+                        wal_doc.seqnum = doc.seqnum;
 
-                    fdb_set(handle, &wal_doc);
+                        wal_doc.meta = doc.meta;
+                        wal_doc.body = doc.body;
+                        wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
 
-                    if (doc.key) free(doc.key);
-                    if (doc.meta) free(doc.meta);
-                    if (doc.body) free(doc.body);
-                    offset = _offset;
+                        fdb_set(handle, &wal_doc);
+
+                        free(doc.key);
+                        free(doc.meta);
+                        free(doc.body);
+                        offset = _offset;
+                    } else {
+                        // skip transactional document once
+                        free(doc.key);
+                        free(doc.meta);
+                        free(doc.body);
+                        offset = _offset;
+                        // do not break.. read next doc
+                    }
                 } else {
-                    if (doc.key) free(doc.key);
-                    if (doc.meta) free(doc.meta);
-                    if (doc.body) free(doc.body);
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
                     offset = _offset;
                     break;
                 }
@@ -354,6 +426,58 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     _fdb_close(&new_db);
     fdb_commit(handle, FDB_COMMIT_NORMAL);
 
+    return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
+fdb_status fdb_init(fdb_config *config)
+{
+    fdb_config _config;
+    compactor_config c_config;
+    struct filemgr_config f_config;
+
+    if (config) {
+        if (validate_fdb_config(config)) {
+            _config = *config;
+        } else {
+            return FDB_RESULT_INVALID_CONFIG;
+        }
+    } else {
+        _config = get_default_config();
+    }
+
+    // global initialization
+    // initialized only once at first time
+    if (!fdb_initialized) {
+#ifndef SPIN_INITIALIZER
+        // Note that only Windows passes through this routine
+        if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
+            // atomically initialize spin lock only once
+            spin_init(&initial_lock);
+            initial_lock_status = 2;
+        } else {
+            // the others .. wait until initializing 'initial_lock' is done
+            while (initial_lock_status != 2) {
+                Sleep(1);
+            }
+        }
+#endif
+
+        spin_lock(&initial_lock);
+        if (!fdb_initialized) {
+            // initialize file manager and block cache
+            f_config.blocksize = _config.blocksize;
+            f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
+            filemgr_init(&f_config);
+
+            // initialize compaction daemon
+            c_config.sleep_duration = _config.compactor_sleep_duration;
+            compactor_init(&c_config);
+
+            fdb_initialized = 1;
+        }
+        spin_unlock(&initial_lock);
+    }
     return FDB_RESULT_SUCCESS;
 }
 
@@ -372,7 +496,6 @@ fdb_status fdb_open(fdb_handle **ptr_handle,
 #endif
 
     fdb_config config;
-    compactor_config c_config;
 
     if (fconfig) {
         if (validate_fdb_config(fconfig)) {
@@ -393,8 +516,7 @@ fdb_status fdb_open(fdb_handle **ptr_handle,
     config.cmp_variable = NULL;
     handle->shandle = NULL;
 
-    c_config.sleep_duration = fconfig->compactor_sleep_duration;
-    compactor_init(&c_config);
+    fdb_init(fconfig);
 
     fdb_status fs = _fdb_open(handle, filename, &config);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -440,7 +562,6 @@ fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
 #endif
 
     fdb_config config;
-    compactor_config c_config;
 
     if (fconfig) {
         if (validate_fdb_config(fconfig) &&
@@ -461,8 +582,7 @@ fdb_status fdb_open_cmp_fixed(fdb_handle **ptr_handle,
     config.cmp_variable = NULL;
     handle->shandle = NULL;
 
-    c_config.sleep_duration = fconfig->compactor_sleep_duration;
-    compactor_init(&c_config);
+    fdb_init(fconfig);
 
     fdb_status fs = _fdb_open(handle, filename, &config);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -484,7 +604,6 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
 #endif
 
     fdb_config config;
-    compactor_config c_config;
 
     if (fconfig) {
         if (validate_fdb_config(fconfig) &&
@@ -505,8 +624,7 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
     config.cmp_fixed = NULL;
     handle->shandle = NULL;
 
-    c_config.sleep_duration = fconfig->compactor_sleep_duration;
-    compactor_init(&c_config);
+    fdb_init(fconfig);
 
     fdb_status fs = _fdb_open(handle, filename, &config);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -1026,10 +1144,12 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     btree_result br;
 
     if (!handle->config.cmp_variable) {
-        hr = hbtrie_find_offset(handle->trie, item->key, item->keylen,
+        hr = hbtrie_find_offset(handle->trie,
+                                item->header->key,
+                                item->header->keylen,
                                 (void*)&old_offset);
     } else {
-        _set_var_key(var_key, item->key, item->keylen);
+        _set_var_key(var_key, item->header->key, item->header->keylen);
         br = btree_find(handle->idtree, var_key, (void*)&old_offset);
         _free_var_key(var_key);
     }
@@ -1054,10 +1174,13 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         _offset = _endian_encode(item->offset);
 
         if (!handle->config.cmp_variable) {
-            hr = hbtrie_insert(handle->trie, item->key, item->keylen,
-                (void *)&_offset, (void *)&old_offset);
+            hr = hbtrie_insert(handle->trie,
+                               item->header->key,
+                               item->header->keylen,
+                               (void *)&_offset,
+                               (void *)&old_offset);
         } else {
-            _set_var_key(var_key, item->key, item->keylen);
+            _set_var_key(var_key, item->header->key, item->header->keylen);
             br = btree_find(handle->idtree, var_key, (void *)&old_offset);
             br = btree_insert(handle->idtree, var_key, (void *)&_offset);
             _free_var_key(var_key);
@@ -1106,9 +1229,9 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     } else {
         // Immediate remove
         if (!handle->config.cmp_variable) {
-            hr = hbtrie_remove(handle->trie, item->key, item->keylen);
+            hr = hbtrie_remove(handle->trie, item->header->key, item->header->keylen);
         } else {
-            _set_var_key(var_key, item->key, item->keylen);
+            _set_var_key(var_key, item->header->key, item->header->keylen);
             br = btree_remove(handle->idtree, var_key);
             _free_var_key(var_key);
 
@@ -1323,6 +1446,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     struct docio_handle *dhandle;
     wal_result wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
+    fdb_txn *txn = handle->txn;
 
     if (doc->key == NULL || doc->keylen == 0) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1340,7 +1464,10 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         }
         dhandle = handle->dhandle;
 
-        wr = wal_find(wal_file, doc, &offset);
+        if (!txn) {
+            txn = &wal_file->global_txn;
+        }
+        wr = wal_find(txn, wal_file, doc, &offset);
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         dhandle = handle->dhandle;
@@ -1413,6 +1540,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
     struct filemgr *wal_file;
     wal_result wr;
     hbtrie_result hr;
+    fdb_txn *txn = handle->txn;
 
     if (doc->key == NULL || doc->keylen == 0) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1430,7 +1558,10 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
         }
         dhandle = handle->dhandle;
 
-        wr = wal_find(wal_file, doc, &offset);
+        if (!txn) {
+            txn = &wal_file->global_txn;
+        }
+        wr = wal_find(txn, wal_file, doc, &offset);
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         dhandle = handle->dhandle;
@@ -1499,6 +1630,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
     wal_result wr;
     btree_result br = BTREE_RESULT_FAIL;
     fdb_seqnum_t _seqnum;
+    fdb_txn *txn = handle->txn;
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1516,7 +1648,10 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         }
         dhandle = handle->dhandle;
 
-        wr = wal_find(wal_file, doc, &offset);
+        if (!txn) {
+            txn = &wal_file->global_txn;
+        }
+        wr = wal_find(txn, wal_file, doc, &offset);
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         dhandle = handle->dhandle;
@@ -1581,6 +1716,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc)
     wal_result wr;
     btree_result br;
     fdb_seqnum_t _seqnum;
+    fdb_txn *txn = handle->txn;
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1598,7 +1734,10 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc)
         }
         dhandle = handle->dhandle;
 
-        wr = wal_find(wal_file, doc, &offset);
+        if (!txn) {
+            txn = &wal_file->global_txn;
+        }
+        wr = wal_find(txn, wal_file, doc, &offset);
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         dhandle = handle->dhandle;
@@ -1758,6 +1897,8 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     struct filemgr *file;
     struct docio_handle *dhandle;
     struct timeval tv;
+    bool txn_enabled = false;
+    fdb_txn *txn = handle->txn;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         if (handle->log_callback.callback) {
@@ -1839,10 +1980,13 @@ fdb_set_start:
         _doc.timestamp = 0;
     }
 
+    if (txn) {
+        txn_enabled = true;
+    }
     if (dhandle == handle->new_dhandle) {
-        offset = docio_append_doc_compact(dhandle, &_doc, doc->deleted);
+        offset = docio_append_doc_compact(dhandle, &_doc, doc->deleted, txn_enabled);
     } else {
-        offset = docio_append_doc(dhandle, &_doc, doc->deleted);
+        offset = docio_append_doc(dhandle, &_doc, doc->deleted, txn_enabled);
     }
     if (offset == BLK_NOT_FOUND) {
         filemgr_mutex_unlock(file);
@@ -1851,7 +1995,10 @@ fdb_set_start:
 
     doc->size_ondisk = _fdb_get_docsize(_doc.length);
     doc->offset = offset;
-    wal_insert(file, doc, offset);
+    if (!txn) {
+        txn = &file->global_txn;
+    }
+    wal_insert(txn, file, doc, offset);
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
         wal_set_dirty_status(file, FDB_WAL_DIRTY);
@@ -1860,6 +2007,10 @@ fdb_set_start:
     if (handle->config.wal_flush_before_commit &&
             filemgr_get_file_status(handle->file) == FILE_NORMAL &&
             wal_get_size(file) > _fdb_get_wal_threshold(handle)) {
+        if (txn == &file->global_txn) {
+            // commit only for non-transactional WAL entries
+            wal_commit(txn, file, NULL);
+        }
         wal_flush(file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset);
         wal_set_dirty_status(file, FDB_WAL_PENDING);
@@ -1990,10 +2141,28 @@ uint64_t _fdb_set_file_header(fdb_handle *handle)
     return filemgr_update_header(handle->file, buf, offset);
 }
 
+void _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
+{
+    fdb_handle *handle = (fdb_handle *)voidhandle;
+    struct filemgr *file;
+    struct docio_handle *dhandle;
+
+    if (handle->new_file) {
+        file = handle->new_file;
+        dhandle = handle->new_dhandle;
+    } else {
+        file = handle->file;
+        dhandle = handle->dhandle;
+    }
+    docio_append_commit_mark(dhandle, offset);
+}
+
 LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
 {
+    fdb_txn *txn = handle->txn;
     fdb_status fs = FDB_RESULT_SUCCESS;
+
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         if (handle->log_callback.callback) {
             char msg[1024];
@@ -2020,11 +2189,33 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
         filemgr_mutex_lock(handle->new_file);
         filemgr_mutex_unlock(handle->file);
 
+        if (txn) {
+            // transactional updates
+            wal_commit(txn, handle->new_file, _fdb_append_commit_mark);
+        } else {
+            // non-transactional updates
+            wal_commit(&handle->new_file->global_txn, handle->new_file, NULL);
+        }
+
         fs = filemgr_sync(handle->new_file, &handle->log_callback);
+
         filemgr_mutex_unlock(handle->new_file);
     } else {
         // normal case
         btreeblk_end(handle->bhandle);
+
+        // commit wal
+        if (txn) {
+            // transactional updates
+            wal_commit(txn, handle->file, _fdb_append_commit_mark);
+            if (wal_get_dirty_status(handle->file)== FDB_WAL_CLEAN) {
+                wal_set_dirty_status(handle->file, FDB_WAL_DIRTY);
+            }
+        } else {
+            // non-transactional updates
+            wal_commit(&handle->file->global_txn, handle->file, NULL);
+        }
+
         if (wal_get_size(handle->file) > _fdb_get_wal_threshold(handle) ||
             wal_get_dirty_status(handle->file) == FDB_WAL_PENDING ||
             opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
@@ -2035,9 +2226,6 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
             wal_flush(handle->file, (void *)handle,
                       _fdb_wal_flush_func, _fdb_wal_get_old_offset);
             wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
-        }else{
-            // otherwise just commit wal
-            wal_commit(handle->file);
         }
 
         if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
@@ -2059,6 +2247,7 @@ void _fdb_commit_and_remove_pending(fdb_handle *handle,
 
     btreeblk_end(handle->bhandle);
 
+    wal_commit(&handle->file->global_txn, handle->file, NULL);
     if (wal_get_size(handle->file)) {
         // flush wal if not empty
         wal_flush(handle->file, (void *)handle,
@@ -2209,7 +2398,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                         // 1. the document is not deleted
                         // 2. the document is logically deleted but
                         //    its timestamp isn't overdue
-                        new_offset = docio_append_doc(new_dhandle, &doc[j-i], deleted);
+                        new_offset = docio_append_doc(new_dhandle, &doc[j-i], deleted, 0);
 
                         wal_doc.keylen = doc[j-i].length.keylen;
                         wal_doc.metalen = doc[j-i].length.metalen;
@@ -2222,7 +2411,8 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j-i].length);
                         wal_doc.deleted = deleted;
 
-                        wal_insert_by_compactor(new_file, &wal_doc, new_offset);
+                        wal_insert_by_compactor(&new_file->global_txn,
+                                                new_file, &wal_doc, new_offset);
 
                     }
                     free(doc[j-i].key);
@@ -2237,6 +2427,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 
             // wal flush
             if (wal_get_size(new_file) > 0) {
+                wal_commit(&new_file->global_txn, new_file, NULL);
                 wal_flush(new_file, (void*)&new_handle,
                           _fdb_wal_flush_func,
                           _fdb_wal_get_old_offset);
@@ -2256,6 +2447,40 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
         br = btree_iterator_free(&bit);
     }
     free(offset_array);
+}
+
+uint64_t _fdb_doc_move(void *dbhandle,
+                       void *void_new_dhandle,
+                       struct wal_item *item,
+                       fdb_doc *fdoc)
+{
+    uint8_t deleted;
+    uint64_t new_offset;
+    fdb_handle *handle = (fdb_handle*)dbhandle;
+    struct docio_handle *new_dhandle = (struct docio_handle*)void_new_dhandle;
+    struct docio_object doc;
+
+    // read doc from old file
+    doc.key = NULL;
+    doc.meta = NULL;
+    doc.body = NULL;
+    docio_read_doc(handle->dhandle, item->offset, &doc);
+
+    // append doc into new file
+    deleted = doc.length.flag & DOCIO_DELETED;
+    fdoc->keylen = doc.length.keylen;
+    fdoc->metalen = doc.length.metalen;
+    fdoc->bodylen = doc.length.bodylen;
+    fdoc->key = doc.key;
+    fdoc->seqnum = doc.seqnum;
+
+    fdoc->meta = doc.meta;
+    fdoc->body = doc.body;
+    fdoc->size_ondisk= _fdb_get_docsize(doc.length);
+    fdoc->deleted = deleted;
+
+    new_offset = docio_append_doc(new_dhandle, &doc, deleted, 1);
+    return new_offset;
 }
 
 fdb_status _fdb_compact(fdb_handle *handle,
@@ -2385,16 +2610,23 @@ fdb_status _fdb_compact(fdb_handle *handle,
 
     count = new_datasize = 0;
 
-    // mark name of new file in old file
-    filemgr_set_compaction_old(handle->file, new_file);
     // flush WAL and set DB header
+    wal_commit(&handle->file->global_txn, handle->file, NULL);
     wal_flush(handle->file, (void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset);
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+
+    // migrate uncommitted transaction items to new file
+    wal_txn_migration((void*)handle, (void*)new_dhandle,
+                      handle->file, new_file, _fdb_doc_move);
+
+    // mark name of new file in old file
+    filemgr_set_compaction_old(handle->file, new_file);
+
     handle->last_header_bid = (handle->file->pos) / handle->file->blocksize;
     handle->cur_header_revnum = _fdb_set_file_header(handle);
     btreeblk_end(handle->bhandle);
-    assert(handle->file->status == FILE_COMPACT_OLD);
+
     // Commit the current file handle to record the compaction filename
     fdb_status fs = filemgr_commit(handle->file, &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
@@ -2585,6 +2817,9 @@ fdb_status fdb_close(fdb_handle *handle)
     if (!handle) {
         return FDB_RESULT_SUCCESS;
     }
+    if (handle->txn) {
+        fdb_abort_transaction(handle);
+    }
 
     fdb_status fs = _fdb_close(handle);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -2706,16 +2941,16 @@ fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info)
     // incur an incorrect estimation. However, after the WAL flush, the doc
     // counter becomes consistent. We plan to devise a new way of tracking
     // the number of docs in a database instance.
-    size_t wal_size = wal_get_size(handle->file);
+    size_t wal_docs = wal_get_num_docs(handle->file);
     size_t wal_deletes = wal_get_num_deletes(handle->file);
-    size_t wal_insert = wal_size - wal_deletes;
-    if (handle->ndocs + wal_insert < wal_deletes) {
+    size_t wal_n_inserts = wal_docs - wal_deletes;
+    if (handle->ndocs + wal_n_inserts < wal_deletes) {
         info->doc_count = 0;
     } else {
         if (handle->ndocs) {
-            info->doc_count = handle->ndocs + wal_insert - wal_deletes;
+            info->doc_count = handle->ndocs + wal_n_inserts - wal_deletes;
         } else {
-            info->doc_count = wal_insert;
+            info->doc_count = wal_n_inserts;
         }
     }
 
@@ -2734,5 +2969,6 @@ fdb_status fdb_shutdown()
     mempool_shutdown();
 #endif
 
+    fdb_initialized = 0;
     return FDB_RESULT_SUCCESS;
 }

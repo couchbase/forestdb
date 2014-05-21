@@ -25,11 +25,6 @@
 extern "C" {
 #endif
 
-#define DOCIO_NORMAL (0x00)
-#define DOCIO_COMPACT (0x01)
-#define DOCIO_COMPRESSED (0x02)
-#define DOCIO_DELETED (0x04)
-
 typedef uint16_t keylen_t;
 typedef uint32_t timestamp_t;
 
@@ -44,6 +39,12 @@ struct docio_handle {
     bool compress_document_body;
 };
 
+#define DOCIO_NORMAL (0x00)
+#define DOCIO_COMPACT (0x01)
+#define DOCIO_COMPRESSED (0x02)
+#define DOCIO_DELETED (0x04)
+#define DOCIO_TXN_DIRTY (0x08)
+#define DOCIO_TXN_COMMITTED (0x10)
 #ifdef DOCIO_LEN_STRUCT_ALIGN
     // this structure will occupy 16 bytes
     struct docio_length {
@@ -70,7 +71,10 @@ struct docio_object {
     struct docio_length length;
     timestamp_t timestamp;
     void *key;
-    fdb_seqnum_t seqnum;
+    union {
+        fdb_seqnum_t seqnum;
+        uint64_t doc_offset;
+    };
     void *meta;
     void *body;
 };
@@ -83,12 +87,11 @@ void docio_free(struct docio_handle *handle);
 bid_t docio_append_doc_raw(struct docio_handle *handle,
                            uint64_t size,
                            void *buf);
-bid_t docio_append_doc_compact(struct docio_handle *handle,
-                               struct docio_object *doc,
-                               uint8_t deleted);
-bid_t docio_append_doc(struct docio_handle *handle,
-                       struct docio_object *doc,
-                       uint8_t deleted);
+bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset);
+bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object *doc,
+                               uint8_t deleted, uint8_t txn_enabled);
+bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
+                       uint8_t deleted, uint8_t txn_enabled);
 
 struct docio_length docio_read_doc_length(struct docio_handle *handle,
                                           uint64_t offset);

@@ -129,14 +129,11 @@ fdb_status fdb_del_kv(fdb_handle *handle,
 
     fs = fdb_del(handle, doc);
     if (fs != FDB_RESULT_SUCCESS) {
-        if (doc) {
-            fdb_doc_free(doc);
-        }
+        fdb_doc_free(doc);
         return fs;
     }
     fdb_doc_free(doc);
 
     return fs;
 }
-
 

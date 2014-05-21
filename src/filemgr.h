@@ -91,6 +91,7 @@ struct filemgr {
     struct filemgr *new_file;
     char *old_filename;
     struct fnamedic_item *bcache;
+    fdb_txn global_txn;
 
     // spin lock for small region
     spin_t lock;
@@ -106,6 +107,8 @@ typedef struct {
     struct filemgr *file;
     int rv;
 } filemgr_open_result;
+
+void filemgr_init(struct filemgr_config *config);
 
 size_t filemgr_get_ref_count(struct filemgr *file);
 filemgr_open_result filemgr_open(char *filename,
