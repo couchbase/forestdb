@@ -802,7 +802,7 @@ INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
         uint32_t crc_file, crc;
         memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
         crc_file = _endian_decode(crc_file);
-        memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
+        memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
         crc = crc32_8(buf, file->blocksize, 0);
         assert(crc == crc_file);
     }
@@ -928,7 +928,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
         if (len == file->blocksize) {
             uint8_t marker = *((uint8_t*)buf + file->blocksize - 1);
             if (marker == BLK_MARKER_BNODE) {
-                memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff, sizeof(void *));
+                memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
                 uint32_t crc32 = crc32_8(buf, file->blocksize, 0);
                 crc32 = _endian_encode(crc32);
                 memcpy((uint8_t *)buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));

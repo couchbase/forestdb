@@ -45,8 +45,16 @@ struct bnode{
     bnode_flag_t flag;
     uint16_t level;
     idx_t nentry;
-    // array of key value pair ([k1][v1][k2][v2]...)
-    void *data;
+    // BTREE_CRC_OFFSET in option.h must be modified if this offset is changed.
+    union {
+        // array of key value pair ([k1][v1][k2][v2]...)
+        void *data;
+        // The size of this union should be 8 bytes
+        // even though sizeof(void*) is 4 bytes
+        // BTREE_CRC_FIELD_LEN in option.h must be modified if the size of this
+        // union is changed.
+        uint64_t dummy;
+    };
 };
 #define BNODE_MASK_ROOT 0x1
 #define BNODE_MASK_METADATA 0x2

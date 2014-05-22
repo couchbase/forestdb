@@ -182,7 +182,7 @@
     #include "gettimeofday_vs.h"
     #define INLINE static inline
     //#define alloca(size) _alloca(size)
-    #define _F64 "ld"
+    #define _F64 "llu"
     #define _CRT_SECURE_NO_WARNINGS
     #define gettimeofday gettimeofday_vs
     #define sleep(sec) Sleep((sec)*1000)
