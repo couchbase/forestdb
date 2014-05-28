@@ -40,7 +40,6 @@
 #include "configuration.h"
 #include "internal_types.h"
 #include "compactor.h"
-#include "iniparser.h"
 #include "memleak.h"
 
 #ifdef __DEBUG
@@ -53,6 +52,22 @@
     #define DBGSW(n, ...)
 #endif
 #endif
+
+void print_usage(void)
+{
+    printf("\nUsage: forestdb_dump [OPTION]... [filename]\n"
+    "\nOptions:\n"
+    "\n      --key <key>  dump only specified document"
+    "\n      --byid       sort output by document id"
+    "\n      --byseq      sort output by sequence number"
+    "\n      --hex-key    convert document id to hex (for binary key)"
+    "\n      --hex-body   convert document body data to hex (for binary data)"
+    "\n      --hex-align  number of bytes of hex alignment (default 16)"
+    "\n      --plain-meta print meta data in plain text (default hex)"
+    "\n      --no-body    do not retrieve document bodies"
+    "\n      --no-meta    do not print meta data of documents"
+    "\n");
+}
 
 void print_header(fdb_handle *db)
 {
@@ -123,16 +138,19 @@ typedef enum  {
 } scan_mode_t;
 
 struct dump_option{
+    char *dump_file;
+    char *one_key;
     int hex_align;
-    bool print_body;
-    bool print_meta;
+    bool no_body;
+    bool no_meta;
     bool print_key_in_hex;
-    bool print_meta_in_hex;
+    bool print_plain_meta;
     bool print_body_in_hex;
     scan_mode_t scan_mode;
 };
 
-INLINE void print_buf(fdb_handle *db, void *buf, size_t buflen, bool hex, int align)
+INLINE void print_buf(fdb_handle *db, void *buf, size_t buflen, bool hex,
+                      int align)
 {
     if (buf) {
         if (!hex) {
@@ -157,8 +175,9 @@ INLINE void print_buf(fdb_handle *db, void *buf, size_t buflen, bool hex, int al
                 printf(" ");
                 for (j=i; j<i+align && j<buflen; ++j){
                     // print only readable ascii character
-                    printf("%c", (0x20 <= ((char*)buf)[j] && ((char*)buf)[j] <= 0x7d)?
-                                     ((char*)buf)[j] : '.'  );
+                    printf("%c",
+                     (0x20 <= ((char*)buf)[j] && ((char*)buf)[j] <= 0x7d)?
+                               ((char*)buf)[j] : '.'  );
                 }
                 printf("\n");
             }
@@ -194,7 +213,8 @@ void print_doc(fdb_handle *db,
     printf("    Length: %d (key), %d (metadata), %d (body)\n",
            doc.length.keylen, doc.length.metalen, doc.length.bodylen);
     if (doc.length.flag & DOCIO_COMPRESSED) {
-        printf("    Compressed body size on disk: %d\n", doc.length.bodylen_ondisk);
+        printf("    Compressed body size on disk: %d\n",
+               doc.length.bodylen_ondisk);
     }
     if (doc.length.flag & DOCIO_DELETED) {
         printf("    Status: deleted (timestamp: %u)\n", doc.timestamp);
@@ -205,12 +225,12 @@ void print_doc(fdb_handle *db,
             printf("    Status: normal\n");
         }
     }
-    if (opt->print_meta) {
+    if (!opt->no_meta) {
         printf("    Metadata: ");
         print_buf(db, doc.meta, doc.length.metalen,
-                  opt->print_meta_in_hex, opt->hex_align);
+                  !opt->print_plain_meta, opt->hex_align);
     }
-    if (opt->print_body) {
+    if (!opt->no_body) {
         printf("    Body: ");
         print_buf(db, doc.body, doc.length.bodylen,
                   opt->print_body_in_hex, opt->hex_align);
@@ -232,7 +252,18 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
     struct wal_item *witem;
     struct hbtrie_iterator it;
 
-    if (opt->scan_mode == SCAN_WAL_FIRST_INDEX_NEXT) {
+    if (opt->one_key) {
+        fdb_doc_create(&fdoc, opt->one_key,
+                       strnlen(opt->one_key,FDB_MAX_KEYLEN), NULL, 0, NULL, 0);
+       fs = fdb_get(db, fdoc);
+       if (fs == FDB_RESULT_SUCCESS) {
+           wr = wal_find(db->file, fdoc, &offset);
+           print_doc(db, fdoc->offset, opt, (wr == WAL_RESULT_SUCCESS));
+       } else {
+           printf("Key not found\n");
+       }
+       fdb_doc_free(fdoc);
+    } else if (opt->scan_mode == SCAN_WAL_FIRST_INDEX_NEXT) {
         // scan wal first
         e = list_begin(&db->file->wal->list);
         while(e) {
@@ -284,17 +315,21 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
     }
 }
 
-void process_file(char *filename, struct dump_option *opt)
+int process_file(struct dump_option *opt)
 {
     fdb_handle *db;
     fdb_config config;
     fdb_status fs;
+    char *filename = opt->dump_file;
 
     config = fdb_get_default_config();
     config.buffercache_size = 0;
     config.flags = FDB_OPEN_FLAG_RDONLY;
     fs = fdb_open(&db, filename, &config);
-    assert(fs == FDB_RESULT_SUCCESS);
+    if (fs != FDB_RESULT_SUCCESS) {
+        printf("\nUnable to open %s\n", filename);
+        return -3;
+    }
 
     print_header(db);
 
@@ -302,104 +337,73 @@ void process_file(char *filename, struct dump_option *opt)
     scan_docs(db, opt);
 
     fs = fdb_close(db);
-    assert(fs == FDB_RESULT_SUCCESS);
+    if (fs != FDB_RESULT_SUCCESS) {
+        printf("\nUnable to close %s\n", filename);
+        return -4;
+    }
 
     fdb_shutdown();
+    return 0;
 }
 
-void get_option_from_ini(char *ini_file, struct dump_option *opt)
-{
-    char *str;
-    static dictionary *cfg;
-
-    // if the ini file doesn't exist, the default options will be configured
-    if (ini_file) {
-        cfg = iniparser_new(ini_file);
-    } else {
-        cfg = NULL;
-    }
-
-    str = iniparser_getstring(cfg, (char*)"doc:print_body", (char*)"y");
-    opt->print_body = (str[0] == 'Y' || str[0] == 'y')?(true):(false);
-
-    str = iniparser_getstring(cfg, (char*)"doc:print_meta", (char*)"y");
-    opt->print_meta = (str[0] == 'Y' || str[0] == 'y')?(true):(false);
-
-    str = iniparser_getstring(cfg, (char*)"doc:print_key_in_hex", (char*)"n");
-    opt->print_key_in_hex = (str[0] == 'Y' || str[0] == 'y')?(true):(false);
-
-    str = iniparser_getstring(cfg, (char*)"doc:print_meta_in_hex", (char*)"y");
-    opt->print_meta_in_hex = (str[0] == 'Y' || str[0] == 'y')?(true):(false);
-
-    str = iniparser_getstring(cfg, (char*)"doc:print_body_in_hex", (char*)"n");
-    opt->print_body_in_hex = (str[0] == 'Y' || str[0] == 'y')?(true):(false);
-
-    opt->hex_align = iniparser_getint(cfg, (char*)"hex:hex_align", 16);
-
-    str = iniparser_getstring(cfg, (char*)"scan:scan_mode",
-                              (char*)"wal_first_index_next");
-    if (str[0] == 'w' || str[0] == 'W') {
-        opt->scan_mode = SCAN_WAL_FIRST_INDEX_NEXT;
-    } else if (str[0] == 'k' || str[0] == 'K') {
-        opt->scan_mode = SCAN_BY_KEY;
-    } else if (str[0] == 's' || str[0] == 'S') {
-        opt->scan_mode = SCAN_BY_SEQ;
-    }
-
-}
-
-struct parse_result{
-    char *ini_file;
-    char *dump_file;
-};
-struct parse_result parse_options(int argc, char **argv)
+int parse_options(int argc, char **argv, struct dump_option *opt)
 {
     // Unfortunately, we cannot use getopt generally
     // because Windows doesn't support it ..
-    int i;
-    struct parse_result ret;
+    int i = 1;
 
-    memset(&ret, 0, sizeof(struct parse_result));
-    for (i=1; i<argc; ++i){
-        if (argv[i][0] == '-') {
-            switch (argv[i][1]) {
-                case 'o':
-                    if (argc > i+1) {
-                        ret.ini_file = argv[++i];
-                    }
-                    break;
+    if (argc < 2) {
+        print_usage();
+        return -1;
+    }
+
+    // load default options ...
+    memset(opt, 0, sizeof(struct dump_option));
+    opt->hex_align = 16;
+    opt->scan_mode = SCAN_WAL_FIRST_INDEX_NEXT;
+
+    for (i = 1; i < argc; ++i) {
+        if (argv[i][0] == '-' && argv[i][1] == '-') {
+            if (strncmp(argv[i], "--key", 16) == 0) {
+                opt->one_key = argv[++i];
+            } else if (strncmp(argv[i], "--no-body", 16) == 0) {
+                opt->no_body = true;
+            } else if (strncmp(argv[i], "--no-meta", 16) == 0) {
+                opt->no_meta = true;
+            } else if (strncmp(argv[i], "--hex-key", 16) == 0) {
+                opt->print_key_in_hex = true;
+            } else if (strncmp(argv[i], "--plain-meta", 16) == 0) {
+                opt->print_plain_meta = true;
+            } else if (strncmp(argv[i], "--hex-body", 16) == 0) {
+                opt->print_body_in_hex = true;
+            } else if (strncmp(argv[i], "--hex-align", 16) == 0) {
+                opt->hex_align = atoi(argv[++i]);
+            } else if (strncmp(argv[i], "--byid", 16) == 0) {
+                opt->scan_mode = SCAN_BY_KEY;
+            } else if (strncmp(argv[i], "--byseq", 16) == 0) {
+                opt->scan_mode = SCAN_BY_SEQ;
+            } else {
+                printf("\nUnknown option %s\n", argv[i]);
+                print_usage();
+                return -2;
             }
         } else {
-            if (ret.dump_file == NULL) {
-                ret.dump_file = argv[i];
-            }
+            opt->dump_file = argv[i];
         }
     }
 
-    return ret;
-}
-
-void print_usage(void)
-{
-    printf("\nUsage: forestdb_dump [OPTION]... [filename]\n"
-           "\nOptions:\n"
-           "  -o INI_FILE      use INI_FILE as a configuration file\n"
-           "\n"
-          );
+    return 0;
 }
 
 int main(int argc, char **argv)
 {
     struct dump_option opt;
-    struct parse_result parse;
+    int ret = parse_options(argc, argv, &opt);
 
-    if (argc < 2) {
-        print_usage();
-        return 0;
+    if (ret) {
+        return ret;
     }
-    parse = parse_options(argc, argv);
 
-    get_option_from_ini(parse.ini_file, &opt);
-    process_file(parse.dump_file, &opt);
-    return 0;
+    ret = process_file(&opt);
+    return ret;
 }
