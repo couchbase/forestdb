@@ -294,6 +294,190 @@ void range_test()
     TEST_RESULT("range test");
 }
 
+void subblock_test()
+{
+    TEST_INIT();
+
+    int i, j, k, r, nbtrees;
+    int nodesize;
+    int blocksize = 4096;
+    char *fname = (char *) "./dummy";
+    char keybuf[256], valuebuf[256], temp[256];
+    filemgr_open_result result;
+    struct filemgr *file;
+    struct btreeblk_handle bhandle;
+    struct btree_kv_ops *ops;
+    struct btree btree, btree_arr[64];
+    struct filemgr_config fconfig;
+
+    memset(&fconfig, 0, sizeof(fconfig));
+    fconfig.blocksize = blocksize;
+    fconfig.ncacheblock = 0;
+    fconfig.options = FILEMGR_CREATE;
+    ops = btree_kv_get_kb64_vb64(NULL);
+
+    // coverage: enlarge case 1-1
+    r = system(SHELL_DEL" dummy");
+    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
+    btreeblk_init(&bhandle, file, blocksize);
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    for (i=0;i<256;++i){
+        sprintf(keybuf, "%08d", i);
+        sprintf(valuebuf, "%08x", i);
+        btree_insert(&btree, (void*)keybuf, (void*)valuebuf);
+        btreeblk_end(&bhandle);
+        for (j=0;j<=i;++j){
+            sprintf(keybuf, "%08d", j);
+            sprintf(valuebuf, "%08x", j);
+            btree_find(&btree, (void*)keybuf, (void*)temp);
+            btreeblk_end(&bhandle);
+            TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
+        }
+    }
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL);
+    filemgr_shutdown();
+
+    // coverage: enlarge case 1-2, move case 1
+    r = system(SHELL_DEL" dummy");
+    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
+    btreeblk_init(&bhandle, file, blocksize);
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    for (i=0;i<256;++i){
+        sprintf(keybuf, "%08d", i);
+        sprintf(valuebuf, "%08x", i);
+        btree_insert(&btree, (void*)keybuf, (void*)valuebuf);
+        btreeblk_end(&bhandle);
+        filemgr_commit(file, NULL);
+        for (j=0;j<=i;++j){
+            sprintf(keybuf, "%08d", j);
+            sprintf(valuebuf, "%08x", j);
+            btree_find(&btree, (void*)keybuf, (void*)temp);
+            btreeblk_end(&bhandle);
+            TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
+        }
+    }
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL);
+    filemgr_shutdown();
+
+    // coverage: enlarge case 1-1, 2-1, 2-2, 3-1
+    nbtrees = 2;
+    r = system(SHELL_DEL" dummy");
+    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
+    btreeblk_init(&bhandle, file, blocksize);
+    for (i=0;i<nbtrees;++i){
+        btree_init(&btree_arr[i], (void*)&bhandle, btreeblk_get_ops(), ops,
+                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    }
+    for (i=0;i<256;++i){
+        for (j=0;j<nbtrees;++j){
+            sprintf(keybuf, "%02d%06d", j, i);
+            sprintf(valuebuf, "%02d%06x", j, i);
+            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btreeblk_end(&bhandle);
+            for (k=0;k<=i;++k){
+                sprintf(keybuf, "%02d%06d", j, k);
+                sprintf(valuebuf, "%02d%06x", j, k);
+                btree_find(&btree_arr[j], (void*)keybuf, (void*)temp);
+                btreeblk_end(&bhandle);
+                TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
+            }
+        }
+    }
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL);
+    filemgr_shutdown();
+
+    // coverage: enlarge case 1-2, 2-1, 3-1, move case 1, 2-1, 2-2
+    nbtrees = 2;
+    r = system(SHELL_DEL" dummy");
+    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
+    btreeblk_init(&bhandle, file, blocksize);
+    for (i=0;i<nbtrees;++i){
+        btree_init(&btree_arr[i], (void*)&bhandle, btreeblk_get_ops(), ops,
+                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    }
+    for (i=0;i<256;++i){
+        for (j=0;j<nbtrees;++j){
+            sprintf(keybuf, "%02d%06d", j, i);
+            sprintf(valuebuf, "%02d%06x", j, i);
+            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btreeblk_end(&bhandle);
+        }
+        filemgr_commit(file, NULL);
+        for (j=0;j<nbtrees;++j){
+            for (k=0;k<=i;++k){
+                sprintf(keybuf, "%02d%06d", j, k);
+                sprintf(valuebuf, "%02d%06x", j, k);
+                btree_find(&btree_arr[j], (void*)keybuf, (void*)temp);
+                btreeblk_end(&bhandle);
+                TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
+            }
+        }
+    }
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL);
+    filemgr_shutdown();
+
+    // coverage: enlarge case 1-1, 2-1, 3-2, move case 1, 2-1
+    nbtrees = 7;
+    r = system(SHELL_DEL" dummy");
+    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
+    btreeblk_init(&bhandle, file, blocksize);
+    for (i=0;i<nbtrees;++i){
+        btree_init(&btree_arr[i], (void*)&bhandle, btreeblk_get_ops(), ops,
+                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    }
+    for (j=0;j<nbtrees;++j){
+        nodesize = 128 * (1<<j);
+        for (i=0;i<(nodesize-16)/16;++i){
+            sprintf(keybuf, "%02d%06d", j, i);
+            sprintf(valuebuf, "%02d%06x", j, i);
+            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btreeblk_end(&bhandle);
+        }
+        filemgr_commit(file, NULL);
+    }
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL);
+    filemgr_shutdown();
+
+    // coverage: enlarge case 1-1, 1-2, 2-1, 3-2, move case 1, 2-1
+    nbtrees = 7;
+    r = system(SHELL_DEL" dummy");
+    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
+    btreeblk_init(&bhandle, file, blocksize);
+    for (i=0;i<nbtrees;++i){
+        btree_init(&btree_arr[i], (void*)&bhandle, btreeblk_get_ops(), ops,
+                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    }
+    for (j=0;j<nbtrees;++j){
+        nodesize = 128 * (1<<j);
+        for (i=0;i<(nodesize-16)/16;++i){
+            sprintf(keybuf, "%02d%06d", j, i);
+            sprintf(valuebuf, "%02d%06x", j, i);
+            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btreeblk_end(&bhandle);
+            filemgr_commit(file, NULL);
+        }
+    }
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL);
+    filemgr_shutdown();
+
+    free(ops);
+    TEST_RESULT("subblock test");
+}
+
 int main()
 {
     #ifdef _MEMPOOL
@@ -305,6 +489,7 @@ int main()
     iterator_test();
     two_btree_test();
     range_test();
+    subblock_test();
 
     return 0;
 }

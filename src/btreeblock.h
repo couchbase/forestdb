@@ -28,6 +28,13 @@ extern "C" {
 
 struct btreeblk_block;
 
+struct btreeblk_subblocks{
+    bid_t bid;
+    uint32_t sb_size;
+    uint16_t nblocks;
+    uint8_t *bitmap;
+};
+
 struct btreeblk_handle{
     uint32_t nodesize;
     uint16_t nnodeperblock;
@@ -46,6 +53,9 @@ struct btreeblk_handle{
     struct list recycle_bin;
     struct btreeblk_block *cache[BTREEBLK_CACHE_LIMIT];
 #endif
+
+    uint32_t nsb;
+    struct btreeblk_subblocks *sb;
 };
 
 struct btree_blk_ops *btreeblk_get_ops();

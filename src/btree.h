@@ -71,10 +71,14 @@ typedef struct bnode* bnoderef;
 
 struct btree_blk_ops {
     voidref (*blk_alloc)(void *handle, bid_t *bid);
+    voidref (*blk_alloc_sub)(void *handle, bid_t *bid);
+    voidref (*blk_enlarge_node)(void *voidhandle, bid_t old_bid,
+                                size_t req_size, bid_t *new_bid);
     voidref (*blk_read)(void *handle, bid_t bid);
     voidref (*blk_move)(void *handle, bid_t bid, bid_t *new_bid);
     void (*blk_remove)(void *handle, bid_t bid);
     int (*blk_is_writable)(void *handle, bid_t bid);
+    size_t (*blk_get_size)(void *handle, bid_t bid);
     void (*blk_set_dirty)(void *handle, bid_t bid);
     void (*blk_operation_end)(void *handle); // optional
 };

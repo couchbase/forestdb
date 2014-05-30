@@ -997,7 +997,7 @@ void _hbtrie_extend_leaf_tree(
     btreeitem->chunkno = _get_chunkno(hbmeta.chunkno) + minchunkno;
     btreeitem->leaf = 0;
 
-    _hbtrie_btree_cascaded_update(trie, btreelist, pre_str, 0);
+    _hbtrie_btree_cascaded_update(trie, btreelist, pre_str, 1);
 
     // insert all keys
     memcpy(key_str, pre_str, pre_str_len);
@@ -1189,6 +1189,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                     // height growth .. extend!
                     _hbtrie_extend_leaf_tree(trie, &btreelist, btreeitem,
                         key, curchunkno * trie->chunksize);
+                    return ret_result;
                 }
 
             } else {

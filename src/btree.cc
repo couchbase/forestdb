@@ -35,6 +35,13 @@
     #define _metasize_align(size) (size)
 #endif
 
+INLINE int is_subblock(bid_t subbid)
+{
+    uint8_t flag;
+    flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
+    return flag;
+}
+
 INLINE struct bnode *_fetch_bnode(struct btree *btree, void *addr, uint16_t level)
 {
     struct bnode *node = NULL;
@@ -128,10 +135,10 @@ INLINE int _bnode_size_check(
     struct list_elem *e;
     struct kv_ins_item *item;
 
-    nodesize = btree->blksize;
-    #ifdef __CRC32
-        nodesize -= BLK_MARKER_SIZE;
-    #endif
+    nodesize = btree->blk_ops->blk_get_size(btree->blk_handle, bid);
+#ifdef __CRC32
+    nodesize -= BLK_MARKER_SIZE;
+#endif
 
     nitem = 0;
     if (kv_ins_list) {
@@ -209,7 +216,7 @@ INLINE size_t _btree_get_nsplitnode(struct btree *btree, bid_t bid, struct bnode
     size_t nodesize;
     size_t nnode = 0;
 
-    nodesize = btree->blksize;
+    nodesize = btree->blk_ops->blk_get_size(btree->blk_handle, bid);
 #ifdef __CRC32
     nodesize -= BLK_MARKER_SIZE;
 #endif
@@ -361,7 +368,11 @@ btree_result btree_init(
     if (meta) btree->root_flag |= BNODE_MASK_METADATA;
 
     // create the first root node
-    addr = btree->blk_ops->blk_alloc(btree->blk_handle, &btree->root_bid);
+    if (btree->blk_ops->blk_alloc_sub) {
+        addr = btree->blk_ops->blk_alloc_sub(btree->blk_handle, &btree->root_bid);
+    } else {
+        addr = btree->blk_ops->blk_alloc (btree->blk_handle, &btree->root_bid);
+    }
     root = _btree_init_node(btree, btree->root_bid, addr, btree->root_flag, BNODE_MASK_ROOT, meta);
 
     return BTREE_RESULT_SUCCESS;
@@ -981,8 +992,28 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                 modified[i] = 1;
 
             }else{
-                //2 not enough .. split the node
+                //2 not enough
+                // first check if the node can be enlarged
+                if (btree->blk_ops->blk_enlarge_node &&
+                    is_subblock(bid[i])) {
+                    bid_t new_bid;
+                    addr = btree->blk_ops->blk_enlarge_node(btree->blk_handle,
+                        bid[i], nodesize, &new_bid);
+                    if (addr) {
+                        // the node can be enlarged .. fetch the enlarged node
+                        moved[i] = 1;
+                        bid[i] = new_bid;
+                        node[i] = _fetch_bnode(btree, addr, i+1);
+                        if (i+1 == btree->height) {
+                            // if moved node is root node
+                            btree->root_bid = bid[i];
+                        }
+                        // start over
+                        goto check_node;
+                    }
+                }
 
+                //otherwise, split the node
                 nsplitnode = _btree_get_nsplitnode(btree, BLK_NOT_FOUND, node[i], nodesize);
                 // force the node split when the node size of new layout is larger than the current node size
                 if (nsplitnode == 1) nsplitnode = 2;
