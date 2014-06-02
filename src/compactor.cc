@@ -284,7 +284,14 @@ void * compactor_thread(void *voidargs)
     struct openfiles_elem *elem, *target;
     struct compactor_args *args = (struct compactor_args *)voidargs;
 
-    while(1) {
+    // Sleep for 10 secs by default to allow applications to warm up their data.
+    // TODO: Need to implement more flexible way of scheduling the compaction
+    // daemon (e.g., public APIs to start / stop the compaction daemon).
+    mutex_lock(&sync_mutex);
+    thread_cond_timedwait(&sync_cond, &sync_mutex, sleep_duration * 1000);
+    mutex_unlock(&sync_mutex);
+
+    while (1) {
         target = NULL;
 
         spin_lock(&cpt_lock);
