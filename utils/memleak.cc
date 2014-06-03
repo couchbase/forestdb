@@ -17,8 +17,8 @@
 #include "arch.h"
 
 #define _MALLOC_OVERRIDE
-#define INIT_VAL (0xff)
-#define FREE_VAL (0x11)
+#define INIT_VAL (0x77)
+#define FREE_VAL (0xff)
 //#define _WARN_NOT_ALLOCATED_MEMORY
 //#define _PRINT_DBG
 #if !defined(_WIN32) && !defined(WIN32)
@@ -99,6 +99,9 @@ struct memleak_item {
     size_t bt_size;
     void **btrace;
 #endif
+#ifdef _CHK_MODIFY_AFTER_FREE
+    uint8_t freed;
+#endif
 };
 
 static struct avl_tree tree_index;
@@ -126,6 +129,7 @@ void memleak_start()
 LIBMEMLEAK_API
 void memleak_end()
 {
+    uint8_t is_leaked;
     size_t count = 0;
     struct avl_node *a;
     struct memleak_item *item;
@@ -145,23 +149,47 @@ void memleak_end()
         item = _get_entry(a, struct memleak_item, avl);
         a = avl_next(a);
         avl_remove(&tree_index, &item->avl);
+        is_leaked = 1;
 
-        fprintf(stderr, "address 0x%016lx (allocated at %s:%lu, size %lu) is not freed\n",
-            (unsigned long)item->addr, item->file, item->line, item->size);
-#ifdef _STACK_BACKTRACE
-        strs = backtrace_symbols(item->btrace, item->bt_size);
-        for (i=0;i<item->bt_size;++i){
-#ifdef _LIBBFD
-            resolve(item->btrace[i], &file, &func, &line);
-            fprintf(stderr, "    %s [%s:%d]\n", func, file, line);
-#else
-            fprintf(stderr, "    %s\n", strs[i]);
-#endif
+#ifdef _CHK_MODIFY_AFTER_FREE
+        int i;
+        uint8_t *addr;
+        if (item->freed) {
+            is_leaked = 0;
+            addr = (uint8_t*)item->addr;
+            for (i=0;i<item->size;++i){
+                if (*(addr + i) != FREE_VAL) {
+                    fprintf(stderr,
+                            "address 0x%016lx (allocated at %s:%lu, size %lu) "
+                            "has been modified after being freed\n",
+                            (unsigned long)item->addr, item->file,
+                            item->line, item->size);
+                    break;
+                }
+            }
+            free(addr);
         }
-        free(item->btrace);
-#endif
+#endif // _CHK_MODIFY_AFTER_FREE
+
+        if (is_leaked) {
+            fprintf(stderr, "address 0x%016lx (allocated at %s:%lu, size %lu) "
+                            "is not freed\n",
+                    (unsigned long)item->addr, item->file, item->line, item->size);
+            count++;
+#ifdef _STACK_BACKTRACE
+            strs = backtrace_symbols(item->btrace, item->bt_size);
+            for (i=0;i<item->bt_size;++i){
+#ifdef _LIBBFD
+                resolve(item->btrace[i], &file, &func, &line);
+                fprintf(stderr, "    %s [%s:%d]\n", func, file, line);
+#else // _LIBBFD
+                fprintf(stderr, "    %s\n", strs[i]);
+#endif // _LIBBFD
+            }
+            free(item->btrace);
+#endif // _STACK_BACKTRACE
+        }
         free(item);
-        count++;
     }
     if (count > 0) fprintf(stderr, "total %d objects\n", (int)count);
 
@@ -184,6 +212,9 @@ void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uin
     item->bt_size = backtrace(temp_stack, 256);
     item->btrace = (void**)malloc(sizeof(void*) * item->bt_size);
     memcpy(item->btrace, temp_stack, sizeof(void*) * item->bt_size);
+#endif
+#ifdef _CHK_MODIFY_AFTER_FREE
+    item->freed = 0;
 #endif
     avl_insert(&tree_index, &item->avl, memleak_cmp);
 }
@@ -339,13 +370,20 @@ void memleak_free(void *addr, char *file, size_t line)
         memset(addr, FREE_VAL, item->size);
 #endif
 
-        avl_remove(&tree_index, a);
 #ifdef _STACK_BACKTRACE
         free(item->btrace);
 #endif
+
+#ifndef _CHK_MODIFY_AFTER_FREE
+        avl_remove(&tree_index, a);
         free(item);
+#else
+        item->freed = 1;
+#endif
         spin_unlock(&lock);
     }
+#ifndef _CHK_MODIFY_AFTER_FREE
     free(addr);
+#endif
 }
 
