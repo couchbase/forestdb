@@ -110,6 +110,68 @@
         #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
     #endif
 
+#elif __ANDROID__
+    #include <inttypes.h>
+    #include <alloca.h>
+
+    #define INLINE __inline
+
+    #define _F64 "lld"
+    #define _FSEC "ld"
+    #define _FUSEC "ld"
+
+    #define _ARCH_O_DIRECT (O_DIRECT)
+    #define malloc_align(addr, align, size) \
+        addr = memalign((align), (size))
+    #define free_align(addr) free(addr)
+
+    #ifndef spin_t
+        // spinlock
+        #include <pthread.h>
+        #define spin_t pthread_mutext_t
+        #define spin_init(arg) pthread_mutex_init(arg, NULL)
+        #define spin_lock(arg) pthread_mutex_lock(arg)
+        #define spin_unlock(arg) pthread_mutex_unlock(arg)
+        #define spin_destroy(arg) pthread_mutex_destroy(arg)
+        #define SPIN_INITIALIZER ((spin_t)PTHREAD_MUTEX_INITIALIZER)
+    #endif
+    #ifndef mutex_t
+        // mutex
+        #include <pthread.h>
+        #define mutex_t pthread_mutex_t
+        #define mutex_init(arg) pthread_mutex_init(arg, NULL)
+        #define mutex_lock(arg) pthread_mutex_lock(arg)
+        #define mutex_unlock(arg) pthread_mutex_unlock(arg)
+        #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+        #define mutex_destroy(arg) pthread_mutex_destroy(arg)
+    #endif
+    #ifndef thread_t
+        // thread
+        #include <pthread.h>
+        #define thread_t pthread_t
+        #define thread_cond_t pthread_cond_t
+        #define thread_create(tid, func, args) \
+            pthread_create((tid), NULL, (func), (args))
+        #define thread_join(tid, ret) pthread_join(tid, ret)
+        #define thread_cancel(tid) pthread_cancel(tid)
+        #define thread_exit(code) pthread_exit(code)
+        #define thread_cond_init(cond) pthread_cond_init(cond, NULL)
+        #define thread_cond_destroy(cond) pthread_cond_destroy(cond)
+        #define thread_cond_wait(cond, mutex) pthread_cond_wait(cond, mutex)
+        #define thread_cond_timedwait(cond, mutex, ms) \
+            { \
+            struct timespec ts = convert_reltime_to_abstime(ms); \
+            pthread_cond_timedwait(cond, mutex, &ts); \
+            }
+        #define thread_cond_signal(cond) pthread_cond_signal(cond)
+        #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
+    #endif
+
+    #ifdef assert
+        #undef assert
+    #endif
+    #define assert(a) (a)
+
 #elif __linux__
     #include <inttypes.h>
     #include <alloca.h>
