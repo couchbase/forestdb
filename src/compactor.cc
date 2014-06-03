@@ -325,9 +325,9 @@ void * compactor_thread(void *voidargs)
                     compactor_status = CPT_IDLE;
                     a = avl_next(target_cursor);
                     target_cursor = NULL;
+                    // clear compaction flag
+                    elem->compaction_flag = false;
                 }
-                // clear compaction flag
-                elem->compaction_flag = false;
             } else {
                 a = avl_next(a);
             }
@@ -609,6 +609,8 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file)
         avl_remove(&openfiles, a);
         elem->file = new_file;
         elem->register_count = 1;
+        // clear compaction flag
+        elem->compaction_flag = false;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
 
         if (elem->config.compaction_mode == FDB_COMPACTION_AUTO) {
