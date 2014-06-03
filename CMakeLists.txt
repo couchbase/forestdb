@@ -63,13 +63,15 @@ add_library(forestdb SHARED
             utils/cJSON.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
 
-add_executable(forestdb_test
-               src/avltree.cc
-               src/filemgr_ops.cc
-               ${FORESTDB_FILE_OPS}
-               tests/forestdb_test.cc
+add_executable(fdb_functional_test
+               tests/fdb_functional_test.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(forestdb_test forestdb)
+target_link_libraries(fdb_functional_test forestdb)
+
+add_executable(fdb_extended_test
+               tests/fdb_extended_test.cc
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(fdb_extended_test forestdb)
 
 add_executable(forestdb_dump
                tools/forestdb_dump.cc
@@ -225,7 +227,8 @@ add_executable(crc_test
 target_link_libraries(crc_test ${PTHREAD_LIB} ${LIBM})
 
 enable_testing()
-add_test(forestdb_test forestdb_test)
+add_test(fdb_functional_test fdb_functional_test)
+add_test(fdb_extended_test fdb_extended_test)
 add_test(hash_test hash_test)
 add_test(bcache_test bcache_test)
 add_test(filemgr_test filemgr_test)

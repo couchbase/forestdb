@@ -27,9 +27,6 @@
 #include "libforestdb/forestdb.h"
 #include "test.h"
 
-#include "filemgr.h"
-#include "filemgr_ops.h"
-
 void _set_random_string(char *str, int len)
 {
     str[len--] = 0;
