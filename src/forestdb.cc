@@ -2174,7 +2174,11 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
         return FDB_RESULT_RONLY_VIOLATION;
     }
 
+    _fdb_check_file_reopen(handle);
+    _fdb_sync_db_header(handle);
+
     filemgr_mutex_lock(handle->file);
+    _fdb_link_new_file(handle);
 
     if (filemgr_is_rollback_on(handle->file)) {
         filemgr_mutex_unlock(handle->file);
@@ -2506,7 +2510,8 @@ fdb_status _fdb_compact(fdb_handle *handle,
     filemgr_mutex_lock(handle->file);
 
     // if the file is already compacted by other thread
-    if (filemgr_get_file_status(handle->file) != FILE_NORMAL) {
+    if (filemgr_get_file_status(handle->file) != FILE_NORMAL ||
+        handle->new_file || handle->file->new_file) {
         // update handle and return
         filemgr_mutex_unlock(handle->file);
         _fdb_check_file_reopen(handle);
