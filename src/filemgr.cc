@@ -301,7 +301,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     struct filemgr *file = NULL;
     struct filemgr query;
     struct hash_elem *e = NULL;
-    bool read_only = config->options & FILEMGR_READONLY;
     bool create = config->options & FILEMGR_CREATE;
     int file_flag = 0x0;
     int fd = -1;
@@ -322,7 +321,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         file->ref_count++;
 
         if (file->status == FILE_CLOSED) { // if file was closed before
-            file_flag = read_only ? O_RDONLY : O_RDWR;
+            file_flag = O_RDWR;
             if (create) {
                 file_flag |= O_CREAT;
             }
@@ -375,7 +374,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         }
     }
 
-    file_flag = read_only ? O_RDONLY : O_RDWR;
+    file_flag = O_RDWR;
     if (create) {
         file_flag |= O_CREAT;
     }
