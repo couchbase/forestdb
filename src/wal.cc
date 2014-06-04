@@ -508,10 +508,7 @@ wal_result wal_flush(struct filemgr *file,
 
     // scan and flush entries in the avl-tree
     while (1) {
-        spin_lock(&file->wal->lock);
-
         if ((a = avl_first(&tree)) == NULL) {
-            spin_unlock(&file->wal->lock);
             break;
         }
         item = _get_entry(a, struct wal_item, avl);
@@ -519,10 +516,11 @@ wal_result wal_flush(struct filemgr *file,
 
         // check weather this item is updated after insertion into tree
         if (item->flag & WAL_ITEM_FLUSH_READY) {
-            list_remove(&item->header->items, &item->list_elem);
-            hash_remove(&file->wal->hash_byseq, &item->he_seq);
             flush_func(dbhandle, item);
 
+            spin_lock(&file->wal->lock);
+            list_remove(&item->header->items, &item->list_elem);
+            hash_remove(&file->wal->hash_byseq, &item->he_seq);
             if (list_begin(&item->header->items) == NULL) {
                 // wal_item_header becomes empty
                 // free header and remove from hash table & wal list
@@ -542,9 +540,8 @@ wal_result wal_flush(struct filemgr *file,
                 file->wal->datasize -= item->doc_size;
             }
             free(item);
+            spin_unlock(&file->wal->lock);
         }
-
-        spin_unlock(&file->wal->lock);
     }
 
     return WAL_RESULT_SUCCESS;
