@@ -33,7 +33,7 @@
 
 static size_t num_readers(4);
 
-void _set_random_string(char *str, int len)
+static void _set_random_string(char *str, int len)
 {
     str[len--] = 0;
     do {
@@ -41,7 +41,7 @@ void _set_random_string(char *str, int len)
     } while(len--);
 }
 
-void _set_random_string_smallabt(char *str, int len)
+static void _set_random_string_smallabt(char *str, int len)
 {
     str[len--] = 0;
     do {
@@ -49,12 +49,17 @@ void _set_random_string_smallabt(char *str, int len)
     } while(len--);
 }
 
-void logCallbackFunc(int err_code,
-                     const char *err_msg,
-                     void *pCtxData) {
+static void logCallbackFunc(int err_code,
+                            const char *err_msg,
+                            void *pCtxData) {
     fprintf(stderr, "%s - error code: %d, error message: %s\n",
             (char *) pCtxData, err_code, err_msg);
 }
+
+typedef enum {
+    REGULAR_WRITER,
+    TRANSACTIONAL_WRITER
+} writer_type;
 
 typedef enum {
     MULTI_READERS, // Normal readers
@@ -76,6 +81,7 @@ struct reader_thread_args {
 };
 
 struct writer_thread_args {
+    writer_type wtype;
     int tid;
     size_t ndocs;
     fdb_doc **doc;
@@ -86,7 +92,7 @@ struct writer_thread_args {
 
 typedef void *(thread_func) (void *);
 
-void setWithRandomKeys(fdb_handle *db, fdb_doc **doc, int num_docs) {
+static void loadDocsWithRandomKeys(fdb_handle *db, fdb_doc **doc, int num_docs) {
     TEST_INIT();
     fdb_status status;
     char keybuf[1024], metabuf[1024], bodybuf[1024];
@@ -107,7 +113,7 @@ void setWithRandomKeys(fdb_handle *db, fdb_doc **doc, int num_docs) {
     fdb_commit(db, FDB_COMMIT_NORMAL);
 }
 
-void *_reader_thread(void *voidargs)
+static void *_reader_thread(void *voidargs)
 {
     TEST_INIT();
 
@@ -142,7 +148,7 @@ void *_reader_thread(void *voidargs)
     return NULL;
 }
 
-void *_snapshot_reader_thread(void *voidargs)
+static void *_snapshot_reader_thread(void *voidargs)
 {
     TEST_INIT();
 
@@ -198,7 +204,7 @@ void *_snapshot_reader_thread(void *voidargs)
     return NULL;
 }
 
-void *_writer_thread(void *voidargs)
+static void *_writer_thread(void *voidargs)
 {
     TEST_INIT();
 
@@ -216,10 +222,17 @@ void *_writer_thread(void *voidargs)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     int count = 0;
+    int trans_begin = 0;
     int file_name_rev = 1;
     char bodybuf[1024], temp[1024];
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
+        if (!trans_begin && args->wtype == TRANSACTIONAL_WRITER) {
+            status = fdb_begin_transaction(db);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            trans_begin = 1;
+        }
+
         int i = rand() % args->ndocs;
         _set_random_string(bodybuf, VSIZE);
         status = fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen,
@@ -228,10 +241,19 @@ void *_writer_thread(void *voidargs)
         status = fdb_set(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+
         ++count;
         if (count % args->batch_size == 0) {
-            status = fdb_commit(db, FDB_COMMIT_NORMAL);
-            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            if (args->wtype == REGULAR_WRITER) {
+                status = fdb_commit(db, FDB_COMMIT_NORMAL);
+                TEST_CHK(status == FDB_RESULT_SUCCESS);
+            } else { // Transactional writer
+                if (trans_begin) {
+                    status = fdb_end_transaction(db, FDB_COMMIT_NORMAL);
+                    TEST_CHK(status == FDB_RESULT_SUCCESS);
+                    trans_begin = 0;
+                }
+            }
         }
         if (args->config->compaction_mode == FDB_COMPACTION_MANUAL &&
             count % args->compact_period == 0) {
@@ -247,8 +269,8 @@ void *_writer_thread(void *voidargs)
     return NULL;
 }
 
-void test_multi_readers(multi_reader_type reader_type,
-                        const char *test_name) {
+static void test_multi_readers(multi_reader_type reader_type,
+                               const char *test_name) {
     TEST_INIT();
     memleak_start();
 
@@ -266,7 +288,7 @@ void test_multi_readers(multi_reader_type reader_type,
 
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
-    setWithRandomKeys(db, doc, num_docs);
+    loadDocsWithRandomKeys(db, doc, num_docs);
     fdb_close(db);
 
     // create reader threads.
@@ -309,9 +331,10 @@ void test_multi_readers(multi_reader_type reader_type,
     TEST_RESULT(test_name);
 }
 
-void test_writer_multi_readers(multi_reader_type reader_type,
-                               compaction_type comp_type,
-                               const char *test_name) {
+static void test_writer_multi_readers(writer_type wtype,
+                                      multi_reader_type reader_type,
+                                      compaction_type comp_type,
+                                      const char *test_name) {
     TEST_INIT();
     memleak_start();
 
@@ -335,7 +358,7 @@ void test_writer_multi_readers(multi_reader_type reader_type,
 
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
-    setWithRandomKeys(db, doc, num_docs);
+    loadDocsWithRandomKeys(db, doc, num_docs);
     fdb_close(db);
 
     // create one writer thread and multiple reader threads.
@@ -366,6 +389,7 @@ void test_writer_multi_readers(multi_reader_type reader_type,
     }
 
     struct writer_thread_args wargs;
+    wargs.wtype = wtype;
     wargs.tid = i;
     wargs.ndocs = num_docs;
     wargs.doc = doc;
@@ -398,22 +422,56 @@ int main() {
     test_multi_readers(MULTI_MIXED_READERS, "test multi mixed readers");
 
     // Execute a writer with a manual compaction and multiple readers together.
-    test_writer_multi_readers(MULTI_READERS, MANUAL_COMPACTION,
+    test_writer_multi_readers(REGULAR_WRITER, MULTI_READERS, MANUAL_COMPACTION,
                               "test a single writer and multi readers");
-    test_writer_multi_readers(MULTI_SNAPSHOT_READERS, MANUAL_COMPACTION,
+    test_writer_multi_readers(REGULAR_WRITER, MULTI_SNAPSHOT_READERS,
+                              MANUAL_COMPACTION,
                               "test a single writer and multi snapshot readers");
-    test_writer_multi_readers(MULTI_MIXED_READERS, MANUAL_COMPACTION,
+    test_writer_multi_readers(REGULAR_WRITER, MULTI_MIXED_READERS,
+                              MANUAL_COMPACTION,
                               "test a single writer and multi mixed readers");
 
     // Execute a writer, a compaction daemon, and multiple readers together.
-    test_writer_multi_readers(MULTI_READERS, DAEMON_COMPACTION,
+    test_writer_multi_readers(REGULAR_WRITER, MULTI_READERS, DAEMON_COMPACTION,
                               "test a single writer, a compaction daemon, "
                               "and multi readers");
-    test_writer_multi_readers(MULTI_SNAPSHOT_READERS, DAEMON_COMPACTION,
+    test_writer_multi_readers(REGULAR_WRITER, MULTI_SNAPSHOT_READERS,
+                              DAEMON_COMPACTION,
                               "test a single writer, a compaction daemon, "
                               "and multi snapshot readers");
-    test_writer_multi_readers(MULTI_MIXED_READERS, DAEMON_COMPACTION,
+    test_writer_multi_readers(REGULAR_WRITER, MULTI_MIXED_READERS,
+                              DAEMON_COMPACTION,
                               "test a single writer, a compaction daemon, "
+                              "and multi mixed readers");
+
+    // Execute a transactional writer with a manual compaction and
+    // multiple readers together.
+    test_writer_multi_readers(TRANSACTIONAL_WRITER, MULTI_READERS,
+                              MANUAL_COMPACTION,
+                              "test a transactional writer and "
+                              "multi readers");
+    test_writer_multi_readers(TRANSACTIONAL_WRITER, MULTI_SNAPSHOT_READERS,
+                              MANUAL_COMPACTION,
+                              "test a transactional writer and "
+                              "multi snapshot readers");
+    test_writer_multi_readers(TRANSACTIONAL_WRITER, MULTI_MIXED_READERS,
+                              MANUAL_COMPACTION,
+                              "test a transactional writer and "
+                              "multi mixed readers");
+
+    // Execute a transactional writer, a compaction daemon, and
+    // multiple readers together.
+    test_writer_multi_readers(TRANSACTIONAL_WRITER, MULTI_READERS,
+                              DAEMON_COMPACTION,
+                              "test a transactional writer, a compaction daemon, "
+                              "and multi readers");
+    test_writer_multi_readers(TRANSACTIONAL_WRITER, MULTI_SNAPSHOT_READERS,
+                              DAEMON_COMPACTION,
+                              "test a transactional writer, a compaction daemon, "
+                              "and multi snapshot readers");
+    test_writer_multi_readers(TRANSACTIONAL_WRITER, MULTI_MIXED_READERS,
+                              DAEMON_COMPACTION,
+                              "test a transactional writer, a compaction daemon, "
                               "and multi mixed readers");
 
     return 0;
