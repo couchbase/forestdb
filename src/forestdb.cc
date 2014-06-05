@@ -71,6 +71,10 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
 static fdb_status _fdb_close(fdb_handle *handle);
 
+static void _fdb_check_file_reopen(fdb_handle *handle);
+static void _fdb_link_new_file(fdb_handle *handle);
+static void _fdb_sync_db_header(fdb_handle *handle);
+
 INLINE int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
 {
     (void) aux;
@@ -655,6 +659,20 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     if (handle_in->config.seqtree_opt != FDB_SEQTREE_USE) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    if (!handle_in->shandle) {
+        filemgr *file = NULL;
+        _fdb_check_file_reopen(handle_in);
+        _fdb_link_new_file(handle_in);
+        _fdb_sync_db_header(handle_in);
+        if (handle_in->new_file == NULL) {
+            file = handle_in->file;
+        } else{
+            file = handle_in->new_file;
+        }
+        handle_in->seqnum = filemgr_get_seqnum(file);
+    }
+
     // if the max sequence number seen by this handle is lower than the
     // requested snapshot marker, it means the snapshot is not yet visible
     // even via the current fdb_handle
@@ -1462,6 +1480,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
         }else{
             wal_file = handle->new_file;
         }
+        handle->seqnum = filemgr_get_seqnum(wal_file);
         dhandle = handle->dhandle;
 
         if (!txn) {

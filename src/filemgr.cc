@@ -241,7 +241,7 @@ void _filemgr_read_header(struct filemgr *file)
                             memcpy(file->header.data, buf, len);
                             memcpy(&file->header.revnum, buf + len,
                                    sizeof(filemgr_header_revnum_t));
-                            memcpy(&file->header.seqnum,
+                            memcpy((void *) &file->header.seqnum,
                                     buf + len + sizeof(filemgr_header_revnum_t),
                                     sizeof(fdb_seqnum_t));
                             file->header.revnum =

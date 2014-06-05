@@ -67,7 +67,7 @@ typedef uint64_t filemgr_header_revnum_t;
 struct filemgr_header{
     filemgr_header_len_t size;
     filemgr_header_revnum_t revnum;
-    fdb_seqnum_t seqnum;
+    volatile fdb_seqnum_t seqnum;
     void *data;
 };
 
