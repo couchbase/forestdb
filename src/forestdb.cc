@@ -725,6 +725,17 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
     handle_in = *handle_ptr;
     config = handle_in->config;
 
+    if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        if (handle_in->log_callback.callback) {
+            char msg[1024];
+            sprintf(msg, "Warning: Rollback is not allowed on the read-only DB file '%s'.",
+                    handle_in->file->filename);
+            handle_in->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
+                                             handle_in->log_callback.ctx_data);
+        }
+        return FDB_RESULT_RONLY_VIOLATION;
+    }
+
     // if the max sequence number seen by this handle is lower than the
     // requested snapshot marker, it means the snapshot is not yet visible
     // even via the current fdb_handle
