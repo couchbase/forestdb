@@ -26,12 +26,16 @@
 
 #include "libforestdb/forestdb.h"
 #include "test.h"
+#include "arch.h"
 
 #define KSIZE (32)
 #define MSIZE (32)
 #define VSIZE (100)
 
-static size_t num_readers(4);
+static size_t num_readers(2);
+
+static mutex_t rollback_mutex;
+static volatile bool rollback_done(false);
 
 static void _set_random_string(char *str, int len)
 {
@@ -113,6 +117,26 @@ static void loadDocsWithRandomKeys(fdb_handle *db, fdb_doc **doc, int num_docs) 
     fdb_commit(db, FDB_COMMIT_NORMAL);
 }
 
+static void updateDocsWithRandomKeys(fdb_handle *db, fdb_doc **doc,
+                                     int start_doc, int end_doc) {
+    TEST_INIT();
+    fdb_status status;
+    char metabuf[1024], bodybuf[1024];
+
+    // insert documents
+    for (int i = start_doc; i < end_doc; ++i) {
+        _set_random_string_smallabt(metabuf, MSIZE);
+        _set_random_string(bodybuf, VSIZE);
+        status = fdb_doc_update(&doc[i], (void*)metabuf, MSIZE, (void*)bodybuf, VSIZE);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_set(db, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // commit
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+}
+
 static void *_reader_thread(void *voidargs)
 {
     TEST_INIT();
@@ -139,6 +163,51 @@ static void *_reader_thread(void *voidargs)
         if (args->check_body) {
             assert(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
         }
+        fdb_doc_free(rdoc);
+    }
+
+    fdb_close(db);
+    thread_exit(0);
+
+    return NULL;
+}
+
+static void *_rollback_reader_thread(void *voidargs)
+{
+    TEST_INIT();
+
+    struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
+    fdb_handle *db;
+    fdb_status status;
+    fdb_doc *rdoc;
+    fdb_config fconfig = *(args->config);
+
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
+    status = fdb_open(&db, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "reader_thread");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    int num_docs = args->ndocs / 5;
+    for (int j = 0; j < num_docs; ++j) {
+        int i = rand() % args->ndocs;
+        fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
+        mutex_lock(&rollback_mutex);
+        status = fdb_get(db, rdoc);
+        assert(status == FDB_RESULT_SUCCESS);
+        if (i < 50000) {
+            assert(rdoc->seqnum == args->doc[i]->seqnum);
+            assert(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+        } else {
+            if (rollback_done) {
+                assert(rdoc->seqnum != args->doc[i]->seqnum);
+            } else {
+                assert(rdoc->seqnum == args->doc[i]->seqnum);
+                assert(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+            }
+        }
+        mutex_unlock(&rollback_mutex);
         fdb_doc_free(rdoc);
     }
 
@@ -185,6 +254,79 @@ static void *_snapshot_reader_thread(void *voidargs)
     fdb_iterator_sequence_init(snap_db, &iterator, 90000, 100000, FDB_ITR_NONE);
     // repeat until fail
     while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, args->doc[i-1]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, args->doc[i-1]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, args->doc[i-1]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        ++i;
+    }
+    fdb_iterator_close(iterator);
+
+    fdb_close(snap_db);
+    fdb_close(db);
+    thread_exit(0);
+
+    return NULL;
+}
+
+static void *_rollback_snapshot_reader_thread(void *voidargs)
+{
+    TEST_INIT();
+
+    struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
+    fdb_handle *db;
+    fdb_handle *snap_db;
+    fdb_status status;
+    fdb_doc *rdoc;
+    fdb_config fconfig = *(args->config);
+
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
+    status = fdb_open(&db, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "reader_thread");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    while (1) {
+        mutex_lock(&rollback_mutex);
+        if (rollback_done) {
+            mutex_unlock(&rollback_mutex);
+            break;
+        }
+        mutex_unlock(&rollback_mutex);
+        sleep(1);
+    }
+
+    status = fdb_snapshot_open(db, &snap_db, 200000);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+    status = fdb_snapshot_open(db, &snap_db, 150000);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    int num_docs = args->ndocs / 5;
+    for (int j = 0; j < num_docs; ++j) {
+        int i = rand() % args->ndocs;
+        fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(snap_db, rdoc);
+        assert(status == FDB_RESULT_SUCCESS);
+        if (i < 50000) {
+            assert(rdoc->seqnum == args->doc[i]->seqnum);
+            assert(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+        } else {
+            assert(rdoc->seqnum != args->doc[i]->seqnum);
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // create an iterator on the snapshot for a sepcfic range
+    int i = 40000;
+    fdb_iterator *iterator;
+    fdb_iterator_sequence_init(snap_db, &iterator, 140000, 150000, FDB_ITR_NONE);
+    // repeat until fail
+    while (1) {
         status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
 
@@ -415,6 +557,85 @@ static void test_writer_multi_readers(writer_type wtype,
     TEST_RESULT(test_name);
 }
 
+static void test_rollback_multi_readers(multi_reader_type reader_type,
+                                        const char *test_name) {
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    int num_docs = 100000;
+    fdb_handle *db;
+    fdb_status status;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" test.fdb* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    status = fdb_open(&db, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_doc **doc = alca(fdb_doc*, num_docs);
+    // Load the initial documents with random keys.
+    loadDocsWithRandomKeys(db, doc, num_docs);
+    // Update the first half of documents, so that the last seq number becomes 150000.
+    updateDocsWithRandomKeys(db, doc, 0, num_docs/2);
+    // Update the rest of documents, so that the last seq number becomes 200000.
+    updateDocsWithRandomKeys(db, doc, num_docs/2, num_docs);
+
+    // Init the rollback mutex.
+    mutex_init(&rollback_mutex);
+
+    // create reader threads.
+    thread_t *tid = alca(thread_t, num_readers);
+    void **thread_ret = alca(void *, num_readers);
+    struct reader_thread_args *args = alca(struct reader_thread_args, num_readers);
+    for (int i = 0; i < num_readers; ++i){
+        args[i].tid = i;
+        args[i].ndocs = num_docs;
+        args[i].doc = doc;
+        args[i].config = &fconfig;
+        args[i].check_body = 1;
+        if (reader_type == MULTI_READERS) {
+            thread_create(&tid[i], _rollback_reader_thread, &args[i]);
+        } else if (reader_type == MULTI_SNAPSHOT_READERS) {
+            thread_create(&tid[i], _rollback_snapshot_reader_thread, &args[i]);
+        } else { // mixed
+            if (i % 2) {
+                thread_create(&tid[i], _rollback_reader_thread, &args[i]);
+            } else {
+                thread_create(&tid[i], _rollback_snapshot_reader_thread, &args[i]);
+            }
+        }
+    }
+
+    // rollback to a seq num 150000
+    mutex_lock(&rollback_mutex);
+    status = fdb_rollback(&db, 150000);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    rollback_done = true;
+    mutex_unlock(&rollback_mutex);
+
+    status = fdb_close(db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // wait for thread termination
+    for (int i = 0; i < num_readers; ++i){
+        thread_join(tid[i], &thread_ret[i]);
+    }
+
+    // free all documents
+    for (int i = 0 ; i < num_docs; ++i){
+        fdb_doc_free(doc[i]);
+    }
+    mutex_destroy(&rollback_mutex);
+
+    // shutdown
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT(test_name);
+}
+
 int main() {
     // Read-only with multiple readers.
     test_multi_readers(MULTI_READERS, "test multi readers");
@@ -473,6 +694,13 @@ int main() {
                               DAEMON_COMPACTION,
                               "test a transactional writer, a compaction daemon, "
                               "and multi mixed readers");
+
+    // Execute a rollback and multiple readers together.
+    test_rollback_multi_readers(MULTI_READERS, "test a rollback and multi readers");
+    test_rollback_multi_readers(MULTI_SNAPSHOT_READERS,
+                                "test a rollback and multi snapshot readers");
+    test_rollback_multi_readers(MULTI_MIXED_READERS,
+                                "test a rollback and multi mixed readers");
 
     return 0;
 }
