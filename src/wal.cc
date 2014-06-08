@@ -140,9 +140,7 @@ static wal_result _wal_insert(fdb_txn *txn,
             while (le) {
                 item = _get_entry(le, struct wal_item, list_elem);
 
-                if (item->txn == txn &&
-                    !(item->flag & WAL_ITEM_COMMITTED))
-                    {
+                if (item->txn == txn && !(item->flag & WAL_ITEM_COMMITTED)) {
                     item->flag &= ~WAL_ITEM_FLUSH_READY;
 
                     hash_remove(&file->wal->hash_byseq, &item->he_seq);
@@ -278,9 +276,11 @@ wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *
             while(le) {
                 item = _get_entry(le, struct wal_item, list_elem);
                 // only committed items can be seen by the other handles, OR
-                // items belonging to the same txn can be found
+                // items belonging to the same txn can be found, OR
+                // a transaction's isolation level is read uncommitted.
                 if ((item->flag & WAL_ITEM_COMMITTED) ||
-                    item->txn == txn) {
+                    (item->txn == txn) ||
+                    (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
                     *offset = item->offset;
                     if (item->action == WAL_ACT_INSERT) {
                         doc->deleted = false;
@@ -299,14 +299,18 @@ wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *
         he = hash_find(&file->wal->hash_byseq, &item_query.he_seq);
         if (he) {
             item = _get_entry(he, struct wal_item, he_seq);
-            *offset = item->offset;
-            if (item->action == WAL_ACT_INSERT) {
-                doc->deleted = false;
-            } else {
-                doc->deleted = true;
+            if ((item->flag & WAL_ITEM_COMMITTED) ||
+                (item->txn == txn) ||
+                (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
+                *offset = item->offset;
+                if (item->action == WAL_ACT_INSERT) {
+                    doc->deleted = false;
+                } else {
+                    doc->deleted = true;
+                }
+                spin_unlock(&file->wal->lock);
+                return WAL_RESULT_SUCCESS;
             }
-            spin_unlock(&file->wal->lock);
-            return WAL_RESULT_SUCCESS;
         }
     }
 

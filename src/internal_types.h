@@ -225,6 +225,10 @@ struct _fdb_transaction {
      * List of dirty WAL items.
      */
     struct list *items;
+    /**
+     * Transaction isolation level.
+     */
+    fdb_isolation_level_t isolation;
 };
 
 #ifdef __cplusplus

@@ -2047,6 +2047,7 @@ fdb_set_start:
     }
 
     filemgr_mutex_unlock(file);
+
     return FDB_RESULT_SUCCESS;
 }
 
@@ -2270,6 +2271,7 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
 
         filemgr_mutex_unlock(handle->file);
     }
+
     return fs;
 }
 

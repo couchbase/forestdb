@@ -3187,7 +3187,7 @@ void transaction_test()
     int n = 10;
     size_t valuelen;
     void *value;
-    fdb_handle *db, *db_txn1, *db_txn2;
+    fdb_handle *db, *db_txn1, *db_txn2, *db_txn3;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -3212,8 +3212,8 @@ void transaction_test()
     // open db and begin transactions
     fdb_open(&db_txn1, "dummy1", &fconfig);
     fdb_open(&db_txn2, "dummy1", &fconfig);
-    fdb_begin_transaction(db_txn1);
-    fdb_begin_transaction(db_txn2);
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+    fdb_begin_transaction(db_txn2, FDB_ISOLATION_READ_COMMITTED);
 
     // insert half docs into txn1
     for (i=0;i<n/2;++i){
@@ -3237,7 +3237,8 @@ void transaction_test()
         fdb_set(db_txn2, doc[i]);
     }
 
-    // uncommitted docs should not be read by the other transaction
+    // uncommitted docs should not be read by the other transaction that
+    // doesn't allow uncommitted reads.
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
@@ -3249,6 +3250,19 @@ void transaction_test()
         }
         fdb_doc_free(rdoc);
     }
+
+    // uncommitted docs can be read by the transaction that allows uncommitted reads.
+    fdb_open(&db_txn3, "dummy1", &fconfig);
+    fdb_begin_transaction(db_txn3, FDB_ISOLATION_READ_UNCOMMITTED);
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        status = fdb_get(db_txn3, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+    fdb_end_transaction(db_txn3, FDB_COMMIT_NORMAL);
+    fdb_close(db_txn3);
 
     // commit and end txn1
     fdb_end_transaction(db_txn1, FDB_COMMIT_NORMAL);
@@ -3313,8 +3327,8 @@ void transaction_test()
     }
 
     // begin transactions
-    fdb_begin_transaction(db_txn1);
-    fdb_begin_transaction(db_txn2);
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+    fdb_begin_transaction(db_txn2, FDB_ISOLATION_READ_COMMITTED);
 
     // concurrently update docs
     for (i=0;i<n;++i){
@@ -3397,7 +3411,7 @@ void transaction_test()
     }
 
     // begin new transaction
-    fdb_begin_transaction(db_txn1);
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
     // update doc#5
     i = 5;
     sprintf(keybuf, "key%d", i);
@@ -3528,8 +3542,8 @@ void transaction_simple_api_test()
     // open db and begin transactions
     fdb_open(&db_txn1, "./dummy1", &fconfig);
     fdb_open(&db_txn2, "./dummy1", &fconfig);
-    fdb_begin_transaction(db_txn1);
-    fdb_begin_transaction(db_txn2);
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+    fdb_begin_transaction(db_txn2, FDB_ISOLATION_READ_COMMITTED);
 
     // concurrently update docs
     for (i=0;i<n;++i){

@@ -113,6 +113,26 @@ enum {
 };
 
 /**
+ * Transaction isolation level.
+ * Note that both serializable and repeatable-read isolation levels are not
+ * supported at this moment. We plan to support them in the future releases.
+ */
+typedef uint8_t fdb_isolation_level_t;
+enum {
+    // FDB_ISOLATION_SERIALIZABLE = 0,
+    // FDB_ISOLATION_REPEATABLE_READ = 1,
+    /**
+     * Prevent a transaction from reading uncommitted data from other
+     * transactions.
+     */
+    FDB_ISOLATION_READ_COMMITTED = 2,
+    /**
+     * Allow a transaction to see uncommitted data from other transaction.
+     */
+    FDB_ISOLATION_READ_UNCOMMITTED = 3
+};
+
+/**
  * Pointer type definition of a customized compare function for fixed size key.
  */
 typedef int (*fdb_custom_cmp_fixed)(void *a, void *b);

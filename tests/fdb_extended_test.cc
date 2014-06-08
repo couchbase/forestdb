@@ -370,7 +370,7 @@ static void *_writer_thread(void *voidargs)
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
         if (!trans_begin && args->wtype == TRANSACTIONAL_WRITER) {
-            status = fdb_begin_transaction(db);
+            status = fdb_begin_transaction(db, FDB_ISOLATION_READ_COMMITTED);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             trans_begin = 1;
         }

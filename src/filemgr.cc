@@ -426,6 +426,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->global_txn.handle = NULL;
     file->global_txn.items = (struct list *)malloc(sizeof(struct list));
     list_init(file->global_txn.items);
+    file->global_txn.isolation = FDB_ISOLATION_READ_COMMITTED;
 
     _filemgr_read_header(file);
 

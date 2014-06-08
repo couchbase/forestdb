@@ -29,7 +29,8 @@
 #include "memleak.h"
 
 LIBFDB_API
-fdb_status fdb_begin_transaction(fdb_handle *handle)
+fdb_status fdb_begin_transaction(fdb_handle *handle,
+                                 fdb_isolation_level_t isolation_level)
 {
     if (handle->txn) {
         // transaction already exists
@@ -38,6 +39,7 @@ fdb_status fdb_begin_transaction(fdb_handle *handle)
     handle->txn = (fdb_txn*)malloc(sizeof(fdb_txn));
     handle->txn->handle = handle;
     handle->txn->items = (struct list *)malloc(sizeof(struct list));
+    handle->txn->isolation = isolation_level;
     list_init(handle->txn->items);
 
     return FDB_RESULT_SUCCESS;
@@ -70,7 +72,10 @@ fdb_status fdb_end_transaction(fdb_handle *handle, fdb_commit_opt_t opt) {
         return FDB_RESULT_TRANSACTION_FAIL;
     }
 
-    fdb_status fs = fdb_commit(handle, opt);
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    if (list_begin(handle->txn->items)) {
+        fs = fdb_commit(handle, opt);
+    }
     if (fs == FDB_RESULT_SUCCESS) {
         free(handle->txn->items);
         free(handle->txn);

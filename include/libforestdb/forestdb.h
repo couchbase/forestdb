@@ -544,20 +544,22 @@ LIBFDB_API
 fdb_status fdb_shutdown();
 
 /**
- * Begin a transaction for the given database handle.
+ * Begin a transaction with the given database handle and isolation level.
  * The transaction should be closed with fdb_end_transaction API call.
- * Dirty updates belonging to a transaction cannot be seen by other handles
- * until the transaction is committed.
- * The current isolation level is "read committed", which meant that both
- * non-repeatable reads and phantoms may occur, and concurrent transactions
- * will not be serialized. Please refer to the following link:
+ * The isolation levels supported are "read committed" or "read uncommitted".
+ * We plan to support both serializable and repeatable read isolation levels
+ * in the upcoming releases. For more information about database isolation levels,
+ * please refer to the following link:
  * http://en.wikipedia.org/wiki/Isolation_level
  *
  * @param handle Pointer to ForestDB handle.
+ * @param isolation_level Isolation level (i.e., read_committed or read_uncommitted)
+ *        of the transaction.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_begin_transaction(fdb_handle *handle);
+fdb_status fdb_begin_transaction(fdb_handle *handle,
+                                 fdb_isolation_level_t isolation_level);
 
 /**
  * End a transaction for the given database handle by commiting all the dirty

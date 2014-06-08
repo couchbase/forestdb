@@ -178,6 +178,11 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 
     // init tree
     if (!handle->shandle) {
+        fdb_txn *txn = handle->txn;
+        if (!txn) {
+            txn = &handle->file->global_txn;
+        }
+
         iterator->wal_tree = (struct avl_tree*)malloc(sizeof(struct avl_tree));
         avl_init(iterator->wal_tree, (void*)handle);
 
@@ -189,11 +194,13 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
             // compare committed item only (at the end of the list)
             ie = list_end(&wal_item_header->items);
             wal_item = _get_entry(ie, struct wal_item, list_elem);
-            if (wal_item->flag & WAL_ITEM_COMMITTED) {
+            if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
+                (wal_item->txn == txn) ||
+                (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
                 if (start_key) {
                     cmp = _fdb_key_cmp(iterator, (void *)start_key, start_keylen,
                                        wal_item_header->key, wal_item_header->keylen);
-                }else{
+                } else {
                     cmp = 0;
                 }
 
@@ -274,6 +281,11 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
 
     // init tree
     if (!handle->shandle) {
+        fdb_txn *txn = handle->txn;
+        if (!txn) {
+            txn = &handle->file->global_txn;
+        }
+
         iterator->wal_tree = (struct avl_tree*)malloc(sizeof(
                     struct avl_tree));
         avl_init(iterator->wal_tree, (void*)_fdb_seqnum_cmp);
@@ -286,7 +298,9 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
             // compare committed item only (at the end of the list)
             ie = list_end(&wal_item_header->items);
             wal_item = _get_entry(ie, struct wal_item, list_elem);
-            if (wal_item->flag & WAL_ITEM_COMMITTED) {
+            if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
+                (wal_item->txn == txn) ||
+                (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
                 if (start_seq <= wal_item->seqnum && wal_item->seqnum <= end_seq) {
                     // copy from WAL_ITEM
                     snap_item = (struct snap_wal_entry*)malloc(sizeof(
