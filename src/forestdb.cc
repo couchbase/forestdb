@@ -1341,6 +1341,7 @@ void _fdb_check_file_reopen(fdb_handle *handle)
             free(handle->dhandle);
             // close btree block handle
             btreeblk_end(handle->bhandle);
+            btreeblk_free(handle->bhandle);
 
             // switch to new file & docio handle
             handle->file = handle->new_file;
@@ -1348,15 +1349,14 @@ void _fdb_check_file_reopen(fdb_handle *handle)
             handle->dhandle = handle->new_dhandle;
             handle->new_dhandle = NULL;
 
+            btreeblk_init(handle->bhandle, handle->file, handle->config.blocksize);
+
             // read new file's header
             filemgr_fetch_header(handle->file, buf, &header_len);
             _fdb_fetch_header(buf,
                               &trie_root_bid, &seq_root_bid,
                               &ndocs, &nlivenodes, &datasize, &last_header_bid,
                               &new_filename, NULL);
-
-            // reset btree block handle's file
-            handle->bhandle->file = handle->file;
 
             // reset trie (id-tree)
             if (!handle->config.cmp_variable) {
