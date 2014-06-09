@@ -252,12 +252,13 @@ void test_multi_readers(multi_reader_type reader_type,
     TEST_INIT();
     memleak_start();
 
+    int r;
     int num_docs = 100000;
     fdb_handle *db;
     fdb_status status;
 
     // remove previous dummy files
-    system(SHELL_DEL" test.fdb* > errorlog.txt");
+    r = system(SHELL_DEL" test.fdb* > errorlog.txt");
 
     fdb_config fconfig = fdb_get_default_config();
     status = fdb_open(&db, "./test.fdb", &fconfig);
@@ -314,12 +315,13 @@ void test_writer_multi_readers(multi_reader_type reader_type,
     TEST_INIT();
     memleak_start();
 
+    int r;
     int num_docs = 100000;
     fdb_handle *db;
     fdb_status status;
 
     // remove previous dummy files
-    system(SHELL_DEL" test.fdb* > errorlog.txt");
+    r = system(SHELL_DEL" test.fdb* > errorlog.txt");
 
     fdb_config fconfig = fdb_get_default_config();
     if (comp_type == DAEMON_COMPACTION) {
