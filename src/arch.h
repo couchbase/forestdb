@@ -128,7 +128,7 @@
     #ifndef spin_t
         // spinlock
         #include <pthread.h>
-        #define spin_t pthread_mutext_t
+        #define spin_t pthread_mutex_t
         #define spin_init(arg) pthread_mutex_init(arg, NULL)
         #define spin_lock(arg) pthread_mutex_lock(arg)
         #define spin_unlock(arg) pthread_mutex_unlock(arg)
