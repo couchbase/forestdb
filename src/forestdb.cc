@@ -761,6 +761,10 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
 
         fs = fdb_commit(handle, FDB_COMMIT_NORMAL);
         if (fs == FDB_RESULT_SUCCESS) {
+            if (handle_in->txn) {
+                handle->txn = handle_in->txn;
+                handle_in->txn = NULL;
+            }
             fdb_close(handle_in);
             handle->max_seqnum = 0;
             *handle_ptr = handle;
