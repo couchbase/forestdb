@@ -25,6 +25,7 @@
 #endif
 
 #include "libforestdb/forestdb.h"
+#include "fdb_internal.h"
 #include "filemgr.h"
 #include "list.h"
 #include "hbtrie.h"
@@ -90,10 +91,10 @@ void print_header(fdb_handle *db)
 
     filemgr_fetch_header(db->file, header_buf, &header_len);
     if (header_len > 0) {
-        _fdb_fetch_header(header_buf, &trie_root_bid,
-                          &seq_root_bid, &ndocs, &nlivenodes,
-                          &datasize, &last_header_bid,
-                          &compacted_filename, &prev_filename);
+        fdb_fetch_header(header_buf, &trie_root_bid,
+                         &seq_root_bid, &ndocs, &nlivenodes,
+                         &datasize, &last_header_bid,
+                         &compacted_filename, &prev_filename);
         seqnum = filemgr_get_seqnum(db->file);
         revnum = filemgr_get_header_revnum(db->file);
         ndocs_wal_inserted = wal_get_size(db->file);

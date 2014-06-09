@@ -26,6 +26,7 @@
 #endif
 
 #include "libforestdb/forestdb.h"
+#include "fdb_internal.h"
 #include "filemgr.h"
 #include "avltree.h"
 #include "common.h"
@@ -148,10 +149,10 @@ INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
     if (header_len > 0) {
         char *compacted_filename;
 
-        _fdb_fetch_header(header_buf, &dummy_bid, &dummy_bid,
-                          &dummy_64, &nlivenodes,
-                          &datasize, &dummy_64,
-                          &compacted_filename, NULL);
+        fdb_fetch_header(header_buf, &dummy_bid, &dummy_bid,
+                         &dummy_64, &nlivenodes,
+                         &datasize, &dummy_64,
+                         &compacted_filename, NULL);
 
         ret += datasize;
         ret += nlivenodes * elem->config.blocksize;
@@ -314,7 +315,7 @@ void * compactor_thread(void *voidargs)
                 fs = fdb_open_for_compactor(&handle, vfilename, &config);
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(filename, new_filename);
-                    fs = _fdb_compact(handle, new_filename);
+                    fs = fdb_compact_file(handle, new_filename);
 
                     spin_lock(&cpt_lock);
                     a = avl_next(target_cursor);

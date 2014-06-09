@@ -21,6 +21,7 @@
 #include <fcntl.h>
 
 #include "libforestdb/forestdb.h"
+#include "fdb_internal.h"
 #include "hbtrie.h"
 #include "docio.h"
 #include "btreeblock.h"
@@ -178,16 +179,26 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 
     // init tree
     if (!handle->shandle) {
+        struct filemgr *wal_file;
+        fdb_check_file_reopen(handle);
+        fdb_link_new_file(handle);
+        fdb_sync_db_header(handle);
+        if (handle->new_file == NULL) {
+            wal_file = handle->file;
+        } else {
+            wal_file = handle->new_file;
+        }
+
         fdb_txn *txn = handle->txn;
         if (!txn) {
-            txn = &handle->file->global_txn;
+            txn = &wal_file->global_txn;
         }
 
         iterator->wal_tree = (struct avl_tree*)malloc(sizeof(struct avl_tree));
         avl_init(iterator->wal_tree, (void*)handle);
 
-        spin_lock(&handle->file->wal->lock);
-        he = list_begin(&handle->file->wal->list);
+        spin_lock(&wal_file->wal->lock);
+        he = list_begin(&wal_file->wal->list);
         while(he) {
             wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
 
@@ -221,7 +232,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
             he = list_next(he);
         }
 
-        spin_unlock(&handle->file->wal->lock);
+        spin_unlock(&wal_file->wal->lock);
     } else {
         iterator->wal_tree = handle->shandle->key_tree;
     }
@@ -281,17 +292,27 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
 
     // init tree
     if (!handle->shandle) {
+        struct filemgr *wal_file;
+        fdb_check_file_reopen(handle);
+        fdb_link_new_file(handle);
+        fdb_sync_db_header(handle);
+        if (handle->new_file == NULL) {
+            wal_file = handle->file;
+        } else {
+            wal_file = handle->new_file;
+        }
+
         fdb_txn *txn = handle->txn;
         if (!txn) {
-            txn = &handle->file->global_txn;
+            txn = &wal_file->global_txn;
         }
 
         iterator->wal_tree = (struct avl_tree*)malloc(sizeof(
                     struct avl_tree));
         avl_init(iterator->wal_tree, (void*)_fdb_seqnum_cmp);
 
-        spin_lock(&handle->file->wal->lock);
-        he = list_begin(&handle->file->wal->list);
+        spin_lock(&wal_file->wal->lock);
+        he = list_begin(&wal_file->wal->list);
         while(he) {
             wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
 
@@ -319,7 +340,7 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
             }
             he = list_next(he);
         }
-        spin_unlock(&handle->file->wal->lock);
+        spin_unlock(&wal_file->wal->lock);
     } else {
         iterator->wal_tree = handle->shandle->seq_tree;
     }
