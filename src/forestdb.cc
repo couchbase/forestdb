@@ -41,7 +41,6 @@
 #include "configuration.h"
 #include "internal_types.h"
 #include "compactor.h"
-#include "transaction.h"
 #include "memleak.h"
 
 #ifdef __DEBUG

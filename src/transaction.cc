@@ -23,7 +23,6 @@
 #include "libforestdb/forestdb.h"
 #include "internal_types.h"
 #include "common.h"
-#include "transaction.h"
 #include "list.h"
 #include "wal.h"
 #include "memleak.h"
