@@ -2457,6 +2457,15 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                     free(doc[j-i].body);
                 }
                 filemgr_mutex_unlock(new_file);
+
+                if (handle->config.wal_flush_before_commit &&
+                    wal_get_size(new_file) > handle->config.wal_threshold) {
+                    wal_commit(&new_file->global_txn, new_file, NULL);
+                    wal_flush(new_file, (void*)&new_handle,
+                              _fdb_wal_flush_func,
+                              _fdb_wal_get_old_offset);
+                    wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+                }
             }
             // reset to zero
             c=0;
