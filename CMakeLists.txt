@@ -106,6 +106,22 @@ add_executable(forestdb_dump
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
+IF (INSTALL_HEADER_FILES)
+   INSTALL(FILES
+           include/libforestdb/forestdb.h
+           include/libforestdb/fdb_types.h
+           include/libforestdb/fdb_errors.h
+           DESTINATION include/libforestdb)
+ENDIF(INSTALL_HEADER_FILES)
+
+INSTALL(TARGETS forestdb
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib)
+
+INSTALL(TARGETS forestdb_dump
+        RUNTIME DESTINATION bin)
+
 add_executable(hash_test
                src/avltree.cc
                src/hash.cc
