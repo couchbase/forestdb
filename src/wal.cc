@@ -177,7 +177,11 @@ static wal_result _wal_insert(fdb_txn *txn,
             // not exist
             // create new item
             item = (struct wal_item *)malloc(sizeof(struct wal_item));
-            item->flag = (is_compactor)?(WAL_ITEM_COMMITTED):(0x0);
+            if (is_compactor) {
+                item->flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;
+            } else {
+                item->flag = 0x0;
+            }
             item->txn = txn;
             item->header = header;
 
@@ -212,7 +216,11 @@ static wal_result _wal_insert(fdb_txn *txn,
 
         item = (struct wal_item *)malloc(sizeof(struct wal_item));
         // entries inserted by compactor is already committed
-        item->flag = (is_compactor)?(WAL_ITEM_COMMITTED):(0x0);
+        if (is_compactor) {
+            item->flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;
+        } else {
+            item->flag = 0x0;
+        }
         item->txn = txn;
         item->header = header;
 
@@ -473,10 +481,11 @@ int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
-wal_result wal_flush(struct filemgr *file,
+wal_result _wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
-                     wal_get_old_offset_func *get_old_offset)
+                     wal_get_old_offset_func *get_old_offset,
+                     bool by_compactor)
 {
     struct avl_tree tree;
     struct avl_node *a;
@@ -495,6 +504,11 @@ wal_result wal_flush(struct filemgr *file,
             item = _get_entry(ee, struct wal_item, list_elem);
             // committed but not flushed items
             if (!(item->flag & WAL_ITEM_COMMITTED)) {
+                break;
+            }
+            if (by_compactor &&
+                !(item->flag & WAL_ITEM_BY_COMPACTOR)) {
+                // during compaction, do not flush normally committed item
                 break;
             }
             if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
@@ -547,6 +561,22 @@ wal_result wal_flush(struct filemgr *file,
     }
 
     return WAL_RESULT_SUCCESS;
+}
+
+wal_result wal_flush(struct filemgr *file,
+                     void *dbhandle,
+                     wal_flush_func *flush_func,
+                     wal_get_old_offset_func *get_old_offset)
+{
+    return _wal_flush(file, dbhandle, flush_func, get_old_offset, false);
+}
+
+wal_result wal_flush_by_compactor(struct filemgr *file,
+                                  void *dbhandle,
+                                  wal_flush_func *flush_func,
+                                  wal_get_old_offset_func *get_old_offset)
+{
+    return _wal_flush(file, dbhandle, flush_func, get_old_offset, true);
 }
 
 // discard entries in txn

@@ -2335,6 +2335,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
     uint64_t offset;
     uint64_t new_offset;
     uint64_t *offset_array;
+    uint64_t n_moved_docs;
     size_t i, j, c, count;
     size_t offset_array_max;
     hbtrie_result hr;
@@ -2363,7 +2364,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
     offset_array_max =
         handle->config.compaction_buf_maxsize / sizeof(uint64_t);
     offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
-    c = count = 0;
+    c = count = n_moved_docs = 0;
 
     if (!handle->config.cmp_variable) {
         hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
@@ -2438,6 +2439,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 
                         wal_insert_by_compactor(&new_file->global_txn,
                                                 new_file, &wal_doc, new_offset);
+                        n_moved_docs++;
 
                     }
                     free(doc[j-i].key);
@@ -2447,12 +2449,12 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                 filemgr_mutex_unlock(new_file);
 
                 if (handle->config.wal_flush_before_commit &&
-                    wal_get_size(new_file) > handle->config.wal_threshold) {
-                    wal_commit(&new_file->global_txn, new_file, NULL);
-                    wal_flush(new_file, (void*)&new_handle,
-                              _fdb_wal_flush_func,
-                              _fdb_wal_get_old_offset);
+                    n_moved_docs > handle->config.wal_threshold) {
+                    wal_flush_by_compactor(new_file, (void*)&new_handle,
+                                           _fdb_wal_flush_func,
+                                           _fdb_wal_get_old_offset);
                     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+                    n_moved_docs = 0;
                 }
             }
             // reset to zero
@@ -2461,11 +2463,11 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 
             // wal flush
             if (wal_get_size(new_file) > 0) {
-                wal_commit(&new_file->global_txn, new_file, NULL);
-                wal_flush(new_file, (void*)&new_handle,
-                          _fdb_wal_flush_func,
-                          _fdb_wal_get_old_offset);
+                wal_flush_by_compactor(new_file, (void*)&new_handle,
+                                       _fdb_wal_flush_func,
+                                       _fdb_wal_get_old_offset);
                 wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+                n_moved_docs = 0;
             }
         }
     }

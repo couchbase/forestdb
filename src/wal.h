@@ -50,6 +50,7 @@ struct wal_item_header{
 
 #define WAL_ITEM_COMMITTED (0x01)
 #define WAL_ITEM_FLUSH_READY (0x02)
+#define WAL_ITEM_BY_COMPACTOR (0x04)
 struct wal_item{
     fdb_txn *txn;
     wal_item_action action;
@@ -119,6 +120,10 @@ wal_result wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset);
+wal_result wal_flush_by_compactor(struct filemgr *file,
+                                  void *dbhandle,
+                                  wal_flush_func *flush_func,
+                                  wal_get_old_offset_func *get_old_offset);
 wal_result wal_discard(fdb_txn *txn, struct filemgr *file);
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
