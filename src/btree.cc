@@ -1290,9 +1290,11 @@ btree_result _btree_next(struct btree_iterator *it, void *key_buf, void *value_b
     }
 
     if (it->node[depth] == NULL){
+        size_t blksize;
         addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
         it->addr[depth] = (void *)mempool_alloc(btree->blksize);
-        memcpy(it->addr[depth], addr, btree->blksize);
+        blksize = btree->blk_ops->blk_get_size(btree->blk_handle, it->bid[depth]);
+        memcpy(it->addr[depth], addr, blksize);
         it->node[depth] = _fetch_bnode(&it->btree, it->addr[depth], depth+1);
     }
     node = _fetch_bnode(&it->btree, it->addr[depth], depth+1);
