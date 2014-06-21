@@ -19,6 +19,9 @@
 #define _JSAHN_TIME_UTILS_H
 
 #include <time.h>
+#if defined(WIN32) || defined(_WIN32)
+#include <Windows.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {

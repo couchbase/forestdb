@@ -29,7 +29,6 @@
 #include "arch.h"
 #include "debug.h"
 #include "bitwise_utils.h"
-#include "time_utils.h"
 
 #ifndef _MEMPOOL
     #define mempool_alloc malloc

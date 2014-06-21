@@ -60,8 +60,6 @@ static struct filemgr_config global_config;
 static struct hash hash;
 static spin_t filemgr_openlock;
 
-static size_t filemgr_sys_pagesize;
-
 struct temp_buf_item{
     void *addr;
     struct list_elem le;
@@ -101,9 +99,6 @@ int _file_cmp(struct hash_elem *a, struct hash_elem *b)
 
 void filemgr_init(struct filemgr_config *config)
 {
-    int i, ret;
-    uint32_t *temp;
-
     // global initialization
     // initialized only once at first time
     if (!filemgr_initialized) {
@@ -531,7 +526,6 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
 {
     uint8_t *_buf;
     uint8_t marker[BLK_MARKER_SIZE];
-    filemgr_magic_t magic;
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int found = 0;
@@ -693,8 +687,6 @@ void filemgr_remove_file(struct filemgr *file)
 void filemgr_shutdown()
 {
     if (filemgr_initialized) {
-        int i;
-
         spin_lock(&initial_lock);
 
         hash_free_active(&hash, _filemgr_free_func);

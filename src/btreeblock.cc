@@ -120,7 +120,6 @@ INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
     struct list_elem *e = list_end(&handle->alc_list);
     struct btreeblk_block *block;
     uint32_t curpos;
-    int ret;
 
     if (e) {
         block = _get_entry(e, struct btreeblk_block, le);
@@ -234,12 +233,11 @@ INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
 INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
 {
     struct list_elem *elm = NULL;
-    struct btreeblk_block *block = NULL, *cached_block;
+    struct btreeblk_block *block = NULL;
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     bid_t _bid, filebid;
     int subblock;
     int offset;
-    int ret;
     size_t sb, idx;
 
     sb = idx = 0;
@@ -311,7 +309,6 @@ void btreeblk_set_dirty(void *voidhandle, bid_t bid);
 void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
 {
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
-    struct btreeblk_block *block = NULL;
     void *old_addr, *new_addr;
     bid_t _bid, _new_bid;
     int i, subblock;
@@ -690,7 +687,7 @@ void btreeblk_operation_end(void *voidhandle)
     // flush and write all items in allocation list
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;
-    struct btreeblk_block *block, **cached_block;
+    struct btreeblk_block *block;
     int writable;
 
     // write and free items in allocation list
@@ -828,7 +825,7 @@ void btreeblk_end(struct btreeblk_handle *handle)
 {
     int dumped = 0;
     struct list_elem *e;
-    struct btreeblk_block *block, **cached_block;
+    struct btreeblk_block *block;
 
     // flush all dirty items
     btreeblk_operation_end((void *)handle);

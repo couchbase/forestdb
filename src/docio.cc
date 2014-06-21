@@ -32,8 +32,6 @@ void docio_init(struct docio_handle *handle,
                 struct filemgr *file,
                 bool compress_document_body)
 {
-    int ret;
-
     handle->file = file;
     handle->curblock = BLK_NOT_FOUND;
     handle->curpos = 0;
@@ -56,7 +54,6 @@ void docio_free(struct docio_handle *handle)
 
 bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)
 {
-    bid_t bid;
     uint32_t offset;
     uint8_t marker[BLK_MARKER_SIZE];
     size_t blocksize = handle->file->blocksize;
@@ -213,14 +210,11 @@ INLINE uint8_t _docio_length_checksum(struct docio_length length)
 
 INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
 {
-    int ret;
     size_t _len;
     uint32_t offset = 0;
     uint32_t crc;
-    uint32_t compbuf_len, _compbuf_len;
     uint64_t docsize;
     void *buf;
-    void *compbuf;
     bid_t ret_offset;
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
@@ -231,6 +225,9 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     length.bodylen_ondisk = length.bodylen;
 
 #ifdef _DOC_COMP
+    int ret;
+    void *compbuf;
+    uint32_t compbuf_len;
     if (doc->length.bodylen > 0 && handle->compress_document_body) {
         compbuf_len = snappy_max_compressed_length(length.bodylen);
         compbuf = (void *)malloc(compbuf_len);
@@ -302,6 +299,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 
     // copy body (optional)
     if (length.bodylen > 0) {
+#ifdef _DOC_COMP
         if (length.flag & DOCIO_COMPRESSED) {
             // compressed body
             memcpy((uint8_t*)buf + offset, compbuf, compbuf_len);
@@ -311,6 +309,10 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
             memcpy((uint8_t *)buf + offset, doc->body, length.bodylen);
             offset += length.bodylen;
         }
+#else
+        memcpy((uint8_t *)buf + offset, doc->body, length.bodylen);
+        offset += length.bodylen;
+#endif
     }
 
 #ifdef __CRC32
@@ -751,7 +753,6 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
                         struct docio_object *doc)
 {
     uint8_t checksum;
-    uint32_t comp_len;
     uint64_t _offset;
     int key_alloc = 0;
     int meta_alloc = 0;

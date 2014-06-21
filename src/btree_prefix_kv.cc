@@ -460,7 +460,6 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
             node->nentry > 0 && node->level == 1) {
             // get common prefix between the first entry and the last entry
             void *comp_key;
-            key_len_t comp_keylen;
 
             _get_common_prefix(first_key, first_keylen,
                                last_key, last_keylen, &new_prefix_len);
@@ -504,7 +503,6 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
     void *ptr_src, *ptr_dst;
     void *prefix_src, *prefix_dst;
     void *first_key, *last_key;
-    void *key_ptr;
     key_len_t keylen, new_prefix_len, temp_keylen;
     key_len_t prefix_src_len, prefix_dst_len, first_keylen, last_keylen;
     key_len_t _keylen, _prefix_src_len, _comp_keylen;

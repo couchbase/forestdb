@@ -63,7 +63,6 @@ static uint64_t bcache_nblock;
 
 static int bcache_blocksize;
 static size_t bcache_flush_unit;
-static size_t bcache_sys_pagesize;
 
 struct fnamedic_item {
     char *filename;
@@ -271,7 +270,7 @@ struct fnamedic_item *_bcache_get_victim()
     spin_lock(&filelist_lock);
 
 #ifdef __BCACHE_RANDOM_VICTIM
-    size_t i, n, r;
+    size_t i, r;
 
     if (fnames > BCACHE_RANDOM_VICTIM_UNIT){
         r = rand() % BCACHE_RANDOM_VICTIM_UNIT;
@@ -346,7 +345,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 {
     // get oldest dirty block
     void *buf = NULL;
-    struct list_elem *e, *prevhead;
+    struct list_elem *prevhead;
     struct avl_node *a;
     struct dirty_item *ditem;
     int count;
@@ -433,8 +432,7 @@ struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
     size_t n_evict;
     struct list_elem *e = NULL;
     struct bcache_item *item;
-    struct hash_elem *h;
-    struct fnamedic_item query, *victim = NULL;
+    struct fnamedic_item *victim = NULL;
 
     spin_lock(&bcache_lock);
 
@@ -566,8 +564,6 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
 
 void _fname_free(struct fnamedic_item *fname)
 {
-    struct dirty_item *item;
-
     // remove from corresponding list
     _bcache_move_fname_list(fname, NULL);
 
@@ -605,7 +601,7 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
     struct hash_elem *h;
     struct bcache_item *item;
     struct bcache_item query;
-    struct fnamedic_item fname_query, *fname;
+    struct fnamedic_item *fname;
 
     spin_lock(&bcache_lock);
     fname = file->bcache;
@@ -664,7 +660,7 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
     struct hash_elem *h;
     struct bcache_item *item;
     struct bcache_item query;
-    struct fnamedic_item fname_query, *fname;
+    struct fnamedic_item *fname;
 
     fname = file->bcache;
     if (fname) {
@@ -723,10 +719,9 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
 int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirty)
 {
     struct hash_elem *h = NULL;
-    struct list_elem *e;
     struct bcache_item *item;
     struct bcache_item query;
-    struct fnamedic_item fname_query, *fname_new;
+    struct fnamedic_item *fname_new;
 
     spin_lock(&bcache_lock);
     fname_new = file->bcache;
@@ -756,8 +751,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
             // no free block .. perform eviction
             spin_unlock(&fname_new->lock);
 
-            struct list_elem *victim_le = _bcache_evict(fname_new);
-            struct bcache_item *victim = _get_entry(victim_le, struct bcache_item, list_elem);
+            _bcache_evict(fname_new);
 
             spin_lock(&fname_new->lock);
         }
@@ -831,11 +825,9 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
 int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offset, size_t len)
 {
     struct hash_elem *h;
-    struct list_elem *e;
     struct bcache_item *item;
     struct bcache_item query;
-    struct fnamedic_item fname_query, *fname_new;
-    uint8_t marker;
+    struct fnamedic_item *fname_new;
 
     spin_lock(&bcache_lock);
     fname_new = file->bcache;
@@ -904,10 +896,7 @@ int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offs
 // remove all dirty blocks of the FILE (they are only discarded and not written back)
 void bcache_remove_dirty_blocks(struct filemgr *file)
 {
-    struct hash_elem *h;
-    struct list_elem *e;
-    struct bcache_item *item;
-    struct fnamedic_item fname_query, *fname_item;
+    struct fnamedic_item *fname_item;
 
     fname_item = file->bcache;
 
@@ -934,9 +923,8 @@ void bcache_remove_dirty_blocks(struct filemgr *file)
 void bcache_remove_clean_blocks(struct filemgr *file)
 {
     struct list_elem *e;
-    struct hash_elem *h;
     struct bcache_item *item;
-    struct fnamedic_item *fname_item, fname_query;
+    struct fnamedic_item *fname_item;
 
     fname_item = file->bcache;
 
@@ -973,8 +961,7 @@ void bcache_remove_clean_blocks(struct filemgr *file)
 // MUST sure that there is no dirty block belongs to this FILE (or memory leak occurs)
 void bcache_remove_file(struct filemgr *file)
 {
-    struct hash_elem *h;
-    struct fnamedic_item *fname_item, fname_query;
+    struct fnamedic_item *fname_item;
 
     fname_item = file->bcache;
 
@@ -1001,10 +988,7 @@ void bcache_remove_file(struct filemgr *file)
 // dirty blocks will be changed to clean blocks (not discarded)
 void bcache_flush(struct filemgr *file)
 {
-    struct hash_elem *h;
-    struct list_elem *e;
-    struct bcache_item *item;
-    struct fnamedic_item fname_query, *fname_item;
+    struct fnamedic_item *fname_item;
 
     fname_item = file->bcache;
 
@@ -1022,7 +1006,7 @@ void bcache_flush(struct filemgr *file)
 
 void bcache_init(int nblock, int blocksize)
 {
-    int i, ret;
+    int i;
     struct bcache_item *item;
     struct list_elem *e;
 

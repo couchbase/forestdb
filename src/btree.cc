@@ -265,7 +265,6 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
     metasize_t metasize, _metasize;
     metasize_t old_metasize;
     struct bnode *node;
-    bid_t new_bid;
 
     // read root node
     addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
@@ -537,7 +536,6 @@ void _btree_print_node(struct btree *btree, int depth, bid_t bid, btree_print_fu
     void *addr;
     bid_t _bid;
     struct bnode *node;
-    struct bnode *child;
 
     if (btree->kv_ops->init_kv_var) btree->kv_ops->init_kv_var(btree, k, v);
 
@@ -567,8 +565,6 @@ void _btree_print_node(struct btree *btree, int depth, bid_t bid, btree_print_fu
 
 void btree_print_node(struct btree *btree, btree_print_func func)
 {
-    void *addr;
-
     fprintf(stderr, "tree height: %d\n", btree->height);
     _btree_print_node(btree, btree->height, btree->root_bid, func);
 }
@@ -583,7 +579,6 @@ btree_result btree_get_key_range(
     bid_t bid;
     struct bnode *root, *node;
     uint64_t _num, _den, _nentry, resolution, mask, _idx_begin, _idx_end;
-    int i;
 
     assert(num < den);
     resolution = 1<<4; mask = resolution-1;
@@ -841,7 +836,6 @@ int _btree_move_modified_node(
     int8_t *modified, int8_t *minkey_replace, int8_t *ins, int8_t *moved)
 {
     void *addr;
-    size_t nsplitnode;
 
     // get new bid[i]
     addr = btree->blk_ops->blk_move(btree->blk_handle, bid[i], &bid[i]);
@@ -1085,7 +1079,7 @@ btree_result btree_remove(struct btree *btree, void *key)
     // index# of removed key
     idx_t *idx_rmv = alca(idx_t, btree->height);
     struct bnode **node = alca(struct bnode *, btree->height);
-    int i, j;
+    int i;
 
     // initialize flags
     for (i=0;i<btree->height;++i) {

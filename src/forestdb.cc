@@ -278,7 +278,6 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
 INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
                                           const char *new_filename)
 {
-    bid_t bid = 0;
     uint64_t offset = 0;
     uint32_t blocksize = handle->config.blocksize;
     fdb_handle new_db;
@@ -799,13 +798,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     char *prev_filename = NULL;
     size_t header_len = 0;
 
-    bid_t prev_trie_root_bid = BLK_NOT_FOUND;
-    bid_t prev_seq_root_bid = BLK_NOT_FOUND;
-    fdb_seqnum_t prev_seqnum = 0;
-    uint64_t prev_ndocs = 0;
     uint64_t nlivenodes = 0;
-    uint64_t prev_datasize = 0;
-    uint64_t prev_last_header_bid = 0;
     bid_t hdr_bid;
     char actual_filename[256];
 
@@ -1335,7 +1328,6 @@ void fdb_check_file_reopen(fdb_handle *handle)
 {
     // check whether the compaction is done
     if (filemgr_get_file_status(handle->file) == FILE_REMOVED_PENDING) {
-        uint64_t dummy;
         uint64_t ndocs, datasize, nlivenodes, last_header_bid;
         size_t header_len;
         char *new_filename;
@@ -1468,8 +1460,6 @@ void fdb_link_new_file(fdb_handle *handle)
 LIBFDB_API
 fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 {
-    void *header_buf;
-    size_t header_len;
     uint64_t offset, _offset;
     struct docio_object _doc;
     struct filemgr *wal_file;
@@ -2340,7 +2330,6 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
                                    uint64_t *count_out,
                                    uint64_t *new_datasize_out)
 {
-    uint8_t *k = alca(uint8_t, HBTRIE_MAX_KEYLEN);
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint8_t deleted;
     uint64_t offset;
@@ -2348,7 +2337,6 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
     uint64_t *offset_array;
     size_t i, j, c, count;
     size_t offset_array_max;
-    size_t keylen;
     hbtrie_result hr;
     btree_result br;
     struct docio_object doc[FDB_COMPACTION_BATCHSIZE];
@@ -2540,12 +2528,8 @@ fdb_status fdb_compact_file(fdb_handle *handle,
     struct btree *new_idtree = NULL;
     struct btree *new_seqtree, *old_seqtree;
     char *old_filename = NULL;
-    struct hbtrie_iterator it;
-    struct docio_object doc;
-    uint8_t k[HBTRIE_MAX_KEYLEN];
-    size_t keylen;
     size_t old_filename_len = 0;
-    uint64_t offset, new_offset, *offset_arr, i, count, new_datasize;
+    uint64_t count, new_datasize;
     fdb_seqnum_t seqnum;
 
     // prevent update to the target file

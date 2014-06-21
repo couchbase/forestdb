@@ -577,7 +577,6 @@ static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator,
     uint64_t offset;
     btree_result br = BTREE_RESULT_FAIL;
     hbtrie_result hr;
-    fdb_status fs;
     struct docio_object _doc;
     struct docio_object _hbdoc;
     struct snap_wal_entry *snap_item = NULL;

@@ -478,11 +478,9 @@ wal_result wal_flush(struct filemgr *file,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset)
 {
-    int i;
     struct avl_tree tree;
     struct avl_node *a;
     struct list_elem *e, *ee;
-    struct hash_elem *h;
     struct wal_item *item;
     struct wal_item_header *header;
 

@@ -103,7 +103,6 @@ struct compactor_meta{
 struct timespec convert_reltime_to_abstime(unsigned int ms) {
     struct timespec ts;
     struct timeval tp;
-    int ret;
     uint64_t wakeup;
 
     memset(&ts, 0, sizeof(ts));
@@ -283,7 +282,6 @@ void * compactor_thread(void *voidargs)
     fdb_status fs;
     struct avl_node *a;
     struct openfiles_elem *elem, *target;
-    struct compactor_args *args = (struct compactor_args *)voidargs;
 
     // Sleep for 10 secs by default to allow applications to warm up their data.
     // TODO: Need to implement more flexible way of scheduling the compaction
@@ -574,7 +572,6 @@ fdb_status _compactor_store_metafile(char *metafile,
 {
     int fd_meta;
     ssize_t ret;
-    uint8_t *buf = alca(uint8_t, sizeof(struct compactor_meta));
     uint32_t crc;
     struct filemgr_ops *ops;
     struct compactor_meta meta;
@@ -637,7 +634,6 @@ fdb_status compactor_get_actual_filename(const char *filename,
                                          char *actual_filename)
 {
     int i;
-    int fd_meta, fd_db;
     int filename_len;
     int dirname_len;
     int compaction_no, max_compaction_no = -1;

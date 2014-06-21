@@ -69,9 +69,7 @@ int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey,
     int outkeylen;
     int nchunk;
     int i;
-    uint8_t EOK = HBTRIE_EOK;
     uint8_t rsize;
-    uint64_t *ptr64;
 
     nchunk = _get_nchunk_raw(trie, rawkey, rawkeylen);
     outkeylen = nchunk * trie->chunksize;
@@ -632,7 +630,6 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
     struct btree *btree = NULL;
     struct btree btree_static;
     btree_result r;
-    metasize_t metasize;
     struct hbtrie_meta hbmeta;
     struct btree_meta meta;
     struct btreelist_item *btreeitem = NULL;
@@ -752,7 +749,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
                 uint8_t *dockey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
                 uint32_t docrawkeylen, dockeylen;
                 uint64_t offset;
-                int docnchunk, minchunkno, diffchunkno;
+                int docnchunk, diffchunkno;
 
                 // get offset value from btree_value
                 offset = trie->btree_kv_ops->value2bid(btree_value);
@@ -833,7 +830,6 @@ hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen)
         if ((btreeitem->leaf && rawkeylen == btreeitem->chunkno * trie->chunksize) ||
             (!(btreeitem->leaf) && nchunk == btreeitem->chunkno)) {
             // key is exactly same as b-tree's prefix .. remove from metasection
-            metasize_t metasize;
             struct hbtrie_meta hbmeta;
             struct btree_meta meta;
             hbmeta_opt opt;
@@ -899,7 +895,7 @@ void _hbtrie_extend_leaf_tree(
     uint8_t *key_buf = alca(uint8_t, trie->chunksize);
     uint8_t *value_buf = alca(uint8_t, trie->valuelen);
     uint8_t *buf = alca(uint8_t, trie->btree_nodesize);
-    size_t keylen, minchunkno = 0, rawkeylen, chunksize;
+    size_t keylen, minchunkno = 0, chunksize;
 
     chunksize = trie->chunksize;
 
@@ -1042,14 +1038,12 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
     uint8_t *k = alca(uint8_t, trie->chunksize);
 
     struct list btreelist;
-    struct list_elem *e;
     //struct btree btree, btree_new;
     struct btreelist_item *btreeitem, *btreeitem_new;
     hbtrie_result ret_result = HBTRIE_RESULT_SUCCESS;
     btree_result r;
     struct btree_kv_ops *kv_ops;
 
-    metasize_t metasize;
     struct hbtrie_meta hbmeta;
     struct btree_meta meta;
     hbmeta_opt opt;
@@ -1179,8 +1173,6 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
 
             if (cpt_node) {
                 // leaf b-tree
-                size_t btree_height = btreeitem->btree.height;
-
                 _set_leaf_key(k, chunk, rawkeylen - curchunkno*trie->chunksize);
                 r = btree_insert(&btreeitem->btree, k, value);
                 _free_leaf_key(k);
