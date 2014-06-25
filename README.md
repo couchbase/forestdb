@@ -1,31 +1,37 @@
-ForestDB
-=======
-ForestDB is a fast key-value storage engine that is based on hierarchical
-B+-tree trie data structure. We propose and implement trie (also known as
-prefix tree)-like structure, called HB+-trie (Hierarchical B+-tree based
-trie), which can support efficient indexing and retrieval on a large number
-of variable-length keys over tree-like structures, in terms of block
-device I/O.
-In addition, documents and internal nodes of trie are stored as block-aligned
-form so that we can minimize the number of block-I/O accesses while indexing
-the documents.
+# ForestDB
 
-build
-======
-git clone forestdb_repo <br>
-mkdir build <br>
-cd build <br>
-cmake ../forestdb <br>
-make all <br>
+ForestDB is a key-value storage engine that is developed by Couchbase Caching and Storage Team, and its main index structure is built from Hierarchical B+-Tree based Trie, called HB+-Trie. [HB+-Trie](http://db.csail.mit.edu/sigmod11contest/sigmod_2011_contest_poster_jungsang_ahn.pdf) was presented at ACM SIGMOD 2011 Programming Contest, by [Jung-Sang Ahn](http://cagsky.kaist.ac.kr/jsahn/) who now works at Couchbase Caching and Storage Team.
 
-test
-======
+Compared with traditional B+-Tree based storage engines, ForestDB shows significantly better read and write performance with less storage overhead. Please refer to the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki) for more details.
+
+## Main Features
+
+- Keys and values are treated as an arbitrary binary.
+- Applications can supply a custom compare function to support a customized key order.
+- A value can be retrieved by its sequence number or disk offset in addition to a key.
+- Write-Ahead Logging (WAL) and its in-memory index are used to reduce the main index lookup / update overhead.
+- Multiple snapshot instances can be created from a given ForestDB instance to provide different views of database.
+- Rollback is supported to revert the database to a specific point.
+- Ranged iteration by keys or sequence numbers is supported for a partial or full range lookup operation.
+- Manual or auto compaction can be configured per ForestDB database file.
+- Transactional support with read\_committed or read\_uncommitted isolation level.
+
+## Build
+
+git clone forestdb_repo
+
+mkdir build
+
+cd build
+
+cmake ../forestdb
+
+make all
+
+## Test
+
 make test
 
-benchmark
-======
-make bench
+## How to Use
 
-how to use
-======
-refer to tests/forestdb_test.c
+Please refer to tests/fdb\_functional\_test.cc in ForestDB source directory.
