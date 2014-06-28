@@ -89,6 +89,7 @@ enum {
 struct wal {
     uint8_t flag;
     size_t size; // total # entries in WAL
+    size_t num_flushable; // # flushable entries in WAL
     size_t num_docs; // # committed docs
     size_t num_deletes; // # committed deleted docs
     uint64_t datasize;
@@ -128,6 +129,7 @@ wal_result wal_discard(fdb_txn *txn, struct filemgr *file);
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
 size_t wal_get_size(struct filemgr *file);
+size_t wal_get_num_flushable(struct filemgr *file);
 size_t wal_get_num_docs(struct filemgr *file);
 size_t wal_get_num_deletes(struct filemgr *file);
 size_t wal_get_datasize(struct filemgr *file);

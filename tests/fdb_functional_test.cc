@@ -3628,6 +3628,141 @@ void transaction_simple_api_test()
     TEST_RESULT("transaction simple API test");
 }
 
+void flush_before_commit_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 30;
+    size_t valuelen;
+    void *value;
+    fdb_handle *db, *db_txn;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 5;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+    fconfig.wal_flush_before_commit = true;
+
+    // open db
+    fdb_open(&db, "dummy1", &fconfig);
+    fdb_open(&db_txn, "dummy1", &fconfig);
+    status = fdb_set_log_callback(db_txn, logCallbackFunc,
+                                  (void *) "flush_before_commit_test");
+
+    // create docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+    }
+
+    // non-transactional commit first, transactional commit next
+    fdb_begin_transaction(db_txn, FDB_ISOLATION_READ_COMMITTED);
+    for (i=0;i<2;++i){
+        fdb_set(db, doc[i]);
+    }
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+    for (i=0;i<2;++i){
+        fdb_set(db_txn, doc[i]);
+    }
+    fdb_end_transaction(db_txn, FDB_COMMIT_NORMAL);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // transactional commit first, non-transactional commit next
+    fdb_begin_transaction(db_txn, FDB_ISOLATION_READ_COMMITTED);
+    for (i=0;i<2;++i){
+        fdb_set(db_txn, doc[i]);
+    }
+    fdb_end_transaction(db_txn, FDB_COMMIT_NORMAL);
+    for (i=0;i<2;++i){
+        fdb_set(db, doc[i]);
+    }
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // concurrent update (non-txn commit first, txn commit next)
+    fdb_begin_transaction(db_txn, FDB_ISOLATION_READ_COMMITTED);
+    for (i=0;i<2;++i){
+        fdb_set(db_txn, doc[i]);
+    }
+    for (i=0;i<2;++i){
+        fdb_set(db, doc[i]);
+    }
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+    fdb_end_transaction(db_txn, FDB_COMMIT_NORMAL);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // concurrent update (txn commit first, non-txn commit next)
+    fdb_begin_transaction(db_txn, FDB_ISOLATION_READ_COMMITTED);
+    for (i=0;i<2;++i){
+        fdb_set(db, doc[i]);
+    }
+    for (i=0;i<2;++i){
+        fdb_set(db_txn, doc[i]);
+    }
+    fdb_end_transaction(db_txn, FDB_COMMIT_NORMAL);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // begin transaction
+    fdb_begin_transaction(db_txn, FDB_ISOLATION_READ_COMMITTED);
+
+    // insert docs using transaction
+    for (i=0;i<10;++i){
+        fdb_set(db_txn, doc[i]);
+    }
+
+    // insert docs without transaction
+    for (i=10;i<20;++i){
+        fdb_set(db, doc[i]);
+    }
+
+    // do compaction
+    fdb_compact(db, "dummy2");
+
+    for (i=20;i<25;++i){
+        fdb_set(db_txn, doc[i]);
+    }
+    // end transaction
+    fdb_end_transaction(db_txn, FDB_COMMIT_NORMAL);
+
+    for (i=25;i<30;++i){
+        fdb_set(db, doc[i]);
+    }
+
+    // close db file
+    fdb_close(db);
+    fdb_close(db_txn);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("flush before commit test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -3652,6 +3787,7 @@ int main(){
     api_wrapper_test();
     transaction_test();
     transaction_simple_api_test();
+    flush_before_commit_test();
     purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);

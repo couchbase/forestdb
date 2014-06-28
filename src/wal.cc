@@ -84,6 +84,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
 {
     file->wal->flag = WAL_FLAG_INITIALIZED;
     file->wal->size = 0;
+    file->wal->num_flushable = 0;
     file->wal->num_docs = 0;
     file->wal->num_deletes = 0;
     file->wal->datasize = 0;
@@ -183,6 +184,9 @@ static wal_result _wal_insert(fdb_txn *txn,
                 item->flag = 0x0;
             }
             item->txn = txn;
+            if (txn == &file->global_txn) {
+                file->wal->num_flushable++;
+            }
             item->header = header;
 
             item->seqnum = doc->seqnum;
@@ -222,6 +226,9 @@ static wal_result _wal_insert(fdb_txn *txn,
             item->flag = 0x0;
         }
         item->txn = txn;
+        if (txn == &file->global_txn) {
+            file->wal->num_flushable++;
+        }
         item->header = header;
 
         item->seqnum = doc->seqnum;
@@ -360,6 +367,10 @@ wal_result wal_txn_migration(void *dbhandle,
                 e2 = list_remove_reverse(&header->items, e2);
                 // remove from transaction's list
                 list_remove(item->txn->items, &item->list_elem_txn);
+                // decrease num_flushable of old_file if non-transactional update
+                if (item->txn == &old_file->global_txn) {
+                    old_file->wal->num_flushable--;
+                }
                 // free item
                 free(item);
                 // free doc
@@ -428,6 +439,7 @@ wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
                     prev_action = _item->action;
                     prev_commit = 1;
                     file->wal->size--;
+                    file->wal->num_flushable--;
                     free(_item);
                 }
             }
@@ -445,6 +457,10 @@ wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
                            item->action == WAL_ACT_INSERT) {
                     file->wal->num_deletes--;
                 }
+            }
+            // increase num_flushable if it is transactional update
+            if (item->txn != &file->global_txn) {
+                file->wal->num_flushable++;
             }
             // move the committed item to the end of the wal_item_header's list
             list_remove(&item->header->items, &item->list_elem);
@@ -552,6 +568,7 @@ wal_result _wal_flush(struct filemgr *file,
             }
             file->wal->num_docs--;
             file->wal->size--;
+            file->wal->num_flushable--;
             if (item->action != WAL_ACT_REMOVE) {
                 file->wal->datasize -= item->doc_size;
             }
@@ -607,6 +624,10 @@ wal_result wal_discard(fdb_txn *txn, struct filemgr *file)
         }
         // remove from txn's list
         e = list_remove(txn->items, e);
+        if (item->txn == &file->global_txn ||
+            item->flag & WAL_ITEM_COMMITTED) {
+            file->wal->num_flushable--;
+        }
         // free
         free(item);
         file->wal->size--;
@@ -646,8 +667,11 @@ wal_result _wal_close(struct filemgr *file, int discard_all)
                 if (item->action != WAL_ACT_REMOVE) {
                     file->wal->datasize -= item->doc_size;
                 }
-                free(item);
+                if (item->txn == &file->global_txn) {
+                    file->wal->num_flushable--;
+                }
 
+                free(item);
                 file->wal->size--;
             } else {
                 e2 = list_next(e2);
@@ -679,6 +703,7 @@ wal_result wal_shutdown(struct filemgr *file)
 {
     wal_result wr = _wal_close(file, 1);
     file->wal->size = 0;
+    file->wal->num_flushable = 0;
     file->wal->num_docs = 0;
     file->wal->num_deletes = 0;
     return wr;
@@ -687,6 +712,11 @@ wal_result wal_shutdown(struct filemgr *file)
 size_t wal_get_size(struct filemgr *file)
 {
     return file->wal->size;
+}
+
+size_t wal_get_num_flushable(struct filemgr *file)
+{
+    return file->wal->num_flushable;
 }
 
 size_t wal_get_num_docs(struct filemgr *file) {

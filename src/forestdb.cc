@@ -2027,11 +2027,9 @@ fdb_set_start:
 
     if (handle->config.wal_flush_before_commit &&
             filemgr_get_file_status(handle->file) == FILE_NORMAL &&
-            wal_get_size(file) > _fdb_get_wal_threshold(handle)) {
-        if (txn == &file->global_txn) {
-            // commit only for non-transactional WAL entries
-            wal_commit(txn, file, NULL);
-        }
+            wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
+        // commit only for non-transactional WAL entries
+        wal_commit(&file->global_txn, file, NULL);
         wal_flush(file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset);
         wal_set_dirty_status(file, FDB_WAL_PENDING);
@@ -2242,7 +2240,7 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
             wal_commit(&handle->file->global_txn, handle->file, NULL);
         }
 
-        if (wal_get_size(handle->file) > _fdb_get_wal_threshold(handle) ||
+        if (wal_get_num_flushable(handle->file) > _fdb_get_wal_threshold(handle) ||
             wal_get_dirty_status(handle->file) == FDB_WAL_PENDING ||
             opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
             // wal flush when
@@ -2275,7 +2273,7 @@ static void _fdb_commit_and_remove_pending(fdb_handle *handle,
     btreeblk_end(handle->bhandle);
 
     wal_commit(&handle->file->global_txn, handle->file, NULL);
-    if (wal_get_size(handle->file)) {
+    if (wal_get_num_flushable(handle->file)) {
         // flush wal if not empty
         wal_flush(handle->file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset);
@@ -2462,7 +2460,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
             count++;
 
             // wal flush
-            if (wal_get_size(new_file) > 0) {
+            if (wal_get_num_flushable(new_file) > 0) {
                 wal_flush_by_compactor(new_file, (void*)&new_handle,
                                        _fdb_wal_flush_func,
                                        _fdb_wal_get_old_offset);
