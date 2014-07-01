@@ -33,7 +33,7 @@ void fdb_sync_db_header(fdb_handle *handle);
 void fdb_fetch_header(void *header_buf, bid_t *trie_root_bid,
                       bid_t *seq_root_bid, uint64_t *ndocs,
                       uint64_t *nlivenodes, uint64_t *datasize,
-                      uint64_t *last_header_bid, char **new_filename,
+                      uint64_t *last_wal_flush_hdr_bid, char **new_filename,
                       char **old_filename);
 
 fdb_status fdb_open_for_compactor(fdb_handle **ptr_handle,

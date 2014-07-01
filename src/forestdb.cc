@@ -117,7 +117,7 @@ void fdb_fetch_header(void *header_buf,
                       uint64_t *ndocs,
                       uint64_t *nlivenodes,
                       uint64_t *datasize,
-                      uint64_t *last_header_bid,
+                      uint64_t *last_wal_flush_hdr_bid,
                       char **new_filename,
                       char **old_filename)
 {
@@ -145,9 +145,9 @@ void fdb_fetch_header(void *header_buf,
                sizeof(uint64_t), offset);
     *datasize = _endian_decode(*datasize);
 
-    seq_memcpy(last_header_bid, (uint8_t *)header_buf + offset,
+    seq_memcpy(last_wal_flush_hdr_bid, (uint8_t *)header_buf + offset,
                sizeof(uint64_t), offset);
-    *last_header_bid = _endian_decode(*last_header_bid);
+    *last_wal_flush_hdr_bid = _endian_decode(*last_wal_flush_hdr_bid);
 
     seq_memcpy(&new_filename_len, (uint8_t *)header_buf + offset,
                sizeof(uint8_t), offset);
@@ -170,13 +170,13 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
 {
     struct filemgr *file = handle->file;
     uint32_t blocksize = handle->file->blocksize;
-    uint64_t last_header_bid = handle->last_header_bid;
+    uint64_t last_wal_flush_hdr_bid = handle->last_wal_flush_hdr_bid;
     uint64_t hdr_off = hdr_bid * FDB_BLOCKSIZE;
     uint64_t offset = 0; //assume everything from first block needs restoration
 
     filemgr_mutex_lock(file);
-    if (last_header_bid != BLK_NOT_FOUND) {
-        offset = (last_header_bid + 1) * blocksize;
+    if (last_wal_flush_hdr_bid != BLK_NOT_FOUND) {
+        offset = (last_wal_flush_hdr_bid + 1) * blocksize;
     }
 
     // If a valid last header was retrieved and it matches the current header
@@ -792,7 +792,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     fdb_seqnum_t seqnum = 0;
     uint64_t ndocs = 0;
     uint64_t datasize = 0;
-    uint64_t last_header_bid = BLK_NOT_FOUND;
+    uint64_t last_wal_flush_hdr_bid = BLK_NOT_FOUND;
     uint8_t header_buf[FDB_BLOCKSIZE];
     char *compacted_filename = NULL;
     char *prev_filename = NULL;
@@ -848,10 +848,11 @@ static fdb_status _fdb_open(fdb_handle *handle,
     handle->file = result.file;
     filemgr_mutex_lock(handle->file);
     filemgr_fetch_header(handle->file, header_buf, &header_len);
+    handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
     if (header_len > 0) {
         fdb_fetch_header(header_buf, &trie_root_bid,
                          &seq_root_bid, &ndocs, &nlivenodes,
-                         &datasize, &last_header_bid,
+                         &datasize, &last_wal_flush_hdr_bid,
                          &compacted_filename, &prev_filename);
         seqnum = filemgr_get_seqnum(handle->file);
     }
@@ -859,6 +860,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
     hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
     hdr_bid = hdr_bid ? --hdr_bid : 0;
+
     if (handle->max_seqnum) { // Given Marker, reverse scan file..
         while (header_len && seqnum != handle->max_seqnum) {
             hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
@@ -868,8 +870,9 @@ static fdb_status _fdb_open(fdb_handle *handle,
             if (header_len > 0) {
                 fdb_fetch_header(header_buf, &trie_root_bid,
                                  &seq_root_bid, &ndocs, &nlivenodes,
-                                 &datasize, &last_header_bid,
+                                 &datasize, &last_wal_flush_hdr_bid,
                                  &compacted_filename, NULL);
+                handle->last_hdr_bid = hdr_bid;
             }
         }
         if (!header_len) { // Marker MUST match that of DB commit!
@@ -896,7 +899,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     handle->dhandle->log_callback = &handle->log_callback;
 
     handle->config = *config;
-    handle->last_header_bid = BLK_NOT_FOUND;
+    handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
 
     handle->new_file = NULL;
     handle->new_dhandle = NULL;
@@ -912,7 +915,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     handle->ndocs = ndocs;
     handle->bhandle->nlivenodes = nlivenodes;
     handle->datasize = datasize;
-    handle->last_header_bid = last_header_bid;
+    handle->last_wal_flush_hdr_bid = last_wal_flush_hdr_bid;
 
     if (!handle->config.cmp_variable) {
         handle->idtree = NULL;
@@ -1283,6 +1286,7 @@ void fdb_sync_db_header(fdb_handle *handle)
         void *header_buf = NULL;
         size_t header_len;
 
+        handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
         header_buf = filemgr_fetch_header(handle->file, NULL, &header_len);
         if (header_len > 0) {
             bid_t idtree_root;
@@ -1293,7 +1297,7 @@ void fdb_sync_db_header(fdb_handle *handle)
             fdb_fetch_header(header_buf, &idtree_root,
                              &new_seq_root,
                              &handle->ndocs, &handle->bhandle->nlivenodes,
-                             &handle->datasize, &handle->last_header_bid,
+                             &handle->datasize, &handle->last_wal_flush_hdr_bid,
                              &compacted_filename, &prev_filename);
 
             if (!handle->config.cmp_variable) {
@@ -1330,7 +1334,7 @@ void fdb_check_file_reopen(fdb_handle *handle)
 {
     // check whether the compaction is done
     if (filemgr_get_file_status(handle->file) == FILE_REMOVED_PENDING) {
-        uint64_t ndocs, datasize, nlivenodes, last_header_bid;
+        uint64_t ndocs, datasize, nlivenodes, last_wal_flush_hdr_bid;
         size_t header_len;
         char *new_filename;
         uint8_t *buf = alca(uint8_t, BLK_DBHEADER_SIZE);
@@ -1361,7 +1365,7 @@ void fdb_check_file_reopen(fdb_handle *handle)
             filemgr_fetch_header(handle->file, buf, &header_len);
             fdb_fetch_header(buf,
                              &trie_root_bid, &seq_root_bid,
-                             &ndocs, &nlivenodes, &datasize, &last_header_bid,
+                             &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
                              &new_filename, NULL);
 
             // reset trie (id-tree)
@@ -1430,7 +1434,7 @@ void fdb_check_file_reopen(fdb_handle *handle)
                 filemgr_fetch_header(handle->file, buf, &header_len);
                 fdb_fetch_header(buf,
                                  &trie_root_bid, &seq_root_bid,
-                                 &ndocs, &nlivenodes, &datasize, &last_header_bid,
+                                 &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
                                  &new_filename, NULL);
                 _fdb_close(handle);
                 _fdb_open(handle, new_filename, &config);
@@ -2075,7 +2079,7 @@ static uint64_t _fdb_set_file_header(fdb_handle *handle)
     [0016]: # of live documents: 8 bytes
     [0024]: # of live B+Tree nodes: 8 bytes
     [0032]: Data size (byte): 8 bytes
-    [0040]: File offset of the DB header created when last WAL flush: 8 bytes
+    [0040]: BID of the DB header created when last WAL flush: 8 bytes
     [0048]: Size of newly compacted target file name : 1 byte
     [0049]: Size of old file name before compaction :  1 byte
     [0050]: File name of newly compacted file : 256 bytes
@@ -2123,9 +2127,9 @@ static uint64_t _fdb_set_file_header(fdb_handle *handle)
     _edn_safe_64 = _endian_encode(handle->datasize);
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->datasize), offset);
     // last header bid
-    _edn_safe_64 = _endian_encode(handle->last_header_bid);
+    _edn_safe_64 = _endian_encode(handle->last_wal_flush_hdr_bid);
     seq_memcpy(buf + offset, &_edn_safe_64,
-        sizeof(handle->last_header_bid), offset);
+        sizeof(handle->last_wal_flush_hdr_bid), offset);
 
     // size of newly compacted target file name
     if (handle->file->new_file) {
@@ -2183,6 +2187,7 @@ LIBFDB_API
 fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
 {
     fdb_txn *txn = handle->txn;
+    fdb_txn *earliest_txn;
     fdb_status fs = FDB_RESULT_SUCCESS;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
@@ -2247,16 +2252,34 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
             opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
             // wal flush when
             // 1. wal size exceeds threshold
-            // 2. wal is already flushed before commit (in this case flush the rest of entries)
+            // 2. wal is already flushed before commit
+            //    (in this case, flush the rest of entries)
             // 3. user forces to manually flush wal
             wal_flush(handle->file, (void *)handle,
                       _fdb_wal_flush_func, _fdb_wal_get_old_offset);
             wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
         }
 
+        handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
         if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
-            handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
+            earliest_txn = wal_earliest_txn(handle->file,
+                                            (txn)?(txn):(&handle->file->global_txn));
+            if (earliest_txn) {
+                // there exists other transaction that is not committed yet
+                if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
+                    handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
+                }
+            } else {
+                // there is no other transaction .. now WAL is empty
+                handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
+            }
         }
+
+        if (txn == NULL) {
+            // update global_txn's previous header BID
+            handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
+        }
+
         handle->cur_header_revnum = _fdb_set_file_header(handle);
         fs = filemgr_commit(handle->file, &handle->log_callback);
 
@@ -2270,6 +2293,8 @@ static void _fdb_commit_and_remove_pending(fdb_handle *handle,
                                            struct filemgr *old_file,
                                            struct filemgr *new_file)
 {
+    fdb_txn *earliest_txn;
+
     filemgr_mutex_lock(handle->file);
 
     btreeblk_end(handle->bhandle);
@@ -2282,9 +2307,23 @@ static void _fdb_commit_and_remove_pending(fdb_handle *handle,
         wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
     }
 
+    handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
     if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
-        handle->last_header_bid = filemgr_get_next_alloc_block(handle->file);
+        earliest_txn = wal_earliest_txn(handle->file, &handle->file->global_txn);
+        if (earliest_txn) {
+            // there exists other transaction that is not committed yet
+            if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
+                handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
+            }
+        } else {
+            // there is no other transaction .. now WAL is empty
+            handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
+        }
     }
+
+    // update global_txn's previous header BID
+    handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
+
     handle->cur_header_revnum = _fdb_set_file_header(handle);
     filemgr_commit(handle->file, &handle->log_callback);
 
@@ -2656,7 +2695,7 @@ fdb_status fdb_compact_file(fdb_handle *handle,
     // mark name of new file in old file
     filemgr_set_compaction_old(handle->file, new_file);
 
-    handle->last_header_bid = (handle->file->pos) / handle->file->blocksize;
+    handle->last_wal_flush_hdr_bid = (handle->file->pos) / handle->file->blocksize;
     handle->cur_header_revnum = _fdb_set_file_header(handle);
     btreeblk_end(handle->bhandle);
 
@@ -2665,6 +2704,9 @@ fdb_status fdb_compact_file(fdb_handle *handle,
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
+
+    // reset last_wal_flush_hdr_bid
+    handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
 
     // Mark new file as newly compacted
     filemgr_update_file_status(new_file, FILE_COMPACT_NEW, NULL);

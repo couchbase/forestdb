@@ -96,11 +96,15 @@ struct wal {
     struct hash hash_bykey; // indexes 'wal_item_header's
     struct hash hash_byseq; // indexes 'wal_item's
     struct list list; // list of 'wal_item_header's
+    struct list txn_list; // list of active transactions
     wal_dirty_t wal_dirty;
     spin_t lock;
 };
 
-//typedef struct fdb_doc_struct fdb_doc;
+struct wal_txn_wrapper {
+    fdb_txn *txn;
+    struct list_elem le;
+};
 
 wal_result wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
@@ -125,7 +129,7 @@ wal_result wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset);
-wal_result wal_discard(fdb_txn *txn, struct filemgr *file);
+wal_result wal_discard(struct filemgr *file, fdb_txn *txn);
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
 size_t wal_get_size(struct filemgr *file);
@@ -135,6 +139,9 @@ size_t wal_get_num_deletes(struct filemgr *file);
 size_t wal_get_datasize(struct filemgr *file);
 void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status);
 wal_dirty_t wal_get_dirty_status(struct filemgr *file);
+void wal_add_transaction(struct filemgr *file, fdb_txn *txn);
+void wal_remove_transaction(struct filemgr *file, fdb_txn *txn);
+fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn);
 
 #ifdef __cplusplus
 }

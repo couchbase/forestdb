@@ -21,7 +21,9 @@
 #include <stdint.h>
 
 #include "libforestdb/forestdb.h"
+#include "fdb_internal.h"
 #include "internal_types.h"
+#include "filemgr.h"
 #include "common.h"
 #include "list.h"
 #include "wal.h"
@@ -31,15 +33,53 @@ LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_handle *handle,
                                  fdb_isolation_level_t isolation_level)
 {
+    struct filemgr *file;
+
     if (handle->txn) {
         // transaction already exists
         return FDB_RESULT_TRANSACTION_FAIL;
     }
+
+    fdb_check_file_reopen(handle);
+    fdb_sync_db_header(handle);
+    if (handle->new_file == NULL) {
+        file = handle->file;
+        filemgr_mutex_lock(file);
+
+        fdb_link_new_file(handle);
+        if (handle->new_file) {
+            // compaction is being performed and new file exists
+            // relay lock
+            filemgr_mutex_lock(handle->new_file);
+            filemgr_mutex_unlock(handle->file);
+            // reset FILE
+            file = handle->new_file;
+        }
+    } else {
+        file = handle->new_file;
+        filemgr_mutex_lock(file);
+    }
+
     handle->txn = (fdb_txn*)malloc(sizeof(fdb_txn));
+    handle->txn->wrapper = (struct wal_txn_wrapper *)
+                           malloc(sizeof(struct wal_txn_wrapper));
+    handle->txn->wrapper->txn = handle->txn;
     handle->txn->handle = handle;
+    if (filemgr_get_file_status(handle->file) != FILE_COMPACT_OLD) {
+        // keep previous header's BID
+        handle->txn->prev_hdr_bid = handle->last_hdr_bid;
+    } else {
+        // if file status is COMPACT_OLD,
+        // then this transaction will work on new file, and
+        // there is no previous header until the compaction is done.
+        handle->txn->prev_hdr_bid = BLK_NOT_FOUND;
+    }
     handle->txn->items = (struct list *)malloc(sizeof(struct list));
     handle->txn->isolation = isolation_level;
     list_init(handle->txn->items);
+    wal_add_transaction(file, handle->txn);
+
+    filemgr_mutex_unlock(file);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -54,18 +94,44 @@ fdb_status fdb_abort_transaction(fdb_handle *handle)
         return FDB_RESULT_TRANSACTION_FAIL;
     }
 
-    file = (handle->new_file)?(handle->new_file):(handle->file);
-    wal_discard(handle->txn, file);
+    fdb_check_file_reopen(handle);
+    fdb_sync_db_header(handle);
+    if (handle->new_file == NULL) {
+        file = handle->file;
+        filemgr_mutex_lock(file);
+
+        fdb_link_new_file(handle);
+        if (handle->new_file) {
+            // compaction is being performed and new file exists
+            // relay lock
+            filemgr_mutex_lock(handle->new_file);
+            filemgr_mutex_unlock(handle->file);
+            // reset FILE
+            file = handle->new_file;
+        }
+    } else {
+        file = handle->new_file;
+        filemgr_mutex_lock(file);
+    }
+
+    wal_discard(file, handle->txn);
+    wal_remove_transaction(file, handle->txn);
 
     free(handle->txn->items);
+    free(handle->txn->wrapper);
     free(handle->txn);
     handle->txn = NULL;
+
+    filemgr_mutex_unlock(file);
 
     return FDB_RESULT_SUCCESS;
 }
 
 LIBFDB_API
-fdb_status fdb_end_transaction(fdb_handle *handle, fdb_commit_opt_t opt) {
+fdb_status fdb_end_transaction(fdb_handle *handle, fdb_commit_opt_t opt)
+{
+    struct filemgr *file;
+
     if (handle->txn == NULL) {
         // there is no transaction started
         return FDB_RESULT_TRANSACTION_FAIL;
@@ -75,10 +141,36 @@ fdb_status fdb_end_transaction(fdb_handle *handle, fdb_commit_opt_t opt) {
     if (list_begin(handle->txn->items)) {
         fs = fdb_commit(handle, opt);
     }
+
     if (fs == FDB_RESULT_SUCCESS) {
+        fdb_check_file_reopen(handle);
+        fdb_sync_db_header(handle);
+        if (handle->new_file == NULL) {
+            file = handle->file;
+            filemgr_mutex_lock(file);
+
+            fdb_link_new_file(handle);
+            if (handle->new_file) {
+                // compaction is being performed and new file exists
+                // relay lock
+                filemgr_mutex_lock(handle->new_file);
+                filemgr_mutex_unlock(handle->file);
+                // reset FILE
+                file = handle->new_file;
+            }
+        } else {
+            file = handle->new_file;
+            filemgr_mutex_lock(file);
+        }
+
+        wal_remove_transaction(file, handle->txn);
+
         free(handle->txn->items);
+        free(handle->txn->wrapper);
         free(handle->txn);
         handle->txn = NULL;
+
+        filemgr_mutex_unlock(file);
     }
     return fs;
 }

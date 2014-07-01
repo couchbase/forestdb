@@ -244,6 +244,7 @@ void _filemgr_read_header(struct filemgr *file)
                             file->header.seqnum =
                                 _endian_decode(file->header.seqnum);
                             file->header.size = len;
+                            file->header.bid = (file->pos / file->blocksize) - 1;
 
                             // release temp buffer
                             _filemgr_release_temp_buf(buf);
@@ -417,12 +418,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     file->bcache = NULL;
 
-    // init global transaction for the file
-    file->global_txn.handle = NULL;
-    file->global_txn.items = (struct list *)malloc(sizeof(struct list));
-    list_init(file->global_txn.items);
-    file->global_txn.isolation = FDB_ISOLATION_READ_COMMITTED;
-
     _filemgr_read_header(file);
 
     spin_init(&file->lock);
@@ -437,6 +432,21 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     if (!wal_is_initialized(file)) {
         wal_init(file, FDB_WAL_NBUCKET);
     }
+
+    // init global transaction for the file
+    file->global_txn.wrapper = (struct wal_txn_wrapper*)
+                               malloc(sizeof(struct wal_txn_wrapper));
+    file->global_txn.wrapper->txn = &file->global_txn;
+    file->global_txn.handle = NULL;
+    if (file->pos > 0) {
+        file->global_txn.prev_hdr_bid = (file->pos / file->blocksize)-1;
+    } else {
+        file->global_txn.prev_hdr_bid = BLK_NOT_FOUND;
+    }
+    file->global_txn.items = (struct list *)malloc(sizeof(struct list));
+    list_init(file->global_txn.items);
+    file->global_txn.isolation = FDB_ISOLATION_READ_COMMITTED;
+    wal_add_transaction(file, &file->global_txn);
 
     hash_insert(&hash, &file->e);
     spin_unlock(&filemgr_openlock);
@@ -501,6 +511,15 @@ char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *
     *len = file->filename_len;
     spin_unlock(&file->lock);
     return *filename;
+}
+
+bid_t filemgr_get_header_bid(struct filemgr *file)
+{
+    if (file->header.size > 0) {
+        return file->header.bid;
+    } else {
+        return BLK_NOT_FOUND;
+    }
 }
 
 void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
@@ -656,7 +675,9 @@ static void _filemgr_free_func(struct hash_elem *h)
     free(file->old_filename);
 
     // free global transaction
+    wal_remove_transaction(file, &file->global_txn);
     free(file->global_txn.items);
+    free(file->global_txn.wrapper);
 
     // destroy locks
     spin_destroy(&file->lock);
@@ -1012,6 +1033,7 @@ fdb_status filemgr_commit(struct filemgr *file,
             sprintf(msg, "Error in WRITE on a database file '%s', ", file->filename);
             _log_errno_str(file->ops, log_callback, msg, (int) rv);
         }
+        file->header.bid = file->pos / file->blocksize;
         file->pos += file->blocksize;
 
         _filemgr_release_temp_buf(buf);

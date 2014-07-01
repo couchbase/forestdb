@@ -92,6 +92,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
     hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq);
     list_init(&file->wal->list);
+    list_init(&file->wal->txn_list);
     spin_init(&file->wal->lock);
 
     DBG("wal item size %d\n", (int)sizeof(struct wal_item));
@@ -342,6 +343,8 @@ wal_result wal_txn_migration(void *dbhandle,
 {
     uint64_t offset;
     fdb_doc doc;
+    fdb_txn *txn;
+    struct wal_txn_wrapper *txn_wrapper;
     struct wal_item_header *header;
     struct wal_item *item;
     struct list_elem *e1, *e2;
@@ -392,6 +395,22 @@ wal_result wal_txn_migration(void *dbhandle,
             // free key & header
             free(header->key);
             free(header);
+        } else {
+            e1 = list_next(e1);
+        }
+    }
+
+    // migrate all entries in txn list
+    e1 = list_begin(&old_file->wal->txn_list);
+    while(e1) {
+        txn_wrapper = _get_entry(e1, struct wal_txn_wrapper, le);
+        txn = txn_wrapper->txn;
+        // except for global_txn
+        if (txn != &old_file->global_txn) {
+            e1 = list_remove(&old_file->wal->txn_list, &txn_wrapper->le);
+            list_push_front(&new_file->wal->txn_list, &txn_wrapper->le);
+            // remove previous header info
+            txn->prev_hdr_bid = BLK_NOT_FOUND;
         } else {
             e1 = list_next(e1);
         }
@@ -597,7 +616,7 @@ wal_result wal_flush_by_compactor(struct filemgr *file,
 }
 
 // discard entries in txn
-wal_result wal_discard(fdb_txn *txn, struct filemgr *file)
+wal_result wal_discard(struct filemgr *file, fdb_txn *txn)
 {
     struct wal_item *item;
     struct list_elem *e;
@@ -753,4 +772,37 @@ wal_dirty_t wal_get_dirty_status(struct filemgr *file)
     return ret;
 }
 
+void wal_add_transaction(struct filemgr *file, fdb_txn *txn)
+{
+    list_push_front(&file->wal->txn_list, &txn->wrapper->le);
+}
+
+void wal_remove_transaction(struct filemgr *file, fdb_txn *txn)
+{
+    list_remove(&file->wal->txn_list, &txn->wrapper->le);
+}
+
+fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn)
+{
+    struct list_elem *le;
+    struct wal_txn_wrapper *txn_wrapper;
+    fdb_txn *txn;
+    fdb_txn *ret = NULL;
+    bid_t bid = BLK_NOT_FOUND;
+
+    le = list_begin(&file->wal->txn_list);
+    while(le) {
+        txn_wrapper = _get_entry(le, struct wal_txn_wrapper, le);
+        txn = txn_wrapper->txn;
+        if (txn != cur_txn && list_begin(txn->items)) {
+            if (bid == BLK_NOT_FOUND || txn->prev_hdr_bid < bid) {
+                bid = txn->prev_hdr_bid;
+                ret = txn;
+            }
+        }
+        le = list_next(le);
+    }
+
+    return ret;
+}
 

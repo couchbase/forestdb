@@ -3763,6 +3763,200 @@ void flush_before_commit_test()
     TEST_RESULT("flush before commit test");
 }
 
+void last_wal_flush_header_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 30;
+    size_t valuelen;
+    void *value;
+    fdb_handle *db, *db_txn1, *db_txn2;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "dummy1", &fconfig);
+    fdb_open(&db_txn1, "dummy1", &fconfig);
+
+    // create docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+    }
+
+    // insert docs without transaction
+    for (i=0;i<2;++i) {
+        fdb_set(db, doc[i]);
+    }
+    // insert docs using transaction
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+    for (i=2;i<4;++i){
+        fdb_set(db_txn1, doc[i]);
+    }
+    // commit without transaction
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // close & reopen db
+    fdb_close(db);
+    fdb_close(db_txn1);
+    fdb_open(&db, "dummy1", &fconfig);
+    fdb_open(&db_txn1, "dummy1", &fconfig);
+
+    // retrieve check
+    for (i=0;i<4;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        if (i<2) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            TEST_CHK(status != FDB_RESULT_SUCCESS);
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // insert docs using transaction
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+    for (i=2;i<4;++i){
+        fdb_set(db_txn1, doc[i]);
+    }
+    // insert docs without transaction
+    for (i=4;i<6;++i){
+        fdb_set(db, doc[i]);
+    }
+    fdb_end_transaction(db_txn1, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // close & reopen db
+    fdb_close(db);
+    fdb_close(db_txn1);
+    fdb_open(&db, "dummy1", &fconfig);
+    fdb_open(&db_txn1, "dummy1", &fconfig);
+
+    // retrieve check
+    for (i=0;i<6;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        if (i<4) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            // doesn't matter
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // insert docs without transaction
+    for (i=4;i<6;++i) {
+        fdb_set(db, doc[i]);
+    }
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+    for (i=6;i<8;++i) {
+        fdb_set(db_txn1, doc[i]);
+    }
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // begin another transaction
+    fdb_open(&db_txn2, "dummy1", &fconfig);
+    fdb_begin_transaction(db_txn2, FDB_ISOLATION_READ_COMMITTED);
+    for (i=8;i<10;++i){
+        fdb_set(db_txn2, doc[i]);
+    }
+    fdb_end_transaction(db_txn2, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // close & reopen db
+    fdb_close(db);
+    fdb_close(db_txn1);
+    fdb_close(db_txn2);
+    fdb_open(&db, "dummy1", &fconfig);
+
+    // retrieve check
+    for (i=0;i<10;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        if (i<6 || i>=8) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            TEST_CHK(status != FDB_RESULT_SUCCESS);
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    fdb_open(&db_txn1, "dummy1", &fconfig);
+    fdb_open(&db_txn2, "dummy1", &fconfig);
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+
+    fdb_set(db, doc[10]);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    fdb_set(db, doc[11]);
+    fdb_set(db_txn1, doc[12]);
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    fdb_set(db_txn1, doc[13]);
+    fdb_begin_transaction(db_txn2, FDB_ISOLATION_READ_COMMITTED);
+    fdb_set(db_txn2, doc[14]);
+    fdb_end_transaction(db_txn1, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    fdb_set(db_txn2, doc[15]);
+    fdb_set(db, doc[16]);
+    fdb_end_transaction(db_txn2, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    fdb_set(db, doc[17]);
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    fdb_close(db);
+    fdb_close(db_txn1);
+    fdb_close(db_txn2);
+    fdb_open(&db, "dummy1", &fconfig);
+
+    // retrieve check
+    for (i=10;i<18;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+
+    fdb_open(&db_txn1, "dummy1", &fconfig);
+    fdb_begin_transaction(db_txn1, FDB_ISOLATION_READ_COMMITTED);
+    fdb_set(db_txn1, doc[20]);
+
+    fdb_compact(db, "dummy2");
+
+    fdb_end_transaction(db_txn1, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    fdb_close(db);
+    fdb_close(db_txn1);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("last wal flush header test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -3788,6 +3982,7 @@ int main(){
     transaction_test();
     transaction_simple_api_test();
     flush_before_commit_test();
+    last_wal_flush_header_test();
     purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);

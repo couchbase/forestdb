@@ -111,9 +111,13 @@ struct _fdb_handle {
      */
     uint64_t cur_header_revnum;
     /**
-     * Last header's block id
+     * Last header's block ID
      */
-    uint64_t last_header_bid;
+    uint64_t last_hdr_bid;
+    /**
+     * Block ID of a header created with most recent WAL flush
+     */
+    uint64_t last_wal_flush_hdr_bid;
     /**
      * Database overall size.
      */
@@ -213,6 +217,8 @@ struct _fdb_iterator {
     uint64_t _offset;
 };
 
+struct wal_txn_wrapper;
+
 /**
  * ForestDB transaction structure definition.
  */
@@ -222,6 +228,10 @@ struct _fdb_transaction {
      */
     fdb_handle *handle;
     /**
+     * Block ID of the last header before the transaction begins.
+     */
+    uint64_t prev_hdr_bid;
+    /**
      * List of dirty WAL items.
      */
     struct list *items;
@@ -229,6 +239,10 @@ struct _fdb_transaction {
      * Transaction isolation level.
      */
     fdb_isolation_level_t isolation;
+    /**
+     * Pointer to transaction wrapper.
+     */
+    struct wal_txn_wrapper *wrapper;
 };
 
 #ifdef __cplusplus
