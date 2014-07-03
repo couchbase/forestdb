@@ -245,6 +245,10 @@ start:
                   opt->print_body_in_hex, opt->hex_align);
     }
     printf("\n");
+
+    free(doc.key);
+    free(doc.meta);
+    free(doc.body);
 }
 
 void scan_docs(fdb_handle *db, struct dump_option *opt)
@@ -417,13 +421,18 @@ int parse_options(int argc, char **argv, struct dump_option *opt)
 
 int main(int argc, char **argv)
 {
+    memleak_start();
+
     struct dump_option opt;
     int ret = parse_options(argc, argv, &opt);
 
     if (ret) {
+        memleak_end();
         return ret;
     }
 
     ret = process_file(&opt);
+
+    memleak_end();
     return ret;
 }
