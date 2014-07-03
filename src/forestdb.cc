@@ -1305,11 +1305,13 @@ void fdb_sync_db_header(fdb_handle *handle)
                     handle->idtree->blksize, idtree_root);
             }
 
-            if (new_seq_root != handle->seqtree->root_bid) {
-                btree_init_from_bid(
-                    handle->seqtree, handle->seqtree->blk_handle,
-                    handle->seqtree->blk_ops, handle->seqtree->kv_ops,
-                    handle->seqtree->blksize, new_seq_root);
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                if (new_seq_root != handle->seqtree->root_bid) {
+                    btree_init_from_bid(
+                                        handle->seqtree, handle->seqtree->blk_handle,
+                                        handle->seqtree->blk_ops, handle->seqtree->kv_ops,
+                                        handle->seqtree->blksize, new_seq_root);
+                }
             }
 
             if (prev_filename) {
