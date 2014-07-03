@@ -18,13 +18,15 @@ Compared with traditional B+-Tree based storage engines, ForestDB shows signific
 
 ## Build
 
-git clone forestdb_repo
+git clone forestdb_repo_url
+
+cd forestdb
 
 mkdir build
 
 cd build
 
-cmake ../forestdb
+cmake ../
 
 make all
 
