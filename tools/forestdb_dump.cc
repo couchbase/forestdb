@@ -200,8 +200,7 @@ void print_doc(fdb_handle *db,
 
 start:
     _offset = docio_read_doc(db->dhandle, offset, &doc);
-    if (_offset == offset ||
-        doc.length.flag & DOCIO_TXN_DIRTY) {
+    if (_offset == offset) {
         return;
     }
     if (doc.length.flag & DOCIO_TXN_COMMITTED) {
@@ -268,8 +267,9 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
                        strnlen(opt->one_key,FDB_MAX_KEYLEN), NULL, 0, NULL, 0);
        fs = fdb_get(db, fdoc);
        if (fs == FDB_RESULT_SUCCESS) {
+           offset = fdoc->offset;
            wr = wal_find(&db->file->global_txn, db->file, fdoc, &offset);
-           print_doc(db, fdoc->offset, opt, (wr == WAL_RESULT_SUCCESS));
+           print_doc(db, offset, opt, (wr == WAL_RESULT_SUCCESS));
        } else {
            printf("Key not found\n");
        }
@@ -282,7 +282,10 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
             ee = list_end(&witem_header->items);
             if (ee) {
                 witem = _get_entry(ee, struct wal_item, list_elem);
-                print_doc(db, witem->offset, opt, 1);
+                if ((witem->flag & WAL_ITEM_COMMITTED) ||
+                    (witem->txn == &db->file->global_txn)) {
+                    print_doc(db, witem->offset, opt, 1);
+                }
             }
             e = list_next(e);
         }
@@ -305,9 +308,10 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
             if (fs == FDB_RESULT_SUCCESS) {
+                offset = fdoc->offset;
                 // retrieve WAL
                 wr = wal_find(&db->file->global_txn, db->file, fdoc, &offset);
-                print_doc(db, fdoc->offset, opt, (wr == WAL_RESULT_SUCCESS));
+                print_doc(db, offset, opt, (wr == WAL_RESULT_SUCCESS));
                 fdb_doc_free(fdoc);
             }
         }
@@ -319,9 +323,10 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
             if (fs == FDB_RESULT_SUCCESS) {
+                offset = fdoc->offset;
                 // retrieve WAL
                 wr = wal_find(&db->file->global_txn, db->file, fdoc, &offset);
-                print_doc(db, fdoc->offset, opt, (wr == WAL_RESULT_SUCCESS));
+                print_doc(db, offset, opt, (wr == WAL_RESULT_SUCCESS));
                 fdb_doc_free(fdoc);
             }
         }
