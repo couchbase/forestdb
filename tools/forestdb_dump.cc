@@ -133,9 +133,8 @@ void print_header(fdb_handle *db)
 }
 
 typedef enum  {
-    SCAN_WAL_FIRST_INDEX_NEXT = 1,
-    SCAN_BY_KEY = 2,
-    SCAN_BY_SEQ = 3,
+    SCAN_BY_KEY = 1,
+    SCAN_BY_SEQ = 2,
 } scan_mode_t;
 
 struct dump_option{
@@ -278,36 +277,7 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
            printf("Key not found\n");
        }
        fdb_doc_free(fdoc);
-    } else if (opt->scan_mode == SCAN_WAL_FIRST_INDEX_NEXT) {
-        // scan wal first
-        e = list_begin(&db->file->wal->list);
-        while(e) {
-            witem_header = _get_entry(e, struct wal_item_header, list_elem);
-            ee = list_end(&witem_header->items);
-            if (ee) {
-                witem = _get_entry(ee, struct wal_item, list_elem);
-                if ((witem->flag & WAL_ITEM_COMMITTED) ||
-                    (witem->txn == &db->file->global_txn)) {
-                    print_doc(db, witem->offset, opt, 1);
-                }
-            }
-            e = list_next(e);
-        }
-
-        // scan hb+trie next
-        hr = hbtrie_iterator_init(db->trie, &it, NULL, 0);
-        while (hr == HBTRIE_RESULT_SUCCESS) {
-            hr = hbtrie_next_value_only(&it, (void*)&offset);
-            btreeblk_end(db->bhandle);
-            if (hr == HBTRIE_RESULT_SUCCESS) {
-                offset = _endian_decode(offset);
-                print_doc(db, offset, opt, 0);
-            }
-        }
-        hbtrie_iterator_free(&it);
-
     } else if (opt->scan_mode == SCAN_BY_KEY) {
-
         fs = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, 0x0);
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
@@ -320,9 +290,7 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
             }
         }
         fdb_iterator_close(fit);
-
     } else if (opt->scan_mode == SCAN_BY_SEQ) {
-
         fs = fdb_iterator_sequence_init(db, &fit, 0, -1, 0x0);
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
@@ -335,7 +303,6 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
             }
         }
         fdb_iterator_close(fit);
-
     }
 }
 
@@ -384,7 +351,7 @@ int parse_options(int argc, char **argv, struct dump_option *opt)
     // load default options ...
     memset(opt, 0, sizeof(struct dump_option));
     opt->hex_align = 16;
-    opt->scan_mode = SCAN_WAL_FIRST_INDEX_NEXT;
+    opt->scan_mode = SCAN_BY_KEY;
 
     for (i = 1; i < argc; ++i) {
         if (argv[i][0] == '-' && argv[i][1] == '-') {
