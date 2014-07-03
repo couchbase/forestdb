@@ -18,17 +18,26 @@ Compared with traditional B+-Tree based storage engines, ForestDB shows signific
 
 ## Build
 
-git clone forestdb_repo_url
+On non-Windows platforms, there is a dependency on Snappy library because ForestDB supports an option to compress a document body using Snappy.
+Please visit [Snappy site](https://code.google.com/p/snappy/) to download and install the library.
 
-cd forestdb
+On Mac OS X, Snappy can be simply installed using Homebrew package manager:
 
-mkdir build
+`sudo brew install snappy`
 
-cd build
+After installing the Snappy library, please follow the instructions below:
 
-cmake ../
+1) `git clone forestdb_repo_url`
 
-make all
+2) `cd forestdb`
+
+3) `mkdir build`
+
+4) `cd build`
+
+5) `cmake ../`
+
+6) `make all`
 
 ## Test
 
