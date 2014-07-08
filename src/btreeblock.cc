@@ -21,7 +21,6 @@
 
 #include "common.h"
 #include "btreeblock.h"
-#include "crc32.h"
 
 #include "memleak.h"
 

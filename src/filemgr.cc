@@ -26,7 +26,6 @@
 #include "hash_functions.h"
 #include "blockcache.h"
 #include "wal.h"
-#include "crc32.h"
 #include "list.h"
 
 #include "memleak.h"
@@ -86,7 +85,7 @@ uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
     struct filemgr *file = _get_entry(e, struct filemgr, e);
     int len = strlen(file->filename);
-    return crc32_8_last8(file->filename, len, 0) & ((unsigned)(NBUCKET-1));
+    return chksum(file->filename, len) & ((unsigned)(NBUCKET-1));
 }
 
 int _file_cmp(struct hash_elem *a, struct hash_elem *b)
@@ -227,7 +226,7 @@ void _filemgr_read_header(struct filemgr *file)
 
                     if (len == BLK_DBHEADER_SIZE) {
                         uint32_t crc, crc_file;
-                        crc = crc32_8(buf, len - sizeof(crc), 0);
+                        crc = chksum(buf, len - sizeof(crc));
                         memcpy(&crc_file, buf + len - sizeof(crc), sizeof(crc));
                         crc_file = _endian_decode(crc_file);
                         if (crc == crc_file) {
@@ -816,7 +815,7 @@ INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
         memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
         crc_file = _endian_decode(crc_file);
         memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
-        crc = crc32_8(buf, file->blocksize, 0);
+        crc = chksum(buf, file->blocksize);
         assert(crc == crc_file);
     }
 }
@@ -942,7 +941,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
             uint8_t marker = *((uint8_t*)buf + file->blocksize - 1);
             if (marker == BLK_MARKER_BNODE) {
                 memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
-                uint32_t crc32 = crc32_8(buf, file->blocksize, 0);
+                uint32_t crc32 = chksum(buf, file->blocksize);
                 crc32 = _endian_encode(crc32);
                 memcpy((uint8_t *)buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));
             }

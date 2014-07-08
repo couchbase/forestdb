@@ -38,6 +38,7 @@
     #define BTREE_CRC_OFFSET (8)
     #define BTREE_CRC_FIELD_LEN (8)
     #define BTREE_LEVEL_OFFSET (2)
+    //#define __CHECKSUM_ADLER32
 #endif
 
 #define __BIT_CMP

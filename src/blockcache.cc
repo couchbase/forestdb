@@ -24,7 +24,6 @@
 #include "hash.h"
 #include "list.h"
 #include "blockcache.h"
-#include "crc32.h"
 #include "avltree.h"
 
 #include "memleak.h"
@@ -222,14 +221,6 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
     #endif
 }
 
-INLINE void _file_to_fname_query(struct filemgr *file, struct fnamedic_item *fname)
-{
-    fname->filename = (char *) file->filename;
-    fname->filename_len = file->filename_len;
-    fname->hash = crc32_8_last8((void*)fname->filename,
-        fname->filename_len, 0);
-}
-
 void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
 {
     file_status_t fs;
@@ -388,7 +379,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
             if (marker == BLK_MARKER_BNODE ) {
                 // b-tree node .. calculate crc32 and put it into the block
                 memset((uint8_t *)(ptr) + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
-                uint32_t crc = crc32_8(ptr, bcache_blocksize, 0);
+                uint32_t crc = chksum(ptr, bcache_blocksize);
                 crc = _endian_encode(crc);
                 memcpy((uint8_t *)(ptr) + BTREE_CRC_OFFSET, &crc, sizeof(crc));
             }
@@ -540,8 +531,8 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->filename[fname_new->filename_len] = 0;
 
     // calculate hash value
-    fname_new->hash = crc32_8_last8((void *)fname_new->filename,
-        fname_new->filename_len, 0);
+    fname_new->hash = chksum((void *)fname_new->filename,
+                             fname_new->filename_len);
     spin_init(&fname_new->lock);
     fname_new->curlist = NULL;
     fname_new->curfile = file;

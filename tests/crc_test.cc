@@ -21,6 +21,7 @@
 
 #include "test.h"
 #include "crc32.h"
+#include "adler32.h"
 #include "hash_functions.h"
 
 void basic_test()
@@ -30,11 +31,11 @@ void basic_test()
     size_t len = 1024*1024*1024 + 7;
     void *dummy;
     size_t i;
-    uint32_t r1, r2, r3;
+    uint32_t r1, r2, r3, r4;
 
     dummy = (void *)malloc(len);
     for (i=0;i<len/sizeof(size_t); i+=sizeof(size_t)) {
-        memcpy((uint8_t *)dummy + i, &i, sizeof(size_t));
+        memcpy((uint8_t *)dummy + i*sizeof(size_t), &i, sizeof(size_t));
     }
 
     TEST_TIME();
@@ -51,11 +52,30 @@ void basic_test()
 
     TEST_TIME();
 
+    r4 = adler32(1, (uint8_t*)dummy, len);
+
+    TEST_TIME();
+
     DBG("crc value: %u %u\n", r1, r2);
+    DBG("djb2: %u\n", r3);
+    DBG("adler32: %u\n", r4);
 
     free(dummy);
 
     TEST_RESULT("crc32 slicing-8 test");
+}
+
+void adler_test()
+{
+    int i;
+    char *str = (char*)"abcdefgh";
+    uint32_t a1, a2, a3;
+
+    a1 = adler32(0, (uint8_t*)str, 8);
+    a2 = adler32(0, (uint8_t*)str, 4);
+    a3 = adler32(a2, (uint8_t*)str+4, 4);
+
+    printf("%u %u %u\n", a1, a2, a3);
 }
 
 void endian_test()
@@ -93,7 +113,8 @@ void endian_test()
 
 int main()
 {
-    //basic_test();
+    basic_test();
+    adler_test();
     endian_test();
     return 0;
 }

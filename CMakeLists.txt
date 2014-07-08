@@ -59,6 +59,7 @@ add_library(forestdb SHARED
             src/transaction.cc
             utils/memleak.cc
             utils/crc32.cc
+            utils/adler32.cc
             utils/debug.cc
             utils/cJSON.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
@@ -100,6 +101,7 @@ add_executable(forestdb_dump
                src/transaction.cc
                utils/memleak.cc
                utils/crc32.cc
+               utils/adler32.cc
                utils/debug.cc
                utils/cJSON.cc
                utils/iniparser.cc)
@@ -146,6 +148,7 @@ add_executable(bcache_test
                src/wal.cc
                src/snapshot.cc
                utils/crc32.cc
+               utils/adler32.cc
                utils/debug.cc
                utils/memleak.cc)
 target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM})
@@ -165,6 +168,7 @@ add_executable(filemgr_test
                src/wal.cc
                src/snapshot.cc
                utils/crc32.cc
+               utils/adler32.cc
                utils/debug.cc
                utils/memleak.cc)
 target_link_libraries(filemgr_test ${PTHREAD_LIB} ${LIBM})
@@ -186,6 +190,7 @@ add_executable(btreeblock_test
                src/wal.cc
                src/snapshot.cc
                utils/crc32.cc
+               utils/adler32.cc
                utils/debug.cc
                utils/memleak.cc)
 target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM})
@@ -205,6 +210,7 @@ add_executable(docio_test
                src/wal.cc
                src/snapshot.cc
                utils/crc32.cc
+               utils/adler32.cc
                utils/debug.cc
                utils/memleak.cc)
 target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
@@ -229,6 +235,7 @@ add_executable(hbtrie_test
                src/wal.cc
                src/snapshot.cc
                utils/crc32.cc
+               utils/adler32.cc
                utils/debug.cc
                utils/memleak.cc)
 target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
@@ -239,6 +246,7 @@ add_executable(crc_test
                src/hash_functions.cc
                ${GETTIMEOFDAY_VS}
                utils/crc32.cc
+               utils/adler32.cc
                utils/memleak.cc)
 target_link_libraries(crc_test ${PTHREAD_LIB} ${LIBM})
 

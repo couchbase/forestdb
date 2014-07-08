@@ -31,7 +31,6 @@
 #include "avltree.h"
 #include "common.h"
 #include "filemgr_ops.h"
-#include "crc32.h"
 #include "configuration.h"
 #include "internal_types.h"
 #include "compactor.h"
@@ -547,7 +546,7 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
         ops->close(fd_meta);
 
         // CRC check
-        crc = crc32_8(buf, sizeof(struct compactor_meta) - sizeof(crc), 0);
+        crc = chksum(buf, sizeof(struct compactor_meta) - sizeof(crc));
         if (crc != meta.crc) {
             return NULL;
         }
@@ -582,7 +581,7 @@ fdb_status _compactor_store_metafile(char *metafile,
     if (fd_meta >= 0){
         meta.version = _endian_encode(COMPACTOR_META_VERSION);
         strcpy(meta.filename, metadata->filename);
-        crc = crc32_8((void*)&meta, sizeof(struct compactor_meta) - sizeof(crc), 0);
+        crc = chksum((void*)&meta, sizeof(struct compactor_meta) - sizeof(crc));
         meta.crc = _endian_encode(crc);
 
         ret = ops->pwrite(fd_meta, &meta, sizeof(struct compactor_meta), 0);

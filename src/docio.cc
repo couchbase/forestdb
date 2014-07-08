@@ -21,7 +21,6 @@
 
 #include "docio.h"
 #include "wal.h"
-#include "crc32.h"
 #ifdef _DOC_COMP
 #include "snappy-c.h"
 #endif
@@ -202,9 +201,8 @@ INLINE struct docio_length _docio_length_decode(struct docio_length length)
 INLINE uint8_t _docio_length_checksum(struct docio_length length)
 {
     return (uint8_t)(
-        crc32_8(&length,
-                sizeof(keylen_t) + sizeof(uint16_t) + sizeof(uint32_t)*2,
-                0)
+        chksum(&length,
+               sizeof(keylen_t) + sizeof(uint16_t) + sizeof(uint32_t)*2)
         & 0xff);
 }
 
@@ -316,7 +314,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     }
 
 #ifdef __CRC32
-    crc = crc32_8(buf, docsize - sizeof(crc), 0);
+    crc = chksum(buf, docsize - sizeof(crc));
     memcpy((uint8_t *)buf + offset, &crc, sizeof(crc));
 #endif
 
@@ -912,18 +910,18 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         return offset;
     }
 
-    crc = crc32_8((void *)&_length, sizeof(_length), 0);
-    crc = crc32_8(doc->key, doc->length.keylen, crc);
-    crc = crc32_8((void *)&_timestamp, sizeof(timestamp_t), crc);
-    crc = crc32_8((void *)&_seqnum, sizeof(fdb_seqnum_t), crc);
-    crc = crc32_8(doc->meta, doc->length.metalen, crc);
+    crc = chksum((void *)&_length, sizeof(_length));
+    crc = chksum_scd(doc->key, doc->length.keylen, crc);
+    crc = chksum_scd((void *)&_timestamp, sizeof(timestamp_t), crc);
+    crc = chksum_scd((void *)&_seqnum, sizeof(fdb_seqnum_t), crc);
+    crc = chksum_scd(doc->meta, doc->length.metalen, crc);
     if (doc->length.flag & DOCIO_COMPRESSED) {
-        crc = crc32_8(comp_body, doc->length.bodylen_ondisk, crc);
+        crc = chksum_scd(comp_body, doc->length.bodylen_ondisk, crc);
         if (comp_body) {
             free(comp_body);
         }
     } else {
-        crc = crc32_8(doc->body, doc->length.bodylen, crc);
+        crc = chksum_scd(doc->body, doc->length.bodylen, crc);
     }
     if (crc != crc_file) {
         if (log_callback && log_callback->callback) {

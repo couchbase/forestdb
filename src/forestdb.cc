@@ -38,7 +38,6 @@
 #include "wal.h"
 #include "snapshot.h"
 #include "filemgr_ops.h"
-#include "crc32.h"
 #include "configuration.h"
 #include "internal_types.h"
 #include "compactor.h"
@@ -2164,7 +2163,7 @@ static uint64_t _fdb_set_file_header(fdb_handle *handle)
     offset += (FDB_MAX_FILENAME_LEN - old_filename_len);
 
     // crc32
-    crc = crc32_8(buf, offset, 0);
+    crc = chksum(buf, offset);
     crc = _endian_encode(crc);
     seq_memcpy(buf + offset, &crc, sizeof(crc), offset);
 
