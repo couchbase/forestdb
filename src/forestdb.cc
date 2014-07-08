@@ -269,6 +269,10 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
             } while (offset + sizeof(struct docio_length) < hdr_off);
         }
     }
+    // wal commit
+    if (!handle->shandle) {
+        wal_commit(&file->global_txn, file, NULL);
+    }
     filemgr_mutex_unlock(file);
     handle->dhandle->log_callback = log_callback;
 }
@@ -2603,6 +2607,9 @@ fdb_status fdb_compact_file(fdb_handle *handle,
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
+    // sync handle
+    fdb_sync_db_header(handle);
+
     // set filemgr configuration
     fconfig.blocksize = handle->config.blocksize;
     fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
@@ -2695,7 +2702,9 @@ fdb_status fdb_compact_file(fdb_handle *handle,
     // mark name of new file in old file
     filemgr_set_compaction_old(handle->file, new_file);
 
-    handle->last_wal_flush_hdr_bid = (handle->file->pos) / handle->file->blocksize;
+    handle->last_hdr_bid = (handle->file->pos) / handle->file->blocksize;
+    handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
+
     handle->cur_header_revnum = _fdb_set_file_header(handle);
     btreeblk_end(handle->bhandle);
 
