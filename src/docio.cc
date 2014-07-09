@@ -21,6 +21,7 @@
 
 #include "docio.h"
 #include "wal.h"
+#include "fdb_internal.h"
 #ifdef _DOC_COMP
 #include "snappy-c.h"
 #endif
@@ -233,13 +234,9 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
         _len = compbuf_len;
         ret = snappy_compress((char*)doc->body, length.bodylen, (char*)compbuf, &_len);
         if (ret < 0) {
-            if (log_callback && log_callback->callback) {
-                char msg[1024];
-                sprintf(msg, "Error in compressing the doc body of key '%s'",
-                        (char *) doc->key);
-                log_callback->callback(FDB_RESULT_COMPRESSION_FAIL, msg,
-                                       log_callback->ctx_data);
-            }
+            fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
+                    "Error in compressing the doc body of key '%s'",
+                    (char *) doc->key);
             // we use BLK_NOT_FOUND for error code of appending instead of 0
             // because document can be written at the byte offset 0
             return BLK_NOT_FOUND;
@@ -479,13 +476,9 @@ uint64_t _docio_read_doc_component(struct docio_handle *handle,
             if (rest_len > 0 &&
                 bid >= filemgr_get_pos(handle->file) / handle->file->blocksize) {
                 // no more data in the file .. the file is corrupted
-                if (log_callback && log_callback->callback) {
-                    char msg[1024];
-                    sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
-                            handle->file->filename);
-                    log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
-                                           log_callback->ctx_data);
-                }
+                fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                        "Fatal error!!! Database file '%s' is corrupted.",
+                        handle->file->filename);
                 // TODO: Need to return a better error code.
                 return 0;
             }
@@ -543,12 +536,9 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
+                "doc_length checksum mismatch error in a database file '%s'",
+                handle->file->filename);
         length.keylen = 0;
         return length;
     }
@@ -563,13 +553,9 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     if (offset + sizeof(struct docio_length) +
         length.keylen + length.metalen + length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
-                                   log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                "Fatal error!!! Database file '%s' is corrupted.",
+                handle->file->filename);
         length.keylen = 0;
         return length;
     }
@@ -595,12 +581,9 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
+                "doc_length checksum mismatch error in a database file '%s'",
+                handle->file->filename);
         *keylen = 0;
         return;
     }
@@ -615,13 +598,9 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     if (offset + sizeof(struct docio_length) +
         length.keylen + length.metalen + length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
-                                   log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                "Fatal error!!! Database file '%s' is corrupted.",
+                handle->file->filename);
         *keylen = 0;
         return;
     }
@@ -672,12 +651,9 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
+                "doc_length checksum mismatch error in a database file '%s'",
+                handle->file->filename);
         return offset;
     }
 
@@ -690,13 +666,9 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     if (offset + sizeof(struct docio_length) +
         doc->length.keylen + doc->length.metalen + doc->length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
-                                   log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                "Fatal error!!! Database file '%s' is corrupted.",
+                handle->file->filename);
         return offset;
     }
 
@@ -769,12 +741,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     // checksum check
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "doc_length checksum mismatch error in a database file '%s'",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
+                "doc_length checksum mismatch error in a database file '%s'",
+                handle->file->filename);
         return offset;
     }
 
@@ -802,13 +771,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     if (offset + sizeof(struct docio_length) +
         doc->length.keylen + doc->length.metalen + doc->length.bodylen_ondisk >
         filemgr_get_pos(handle->file)) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "Fatal error!!! Database file '%s' is corrupted.",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_FILE_CORRUPTION, msg,
-                                   log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                "Fatal error!!! Database file '%s' is corrupted.",
+                handle->file->filename);
         return offset;
     }
 
@@ -924,12 +889,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         crc = chksum_scd(doc->body, doc->length.bodylen, crc);
     }
     if (crc != crc_file) {
-        if (log_callback && log_callback->callback) {
-            char msg[1024];
-            sprintf(msg, "doc_body checksum mismatch error in a database file '%s'",
-                    handle->file->filename);
-            log_callback->callback(FDB_RESULT_CHECKSUM_ERROR, msg, log_callback->ctx_data);
-        }
+        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
+                "doc_body checksum mismatch error in a database file '%s'",
+                handle->file->filename);
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }

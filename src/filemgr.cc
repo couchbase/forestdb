@@ -21,12 +21,14 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <sys/stat.h>
+#include <stdarg.h>
 
 #include "filemgr.h"
 #include "hash_functions.h"
 #include "blockcache.h"
 #include "wal.h"
 #include "list.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -68,16 +70,32 @@ static spin_t temp_buf_lock;
 
 static void _filemgr_free_func(struct hash_elem *h);
 
+fdb_status fdb_log(err_log_callback *log_callback,
+                   fdb_status status,
+                   const char *format, ...)
+{
+    if (log_callback && log_callback->callback) {
+        char msg[1024];
+        va_list args;
+        va_start(args, format);
+        vsprintf(msg, format, args);
+        va_end(args);
+        log_callback->callback(status, msg, log_callback->ctx_data);
+    }
+    return status;
+}
+
 static void _log_errno_str(struct filemgr_ops *ops,
                            err_log_callback *log_callback,
-                           char *msg,
-                           int io_error) {
-    if (msg && log_callback && log_callback->callback) {
+                           fdb_status io_error,
+                           const char *what,
+                           const char *filename)
+{
+    if (io_error < 0) {
         char errno_msg[512];
         ops->get_errno_str(errno_msg, 512);
-        strcat(msg, errno_msg);
-        log_callback->callback(io_error, msg,
-                               log_callback->ctx_data);
+        fdb_log(log_callback, io_error,
+                "Error in %s on a database file '%s', %s", what, filename, errno_msg);
     }
 }
 
@@ -331,9 +349,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     assert(hash_remove(&hash, &file->e));
                     _filemgr_free_func(&file->e);
                 } else {
-                    char msg[1024];
-                    sprintf(msg, "Error in OPEN on a database file '%s', ", filename);
-                    _log_errno_str(file->ops, log_callback, msg, file->fd);
+                    _log_errno_str(file->ops, log_callback, (fdb_status)file->fd, "OPEN", filename);
                     file->ref_count--;
                     spin_unlock(&file->lock);
                     spin_unlock(&filemgr_openlock);
@@ -376,9 +392,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file_flag |= config->flag;
     fd = ops->open(filename, file_flag, 0666);
     if (fd < 0) {
-        char msg[1024];
-        sprintf(msg, "Error in OPEN on a database file '%s', ", filename);
-        _log_errno_str(ops, log_callback, msg, fd);
+        _log_errno_str(ops, log_callback, (fdb_status)fd, "OPEN", filename);
         spin_unlock(&filemgr_openlock);
         result.rv = fd;
         return result;
@@ -403,9 +417,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     cs_off_t offset = file->ops->goto_eof(file->fd);
     if (offset == FDB_RESULT_SEEK_FAIL) {
-        char msg[1024];
-        sprintf(msg, "Error in SEEK_END on a database file '%s', ", filename);
-        _log_errno_str(file->ops, log_callback, msg, FDB_RESULT_SEEK_FAIL);
+        _log_errno_str(file->ops, log_callback, FDB_RESULT_SEEK_FAIL, "SEEK_END", filename);
         free(file->wal);
         free(file->filename);
         free(file);
@@ -605,12 +617,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 
         rv = file->ops->close(file->fd);
         if (file->status == FILE_REMOVED_PENDING) {
-            if (rv != FDB_RESULT_SUCCESS) {
-                char msg[1024];
-                sprintf(msg, "Error in CLOSE on a database file '%s', ",
-                        file->filename);
-                _log_errno_str(file->ops, log_callback, msg, rv);
-            }
+            _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
             // remove file
             // we can release lock becuase no one will open this file
             spin_unlock(&file->lock);
@@ -619,12 +626,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             return (fdb_status) rv;
         } else {
             if (cleanup_cache_onclose) {
-                if (rv != FDB_RESULT_SUCCESS) {
-                    char msg[1024];
-                    sprintf(msg, "Error in CLOSE on a database file '%s', ",
-                            file->filename);
-                    _log_errno_str(file->ops, log_callback, msg, rv);
-                }
+                _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
                 // Clean up global hash table, WAL index, and buffer cache.
                 // Then, retry it with a create option below.
                 spin_unlock(&file->lock);
@@ -636,11 +638,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         }
     }
 
-    if (rv != FDB_RESULT_SUCCESS) {
-        char msg[1024];
-        sprintf(msg, "Error in CLOSE on a database file '%s', ", file->filename);
-        _log_errno_str(file->ops, log_callback, msg, rv);
-    }
+    _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
 
     spin_unlock(&file->lock);
     return (fdb_status) rv;
@@ -744,11 +742,7 @@ bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback)
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1, file->pos-1);
-        if (rv < 0) {
-            char msg[1024];
-            sprintf(msg, "Error in WRITE on a database file '%s', ", file->filename);
-            _log_errno_str(file->ops, log_callback, msg, (int) rv);
-        }
+        _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
     }
     spin_unlock(&file->lock);
 
@@ -767,11 +761,7 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1, file->pos-1);
-        if (rv < 0) {
-            char msg[1024];
-            sprintf(msg, "Error in WRITE on a database file '%s', ", file->filename);
-            _log_errno_str(file->ops, log_callback, msg, (int) rv);
-        }
+        _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
     }
     spin_unlock(&file->lock);
 }
@@ -793,11 +783,7 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
             // if block cache is turned off, write the allocated block before use
             uint8_t _buf = 0x0;
             ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1, file->pos-1);
-            if (rv < 0) {
-                char msg[1024];
-                sprintf(msg, "Error in WRITE on a database file '%s', ", file->filename);
-                _log_errno_str(file->ops, log_callback, msg, (int) rv);
-            }
+            _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
         }
     }else{
         *begin = BLK_NOT_FOUND;
@@ -843,10 +829,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 // if normal file, just read a block
                 r = file->ops->pread(file->fd, buf, file->blocksize, pos);
                 if (r != file->blocksize) {
-                    char msg[1024];
-                    sprintf(msg, "Error in reading a database file '%s', ",
-                            file->filename);
-                    _log_errno_str(file->ops, log_callback, msg, (int) r);
+                    _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
                     // TODO: This function should return an appropriate fdb_status.
                     return;
                 }
@@ -872,10 +855,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 malloc_align(bulk_buf, FDB_SECTOR_SIZE, count_bulk);
                 r = file->ops->pread(file->fd, bulk_buf, count_bulk, pos_bulk);
                 if (r < 0) {
-                    char msg[1024];
-                    sprintf(msg, "Error in reading a database file '%s', ",
-                            file->filename);
-                    _log_errno_str(file->ops, log_callback, msg, (int) r);
+                    _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
                     free_align(bulk_buf);
                     return;
                 }
@@ -893,10 +873,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
     } else {
         r = file->ops->pread(file->fd, buf, file->blocksize, pos);
         if (r != file->blocksize) {
-            char msg[1024];
-            sprintf(msg, "Error in reading a database file '%s', ",
-                    file->filename);
-            _log_errno_str(file->ops, log_callback, msg, (int) r);
+            _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
             return;
         }
 
@@ -949,11 +926,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
 #endif
 
         r = file->ops->pwrite(file->fd, buf, len, pos);
-        if (r < 0) {
-            char msg[1024];
-            sprintf(msg, "Error in WRITE on a database file '%s', ", file->filename);
-            _log_errno_str(file->ops, log_callback, msg, (int) r);
-        }
+        _log_errno_str(file->ops, log_callback, (fdb_status) r, "WRITE", file->filename);
         assert(r == len);
 
     }
@@ -1027,11 +1000,7 @@ fdb_status filemgr_commit(struct filemgr *file,
                marker, BLK_MARKER_SIZE);
 
         ssize_t rv = file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
-        if (rv < 0) {
-            char msg[1024];
-            sprintf(msg, "Error in WRITE on a database file '%s', ", file->filename);
-            _log_errno_str(file->ops, log_callback, msg, (int) rv);
-        }
+        _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
         file->header.bid = file->pos / file->blocksize;
         file->pos += file->blocksize;
 
@@ -1044,11 +1013,7 @@ fdb_status filemgr_commit(struct filemgr *file,
 
     if (file->fflags & FILEMGR_SYNC) {
         result = file->ops->fsync(file->fd);
-        if (result != FDB_RESULT_SUCCESS) {
-            char msg[1024];
-            sprintf(msg, "Error in FSYNC on a database file '%s', ", file->filename);
-            _log_errno_str(file->ops, log_callback, msg, result);
-        }
+        _log_errno_str(file->ops, log_callback, (fdb_status)result, "FSYNC", file->filename);
     }
     return (fdb_status) result;
 }
@@ -1060,11 +1025,7 @@ fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
     }
 
     int rv = file->ops->fsync(file->fd);
-    if (rv != FDB_RESULT_SUCCESS) {
-        char msg[1024];
-        sprintf(msg, "Error in FSYNC on a database file '%s', ", file->filename);
-        _log_errno_str(file->ops, log_callback, msg, rv);
-    }
+    _log_errno_str(file->ops, log_callback, (fdb_status)rv, "FSYNC", file->filename);
     return (fdb_status) rv;
 }
 

@@ -298,13 +298,9 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     fdb_status status = _fdb_open(&new_db, new_filename, &config);
     if (status != FDB_RESULT_SUCCESS) {
-        if (handle->log_callback.callback) {
-            char msg[1024];
-            sprintf(msg, "Error in opening a partially compacted file '%s' "
-                    "for recovery.", new_filename);
-            handle->log_callback.callback(status, msg, handle->log_callback.ctx_data);
-        }
-        return status;
+        return fdb_log(&handle->log_callback, status,
+                       "Error in opening a partially compacted file '%s' for recovery.",
+                       new_filename);
     }
 
     new_file = new_db.file;
@@ -725,14 +721,9 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
     config = handle_in->config;
 
     if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        if (handle_in->log_callback.callback) {
-            char msg[1024];
-            sprintf(msg, "Warning: Rollback is not allowed on the read-only DB file '%s'.",
-                    handle_in->file->filename);
-            handle_in->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
-                                             handle_in->log_callback.ctx_data);
-        }
-        return FDB_RESULT_RONLY_VIOLATION;
+        return fdb_log(&handle_in->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: Rollback is not allowed on the read-only DB file '%s'.",
+                       handle_in->file->filename);
     }
 
     // if the max sequence number seen by this handle is lower than the
@@ -1931,14 +1922,9 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
     fdb_txn *txn = handle->txn;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        if (handle->log_callback.callback) {
-            char msg[1024];
-            sprintf(msg, "Warning: SET is not allowed on the read-only DB file '%s'.",
-                    handle->file->filename);
-            handle->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
-                                          handle->log_callback.ctx_data);
-        }
-        return FDB_RESULT_RONLY_VIOLATION;
+        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: SET is not allowed on the read-only DB file '%s'.",
+                       handle->file->filename);
     }
 
     if ( (doc->key == NULL) || (doc->keylen == 0) ||
@@ -2053,14 +2039,9 @@ LIBFDB_API
 fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
 {
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        if (handle->log_callback.callback) {
-            char msg[1024];
-            sprintf(msg, "Warning: DEL is not allowed on the read-only DB file '%s'.",
-                    handle->file->filename);
-            handle->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
-                                          handle->log_callback.ctx_data);
-        }
-        return FDB_RESULT_RONLY_VIOLATION;
+        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: DEL is not allowed on the read-only DB file '%s'.",
+                       handle->file->filename);
     }
 
     if ((doc->key == NULL) || (doc->keylen == 0)) {
@@ -2194,14 +2175,9 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
     fdb_status fs = FDB_RESULT_SUCCESS;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
-        if (handle->log_callback.callback) {
-            char msg[1024];
-            sprintf(msg, "Warning: Commit is not allowed on the read-only DB file '%s'.",
-                    handle->file->filename);
-            handle->log_callback.callback(FDB_RESULT_RONLY_VIOLATION, msg,
-                                          handle->log_callback.ctx_data);
-        }
-        return FDB_RESULT_RONLY_VIOLATION;
+        return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: Commit is not allowed on the read-only DB file '%s'.",
+                       handle->file->filename);
     }
 
     fdb_check_file_reopen(handle);

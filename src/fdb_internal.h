@@ -26,6 +26,10 @@
 extern "C" {
 #endif
 
+fdb_status fdb_log(err_log_callback *callback,
+                   fdb_status status,
+                   const char *format, ...);
+
 void fdb_check_file_reopen(fdb_handle *handle);
 void fdb_link_new_file(fdb_handle *handle);
 void fdb_sync_db_header(fdb_handle *handle);
