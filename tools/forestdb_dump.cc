@@ -69,6 +69,24 @@ void print_usage(void)
     "\n");
 }
 
+INLINE int is_subblock(bid_t subbid)
+{
+    uint8_t flag;
+    flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
+    return flag;
+}
+
+INLINE void subbid2bid(bid_t subbid, size_t *subblock_no, size_t *idx, bid_t *bid)
+{
+    uint8_t flag;
+    flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
+    *subblock_no = flag >> 5;
+    // to distinguish subblock_no==0 to non-subblock
+    *subblock_no -= 1;
+    *idx = flag & (0x20 - 0x01);
+    *bid = ((bid_t)(subbid << 16)) >> 16;
+}
+
 void print_header(fdb_handle *db)
 {
     uint8_t header_buf[FDB_BLOCKSIZE];
@@ -79,8 +97,10 @@ void print_header(fdb_handle *db)
     uint64_t datasize_wal;
     uint64_t last_header_bid;
     size_t header_len;
+    size_t subblock_no, idx;
     char *compacted_filename = NULL;
     char *prev_filename = NULL;
+    bid_t bid;
     bid_t trie_root_bid;
     bid_t seq_root_bid;
     fdb_seqnum_t seqnum;
@@ -100,12 +120,46 @@ void print_header(fdb_handle *db)
         ndocs_wal_deleted = wal_get_num_deletes(db->file);
         datasize_wal = wal_get_datasize(db->file);
 
+        bid = filemgr_get_header_bid(db->file);
+        printf("    BID: %"_F64" (0x%llx, byte offset: %"_F64")\n",
+               bid, bid, bid * FDB_BLOCKSIZE);
         printf("    DB header length: %d bytes\n", (int)header_len);
         printf("    DB header revision number: %d\n", (int)revnum);
-        printf("    HB+trie root BID: %"_F64" (0x%llx, byte offset: %"_F64")\n",
-               trie_root_bid, trie_root_bid, trie_root_bid * FDB_BLOCKSIZE);
-        printf("    Seq B+tree root BID: %"_F64" (0x%llx, byte offset: %"_F64")\n",
-               seq_root_bid, seq_root_bid, seq_root_bid * FDB_BLOCKSIZE);
+
+        if (trie_root_bid != BLK_NOT_FOUND) {
+            if (!is_subblock(trie_root_bid)) {
+                // normal block
+                printf("    HB+trie root BID: %"_F64" (0x%llx, byte offset: %"_F64")\n",
+                       trie_root_bid, trie_root_bid, trie_root_bid * FDB_BLOCKSIZE);
+            } else {
+                // sub-block
+                subbid2bid(trie_root_bid, &subblock_no, &idx, &bid);
+                printf("    HB+trie root BID: %"_F64", %d-byte subblock #%d",
+                       bid, db->bhandle->sb[subblock_no].sb_size, idx);
+                printf(" (0x%llx, byte offset: %"_F64")\n", trie_root_bid,
+                       bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
+            }
+        } else {
+            printf("    HB+trie root BID: not exist\n");
+        }
+
+        if (seq_root_bid != BLK_NOT_FOUND) {
+            if (!is_subblock(seq_root_bid)) {
+                // normal block
+                printf("    Seq B+tree root BID: %"_F64" (0x%llx, byte offset: %"_F64")\n",
+                       seq_root_bid, seq_root_bid, seq_root_bid * FDB_BLOCKSIZE);
+            } else {
+                // sub-block
+                subbid2bid(seq_root_bid, &subblock_no, &idx, &bid);
+                printf("    Seq B+tree root BID: %"_F64", %d-byte subblock #%d",
+                       bid, db->bhandle->sb[subblock_no].sb_size, idx);
+                printf(" (0x%llx, byte offset: %"_F64")\n", seq_root_bid,
+                       bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
+            }
+        } else {
+            printf("    Seq B+tree root BID: not exist\n");
+        }
+
         printf("    # documents in the main index: %"_F64" / "
                "in WAL: %"_F64" (insert), %"_F64" (remove)\n",
                ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
@@ -114,9 +168,15 @@ void print_header(fdb_handle *db)
         printf("    Total document size: %"_F64" bytes, (index: %"_F64" bytes, "
                "WAL: %"_F64" bytes)\n",
                datasize + datasize_wal, datasize, datasize_wal);
-        printf("    DB header BID of the last WAL flush: %"_F64
-               " (0x%llx, byte offset: %"_F64")\n",
-               last_header_bid, last_header_bid, last_header_bid * FDB_BLOCKSIZE);
+
+        if (last_header_bid != BLK_NOT_FOUND) {
+            printf("    DB header BID of the last WAL flush: %"_F64
+                   " (0x%llx, byte offset: %"_F64")\n",
+                   last_header_bid, last_header_bid, last_header_bid * FDB_BLOCKSIZE);
+        } else {
+            printf("    DB header BID of the last WAL flush: not exist\n");
+        }
+
         printf("    Last sequence number: %"_F64"\n", seqnum);
         if (compacted_filename) {
             printf("    Next file after compaction: %s\n", compacted_filename);
