@@ -373,6 +373,9 @@ wal_result wal_txn_migration(void *dbhandle,
                 if (item->txn == &old_file->global_txn) {
                     old_file->wal->num_flushable--;
                 }
+                if (item->action != WAL_ACT_REMOVE) {
+                    old_file->wal->datasize -= item->doc_size;
+                }
                 // free item
                 free(item);
                 // free doc
@@ -458,6 +461,9 @@ wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
                     prev_commit = 1;
                     file->wal->size--;
                     file->wal->num_flushable--;
+                    if (item->action != WAL_ACT_REMOVE) {
+                        file->wal->datasize -= _item->doc_size;
+                    }
                     free(_item);
                 }
             }
@@ -645,6 +651,9 @@ wal_result wal_discard(struct filemgr *file, fdb_txn *txn)
         if (item->txn == &file->global_txn ||
             item->flag & WAL_ITEM_COMMITTED) {
             file->wal->num_flushable--;
+        }
+        if (item->action != WAL_ACT_REMOVE) {
+            file->wal->datasize -= item->doc_size;
         }
         // free
         free(item);
