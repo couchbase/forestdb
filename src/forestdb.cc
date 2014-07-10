@@ -2284,6 +2284,9 @@ static void _fdb_commit_and_remove_pending(fdb_handle *handle,
         wal_flush(handle->file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset);
         wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+    } else if (wal_get_size(handle->file) == 0) {
+        // empty WAL
+        wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
     }
 
     handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
