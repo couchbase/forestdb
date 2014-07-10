@@ -134,7 +134,7 @@ void print_header(fdb_handle *db)
             } else {
                 // sub-block
                 subbid2bid(trie_root_bid, &subblock_no, &idx, &bid);
-                printf("    HB+trie root BID: %"_F64", %d-byte subblock #%d",
+                printf("    HB+trie root BID: %"_F64", %d-byte subblock #%zu",
                        bid, db->bhandle->sb[subblock_no].sb_size, idx);
                 printf(" (0x%llx, byte offset: %"_F64")\n", trie_root_bid,
                        bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
@@ -151,7 +151,7 @@ void print_header(fdb_handle *db)
             } else {
                 // sub-block
                 subbid2bid(seq_root_bid, &subblock_no, &idx, &bid);
-                printf("    Seq B+tree root BID: %"_F64", %d-byte subblock #%d",
+                printf("    Seq B+tree root BID: %"_F64", %d-byte subblock #%zu",
                        bid, db->bhandle->sb[subblock_no].sb_size, idx);
                 printf(" (0x%llx, byte offset: %"_F64")\n", seq_root_bid,
                        bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
