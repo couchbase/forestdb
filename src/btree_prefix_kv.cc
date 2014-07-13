@@ -512,7 +512,16 @@ INLINE void _copy_prefix_kv(struct bnode *node_dst,
     // not support when dst_idx != 0
     assert(dst_idx == 0);
 
-    //if (node_src == node_dst) return;
+    // if node_src == node_dst,
+    //   1. if node level == 1 (leaf node)
+    //     1-1. prefix changes -> call _arrange_prefix
+    //            -> process using internal buffer -> no problem
+    //     1-2. no prefix changes -> doesn't matter
+    //   2. if node level > 2 (index node)
+    //     index nodes do not store common prefix -> do nothing
+    if (node_src == node_dst && node_dst->level > 1) {
+        return;
+    }
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
     ksize = sizeof(void *);
@@ -840,7 +849,9 @@ INLINE void _get_prefix_nth_splitter(struct bnode *prev_node, struct bnode *node
     memset(key1, 0, ksize);
     memset(key2, 0, ksize);
 
+    // key1: the greatest key in 'prev_node'
     _get_prefix_kv(prev_node, prev_node->nentry-1, key1, NULL);
+    // key2: the smallest key in 'node'
     _get_prefix_kv(node, 0, key2, NULL);
 
     memcpy(&key1_ptr, key1, sizeof(void *));
@@ -850,16 +861,35 @@ INLINE void _get_prefix_nth_splitter(struct bnode *prev_node, struct bnode *node
     memcpy(&_key2_len, key2_ptr, sizeof(key_len_t));
     key2_len = _endian_decode(_key2_len);
 
-    _get_common_prefix(
-       (uint8_t*)key1_ptr + sizeof(key_len_t), key1_len,
-       (uint8_t*)key2_ptr + sizeof(key_len_t), key2_len, &prefix_len);
+    if (node->level == 1) {
+        // leaf nodes
 
-    if (key) {
-        btree_prefix_kv_free_key(key);
+        // find longest prefix between key1 & key2
+        _get_common_prefix(
+           (uint8_t*)key1_ptr + sizeof(key_len_t), key1_len,
+           (uint8_t*)key2_ptr + sizeof(key_len_t), key2_len, &prefix_len);
+
+        if (key) {
+            // if key already points to another memory space, free it
+            btree_prefix_kv_free_key(key);
+        }
+        // set longest prefix + one more chr in key2 as splitter
+        btree_prefix_kv_set_key(key,
+                                (uint8_t*)key2_ptr + sizeof(key_len_t),
+                                prefix_len+1);
+    } else {
+        // index nodes
+        // Note that setting the longest prefix as parent node's splitter can be used
+        // only for leaf nodes. In index nodes, there can be keys that equal to or
+        // greater than the longest common prefix and smaller than the smallest key
+        // in 'node'.
+        // Since they are pointed to by the greatest key in 'prev_node', they will be
+        // lost if we set the common prefix as splitter.
+        // To avoid this problem, index nodes always use key2 as splitter.
+        btree_prefix_kv_set_key(key,
+                                (uint8_t*)key2_ptr + sizeof(key_len_t),
+                                key2_len);
     }
-    btree_prefix_kv_set_key(key,
-                            (uint8_t*)key2_ptr + sizeof(key_len_t),
-                            prefix_len+1);
     btree_prefix_kv_free_key(key1);
     btree_prefix_kv_free_key(key2);
 }
