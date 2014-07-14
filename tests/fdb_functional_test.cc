@@ -1979,37 +1979,10 @@ void custom_compare_primitive_test()
     TEST_RESULT("custom compare function for primitive key test");
 }
 
-size_t _get_key_sum(void *key, size_t keylen)
-{
-    size_t sum = 0;
-    while(keylen--) {
-        sum += (*((uint8_t*)key + keylen) - 'a');
-    }
-    return sum;
-}
-
 int _cmp_variable(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
-    size_t sum1, sum2;
-
-    if (keylen1 == 0 && keylen2 > 0) {
-        return -1;
-    } else if (keylen1 > 0 && keylen2 == 0) {
-        return 1;
-    } else if (keylen1 == 0 && keylen2 == 0) {
-        return 0;
-    }
-
-    sum1 = _get_key_sum(key1, keylen1);
-    sum2 = _get_key_sum(key2, keylen2);
-
-    if (sum1 < sum2) {
-        return -1;
-    } else if (sum1 > sum2) {
-        return 1;
-    } else {
-        return 0;
-    }
+    // compare only 3rd~8th bytes (ignore the others)
+    return memcmp((uint8_t*)key1+2, (uint8_t*)key2+2, 6);
 }
 
 void custom_compare_variable_test()
@@ -2019,7 +1992,7 @@ void custom_compare_variable_test()
     memleak_start();
 
     int i, j, r;
-    int n = 10;
+    int n = 1000;
     uint64_t offset;
     fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2028,8 +2001,9 @@ void custom_compare_variable_test()
     fdb_iterator *iterator;
 
     size_t keylen = 16;
-    size_t keysum, keysum_prev;
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    size_t prev_keylen;
+    char keybuf[256], metabuf[256], bodybuf[256];
+    char prev_key[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2047,10 +2021,15 @@ void custom_compare_variable_test()
                                   (void *) "custom_compare_variable_test");
 
     for (i=0;i<n;++i){
-        for (j=0;j<keylen;++j){
+        for (j=0;j<2;++j){
             keybuf[j] = 'a' + rand()%('z'-'a');
         }
-        sprintf(bodybuf, "value: %d, %d", i, (int)_get_key_sum(keybuf, keylen));
+        sprintf(keybuf+2, "%06d", i);
+        for (j=8;j<keylen-1;++j){
+            keybuf[j] = 'a' + rand()%('z'-'a');
+        }
+        keybuf[keylen-1] = 0;
+        sprintf(bodybuf, "value: %d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, keylen, NULL, 0,
             (void*)bodybuf, strlen(bodybuf)+1);
         fdb_set(db, doc[i]);
@@ -2070,13 +2049,14 @@ void custom_compare_variable_test()
 
     // range scan (before flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
-    keysum_prev = 0;
+    sprintf(prev_key, "%016d", 0);
+    prev_keylen = 16;
     while(1){
         if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
-        keysum = _get_key_sum(rdoc->key, rdoc->keylen);
-        TEST_CHK(keysum >= keysum_prev);
-        keysum_prev = keysum;
+        TEST_CHK(_cmp_variable(prev_key, prev_keylen, rdoc->key, rdoc->keylen) <= 0);
+        prev_keylen = rdoc->keylen;
+        memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
     };
     fdb_iterator_close(iterator);
@@ -2085,13 +2065,14 @@ void custom_compare_variable_test()
 
     // range scan (after flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
-    keysum_prev = 0;
+    sprintf(prev_key, "%016d", 0);
+    prev_keylen = 16;
     while(1){
         if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
-        keysum = _get_key_sum(rdoc->key, rdoc->keylen);
-        TEST_CHK(keysum >= keysum_prev);
-        keysum_prev = keysum;
+        TEST_CHK(_cmp_variable(prev_key, prev_keylen, rdoc->key, rdoc->keylen) <= 0);
+        prev_keylen = rdoc->keylen;
+        memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
     };
     fdb_iterator_close(iterator);
@@ -2101,13 +2082,14 @@ void custom_compare_variable_test()
 
     // range scan (after compaction)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
-    keysum_prev = 0;
+    sprintf(prev_key, "%016d", 0);
+    prev_keylen = 16;
     while(1){
         if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
             break;
-        keysum = _get_key_sum(rdoc->key, rdoc->keylen);
-        TEST_CHK(keysum >= keysum_prev);
-        keysum_prev = keysum;
+        TEST_CHK(_cmp_variable(prev_key, prev_keylen, rdoc->key, rdoc->keylen) <= 0);
+        prev_keylen = rdoc->keylen;
+        memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
     };
     fdb_iterator_close(iterator);

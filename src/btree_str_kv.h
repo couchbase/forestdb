@@ -15,13 +15,25 @@
  *   limitations under the License.
  */
 
- #ifndef _FDB_BTREE_VAR_KV_OPS
-#define _FDB_BTREE_VAR_KV_OPS
+#ifndef _JSAHN_BTREE_STR_KV_H
+#define _JSAHN_BTREE_STR_KV_H
 
-#include "btree_str_kv.h"
-#define _get_var_kv_ops btree_str_kv_get_kb64_vb64
-#define _get_var_key btree_str_kv_get_key
-#define _set_var_key btree_str_kv_set_key
-#define _free_var_key btree_str_kv_free_key
+#include <stdint.h>
+#include "common.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void btree_str_kv_set_key(void *key, void *str, size_t len);
+void btree_str_kv_get_key(void *key, void *strbuf, size_t *len);
+void btree_str_kv_free_key(void *key);
+
+struct btree_kv_ops;
+struct btree_kv_ops *btree_str_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
