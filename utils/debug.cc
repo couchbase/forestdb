@@ -1,3 +1,4 @@
+#include "debug.h"
 #include <stdlib.h>
 #include <stdint.h>
 

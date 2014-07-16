@@ -1,6 +1,8 @@
 #ifndef _JSAHN_DEBUG_H
 #define _JSAHN_DEBUG_H
 
+#include <stdint.h>
+
 #ifdef __DEBUG
     #include <stdio.h>
 
