@@ -663,8 +663,6 @@ static void _filemgr_free_func(struct hash_elem *h)
         spin_destroy(&file->wal->lock);
     }
 
-    free(file->wal);
-
     // free filename and header
     free(file->filename);
     if (file->header.data) free(file->header.data);
@@ -673,6 +671,7 @@ static void _filemgr_free_func(struct hash_elem *h)
 
     // free global transaction
     wal_remove_transaction(file, &file->global_txn);
+    free(file->wal);
     free(file->global_txn.items);
     free(file->global_txn.wrapper);
 
