@@ -41,6 +41,7 @@ add_library(forestdb SHARED
             src/btree_kv.cc
             src/btree_prefix_kv.cc
             src/btree_str_kv.cc
+            src/btree_fast_str_kv.cc
             src/btreeblock.cc
             src/compactor.cc
             src/configuration.cc
@@ -84,6 +85,7 @@ add_executable(forestdb_dump
                src/btree_kv.cc
                src/btree_prefix_kv.cc
                src/btree_str_kv.cc
+               src/btree_fast_str_kv.cc
                src/btreeblock.cc
                src/compactor.cc
                src/configuration.cc

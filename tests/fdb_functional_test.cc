@@ -1993,7 +1993,7 @@ void custom_compare_variable_test()
 
     int i, j, r;
     int n = 1000;
-    uint64_t offset;
+    uint64_t offset, count;
     fdb_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -2050,6 +2050,7 @@ void custom_compare_variable_test()
     // range scan (before flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     sprintf(prev_key, "%016d", 0);
+    count = 0;
     prev_keylen = 16;
     while(1){
         if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
@@ -2058,7 +2059,9 @@ void custom_compare_variable_test()
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
+        count++;
     };
+    TEST_CHK(count == n);
     fdb_iterator_close(iterator);
 
     fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
@@ -2066,6 +2069,7 @@ void custom_compare_variable_test()
     // range scan (after flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     sprintf(prev_key, "%016d", 0);
+    count = 0;
     prev_keylen = 16;
     while(1){
         if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
@@ -2074,7 +2078,9 @@ void custom_compare_variable_test()
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
+        count++;
     };
+    TEST_CHK(count == n);
     fdb_iterator_close(iterator);
 
     // do compaction
@@ -2083,6 +2089,7 @@ void custom_compare_variable_test()
     // range scan (after compaction)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     sprintf(prev_key, "%016d", 0);
+    count = 0;
     prev_keylen = 16;
     while(1){
         if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
@@ -2091,7 +2098,9 @@ void custom_compare_variable_test()
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
+        count++;
     };
+    TEST_CHK(count == n);
     fdb_iterator_close(iterator);
 
     // close db file
