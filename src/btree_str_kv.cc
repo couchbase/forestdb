@@ -40,6 +40,8 @@ static void _get_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     size_t offset;
 
     _get_kvsize(node->kvsize, ksize, vsize);
+    ksize = sizeof(void *);
+
     ptr = node->data;
     offset = 0;
     // linear search
@@ -81,8 +83,10 @@ static void _set_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     size_t offset, offset_idx, offset_next, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
+    ksize = sizeof(void *);
+
     ptr = node->data;
-    offset = 0;
+    offset = keylen = 0;
     // linear search
     for (i=0;i<idx;++i){
         memcpy(&_keylen, (uint8_t*)ptr+offset, sizeof(key_len_t));
@@ -129,6 +133,8 @@ static void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     size_t offset, offset_idx, offset_next, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
+    ksize = sizeof(void *);
+
     ptr = node->data;
     offset = 0;
     // linear search
@@ -197,6 +203,7 @@ static void _copy_str_kv(struct bnode *node_dst,
     if (node_dst == node_src) return;
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
+    ksize = sizeof(void *);
 
     ptr_src = node_src->data;
     ptr_dst = node_dst->data;
@@ -235,7 +242,7 @@ static size_t _get_str_kv_size(struct btree *tree, void *key, void *value)
     key_len_t keylen, _keylen;
 
     if (key) {
-        memcpy(&key_ptr, key, tree->ksize);
+        memcpy(&key_ptr, key, sizeof(void *));
         memcpy(&_keylen, key_ptr, sizeof(key_len_t));
         keylen = _endian_decode(_keylen);
     }
@@ -252,6 +259,8 @@ static size_t _get_str_data_size(
     key_len_t keylen, _keylen;
 
     _get_kvsize(node->kvsize, ksize, vsize);
+    ksize = sizeof(void *);
+
     ptr = node->data;
     offset = size = 0;
 
@@ -283,7 +292,7 @@ static size_t _get_str_data_size(
 
 INLINE void _init_str_kv_var(struct btree *tree, void *key, void *value)
 {
-    if (key) memset(key, 0, tree->ksize);
+    if (key) memset(key, 0, sizeof(void *));
     if (value) memset(value, 0, tree->vsize);
 }
 
@@ -291,11 +300,11 @@ static void _free_str_kv_var(struct btree *tree, void *key, void *value)
 {
     void *key_ptr;
 
-    memcpy(&key_ptr, key, tree->ksize);
+    memcpy(&key_ptr, key, sizeof(void *));
     if (key_ptr) {
         free(key_ptr);
         key_ptr = NULL;
-        memcpy(key, &key_ptr, tree->ksize);
+        memcpy(key, &key_ptr, sizeof(void *));
     }
 }
 
@@ -304,18 +313,18 @@ static void _set_str_key(struct btree *tree, void *dst, void *src)
     void *key_ptr_old, *key_ptr_new;
     key_len_t keylen_new, _keylen_new;
 
-    memcpy(&key_ptr_new, src, tree->ksize);
+    memcpy(&key_ptr_new, src, sizeof(void *));
     memcpy(&_keylen_new, key_ptr_new, sizeof(key_len_t));
     keylen_new = _endian_decode(_keylen_new);
 
     // free previous key (if exist)
-    memcpy(&key_ptr_old, dst, tree->ksize);
+    memcpy(&key_ptr_old, dst, sizeof(void *));
     if (key_ptr_old) {
         free(key_ptr_old);
     }
     key_ptr_old = (void*)malloc(sizeof(key_len_t) + keylen_new);
     memcpy(key_ptr_old, key_ptr_new, sizeof(key_len_t) + keylen_new);
-    memcpy(dst, &key_ptr_old, tree->ksize);
+    memcpy(dst, &key_ptr_old, sizeof(void *));
 }
 
 INLINE void _set_str_value(struct btree *tree, void *dst, void *src)
