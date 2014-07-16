@@ -107,6 +107,14 @@ static int _fdb_cmp_variable_wrap(void *key1, void *key2, void *aux)
     _get_var_key(key1, (void*)keystr1, &keylen1);
     _get_var_key(key2, (void*)keystr2, &keylen2);
 
+    if (keylen1 == 0 && keylen2 == 0) {
+        return 0;
+    } else if (keylen1 ==0 && keylen2 > 0) {
+        return -1;
+    } else if (keylen1 > 0 && keylen2 == 0) {
+        return 1;
+    }
+
     return handle->config.cmp_variable(keystr1, keylen1, keystr2, keylen2);
 }
 
