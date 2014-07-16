@@ -32,7 +32,7 @@ n-byte  keylen   vsize   ...
 [keylen][key ...][value][keylen][key ...][value]
 */
 
-INLINE void _get_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
+static void _get_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
     int ksize, vsize, i;
     void *key_ptr, *ptr;
@@ -72,7 +72,7 @@ INLINE void _get_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     }
 }
 
-INLINE void _set_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
+static void _set_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
     int ksize, vsize, i;
     void *key_ptr, *ptr;
@@ -120,7 +120,7 @@ INLINE void _set_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     memcpy((uint8_t*)ptr + offset_idx + sizeof(key_len_t) + keylen_ins, value, vsize);
 }
 
-INLINE void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
+static void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
     int ksize, vsize, i;
     void *key_ptr, *ptr;
@@ -181,7 +181,7 @@ INLINE void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     }
 }
 
-INLINE void _copy_str_kv(struct bnode *node_dst,
+static void _copy_str_kv(struct bnode *node_dst,
                          struct bnode *node_src,
                          idx_t dst_idx,
                          idx_t src_idx,
@@ -229,7 +229,7 @@ INLINE void _copy_str_kv(struct bnode *node_dst,
     memcpy((uint8_t*)ptr_dst + dst_offset, (uint8_t*)ptr_src + src_offset, src_len);
 }
 
-INLINE size_t _get_str_kv_size(struct btree *tree, void *key, void *value)
+static size_t _get_str_kv_size(struct btree *tree, void *key, void *value)
 {
     void *key_ptr;
     key_len_t keylen, _keylen;
@@ -243,7 +243,7 @@ INLINE size_t _get_str_kv_size(struct btree *tree, void *key, void *value)
     return ((key)?(sizeof(key_len_t) + keylen):0) + ((value)?tree->vsize:0);
 }
 
-INLINE size_t _get_str_data_size(
+static size_t _get_str_data_size(
     struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)
 {
     int ksize, vsize, i;
@@ -287,7 +287,7 @@ INLINE void _init_str_kv_var(struct btree *tree, void *key, void *value)
     if (value) memset(value, 0, tree->vsize);
 }
 
-INLINE void _free_str_kv_var(struct btree *tree, void *key, void *value)
+static void _free_str_kv_var(struct btree *tree, void *key, void *value)
 {
     void *key_ptr;
 
@@ -299,7 +299,7 @@ INLINE void _free_str_kv_var(struct btree *tree, void *key, void *value)
     }
 }
 
-INLINE void _set_str_key(struct btree *tree, void *dst, void *src)
+static void _set_str_key(struct btree *tree, void *dst, void *src)
 {
     void *key_ptr_old, *key_ptr_new;
     key_len_t keylen_new, _keylen_new;
@@ -323,13 +323,15 @@ INLINE void _set_str_value(struct btree *tree, void *dst, void *src)
     memcpy(dst, src, tree->vsize);
 }
 
-INLINE void _get_str_nth_idx(struct bnode *node, idx_t num, idx_t den, idx_t *idx)
+INLINE void _get_str_nth_idx(struct bnode *node, idx_t num,
+                             idx_t den, idx_t *idx)
 {
     size_t rem = node->nentry - (int)(node->nentry / den) * den;
     *idx = (int)(node->nentry / den) * num + ((num < rem)?(num):(rem));
 }
 
-INLINE void _get_str_nth_splitter(struct bnode *prev_node, struct bnode *node, void *key)
+INLINE void _get_str_nth_splitter(struct bnode *prev_node,
+                                  struct bnode *node, void *key)
 {
     // always return the smallest key of 'node'
     _get_str_kv(node, 0, key, NULL);
@@ -384,7 +386,7 @@ INLINE void* _str_bid_to_value_64(bid_t *bid)
     return (void *)bid;
 }
 
-INLINE int _cmp_str64(void *key1, void *key2, void* aux)
+int _cmp_str64(void *key1, void *key2, void* aux)
 {
     (void) aux;
     void *key_ptr1, *key_ptr2;
@@ -451,5 +453,3 @@ struct btree_kv_ops * btree_str_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops)
 
     return btree_kv_ops;
 }
-
-
