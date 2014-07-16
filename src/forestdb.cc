@@ -2059,6 +2059,8 @@ fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
     doc->deleted = true;
     fdb_doc _doc;
     _doc = *doc;
+    _doc.bodylen = 0;
+    _doc.body = NULL;
     return fdb_set(handle, &_doc);
 }
 
