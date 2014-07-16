@@ -25,7 +25,11 @@ Please visit [Snappy site](https://code.google.com/p/snappy/) for more details.
 
 We use [CMake](http://www.cmake.org/cmake/) to provide the build support for a wide range of platforms. Please follow the instructions below to install CMake in your target platform.
 
-* **Ubuntu** and **Centos**
+* **Ubuntu**
+
+    `sudo apt-get install cmake`
+
+* **Centos**
 
     `wget http://www.cmake.org/files/v2.8/cmake-2.8.12.1.tar.gz`
 
@@ -41,6 +45,7 @@ We use [CMake](http://www.cmake.org/cmake/) to provide the build support for a w
 
 * **Windows**
 
+    Please download and install CMake binary for Windows from [CMake download page](http://www.cmake.org/cmake/resources/software.html).
 
 Once CMake is installed, please follow the instructions below to compile and build ForestDB on Ubuntu, Centos, or OS X:
 
@@ -56,10 +61,31 @@ Once CMake is installed, please follow the instructions below to compile and bui
 
 `make all`
 
-On Windows, the instructions are as follows:
+On Windows (using Visual Studio's CL compiler), the instructions are as follows:
+
+`git clone forestdb_repo_url` (or clone repository using [TortoiseGit](http://code.google.com/p/tortoisegit/))
+
+`cd forestdb`
+
+`mkdir build`
+
+`cd build`
+
+Note that the path and environment variables for command-line builds need to be set before moving to the next step. Please refer to the [MSDN Page](http://msdn.microsoft.com/en-us/library/f2ccy3wt.aspx).
+
+`cmake -G "NMake Makefiles" ..\`
+
+`nmake all`
 
 ## Test
 
 To run all the unit tests:
 
-`make test`
+* **Ubuntu**, **Centos**, and **OS X**
+
+    `make test`
+
+* **Windows**
+
+    `nmake test`
+
