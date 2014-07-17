@@ -354,6 +354,7 @@ btree_result btree_init(
         bnode_flag_t flag, struct btree_meta *meta)
 {
     void *addr;
+    size_t min_nodesize = 0;
     struct bnode *root;
 
     btree->root_flag = BNODE_MASK_ROOT | flag;
@@ -364,15 +365,38 @@ btree_result btree_init(
     btree->blksize = nodesize;
     btree->ksize = ksize;
     btree->vsize = vsize;
-    if (meta) btree->root_flag |= BNODE_MASK_METADATA;
+    if (meta) {
+        btree->root_flag |= BNODE_MASK_METADATA;
+        min_nodesize = sizeof(struct bnode) + _metasize_align(meta->size) +
+                       sizeof(metasize_t) + BLK_MARKER_SIZE;
+    } else {
+        min_nodesize = sizeof(struct bnode) + BLK_MARKER_SIZE;
+    }
+
+    if (min_nodesize > btree->blksize) {
+        // too large metadata .. init fail
+        return BTREE_RESULT_FAIL;
+    }
 
     // create the first root node
-    if (btree->blk_ops->blk_alloc_sub) {
+    if (btree->blk_ops->blk_alloc_sub && btree->blk_ops->blk_enlarge_node) {
         addr = btree->blk_ops->blk_alloc_sub(btree->blk_handle, &btree->root_bid);
+        if (meta) {
+            // check if the initial node size including metadata is
+            // larger than the subblock size
+            size_t subblock_size;
+            subblock_size = btree->blk_ops->blk_get_size(btree->blk_handle,
+                                                         btree->root_bid);
+            if (subblock_size < min_nodesize) {
+                btree->blk_ops->blk_enlarge_node(btree->blk_handle, btree->root_bid,
+                                                 min_nodesize, &btree->root_bid);
+            }
+        }
     } else {
         addr = btree->blk_ops->blk_alloc (btree->blk_handle, &btree->root_bid);
     }
-    root = _btree_init_node(btree, btree->root_bid, addr, btree->root_flag, BNODE_MASK_ROOT, meta);
+    root = _btree_init_node(btree, btree->root_bid, addr,
+                            btree->root_flag, BNODE_MASK_ROOT, meta);
 
     return BTREE_RESULT_SUCCESS;
 }
