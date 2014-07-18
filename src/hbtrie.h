@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define HBTRIE_MAX_KEYLEN FDB_MAX_KEYLEN
+#define HBTRIE_MAX_KEYLEN (FDB_MAX_KEYLEN+16)
 
 typedef size_t hbtrie_func_readkey(void *handle, uint64_t offset, void *buf);
 

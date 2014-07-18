@@ -605,8 +605,6 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
         return;
     }
 
-    assert(length.keylen < FDB_MAX_KEYLEN);
-
     _offset = _docio_read_doc_component(handle, _offset, length.keylen, keybuf, log_callback);
     *keylen = length.keylen;
 }

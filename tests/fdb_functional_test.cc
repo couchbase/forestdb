@@ -3948,6 +3948,99 @@ void last_wal_flush_header_test()
     TEST_RESULT("last wal flush header test");
 }
 
+void long_key_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, idx, r;
+    int n=300, m=20; // n: # prefixes, m: # postfixes
+    int keylen_limit = 3840; // need to modify if FDB_MAX_KEYLEN is changed
+    size_t valuelen;
+    void *value;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n*m);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char *keybuf = alca(char, keylen_limit);
+    char metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "dummy1", &fconfig);
+
+    // key structure:
+    // <----------------- 3840 bytes ------------------->
+    // <-- 8 bytes -->             <-- 8 bytes  -->< 1 >
+    // [prefix number]____ ... ____[postfix number][ \0]
+    // e.g.)
+    // 00000001____ ... ____00000013[\0]
+
+    // create docs
+    for (i=0;i<keylen_limit-1;++i){
+        keybuf[i] = '_';
+    }
+    keybuf[keylen_limit-1] = 0;
+
+    for (i=0;i<n;++i){
+        // set prefix
+        sprintf(temp, "%08d", i);
+        memcpy(keybuf, temp, 8);
+        for (j=0;j<m;++j){
+            idx = i*m + j;
+            // set postfix
+            sprintf(temp, "%08d", j);
+            memcpy(keybuf + (keylen_limit-1) - 8, temp, 8);
+            sprintf(metabuf, "meta%d", idx);
+            sprintf(bodybuf, "body%d", idx);
+            fdb_doc_create(&doc[idx], (void*)keybuf, strlen(keybuf)+1,
+                                    (void*)metabuf, strlen(metabuf)+1,
+                                    (void*)bodybuf, strlen(bodybuf)+1);
+        }
+    }
+
+    // insert docs
+    for (i=0;i<n*m;++i) {
+        fdb_set(db, doc[i]);
+    }
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // retrieval check
+    for (i=0;i<n*m;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    fdb_close(db);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("long key test");
+}
+
 int main(){
     basic_test();
     wal_commit_test();
@@ -3974,6 +4067,7 @@ int main(){
     transaction_simple_api_test();
     flush_before_commit_test();
     last_wal_flush_header_test();
+    long_key_test();
     purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);

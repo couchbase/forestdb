@@ -388,8 +388,10 @@ btree_result btree_init(
             subblock_size = btree->blk_ops->blk_get_size(btree->blk_handle,
                                                          btree->root_bid);
             if (subblock_size < min_nodesize) {
-                btree->blk_ops->blk_enlarge_node(btree->blk_handle, btree->root_bid,
-                                                 min_nodesize, &btree->root_bid);
+                addr = btree->blk_ops->blk_enlarge_node(btree->blk_handle,
+                                                        btree->root_bid,
+                                                        min_nodesize,
+                                                        &btree->root_bid);
             }
         }
     } else {

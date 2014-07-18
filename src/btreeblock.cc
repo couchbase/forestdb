@@ -463,6 +463,40 @@ void btreeblk_set_dirty(void *voidhandle, bid_t bid)
     }
 }
 
+void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)
+{
+    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
+    struct list_elem *e;
+    struct btreeblk_block *block;
+    bid_t _bid;
+    bid_t filebid;
+    size_t sb, idx;
+
+    sb = idx = 0;
+    subbid2bid(bid, &sb, &idx, &_bid);
+    filebid = _bid / handle->nnodeperblock;
+
+    e = list_begin(&handle->alc_list);
+    while(e){
+        block = _get_entry(e, struct btreeblk_block, le);
+        if (block->bid == filebid) {
+            block->sb_no = sb_no;
+            return;
+        }
+        e = list_next(e);
+    }
+
+    e = list_begin(&handle->read_list);
+    while(e){
+        block = _get_entry(e, struct btreeblk_block, le);
+        if (block->bid == filebid) {
+            block->sb_no = sb_no;
+            return;
+        }
+        e = list_next(e);
+    }
+}
+
 size_t btreeblk_get_size(void *voidhandle, bid_t bid)
 {
     bid_t _bid;
@@ -578,11 +612,16 @@ void * btreeblk_enlarge_node(void *voidhandle,
                     *new_bid = handle->sb[src_sb].bid;
                 }
                 btreeblk_set_dirty(voidhandle, handle->sb[src_sb].bid);
+                // we MUST change block->sb_no value since subblock is switched.
+                // dst_sb == 0: regular block, otherwise: sub-block
+                _btreeblk_set_sb_no(voidhandle, handle->sb[src_sb].bid,
+                                    ((dst_sb)?(dst_sb):(-1)));
             } else {
                 // case 1-2
                 // if the source block is not writable, allocate new one
                 if (dst_sb > 0) {
-                    dst_addr = _btreeblk_alloc(voidhandle, &handle->sb[dst_sb].bid, dst_sb);
+                    dst_addr = _btreeblk_alloc(voidhandle,
+                                               &handle->sb[dst_sb].bid, dst_sb);
                 } else {
                     // normal (whole) block
                     dst_addr = btreeblk_alloc(voidhandle, new_bid);
