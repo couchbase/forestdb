@@ -294,6 +294,24 @@ void range_test()
     TEST_RESULT("range test");
 }
 
+INLINE int is_subblock(bid_t subbid)
+{
+    uint8_t flag;
+    flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
+    return flag;
+}
+
+INLINE void subbid2bid(bid_t subbid, size_t *subblock_no, size_t *idx, bid_t *bid)
+{
+    uint8_t flag;
+    flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
+    *subblock_no = flag >> 5;
+    // to distinguish subblock_no==0 to non-subblock
+    *subblock_no -= 1;
+    *idx = flag & (0x20 - 0x01);
+    *bid = ((bid_t)(subbid << 16)) >> 16;
+}
+
 void subblock_test()
 {
     TEST_INIT();
@@ -304,17 +322,81 @@ void subblock_test()
     char *fname = (char *) "./dummy";
     char keybuf[256], valuebuf[256], temp[256];
     filemgr_open_result result;
+    btree_result br;
+    bid_t bid;
+    size_t subblock_no, idx;
     struct filemgr *file;
     struct btreeblk_handle bhandle;
     struct btree_kv_ops *ops;
     struct btree btree, btree_arr[64];
     struct filemgr_config fconfig;
+    struct btree_meta meta;
 
     memset(&fconfig, 0, sizeof(fconfig));
     fconfig.blocksize = blocksize;
     fconfig.ncacheblock = 0;
     fconfig.options = FILEMGR_CREATE;
     ops = btree_kv_get_kb64_vb64(NULL);
+
+    // btree initialization using large metadata test
+    r = system(SHELL_DEL" dummy");
+    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    file = result.file;
+    meta.data = (void*)malloc(4096);
+
+    meta.size = 120;
+    btreeblk_init(&bhandle, file, blocksize);
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree.root_bid));
+    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    TEST_CHK(subblock_no == 1);
+    btreeblk_free(&bhandle);
+
+    meta.size = 250;
+    btreeblk_init(&bhandle, file, blocksize);
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree.root_bid));
+    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    TEST_CHK(subblock_no == 2);
+    btreeblk_free(&bhandle);
+
+    meta.size = 510;
+    btreeblk_init(&bhandle, file, blocksize);
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree.root_bid));
+    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    TEST_CHK(subblock_no == 3);
+    btreeblk_free(&bhandle);
+
+    meta.size = 1020;
+    btreeblk_init(&bhandle, file, blocksize);
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree.root_bid));
+    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    TEST_CHK(subblock_no == 4);
+    btreeblk_free(&bhandle);
+
+    meta.size = 2040;
+    btreeblk_init(&bhandle, file, blocksize);
+    btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(!is_subblock(btree.root_bid));
+    btreeblk_free(&bhandle);
+
+    meta.size = 4090;
+    btreeblk_init(&bhandle, file, blocksize);
+    br = btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), ops,
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(br == BTREE_RESULT_FAIL);
+
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL);
+    filemgr_shutdown();
+    free(meta.data);
 
     // coverage: enlarge case 1-1
     r = system(SHELL_DEL" dummy");
