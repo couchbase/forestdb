@@ -1038,7 +1038,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
                           const void *meta, size_t metalen,
                           const void *body, size_t bodylen)
 {
-    if (doc == NULL) {
+    if (doc == NULL || keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1476,7 +1476,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
     fdb_txn *txn = handle->txn;
 
-    if (doc->key == NULL || doc->keylen == 0) {
+    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1571,7 +1571,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
     hbtrie_result hr;
     fdb_txn *txn = handle->txn;
 
-    if (doc->key == NULL || doc->keylen == 0) {
+    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1935,7 +1935,7 @@ fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
                        handle->file->filename);
     }
 
-    if ( (doc->key == NULL) || (doc->keylen == 0) ||
+    if ( doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
         (doc->metalen > 0 && doc->meta == NULL) ||
         (doc->bodylen > 0 && doc->body == NULL)) {
         return FDB_RESULT_INVALID_ARGS;
@@ -2052,7 +2052,7 @@ fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
                        handle->file->filename);
     }
 
-    if ((doc->key == NULL) || (doc->keylen == 0)) {
+    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 

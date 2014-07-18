@@ -120,7 +120,8 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
 
-    if (handle == NULL) {
+    if (handle == NULL || start_keylen > FDB_MAX_KEYLEN ||
+        end_keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -508,7 +509,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
     btree_result br;
     struct snap_wal_entry *snap_item = NULL;
-    if (!iterator || !seek_key || !iterator->_key) {
+    if (!iterator || !seek_key || !iterator->_key ||
+        seek_keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
