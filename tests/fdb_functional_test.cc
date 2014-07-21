@@ -3980,7 +3980,7 @@ void long_key_test()
     fdb_open(&db, "dummy1", &fconfig);
 
     // key structure:
-    // <----------------- 3840 bytes ------------------->
+    // <----------------- 3840 bytes ------------------>
     // <-- 8 bytes -->             <-- 8 bytes  -->< 1 >
     // [prefix number]____ ... ____[postfix number][ \0]
     // e.g.)
@@ -4029,7 +4029,7 @@ void long_key_test()
     fdb_close(db);
 
     // free all documents
-    for (i=0;i<n;++i){
+    for (i=0;i<n*m;++i){
         fdb_doc_free(doc[i]);
     }
 
