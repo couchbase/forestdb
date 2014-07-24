@@ -660,7 +660,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
 
     // Sequence trees are a must for snapshot creation
     if (handle_in->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_CONFIG;
     }
 
     if (!handle_in->shandle) {
@@ -727,6 +727,11 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
 
     handle_in = *handle_ptr;
     config = handle_in->config;
+
+    // Sequence trees are a must for rollback
+    if (handle_in->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_CONFIG;
+    }
 
     if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle_in->log_callback, FDB_RESULT_RONLY_VIOLATION,
@@ -856,6 +861,16 @@ static fdb_status _fdb_open(fdb_handle *handle,
                          &seq_root_bid, &ndocs, &nlivenodes,
                          &datasize, &last_wal_flush_hdr_bid,
                          &compacted_filename, &prev_filename);
+        if ( (seq_root_bid == BLK_NOT_FOUND &&
+              config->seqtree_opt == FDB_SEQTREE_USE) ||
+             (seq_root_bid != BLK_NOT_FOUND &&
+              config->seqtree_opt == FDB_SEQTREE_NOT_USE) ) {
+            // Exception cases: return error
+            // 1. No seq tree in the DB file, but user enables seq tree option
+            // 2. Seq tree exists in the DB file, but user disables seq tree option
+            filemgr_close(handle->file, true, &handle->log_callback);
+            return FDB_RESULT_INVALID_CONFIG;
+        }
         seqnum = filemgr_get_seqnum(handle->file);
     }
     filemgr_mutex_unlock(handle->file);
@@ -878,6 +893,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
             }
         }
         if (!header_len) { // Marker MUST match that of DB commit!
+            filemgr_close(handle->file, false, &handle->log_callback);
             return FDB_RESULT_NO_DB_INSTANCE;
         }
 
@@ -889,6 +905,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
             if (seqnum) {
                 // Database currently has a non-zero seq number, but the snapshot was
                 // requested with a seq number zero.
+                filemgr_close(handle->file, false, &handle->log_callback);
                 return FDB_RESULT_NO_DB_INSTANCE;
             }
         }
@@ -1665,6 +1682,11 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    // Sequence trees are a must for byseq operations
+    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+
     if (!handle->shandle) {
         fdb_check_file_reopen(handle);
         fdb_link_new_file(handle);
@@ -1749,6 +1771,11 @@ fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc)
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
+    }
+
+    // Sequence trees are a must for byseq operations
+    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_CONFIG;
     }
 
     if (!handle->shandle) {
@@ -2105,8 +2132,8 @@ static uint64_t _fdb_set_file_header(fdb_handle *handle)
         _edn_safe_64 = _endian_encode(handle->seqtree->root_bid);
         seq_memcpy(buf + offset, &_edn_safe_64,
             sizeof(handle->seqtree->root_bid), offset);
-    }else{
-        memset(buf + offset, 0, sizeof(uint64_t));
+    } else {
+        memset(buf + offset, 0xff, sizeof(uint64_t));
         offset += sizeof(uint64_t);
     }
 

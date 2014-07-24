@@ -267,6 +267,11 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    // Sequence trees are a must for byseq operations
+    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+
     fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
 
     iterator->handle = *handle;

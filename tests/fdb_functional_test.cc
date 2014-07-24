@@ -269,6 +269,136 @@ void basic_test()
     TEST_RESULT("basic test");
 }
 
+void seq_tree_exception_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *it;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
+
+    // open db
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "seq_tree_exception_test");
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i],
+                       (void *)keybuf,  strlen(keybuf),
+                       (void *)metabuf, strlen(metabuf),
+                       (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // close the db
+    fdb_close(db);
+
+    // reopen with seq tree option
+    fconfig.seqtree_opt = FDB_SEQTREE_USE;
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    // must return error
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // reopen
+    fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "seq_tree_exception_test");
+
+    // search by seq
+    fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+    rdoc->seqnum = 1;
+    status = fdb_get_byseq(db, rdoc);
+    // must fail
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // search meta by seq
+    status = fdb_get_metaonly_byseq(db, rdoc);
+    // must fail
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // init iterator by seq
+    status = fdb_iterator_sequence_init(db , &it, 0, 0, FDB_ITR_NONE);
+    // must fail
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_close(db);
+
+    // free all documents
+    free(rdoc);
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // open db
+    fconfig.seqtree_opt = FDB_SEQTREE_USE;
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "seq_tree_exception_test");
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i],
+                       (void *)keybuf,  strlen(keybuf),
+                       (void *)metabuf, strlen(metabuf),
+                       (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // close the db
+    fdb_close(db);
+
+    // reopen with an option disabling seq tree
+    fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    // must return error
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("sequence tree exception test");
+}
+
+
 void wal_commit_test()
 {
     TEST_INIT();
@@ -4043,6 +4173,7 @@ void long_key_test()
 
 int main(){
     basic_test();
+    seq_tree_exception_test();
     wal_commit_test();
     multi_version_test();
     compact_wo_reopen_test();
