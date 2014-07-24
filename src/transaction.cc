@@ -39,6 +39,10 @@ fdb_status fdb_begin_transaction(fdb_handle *handle,
         // transaction already exists
         return FDB_RESULT_TRANSACTION_FAIL;
     }
+    if (filemgr_is_rollback_on(handle->file)) {
+        // deny beginning transaction during rollback
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
 
     fdb_check_file_reopen(handle);
     fdb_sync_db_header(handle);

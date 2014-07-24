@@ -142,6 +142,7 @@ wal_dirty_t wal_get_dirty_status(struct filemgr *file);
 void wal_add_transaction(struct filemgr *file, fdb_txn *txn);
 void wal_remove_transaction(struct filemgr *file, fdb_txn *txn);
 fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn);
+bool wal_txn_exists(struct filemgr *file);
 
 #ifdef __cplusplus
 }

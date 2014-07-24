@@ -138,6 +138,10 @@ typedef enum {
      */
     FDB_RESULT_TRANSACTION_FAIL = -26,
     /**
+     * Requested FDB operation failed due to active transactions.
+     */
+    FDB_RESULT_FAIL_BY_TRANSACTION = -27,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

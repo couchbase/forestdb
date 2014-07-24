@@ -782,12 +782,16 @@ wal_dirty_t wal_get_dirty_status(struct filemgr *file)
 
 void wal_add_transaction(struct filemgr *file, fdb_txn *txn)
 {
+    spin_lock(&file->wal->lock);
     list_push_front(&file->wal->txn_list, &txn->wrapper->le);
+    spin_unlock(&file->wal->lock);
 }
 
 void wal_remove_transaction(struct filemgr *file, fdb_txn *txn)
 {
+    spin_lock(&file->wal->lock);
     list_remove(&file->wal->txn_list, &txn->wrapper->le);
+    spin_unlock(&file->wal->lock);
 }
 
 fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn)
@@ -797,6 +801,8 @@ fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn)
     fdb_txn *txn;
     fdb_txn *ret = NULL;
     bid_t bid = BLK_NOT_FOUND;
+
+    spin_lock(&file->wal->lock);
 
     le = list_begin(&file->wal->txn_list);
     while(le) {
@@ -810,7 +816,30 @@ fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn)
         }
         le = list_next(le);
     }
+    spin_unlock(&file->wal->lock);
 
     return ret;
 }
 
+bool wal_txn_exists(struct filemgr *file)
+{
+    struct list_elem *le;
+    struct wal_txn_wrapper *txn_wrapper;
+    fdb_txn *txn;
+
+    spin_lock(&file->wal->lock);
+
+    le = list_begin(&file->wal->txn_list);
+    while(le) {
+        txn_wrapper = _get_entry(le, struct wal_txn_wrapper, le);
+        txn = txn_wrapper->txn;
+        if (txn != &file->global_txn) {
+            spin_unlock(&file->wal->lock);
+            return true;
+        }
+        le = list_next(le);
+    }
+    spin_unlock(&file->wal->lock);
+
+    return false;
+}

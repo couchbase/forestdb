@@ -2443,7 +2443,7 @@ void rollback_test()
     int n = 20;
     int count;
     uint64_t offset;
-    fdb_handle *db;
+    fdb_handle *db, *db_txn;
     fdb_seqnum_t rollback_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -2531,6 +2531,16 @@ void rollback_test()
     // Attempt to rollback to out-of-range marker..
     status = fdb_rollback(&db, 999999);
     TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+
+    // Open another handle & begin transaction
+    fdb_open(&db_txn, "./dummy1", &fconfig);
+    fdb_begin_transaction(db_txn, FDB_ISOLATION_READ_COMMITTED);
+    // Attempt to rollback while the transaction is active
+    status =  fdb_rollback(&db, rollback_seq);
+    // Must fail
+    TEST_CHK(status == FDB_RESULT_FAIL_BY_TRANSACTION);
+    fdb_abort_transaction(db_txn);
+    fdb_close(db_txn);
 
     // Rollback to saved marker from above
     status = fdb_rollback(&db, rollback_seq);

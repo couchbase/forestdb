@@ -752,6 +752,13 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
     }
 
     filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
+    // All transactions should be closed before rollback
+    if (wal_txn_exists(handle_in->file)) {
+        filemgr_set_rollback(handle_in->file, 0);
+        free(handle);
+        return FDB_RESULT_FAIL_BY_TRANSACTION;
+    }
+
     handle->log_callback = handle_in->log_callback;
     handle->max_seqnum = seqnum;
 
