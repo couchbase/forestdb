@@ -59,6 +59,8 @@ Once CMake is installed, please follow the instructions below to compile and bui
 
 `cmake ../`
 
+(The default value of `CMAKE_BUILD_TYPE` is `RelWithDebInfo`. If you want to build with optimizations disabled for debugging, type `cmake -DCMAKE_BUILD_TYPE=Debug ../` instead.)
+
 `make all`
 
 On Windows (using Visual Studio's CL compiler), the instructions are as follows:
@@ -74,6 +76,8 @@ On Windows (using Visual Studio's CL compiler), the instructions are as follows:
 Note that the path and environment variables for command-line builds need to be set before moving to the next step. Please refer to the [MSDN Page](http://msdn.microsoft.com/en-us/library/f2ccy3wt.aspx).
 
 `cmake -G "NMake Makefiles" ..\`
+
+(The default value of `CMAKE_BUILD_TYPE` is `Debug`. If you want to build with optimizations enabled for better performance, type `cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release ../` instead.)
 
 `nmake all`
 
