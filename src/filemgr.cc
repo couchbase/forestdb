@@ -655,6 +655,11 @@ static void _filemgr_free_func(struct hash_elem *h)
         bcache_remove_file(file);
     }
 
+    // free global transaction
+    wal_remove_transaction(file, &file->global_txn);
+    free(file->global_txn.items);
+    free(file->global_txn.wrapper);
+
     // destroy WAL
     if (wal_is_initialized(file)) {
         wal_shutdown(file);
@@ -662,18 +667,13 @@ static void _filemgr_free_func(struct hash_elem *h)
         hash_free(&file->wal->hash_byseq);
         spin_destroy(&file->wal->lock);
     }
+    free(file->wal);
 
     // free filename and header
     free(file->filename);
     if (file->header.data) free(file->header.data);
     // free old filename if any
     free(file->old_filename);
-
-    // free global transaction
-    wal_remove_transaction(file, &file->global_txn);
-    free(file->wal);
-    free(file->global_txn.items);
-    free(file->global_txn.wrapper);
 
     // destroy locks
     spin_destroy(&file->lock);
