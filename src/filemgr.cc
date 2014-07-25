@@ -345,8 +345,10 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     // A database file was manually deleted by the user.
                     // Clean up global hash table, WAL index, and buffer cache.
                     // Then, retry it with a create option below.
+                    struct hash_elem *ret;
                     spin_unlock(&file->lock);
-                    assert(hash_remove(&hash, &file->e));
+                    ret = hash_remove(&hash, &file->e);
+                    assert(ret);
                     _filemgr_free_func(&file->e);
                 } else {
                     _log_errno_str(file->ops, log_callback, (fdb_status)file->fd, "OPEN", filename);
@@ -690,12 +692,15 @@ static void _filemgr_free_func(struct hash_elem *h)
 // permanently remove file from cache (not just close)
 void filemgr_remove_file(struct filemgr *file)
 {
+    struct hash_elem *ret;
+
     assert(file);
     assert(file->ref_count <= 0);
 
     // remove from global hash table
     spin_lock(&filemgr_openlock);
-    assert(hash_remove(&hash, &file->e));
+    ret = hash_remove(&hash, &file->e);
+    assert(ret);
     spin_unlock(&filemgr_openlock);
 
     _filemgr_free_func(&file->e);
