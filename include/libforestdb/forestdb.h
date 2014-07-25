@@ -404,8 +404,8 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
  * @param iterator Pointer to the iterator to be created as a result of
  *        this API call.
  * @param start_seq Starting document sequence number to begin iteration from
- * @param end_seq Ending sequence number indicating last iterated item. Passing
- *        -1 means that it wants to end with the latest key
+ * @param end_seq Ending sequence number indicating the last iterated item.
+ *        Passing 0 means that it wants to end with the latest key
  *
  * @param opt Iterator option.
  * @return FDB_RESULT_SUCCESS on success.

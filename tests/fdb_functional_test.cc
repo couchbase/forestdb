@@ -1828,7 +1828,7 @@ void sequence_iterator_test()
     // now even number docs are in hb-trie & odd number docs are in WAL
 
     // create an iterator over sequence number range over FULL RANGE
-    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NONE);
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_NONE);
 
     // repeat until fail
     i=0;
@@ -1849,7 +1849,7 @@ void sequence_iterator_test()
     fdb_iterator_close(iterator);
 
     // create an iterator over sequence number with META ONLY
-    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_METAONLY);
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_METAONLY);
 
     // repeat until fail
     i=0;
@@ -1902,7 +1902,7 @@ void sequence_iterator_test()
     fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // create an iterator for full range
-    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NONE);
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_NONE);
     // repeat until fail
     i=0;
     count=0;
@@ -1927,7 +1927,7 @@ void sequence_iterator_test()
     fdb_iterator_close(iterator);
 
     // create an iterator for full range, but no deletes.
-    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NO_DELETES);
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_NO_DELETES);
     // repeat until fail
     i=0;
     count=0;
@@ -1953,7 +1953,7 @@ void sequence_iterator_test()
     fdb_set(db, doc[0]);
     fdb_commit(db, FDB_COMMIT_NORMAL);
 
-    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NO_DELETES);
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_NO_DELETES);
     // repeat until fail
     i=2; // i == 0 should not appear until the end
     count=0;
@@ -2557,7 +2557,7 @@ void rollback_test()
     fdb_commit(db, FDB_COMMIT_NORMAL);
 
     // create an iterator on the rollback for full range
-    fdb_iterator_sequence_init(db, &iterator, 0, -1, FDB_ITR_NONE);
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_NONE);
 
     // repeat until fail
     i=0;

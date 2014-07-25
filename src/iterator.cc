@@ -284,7 +284,13 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
     iterator->opt = opt;
     iterator->_offset = BLK_NOT_FOUND;
     iterator->_seqnum = start_seq;
-    iterator->end_seqnum = end_seq;
+    // For easy API call, treat zero end_seq as 0xffff...
+    // (because zero seq number is not used)
+    if (end_seq == 0) {
+        iterator->end_seqnum = SEQNUM_NOT_USED;
+    } else {
+        iterator->end_seqnum = end_seq;
+    }
 
     iterator->end_key = NULL;
     iterator->end_keylen = 0;
@@ -328,7 +334,8 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
             if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
                 (wal_item->txn == txn) ||
                 (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
-                if (start_seq <= wal_item->seqnum && wal_item->seqnum <= end_seq) {
+                if (iterator->_seqnum <= wal_item->seqnum &&
+                    wal_item->seqnum <= iterator->end_seqnum) {
                     // copy from WAL_ITEM
                     snap_item = (struct snap_wal_entry*)malloc(sizeof(
                                 struct snap_wal_entry));
