@@ -142,6 +142,10 @@ typedef enum {
      */
     FDB_RESULT_FAIL_BY_TRANSACTION = -27,
     /**
+     * Requested FDB operation failed due to an active compaction task.
+     */
+    FDB_RESULT_FAIL_BY_COMPACTION = -28,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

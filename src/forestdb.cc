@@ -758,6 +758,12 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
         free(handle);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
     }
+    // There should be no compaction on the file
+    if (filemgr_get_file_status(handle_in->file) != FILE_NORMAL) {
+        filemgr_set_rollback(handle_in->file, 0);
+        free(handle);
+        return FDB_RESULT_FAIL_BY_COMPACTION;
+    }
 
     handle->log_callback = handle_in->log_callback;
     handle->max_seqnum = seqnum;
