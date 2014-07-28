@@ -338,6 +338,9 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
        fdb_doc_free(fdoc);
     } else if (opt->scan_mode == SCAN_BY_KEY) {
         fs = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, 0x0);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return;
+        }
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
             if (fs == FDB_RESULT_SUCCESS) {
@@ -351,6 +354,9 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
         fdb_iterator_close(fit);
     } else if (opt->scan_mode == SCAN_BY_SEQ) {
         fs = fdb_iterator_sequence_init(db, &fit, 0, -1, 0x0);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return;
+        }
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
             if (fs == FDB_RESULT_SUCCESS) {

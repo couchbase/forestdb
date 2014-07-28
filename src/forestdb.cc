@@ -810,6 +810,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
     fdb_seqnum_t seqnum = 0;
+    fdb_seqtree_opt_t seqtree_opt = config->seqtree_opt;
     uint64_t ndocs = 0;
     uint64_t datasize = 0;
     uint64_t last_wal_flush_hdr_bid = BLK_NOT_FOUND;
@@ -874,15 +875,11 @@ static fdb_status _fdb_open(fdb_handle *handle,
                          &seq_root_bid, &ndocs, &nlivenodes,
                          &datasize, &last_wal_flush_hdr_bid,
                          &compacted_filename, &prev_filename);
-        if ( (seq_root_bid == BLK_NOT_FOUND &&
-              config->seqtree_opt == FDB_SEQTREE_USE) ||
-             (seq_root_bid != BLK_NOT_FOUND &&
-              config->seqtree_opt == FDB_SEQTREE_NOT_USE) ) {
-            // Exception cases: return error
-            // 1. No seq tree in the DB file, but user enables seq tree option
-            // 2. Seq tree exists in the DB file, but user disables seq tree option
-            filemgr_close(handle->file, true, &handle->log_callback);
-            return FDB_RESULT_INVALID_CONFIG;
+        // use existing setting
+        if (seq_root_bid == BLK_NOT_FOUND) {
+            seqtree_opt = FDB_SEQTREE_NOT_USE;
+        } else {
+            seqtree_opt = FDB_SEQTREE_USE;
         }
         seqnum = filemgr_get_seqnum(handle->file);
     }
@@ -931,6 +928,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     handle->dhandle->log_callback = &handle->log_callback;
 
     handle->config = *config;
+    handle->config.seqtree_opt = seqtree_opt;
     handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
 
     handle->new_file = NULL;

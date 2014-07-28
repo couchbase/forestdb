@@ -317,12 +317,8 @@ void seq_tree_exception_test()
     // reopen with seq tree option
     fconfig.seqtree_opt = FDB_SEQTREE_USE;
     status = fdb_open(&db, "./dummy1", &fconfig);
-    // must return error
-    TEST_CHK(status != FDB_RESULT_SUCCESS);
-
-    // reopen
-    fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
-    status = fdb_open(&db, "./dummy1", &fconfig);
+    // must succeed
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "seq_tree_exception_test");
 
@@ -382,8 +378,9 @@ void seq_tree_exception_test()
     // reopen with an option disabling seq tree
     fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
     status = fdb_open(&db, "./dummy1", &fconfig);
-    // must return error
-    TEST_CHK(status != FDB_RESULT_SUCCESS);
+    // must succeed
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(db);
 
     // free all documents
     for (i=0;i<n;++i){
