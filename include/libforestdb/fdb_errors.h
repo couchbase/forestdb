@@ -146,6 +146,10 @@ typedef enum {
      */
     FDB_RESULT_FAIL_BY_COMPACTION = -28,
     /**
+     * Filename is too long.
+     */
+    FDB_RESULT_TOO_LONG_FILENAME = -29,
+    /**
      * General database opertion fails.
      */
     FDB_RESULT_FAIL = -100

@@ -49,7 +49,7 @@
 #endif
 
 #define COMPACTOR_META_VERSION (1)
-#define MAX_FNAMELEN (256)
+#define MAX_FNAMELEN (FDB_MAX_FILENAME_LEN)
 
 // variables for initialization
 static volatile uint8_t compactor_initialized = 0;

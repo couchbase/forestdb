@@ -69,10 +69,18 @@ extern "C" {
 #define SHELL_DEL "del "
 #define SHELL_COPY "copy "
 #define SHELL_MOVE "move "
+#define SHELL_MKDIR "mkdir "
+#define SHELL_RMDIR "rd /s/q "
+#define SHELL_DMT "\\"
+#define SHELL_MAX_PATHLEN (256)
 #else
 #define SHELL_DEL "rm -rf "
 #define SHELL_COPY "cp "
 #define SHELL_MOVE "mv "
+#define SHELL_MKDIR "mkdir "
+#define SHELL_RMDIR SHELL_DEL
+#define SHELL_DMT "/"
+#define SHELL_MAX_PATHLEN (1024)
 #endif
 
 #include "memleak.h"

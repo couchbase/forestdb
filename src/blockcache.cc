@@ -136,7 +136,7 @@ void _pl(struct list *list, uint64_t begin, uint64_t n)
     uint64_t c = 0;
     struct list_elem *e;
     struct bcache_item *item;
-    char fname_buf[256];
+    char fname_buf[FDB_MAX_FILENAME_LEN];
     uint8_t marker;
 
     e = list_begin(list);

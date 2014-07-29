@@ -129,8 +129,8 @@ void fdb_fetch_header(void *header_buf,
                       char **old_filename)
 {
     size_t offset = 0;
-    uint8_t new_filename_len;
-    uint8_t old_filename_len;
+    uint16_t new_filename_len;
+    uint16_t old_filename_len;
 
     seq_memcpy(trie_root_bid, (uint8_t *)header_buf + offset,
                sizeof(bid_t), offset);
@@ -157,17 +157,20 @@ void fdb_fetch_header(void *header_buf,
     *last_wal_flush_hdr_bid = _endian_decode(*last_wal_flush_hdr_bid);
 
     seq_memcpy(&new_filename_len, (uint8_t *)header_buf + offset,
-               sizeof(uint8_t), offset);
+               sizeof(new_filename_len), offset);
+    new_filename_len = _endian_decode(new_filename_len);
     seq_memcpy(&old_filename_len, (uint8_t *)header_buf + offset,
-               sizeof(uint8_t), offset);
+               sizeof(old_filename_len), offset);
+    old_filename_len = _endian_decode(old_filename_len);
     if (new_filename_len) {
         *new_filename = (char*)((uint8_t *)header_buf + offset);
     }
-    offset += FDB_MAX_FILENAME_LEN;
+    offset += new_filename_len;
     if (old_filename && old_filename_len) {
         *old_filename = (char *) malloc(old_filename_len);
-        seq_memcpy(*old_filename, (uint8_t *)header_buf + offset +
-                   new_filename_len, old_filename_len, offset);
+        seq_memcpy(*old_filename,
+                   (uint8_t *)header_buf + offset,
+                   old_filename_len, offset);
     }
 }
 
@@ -821,7 +824,16 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
     uint64_t nlivenodes = 0;
     bid_t hdr_bid;
-    char actual_filename[256];
+    char actual_filename[FDB_MAX_FILENAME_LEN];
+
+    if (filename == NULL) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    if (strlen(filename) > (FDB_MAX_FILENAME_LEN - 8)) {
+        // filename (including path) length is supported up to
+        // (FDB_MAX_FILENAME_LEN - 8) bytes.
+        return FDB_RESULT_TOO_LONG_FILENAME;
+    }
 
     fconfig.blocksize = config->blocksize;
     fconfig.ncacheblock = config->buffercache_size / config->blocksize;
@@ -1367,7 +1379,7 @@ void fdb_check_file_reopen(fdb_handle *handle)
         uint64_t ndocs, datasize, nlivenodes, last_wal_flush_hdr_bid;
         size_t header_len;
         char *new_filename;
-        uint8_t *buf = alca(uint8_t, BLK_DBHEADER_SIZE);
+        uint8_t *buf = alca(uint8_t, handle->config.blocksize);
         bid_t trie_root_bid, seq_root_bid;
         fdb_config config = handle->config;
 
@@ -1455,7 +1467,7 @@ void fdb_check_file_reopen(fdb_handle *handle)
             // close the current file and newly open the new file
             if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
                 // compaction daemon mode .. just close and then open
-                char filename[256];
+                char filename[FDB_MAX_FILENAME_LEN];
                 strcpy(filename, handle->filename);
                 _fdb_close(handle);
                 _fdb_open(handle, filename, &config);
@@ -2106,25 +2118,27 @@ static uint64_t _fdb_set_file_header(fdb_handle *handle)
 {
     /*
     <ForestDB header>
-    [0000]: BID of root node of root B+Tree of HB+Trie: 8 bytes
-    [0008]: BID of root node of seq B+Tree: 8 bytes (optional)
-    [0016]: # of live documents: 8 bytes
-    [0024]: # of live B+Tree nodes: 8 bytes
-    [0032]: Data size (byte): 8 bytes
-    [0040]: BID of the DB header created when last WAL flush: 8 bytes
-    [0048]: Size of newly compacted target file name : 1 byte
-    [0049]: Size of old file name before compaction :  1 byte
-    [0050]: File name of newly compacted file : 256 bytes
-    [0306]: File name of old file before compcation : 256 bytes
-    [0562]: CRC32: 4 bytes
-    [total size: 566 bytes] BLK_DBHEADER_SIZE must be incremented on new fields
+    [offset]: (content)
+    [     0]: BID of root node of root B+Tree of HB+Trie: 8 bytes
+    [     8]: BID of root node of seq B+Tree: 8 bytes (0xFF.. if not used)
+    [    16]: # of live documents: 8 bytes
+    [    24]: # of live B+Tree nodes: 8 bytes
+    [    32]: Data size (byte): 8 bytes
+    [    40]: BID of the DB header created when last WAL flush: 8 bytes
+    [    48]: Size of newly compacted target file name : 2 bytes
+    [    50]: Size of old file name before compaction :  2 bytes
+    [    52]: File name of newly compacted file : x bytes
+    [  52+x]: File name of old file before compcation : y bytes
+    [52+x+y]: CRC32: 4 bytes
+    total size (header's length): 56+x+y bytes
     */
-    uint8_t buf[BLK_DBHEADER_SIZE];
+    uint8_t *buf = alca(uint8_t, handle->config.blocksize);
+    uint16_t new_filename_len = 0;
+    uint16_t old_filename_len = 0;
+    uint16_t _edn_safe_16;
     uint32_t crc;
     uint64_t _edn_safe_64;
     size_t offset = 0;
-    size_t new_filename_len = 0;
-    size_t old_filename_len = 0;
     struct filemgr *cur_file;
 
     cur_file = (handle->file->new_file)?(handle->file->new_file):
@@ -2161,35 +2175,31 @@ static uint64_t _fdb_set_file_header(fdb_handle *handle)
     // last header bid
     _edn_safe_64 = _endian_encode(handle->last_wal_flush_hdr_bid);
     seq_memcpy(buf + offset, &_edn_safe_64,
-        sizeof(handle->last_wal_flush_hdr_bid), offset);
+               sizeof(handle->last_wal_flush_hdr_bid), offset);
 
     // size of newly compacted target file name
     if (handle->file->new_file) {
         new_filename_len = strlen(handle->file->new_file->filename) + 1;
     }
-    seq_memcpy(buf + offset, &new_filename_len, 1, offset);
+    _edn_safe_16 = _endian_encode(new_filename_len);
+    seq_memcpy(buf + offset, &_edn_safe_16, sizeof(new_filename_len), offset);
 
     // size of old filename before compaction
     if (handle->file->old_filename) {
         old_filename_len = strlen(handle->file->old_filename) + 1;
     }
-    seq_memcpy(buf + offset, &old_filename_len, 1, offset);
+    _edn_safe_16 = _endian_encode(old_filename_len);
+    seq_memcpy(buf + offset, &_edn_safe_16, sizeof(old_filename_len), offset);
 
     if (new_filename_len) {
-        memcpy(buf + offset, handle->file->new_file->filename,
-               new_filename_len);
-        offset += new_filename_len;
+        seq_memcpy(buf + offset, handle->file->new_file->filename,
+                   new_filename_len, offset);
     }
-    memset(buf + offset, 0, FDB_MAX_FILENAME_LEN - new_filename_len);
-    offset += (FDB_MAX_FILENAME_LEN - new_filename_len);
 
     if (old_filename_len) {
-        memcpy(buf + offset, handle->file->old_filename,
-               old_filename_len);
-        offset += old_filename_len;
+        seq_memcpy(buf + offset, handle->file->old_filename,
+                   old_filename_len, offset);
     }
-    memset(buf + offset, 0, FDB_MAX_FILENAME_LEN - old_filename_len);
-    offset += (FDB_MAX_FILENAME_LEN - old_filename_len);
 
     // crc32
     crc = chksum(buf, offset);
@@ -2623,11 +2633,14 @@ fdb_status fdb_compact_file(fdb_handle *handle,
         filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_INVALID_ARGS;
     }
+    if (strlen(new_filename) > FDB_MAX_FILENAME_LEN - 8) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_TOO_LONG_FILENAME;
+    }
     if (!strcmp(new_filename, handle->file->filename)) {
         filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_INVALID_ARGS;
     }
-
     if (filemgr_is_rollback_on(handle->file)) {
         filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_FAIL_BY_ROLLBACK;
@@ -2809,7 +2822,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
     } else if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
         // auto compaction
         bool ret;
-        char nextfile[256];
+        char nextfile[FDB_MAX_FILENAME_LEN];
         fdb_status fs;
         // set compaction flag
         ret = compactor_switch_compaction_flag(handle->file, true);
@@ -2842,9 +2855,9 @@ fdb_status fdb_switch_compaction_mode(fdb_handle *handle,
     int ret;
     fdb_status fs;
     fdb_config config;
-    char vfilename[256];
-    char filename[256];
-    char metafile[256];
+    char vfilename[FDB_MAX_FILENAME_LEN];
+    char filename[FDB_MAX_FILENAME_LEN];
+    char metafile[FDB_MAX_FILENAME_LEN];
 
     if (!handle || new_threshold > 100) {
         return FDB_RESULT_INVALID_ARGS;

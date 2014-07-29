@@ -269,6 +269,84 @@ void basic_test()
     TEST_RESULT("basic test");
 }
 
+void long_filename_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, j, r;
+    int n=15, m=1000;
+    char keyword[] = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    char filename[4096], cmd[4096], temp[4096];
+    fdb_handle *db;
+    fdb_config config;
+    fdb_status s;
+    size_t rvalue_len;
+    char key[256], value[256];
+    void *rvalue;
+
+    config = fdb_get_default_config();
+    sprintf(temp, SHELL_DMT"%s", keyword);
+
+    // filename longer than 1024 bytes
+    sprintf(filename, "%s", keyword);
+    while (strlen(filename) < 1024) {
+        strcat(filename, keyword);
+    }
+    s = fdb_open(&db, filename, &config);
+    TEST_CHK(s == FDB_RESULT_TOO_LONG_FILENAME);
+
+    // make nested directories for long path
+    // but shorter than 1024 bytes (windows: 256 bytes)
+    sprintf(cmd, SHELL_RMDIR" %s", keyword);
+    r = system(cmd);
+    for (i=0;i<n;++i) {
+        sprintf(cmd, SHELL_MKDIR" %s", keyword);
+        for (j=0;j<i;++j){
+            strcat(cmd, temp);
+        }
+        if (strlen(cmd) > SHELL_MAX_PATHLEN) break;
+        r = system(cmd);
+    }
+
+    // create DB file
+    sprintf(filename, "%s", keyword);
+    for (j=0;j<i-1;++j){
+        strcat(filename, temp);
+    }
+    strcat(filename, SHELL_DMT"dbfile");
+    s = fdb_open(&db, filename, &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // === write ===
+    for (i=0;i<m;++i){
+        sprintf(key, "key%08d", i);
+        sprintf(value, "value%08d", i);
+        s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    s = fdb_commit(db, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // === read ===
+    for (i=0;i<m;++i){
+        sprintf(key, "key%08d", i);
+        s = fdb_get_kv(db, key, strlen(key)+1, &rvalue, &rvalue_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        free(rvalue);
+    }
+
+    s = fdb_close(db);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_shutdown();
+
+    sprintf(cmd, SHELL_RMDIR" %s", keyword);
+    r = system(cmd);
+
+    memleak_end();
+    TEST_RESULT("long filename test");
+}
+
 void seq_tree_exception_test()
 {
     TEST_INIT();
@@ -4180,6 +4258,7 @@ void long_key_test()
 
 int main(){
     basic_test();
+    long_filename_test();
     seq_tree_exception_test();
     wal_commit_test();
     multi_version_test();
