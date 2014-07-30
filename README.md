@@ -4,7 +4,7 @@ ForestDB is a key-value storage engine that is developed by Couchbase Caching an
 
 Compared with traditional B+-Tree based storage engines, ForestDB shows significantly better read and write performance with less storage overhead. ForestDB has been tested on various server OS environments (Centos, Ubuntu, Mac OS x, Windows) and mobile OSs (iOS, Android).
 
-Please refer to the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki) for more details.
+Please visit the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki) for more details.
 
 ## Main Features
 
