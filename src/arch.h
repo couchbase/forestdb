@@ -54,6 +54,7 @@
 
     #define INLINE extern inline
 
+    #define _X64 "llx"
     #define _F64 "lld"
     #define _FSEC "ld"
     #define _FUSEC "d"
@@ -116,6 +117,7 @@
 
     #define INLINE __inline
 
+    #define _X64 "llx"
     #define _F64 "lld"
     #define _FSEC "ld"
     #define _FUSEC "ld"
@@ -178,6 +180,7 @@
 
     #define INLINE __inline
 
+    #define _X64 PRIx64
     #define _F64 PRIu64
     #define _FSEC "ld"
     #define _FUSEC "ld"
@@ -244,6 +247,7 @@
     #include "gettimeofday_vs.h"
     #define INLINE static inline
     //#define alloca(size) _alloca(size)
+    #define _X64 "llx"
     #define _F64 "llu"
     #define _CRT_SECURE_NO_WARNINGS
     #define gettimeofday gettimeofday_vs
@@ -254,6 +258,7 @@
 #else
     #include <inttypes.h>
     #include <windows.h>
+    #define _X64 PRIx64
     #define _F64 PRIu64
     #define INLINE __inline
 #endif
@@ -308,6 +313,7 @@
 
     #define INLINE __inline
 
+    #define _X64 PRIx64
     #define _F64 PRIu64
     #define _FSEC "ld"
     #define _FUSEC "ld"
