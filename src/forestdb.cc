@@ -1078,7 +1078,8 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
                           const void *meta, size_t metalen,
                           const void *body, size_t bodylen)
 {
-    if (doc == NULL || keylen > FDB_MAX_KEYLEN) {
+    if (doc == NULL || keylen > FDB_MAX_KEYLEN ||
+        metalen > FDB_MAX_METALEN || bodylen > FDB_MAX_BODYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1136,7 +1137,8 @@ fdb_status fdb_doc_update(fdb_doc **doc,
                           const void *meta, size_t metalen,
                           const void *body, size_t bodylen)
 {
-    if (doc == NULL) {
+    if (doc == NULL ||
+        metalen > FDB_MAX_METALEN || bodylen > FDB_MAX_BODYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
     if (*doc == NULL) {
