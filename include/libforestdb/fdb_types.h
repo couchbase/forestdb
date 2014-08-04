@@ -199,7 +199,7 @@ typedef struct {
      */
     fdb_open_flags flags;
     /**
-     * Maximum size (bytes) of temporary buffer for compaction (16MB by default).
+     * Maximum size (bytes) of temporary buffer for compaction (4MB by default).
      * This is a local config to each ForestDB database instance.
      */
     uint32_t compaction_buf_maxsize;
