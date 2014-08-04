@@ -1089,12 +1089,14 @@ void db_drop_test()
 
 struct work_thread_args{
     int tid;
+    size_t nthreads;
     size_t ndocs;
     size_t writer;
     fdb_doc **doc;
     size_t time_sec;
     size_t nbatch;
     size_t compact_term;
+    int *n_opened;
     int *filename_count;
     spin_t *filename_count_lock;
     size_t nops;
@@ -1129,6 +1131,23 @@ void *_worker_thread(void *voidargs)
     fdb_open(&db, temp, args->config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "worker_thread");
+
+    // wait until all other threads open the DB file.
+    // (to avoid performing compaction before opening the file)
+    spin_lock(args->filename_count_lock);
+    *args->n_opened += 1;
+    spin_unlock(args->filename_count_lock);
+    do {
+        spin_lock(args->filename_count_lock);
+        if (*args->n_opened == args->nthreads) {
+            // all threads open the DB file
+            spin_unlock(args->filename_count_lock);
+            break;
+        }
+        spin_unlock(args->filename_count_lock);
+        // sleep 1 sec
+        sleep(1);
+    } while(1);
 
     gettimeofday(&ts_begin, NULL);
 
@@ -1228,6 +1247,7 @@ void multi_thread_test(
     fdb_status status;
 
     int filename_count = 1;
+    int n_opened = 0;
     spin_t filename_count_lock;
     spin_init(&filename_count_lock);
 
@@ -1287,12 +1307,14 @@ void multi_thread_test(
     // create workers
     for (i=0;i<n;++i){
         args[i].tid = i;
+        args[i].nthreads = n;
         args[i].writer = ((i<nwriters)?(1):(0));
         args[i].ndocs = ndocs;
         args[i].doc = doc;
         args[i].time_sec = time_sec;
         args[i].nbatch = nbatch;
         args[i].compact_term = compact_term;
+        args[i].n_opened = &n_opened;
         args[i].filename_count = &filename_count;
         args[i].filename_count_lock = &filename_count_lock;
         args[i].config = &fconfig;
