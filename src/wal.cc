@@ -170,6 +170,10 @@ static wal_result _wal_insert(fdb_txn *txn,
                 if (!(item->flag & WAL_ITEM_COMMITTED)) {
                     // there is no committed entry .. insert the entry from compactor
                     le = NULL;
+                    // increase num_docs
+                    // (if committed entry already exists,
+                    //  num_docs doesn't need to be increased)
+                    file->wal->num_docs++;
                 }
             }
         }
@@ -243,6 +247,9 @@ static wal_result _wal_insert(fdb_txn *txn,
         if (!is_compactor) {
             // also insert into transaction's list
             list_push_back(txn->items, &item->list_elem_txn);
+        } else {
+            // increase num_docs
+            file->wal->num_docs++;
         }
 
         // insert header into wal global list
