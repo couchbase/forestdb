@@ -72,6 +72,7 @@ struct filemgr_header{
     void *data;
 };
 
+#define DLOCK_MAX (41) /* a prime number */
 struct wal;
 struct fnamedic_item;
 struct filemgr {
@@ -96,6 +97,8 @@ struct filemgr {
 
     // spin lock for small region
     spin_t lock;
+    // spin lock for data consistency
+    spin_t datalock[DLOCK_MAX];
     // spin lock for race condition between separate writer
 #ifdef __FILEMGR_MUTEX_LOCK
     mutex_t mutex;

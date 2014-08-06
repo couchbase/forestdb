@@ -1153,6 +1153,7 @@ INLINE void _bcache_free_bcache_item(struct hash_elem *h)
 {
     struct bcache_item *item = _get_entry(h, struct bcache_item, hash_elem);
     free(item->addr);
+    spin_destroy(&item->lock);
     free(item);
 }
 
@@ -1184,5 +1185,9 @@ void bcache_shutdown()
     spin_lock(&bcache_lock);
     hash_free_active(&fnamedic, _bcache_free_fnamedic);
     spin_unlock(&bcache_lock);
+
+    spin_destroy(&bcache_lock);
+    spin_destroy(&freelist_lock);
+    spin_destroy(&filelist_lock);
 }
 
