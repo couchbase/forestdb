@@ -432,6 +432,10 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     _filemgr_read_header(file);
 
     spin_init(&file->lock);
+    int i;
+    for (i=0;i<DLOCK_MAX;++i) {
+        spin_init(&file->datalock[i]);
+    }
 
 #ifdef __FILEMGR_MUTEX_LOCK
     mutex_init(&file->mutex);
@@ -691,6 +695,10 @@ static void _filemgr_free_func(struct hash_elem *h)
 
     // destroy locks
     spin_destroy(&file->lock);
+    int i;
+    for (i=0;i<DLOCK_MAX;++i) {
+        spin_destroy(&file->datalock[i]);
+    }
 #ifdef __FILEMGR_MUTEX_LOCK
     mutex_destroy(&file->mutex);
 #else
@@ -833,59 +841,31 @@ void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                   err_log_callback *log_callback)
 {
+    size_t lock_no;
     ssize_t r;
     uint64_t pos = bid * file->blocksize;
     assert(pos < file->pos);
 
     if (global_config.ncacheblock > 0) {
+        lock_no = bid % DLOCK_MAX;
+        spin_lock(&file->datalock[lock_no]);
         r = bcache_read(file, bid, buf);
         if (r == 0) {
             // cache miss
-            if (file->status != FILE_COMPACT_OLD_SCAN) {
-                // if normal file, just read a block
-                r = file->ops->pread(file->fd, buf, file->blocksize, pos);
-                if (r != file->blocksize) {
-                    _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
-                    // TODO: This function should return an appropriate fdb_status.
-                    return;
-                }
-#ifdef __CRC32
-                _filemgr_crc32_check(file, buf);
-#endif
-
-                bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
-            } else {
-                // if file is undergoing compaction, bulk read and bulk cache prefetch
-                uint64_t pos_bulk;
-                uint64_t count_bulk;
-                uint64_t nblocks, i;
-                void *bulk_buf;
-
-                pos_bulk = (bid / FILEMGR_BULK_READ);
-                pos_bulk *= FILEMGR_BULK_READ * file->blocksize;
-                count_bulk = FILEMGR_BULK_READ * file->blocksize;
-                if (pos_bulk + count_bulk > file->last_commit) {
-                    count_bulk = file->last_commit - pos_bulk;
-                }
-                nblocks = count_bulk / file->blocksize;
-                malloc_align(bulk_buf, FDB_SECTOR_SIZE, count_bulk);
-                r = file->ops->pread(file->fd, bulk_buf, count_bulk, pos_bulk);
-                if (r < 0) {
-                    _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
-                    free_align(bulk_buf);
-                    return;
-                }
-
-                for (i=0;i<nblocks;++i){
-                    bcache_write(file, pos_bulk / file->blocksize + i,
-                                 (uint8_t *)bulk_buf + i*file->blocksize, BCACHE_REQ_CLEAN);
-                }
-                memcpy(buf, (uint8_t *)bulk_buf + (bid*file->blocksize - pos_bulk),
-                       file->blocksize);
-
-                free_align(bulk_buf);
+            // if normal file, just read a block
+            r = file->ops->pread(file->fd, buf, file->blocksize, pos);
+            if (r != file->blocksize) {
+                _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
+                // TODO: This function should return an appropriate fdb_status.
+                spin_unlock(&file->datalock[lock_no]);
+                return;
             }
+#ifdef __CRC32
+            _filemgr_crc32_check(file, buf);
+#endif
+            bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
         }
+        spin_unlock(&file->datalock[lock_no]);
     } else {
         r = file->ops->pread(file->fd, buf, file->blocksize, pos);
         if (r != file->blocksize) {
@@ -904,11 +884,14 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
 {
     assert(offset + len <= file->blocksize);
 
+    size_t lock_no;
     ssize_t r = 0;
     uint64_t pos = bid * file->blocksize + offset;
     assert(pos >= file->last_commit);
 
     if (global_config.ncacheblock > 0) {
+        lock_no = bid % DLOCK_MAX;
+        spin_lock(&file->datalock[lock_no]);
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
             bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
@@ -927,6 +910,7 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
                 _filemgr_release_temp_buf(_buf);
             }
         }
+        spin_unlock(&file->datalock[lock_no]);
     } else {
 
 #ifdef __CRC32
