@@ -86,6 +86,10 @@ enum {
     FDB_WAL_PENDING = 2
 };
 
+struct wal_flush_items {
+    struct avl_tree tree;
+};
+
 struct wal {
     uint8_t flag;
     size_t size; // total # entries in WAL
@@ -121,14 +125,18 @@ wal_result wal_txn_migration(void *dbhandle,
                              struct filemgr *new_file,
                              wal_doc_move_func *move_doc);
 wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func);
+wal_result wal_release_flushed_items(struct filemgr *file,
+                                     wal_flush_items *flush_items);
 wal_result wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
-                     wal_get_old_offset_func *get_old_offset);
+                     wal_get_old_offset_func *get_old_offset,
+                     wal_flush_items *flush_items);
 wal_result wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
-                                  wal_get_old_offset_func *get_old_offset);
+                                  wal_get_old_offset_func *get_old_offset,
+                                  wal_flush_items *flush_items);
 wal_result wal_discard(struct filemgr *file, fdb_txn *txn);
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
