@@ -528,13 +528,59 @@ int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
+wal_result wal_release_flushed_items(struct filemgr *file,
+                                     wal_flush_items *flush_items)
+{
+    struct avl_tree *tree = &flush_items->tree;
+    struct avl_node *a;
+    struct wal_item *item;
+    struct wal_item_header *header;
+
+    // scan and remove entries in the avl-tree
+    spin_lock(&file->wal->lock);
+    while (1) {
+        if ((a = avl_first(tree)) == NULL) {
+            break;
+        }
+        item = _get_entry(a, struct wal_item, avl);
+        avl_remove(tree, &item->avl);
+
+        list_remove(&item->header->items, &item->list_elem);
+        hash_remove(&file->wal->hash_byseq, &item->he_seq);
+        if (list_begin(&item->header->items) == NULL) {
+            // wal_item_header becomes empty
+            // free header and remove from hash table & wal list
+            list_remove(&file->wal->list, &item->header->list_elem);
+            hash_remove(&file->wal->hash_bykey, &item->header->he_key);
+            free(item->header->key);
+            free(item->header);
+        }
+
+        if (item->action == WAL_ACT_LOGICAL_REMOVE ||
+            item->action == WAL_ACT_REMOVE) {
+            --file->wal->num_deletes;
+        }
+        file->wal->num_docs--;
+        file->wal->size--;
+        file->wal->num_flushable--;
+        if (item->action != WAL_ACT_REMOVE) {
+            file->wal->datasize -= item->doc_size;
+        }
+        free(item);
+    }
+    spin_unlock(&file->wal->lock);
+
+    return WAL_RESULT_SUCCESS;
+}
+
 wal_result _wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
+                     wal_flush_items *flush_items,
                      bool by_compactor)
 {
-    struct avl_tree tree;
+    struct avl_tree *tree = &flush_items->tree;
     struct avl_node *a;
     struct list_elem *e, *ee;
     struct wal_item *item;
@@ -542,7 +588,7 @@ wal_result _wal_flush(struct filemgr *file,
 
     // sort by old byte-offset of the document (for sequential access)
     spin_lock(&file->wal->lock);
-    avl_init(&tree, NULL);
+    avl_init(tree, NULL);
     e = list_begin(&file->wal->list);
     while(e){
         header = _get_entry(e, struct wal_item_header, list_elem);
@@ -561,7 +607,7 @@ wal_result _wal_flush(struct filemgr *file,
             if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
                 item->old_offset = get_old_offset(dbhandle, item);
                 item->flag |= WAL_ITEM_FLUSH_READY;
-                avl_insert(&tree, &item->avl, _wal_flush_cmp);
+                avl_insert(tree, &item->avl, _wal_flush_cmp);
             }
             ee = list_prev(ee);
         }
@@ -570,41 +616,14 @@ wal_result _wal_flush(struct filemgr *file,
     spin_unlock(&file->wal->lock);
 
     // scan and flush entries in the avl-tree
-    while (1) {
-        if ((a = avl_first(&tree)) == NULL) {
-            break;
-        }
+    a = avl_first(tree);
+    while (a) {
         item = _get_entry(a, struct wal_item, avl);
-        avl_remove(&tree, &item->avl);
+        a = avl_next(a);
 
         // check weather this item is updated after insertion into tree
         if (item->flag & WAL_ITEM_FLUSH_READY) {
             flush_func(dbhandle, item);
-
-            spin_lock(&file->wal->lock);
-            list_remove(&item->header->items, &item->list_elem);
-            hash_remove(&file->wal->hash_byseq, &item->he_seq);
-            if (list_begin(&item->header->items) == NULL) {
-                // wal_item_header becomes empty
-                // free header and remove from hash table & wal list
-                list_remove(&file->wal->list, &item->header->list_elem);
-                hash_remove(&file->wal->hash_bykey, &item->header->he_key);
-                free(item->header->key);
-                free(item->header);
-            }
-
-            if (item->action == WAL_ACT_LOGICAL_REMOVE ||
-                item->action == WAL_ACT_REMOVE) {
-                --file->wal->num_deletes;
-            }
-            file->wal->num_docs--;
-            file->wal->size--;
-            file->wal->num_flushable--;
-            if (item->action != WAL_ACT_REMOVE) {
-                file->wal->datasize -= item->doc_size;
-            }
-            free(item);
-            spin_unlock(&file->wal->lock);
         }
     }
 
@@ -614,17 +633,21 @@ wal_result _wal_flush(struct filemgr *file,
 wal_result wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
-                     wal_get_old_offset_func *get_old_offset)
+                     wal_get_old_offset_func *get_old_offset,
+                     wal_flush_items *flush_items)
 {
-    return _wal_flush(file, dbhandle, flush_func, get_old_offset, false);
+    return _wal_flush(file, dbhandle, flush_func, get_old_offset,
+                      flush_items, false);
 }
 
 wal_result wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
-                                  wal_get_old_offset_func *get_old_offset)
+                                  wal_get_old_offset_func *get_old_offset,
+                                  wal_flush_items *flush_items)
 {
-    return _wal_flush(file, dbhandle, flush_func, get_old_offset, true);
+    return _wal_flush(file, dbhandle, flush_func, get_old_offset,
+                      flush_items, true);
 }
 
 // discard entries in txn
