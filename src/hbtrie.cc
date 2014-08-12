@@ -1094,14 +1094,20 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
         //3 check whether there is skipped prefix
         if (curchunkno - prevchunkno > 1) {
             // prefix comparison (find the first different chunk)
-            int diffchunkno = _hbtrie_find_diff_chunk(
-                trie, hbmeta.prefix, key + trie->chunksize * (prevchunkno+1),
-                0, curchunkno - (prevchunkno+1));
+            int diffchunkno = _hbtrie_find_diff_chunk(trie, hbmeta.prefix,
+                                  key + trie->chunksize * (prevchunkno+1),
+                                  0, curchunkno - (prevchunkno+1));
             if (diffchunkno < curchunkno - (prevchunkno+1)) {
                 //3 3. create sub-tree between parent and child tree
 
                 // metadata (prefix) update in btreeitem->btree
-                int new_prefixlen = trie->chunksize * (curchunkno - (prevchunkno + diffchunkno + 1) - 1);
+                int new_prefixlen = trie->chunksize *
+                                    (curchunkno - (prevchunkno + diffchunkno + 1) - 1);
+                // backup old prefix
+                int old_prefixlen = hbmeta.prefix_len;
+                uint8_t *old_prefix = alca(uint8_t, old_prefixlen);
+                memcpy(old_prefix, hbmeta.prefix, old_prefixlen);
+
                 if (new_prefixlen > 0) {
                     uint8_t *new_prefix = alca(uint8_t, new_prefixlen);
                     memcpy(new_prefix,
@@ -1109,33 +1115,36 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                                trie->chunksize * (diffchunkno + 1),
                            new_prefixlen);
                     _hbtrie_store_meta(trie, &meta.size, curchunkno, HBMETA_NORMAL,
-                        new_prefix, new_prefixlen, hbmeta.value, buf);
+                                       new_prefix, new_prefixlen, hbmeta.value, buf);
                 }else{
                     _hbtrie_store_meta(trie, &meta.size, curchunkno, HBMETA_NORMAL,
-                        NULL, 0, hbmeta.value, buf);
+                                       NULL, 0, hbmeta.value, buf);
                 }
+                // update metadata for old b-tree
                 btree_update_meta(&btreeitem->btree, &meta);
 
                 // split prefix and create new sub-tree
-                _hbtrie_store_meta(
-                        trie, &meta.size, prevchunkno + diffchunkno + 1, HBMETA_NORMAL,
-                        hbmeta.prefix, diffchunkno * trie->chunksize, NULL, buf);
+                _hbtrie_store_meta(trie, &meta.size,
+                                   prevchunkno + diffchunkno + 1,
+                                   HBMETA_NORMAL, hbmeta.prefix,
+                                   diffchunkno * trie->chunksize, NULL, buf);
 
-                // new b-tree
-                btreeitem_new = (struct btreelist_item *)mempool_alloc(sizeof(struct btreelist_item));
+                // create new b-tree
+                btreeitem_new = (struct btreelist_item *)
+                                mempool_alloc(sizeof(struct btreelist_item));
                 btreeitem_new->chunkno = prevchunkno + diffchunkno + 1;
-                r = btree_init(
-                        &btreeitem_new->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
-                        trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
+                r = btree_init(&btreeitem_new->btree, trie->btreeblk_handle,
+                               trie->btree_blk_ops, trie->btree_kv_ops,
+                               trie->btree_nodesize, trie->chunksize,
+                               trie->valuelen, 0x0, &meta);
                 btreeitem_new->btree.aux = trie->aux;
                 list_insert_before(&btreelist, &btreeitem->e, &btreeitem_new->e);
 
-                // key
+                // insert chunk for 'key'
                 chunk_new = key + (prevchunkno + diffchunkno + 1) * trie->chunksize;
                 r = btree_insert(&btreeitem_new->btree, chunk_new, value);
-                // existing btree
-                chunk_new = (uint8_t*)hbmeta.prefix +
-                            diffchunkno * trie->chunksize;
+                // insert chunk for existing btree
+                chunk_new = (uint8_t*)old_prefix + diffchunkno * trie->chunksize;
                 btreeitem_new->child_rootbid = bid_new = btreeitem->btree.root_bid;
                 // set MSB
                 _bid = _endian_encode(bid_new);
