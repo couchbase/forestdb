@@ -1102,7 +1102,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
 
                 // metadata (prefix) update in btreeitem->btree
                 int new_prefixlen = trie->chunksize *
-                                    (curchunkno - (prevchunkno + diffchunkno + 1) - 1);
+                                    (curchunkno - (prevchunkno+1) - (diffchunkno+1));
                 // backup old prefix
                 int old_prefixlen = hbmeta.prefix_len;
                 uint8_t *old_prefix = alca(uint8_t, old_prefixlen);
@@ -1126,7 +1126,7 @@ hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
                 // split prefix and create new sub-tree
                 _hbtrie_store_meta(trie, &meta.size,
                                    prevchunkno + diffchunkno + 1,
-                                   HBMETA_NORMAL, hbmeta.prefix,
+                                   HBMETA_NORMAL, old_prefix,
                                    diffchunkno * trie->chunksize, NULL, buf);
 
                 // create new b-tree
