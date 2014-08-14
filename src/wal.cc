@@ -605,9 +605,14 @@ wal_result _wal_flush(struct filemgr *file,
                 break;
             }
             if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
-                item->old_offset = get_old_offset(dbhandle, item);
                 item->flag |= WAL_ITEM_FLUSH_READY;
+                // if WAL_ITEM_FLUSH_READY flag is set,
+                // this item becomes immutable, so that
+                // no other concurrent thread modifies it.
+                spin_unlock(&file->wal->lock);
+                item->old_offset = get_old_offset(dbhandle, item);
                 avl_insert(tree, &item->avl, _wal_flush_cmp);
+                spin_lock(&file->wal->lock);
             }
             ee = list_prev(ee);
         }
