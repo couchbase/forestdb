@@ -53,7 +53,7 @@ fdb_config get_default_config(void) {
     // Compaction threshold, 30% by default
     fconfig.compaction_threshold = FDB_DEFAULT_COMPACTION_THRESHOLD;
     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default
-    // 10 seconds by default
+    // 15 seconds by default
     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
 
     return fconfig;
