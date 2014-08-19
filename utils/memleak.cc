@@ -174,7 +174,8 @@ void memleak_end()
         if (is_leaked) {
             fprintf(stderr, "address 0x%016lx (allocated at %s:%lu, size %lu) "
                             "is not freed\n",
-                    (unsigned long)item->addr, item->file, item->line, item->size);
+                    (unsigned long)item->addr, item->file,
+                    (unsigned long)item->line, (unsigned long)item->size);
             count++;
 #ifdef _STACK_BACKTRACE
             strs = backtrace_symbols(item->btrace, item->bt_size);
