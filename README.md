@@ -19,6 +19,10 @@ Please visit the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki)
 - Manual or auto compaction can be configured per ForestDB database file.
 - Transactional support with read\_committed or read\_uncommitted isolation level.
 
+## How to build
+
+See INSTALL.MD
+
 ## How to Use
 
 Please refer to tests/fdb\_functional\_test.cc in ForestDB source directory.
