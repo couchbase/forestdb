@@ -701,7 +701,7 @@ start_seq:
         } else { // If present in HB-trie ensure it's seqnum is in range
             uint64_t _offset;
             _hbdoc.key = _doc.key;
-            _hbdoc.meta = _doc.meta;
+            _hbdoc.meta = NULL;
             hboffset = _endian_decode(hboffset);
             _offset = docio_read_doc_key_meta(iterator->handle.dhandle, hboffset, &_hbdoc);
             if (_offset == hboffset) {
@@ -714,9 +714,11 @@ start_seq:
                 _hbdoc.seqnum <= iterator->end_seqnum) {
                 free(_doc.key);
                 free(_doc.meta);
+                free(_hbdoc.meta);
                 free(_doc.body);
                 goto start_seq;
             }
+            free(_hbdoc.meta);
         }
     }
 
