@@ -182,7 +182,7 @@ INLINE int _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
         {
         filesize = filemgr_get_pos(elem->file);
         active_data = _compactor_estimate_space(elem);
-        if (active_data == 0 ||
+        if (active_data == 0 || active_data >= filesize ||
             filesize < elem->config.compaction_minimum_filesize) {
             return 0;
         }

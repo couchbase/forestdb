@@ -151,7 +151,8 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             if (remainsize >= blocksize) {
                 // write entire block
                 _add_blk_marker(handle->file, i, blocksize, marker, log_callback);
-                filemgr_write(handle->file, i, (uint8_t *)buf + offset, log_callback);
+                filemgr_write_offset(handle->file, i, 0, blocksize,
+                                     (uint8_t *)buf + offset, log_callback);
                 offset += blocksize;
                 remainsize -= blocksize;
                 handle->curpos = blocksize;
