@@ -84,6 +84,7 @@ add_library(forestdb SHARED
             ${GETTIMEOFDAY_VS}
             src/snapshot.cc
             src/transaction.cc
+            src/kv_instance.cc
             utils/memleak.cc
             utils/crc32.cc
             utils/adler32.cc
@@ -128,6 +129,7 @@ add_executable(forestdb_dump
                ${GETTIMEOFDAY_VS}
                src/snapshot.cc
                src/transaction.cc
+               src/kv_instance.cc
                utils/memleak.cc
                utils/crc32.cc
                utils/adler32.cc
@@ -250,6 +252,7 @@ add_executable(hbtrie_test
                src/blockcache.cc
                src/btree.cc
                src/btree_kv.cc
+               src/btree_fast_str_kv.cc
                src/btree_prefix_kv.cc
                src/btreeblock.cc
                src/docio.cc

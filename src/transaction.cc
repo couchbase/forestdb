@@ -30,9 +30,10 @@
 #include "memleak.h"
 
 LIBFDB_API
-fdb_status fdb_begin_transaction(fdb_handle *handle,
+fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
 {
+    fdb_handle *handle = fhandle->root;
     struct filemgr *file;
 
     if (handle->txn) {
@@ -42,6 +43,12 @@ fdb_status fdb_begin_transaction(fdb_handle *handle,
     if (filemgr_is_rollback_on(handle->file)) {
         // deny beginning transaction during rollback
         return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+    if (handle->kvs) {
+        if (handle->kvs->type == KVS_SUB) {
+            // deny transaction on sub handle
+            return FDB_RESULT_INVALID_HANDLE;
+        }
     }
 
     fdb_check_file_reopen(handle);
@@ -89,13 +96,24 @@ fdb_status fdb_begin_transaction(fdb_handle *handle,
 }
 
 LIBFDB_API
-fdb_status fdb_abort_transaction(fdb_handle *handle)
+fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
+{
+    return _fdb_abort_transaction(fhandle->root);
+}
+
+fdb_status _fdb_abort_transaction(fdb_handle *handle)
 {
     struct filemgr *file;
 
     if (handle->txn == NULL) {
         // there is no transaction started
         return FDB_RESULT_TRANSACTION_FAIL;
+    }
+    if (handle->kvs) {
+        if (handle->kvs->type == KVS_SUB) {
+            // deny transaction on sub handle
+            return FDB_RESULT_INVALID_HANDLE;
+        }
     }
 
     fdb_check_file_reopen(handle);
@@ -132,18 +150,26 @@ fdb_status fdb_abort_transaction(fdb_handle *handle)
 }
 
 LIBFDB_API
-fdb_status fdb_end_transaction(fdb_handle *handle, fdb_commit_opt_t opt)
+fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
+                               fdb_commit_opt_t opt)
 {
+    fdb_handle *handle = fhandle->root;
     struct filemgr *file;
 
     if (handle->txn == NULL) {
         // there is no transaction started
         return FDB_RESULT_TRANSACTION_FAIL;
     }
+    if (handle->kvs) {
+        if (handle->kvs->type == KVS_SUB) {
+            // deny transaction on sub handle
+            return FDB_RESULT_INVALID_HANDLE;
+        }
+    }
 
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (list_begin(handle->txn->items)) {
-        fs = fdb_commit(handle, opt);
+        fs = _fdb_commit(handle, opt);
     }
 
     if (fs == FDB_RESULT_SUCCESS) {

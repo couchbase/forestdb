@@ -77,6 +77,7 @@ struct filemgr_header{
 #define DLOCK_MAX (41) /* a prime number */
 struct wal;
 struct fnamedic_item;
+struct kvs_header;
 struct filemgr {
     char *filename; // Current file name.
     uint8_t ref_count;
@@ -97,6 +98,8 @@ struct filemgr {
     struct fnamedic_item *bcache;
     fdb_txn global_txn;
     bool in_place_compaction;
+    struct kvs_header *kv_header;
+    void (*free_kv_header)(struct filemgr *file); // callback function
 
     // spin lock for small region
     spin_t lock;

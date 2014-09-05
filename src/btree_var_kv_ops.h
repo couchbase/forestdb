@@ -22,6 +22,8 @@
 #define _get_var_kv_ops btree_fast_str_kv_get_kb64_vb64
 #define _get_var_key btree_fast_str_kv_get_key
 #define _set_var_key btree_fast_str_kv_set_key
+#define _set_var_inf_key btree_fast_str_kv_set_inf_key
+#define _is_inf_key btree_fast_str_kv_is_inf_key
 #define _free_var_key btree_fast_str_kv_free_key
 
 #endif

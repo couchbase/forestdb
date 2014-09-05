@@ -26,6 +26,8 @@ extern "C" {
 #endif
 
 void btree_fast_str_kv_set_key(void *key, void *str, size_t len);
+void btree_fast_str_kv_set_inf_key(void *key);
+int btree_fast_str_kv_is_inf_key(void *key);
 void btree_fast_str_kv_get_key(void *key, void *strbuf, size_t *len);
 void btree_fast_str_kv_free_key(void *key);
 

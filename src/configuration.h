@@ -28,8 +28,10 @@ extern "C" {
 #endif
 
     fdb_config get_default_config(void);
+    fdb_kvs_config get_default_kvs_config(void);
 
     bool validate_fdb_config(fdb_config *fconfig);
+    bool validate_fdb_kvs_config(fdb_kvs_config *kvs_config);
 
 #ifdef __cplusplus
 }

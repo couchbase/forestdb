@@ -96,6 +96,8 @@ void print_header(fdb_handle *db)
     uint64_t datasize;
     uint64_t datasize_wal;
     uint64_t last_header_bid;
+    uint64_t kv_info_offset;
+    uint64_t header_flags;
     size_t header_len;
     size_t subblock_no, idx;
     char *compacted_filename = NULL;
@@ -112,8 +114,8 @@ void print_header(fdb_handle *db)
     if (header_len > 0) {
         fdb_fetch_header(header_buf, &trie_root_bid,
                          &seq_root_bid, &ndocs, &nlivenodes,
-                         &datasize, &last_header_bid,
-                         &compacted_filename, &prev_filename);
+                         &datasize, &last_header_bid, &kv_info_offset,
+                         &header_flags, &compacted_filename, &prev_filename);
         seqnum = filemgr_get_seqnum(db->file);
         revnum = filemgr_get_header_revnum(db->file);
         ndocs_wal_inserted = wal_get_size(db->file);
@@ -170,7 +172,7 @@ void print_header(fdb_handle *db)
                datasize + datasize_wal, datasize, datasize_wal);
 
         if (last_header_bid != BLK_NOT_FOUND) {
-            printf("    DB header BID of the last WAL flush: %" _F64 
+            printf("    DB header BID of the last WAL flush: %" _F64
                    " (0x%" _X64 ", byte offset: %" _F64 ")\n",
                    last_header_bid, last_header_bid, last_header_bid * FDB_BLOCKSIZE);
         } else {
@@ -311,7 +313,7 @@ start:
 
 void scan_docs(fdb_handle *db, struct dump_option *opt)
 {
-    uint8_t *keybuf = alca(uint8_t, FDB_MAX_KEYLEN);
+    uint8_t *keybuf = alca(uint8_t, FDB_MAX_KEYLEN_INTERNAL);
     uint64_t offset;
     size_t keylen;
     hbtrie_result hr;
@@ -373,15 +375,25 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
 
 int process_file(struct dump_option *opt)
 {
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_config config;
+    fdb_kvs_config kvs_config;
     fdb_status fs;
     char *filename = opt->dump_file;
 
     config = fdb_get_default_config();
     config.buffercache_size = 0;
     config.flags = FDB_OPEN_FLAG_RDONLY;
-    fs = fdb_open(&db, filename, &config);
+    fs = fdb_open(&dbfile, filename, &config);
+    if (fs != FDB_RESULT_SUCCESS) {
+        printf("\nUnable to open %s\n", filename);
+        return -3;
+    }
+
+    kvs_config = fdb_get_default_kvs_config();
+
+    fs = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     if (fs != FDB_RESULT_SUCCESS) {
         printf("\nUnable to open %s\n", filename);
         return -3;
@@ -392,7 +404,7 @@ int process_file(struct dump_option *opt)
     printf("\n");
     scan_docs(db, opt);
 
-    fs = fdb_close(db);
+    fs = fdb_close(dbfile);
     if (fs != FDB_RESULT_SUCCESS) {
         printf("\nUnable to close %s\n", filename);
         return -4;

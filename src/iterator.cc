@@ -76,13 +76,36 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     aa = _get_entry(a, struct snap_wal_entry, avl);
     bb = _get_entry(b, struct snap_wal_entry, avl);
 
-    if (handle->config.cmp_fixed) {
-        // custom compare function for fixed-size key
-        return handle->config.cmp_fixed(aa->key, bb->key);
-    } else if (handle->config.cmp_variable) {
+    if (handle->kvs_config.custom_cmp) {
         // custom compare function for variable-length key
-        return handle->config.cmp_variable(aa->key, aa->keylen,
-                                           bb->key, bb->keylen);
+        if (handle->kvs) {
+            // multi KV instance mode
+            // KV ID should be compared separately
+            size_t size_id = sizeof(fdb_kvs_id_t);
+            fdb_kvs_id_t a_id, b_id, _a_id, _b_id;
+            _a_id = *(fdb_kvs_id_t*)aa->key;
+            _b_id = *(fdb_kvs_id_t*)bb->key;
+            a_id = _endian_decode(_a_id);
+            b_id = _endian_decode(_b_id);
+
+            if (a_id < b_id) {
+                return -1;
+            } else if (a_id > b_id) {
+                return 1;
+            } else {
+                if (aa->keylen == size_id) { // key1 < key2
+                    return -1;
+                } else if (bb->keylen == size_id) { // key1 > key2
+                    return 1;
+                }
+                return handle->kvs_config.custom_cmp(
+                            (uint8_t*)aa->key + size_id, aa->keylen - size_id,
+                            (uint8_t*)bb->key + size_id, bb->keylen - size_id);
+            }
+        } else {
+            return handle->kvs_config.custom_cmp(aa->key, aa->keylen,
+                                               bb->key, bb->keylen);
+        }
     } else {
         return _fdb_keycmp(aa->key, aa->keylen, bb->key, bb->keylen);
     }
@@ -91,13 +114,36 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
                  void *key2, size_t keylen2) {
     int cmp;
-    if (iterator->handle.config.cmp_fixed) {
-        // custom compare function for fixed size key
-        cmp = iterator->handle.config.cmp_fixed(key1, key2);
-    } else if (iterator->handle.config.cmp_variable) {
+    if (iterator->handle.kvs_config.custom_cmp) {
         // custom compare function for variable length key
-        cmp = iterator->handle.config.cmp_variable(key1, keylen1,
-                                                   key2, keylen2);
+        if (iterator->handle.kvs) {
+            // multi KV instance mode
+            // KV ID should be compared separately
+            size_t size_id = sizeof(fdb_kvs_id_t);
+            fdb_kvs_id_t a_id, b_id, _a_id, _b_id;
+            _a_id = *(fdb_kvs_id_t*)key1;
+            _b_id = *(fdb_kvs_id_t*)key2;
+            a_id = _endian_decode(_a_id);
+            b_id = _endian_decode(_b_id);
+
+            if (a_id < b_id) {
+                cmp = -1;
+            } else if (a_id > b_id) {
+                cmp = 1;
+            } else {
+                if (keylen1 == size_id) { // key1 < key2
+                    return -1;
+                } else if (keylen2 == size_id) { // key1 > key2
+                    return 1;
+                }
+                cmp = iterator->handle.kvs_config.custom_cmp(
+                          (uint8_t*)key1 + size_id, keylen1 - size_id,
+                          (uint8_t*)key2 + size_id, keylen2 - size_id);
+            }
+        } else {
+            cmp = iterator->handle.kvs_config.custom_cmp(key1, keylen1,
+                                                       key2, keylen2);
+        }
     } else {
         cmp = _fdb_keycmp(key1, keylen1, key2, keylen2);
     }
@@ -140,62 +186,89 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         fdb_sync_db_header(handle);
     }
 
-    fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
+    fdb_iterator *iterator = (fdb_iterator *)calloc(1, sizeof(fdb_iterator));
 
     iterator->handle = *handle;
     iterator->opt = opt;
 
-    iterator->_key = (void*)malloc(FDB_MAX_KEYLEN);
+    iterator->_key = (void*)malloc(FDB_MAX_KEYLEN_INTERNAL);
     iterator->_keylen = 0;
     iterator->_offset = BLK_NOT_FOUND;
     iterator->hbtrie_iterator = NULL;
     iterator->idtree_iterator = NULL;
     iterator->seqtree_iterator = NULL;
 
-    if (start_key == NULL) {
-        iterator->start_key = NULL;
-        iterator->start_keylen = 0;
-    } else {
+    if (handle->kvs) {
+        // multi KV instance mode .. prepend KV ID
+        size_t size_id = sizeof(fdb_kvs_id_t);
+        uint8_t *start_key_temp, *end_key_temp;
+        fdb_kvs_id_t _kv_id = _endian_encode(handle->kvs->id);
+
+        if (start_key == NULL) {
+            start_key_temp = alca(uint8_t, size_id);
+            memcpy(start_key_temp, &_kv_id, size_id);
+            start_key = start_key_temp;
+            start_keylen = size_id;
+        } else {
+            start_key_temp = alca(uint8_t, size_id + start_keylen);
+            memcpy(start_key_temp, &_kv_id, size_id);
+            memcpy(start_key_temp + size_id, start_key, start_keylen);
+            start_key = start_key_temp;
+            start_keylen += size_id;
+        }
+
+        if (end_key == NULL) {
+            end_key_temp = alca(uint8_t, size_id);
+            // set end_key as NULL key of the next KV ID.
+            // NULL key doesn't actually exist so that the iterator ends
+            // at the last key of the current KV ID.
+            _kv_id = _endian_encode(handle->kvs->id+1);
+            memcpy(end_key_temp, &_kv_id, size_id);
+            end_key = end_key_temp;
+            end_keylen = size_id;
+        } else {
+            end_key_temp = alca(uint8_t, size_id + end_keylen);
+            memcpy(end_key_temp, &_kv_id, size_id);
+            memcpy(end_key_temp + size_id, end_key, end_keylen);
+            end_key = end_key_temp;
+            end_keylen += size_id;
+        }
+
         iterator->start_key = (void*)malloc(start_keylen);
         memcpy(iterator->start_key, start_key, start_keylen);
         iterator->start_keylen = start_keylen;
-    }
 
-    if (end_key == NULL) {
-        iterator->end_key = NULL;
-        end_keylen = 0;
-    }else{
         iterator->end_key = (void*)malloc(end_keylen);
         memcpy(iterator->end_key, end_key, end_keylen);
-    }
-    iterator->end_keylen = end_keylen;
+        iterator->end_keylen = end_keylen;
 
-    if (handle->config.cmp_variable) {
-        // custom compare function for variable length key
-        uint8_t *initial_key = alca(uint8_t, handle->config.chunksize);
-        iterator->idtree_iterator = (struct btree_iterator *)malloc(sizeof(struct btree_iterator));
-
-        if (start_key) {
-            _set_var_key(initial_key, (void*)start_key, start_keylen);
-            br = btree_iterator_init(handle->idtree, iterator->idtree_iterator, initial_key);
-            _free_var_key(initial_key);
+    } else { // single KV instance mode
+        if (start_key == NULL) {
+            iterator->start_key = NULL;
+            iterator->start_keylen = 0;
         } else {
-            br = btree_iterator_init(handle->idtree, iterator->idtree_iterator, NULL);
+            iterator->start_key = (void*)malloc(start_keylen);
+            memcpy(iterator->start_key, start_key, start_keylen);
+            iterator->start_keylen = start_keylen;
         }
 
-        if (br == BTREE_RESULT_FAIL) {
-            _fdb_free_iterator(iterator);
-            return FDB_RESULT_ITERATOR_FAIL;
+        if (end_key == NULL) {
+            iterator->end_key = NULL;
+            end_keylen = 0;
+        }else{
+            iterator->end_key = (void*)malloc(end_keylen);
+            memcpy(iterator->end_key, end_key, end_keylen);
         }
-    } else {
-        // create an iterator handle for hb-trie
-        iterator->hbtrie_iterator = (struct hbtrie_iterator *)malloc(sizeof(struct hbtrie_iterator));
-        hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
-                                  (void *)start_key, start_keylen);
-        if (hr == HBTRIE_RESULT_FAIL) {
-            _fdb_free_iterator(iterator);
-            return FDB_RESULT_ITERATOR_FAIL;
-        }
+        iterator->end_keylen = end_keylen;
+    }
+
+    // create an iterator handle for hb-trie
+    iterator->hbtrie_iterator = (struct hbtrie_iterator *)malloc(sizeof(struct hbtrie_iterator));
+    hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
+                              (void *)start_key, start_keylen);
+    if (hr == HBTRIE_RESULT_FAIL) {
+        _fdb_free_iterator(iterator);
+        return FDB_RESULT_ITERATOR_FAIL;
     }
 
     // create a snapshot for WAL (avl-tree)
@@ -211,7 +284,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
             wal_file = handle->new_file;
         }
 
-        fdb_txn *txn = handle->txn;
+        fdb_txn *txn = handle->fhandle->root->txn;
         if (!txn) {
             txn = &wal_file->global_txn;
         }
@@ -297,6 +370,9 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
     fdb_seqnum_t _start_seq = _endian_encode(start_seq);
+    fdb_kvs_id_t kv_id, _kv_id;
+    size_t size_id, size_seq;
+    uint8_t *start_seq_kv;
 
     if (handle == NULL || ptr_iterator == NULL ||
         start_seq > end_seq) {
@@ -314,13 +390,13 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
         fdb_sync_db_header(handle);
     }
 
-    fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
+    size_id = sizeof(fdb_kvs_id_t);
+    size_seq = sizeof(fdb_seqnum_t);
+    fdb_iterator *iterator = (fdb_iterator *)calloc(1, sizeof(fdb_iterator));
 
     iterator->handle = *handle;
     iterator->hbtrie_iterator = NULL;
     iterator->idtree_iterator = NULL;
-    iterator->seqtree_iterator = (struct btree_iterator *)
-                                 malloc(sizeof(struct btree_iterator));
     iterator->_key = NULL;
     iterator->_keylen = 0;
     iterator->opt = opt;
@@ -342,9 +418,24 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
     iterator->end_key = NULL;
     iterator->end_keylen = 0;
 
-    // create an iterator handle for b-tree
-    btree_iterator_init(handle->seqtree, iterator->seqtree_iterator,
-                        (void *)(start_seq ? &_start_seq : NULL));
+    if (handle->kvs) {
+        // create an iterator handle for hb-trie
+        start_seq_kv = alca(uint8_t, size_id + size_seq);
+        _kv_id = _endian_encode(handle->kvs->id);
+        memcpy(start_seq_kv, &_kv_id, size_id);
+        memcpy(start_seq_kv + size_id, &_start_seq, size_seq);
+
+        iterator->seqtrie_iterator = (struct hbtrie_iterator *)
+                                     calloc(1, sizeof(struct hbtrie_iterator));
+        hbtrie_iterator_init(handle->seqtrie, iterator->seqtrie_iterator,
+                             start_seq_kv, size_id + size_seq);
+    } else {
+        // create an iterator handle for b-tree
+        iterator->seqtree_iterator = (struct btree_iterator *)
+                                     calloc(1, sizeof(struct btree_iterator));
+        btree_iterator_init(handle->seqtree, iterator->seqtree_iterator,
+                            (void *)(start_seq ? &_start_seq : NULL));
+    }
 
     // create a snapshot for WAL (avl-tree)
     // (from the beginning to the last committed element)
@@ -359,13 +450,13 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
             wal_file = handle->new_file;
         }
 
-        fdb_txn *txn = handle->txn;
+        fdb_txn *txn = handle->fhandle->root->txn;
         if (!txn) {
             txn = &wal_file->global_txn;
         }
 
-        iterator->wal_tree = (struct avl_tree*)malloc(sizeof(
-                    struct avl_tree));
+        iterator->wal_tree = (struct avl_tree*)
+                             malloc(sizeof(struct avl_tree));
         avl_init(iterator->wal_tree, (void*)_fdb_seqnum_cmp);
 
         spin_lock(&wal_file->wal->lock);
@@ -388,8 +479,18 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
                     // (documents whose seq numbers are greater than end_seqnum
                     //  also have to be included for duplication check)
                     // copy from WAL_ITEM
-                    snap_item = (struct snap_wal_entry*)malloc(sizeof(
-                                struct snap_wal_entry));
+                    if (handle->kvs) { // multi KV instance mode
+                        // get KV ID from key
+                        _kv_id = *((fdb_kvs_id_t*)wal_item_header->key);
+                        kv_id = _endian_decode(_kv_id);
+                        if (kv_id != handle->kvs->id) {
+                            // KV instance doesn't match
+                            he = list_next(he);
+                            continue;
+                        }
+                    }
+                    snap_item = (struct snap_wal_entry*)
+                                malloc(sizeof(struct snap_wal_entry));
                     snap_item->keylen = wal_item_header->keylen;
                     snap_item->key = (void*)malloc(snap_item->keylen);
                     memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
@@ -466,22 +567,8 @@ start:
     if (iterator->_offset == BLK_NOT_FOUND) {
         // no key waiting for being returned
         // get next key from hb-trie (or idtree)
-        if (iterator->handle.config.cmp_variable) {
-            uint8_t *var_key = alca(uint8_t, iterator->handle.config.chunksize);
-            memset(var_key, 0, iterator->handle.config.chunksize);
-
-            br = btree_prev(iterator->idtree_iterator, var_key,
-                            (void*)&iterator->_offset);
-            if (br == BTREE_RESULT_FAIL) {
-                hr = HBTRIE_RESULT_FAIL;
-            } else {
-                _get_var_key(var_key, key, &iterator->_keylen);
-                _free_var_key(var_key);
-            }
-        } else {
-            hr = hbtrie_prev(iterator->hbtrie_iterator, key,
-                             &iterator->_keylen, (void*)&iterator->_offset);
-        }
+        hr = hbtrie_prev(iterator->hbtrie_iterator, key,
+                         &iterator->_keylen, (void*)&iterator->_offset);
         btreeblk_end(iterator->handle.bhandle);
         iterator->_offset = _endian_decode(iterator->_offset);
     }
@@ -584,7 +671,14 @@ start:
         }
     }
 
-    fs = fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0);
+    if (iterator->handle.kvs) {
+        // eliminate KV ID from 'key'
+        size_t size_id = sizeof(fdb_kvs_id_t);
+        fs = fdb_doc_create(doc, (uint8_t*)key + size_id, keylen - size_id,
+                            NULL, 0, NULL, 0);
+    } else {
+        fs = fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0);
+    }
     if (fs != FDB_RESULT_SUCCESS) {
         free(_doc.meta);
         free(_doc.body);
@@ -643,22 +737,8 @@ start:
     if (iterator->_offset == BLK_NOT_FOUND) {
         // no key waiting for being returned
         // get next key from hb-trie (or idtree)
-        if (iterator->handle.config.cmp_variable) {
-            uint8_t *var_key = alca(uint8_t, iterator->handle.config.chunksize);
-            memset(var_key, 0, iterator->handle.config.chunksize);
-
-            br = btree_next(iterator->idtree_iterator, var_key,
-                            (void*)&iterator->_offset);
-            if (br == BTREE_RESULT_FAIL) {
-                hr = HBTRIE_RESULT_FAIL;
-            } else {
-                _get_var_key(var_key, key, &iterator->_keylen);
-                _free_var_key(var_key);
-            }
-        } else {
-            hr = hbtrie_next(iterator->hbtrie_iterator, key,
-                             &iterator->_keylen, (void*)&iterator->_offset);
-        }
+        hr = hbtrie_next(iterator->hbtrie_iterator, key,
+                         &iterator->_keylen, (void*)&iterator->_offset);
         btreeblk_end(iterator->handle.bhandle);
         iterator->_offset = _endian_decode(iterator->_offset);
     }
@@ -762,7 +842,14 @@ start:
         }
     }
 
-    fs = fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0);
+    if (iterator->handle.kvs) {
+        // eliminate KV ID from 'key'
+        size_t size_id = sizeof(fdb_kvs_id_t);
+        fs = fdb_doc_create(doc, (uint8_t*)key + size_id, keylen - size_id,
+                            NULL, 0, NULL, 0);
+    } else {
+        fs = fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0);
+    }
     if (fs != FDB_RESULT_SUCCESS) {
         free(_doc.meta);
         free(_doc.body);
@@ -787,17 +874,31 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     struct snap_wal_entry *snap_item = NULL;
     int dir; // compare result gives seek direction >0 is forward, <=0 reverse
     int save_direction; // if we move past seek_key and need to turn back to it
+    size_t seek_keylen_kv = seek_keylen + sizeof(fdb_kvs_id_t);
     size_t finalRun = (size_t) (-1);
+    uint8_t *seek_key_kv = alca(uint8_t, seek_keylen_kv);
+    fdb_kvs_id_t _kv_id;
 
     if (!iterator || !seek_key || !iterator->_key ||
         seek_keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    if (iterator->handle.kvs) {
+        seek_keylen_kv = seek_keylen + sizeof(fdb_kvs_id_t);
+        seek_key_kv = alca(uint8_t, seek_keylen_kv);
+        _kv_id = _endian_encode(iterator->handle.kvs->id);
+        memcpy(seek_key_kv, &_kv_id, sizeof(fdb_kvs_id_t));
+        memcpy(seek_key_kv + sizeof(fdb_kvs_id_t), seek_key, seek_keylen);
+    } else {
+        seek_keylen_kv = seek_keylen;
+        seek_key_kv = (uint8_t*)seek_key;
+    }
+
     // disable seeking beyond the end key...
     if (iterator->end_key && _fdb_key_cmp(iterator, (void *)iterator->end_key,
-                                          iterator->end_keylen,
-                                          (void *)seek_key, seek_keylen) < 0) {
+                                         iterator->end_keylen,
+                                         (void *)seek_key_kv, seek_keylen_kv) < 0) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
@@ -805,17 +906,17 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     if (iterator->start_key && _fdb_key_cmp(iterator,
                                          (void *)iterator->start_key,
                                          iterator->start_keylen,
-                                         (void *)seek_key, seek_keylen) > 0) {
+                                         (void *)seek_key_kv, seek_keylen_kv) > 0) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
-    dir = _fdb_key_cmp(iterator, (void *)seek_key, seek_keylen,
+    dir = _fdb_key_cmp(iterator, (void *)seek_key_kv, seek_keylen_kv,
                     (void *)iterator->_key, iterator->_keylen);
     save_direction = dir;
 
     // Roll the hb-trie/btree iterator to seek key based on direction
     while (hr == HBTRIE_RESULT_SUCCESS && finalRun--) {
-        int cmp = _fdb_key_cmp(iterator, (void *)seek_key, seek_keylen,
+        int cmp = _fdb_key_cmp(iterator, (void *)seek_key_kv, seek_keylen_kv,
                     (void *)iterator->_key, iterator->_keylen);
 
         if ((cmp <= 0 && dir >= 0) || // Forward seek went past seek_key
@@ -841,33 +942,12 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
         }
 
         // get next key from hb-trie (or idtree)
-        if (iterator->handle.config.cmp_variable) {
-            uint8_t *var_key = alca(uint8_t,
-                    iterator->handle.config.chunksize);
-            memset(var_key, 0, iterator->handle.config.chunksize);
-
-            if (dir < 0) { // need to seek backwards
-                br = btree_prev(iterator->idtree_iterator, var_key,
-                    (void*)&iterator->_offset);
-
-            } else { // need to seek forward
-                br = btree_next(iterator->idtree_iterator, var_key,
-                        (void*)&iterator->_offset);
-            }
-            if (br == BTREE_RESULT_FAIL) {
-                hr = HBTRIE_RESULT_FAIL;
-            } else {
-                _get_var_key(var_key, iterator->_key, &iterator->_keylen);
-                _free_var_key(var_key);
-            }
-        } else {
-            if (dir <= 0) { // need to seek backwards
-                hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
-                        &iterator->_keylen, (void*)&iterator->_offset);
-            } else { // need to seek forward
-                hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
-                        &iterator->_keylen, (void*)&iterator->_offset);
-            }
+        if (dir <= 0) { // need to seek backwards
+            hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
+                    &iterator->_keylen, (void*)&iterator->_offset);
+        } else { // need to seek forward
+            hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
+                    &iterator->_keylen, (void*)&iterator->_offset);
         }
         btreeblk_end(iterator->handle.bhandle);
         iterator->_offset = _endian_decode(iterator->_offset);
@@ -894,7 +974,7 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
         snap_item = _get_entry(iterator->tree_cursor, struct snap_wal_entry,
                                avl);
         cmp = _fdb_key_cmp(iterator, (void *)snap_item->key, snap_item->keylen,
-                         (void *)seek_key, seek_keylen);
+                         (void *)seek_key_kv, seek_keylen_kv);
         if (dir < 0) { // need to seek backwards
             if (cmp > 0) {
                 iterator->tree_cursor = avl_prev(iterator->tree_cursor);
@@ -932,6 +1012,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
 static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator,
                                      fdb_doc **doc)
 {
+    size_t size_id, size_seq, seq_kv_len;
+    uint8_t *seq_kv;
     uint64_t offset = BLK_NOT_FOUND;
     btree_result br = BTREE_RESULT_FAIL;
     hbtrie_result hr;
@@ -940,8 +1022,13 @@ static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator,
     struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
     fdb_seqnum_t seqnum;
+    fdb_kvs_id_t kv_id, _kv_id;
     fdb_status ret = FDB_RESULT_SUCCESS;
     struct avl_node *cursor;
+
+    size_id = sizeof(fdb_kvs_id_t);
+    size_seq = sizeof(fdb_seqnum_t);
+    seq_kv = alca(uint8_t, size_id + size_seq);
 
     // in forward iteration, cursor points to the next key to be returned
     // therefore, in return iteration, make cursor point to prev key
@@ -965,7 +1052,24 @@ start_seq:
 
     if (iterator->_offset == BLK_NOT_FOUND || // was iterating over btree
         !iterator->tree_cursor) { // WAL exhausted
-        br = btree_prev(iterator->seqtree_iterator, &seqnum, (void *) &offset);
+        if (iterator->handle.kvs) { // multi KV instance mode
+            hr = hbtrie_prev(iterator->seqtrie_iterator, seq_kv, &seq_kv_len,
+                             (void *)&offset);
+            if (hr == HBTRIE_RESULT_SUCCESS) {
+                br = BTREE_RESULT_SUCCESS;
+                memcpy(&_kv_id, seq_kv, size_id);
+                kv_id = _endian_decode(_kv_id);
+                if (kv_id != iterator->handle.kvs->id) {
+                    // iterator is beyond the boundary
+                    br = BTREE_RESULT_FAIL;
+                }
+                memcpy(&seqnum, seq_kv + size_id, size_seq);
+            } else {
+                br = BTREE_RESULT_FAIL;
+            }
+        } else {
+            br = btree_prev(iterator->seqtree_iterator, &seqnum, (void *)&offset);
+        }
         btreeblk_end(iterator->handle.bhandle);
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
@@ -1061,21 +1165,8 @@ start_seq:
 
         // Also look in HB-Trie to eliminate duplicates
         uint64_t hboffset;
-        if (!iterator->handle.config.cmp_variable) {
-            hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
-                             (void *)&hboffset);
-        } else {
-            uint8_t *var_key = alca(uint8_t, iterator->handle.config.chunksize);
-            btree_result br;
-
-            _set_var_key((void *)var_key, _doc.key, _doc.length.keylen);
-            br = btree_find(iterator->handle.idtree,
-                            (void*)var_key, (void *)&hboffset);
-            _free_var_key((void *)var_key);
-
-            hr = (br == BTREE_RESULT_FAIL)?(HBTRIE_RESULT_FAIL):
-                                           (HBTRIE_RESULT_SUCCESS);
-        }
+        hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
+                         (void *)&hboffset);
         btreeblk_end(iterator->handle.bhandle);
 
         if (hr == HBTRIE_RESULT_FAIL) {
@@ -1115,6 +1206,11 @@ start_seq:
         return ret;
     }
 
+    if (iterator->handle.kvs) {
+        // eliminate KV ID from key
+        _doc.length.keylen -= size_id;
+        memmove(_doc.key, (uint8_t*)_doc.key + size_id, _doc.length.keylen);
+    }
     (*doc)->key = _doc.key;
     (*doc)->keylen = _doc.length.keylen;
     (*doc)->meta = _doc.meta;
@@ -1132,6 +1228,8 @@ start_seq:
 static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator,
                                      fdb_doc **doc)
 {
+    size_t size_id, size_seq, seq_kv_len;
+    uint8_t *seq_kv;
     uint64_t offset = BLK_NOT_FOUND;
     btree_result br = BTREE_RESULT_FAIL;
     hbtrie_result hr;
@@ -1140,8 +1238,13 @@ static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator,
     struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
     fdb_seqnum_t seqnum;
+    fdb_kvs_id_t kv_id, _kv_id;
     fdb_status ret = FDB_RESULT_SUCCESS;
     struct avl_node *cursor;
+
+    size_id = sizeof(fdb_kvs_id_t);
+    size_seq = sizeof(fdb_seqnum_t);
+    seq_kv = alca(uint8_t, size_id + size_seq);
 
     if (iterator->direction == FDB_ITR_REVERSE) {
         if (iterator->status == FDB_ITR_IDX) {
@@ -1170,7 +1273,24 @@ start_seq:
 
     // retrieve from sequence b-tree first
     if (iterator->_offset == BLK_NOT_FOUND) {
-        br = btree_next(iterator->seqtree_iterator, &seqnum, (void *) &offset);
+        if (iterator->handle.kvs) { // multi KV instance mode
+            hr = hbtrie_next(iterator->seqtrie_iterator, seq_kv, &seq_kv_len,
+                             (void *)&offset);
+            if (hr == HBTRIE_RESULT_SUCCESS) {
+                br = BTREE_RESULT_SUCCESS;
+                memcpy(&_kv_id, seq_kv, size_id);
+                kv_id = _endian_decode(_kv_id);
+                if (kv_id != iterator->handle.kvs->id) {
+                    // iterator is beyond the boundary
+                    br = BTREE_RESULT_FAIL;
+                }
+                memcpy(&seqnum, seq_kv + size_id, size_seq);
+            } else {
+                br = BTREE_RESULT_FAIL;
+            }
+        } else {
+            br = btree_next(iterator->seqtree_iterator, &seqnum, (void *)&offset);
+        }
         btreeblk_end(iterator->handle.bhandle);
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
@@ -1277,21 +1397,8 @@ start_seq:
 
         // Also look in HB-Trie to eliminate duplicates
         uint64_t hboffset;
-        if (!iterator->handle.config.cmp_variable) {
-            hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
-                             (void *)&hboffset);
-        } else {
-            uint8_t *var_key = alca(uint8_t, iterator->handle.config.chunksize);
-            btree_result br;
-
-            _set_var_key((void *)var_key, _doc.key, _doc.length.keylen);
-            br = btree_find(iterator->handle.idtree,
-                            (void*)var_key, (void *)&hboffset);
-            _free_var_key((void *)var_key);
-
-            hr = (br == BTREE_RESULT_FAIL)?(HBTRIE_RESULT_FAIL):
-                                           (HBTRIE_RESULT_SUCCESS);
-        }
+        hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
+                         (void *)&hboffset);
         btreeblk_end(iterator->handle.bhandle);
 
         if (hr == HBTRIE_RESULT_FAIL) {
@@ -1332,6 +1439,11 @@ start_seq:
         return ret;
     }
 
+    if (iterator->handle.kvs) {
+        // eliminate KV ID from key
+        _doc.length.keylen -= size_id;
+        memmove(_doc.key, (uint8_t*)_doc.key + size_id, _doc.length.keylen);
+    }
     (*doc)->key = _doc.key;
     (*doc)->keylen = _doc.length.keylen;
     (*doc)->meta = _doc.meta;
@@ -1433,6 +1545,10 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     if (iterator->seqtree_iterator) {
         btree_iterator_free(iterator->seqtree_iterator);
         free(iterator->seqtree_iterator);
+    }
+    if (iterator->seqtrie_iterator) {
+        hr = hbtrie_iterator_free(iterator->seqtrie_iterator);
+        free(iterator->seqtrie_iterator);
     }
 
     if (iterator->start_key) {

@@ -382,6 +382,12 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
     return _docio_append_doc(handle, doc);
 }
 
+bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *doc)
+{
+    doc->length.flag = DOCIO_NORMAL | DOCIO_SYSTEM;
+    return _docio_append_doc(handle, doc);
+}
+
 INLINE void _docio_read_through_buffer(struct docio_handle *handle, bid_t bid,
                                        err_log_callback *log_callback)
 {
@@ -545,7 +551,7 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     }
 
     length = _docio_length_decode(_length);
-    if (length.keylen == 0 || length.keylen > FDB_MAX_KEYLEN) {
+    if (length.keylen == 0 || length.keylen > FDB_MAX_KEYLEN_INTERNAL) {
         length.keylen = 0;
         return length;
     }
@@ -590,7 +596,7 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     }
 
     length = _docio_length_decode(_length);
-    if (length.keylen == 0 || length.keylen > FDB_MAX_KEYLEN) {
+    if (length.keylen == 0 || length.keylen > FDB_MAX_KEYLEN_INTERNAL) {
         *keylen = 0;
         return;
     }
@@ -657,7 +663,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     }
 
     doc->length = _docio_length_decode(_length);
-    if (doc->length.keylen == 0 || doc->length.keylen > FDB_MAX_KEYLEN) {
+    if (doc->length.keylen == 0 || doc->length.keylen > FDB_MAX_KEYLEN_INTERNAL) {
         return offset;
     }
 
@@ -762,7 +768,7 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         return _offset;
     }
 
-    if (doc->length.keylen == 0 || doc->length.keylen > FDB_MAX_KEYLEN) {
+    if (doc->length.keylen == 0 || doc->length.keylen > FDB_MAX_KEYLEN_INTERNAL) {
         return offset;
     }
 

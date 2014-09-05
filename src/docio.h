@@ -45,6 +45,7 @@ struct docio_handle {
 #define DOCIO_DELETED (0x04)
 #define DOCIO_TXN_DIRTY (0x08)
 #define DOCIO_TXN_COMMITTED (0x10)
+#define DOCIO_SYSTEM (0x20) /* system document */
 #ifdef DOCIO_LEN_STRUCT_ALIGN
     // this structure will occupy 16 bytes
     struct docio_length {
@@ -92,6 +93,7 @@ bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object 
                                uint8_t deleted, uint8_t txn_enabled);
 bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
                        uint8_t deleted, uint8_t txn_enabled);
+bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *doc);
 
 struct docio_length docio_read_doc_length(struct docio_handle *handle,
                                           uint64_t offset);

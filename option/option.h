@@ -58,6 +58,7 @@
 // MUST BE a power of 2
 #define FDB_WAL_NBUCKET (4*1024)
 #define FDB_MAX_FILENAME_LEN (1024)
+#define FDB_MAX_KVINS_NAME_LEN (65536)
 #define FDB_WAL_THRESHOLD (4*1024)
 #define FDB_COMP_BUF_MAXSIZE (4*1024*1024)
 #define FDB_COMPACTION_BATCHSIZE (128)
@@ -79,6 +80,8 @@
 
 #define __BTREEBLK_BLOCKPOOL
 #define __BTREEBLK_SUBBLOCK
+//#define __BTREEBLK_READ_TREE // not used now, for future use
+#define BTREEBLK_AGE_LIMIT (10)
 #define BTREEBLK_MIN_SUBBLOCK (128)
 //#define __BTREEBLK_CACHE
 #ifdef __BTREEBLK_CACHE

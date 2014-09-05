@@ -81,6 +81,7 @@ struct reader_thread_args {
     size_t ndocs;
     fdb_doc **doc;
     fdb_config *config;
+    fdb_kvs_config *kvs_config;
     int check_body;
 };
 
@@ -92,11 +93,15 @@ struct writer_thread_args {
     size_t batch_size;
     size_t compact_period;
     fdb_config *config;
+    fdb_kvs_config *kvs_config;
 };
 
 typedef void *(thread_func) (void *);
 
-static void loadDocsWithRandomKeys(fdb_handle *db, fdb_doc **doc, int num_docs) {
+static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
+                                   fdb_handle *db,
+                                   fdb_doc **doc,
+                                   int num_docs) {
     TEST_INIT();
     fdb_status status;
     char keybuf[1024], metabuf[1024], bodybuf[1024];
@@ -114,11 +119,14 @@ static void loadDocsWithRandomKeys(fdb_handle *db, fdb_doc **doc, int num_docs) 
     }
 
     // commit
-    fdb_commit(db, FDB_COMMIT_NORMAL);
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 }
 
-static void updateDocsWithRandomKeys(fdb_handle *db, fdb_doc **doc,
-                                     int start_doc, int end_doc) {
+static void updateDocsWithRandomKeys(fdb_file_handle *dbfile,
+                                     fdb_handle *db,
+                                     fdb_doc **doc,
+                                     int start_doc,
+                                     int end_doc) {
     TEST_INIT();
     fdb_status status;
     char metabuf[1024], bodybuf[1024];
@@ -134,7 +142,7 @@ static void updateDocsWithRandomKeys(fdb_handle *db, fdb_doc **doc,
     }
 
     // commit
-    fdb_commit(db, FDB_COMMIT_NORMAL);
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 }
 
 static void *_reader_thread(void *voidargs)
@@ -142,13 +150,17 @@ static void *_reader_thread(void *voidargs)
     TEST_INIT();
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
+    fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "reader_thread");
@@ -166,7 +178,7 @@ static void *_reader_thread(void *voidargs)
         fdb_doc_free(rdoc);
     }
 
-    fdb_close(db);
+    fdb_close(dbfile);
     thread_exit(0);
 
     return NULL;
@@ -177,13 +189,17 @@ static void *_rollback_reader_thread(void *voidargs)
     TEST_INIT();
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
+    fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "reader_thread");
@@ -211,7 +227,8 @@ static void *_rollback_reader_thread(void *voidargs)
         fdb_doc_free(rdoc);
     }
 
-    fdb_close(db);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
     thread_exit(0);
 
     return NULL;
@@ -222,14 +239,18 @@ static void *_snapshot_reader_thread(void *voidargs)
     TEST_INIT();
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_handle *snap_db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
+    fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "reader_thread");
@@ -266,8 +287,9 @@ static void *_snapshot_reader_thread(void *voidargs)
     }
     fdb_iterator_close(iterator);
 
-    fdb_close(snap_db);
-    fdb_close(db);
+    fdb_kvs_close(snap_db);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
     thread_exit(0);
 
     return NULL;
@@ -278,14 +300,18 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
     TEST_INIT();
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_handle *snap_db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
+    fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "reader_thread");
@@ -339,8 +365,9 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
     }
     fdb_iterator_close(iterator);
 
-    fdb_close(snap_db);
-    fdb_close(db);
+    fdb_kvs_close(snap_db);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
     thread_exit(0);
 
     return NULL;
@@ -351,13 +378,17 @@ static void *_writer_thread(void *voidargs)
     TEST_INIT();
 
     struct writer_thread_args *args = (struct writer_thread_args *)voidargs;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
+    fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = 0;
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "writer_thread");
@@ -370,7 +401,7 @@ static void *_writer_thread(void *voidargs)
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
         if (!trans_begin && args->wtype == TRANSACTIONAL_WRITER) {
-            status = fdb_begin_transaction(db, FDB_ISOLATION_READ_COMMITTED);
+            status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             trans_begin = 1;
         }
@@ -387,11 +418,11 @@ static void *_writer_thread(void *voidargs)
         ++count;
         if (count % args->batch_size == 0) {
             if (args->wtype == REGULAR_WRITER) {
-                status = fdb_commit(db, FDB_COMMIT_NORMAL);
+                status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
                 TEST_CHK(status == FDB_RESULT_SUCCESS);
             } else { // Transactional writer
                 if (trans_begin) {
-                    status = fdb_end_transaction(db, FDB_COMMIT_NORMAL);
+                    status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
                     TEST_CHK(status == FDB_RESULT_SUCCESS);
                     trans_begin = 0;
                 }
@@ -400,12 +431,13 @@ static void *_writer_thread(void *voidargs)
         if (args->config->compaction_mode == FDB_COMPACTION_MANUAL &&
             count % args->compact_period == 0) {
             sprintf(temp, "./test.fdb.%d", file_name_rev++);
-            status = fdb_compact(db, temp);
+            status = fdb_compact(dbfile, temp);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
         }
     }
 
-    fdb_close(db);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
     thread_exit(0);
 
     return NULL;
@@ -418,6 +450,7 @@ static void test_multi_readers(multi_reader_type reader_type,
 
     int r;
     int num_docs = 100000;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_status status;
 
@@ -425,13 +458,17 @@ static void test_multi_readers(multi_reader_type reader_type,
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
 
     fdb_config fconfig = fdb_get_default_config();
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
-    loadDocsWithRandomKeys(db, doc, num_docs);
-    fdb_close(db);
+    loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
 
     // create reader threads.
     thread_t *tid = alca(thread_t, num_readers);
@@ -442,6 +479,7 @@ static void test_multi_readers(multi_reader_type reader_type,
         args[i].ndocs = num_docs;
         args[i].doc = doc;
         args[i].config = &fconfig;
+        args[i].kvs_config = &kvs_config;
         args[i].check_body = 1;
         if (reader_type == MULTI_READERS) {
             thread_create(&tid[i], _reader_thread, &args[i]);
@@ -482,6 +520,7 @@ static void test_writer_multi_readers(writer_type wtype,
 
     int r;
     int num_docs = 100000;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_status status;
 
@@ -489,19 +528,23 @@ static void test_writer_multi_readers(writer_type wtype,
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
 
     fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     if (comp_type == DAEMON_COMPACTION) {
         fconfig.compaction_mode = FDB_COMPACTION_AUTO;
         fconfig.compaction_threshold = 10;
         fconfig.compactor_sleep_duration = 5;
     }
 
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
-    loadDocsWithRandomKeys(db, doc, num_docs);
-    fdb_close(db);
+    loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
 
     // create one writer thread and multiple reader threads.
     thread_t *tid = alca(thread_t, num_readers + 1);
@@ -513,6 +556,7 @@ static void test_writer_multi_readers(writer_type wtype,
         args[i].ndocs = num_docs;
         args[i].doc = doc;
         args[i].config = &fconfig;
+        args[i].kvs_config = &kvs_config;
         if (reader_type == MULTI_READERS) {
             args[i].check_body = 0;
             thread_create(&tid[i], _reader_thread, &args[i]);
@@ -536,6 +580,7 @@ static void test_writer_multi_readers(writer_type wtype,
     wargs.ndocs = num_docs;
     wargs.doc = doc;
     wargs.config = &fconfig;
+    wargs.kvs_config = &kvs_config;
     wargs.batch_size = 100; // Do commit every 100 updates
     wargs.compact_period = 10000; // Do compaction every 10000 updates
     thread_create(&tid[i], _writer_thread, &wargs);
@@ -564,6 +609,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
 
     int r;
     int num_docs = 100000;
+    fdb_file_handle *dbfile;
     fdb_handle *db;
     fdb_status status;
 
@@ -573,16 +619,19 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     rollback_done = false;
 
     fdb_config fconfig = fdb_get_default_config();
-    status = fdb_open(&db, "./test.fdb", &fconfig);
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
-    loadDocsWithRandomKeys(db, doc, num_docs);
+    loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
     // Update the first half of documents, so that the last seq number becomes 150000.
-    updateDocsWithRandomKeys(db, doc, 0, num_docs/2);
+    updateDocsWithRandomKeys(dbfile, db, doc, 0, num_docs/2);
     // Update the rest of documents, so that the last seq number becomes 200000.
-    updateDocsWithRandomKeys(db, doc, num_docs/2, num_docs);
+    updateDocsWithRandomKeys(dbfile, db, doc, num_docs/2, num_docs);
 
     // Init the rollback mutex.
     mutex_init(&rollback_mutex);
@@ -596,6 +645,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
         args[i].ndocs = num_docs;
         args[i].doc = doc;
         args[i].config = &fconfig;
+        args[i].kvs_config = &kvs_config;
         args[i].check_body = 1;
         if (reader_type == MULTI_READERS) {
             thread_create(&tid[i], _rollback_reader_thread, &args[i]);
@@ -617,7 +667,9 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     rollback_done = true;
     mutex_unlock(&rollback_mutex);
 
-    status = fdb_close(db);
+    status = fdb_kvs_close(db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(dbfile);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // wait for thread termination

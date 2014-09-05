@@ -442,6 +442,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     file->bcache = NULL;
     file->in_place_compaction = false;
+    file->kv_header = NULL;
 
     _filemgr_read_header(file);
 
@@ -710,6 +711,11 @@ static void _filemgr_free_func(struct hash_elem *h)
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
         bcache_remove_file(file);
+    }
+
+    if (file->kv_header) {
+        // multi KV intance mode & KV header exists
+        file->free_kv_header(file);
     }
 
     // free global transaction
@@ -1129,8 +1135,8 @@ fdb_status filemgr_destroy_file(char *filename,
 {
     struct filemgr *file = NULL;
     struct hash to_destroy_files;
-    struct hash *destroy_set = destroy_file_set ? destroy_file_set :
-                                                  &to_destroy_files;
+    struct hash *destroy_set = (destroy_file_set ? destroy_file_set :
+                                                  &to_destroy_files);
     struct filemgr query;
     struct hash_elem *e = NULL;
     fdb_status status = FDB_RESULT_SUCCESS;
@@ -1212,14 +1218,14 @@ fdb_status filemgr_destroy_file(char *filename,
                 _filemgr_read_header(file);
                 if (file->header.data) {
                     uint16_t *new_filename_len_ptr = (uint16_t *)((char *)
-                                                     file->header.data + 48);
+                                                     file->header.data + 64);
                     uint16_t new_filename_len =
                                       _endian_decode(*new_filename_len_ptr);
                     uint16_t *old_filename_len_ptr = (uint16_t *)((char *)
-                                                     file->header.data + 50);
+                                                     file->header.data + 66);
                     uint16_t old_filename_len =
                                       _endian_decode(*old_filename_len_ptr);
-                    old_filename = (char *)file->header.data + 52
+                    old_filename = (char *)file->header.data + 68
                                    + new_filename_len;
                     if (old_filename_len) {
                         status = filemgr_destroy_file(old_filename, config,

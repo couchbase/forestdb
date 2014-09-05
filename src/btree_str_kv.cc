@@ -311,10 +311,13 @@ static void _free_str_kv_var(struct btree *tree, void *key, void *value)
 static void _set_str_key(struct btree *tree, void *dst, void *src)
 {
     void *key_ptr_old, *key_ptr_new;
-    key_len_t keylen_new, _keylen_new;
+    key_len_t keylen_new, _keylen_new, inflen, keylen_alloc;
+    size_t size_key = sizeof(key_len_t);
+
+    memset(&inflen, 0xff, sizeof(inflen));
 
     memcpy(&key_ptr_new, src, sizeof(void *));
-    memcpy(&_keylen_new, key_ptr_new, sizeof(key_len_t));
+    memcpy(&_keylen_new, key_ptr_new, size_key);
     keylen_new = _endian_decode(_keylen_new);
 
     // free previous key (if exist)
@@ -322,8 +325,15 @@ static void _set_str_key(struct btree *tree, void *dst, void *src)
     if (key_ptr_old) {
         free(key_ptr_old);
     }
-    key_ptr_old = (void*)malloc(sizeof(key_len_t) + keylen_new);
-    memcpy(key_ptr_old, key_ptr_new, sizeof(key_len_t) + keylen_new);
+
+    keylen_alloc = (keylen_new == inflen)?(0):(keylen_new);
+    key_ptr_old = (void*)malloc(size_key + keylen_alloc);
+    // copy keylen
+    memcpy(key_ptr_old, key_ptr_new, size_key);
+    if (keylen_alloc) {
+        memcpy((uint8_t*)key_ptr_old + size_key,
+               (uint8_t*)key_ptr_new + size_key, keylen_new);
+    }
     memcpy(dst, &key_ptr_old, sizeof(void *));
 }
 
@@ -359,16 +369,53 @@ void btree_str_kv_set_key(void *key, void *str, size_t len)
     memcpy(key, &key_ptr, sizeof(void *));
 }
 
-void btree_str_kv_get_key(void *key, void *strbuf, size_t *len)
+// create an infinite key that is larger than any other keys
+void btree_str_kv_set_inf_key(void *key)
 {
     void *key_ptr;
     key_len_t keylen;
     key_len_t _keylen;
 
+    // just containing length (0xff..) info
+    key_ptr = (void *)malloc(sizeof(key_len_t));
+    memset(&keylen, 0xff, sizeof(key_len_t));
+    _keylen = _endian_encode(keylen);
+    memcpy(key_ptr, &_keylen, sizeof(key_len_t));
+    memcpy(key, &key_ptr, sizeof(void *));
+}
+
+// return true if KEY is infinite key
+int btree_str_kv_is_inf_key(void *key)
+{
+    void *key_ptr;
+    key_len_t keylen, inflen;
+    key_len_t _keylen;
+
+    memset(&inflen, 0xff, sizeof(key_len_t));
     memcpy(&key_ptr, key, sizeof(void *));
     if (key_ptr) {
         memcpy(&_keylen, key_ptr, sizeof(key_len_t));
         keylen = _endian_decode(_keylen);
+        if (keylen == inflen) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void btree_str_kv_get_key(void *key, void *strbuf, size_t *len)
+{
+    void *key_ptr;
+    key_len_t keylen, inflen;
+    key_len_t _keylen;
+
+    memset(&inflen, 0xff, sizeof(key_len_t));
+
+    memcpy(&key_ptr, key, sizeof(void *));
+    if (key_ptr) {
+        memcpy(&_keylen, key_ptr, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
+
         memcpy(strbuf, (uint8_t*)key_ptr + sizeof(key_len_t), keylen);
         *len = keylen;
     } else {
@@ -399,7 +446,7 @@ int _cmp_str64(void *key1, void *key2, void* aux)
 {
     (void) aux;
     void *key_ptr1, *key_ptr2;
-    key_len_t keylen1, keylen2;
+    key_len_t keylen1, keylen2, inflen;
     key_len_t _keylen1, _keylen2;
 
     memcpy(&key_ptr1, key1, sizeof(void *));
@@ -417,6 +464,13 @@ int _cmp_str64(void *key1, void *key2, void* aux)
     memcpy(&_keylen2, key_ptr2, sizeof(key_len_t));
     keylen1 = _endian_decode(_keylen1);
     keylen2 = _endian_decode(_keylen2);
+
+    memset(&inflen, 0xff, sizeof(key_len_t));
+    if (keylen1 == inflen) {
+        return 1;
+    } else if (keylen2 == inflen) {
+        return -1;
+    }
 
     if (keylen1 == keylen2) {
         return memcmp((uint8_t*)key_ptr1 + sizeof(key_len_t),

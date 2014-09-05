@@ -46,8 +46,6 @@ fdb_config get_default_config(void) {
     fconfig.cleanup_cache_onclose = true;
     // Compress the body of documents using snappy.
     fconfig.compress_document_body = false;
-    fconfig.cmp_fixed = NULL;
-    fconfig.cmp_variable = NULL;
     // Auto compaction is disabled by default
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
     // Compaction threshold, 30% by default
@@ -55,8 +53,21 @@ fdb_config get_default_config(void) {
     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default
     // 15 seconds by default
     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
+    // Disable supporting multiple KV instances by default
+    fconfig.multi_kv_instances = true;
 
     return fconfig;
+}
+
+fdb_kvs_config get_default_kvs_config(void) {
+    fdb_kvs_config kvs_config;
+
+    // create an empty KV store if it doesn't exist.
+    kvs_config.create_if_missing = true;
+    // lexicographical key order by default
+    kvs_config.custom_cmp = NULL;
+
+    return kvs_config;
 }
 
 bool validate_fdb_config(fdb_config *fconfig) {
@@ -95,3 +106,8 @@ bool validate_fdb_config(fdb_config *fconfig) {
 
     return true;
 }
+
+bool validate_fdb_kvs_config(fdb_kvs_config *kvs_config) {
+    return true;
+}
+

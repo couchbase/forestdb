@@ -43,8 +43,7 @@
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item_header *item = _get_entry(e, struct wal_item_header, he_key);
-    // using only first 8 bytes
-    return chksum(item->key, MIN(8, item->keylen)) & ((uint64_t)hash->nbuckets - 1);
+    return chksum((uint8_t*)item->key, item->keylen) & ((uint64_t)hash->nbuckets - 1);
 }
 
 INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
@@ -76,7 +75,25 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
     aa = _get_entry(a, struct wal_item, he_seq);
     bb = _get_entry(b, struct wal_item, he_seq);
 
-    return _CMP_U64(aa->seqnum, bb->seqnum);
+    if (aa->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
+        // multi KV instance mode
+        fdb_kvs_id_t *id_a, *id_b;
+        fdb_kvs_id_t id_aa, id_bb;
+        // KV ID is stored at the first 8 bytes in the key
+        id_a = (fdb_kvs_id_t *)aa->header->key;
+        id_b = (fdb_kvs_id_t *)bb->header->key;
+        id_aa = _endian_decode(*id_a);
+        id_bb = _endian_decode(*id_b);
+        if (id_aa < id_bb) {
+            return -1;
+        } else if (id_aa > id_bb) {
+            return 1;
+        } else {
+            return _CMP_U64(aa->seqnum, bb->seqnum);
+        }
+    } else {
+        return _CMP_U64(aa->seqnum, bb->seqnum);
+    }
 }
 
 wal_result wal_init(struct filemgr *file, int nbucket)
@@ -187,6 +204,9 @@ static wal_result _wal_insert(fdb_txn *txn,
             } else {
                 item->flag = 0x0;
             }
+            if (file->kv_header) { // multi KV instance mode
+                item->flag |= WAL_ITEM_MULTI_KV_INS_MODE;
+            }
             item->txn = txn;
             if (txn == &file->global_txn) {
                 file->wal->num_flushable++;
@@ -228,6 +248,9 @@ static wal_result _wal_insert(fdb_txn *txn,
             item->flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;
         } else {
             item->flag = 0x0;
+        }
+        if (file->kv_header) { // multi KV instance mode
+            item->flag |= WAL_ITEM_MULTI_KV_INS_MODE;
         }
         item->txn = txn;
         if (txn == &file->global_txn) {
@@ -275,7 +298,11 @@ wal_result wal_insert_by_compactor(fdb_txn *txn,
     return _wal_insert(txn, file, doc, offset, 1);
 }
 
-wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset)
+static wal_result _wal_find(fdb_txn *txn,
+                            struct filemgr *file,
+                            fdb_kvs_id_t kv_id,
+                            fdb_doc *doc,
+                            uint64_t *offset)
 {
     struct wal_item item_query, *item = NULL;
     struct wal_item_header query, *header = NULL;
@@ -317,6 +344,14 @@ wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *
         }
     } else {
         // search by seqnum
+        fdb_kvs_id_t _kv_id;
+        struct wal_item_header temp_header;
+
+        if (file->kv_header) { // multi KV instance mode
+            _kv_id = _endian_encode(kv_id);
+            temp_header.key = (void *)&_kv_id;
+            item_query.header = &temp_header;
+        }
         item_query.seqnum = doc->seqnum;
         he = hash_find(&file->wal->hash_byseq, &item_query.he_seq);
         if (he) {
@@ -338,6 +373,20 @@ wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *
 
     spin_unlock(&file->wal->lock);
     return WAL_RESULT_FAIL;
+}
+
+wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset)
+{
+    return _wal_find(txn, file, 0, doc, offset);
+}
+
+wal_result wal_find_kv_id(fdb_txn *txn,
+                          struct filemgr *file,
+                          fdb_kvs_id_t kv_id,
+                          fdb_doc *doc,
+                          uint64_t *offset)
+{
+    return _wal_find(txn, file, kv_id, doc, offset);
 }
 
 // move all uncommitted items into 'new_file'
@@ -740,12 +789,27 @@ wal_result wal_discard(struct filemgr *file, fdb_txn *txn)
     return WAL_RESULT_SUCCESS;
 }
 
-// discard all entries that are not committed
-wal_result _wal_close(struct filemgr *file, int discard_all)
+typedef enum wal_discard_type {
+    WAL_DISCARD_UNCOMMITTED_ONLY,
+    WAL_DISCARD_ALL,
+    WAL_DISCARD_KV_INS,
+} wal_discard_t;
+
+// discard all entries
+wal_result _wal_close(struct filemgr *file,
+                      wal_discard_t type, void *aux)
 {
     struct wal_item *item;
     struct wal_item_header *header;
     struct list_elem *e1, *e2;
+    fdb_kvs_id_t *_kv_id, kv_id, kv_id_req;
+
+    if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
+        if (aux == NULL) { // aux must contain pointer to KV ID
+            return WAL_RESULT_FAIL;
+        }
+        kv_id_req = *(fdb_kvs_id_t*)aux;
+    }
 
     spin_lock(&file->wal->lock);
 
@@ -753,11 +817,22 @@ wal_result _wal_close(struct filemgr *file, int discard_all)
     while(e1){
         header = _get_entry(e1, struct wal_item_header, list_elem);
 
-        e2 = list_begin(&header->items);
+        if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
+            _kv_id = (fdb_kvs_id_t *)header->key;
+            kv_id = _endian_decode(*_kv_id);
+            // begin while loop only on matching KV ID
+            e2 = (kv_id == kv_id_req)?(list_begin(&header->items)):(NULL);
+        } else {
+            e2 = list_begin(&header->items);
+        }
+
         while(e2) {
             item = _get_entry(e2, struct wal_item, list_elem);
 
-            if (!(item->flag & WAL_ITEM_COMMITTED) || discard_all) {
+            if ( type == WAL_DISCARD_ALL ||
+                (type == WAL_DISCARD_UNCOMMITTED_ONLY &&
+                    !(item->flag & WAL_ITEM_COMMITTED)) ||
+                 type == WAL_DISCARD_KV_INS) {
                 // remove from header's list
                 e2 = list_remove(&header->items, e2);
                 if (!(item->flag & WAL_ITEM_COMMITTED)) {
@@ -798,18 +873,25 @@ wal_result _wal_close(struct filemgr *file, int discard_all)
 
 wal_result wal_close(struct filemgr *file)
 {
-    return _wal_close(file, 0);
+    return _wal_close(file, WAL_DISCARD_UNCOMMITTED_ONLY, NULL);
 }
 
 // discard all WAL entries
 wal_result wal_shutdown(struct filemgr *file)
 {
-    wal_result wr = _wal_close(file, 1);
+    wal_result wr = _wal_close(file, WAL_DISCARD_ALL, NULL);
     file->wal->size = 0;
     file->wal->num_flushable = 0;
     file->wal->num_docs = 0;
     file->wal->num_deletes = 0;
     return wr;
+}
+
+// discard all WAL entries belonging to KV_ID
+wal_result wal_close_kv_ins(struct filemgr *file,
+                            fdb_kvs_id_t kv_id)
+{
+    return _wal_close(file, WAL_DISCARD_KV_INS, &kv_id);
 }
 
 size_t wal_get_size(struct filemgr *file)

@@ -150,10 +150,30 @@ typedef enum {
      */
     FDB_RESULT_TOO_LONG_FILENAME = -29,
     /**
+     * Passed ForestDB handle is Invalid.
+     */
+    FDB_RESULT_INVALID_HANDLE = -30,
+    /**
+     * A KV store not found in database.
+     */
+    FDB_RESULT_KV_STORE_NOT_FOUND = -31,
+    /**
+     * There is an opened handle of the KV store.
+     */
+    FDB_RESULT_KV_STORE_BUSY = -32,
+    /**
+     * Same KV instance name already exists.
+     */
+    FDB_RESULT_INVALID_KV_INSTANCE_NAME = -33,
+    /**
+     * Custom compare function is assigned incorrectly.
+     */
+    FDB_RESULT_INVALID_CMP_FUNCTION = -34,
+    /**
      * DB file can't be destroyed as the file is being compacted.
      * Please retry in sometime.
      */
-    FDB_RESULT_IN_USE_BY_COMPACTOR = -30,
+    FDB_RESULT_IN_USE_BY_COMPACTOR = -35,
     /**
      * General database opertion fails.
      */

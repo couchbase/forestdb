@@ -67,13 +67,31 @@ int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     aa = _get_entry(a, struct snap_wal_entry, avl);
     bb = _get_entry(b, struct snap_wal_entry, avl);
 
-    if (handle->config.cmp_fixed) {
-        // custom compare function for fixed-size key
-        return handle->config.cmp_fixed(aa->key, bb->key);
-    } else if (handle->config.cmp_variable) {
+    if (handle->kvs_config.custom_cmp) {
         // custom compare function for variable-length key
-        return handle->config.cmp_variable(aa->key, aa->keylen,
-                                           bb->key, bb->keylen);
+        if (handle->kvs) {
+            // multi KV instance mode
+            // KV ID should be compared separately
+            size_t size_id = sizeof(fdb_kvs_id_t);
+            fdb_kvs_id_t a_id, b_id, _a_id, _b_id;
+            _a_id = *(fdb_kvs_id_t*)aa->key;
+            _b_id = *(fdb_kvs_id_t*)bb->key;
+            a_id = _endian_decode(_a_id);
+            b_id = _endian_decode(_b_id);
+
+            if (a_id < b_id) {
+                return -1;
+            } else if (a_id > b_id) {
+                return 1;
+            } else {
+                return handle->kvs_config.custom_cmp(
+                            (uint8_t*)aa->key + size_id, aa->keylen - size_id,
+                            (uint8_t*)bb->key + size_id, bb->keylen - size_id);
+            }
+        } else {
+            return handle->kvs_config.custom_cmp(aa->key, aa->keylen,
+                                               bb->key, bb->keylen);
+        }
     } else {
         return _snp_keycmp(aa->key, aa->keylen, bb->key, bb->keylen);
     }

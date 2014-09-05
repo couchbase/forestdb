@@ -35,6 +35,9 @@ struct docio_handle;
 struct btree_blk_ops;
 struct snap_handle;
 
+#define OFFSET_SIZE (sizeof(uint64_t))
+#define FDB_MAX_KEYLEN_INTERNAL (3848)
+
 /**
  * Error logging callback struct definition.
  */
@@ -52,10 +55,73 @@ typedef struct {
 
 typedef struct _fdb_transaction fdb_txn;
 
+typedef uint64_t fdb_kvs_id_t;
+
+typedef uint8_t kvs_type_t;
+enum {
+    KVS_ROOT = 0,
+    KVS_SUB = 1
+};
+
+struct list;
+struct kvs_opened_node;
+
 /**
- * ForestDB database handle definition.
+ * KV store info for each handle.
+ */
+struct kvs_info {
+    /**
+     * KV store type.
+     */
+    kvs_type_t type;
+    /**
+     * KV store ID.
+     */
+    fdb_kvs_id_t id;
+    /**
+     * Pointer to root handle.
+     */
+    fdb_handle *root;
+};
+
+#define FHANDLE_ROOT_OPENED (0x1)
+#define FHANDLE_ROOT_INITIALIZED (0x2)
+#define FHANDLE_ROOT_CUSTOM_CMP (0x4)
+/**
+ * ForestDB database file handle definition.
+ */
+struct _fdb_file_handle {
+    /**
+     * The root database handle.
+     */
+    fdb_handle *root;
+    /**
+     * List of opened default KV store handles
+     * (except for the root handle).
+     */
+    struct list *handles;
+    /**
+     * List of custom compare functions assigned by user
+     */
+    struct list *cmp_func_list;
+    /**
+     * Flags for the file handle.
+     */
+    uint64_t flags;
+    /**
+     * Spin lock for the file handle.
+     */
+    spin_t lock;
+};
+
+/**
+ * ForestDB database instance handle definition.
  */
 struct _fdb_handle {
+    /**
+     * Pointer to the corresponding file handle.
+     */
+    fdb_file_handle *fhandle;
     /**
      * HB+-Tree Trie instance.
      */
@@ -68,7 +134,10 @@ struct _fdb_handle {
     /**
      * Sequence B+-Tree instance.
      */
-    struct btree *seqtree;
+    union {
+        struct btree *seqtree; // single KV instance mode
+        struct hbtrie *seqtrie; // multi KV instance mode
+    };
     /**
      * File manager instance.
      */
@@ -98,9 +167,13 @@ struct _fdb_handle {
      */
     struct filemgr_ops *fileops;
     /**
-     * ForestDB config.
+     * ForestDB file level config.
      */
     fdb_config config;
+    /**
+     * ForestDB KV store level config.
+     */
+    fdb_kvs_config kvs_config;
     /**
      * Error logging callback.
      */
@@ -110,13 +183,17 @@ struct _fdb_handle {
      */
     uint64_t cur_header_revnum;
     /**
-     * Last header's block ID
+     * Last header's block ID.
      */
     uint64_t last_hdr_bid;
     /**
-     * Block ID of a header created with most recent WAL flush
+     * Block ID of a header created with most recent WAL flush.
      */
     uint64_t last_wal_flush_hdr_bid;
+    /**
+     * File offset of a document containing KV instance info.
+     */
+    uint64_t kv_info_offset;
     /**
      * Database overall size.
      */
@@ -142,6 +219,10 @@ struct _fdb_handle {
      */
     char *filename;
     /**
+     * KV store information.
+     */
+    struct kvs_info *kvs;
+    /**
      * Transaction handle.
      */
     fdb_txn *txn;
@@ -149,12 +230,15 @@ struct _fdb_handle {
      * Flag that indicates whether this handle made dirty updates or not.
      */
     uint8_t dirty_updates;
+    /**
+     * List element that will be inserted into 'handles' list in the root handle.
+     */
+    struct kvs_opened_node *node;
 };
 
 struct hbtrie_iterator;
 struct avl_tree;
 struct avl_node;
-struct list;
 
 /**
  * ForestDB iterator cursor movement direction
@@ -199,17 +283,22 @@ struct _fdb_iterator {
      */
     fdb_handle handle;
     /**
-     * HB+-Tree Trie iterator instance.
+     * HB+Trie iterator instance.
      */
     struct hbtrie_iterator *hbtrie_iterator;
     /**
-     * B-Tree iterator for custom compare function
+     * B+Tree iterator for custom compare function
      */
     struct btree_iterator *idtree_iterator;
     /**
-     * B-Tree iterator for sequence number iteration
+     * B+Tree iterator for sequence number iteration
      */
     struct btree_iterator *seqtree_iterator;
+    /**
+     * HB+Trie iterator for sequence number iteration
+     * (for multiple KV instance mode)
+     */
+    struct hbtrie_iterator *seqtrie_iterator;
     /**
      * Current seqnum pointed by the iterator.
      */

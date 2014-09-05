@@ -51,6 +51,7 @@ struct wal_item_header{
 #define WAL_ITEM_COMMITTED (0x01)
 #define WAL_ITEM_FLUSH_READY (0x02)
 #define WAL_ITEM_BY_COMPACTOR (0x04)
+#define WAL_ITEM_MULTI_KV_INS_MODE (0x08)
 struct wal_item{
     fdb_txn *txn;
     wal_item_action action;
@@ -116,6 +117,13 @@ wal_result wal_insert_by_compactor(fdb_txn *txn,
                                    fdb_doc *doc,
                                    uint64_t offset);
 wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset);
+wal_result wal_find_kv_id(fdb_txn *txn,
+                          struct filemgr *file,
+                          fdb_kvs_id_t kv_id,
+                          fdb_doc *doc,
+                          uint64_t *offset);
+
+wal_result wal_remove(fdb_txn *txn, struct filemgr *file, fdb_doc *doc);
 wal_result wal_txn_migration(void *dbhandle,
                              void *new_dhandle,
                              struct filemgr *old_file,
@@ -140,6 +148,9 @@ wal_result wal_snapshot(struct filemgr *file,
 wal_result wal_discard(struct filemgr *file, fdb_txn *txn);
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
+wal_result wal_close_kv_ins(struct filemgr *file,
+                            fdb_kvs_id_t kv_id);
+
 size_t wal_get_size(struct filemgr *file);
 size_t wal_get_num_flushable(struct filemgr *file);
 size_t wal_get_num_docs(struct filemgr *file);

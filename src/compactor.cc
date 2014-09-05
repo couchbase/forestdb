@@ -164,7 +164,7 @@ INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
 
         fdb_fetch_header(header_buf, &dummy_bid, &dummy_bid,
                          &dummy_64, &nlivenodes,
-                         &datasize, &dummy_64,
+                         &datasize, &dummy_64, &dummy_64, &dummy_64,
                          &compacted_filename, NULL);
 
         ret += datasize;
@@ -305,7 +305,7 @@ void * compactor_thread(void *voidargs)
     char filename[MAX_FNAMELEN];
     char vfilename[MAX_FNAMELEN];
     char new_filename[MAX_FNAMELEN];
-    fdb_handle *handle;
+    fdb_file_handle *fhandle;
     fdb_config config;
     fdb_status fs;
     struct avl_node *a;
@@ -338,10 +338,10 @@ void * compactor_thread(void *voidargs)
                 elem->compaction_flag = true;
                 spin_unlock(&cpt_lock);
 
-                fs = fdb_open_for_compactor(&handle, vfilename, &config);
+                fs = fdb_open_for_compactor(&fhandle, vfilename, &config);
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(filename, new_filename);
-                    fs = fdb_compact_file(handle, new_filename, false);
+                    fs = fdb_compact_file(fhandle, new_filename, false);
 
                     spin_lock(&cpt_lock);
                     a = avl_next(target_cursor);
@@ -349,7 +349,7 @@ void * compactor_thread(void *voidargs)
                     target_cursor = NULL;
                     spin_unlock(&cpt_lock);
 
-                    fs = fdb_close(handle);
+                    fs = fdb_close(fhandle);
 
                     spin_lock(&cpt_lock);
                     compactor_status = CPT_IDLE;

@@ -256,17 +256,24 @@ typedef struct {
      */
     uint64_t compactor_sleep_duration;
     /**
-     * Customized compare function for fixed size key.
-     * This is a local config to each ForestDB database instance.
+     * Flag to enable supporting multiple KV instances in a DB instance.
+     * This is a global config that is used across all ForestDB database
+     * instances.
      */
-    fdb_custom_cmp_fixed cmp_fixed;
-    /**
-     * Customized compare function for variable length key.
-     * This is a local config to each ForestDB database instance.
-     */
-    fdb_custom_cmp_variable cmp_variable;
+    bool multi_kv_instances;
 } fdb_config;
 
+typedef struct {
+    /**
+     * Flag to create a new empty KV store instance in a DB instance,
+     * if it doesn't exist.
+     */
+    bool create_if_missing;
+    /**
+     * Customized compare function for an KV store instance.
+     */
+    fdb_custom_cmp_variable custom_cmp;
+} fdb_kvs_config;
 
 typedef uint64_t fdb_seqnum_t;
 #define FDB_SNAPSHOT_INMEM ((fdb_seqnum_t)(-1))
@@ -324,7 +331,12 @@ typedef struct fdb_doc_struct {
 typedef void (*fdb_log_callback)(int err_code, const char *err_msg, void *ctx_data);
 
 /**
- *Opaque reference to the database handle, which is exposed in public APIs.
+ *Opaque reference to the database file handle, which is exposed in public APIs.
+ */
+typedef struct _fdb_file_handle fdb_file_handle;
+
+/**
+ *Opaque reference to the KV store instance handle, which is exposed in public APIs.
  */
 typedef struct _fdb_handle fdb_handle;
 
@@ -388,10 +400,6 @@ typedef struct {
      */
     const char* new_filename;
     /**
-     * Last sequence number assigned
-     */
-    fdb_seqnum_t last_seqnum;
-    /**
      * Total number of non-deleted documents
      */
     uint64_t doc_count;
@@ -404,6 +412,20 @@ typedef struct {
      */
     uint64_t file_size;
 } fdb_info;
+
+/**
+ * Information about a given KV store
+ */
+typedef struct {
+    /**
+     * A KV store name.
+     */
+    const char* name;
+    /**
+     * Last sequence number assigned
+     */
+    fdb_seqnum_t last_seqnum;
+} fdb_kvs_info;
 
 #ifdef __cplusplus
 }
