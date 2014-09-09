@@ -1908,6 +1908,7 @@ fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             if (!equal_docs(doc, &_doc)) {
+                free_docio_object(&_doc, 1, 1, 1);
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
         } else {
@@ -1915,6 +1916,7 @@ fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
         }
     } else {
         if (!equal_docs(doc, &_doc)) {
+            free_docio_object(&_doc, 1, 1, 1);
             if (handle->new_dhandle && !handle->shandle) {
                 // Look up the new file being compacted
                 _offset = docio_read_doc(handle->new_dhandle, offset, &_doc);
@@ -1922,6 +1924,7 @@ fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
                     return FDB_RESULT_KEY_NOT_FOUND;
                 }
                 if (!equal_docs(doc, &_doc)) {
+                    free_docio_object(&_doc, 1, 1, 1);
                     return FDB_RESULT_KEY_NOT_FOUND;
                 }
             } else {

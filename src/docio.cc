@@ -610,8 +610,8 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     *keylen = length.keylen;
 }
 
-static void free_docio_object(struct docio_object *doc, uint8_t key_alloc,
-                              uint8_t meta_alloc, uint8_t body_alloc) {
+void free_docio_object(struct docio_object *doc, uint8_t key_alloc,
+                       uint8_t meta_alloc, uint8_t body_alloc) {
     if (!doc) {
         return;
     }
