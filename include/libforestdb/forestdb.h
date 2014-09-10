@@ -470,6 +470,29 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator);
  * compaction mode, the name of a new compacted file will be automatically generated
  * by increasing its current file revision number.
  *
+ * If a new file name is not given (i.e., NULL is passed) in a manual compaction
+ * mode, then a new file name will be automatically created by appending
+ * a file revision number to the original file name.
+ *
+ *  Example usage:
+ *
+ *   fdb_open(db1, "test.fdb");
+ *   ...
+ *   fdb_compact(db1, NULL); // "test.fdb.1" is created after compaction.
+ *                           // Note that "test.fdb" will be removed automatically
+ *                           // when its reference counter becomes zero.
+ *   ...
+ *   fdb_compact(db1, NULL); // "test.fdb.2" is created after compaction.
+ *                           // Note that "test.fdb.1" will be removed automatically
+ *                           // when its reference counter becomes zero.
+ *   fdb_open(db2, "test.fdb"); // "test.fdb.2" is opened because that is the last
+ *                              // compacted file.
+ *   ...
+ *   fdb_close(db1);
+ *   fdb_close(db2); // "test.fdb.2" is automatically renamed to the original
+ *                   // file name "test.fdb" because there are no database handles
+ *                   // on "test.fdb.2".
+ *
  * Also note that if a given database file is currently being compacted by the
  * compaction daemon, then FDB_RESULT_FILE_IS_BUSY is returned to the caller.
  *

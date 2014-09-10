@@ -353,7 +353,8 @@ INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
         // remove self: WARNING must not close this handle if snapshots
         // are yet to open this file
         filemgr_remove_pending(old_file, new_db.file);
-        filemgr_close(old_file, 0, &handle->log_callback);
+        filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
+        free(new_db.filename);
         return FDB_RESULT_FAIL;
     }
     docio_init(&dhandle, new_file, config.compress_document_body);
@@ -856,25 +857,21 @@ static fdb_status _fdb_open(fdb_handle *handle,
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
 
-    if (config->compaction_mode == FDB_COMPACTION_AUTO) {
-        // auto compaction mode
-        compactor_get_actual_filename(filename, actual_filename);
-        if (handle->filename) {
-            handle->filename = (char *)realloc(handle->filename, strlen(filename)+1);
-        } else {
-            handle->filename = (char*)malloc(strlen(filename)+1);
-        }
-        strcpy(handle->filename, filename);
+    compactor_get_actual_filename(filename, actual_filename,
+                                  config->compaction_mode);
+    if (handle->filename) {
+        handle->filename = (char *)realloc(handle->filename, strlen(filename)+1);
     } else {
-        // manual compaction mode
-        strcpy(actual_filename, filename);
-        handle->filename = NULL;
+        handle->filename = (char*)malloc(strlen(filename)+1);
     }
+    strcpy(handle->filename, filename);
 
     handle->fileops = get_filemgr_ops();
     filemgr_open_result result = filemgr_open((char *)actual_filename, handle->fileops,
                                               &fconfig, &handle->log_callback);
     if (result.rv != FDB_RESULT_SUCCESS) {
+        free(handle->filename);
+        handle->filename = NULL;
         return (fdb_status) result.rv;
     }
 
@@ -915,7 +912,10 @@ static fdb_status _fdb_open(fdb_handle *handle,
             }
         }
         if (!header_len) { // Marker MUST match that of DB commit!
-            filemgr_close(handle->file, false, &handle->log_callback);
+            free(handle->filename);
+            handle->filename = NULL;
+            filemgr_close(handle->file, false, handle->filename,
+                          &handle->log_callback);
             return FDB_RESULT_NO_DB_INSTANCE;
         }
 
@@ -927,7 +927,10 @@ static fdb_status _fdb_open(fdb_handle *handle,
             if (seqnum) {
                 // Database currently has a non-zero seq number, but the snapshot was
                 // requested with a seq number zero.
-                filemgr_close(handle->file, false, &handle->log_callback);
+                free(handle->filename);
+                handle->filename = NULL;
+                filemgr_close(handle->file, false, handle->filename,
+                              &handle->log_callback);
                 return FDB_RESULT_NO_DB_INSTANCE;
             }
         }
@@ -1044,7 +1047,8 @@ static fdb_status _fdb_open(fdb_handle *handle,
                                                           &handle->log_callback);
                 if (result.file) {
                     filemgr_remove_pending(result.file, handle->file);
-                    filemgr_close(result.file, 0, &handle->log_callback);
+                    filemgr_close(result.file, 0, handle->filename,
+                                  &handle->log_callback);
                 }
             }
         } else {
@@ -1389,7 +1393,7 @@ void fdb_check_file_reopen(fdb_handle *handle)
             // compacted new file is already opened
             // close the old file
             filemgr_close(handle->file, handle->config.cleanup_cache_onclose,
-                          &handle->log_callback);
+                          handle->filename, &handle->log_callback);
             // close old docio handle
             docio_free(handle->dhandle);
             free(handle->dhandle);
@@ -2388,13 +2392,14 @@ static void _fdb_commit_and_remove_pending(fdb_handle *handle,
         wal_release_flushed_items(handle->file, &flush_items);
     }
 
-    // remove the old file
-    // and this will be pended until there is no handle referring the file
+    // Mark the old file as "remove_pending".
+    // Note that a file deletion will be pended until there is no handle
+    // referring the file.
     filemgr_remove_pending(old_file, new_file);
 
     // Don't clean up the buffer cache entries for the old file.
     // They will be cleaned up later.
-    filemgr_close(old_file, 0, &handle->log_callback);
+    filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
 
     filemgr_mutex_unlock(handle->file);
 }
@@ -2626,7 +2631,8 @@ static uint64_t _fdb_doc_move(void *dbhandle,
 }
 
 fdb_status fdb_compact_file(fdb_handle *handle,
-                            const char *new_filename)
+                            const char *new_filename,
+                            bool in_place_compaction)
 {
     struct filemgr *new_file, *old_file;
     struct filemgr_config fconfig;
@@ -2701,6 +2707,7 @@ fdb_status fdb_compact_file(fdb_handle *handle,
     new_file = result.file;
     assert(new_file);
 
+    filemgr_set_in_place_compaction(new_file, in_place_compaction);
     // prevent update to the new_file
     filemgr_mutex_lock(new_file);
 
@@ -2846,7 +2853,14 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
 {
     if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
         // manual compaction
-        return fdb_compact_file(handle, new_filename);
+        bool in_place_compaction = false;
+        char nextfile[FDB_MAX_FILENAME_LEN];
+        if (!new_filename) { // In-place compaction.
+            in_place_compaction = true;
+            compactor_get_next_filename(handle->file->filename, nextfile);
+            new_filename = nextfile;
+        }
+        return fdb_compact_file(handle, new_filename, in_place_compaction);
 
     } else if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
         // auto compaction
@@ -2861,7 +2875,7 @@ fdb_status fdb_compact(fdb_handle *handle, const char *new_filename)
         }
         // get next filename
         compactor_get_next_filename(handle->file->filename, nextfile);
-        fs = fdb_compact_file(handle, nextfile);
+        fs = fdb_compact_file(handle, nextfile, false);
         if (fs == FDB_RESULT_SUCCESS) {
             // compaction succeeded
             // clear compaction flag
@@ -2934,9 +2948,9 @@ fdb_status fdb_switch_compaction_mode(fdb_handle *handle,
                 return fs;
             }
         } else if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
-            // 1. rename [filename] as [filename].0
+            // 1. rename [filename] as [filename].rev_num
             strcpy(vfilename, handle->file->filename);
-            sprintf(filename, "%s.0", handle->file->filename);
+            compactor_get_next_filename(handle->file->filename, filename);
             fs = _fdb_close(handle);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
@@ -2989,14 +3003,14 @@ static fdb_status _fdb_close(fdb_handle *handle)
     }
 
     fdb_status fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose,
-                                  &handle->log_callback);
+                                  handle->filename, &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
     docio_free(handle->dhandle);
     if (handle->new_file) {
         fs = filemgr_close(handle->new_file, handle->config.cleanup_cache_onclose,
-                           &handle->log_callback);
+                           handle->filename, &handle->log_callback);
         if (fs != FDB_RESULT_SUCCESS) {
             return fs;
         }
@@ -3064,7 +3078,7 @@ fdb_status fdb_get_dbinfo(fdb_handle *handle, fdb_info *info)
     fdb_link_new_file(handle);
     fdb_sync_db_header(handle);
 
-    if (handle->filename) {
+    if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
         // compaction daemon mode
         info->filename = handle->filename;
     } else {

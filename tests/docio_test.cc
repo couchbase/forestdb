@@ -102,7 +102,7 @@ void basic_test()
     DBG("keylen %d %s\n", keylen, keybuf);
 
     filemgr_commit(file, NULL);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
 
     TEST_RESULT("basic test");
 }

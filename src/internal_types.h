@@ -140,7 +140,6 @@ struct _fdb_handle {
     fdb_seqnum_t max_seqnum;
     /**
      * Virtual filename (DB instance filename given by users).
-     * Only used when compaction daemon is enabled.
      */
     char *filename;
     /**

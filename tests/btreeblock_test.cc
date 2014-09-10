@@ -118,7 +118,7 @@ void basic_test()
     */
     btreeblk_free(&btree_handle);
 
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -199,7 +199,7 @@ void iterator_test()
     }
     btree_iterator_free(&bi);
 
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("iterator test");
@@ -240,7 +240,7 @@ void two_btree_test()
     }
 
     filemgr_commit(file, NULL);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     btree_print_node(&btree_a, print_btree);
@@ -288,7 +288,7 @@ void range_test()
     }
 
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("range test");
@@ -394,7 +394,7 @@ void subblock_test()
     TEST_CHK(br == BTREE_RESULT_FAIL);
 
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
     free(meta.data);
 
@@ -419,7 +419,7 @@ void subblock_test()
         }
     }
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     // coverage: enlarge case 1-2, move case 1
@@ -444,7 +444,7 @@ void subblock_test()
         }
     }
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     // coverage: enlarge case 1-1, 2-1, 2-2, 3-1
@@ -473,7 +473,7 @@ void subblock_test()
         }
     }
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     // coverage: enlarge case 1-2, 2-1, 3-1, move case 1, 2-1, 2-2
@@ -505,7 +505,7 @@ void subblock_test()
         }
     }
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     // coverage: enlarge case 1-1, 2-1, 3-2, move case 1, 2-1
@@ -529,7 +529,7 @@ void subblock_test()
         filemgr_commit(file, NULL);
     }
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     // coverage: enlarge case 1-1, 1-2, 2-1, 3-2, move case 1, 2-1
@@ -553,7 +553,7 @@ void subblock_test()
         }
     }
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     free(ops);

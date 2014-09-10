@@ -182,7 +182,7 @@ void basic_test()
     }
     r = hbtrie_iterator_free(&it);
 
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("basic test");
@@ -334,7 +334,7 @@ void large_test()
 
     DBG("trie root bid %"_F64"\n", trie.root_bid);
 
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     TEST_RESULT("large test");
@@ -526,7 +526,7 @@ void skew_basic_test()
     hbtrie_free(&trie);
     docio_free(&dhandle);
     btreeblk_free(&bhandle);
-    filemgr_close(file, true, NULL);
+    filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
     memleak_end();

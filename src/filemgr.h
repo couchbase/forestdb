@@ -76,7 +76,7 @@ struct filemgr_header{
 struct wal;
 struct fnamedic_item;
 struct filemgr {
-    char *filename;
+    char *filename; // Current file name.
     uint8_t ref_count;
     uint8_t fflags;
     uint16_t filename_len;
@@ -91,9 +91,10 @@ struct filemgr {
     file_status_t status;
     struct filemgr_config *config;
     struct filemgr *new_file;
-    char *old_filename;
+    char *old_filename; // Old file name before compaction.
     struct fnamedic_item *bcache;
     fdb_txn global_txn;
+    bool in_place_compaction;
 
     // spin lock for small region
     spin_t lock;
@@ -136,6 +137,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
 
 fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
+                         const char *orig_file_name,
                          err_log_callback *log_callback);
 
 bid_t filemgr_get_next_alloc_block(struct filemgr *file);
@@ -174,6 +176,9 @@ uint64_t filemgr_get_pos(struct filemgr *file);
 
 uint8_t filemgr_is_rollback_on(struct filemgr *file);
 void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
+
+void filemgr_set_in_place_compaction(struct filemgr *file,
+                                     bool in_place_compaction);
 
 void filemgr_mutex_lock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);

@@ -867,6 +867,76 @@ void compact_with_reopen_test()
     fdb_get_dbinfo(db, &info);
     TEST_CHK(!strcmp("./dummy1", info.filename));
 
+    // update documents
+    for (i=0;i<n;++i){
+        sprintf(metabuf, "newmeta%d", i);
+        sprintf(bodybuf, "newbody%d_%s", i, temp);
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+                       (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // Open the database with another handle.
+    fdb_handle *second_dbh;
+    fdb_open(&second_dbh, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(second_dbh, logCallbackFunc,
+                                  (void *) "compact_with_reopen_test");
+    // In-place compaction
+    fdb_compact(db, NULL);
+    fdb_close(db);
+
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(second_dbh, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // Open database with an original name.
+    status = fdb_open(&db, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_with_reopen_test");
+    fdb_get_dbinfo(db, &info);
+    // The actual file name should be a compacted one.
+    TEST_CHK(!strcmp("./dummy1.1", info.filename));
+
+    fdb_close(second_dbh);
+
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    fdb_compact(db, NULL);
+    fdb_close(db);
+
+    r = system(SHELL_MOVE " dummy1 dummy.fdb > errorlog.txt");
+    fdb_open(&db, "./dummy.fdb", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_with_reopen_test");
+    // In-place compaction
+    fdb_compact(db, NULL);
+    fdb_close(db);
+    // Open database with an original name.
+    status = fdb_open(&db, "./dummy.fdb", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_with_reopen_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_get_dbinfo(db, &info);
+    TEST_CHK(!strcmp("./dummy.fdb", info.filename));
+    TEST_CHK(info.doc_count == 100);
+
     // free all documents
     for (i=0;i<n;++i){
         fdb_doc_free(doc[i]);
@@ -3250,10 +3320,6 @@ void compaction_daemon_test(size_t time_sec)
     // perform manual compaction of auto-compact file
     status = fdb_compact(db_non, NULL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-
-    // try to perform manual compaction of manual-compact file using NULL filename
-    status = fdb_compact(db_manual, NULL);
-    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
 
     // perform manual compaction of manual-compact file
     status = fdb_compact(db_manual, "dummy_manual_compacted");

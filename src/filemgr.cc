@@ -428,6 +428,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->pos = file->last_commit = offset;
 
     file->bcache = NULL;
+    file->in_place_compaction = false;
 
     _filemgr_read_header(file);
 
@@ -616,9 +617,15 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
 }
 
 fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
+                         const char *orig_file_name,
                          err_log_callback *log_callback)
 {
     int rv = FDB_RESULT_SUCCESS;
+
+    spin_lock(&filemgr_openlock); // Grab the filemgr lock to avoid the race with
+                                  // filemgr_open() because file->lock won't
+                                  // prevent the race condition.
+
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
     if (--(file->ref_count) == 0) {
@@ -637,18 +644,36 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         if (file->status == FILE_REMOVED_PENDING) {
             _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
             // remove file
+            remove(file->filename);
             // we can release lock becuase no one will open this file
             spin_unlock(&file->lock);
-            remove(file->filename);
-            filemgr_remove_file(file);
+            struct hash_elem *ret = hash_remove(&hash, &file->e);
+            assert(ret);
+            spin_unlock(&filemgr_openlock);
+            _filemgr_free_func(&file->e);
             return (fdb_status) rv;
         } else {
             if (cleanup_cache_onclose) {
                 _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
-                // Clean up global hash table, WAL index, and buffer cache.
-                // Then, retry it with a create option below.
+                if (file->in_place_compaction && orig_file_name) {
+                    struct hash_elem *elem = NULL;
+                    struct filemgr query;
+                    query.filename = (char *)orig_file_name;
+                    elem = hash_find(&hash, &query.e);
+                    if (!elem && rename(file->filename, orig_file_name) < 0) {
+                        // Note that the renaming failure is not a critical
+                        // issue because the last compacted file will be automatically
+                        // identified and opened in the next fdb_open call.
+                        _log_errno_str(file->ops, log_callback, FDB_RESULT_FILE_RENAME_FAIL,
+                                       "CLOSE", file->filename);
+                    }
+                }
                 spin_unlock(&file->lock);
-                filemgr_remove_file(file);
+                // Clean up global hash table, WAL index, and buffer cache.
+                struct hash_elem *ret = hash_remove(&hash, &file->e);
+                assert(ret);
+                spin_unlock(&filemgr_openlock);
+                _filemgr_free_func(&file->e);
                 return (fdb_status) rv;
             } else {
                 file->status = FILE_CLOSED;
@@ -659,6 +684,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
 
     spin_unlock(&file->lock);
+    spin_unlock(&filemgr_openlock);
     return (fdb_status) rv;
 }
 
@@ -1105,6 +1131,13 @@ void filemgr_set_rollback(struct filemgr *file, uint8_t new_val)
     } else {
         file->fflags &= ~FILEMGR_ROLLBACK_IN_PROG;
     }
+    spin_unlock(&file->lock);
+}
+
+void filemgr_set_in_place_compaction(struct filemgr *file,
+                                     bool in_place_compaction) {
+    spin_lock(&file->lock);
+    file->in_place_compaction = in_place_compaction;
     spin_unlock(&file->lock);
 }
 

@@ -124,6 +124,18 @@ struct timespec convert_reltime_to_abstime(unsigned int ms) {
 }
 #endif
 
+#if !defined(WIN32) && !defined(_WIN32)
+static bool does_file_exist(const char *filename) {
+    struct stat st;
+    int result = stat(filename, &st);
+    return result == 0;
+}
+#else
+static bool does_file_exist(const char *filename) {
+    return GetFileAttributes(filename) != INVALID_FILE_ATTRIBUTES;
+}
+#endif
+
 // compares file names
 int _compactor_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
@@ -209,7 +221,7 @@ INLINE int _compactor_prefix_len(char *filename)
     return prefix_len;
 }
 
-void _compactor_get_vfilename(char *filename, char *vfilename)
+static void _compactor_get_vfilename(char *filename, char *vfilename)
 {
     int prefix_len = _compactor_prefix_len(filename);
 
@@ -219,7 +231,7 @@ void _compactor_get_vfilename(char *filename, char *vfilename)
     }
 }
 
-void _compactor_convert_dbfile_to_metafile(char *dbfile, char *metafile)
+static void _compactor_convert_dbfile_to_metafile(char *dbfile, char *metafile)
 {
     int prefix_len = _compactor_prefix_len(dbfile);
 
@@ -230,17 +242,31 @@ void _compactor_convert_dbfile_to_metafile(char *dbfile, char *metafile)
     }
 }
 
+static bool _allDigit(char *str) {
+    int numchar = strlen(str);
+    for(int i = 0; i < numchar; ++i) {
+        if (str[i] < '0' || str[i] > '9') {
+            return false;
+        }
+    }
+    return true;
+}
+
 void compactor_get_next_filename(char *file, char *nextfile)
 {
     int compaction_no = 0;
     int prefix_len = _compactor_prefix_len(file);
-    char str_no[16];
+    char str_no[24];
 
-    if (prefix_len > 0) {
+    if (prefix_len > 0 && _allDigit(file + prefix_len)) {
         sscanf(file+prefix_len, "%d", &compaction_no);
         strncpy(nextfile, file, prefix_len);
         nextfile[prefix_len] = 0;
-        sprintf(str_no, "%d", compaction_no+1);
+        sprintf(str_no, "%d", compaction_no + 1);
+        strcat(nextfile, str_no);
+    } else {
+        strcpy(nextfile, file);
+        sprintf(str_no, ".%d", compaction_no + 1);
         strcat(nextfile, str_no);
     }
 }
@@ -312,7 +338,7 @@ void * compactor_thread(void *voidargs)
                 fs = fdb_open_for_compactor(&handle, vfilename, &config);
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(filename, new_filename);
-                    fs = fdb_compact_file(handle, new_filename);
+                    fs = fdb_compact_file(handle, new_filename, false);
 
                     spin_lock(&cpt_lock);
                     a = avl_next(target_cursor);
@@ -630,7 +656,8 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file)
 }
 
 fdb_status compactor_get_actual_filename(const char *filename,
-                                         char *actual_filename)
+                                         char *actual_filename,
+                                         fdb_compaction_mode_t comp_mode)
 {
     int i;
     int filename_len;
@@ -646,6 +673,11 @@ fdb_status compactor_get_actual_filename(const char *filename,
     meta_ptr = _compactor_read_metafile(path, &meta);
 
     if (meta_ptr == NULL) {
+        if (comp_mode == FDB_COMPACTION_MANUAL && does_file_exist(filename)) {
+            strcpy(actual_filename, filename);
+            return FDB_RESULT_SUCCESS;
+        }
+
         // error handling .. scan directory
         // backward search until find the first '/' or '\' (Windows)
         filename_len = strlen(filename);
@@ -730,9 +762,15 @@ fdb_status compactor_get_actual_filename(const char *filename,
 #endif
 
         if (max_compaction_no < 0) {
-            // DB file not found
-            // update metadata's filename to '[filename].0'
-            sprintf(meta.filename, "%s.0", filename);
+            if (comp_mode == FDB_COMPACTION_AUTO) {
+                // DB files with a revision number are not found.
+                // update metadata's filename to '[filename].0'
+                sprintf(meta.filename, "%s.0", filename);
+            } else { // Manual compaction mode.
+                // Simply use the file name passed to this function.
+                strcpy(actual_filename, filename);
+                return FDB_RESULT_SUCCESS;
+            }
         } else {
             // return the file that has the largest compaction number
             sprintf(meta.filename, "%s.%d", filename, max_compaction_no);

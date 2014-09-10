@@ -45,7 +45,8 @@ fdb_status fdb_open_for_compactor(fdb_handle **ptr_handle,
                                   fdb_config *config);
 
 fdb_status fdb_compact_file(fdb_handle *handle,
-                            const char *new_filename);
+                            const char *new_filename,
+                            bool in_place_compaction);
 
 #ifdef __cplusplus
 }
