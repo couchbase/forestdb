@@ -1912,6 +1912,7 @@ fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             if (!equal_docs(doc, &_doc)) {
+                free_docio_object(&_doc, 1, 1, 1);
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
         } else {
@@ -1919,6 +1920,7 @@ fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
         }
     } else {
         if (!equal_docs(doc, &_doc)) {
+            free_docio_object(&_doc, 1, 1, 1);
             if (handle->new_dhandle && !handle->shandle) {
                 // Look up the new file being compacted
                 _offset = docio_read_doc(handle->new_dhandle, offset, &_doc);
@@ -1926,6 +1928,7 @@ fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
                     return FDB_RESULT_KEY_NOT_FOUND;
                 }
                 if (!equal_docs(doc, &_doc)) {
+                    free_docio_object(&_doc, 1, 1, 1);
                     return FDB_RESULT_KEY_NOT_FOUND;
                 }
             } else {
@@ -2701,6 +2704,7 @@ fdb_status fdb_compact_file(fdb_handle *handle,
                                               &fconfig,
                                               &handle->log_callback);
     if (result.rv != FDB_RESULT_SUCCESS) {
+        filemgr_mutex_unlock(handle->file);
         return (fdb_status) result.rv;
     }
 
@@ -2786,6 +2790,8 @@ fdb_status fdb_compact_file(fdb_handle *handle,
     fdb_status fs = filemgr_commit(handle->file, &handle->log_callback);
     wal_release_flushed_items(handle->file, &flush_items);
     if (fs != FDB_RESULT_SUCCESS) {
+        filemgr_mutex_unlock(handle->file);
+        filemgr_mutex_unlock(new_file);
         return fs;
     }
 

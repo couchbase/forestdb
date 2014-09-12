@@ -110,6 +110,9 @@ int docio_check_buffer(struct docio_handle *dhandle, bid_t check_bid);
 int docio_check_compact_doc(struct docio_handle *handle,
                             struct docio_object *doc);
 
+void free_docio_object(struct docio_object *doc, uint8_t key_alloc,
+                       uint8_t meta_alloc, uint8_t body_alloc);
+
 #ifdef __cplusplus
 }
 #endif

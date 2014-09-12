@@ -104,6 +104,15 @@ int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
     return cmp;
 }
 
+void _fdb_free_iterator(fdb_iterator *iterator) {
+    free(iterator->_key);
+    free(iterator->end_key);
+    free(iterator->idtree_iterator);
+    free(iterator->hbtrie_iterator);
+    free(iterator->seqtree_iterator);
+    free(iterator);
+}
+
 fdb_status fdb_iterator_init(fdb_handle *handle,
                              fdb_iterator **ptr_iterator,
                              const void *start_key,
@@ -161,7 +170,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         }
 
         if (br == BTREE_RESULT_FAIL) {
-            free(iterator);
+            _fdb_free_iterator(iterator);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     } else {
@@ -170,7 +179,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
                                   (void *)start_key, start_keylen);
         if (hr == HBTRIE_RESULT_FAIL) {
-            free(iterator);
+            _fdb_free_iterator(iterator);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     }
@@ -785,8 +794,9 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         free(iterator->seqtree_iterator);
     }
 
-    if (iterator->end_key)
+    if (iterator->end_key) {
         free(iterator->end_key);
+    }
 
     if (!iterator->handle.shandle) {
         a = avl_first(iterator->wal_tree);
