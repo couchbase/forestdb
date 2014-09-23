@@ -343,8 +343,9 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
             if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
                 (wal_item->txn == txn) ||
                 (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
-                if (iterator->_seqnum <= wal_item->seqnum &&
-                    wal_item->seqnum <= iterator->end_seqnum) {
+                if (iterator->_seqnum <= wal_item->seqnum) {
+                    // (documents whose seq numbers are greater than end_seqnum
+                    //  also have to be included for duplication check)
                     // copy from WAL_ITEM
                     snap_item = (struct snap_wal_entry*)malloc(sizeof(
                                 struct snap_wal_entry));
@@ -641,9 +642,16 @@ start_seq:
                     if (br == BTREE_RESULT_FAIL && !iterator->tree_cursor) {
                         return FDB_RESULT_ITERATOR_FAIL;
                     }
-
                     // this key is removed .. get next key[WAL]
                     continue;
+                }
+                if (snap_item->seqnum < iterator->_seqnum) {
+                    // smaller than the current seqnum .. get next key[WAL]
+                    continue;
+                }
+                if (snap_item->seqnum > iterator->end_seqnum) {
+                    // out-of-range .. iterator terminates
+                    return FDB_RESULT_ITERATOR_FAIL;
                 }
 
                 offset = snap_item->offset;
@@ -688,7 +696,12 @@ start_seq:
              cursor = avl_next(cursor)) {
             // get the current item of avl tree
             snap_item = _get_entry(cursor, struct snap_wal_entry, avl);
-            if (!memcmp(snap_item->key, _doc.key, snap_item->keylen)) {
+            // we MUST not use 'memcmp' for comparison of two keys
+            // because it returns false positive when snap_item->key is a
+            // sub-string of _doc.key
+            // (e.g, "abc" and "abcd" -> memcmp("abc", "abcd", 3) == 0)
+            if (!_fdb_keycmp(snap_item->key, snap_item->keylen,
+                             _doc.key, _doc.length.keylen)) {
                 free(_doc.key);
                 free(_doc.meta);
                 free(_doc.body);
@@ -712,7 +725,8 @@ start_seq:
             _hbdoc.key = _doc.key;
             _hbdoc.meta = NULL;
             hboffset = _endian_decode(hboffset);
-            _offset = docio_read_doc_key_meta(iterator->handle.dhandle, hboffset, &_hbdoc);
+            _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
+                                              hboffset, &_hbdoc);
             if (_offset == hboffset) {
                 free(_doc.key);
                 free(_doc.meta);
