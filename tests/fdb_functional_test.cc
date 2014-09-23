@@ -1885,7 +1885,7 @@ void sequence_iterator_test()
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
 
     fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 0;
@@ -2088,6 +2088,114 @@ void sequence_iterator_test()
     TEST_RESULT("sequence iterator test");
 }
 
+void sequence_iterator_duplicate_test()
+{
+    // Unit test for MB-12225
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 100;
+    int count;
+    uint64_t offset;
+    fdb_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+    fdb_seqnum_t seqnum;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "sequence_iterator_test");
+
+    // insert documents first time
+    for (i=0;i<n;i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d(first)", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents second time
+    for (i=0;i<n;i++){
+        sprintf(bodybuf, "body%d(second)", i);
+        fdb_doc_update(&doc[i], NULL, 0, bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(db, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents third time (only even number documents)
+    for (i=0;i<n;i+=2){
+        sprintf(bodybuf, "body%d(third)", i);
+        fdb_doc_update(&doc[i], NULL, 0, bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without WAL flushing
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // create an iterator over sequence number
+    fdb_iterator_sequence_init(db, &iterator, 0, 220, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count = 0;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+        if (count<50) {
+            // HB+trie
+            i = count*2 + 1;
+            seqnum = 100 + (count+1)*2;
+            sprintf(bodybuf, "body%d(second)", i);
+        } else {
+            // WAL
+            i = (count-50)*2;
+            seqnum = 200 + (count-50+1);
+            sprintf(bodybuf, "body%d(third)", i);
+        }
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CHK(rdoc->seqnum == seqnum);
+
+        count++;
+        fdb_doc_free(rdoc);
+    };
+    TEST_CHK(count==70);
+    fdb_iterator_close(iterator);
+
+    // close db file
+    fdb_close(db);
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("sequence iterator duplicate test");
+}
 
 int _cmp_double(void *a, void *b)
 {
@@ -4294,6 +4402,7 @@ int main(){
     iterator_test();
     iterator_seek_test();
     sequence_iterator_test();
+    sequence_iterator_duplicate_test();
     custom_compare_primitive_test();
     custom_compare_variable_test();
     snapshot_test();
