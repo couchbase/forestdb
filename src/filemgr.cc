@@ -336,6 +336,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             if (create) {
                 file_flag |= O_CREAT;
             }
+            *file->config = *config;
+            file->config->blocksize = global_config.blocksize;
+            file->config->ncacheblock = global_config.ncacheblock;
             file_flag |= config->flag;
             file->fd = file->ops->open(file->filename, file_flag, 0666);
             if (file->fd < 0) {
@@ -410,7 +413,10 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->ops = ops;
     file->blocksize = global_config.blocksize;
     file->status = FILE_NORMAL;
-    file->config = &global_config;
+    file->config = (struct filemgr_config*)malloc(sizeof(struct filemgr_config));
+    *file->config = *config;
+    file->config->blocksize = global_config.blocksize;
+    file->config->ncacheblock = global_config.ncacheblock;
     file->new_file = NULL;
     file->old_filename = NULL;
     file->fd = fd;
@@ -420,6 +426,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         _log_errno_str(file->ops, log_callback, FDB_RESULT_SEEK_FAIL, "SEEK_END", filename);
         free(file->wal);
         free(file->filename);
+        free(file->config);
         free(file);
         spin_unlock(&filemgr_openlock);
         result.rv = FDB_RESULT_SEEK_FAIL;
@@ -732,6 +739,7 @@ static void _filemgr_free_func(struct hash_elem *h)
 #endif
 
     // free file structure
+    free(file->config);
     free(file);
 }
 
@@ -1050,9 +1058,12 @@ fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
         bcache_flush(file);
     }
 
-    int rv = file->ops->fsync(file->fd);
-    _log_errno_str(file->ops, log_callback, (fdb_status)rv, "FSYNC", file->filename);
-    return (fdb_status) rv;
+    if (file->fflags & FILEMGR_SYNC) {
+        int rv = file->ops->fsync(file->fd);
+        _log_errno_str(file->ops, log_callback, (fdb_status)rv, "FSYNC", file->filename);
+        return (fdb_status) rv;
+    }
+    return FDB_RESULT_SUCCESS;
 }
 
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,
