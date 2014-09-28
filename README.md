@@ -1,6 +1,6 @@
 # ForestDB
 
-ForestDB is a key-value storage engine that is developed by Couchbase Caching and Storage Team, and its main index structure is built from Hierarchical B+-Tree based Trie, called HB+-Trie. [HB+-Trie](http://db.csail.mit.edu/sigmod11contest/sigmod_2011_contest_poster_jungsang_ahn.pdf) was presented at ACM SIGMOD 2011 Programming Contest, by [Jung-Sang Ahn](http://cagsky.kaist.ac.kr/jsahn/) who now works at Couchbase Caching and Storage Team.
+ForestDB is a key-value storage engine that is developed by Couchbase Caching and Storage Team, and its main index structure is built from [Hierarchical B+-Tree based Trie](http://db.csail.mit.edu/sigmod11contest/sigmod_2011_contest_poster_jungsang_ahn.pdf), called HB+-Trie. [HB+-Trie](http://db.csail.mit.edu/sigmod11contest/sigmod_2011_contest_poster_jungsang_ahn.pdf) was originally presented at [ACM SIGMOD 2011 Programming Contest](http://db.csail.mit.edu/sigmod11contest/), by [Jung-Sang Ahn](http://cagsky.kaist.ac.kr/jsahn/) who works at Couchbase Caching and Storage Team.
 
 Compared with traditional B+-Tree based storage engines, ForestDB shows significantly better read and write performance with less storage overhead. ForestDB has been tested on various server OS environments (Centos, Ubuntu, Mac OS x, Windows) and mobile OSs (iOS, Android).
 
