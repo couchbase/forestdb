@@ -60,7 +60,25 @@ struct hbtrie_iterator {
     struct list btreeit_list;
     void *curkey;
     size_t keylen;
+    uint8_t flags;
+#define HBTRIE_ITERATOR_REV    0x01
+#define HBTRIE_ITERATOR_FAILED 0x02
 };
+
+#define HBTRIE_ITR_IS_REV(iterator) \
+    ((iterator)->flags & HBTRIE_ITERATOR_REV)
+#define HBTRIE_ITR_IS_FWD(iterator) \
+    (!((iterator)->flags & HBTRIE_ITERATOR_REV))
+#define HBTRIE_ITR_SET_REV(iterator) \
+    ((iterator)->flags |= HBTRIE_ITERATOR_REV)
+#define HBTRIE_ITR_SET_FWD(iterator) \
+    ((iterator)->flags &= ~HBTRIE_ITERATOR_REV)
+#define HBTRIE_ITR_IS_FAILED(iterator) \
+    ((iterator)->flags & HBTRIE_ITERATOR_FAILED)
+#define HBTRIE_ITR_SET_FAILED(iterator) \
+    ((iterator)->flags |= HBTRIE_ITERATOR_FAILED)
+#define HBTRIE_ITR_CLR_FAILED(iterator) \
+    ((iterator)->flags &= ~HBTRIE_ITERATOR_FAILED)
 
 int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey, int rawkeylen, void *outkey);
 void hbtrie_get_chunk(struct hbtrie *trie, void *key, int keylen, int chunkno, void *out);
@@ -77,6 +95,10 @@ void hbtrie_set_leaf_height_limit(struct hbtrie *trie, uint8_t limit);
 hbtrie_result hbtrie_iterator_init(
     struct hbtrie *trie, struct hbtrie_iterator *it, void *initial_key, size_t keylen);
 hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it);
+hbtrie_result hbtrie_prev(struct hbtrie_iterator *it,
+                          void *key_buf,
+                          size_t *keylen,
+                          void *value_buf);
 hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
                           void *key_buf,
                           size_t *keylen,

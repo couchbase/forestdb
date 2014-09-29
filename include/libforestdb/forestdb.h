@@ -418,6 +418,17 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
                              fdb_iterator_opt_t opt);
 
 /**
+ * Get the prev item (key, metadata, doc body) from the iterator.
+ *
+ * @param iterator Pointer to the iterator.
+ * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_iterator_prev(fdb_iterator *iterator,
+                             fdb_doc **doc);
+
+/**
  * Get the next item (key, metadata, doc body) from the iterator.
  *
  * @param iterator Pointer to the iterator.

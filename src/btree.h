@@ -133,7 +133,29 @@ struct btree_iterator {
     idx_t *idx;
     struct bnode **node;
     void **addr;
+    uint8_t flags;
+#define BTREE_ITERATOR_NONE 0x00
+#define BTREE_ITERATOR_FWD  0x01
+#define BTREE_ITERATOR_REV  0x02
+#define BTREE_ITERATOR_NONE_MASK  0x03
 };
+
+#define BTREE_ITR_SET_NONE(iterator) \
+    ((iterator)->flags &= ~BTREE_ITERATOR_NONE_MASK)
+#define BTREE_ITR_IS_REV(iterator) \
+    ((iterator)->flags & BTREE_ITERATOR_REV)
+#define BTREE_ITR_IS_FWD(iterator) \
+    ((iterator)->flags & BTREE_ITERATOR_FWD)
+#define BTREE_ITR_SET_REV(iterator) \
+    do {\
+        BTREE_ITR_SET_NONE(iterator);\
+        (iterator)->flags |= BTREE_ITERATOR_REV;\
+    }while (0)
+#define BTREE_ITR_SET_FWD(iterator) \
+    do {\
+        BTREE_ITR_SET_NONE(iterator);\
+        (iterator)->flags |= BTREE_ITERATOR_FWD;\
+    }while (0)
 
 typedef void btree_print_func(struct btree *btree, void *key, void *value);
 void btree_print_node(struct btree *btree, btree_print_func func);
@@ -154,6 +176,7 @@ btree_result btree_init(
 btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key);
 btree_result btree_iterator_free(struct btree_iterator *it);
 btree_result btree_next(struct btree_iterator *it, void *key_buf, void *value_buf);
+btree_result btree_prev(struct btree_iterator *it, void *key_buf, void *value_buf);
 
 btree_result btree_get_key_range(
     struct btree *btree, idx_t num, idx_t den, void *key_begin, void *key_end);

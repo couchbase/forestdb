@@ -59,7 +59,8 @@ void basic_test()
     file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
 
-    btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
+    btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(),
+               btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
 
     for (i=0;i<6;++i) {
         k = i; v = i*10;
@@ -109,13 +110,10 @@ void basic_test()
     struct btree btree2;
 
     DBG("re-read using root bid %"_F64"\n", btree.root_bid);
-    btree_init_from_bid(&btree2, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, btree.root_bid);
+    btree_init_from_bid(&btree2, (void*)&btree_handle, btreeblk_get_ops(),
+                        btree_kv_get_ku64_vu64(), nodesize, btree.root_bid);
     btree_print_node(&btree2, print_btree);
-    /*
-    DBG("re-read using root bid 13\n");
-    btree_init_from_bid(&btree2, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 13);
-    btree_print_node(&btree2, print_btree);
-    */
+
     btreeblk_free(&btree_handle);
 
     filemgr_close(file, true, NULL, NULL);
@@ -152,7 +150,8 @@ void iterator_test()
     file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
 
-    btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
+    btree_init(&btree, (void*)&btree_handle, btreeblk_get_ops(),
+               btree_kv_get_ku64_vu64(), nodesize, ksize, vsize, 0x0, NULL);
 
     for (i=0;i<6;++i) {
         k = i*2; v = i*10;
@@ -228,8 +227,10 @@ void two_btree_test()
     file = result.file;
     btreeblk_init(&btreeblk_handle, file, nodesize);
 
-    btree_init(&btree_a, (void*)&btreeblk_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
-    btree_init(&btree_b, (void*)&btreeblk_handle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
+    btree_init(&btree_a, (void*)&btreeblk_handle, btreeblk_get_ops(),
+               btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
+    btree_init(&btree_b, (void*)&btreeblk_handle, btreeblk_get_ops(),
+               btree_kv_get_ku64_vu64(), nodesize, 8, 8, 0x0, NULL);
 
     for (i=0;i<12;++i){
         k = i*2; v = k * 10;
@@ -273,7 +274,7 @@ void range_test()
     btreeblk_init(&bhandle, file, blocksize);
 
     btree_init(&btree, (void*)&bhandle, btreeblk_get_ops(), btree_kv_get_ku64_vu64(),
-        blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
 
     for (i=0;i<n;++i){
         key = i;
@@ -560,11 +561,177 @@ void subblock_test()
     TEST_RESULT("subblock test");
 }
 
+void btree_reverse_iterator_test()
+{
+    TEST_INIT();
+
+    int ksize = 8, vsize = 8, r, c;
+    int nodesize = 256;
+    struct filemgr *file;
+    struct btreeblk_handle bhandle;
+    struct btree btree;
+    struct btree_iterator bi;
+    struct filemgr_config config;
+    struct btree_kv_ops *kv_ops;
+    btree_result br;
+    filemgr_open_result fr;
+    uint64_t i;
+    uint64_t k,v;
+    char *fname = (char *) "./dummy";
+
+    r = system(SHELL_DEL" dummy");
+
+    memleak_start();
+
+    memset(&config, 0, sizeof(config));
+    config.blocksize = nodesize;
+    config.options = FILEMGR_CREATE;
+    fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    file = fr.file;
+
+    btreeblk_init(&bhandle, file, nodesize);
+    kv_ops = btree_kv_get_kb64_vb64(NULL);
+    btree_init(&btree, (void*)&bhandle,
+               btreeblk_get_ops(), kv_ops,
+               nodesize, ksize, vsize, 0x0, NULL);
+
+    for (i=10;i<40;++i) {
+        k = _endian_encode(i*0x10);
+        v = _endian_encode(i*0x100);
+        btree_insert(&btree, (void*)&k, (void*)&v);
+        btreeblk_end(&bhandle);
+    }
+
+    c = 0;
+    btree_iterator_init(&btree, &bi, NULL);
+    while ((br=btree_next(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+        TEST_CHK(k == (c+10)*0x10);
+        TEST_CHK(v == (c+10)*0x100);
+        c++;
+    }
+    btreeblk_end(&bhandle);
+    btree_iterator_free(&bi);
+    TEST_CHK(c == 30);
+
+    c = 0;
+    i=10000;
+    k = _endian_encode(i);
+    btree_iterator_init(&btree, &bi, &k);
+    while ((br=btree_next(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+    }
+    btreeblk_end(&bhandle);
+    btree_iterator_free(&bi);
+    TEST_CHK(c == 0);
+
+    // reverse iteration with NULL initial key
+    c = 0;
+    btree_iterator_init(&btree, &bi, NULL);
+    while ((br=btree_prev(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+    }
+    btreeblk_end(&bhandle);
+    btree_iterator_free(&bi);
+    TEST_CHK(c == 0);
+
+    c = 0;
+    i=10000;
+    k = _endian_encode(i);
+    btree_iterator_init(&btree, &bi, &k);
+    while ((br=btree_prev(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+        TEST_CHK(k == (39-c)*0x10);
+        TEST_CHK(v == (39-c)*0x100);
+        c++;
+    }
+    btreeblk_end(&bhandle);
+    btree_iterator_free(&bi);
+    TEST_CHK(c == 30);
+
+    c = 0;
+    i=0x175;
+    k = _endian_encode(i);
+    btree_iterator_init(&btree, &bi, &k);
+    while ((br=btree_prev(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+        TEST_CHK(k == (0x17-c)*0x10);
+        TEST_CHK(v == (0x17-c)*0x100);
+        c++;
+    }
+    btreeblk_end(&bhandle);
+    btree_iterator_free(&bi);
+    TEST_CHK(c == 14);
+
+    c = 0xa0 - 0x10;
+    btree_iterator_init(&btree, &bi, NULL);
+    for (i=0;i<15;++i){
+        c += 0x10;
+        br = btree_next(&bi, &k, &v);
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+        TEST_CHK(k == c);
+        TEST_CHK(v == c*0x10);
+    }
+    for (i=0;i<7;++i){
+        c -= 0x10;
+        br = btree_prev(&bi, &k, &v);
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+        TEST_CHK(k == c);
+        TEST_CHK(v == c*0x10);
+    }
+    for (i=0;i<10;++i){
+        c += 0x10;
+        br = btree_next(&bi, &k, &v);
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+        TEST_CHK(k == c);
+        TEST_CHK(v == c*0x10);
+    }
+    for (i=0;i<17;++i){
+        c -= 0x10;
+        br = btree_prev(&bi, &k, &v);
+        btreeblk_end(&bhandle);
+        k = _endian_decode(k);
+        v = _endian_decode(v);
+        TEST_CHK(k == c);
+        TEST_CHK(v == c*0x10);
+    }
+    br = btree_prev(&bi, &k, &v);
+    btreeblk_end(&bhandle);
+    TEST_CHK(br == BTREE_RESULT_FAIL);
+
+    btree_iterator_free(&bi);
+
+    free(kv_ops);
+    btreeblk_free(&bhandle);
+    filemgr_close(file, true, NULL, NULL);
+    filemgr_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("btree reverse iterator test");
+}
+
 int main()
 {
-    #ifdef _MEMPOOL
-        mempool_init();
-    #endif
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
 
     int r = system(SHELL_DEL" dummy");
     basic_test();
@@ -572,6 +739,7 @@ int main()
     two_btree_test();
     range_test();
     subblock_test();
+    btree_reverse_iterator_test();
 
     return 0;
 }

@@ -154,6 +154,40 @@ struct avl_node;
 struct list;
 
 /**
+ * ForestDB iterator cursor movement direction
+ */
+typedef uint8_t fdb_iterator_dir_t;
+enum {
+    /**
+     * Iterator cursor default.
+     */
+    FDB_ITR_DIR_NONE = 0x00,
+    /**
+     * Iterator cursor moving forward
+     */
+    FDB_ITR_FORWARD = 0x01,
+    /**
+     * Iterator cursor moving backwards
+     */
+    FDB_ITR_REVERSE = 0x02
+};
+
+/**
+ * ForestDB iterator status
+ */
+typedef uint8_t fdb_iterator_status_t;
+enum {
+    /**
+     * The last returned doc was retrieved from the main index.
+     */
+    FDB_ITR_IDX = 0x00,
+    /**
+     * The last returned doc was retrieved from the WAL.
+     */
+    FDB_ITR_WAL = 0x01
+};
+
+/**
  * ForestDB iterator structure definition.
  */
 struct _fdb_iterator {
@@ -178,6 +212,10 @@ struct _fdb_iterator {
      */
     fdb_seqnum_t _seqnum;
     /**
+     * Iterator start seqnum.
+     */
+    fdb_seqnum_t start_seqnum;
+    /**
      * Iterator end seqnum.
      */
     fdb_seqnum_t end_seqnum;
@@ -190,6 +228,22 @@ struct _fdb_iterator {
      */
     struct avl_node *tree_cursor;
     /**
+     * Start position of AVL tree cursor.
+     */
+    struct avl_node *tree_cursor_start;
+    /**
+     * Previous position of AVL tree cursor.
+     */
+    struct avl_node *tree_cursor_prev;
+    /**
+     * Iterator start key.
+     */
+    void *start_key;
+    /**
+     * Start key length.
+     */
+    size_t start_keylen;
+    /**
      * Iterator end key.
      */
     void *end_key;
@@ -201,7 +255,14 @@ struct _fdb_iterator {
      * Iterator option.
      */
     fdb_iterator_opt_t opt;
-
+    /**
+     * Iterator cursor direction status.
+     */
+    fdb_iterator_dir_t direction;
+    /**
+     * The last returned document info.
+     */
+    fdb_iterator_status_t status;
     /**
      * Current key pointed by the iterator.
      */
