@@ -134,6 +134,12 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    if (!handle->shandle) {
+        fdb_check_file_reopen(handle);
+        fdb_link_new_file(handle);
+        fdb_sync_db_header(handle);
+    }
+
     fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
 
     iterator->handle = *handle;
@@ -198,9 +204,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
     // init tree
     if (!handle->shandle) {
         struct filemgr *wal_file;
-        fdb_check_file_reopen(handle);
-        fdb_link_new_file(handle);
-        fdb_sync_db_header(handle);
+
         if (handle->new_file == NULL) {
             wal_file = handle->file;
         } else {
@@ -294,6 +298,12 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
         return FDB_RESULT_INVALID_CONFIG;
     }
 
+    if (!handle->shandle) {
+        fdb_check_file_reopen(handle);
+        fdb_link_new_file(handle);
+        fdb_sync_db_header(handle);
+    }
+
     fdb_iterator *iterator = (fdb_iterator *) malloc(sizeof(fdb_iterator));
 
     iterator->handle = *handle;
@@ -332,9 +342,7 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
     // init tree
     if (!handle->shandle) {
         struct filemgr *wal_file;
-        fdb_check_file_reopen(handle);
-        fdb_link_new_file(handle);
-        fdb_sync_db_header(handle);
+
         if (handle->new_file == NULL) {
             wal_file = handle->file;
         } else {

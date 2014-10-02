@@ -1831,6 +1831,93 @@ void iterator_test()
     TEST_RESULT("iterator test");
 }
 
+void iterator_with_concurrent_updates_test()
+{
+    // unit test for MB-12287
+    TEST_INIT();
+    memleak_start();
+
+    int i, n=10;
+    int r;
+    fdb_handle *db1, *db2, *db3;
+    fdb_iterator *itr;
+    fdb_config fconfig;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // open db1, db2, db3 on the same file
+    fconfig = fdb_get_default_config();
+    fdb_open(&db1, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db1, logCallbackFunc,
+                                  (void *) "iterator_seek_test");
+    fdb_open(&db2, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db2, logCallbackFunc,
+                                  (void *) "iterator_seek_test");
+    fdb_open(&db3, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db3, logCallbackFunc,
+                                  (void *) "iterator_seek_test");
+
+    // insert docs using db1
+    for (i=0;i<10;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf), NULL, 0,
+                       (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db1, doc[i]);
+    }
+    fdb_commit(db1, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // create an iterator using db2
+    fdb_iterator_init(db2, &itr, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    r = 0;
+    while (1) {
+        status = fdb_iterator_next(itr, &rdoc);
+        if (status != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        TEST_CHK(!memcmp(rdoc->key, doc[r]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->body, doc[r]->body, rdoc->bodylen));
+        r++;
+        fdb_doc_free(rdoc);
+    }
+    fdb_iterator_close(itr);
+    TEST_CHK(r == n);
+
+    // same for sequence number
+    fdb_iterator_sequence_init(db3, &itr, 0, 0, FDB_ITR_NONE);
+    r = 0;
+    while (1) {
+        status = fdb_iterator_next(itr, &rdoc);
+        if (status != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        r++;
+        TEST_CHK(rdoc->seqnum == r);
+        fdb_doc_free(rdoc);
+    }
+    fdb_iterator_close(itr);
+    TEST_CHK(r == n);
+
+    fdb_close(db1);
+    fdb_close(db2);
+    fdb_close(db3);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("iterator with concurrent updates test");
+}
+
 void iterator_seek_test()
 {
     TEST_INIT();
@@ -4772,6 +4859,7 @@ int main(){
 #endif
     incomplete_block_test();
     iterator_test();
+    iterator_with_concurrent_updates_test();
     iterator_seek_test();
     sequence_iterator_test();
     sequence_iterator_duplicate_test();
