@@ -1993,6 +1993,27 @@ void iterator_seek_test()
 
     // repeat until fail
     i=2;
+    status = fdb_iterator_next(iterator, &rdoc);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+
+    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+    // iterator should be able to proceed forward
+    status = fdb_iterator_next(iterator, &rdoc);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+
+    i++;
+    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+    // seek backward to 2nd key ..
+    status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf));
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i=2;
     while(1){
         status = fdb_iterator_next(iterator, &rdoc);
         if (status == FDB_RESULT_ITERATOR_FAIL) break;
@@ -2005,6 +2026,25 @@ void iterator_seek_test()
         i++;
     };
     TEST_CHK(i==10);
+
+    // Seek backward again to a key in the trie...
+    status = fdb_iterator_seek(iterator, doc[3]->key, strlen(keybuf));
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i=3;
+    while(1){
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+
+        fdb_doc_free(rdoc);
+        i++;
+    };
+    TEST_CHK(i==10);
+
     fdb_iterator_close(iterator);
 
     // close db file

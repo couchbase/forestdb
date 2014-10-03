@@ -756,6 +756,10 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
     btree_result br;
     struct snap_wal_entry *snap_item = NULL;
+    int dir; // compare result gives seek direction >0 is forward, <=0 reverse
+    int save_direction; // if we move past seek_key and need to turn back to it
+    size_t finalRun = (size_t) (-1);
+
     if (!iterator || !seek_key || !iterator->_key ||
         seek_keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
@@ -765,19 +769,45 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     if (iterator->end_key && _fdb_key_cmp(iterator, (void *)iterator->end_key,
                                          iterator->end_keylen,
                                          (void *)seek_key, seek_keylen) <= 0) {
-        memcpy(iterator->_key, seek_key, seek_keylen);
-        iterator->_keylen = seek_keylen;
-        iterator->_offset = 0;
-        iterator->tree_cursor = NULL;
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
-    // Roll the hb-trie/btree iterator forward to seek key
-    while (hr == HBTRIE_RESULT_SUCCESS) {
-        if (_fdb_key_cmp(iterator, (void *)seek_key, seek_keylen,
-                    (void *)iterator->_key, iterator->_keylen) <= 0) {
+    // disable seeking beyond the start key...
+    if (iterator->start_key && _fdb_key_cmp(iterator,
+                                         (void *)iterator->start_key,
+                                         iterator->start_keylen,
+                                         (void *)seek_key, seek_keylen) >= 0) {
+        return FDB_RESULT_ITERATOR_FAIL;
+    }
+
+    dir = _fdb_key_cmp(iterator, (void *)seek_key, seek_keylen,
+                    (void *)iterator->_key, iterator->_keylen);
+    save_direction = dir;
+
+    // Roll the hb-trie/btree iterator to seek key based on direction
+    while (hr == HBTRIE_RESULT_SUCCESS && finalRun--) {
+        int cmp = _fdb_key_cmp(iterator, (void *)seek_key, seek_keylen,
+                    (void *)iterator->_key, iterator->_keylen);
+
+        if ((cmp <= 0 && dir >= 0) || // Forward seek went past seek_key
+            (cmp >= 0 && dir <= 0)) { // Backward seek went past seek_key
+            if (cmp != 0) {
+                if (dir <= 0 && iterator->direction != FDB_ITR_REVERSE &&
+                    finalRun) {// Oops we moved cursor backward one extra step!
+                    dir = 1; // But user is not iterating in backward direction
+                    finalRun = 1; //so run just once more in opposite direction
+                    continue;
+                }
+                if (dir >= 0 && iterator->direction != FDB_ITR_FORWARD &&
+                    finalRun) { // Oops we moved cursor forward one extra step!
+                    dir = -1; // But user is not iterating in forward direction
+                    finalRun = 1; //so run just once more in opposite direction
+                    continue;
+                }
+            }
+
             // iterator->_key and iterator->_offset will help return seek_key
-            // on fdb_iterator_next() if we went past & pulled out a higher key
+            // on iterator call if we went past it in either direction
             break;
         }
 
@@ -787,8 +817,14 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
                     iterator->handle.config.chunksize);
             memset(var_key, 0, iterator->handle.config.chunksize);
 
-            br = btree_next(iterator->idtree_iterator, var_key,
+            if (dir < 0) { // need to seek backwards
+                br = btree_prev(iterator->idtree_iterator, var_key,
                     (void*)&iterator->_offset);
+
+            } else { // need to seek forward
+                br = btree_next(iterator->idtree_iterator, var_key,
+                        (void*)&iterator->_offset);
+            }
             if (br == BTREE_RESULT_FAIL) {
                 hr = HBTRIE_RESULT_FAIL;
             } else {
@@ -796,25 +832,68 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
                 _free_var_key(var_key);
             }
         } else {
-            hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
-                    &iterator->_keylen, (void*)&iterator->_offset);
+            if (dir <= 0) { // need to seek backwards
+                hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
+                        &iterator->_keylen, (void*)&iterator->_offset);
+            } else { // need to seek forward
+                hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
+                        &iterator->_keylen, (void*)&iterator->_offset);
+            }
         }
         btreeblk_end(iterator->handle.bhandle);
         iterator->_offset = _endian_decode(iterator->_offset);
     }
 
-    // Roll the WAL iterator forward too to the seek_key
-    while (iterator->tree_cursor) {
+    // Reset the WAL cursor based on direction of iteration
+    dir = save_direction;
+
+    if (!iterator->tree_cursor) {
+        if (dir < 0) { // need to seek backwards, but went past end point?
+            if (iterator->direction != FDB_ITR_REVERSE) {
+                iterator->tree_cursor = iterator->tree_cursor_prev;
+            }
+        } else { // need to seek forward, but went before start point?
+            if (iterator->direction != FDB_ITR_FORWARD) {
+                iterator->tree_cursor = iterator->tree_cursor_start;
+            }
+        }
+    }
+
+    finalRun = (size_t)(-1);
+    while (iterator->tree_cursor && finalRun--) {
         int cmp;
         snap_item = _get_entry(iterator->tree_cursor, struct snap_wal_entry,
                                avl);
         cmp = _fdb_key_cmp(iterator, (void *)snap_item->key, snap_item->keylen,
                          (void *)seek_key, seek_keylen);
-        if ( cmp < 0) {
-            iterator->tree_cursor_prev = iterator->tree_cursor;
-            iterator->tree_cursor = avl_next(iterator->tree_cursor);
-        } else {
-            break;
+        if (dir < 0) { // need to seek backwards
+            if (cmp > 0) {
+                iterator->tree_cursor = avl_prev(iterator->tree_cursor);
+                iterator->tree_cursor_prev = iterator->tree_cursor;
+            } else {
+                if (cmp != 0 && iterator->direction != FDB_ITR_REVERSE &&
+                    finalRun) {
+                    // Cursor ready at prev key but we aren't reverse iterating
+                    dir = 1; // As we were seeking backward, must turn around
+                    finalRun = 1; // just run once in opposite direction
+                    continue;
+                }
+                break;
+            }
+        } else { // need to seek forward
+            if (cmp < 0) {
+                iterator->tree_cursor_prev = iterator->tree_cursor;
+                iterator->tree_cursor = avl_next(iterator->tree_cursor);
+            } else {
+                if (cmp != 0 && iterator->direction != FDB_ITR_FORWARD &&
+                    finalRun) {
+                    // Cursor ready at next key but we aren't forward iterating
+                    dir = -1; // As we were seeking forward, must turn around
+                    finalRun = 1; // just run once in opposite direction
+                    continue;
+                }
+                break;
+            }
         }
     }
     return FDB_RESULT_SUCCESS;
