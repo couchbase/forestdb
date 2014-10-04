@@ -227,6 +227,11 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
             // compare committed item only (at the end of the list)
             ie = list_end(&wal_item_header->items);
             wal_item = _get_entry(ie, struct wal_item, list_elem);
+            if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
+                // ignore items moved by compactor
+                he = list_next(he);
+                continue;
+            }
             if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
                 (wal_item->txn == txn) ||
                 (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
@@ -246,6 +251,11 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
                     memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
                     snap_item->action = wal_item->action;
                     snap_item->offset = wal_item->offset;
+                    if (wal_file == handle->new_file) {
+                        snap_item->flag = SNAP_ITEM_IN_NEW_FILE;
+                    } else {
+                        snap_item->flag = 0x0;
+                    }
 
                     // insert into tree
                     avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
@@ -366,6 +376,11 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
             // compare committed item only (at the end of the list)
             ie = list_end(&wal_item_header->items);
             wal_item = _get_entry(ie, struct wal_item, list_elem);
+            if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
+                // ignore items moved by compactor
+                he = list_next(he);
+                continue;
+            }
             if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
                 (wal_item->txn == txn) ||
                 (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
@@ -381,6 +396,11 @@ fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
                     snap_item->seqnum = wal_item->seqnum;
                     snap_item->action = wal_item->action;
                     snap_item->offset = wal_item->offset;
+                    if (wal_file == handle->new_file) {
+                        snap_item->flag = SNAP_ITEM_IN_NEW_FILE;
+                    } else {
+                        snap_item->flag = 0x0;
+                    }
 
                     // insert into tree
                     avl_insert(iterator->wal_tree, &snap_item->avl,
@@ -589,6 +609,7 @@ static fdb_status _fdb_iterator_next(fdb_iterator *iterator,
     btree_result br;
     fdb_status fs;
     struct docio_object _doc;
+    struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
 
     if (iterator->direction == FDB_ITR_REVERSE) {
@@ -612,6 +633,7 @@ static fdb_status _fdb_iterator_next(fdb_iterator *iterator,
 
 start:
     key = iterator->_key;
+    dhandle = iterator->handle.dhandle;
 
     // retrieve from hb-trie
     if (iterator->_offset == BLK_NOT_FOUND) {
@@ -686,6 +708,9 @@ start:
             // key[hb-trie] is stashed in iterator->key for next call
             offset = snap_item->offset;
             iterator->status = FDB_ITR_WAL;
+            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
+                dhandle = iterator->handle.new_dhandle;
+            }
         }
         break;
     }
@@ -712,7 +737,7 @@ start:
     _doc.meta = NULL;
     _doc.body = NULL;
     if (iterator->opt & FDB_ITR_METAONLY) {
-        uint64_t _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
+        uint64_t _offset = docio_read_doc_key_meta(dhandle,
                                                    offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -722,7 +747,7 @@ start:
             return FDB_RESULT_KEY_NOT_FOUND;
         }
     } else {
-        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset, &_doc);
+        uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -1092,6 +1117,7 @@ static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator,
     hbtrie_result hr;
     struct docio_object _doc;
     struct docio_object _hbdoc;
+    struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
     fdb_seqnum_t seqnum;
     fdb_status ret = FDB_RESULT_SUCCESS;
@@ -1120,6 +1146,7 @@ static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator,
 
 start_seq:
     seqnum = iterator->_seqnum;
+    dhandle = iterator->handle.dhandle;
 
     // retrieve from sequence b-tree first
     if (iterator->_offset == BLK_NOT_FOUND) {
@@ -1172,6 +1199,9 @@ start_seq:
                 iterator->_offset = offset; // stops b-tree lookups. favor wal
                 iterator->_seqnum = snap_item->seqnum;
                 iterator->status = FDB_ITR_WAL;
+                if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
+                    dhandle = iterator->handle.new_dhandle;
+                }
                 break;
             }
         }
@@ -1182,7 +1212,7 @@ start_seq:
     _doc.meta = NULL;
     _doc.body = NULL;
     if (iterator->opt & FDB_ITR_METAONLY) {
-        uint64_t _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
+        uint64_t _offset = docio_read_doc_key_meta(dhandle,
                                                    offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -1193,7 +1223,7 @@ start_seq:
             return FDB_RESULT_KEY_NOT_FOUND;
         }
     } else {
-        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset, &_doc);
+        uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
