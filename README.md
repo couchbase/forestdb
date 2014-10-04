@@ -25,4 +25,4 @@ See INSTALL.MD
 
 ## How to Use
 
-Please refer to tests/fdb\_functional\_test.cc in ForestDB source directory.
+Please refer to [Public APIs](https://github.com/couchbaselabs/forestdb/wiki/Public-APIs) and tests/fdb\_functional\_test.cc in ForestDB source directory.
