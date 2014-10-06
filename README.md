@@ -4,7 +4,9 @@ ForestDB is a key-value storage engine that is developed by Couchbase Caching an
 
 Compared with traditional B+-Tree based storage engines, ForestDB shows significantly better read and write performance with less storage overhead. ForestDB has been tested on various server OS environments (Centos, Ubuntu, Mac OS x, Windows) and mobile OSs (iOS, Android).
 
-Please visit the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki) for more details.
+ForestDB is currently in [1.0 Beta](https://github.com/couchbaselabs/forestdb/wiki/ForestDB-1.0-Beta) and its GA will be released separately soon. Please visit the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki) for more details.
+
+[ForestDB benchmark program](https://github.com/couchbaselabs/ForestDB-Benchmark) is also available for performance comparisons with other key-value storage engines.
 
 ## Main Features
 
@@ -19,6 +21,10 @@ Please visit the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki)
 - Manual or auto compaction can be configured per ForestDB database file.
 - Transactional support with read\_committed or read\_uncommitted isolation level.
 
+## How to build
+
+See INSTALL.MD
+
 ## How to Use
 
-Please refer to tests/fdb\_functional\_test.cc in ForestDB source directory.
+Please refer to [Public APIs](https://github.com/couchbaselabs/forestdb/wiki/Public-APIs) and tests/fdb\_functional\_test.cc in ForestDB source directory.
