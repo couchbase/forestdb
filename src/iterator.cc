@@ -443,6 +443,7 @@ static fdb_status _fdb_iterator_prev(fdb_iterator *iterator,
     btree_result br;
     fdb_status fs;
     struct docio_object _doc;
+    struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
 
     if (iterator->direction == FDB_ITR_FORWARD) {
@@ -459,6 +460,7 @@ static fdb_status _fdb_iterator_prev(fdb_iterator *iterator,
     iterator->tree_cursor = iterator->tree_cursor_prev;
 start:
     key = iterator->_key;
+    dhandle = iterator->handle.dhandle;
 
     // retrieve from hb-trie
     if (iterator->_offset == BLK_NOT_FOUND) {
@@ -532,6 +534,9 @@ start:
             // key[hb-trie] is stashed in iterator->_key for future call
             offset = snap_item->offset;
             iterator->status = FDB_ITR_WAL;
+            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
+                dhandle = iterator->handle.new_dhandle;
+            }
         }
         break;
     }
@@ -558,8 +563,7 @@ start:
     _doc.meta = NULL;
     _doc.body = NULL;
     if (iterator->opt & FDB_ITR_METAONLY) {
-        uint64_t _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
-                                                   offset, &_doc);
+        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -569,7 +573,7 @@ start:
             return FDB_RESULT_KEY_NOT_FOUND;
         }
     } else {
-        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset, &_doc);
+        uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -933,6 +937,7 @@ static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator,
     hbtrie_result hr;
     struct docio_object _doc;
     struct docio_object _hbdoc;
+    struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
     fdb_seqnum_t seqnum;
     fdb_status ret = FDB_RESULT_SUCCESS;
@@ -956,6 +961,7 @@ static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator,
     iterator->tree_cursor = iterator->tree_cursor_prev;
 start_seq:
     seqnum = iterator->_seqnum;
+    dhandle = iterator->handle.dhandle;
 
     if (iterator->_offset == BLK_NOT_FOUND || // was iterating over btree
         !iterator->tree_cursor) { // WAL exhausted
@@ -996,6 +1002,9 @@ start_seq:
         iterator->_offset = offset; // WAL is not exhausted, ignore B-Tree
         iterator->_seqnum = snap_item->seqnum;
         iterator->status = FDB_ITR_WAL;
+        if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
+            dhandle = iterator->handle.new_dhandle;
+        }
         break;
     }
 
@@ -1004,8 +1013,7 @@ start_seq:
     _doc.meta = NULL;
     _doc.body = NULL;
     if (iterator->opt & FDB_ITR_METAONLY) {
-        uint64_t _offset = docio_read_doc_key_meta(iterator->handle.dhandle,
-                                                   offset, &_doc);
+        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -1016,8 +1024,7 @@ start_seq:
             return FDB_RESULT_KEY_NOT_FOUND;
         }
     } else {
-        uint64_t _offset = docio_read_doc(iterator->handle.dhandle, offset,
-                                          &_doc);
+        uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
