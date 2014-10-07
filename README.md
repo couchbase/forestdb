@@ -6,6 +6,8 @@ Compared with traditional B+-Tree based storage engines, ForestDB shows signific
 
 ForestDB is currently in [1.0 Beta](https://github.com/couchbaselabs/forestdb/wiki/ForestDB-1.0-Beta) and its GA will be released separately soon. Please visit the [ForestDB wiki](https://github.com/couchbaselabs/forestdb/wiki) for more details.
 
+[ForestDB benchmark program](https://github.com/couchbaselabs/ForestDB-Benchmark) is also available for performance comparisons with other key-value storage engines.
+
 ## Main Features
 
 - Keys and values are treated as an arbitrary binary.
