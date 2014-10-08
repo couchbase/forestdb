@@ -2091,7 +2091,7 @@ fdb_set_start:
             filemgr_get_file_status(handle->file) == FILE_NORMAL &&
             wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
         // commit only for non-transactional WAL entries
-        struct wal_flush_items flush_items;
+        struct avl_tree flush_items;
         wal_commit(&file->global_txn, file, NULL);
         wal_flush(file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
@@ -2246,7 +2246,7 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
     fdb_txn *earliest_txn;
     fdb_status fs = FDB_RESULT_SUCCESS;
     bool wal_flushed = false;
-    struct wal_flush_items flush_items;
+    struct avl_tree flush_items;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
@@ -2353,7 +2353,7 @@ static void _fdb_commit_and_remove_pending(fdb_handle *handle,
 {
     fdb_txn *earliest_txn;
     bool wal_flushed = false;
-    struct wal_flush_items flush_items;
+    struct avl_tree flush_items;
 
     filemgr_mutex_lock(handle->file);
 
@@ -2558,7 +2558,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 
                 if (handle->config.wal_flush_before_commit &&
                     n_moved_docs > handle->config.wal_threshold) {
-                    struct wal_flush_items flush_items;
+                    struct avl_tree flush_items;
                     wal_flush_by_compactor(new_file, (void*)&new_handle,
                                            _fdb_wal_flush_func,
                                            _fdb_wal_get_old_offset,
@@ -2574,7 +2574,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
 
             // wal flush
             if (wal_get_num_flushable(new_file) > 0) {
-                struct wal_flush_items flush_items;
+                struct avl_tree flush_items;
                 wal_flush_by_compactor(new_file, (void*)&new_handle,
                                        _fdb_wal_flush_func,
                                        _fdb_wal_get_old_offset,
@@ -2644,7 +2644,7 @@ fdb_status fdb_compact_file(fdb_handle *handle,
     struct hbtrie *new_trie = NULL;
     struct btree *new_idtree = NULL;
     struct btree *new_seqtree, *old_seqtree;
-    struct wal_flush_items flush_items;
+    struct avl_tree flush_items;
     char *old_filename = NULL;
     size_t old_filename_len = 0;
     uint64_t count, new_datasize;

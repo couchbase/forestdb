@@ -529,9 +529,9 @@ int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 }
 
 wal_result wal_release_flushed_items(struct filemgr *file,
-                                     wal_flush_items *flush_items)
+                                     struct avl_tree *flush_items)
 {
-    struct avl_tree *tree = &flush_items->tree;
+    struct avl_tree *tree = flush_items;
     struct avl_node *a;
     struct wal_item *item;
     struct wal_item_header *header;
@@ -577,10 +577,10 @@ wal_result _wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
-                     wal_flush_items *flush_items,
+                     struct avl_tree *flush_items,
                      bool by_compactor)
 {
-    struct avl_tree *tree = &flush_items->tree;
+    struct avl_tree *tree = flush_items;
     struct avl_node *a;
     struct list_elem *e, *ee;
     struct wal_item *item;
@@ -639,7 +639,7 @@ wal_result wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
-                     wal_flush_items *flush_items)
+                     struct avl_tree *flush_items)
 {
     return _wal_flush(file, dbhandle, flush_func, get_old_offset,
                       flush_items, false);
@@ -649,7 +649,7 @@ wal_result wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
-                                  wal_flush_items *flush_items)
+                                  struct avl_tree *flush_items)
 {
     return _wal_flush(file, dbhandle, flush_func, get_old_offset,
                       flush_items, true);
