@@ -261,6 +261,14 @@ add_executable(crc_test
                utils/memleak.cc)
 target_link_libraries(crc_test ${PTHREAD_LIB} ${LIBM})
 
+add_executable(btree_str_kv_test
+               tests/btree_str_kv_test.cc
+               src/btree_str_kv.cc
+               src/avltree.cc
+               ${GETTIMEOFDAY_VS}
+               utils/memleak.cc)
+target_link_libraries(btree_str_kv_test  ${LIBM})
+
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
     INCLUDE(CodeCoverage)
@@ -277,3 +285,4 @@ add_test(btreeblock_test btreeblock_test)
 add_test(docio_test docio_test)
 add_test(hbtrie_test hbtrie_test)
 add_test(crc_test crc_test)
+add_test(btree_str_kv_test btree_str_kv_test)
