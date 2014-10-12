@@ -2852,6 +2852,7 @@ void custom_compare_variable_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.cmp_variable = _cmp_variable;
     fconfig.compaction_threshold = 0;
+    fconfig.chunksize = sizeof(void*)/2; // must be re-adjusted automatically
 
     // open db with custom compare function for variable length key type
     fdb_open_cmp_variable(&db, "./dummy1", &fconfig);
@@ -2939,6 +2940,29 @@ void custom_compare_variable_test()
         count++;
     };
     TEST_CHK(count == n);
+    fdb_iterator_close(iterator);
+
+    // range scan by sequence
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, 0x0);
+    count = 0;
+    while(1){ // forward
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            break;
+        }
+        fdb_doc_free(rdoc);
+        count++;
+    };
+    TEST_CHK(count == n);
+    while(1){ // backward
+        status = fdb_iterator_prev(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            break;
+        }
+        fdb_doc_free(rdoc);
+        count--;
+    };
+    TEST_CHK(count == 0);
     fdb_iterator_close(iterator);
 
     // close db file

@@ -1061,8 +1061,21 @@ start_seq:
 
         // Also look in HB-Trie to eliminate duplicates
         uint64_t hboffset;
-        hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
-                         (void *)&hboffset);
+        if (!iterator->handle.config.cmp_variable) {
+            hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
+                             (void *)&hboffset);
+        } else {
+            uint8_t *var_key = alca(uint8_t, iterator->handle.config.chunksize);
+            btree_result br;
+
+            _set_var_key((void *)var_key, _doc.key, _doc.length.keylen);
+            br = btree_find(iterator->handle.idtree,
+                            (void*)var_key, (void *)&hboffset);
+            _free_var_key((void *)var_key);
+
+            hr = (br == BTREE_RESULT_FAIL)?(HBTRIE_RESULT_FAIL):
+                                           (HBTRIE_RESULT_SUCCESS);
+        }
         btreeblk_end(iterator->handle.bhandle);
 
         if (hr == HBTRIE_RESULT_FAIL) {
@@ -1264,8 +1277,21 @@ start_seq:
 
         // Also look in HB-Trie to eliminate duplicates
         uint64_t hboffset;
-        hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
-                         (void *)&hboffset);
+        if (!iterator->handle.config.cmp_variable) {
+            hr = hbtrie_find(iterator->handle.trie, _doc.key, _doc.length.keylen,
+                             (void *)&hboffset);
+        } else {
+            uint8_t *var_key = alca(uint8_t, iterator->handle.config.chunksize);
+            btree_result br;
+
+            _set_var_key((void *)var_key, _doc.key, _doc.length.keylen);
+            br = btree_find(iterator->handle.idtree,
+                            (void*)var_key, (void *)&hboffset);
+            _free_var_key((void *)var_key);
+
+            hr = (br == BTREE_RESULT_FAIL)?(HBTRIE_RESULT_FAIL):
+                                           (HBTRIE_RESULT_SUCCESS);
+        }
         btreeblk_end(iterator->handle.bhandle);
 
         if (hr == HBTRIE_RESULT_FAIL) {

@@ -635,6 +635,11 @@ fdb_status fdb_open_cmp_variable(fdb_handle **ptr_handle,
     config.cmp_fixed = NULL;
     handle->shandle = NULL;
 
+    if (config.chunksize < sizeof(void *)) {
+        // chunk size should be equal to or larger than 'sizeof(void*)'
+        config.chunksize = sizeof(void *);
+    }
+
     fdb_init(fconfig);
 
     fdb_status fs = _fdb_open(handle, filename, &config);
