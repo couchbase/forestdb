@@ -25,6 +25,7 @@
 #include "btree.h"
 #include "btree_kv.h"
 #include "btree_prefix_kv.h"
+#include "internal_types.h"
 
 #include "memleak.h"
 

@@ -31,6 +31,21 @@
 #endif
 #endif
 
+/**
+ * Maximum key length supported.
+ * Note that we plan to support a longer key that is greater than
+ * the current max size 3840 bytes
+ */
+#define FDB_MAX_KEYLEN (3840)
+/**
+ * Maximum metadata length supported.
+ */
+#define FDB_MAX_METALEN (65535UL) // 2^16 - 1
+/**
+ * Maximum value length supported.
+ */
+#define FDB_MAX_BODYLEN (4294967295UL) // 2^32 - 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
