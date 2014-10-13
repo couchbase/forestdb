@@ -2,6 +2,7 @@
 *.[ao]
 couchstore_api/couchbench_fdb
 build
+coverage
 dummy2
 errorlog.txt
 forestdb_test
