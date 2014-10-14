@@ -146,7 +146,7 @@ void _pl(struct list *list, uint64_t begin, uint64_t n)
             memcpy(fname_buf, item->fname->filename, item->fname->filename_len);
             fname_buf[item->fname->filename_len] = 0;
             memcpy(&marker, ((uint8_t *)item->addr) + 4095, 1);
-            printf("#%"_F64": BID %"_F64", marker 0x%x, file %s\n", c, item->bid, marker, fname_buf);
+            printf("#%" _F64 ": BID %" _F64 ", marker 0x%x, file %s\n", c, item->bid, marker, fname_buf);
         }
         c++;
         e = list_next(e);

@@ -171,7 +171,7 @@ void basic_test()
         }
     }
 
-    DBG("trie root bid %"_F64"\n", trie.root_bid);
+    DBG("trie root bid %" _F64 "\n", trie.root_bid);
 
     hbtrie_iterator_init(&trie, &it, NULL, 0);
     while(1){
@@ -336,7 +336,7 @@ void large_test()
 
     TEST_TIME();
 
-    DBG("trie root bid %"_F64"\n", trie.root_bid);
+    DBG("trie root bid %" _F64 "\n", trie.root_bid);
 
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();

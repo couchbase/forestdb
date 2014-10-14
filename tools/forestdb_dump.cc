@@ -121,7 +121,7 @@ void print_header(fdb_handle *db)
         datasize_wal = wal_get_datasize(db->file);
 
         bid = filemgr_get_header_bid(db->file);
-        printf("    BID: %"_F64" (0x%"_X64", byte offset: %"_F64")\n",
+        printf("    BID: %" _F64 " (0x%" _X64 ", byte offset: %" _F64 ")\n",
                bid, bid, bid * FDB_BLOCKSIZE);
         printf("    DB header length: %d bytes\n", (int)header_len);
         printf("    DB header revision number: %d\n", (int)revnum);
@@ -129,14 +129,14 @@ void print_header(fdb_handle *db)
         if (trie_root_bid != BLK_NOT_FOUND) {
             if (!is_subblock(trie_root_bid)) {
                 // normal block
-                printf("    HB+trie root BID: %"_F64" (0x%"_X64", byte offset: %"_F64")\n",
+                printf("    HB+trie root BID: %" _F64 " (0x%" _X64 ", byte offset: %" _F64 ")\n",
                        trie_root_bid, trie_root_bid, trie_root_bid * FDB_BLOCKSIZE);
             } else {
                 // sub-block
                 subbid2bid(trie_root_bid, &subblock_no, &idx, &bid);
-                printf("    HB+trie root BID: %"_F64", %d-byte subblock #%zu",
+                printf("    HB+trie root BID: %" _F64 ", %d-byte subblock #%zu",
                        bid, db->bhandle->sb[subblock_no].sb_size, idx);
-                printf(" (0x%"_X64", byte offset: %"_F64")\n", trie_root_bid,
+                printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", trie_root_bid,
                        bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
             }
         } else {
@@ -146,38 +146,38 @@ void print_header(fdb_handle *db)
         if (seq_root_bid != BLK_NOT_FOUND) {
             if (!is_subblock(seq_root_bid)) {
                 // normal block
-                printf("    Seq B+tree root BID: %"_F64" (0x%"_X64", byte offset: %"_F64")\n",
+                printf("    Seq B+tree root BID: %" _F64 " (0x%" _X64 ", byte offset: %" _F64 ")\n",
                        seq_root_bid, seq_root_bid, seq_root_bid * FDB_BLOCKSIZE);
             } else {
                 // sub-block
                 subbid2bid(seq_root_bid, &subblock_no, &idx, &bid);
-                printf("    Seq B+tree root BID: %"_F64", %d-byte subblock #%zu",
+                printf("    Seq B+tree root BID: %" _F64 ", %d-byte subblock #%zu",
                        bid, db->bhandle->sb[subblock_no].sb_size, idx);
-                printf(" (0x%"_X64", byte offset: %"_F64")\n", seq_root_bid,
+                printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", seq_root_bid,
                        bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
             }
         } else {
             printf("    Seq B+tree root BID: not exist\n");
         }
 
-        printf("    # documents in the main index: %"_F64" / "
-               "in WAL: %"_F64" (insert), %"_F64" (remove)\n",
+        printf("    # documents in the main index: %" _F64 " / "
+               "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
                ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
-        printf("    # live index nodes: %"_F64" (%"_F64" bytes)\n",
+        printf("    # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
                nlivenodes, nlivenodes * FDB_BLOCKSIZE);
-        printf("    Total document size: %"_F64" bytes, (index: %"_F64" bytes, "
-               "WAL: %"_F64" bytes)\n",
+        printf("    Total document size: %" _F64 " bytes, (index: %" _F64 " bytes, "
+               "WAL: %" _F64 " bytes)\n",
                datasize + datasize_wal, datasize, datasize_wal);
 
         if (last_header_bid != BLK_NOT_FOUND) {
-            printf("    DB header BID of the last WAL flush: %"_F64
-                   " (0x%"_X64", byte offset: %"_F64")\n",
+            printf("    DB header BID of the last WAL flush: %" _F64 
+                   " (0x%" _X64 ", byte offset: %" _F64 ")\n",
                    last_header_bid, last_header_bid, last_header_bid * FDB_BLOCKSIZE);
         } else {
             printf("    DB header BID of the last WAL flush: not exist\n");
         }
 
-        printf("    Last sequence number: %"_F64"\n", seqnum);
+        printf("    Last sequence number: %" _F64 "\n", seqnum);
         if (compacted_filename) {
             printf("    Next file after compaction: %s\n", compacted_filename);
         }
@@ -273,9 +273,9 @@ start:
     print_buf(db, doc.key, doc.length.keylen,
               opt->print_key_in_hex, opt->hex_align);
     if (db->config.seqtree_opt == FDB_SEQTREE_USE) {
-        printf("    Sequence number: %"_F64"\n", doc.seqnum);
+        printf("    Sequence number: %" _F64 "\n", doc.seqnum);
     }
-    printf("    Byte offset: %"_F64"\n", offset);
+    printf("    Byte offset: %" _F64 "\n", offset);
     printf("    Indexed by %s\n", (is_wal_entry)?("WAL"):("the main index"));
     printf("    Length: %d (key), %d (metadata), %d (body)\n",
            doc.length.keylen, doc.length.metalen, doc.length.bodylen);

@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 2.8)
 
-include_directories(BEFORE ${CMAKE_SOURCE_DIR}/option)
-include_directories(BEFORE ${CMAKE_SOURCE_DIR}/utils)
-include_directories(BEFORE ${CMAKE_SOURCE_DIR}/src)
-include_directories(BEFORE ${CMAKE_SOURCE_DIR}/include)
+project (ForestDB)
+include_directories(BEFORE ${PROJECT_SOURCE_DIR}/option)
+include_directories(BEFORE ${PROJECT_SOURCE_DIR}/utils)
+include_directories(BEFORE ${PROJECT_SOURCE_DIR}/src)
+include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 --coverage")
@@ -270,7 +271,7 @@ add_executable(btree_str_kv_test
 target_link_libraries(btree_str_kv_test  ${LIBM})
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
+    LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
     INCLUDE(CodeCoverage)
     SETUP_TARGET_FOR_COVERAGE(test_coverage ctest ${CMAKE_SOURCE_DIR}/coverage)
 endif()

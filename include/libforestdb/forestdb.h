@@ -27,6 +27,8 @@
     #else
         #define LIBFDB_API extern __declspec(dllimport)
     #endif
+#elif defined __GNUC__
+    #define LIBFDB_API __attribute ((visibility("default")))
 #else
     #define LIBFDB_API
 #endif

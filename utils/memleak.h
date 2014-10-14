@@ -16,6 +16,8 @@
     #else
         #define LIBMEMLEAK_API
     #endif
+#elif __GNUC__
+    #define LIBMEMLEAK_API __attribute ((visibility("default")))
 #else
     #define LIBMEMLEAK_API
 #endif

@@ -49,7 +49,7 @@ extern "C" {
     gettimeofday(&__test_cur, NULL); \
     __test_interval_total = _utime_gap(__test_begin, __test_cur); \
     __test_interval_ins = _utime_gap(__test_prev, __test_cur); \
-    DBG("Time elapsed: total %"_FSEC".%06"_FUSEC" , interval %"_FSEC".%06"_FUSEC"\n", \
+    DBG("Time elapsed: total %" _FSEC ".%06" _FUSEC " , interval %" _FSEC ".%06" _FUSEC "\n", \
         __test_interval_total.tv_sec, __test_interval_total.tv_usec, \
         __test_interval_ins.tv_sec, __test_interval_ins.tv_usec); }
 

@@ -18,7 +18,9 @@
 #ifndef _JSAHN_ARCH_H
 #define _JSAHN_ARCH_H
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <stdio.h>
 #include <fcntl.h>

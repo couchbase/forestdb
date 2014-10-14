@@ -30,7 +30,7 @@
 
 void print_btree(struct btree *btree, void *key, void *value)
 {
-    fprintf(stderr, "(%"_F64" %"_F64")", *(uint64_t*)key, *(uint64_t*)value);
+    fprintf(stderr, "(%" _F64 " %" _F64 ")", *(uint64_t*)key, *(uint64_t*)value);
 }
 
 void basic_test()
@@ -109,7 +109,7 @@ void basic_test()
 
     struct btree btree2;
 
-    DBG("re-read using root bid %"_F64"\n", btree.root_bid);
+    DBG("re-read using root bid %" _F64 "\n", btree.root_bid);
     btree_init_from_bid(&btree2, (void*)&btree_handle, btreeblk_get_ops(),
                         btree_kv_get_ku64_vu64(), nodesize, btree.root_bid);
     btree_print_node(&btree2, print_btree);
@@ -176,7 +176,7 @@ void iterator_test()
     btree_iterator_init(&btree, &bi, (void*)&k);
     for (i=0;i<3;++i){
         btree_next(&bi, (void*)&k, (void*)&v);
-        DBG("%"_F64" , %"_F64"\n", k, v);
+        DBG("%" _F64 " , %" _F64 "\n", k, v);
     }
     btree_iterator_free(&bi);
 
@@ -185,7 +185,7 @@ void iterator_test()
     btree_iterator_init(&btree, &bi, (void*)&k);
     for (i=0;i<3;++i){
         btree_next(&bi, (void*)&k, (void*)&v);
-        DBG("%"_F64" , %"_F64"\n", k, v);
+        DBG("%" _F64 " , %" _F64 "\n", k, v);
     }
     btree_iterator_free(&bi);
 
@@ -194,7 +194,7 @@ void iterator_test()
     for (i=0;i<30;++i){
         br = btree_next(&bi, (void*)&k, (void*)&v);
         if (br == BTREE_RESULT_FAIL) break;
-        DBG("%"_F64" , %"_F64"\n", k, v);
+        DBG("%" _F64 " , %" _F64 "\n", k, v);
     }
     btree_iterator_free(&bi);
 
