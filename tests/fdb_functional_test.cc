@@ -2854,7 +2854,7 @@ void custom_compare_variable_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.cmp_variable = _cmp_variable;
     fconfig.compaction_threshold = 0;
-    fconfig.chunksize = sizeof(void*)/2; // must be re-adjusted automatically
+    fconfig.chunksize = MAX(sizeof(void*)/2, 4); // must be re-adjusted automatically
 
     // open db with custom compare function for variable length key type
     fdb_open_cmp_variable(&db, "./dummy1", &fconfig);
