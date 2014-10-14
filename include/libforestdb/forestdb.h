@@ -351,6 +351,11 @@ fdb_status fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt);
  * @param snapshot_seqnum The sequence number or snapshot marker of snapshot.
  *        Note that this seq number should correspond to one of the commits
  *        that have been persisted in the same database instance.
+ *        To create an in-memory snapshot of the current database, pass
+ *        FDB_SNAPSHOT_INMEM as the sequence number.
+ *        In-memory snapshot is a non-durable consistent copy of the forestdb
+ *        instance and carries the latest version of all the keys at the point
+ *        of the snapshot and can even be taken out of uncommitted transaction.
  * @return FDB_RESULT_SUCCESS on success.
  *         FDB_RESULT_INVALID_ARGS if any input param is NULL, or,
  *                                 if sequence number tree is not enabled

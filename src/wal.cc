@@ -655,6 +655,47 @@ wal_result wal_flush_by_compactor(struct filemgr *file,
                       flush_items, true);
 }
 
+// Used to copy all the WAL items for non-durable snapshots
+wal_result wal_snapshot(struct filemgr *file,
+                        void *dbhandle, fdb_txn *txn,
+                        wal_snapshot_func *snapshot_func)
+{
+    struct avl_node *a;
+    struct list_elem *e, *ee;
+    struct wal_item *item;
+    struct wal_item_header *header;
+
+    spin_lock(&file->wal->lock);
+    e = list_begin(&file->wal->list);
+    while(e){
+        header = _get_entry(e, struct wal_item_header, list_elem);
+        ee = list_begin(&header->items);
+        while(ee) {
+            item = _get_entry(ee, struct wal_item, list_elem);
+            if (!(item->flag & WAL_ITEM_COMMITTED) && // Skip uncommitted items
+                item->txn != &file->global_txn && // that aren't part of global
+                item->txn != txn) { // nor current transaction
+                ee = list_next(ee);
+                continue;
+            }
+            fdb_doc doc;
+            doc.keylen = item->header->keylen;
+            doc.key = malloc(doc.keylen); // (freed in fdb_snapshot_close)
+            memcpy(doc.key, item->header->key, doc.keylen);
+            doc.seqnum = item->seqnum;
+            doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                    item->action == WAL_ACT_REMOVE);
+            snapshot_func(dbhandle, &doc, item->offset);
+            ee = list_next(ee);
+            break; // We just require a single latest copy in the snapshot
+        }
+        e = list_next(e);
+    }
+    spin_unlock(&file->wal->lock);
+
+    return WAL_RESULT_SUCCESS;
+}
+
 // discard entries in txn
 wal_result wal_discard(struct filemgr *file, fdb_txn *txn)
 {

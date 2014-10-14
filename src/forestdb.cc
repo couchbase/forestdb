@@ -70,6 +70,9 @@ static fdb_status _fdb_open(fdb_handle *handle,
 
 static fdb_status _fdb_close(fdb_handle *handle);
 
+static wal_result _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
+                                         uint64_t offset);
+
 INLINE int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
 {
     (void) aux;
@@ -184,6 +187,10 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
     uint64_t hdr_off = hdr_bid * FDB_BLOCKSIZE;
     uint64_t offset = 0; //assume everything from first block needs restoration
 
+    if (!hdr_off) { // Nothing to do if we don't have a header block offset
+        return;
+    }
+
     filemgr_mutex_lock(file);
     if (last_wal_flush_hdr_bid != BLK_NOT_FOUND) {
         offset = (last_wal_flush_hdr_bid + 1) * blocksize;
@@ -191,8 +198,7 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
 
     // If a valid last header was retrieved and it matches the current header
     // OR if WAL already had entries populated, then no crash recovery needed
-    if (!hdr_off || hdr_off <= offset ||
-        (!handle->shandle && wal_get_size(file))) {
+    if (hdr_off <= offset || (!handle->shandle && wal_get_size(file))) {
         filemgr_mutex_unlock(file);
         return;
     }
@@ -663,6 +669,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     fdb_config config = handle_in->config;
     fdb_handle *handle;
     fdb_status fs;
+    filemgr *file;
     if (!handle_in || !ptr_handle) {
         return FDB_RESULT_INVALID_ARGS;
     }
@@ -673,7 +680,6 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     }
 
     if (!handle_in->shandle) {
-        filemgr *file = NULL;
         fdb_check_file_reopen(handle_in);
         fdb_link_new_file(handle_in);
         fdb_sync_db_header(handle_in);
@@ -683,12 +689,14 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
             file = handle_in->new_file;
         }
         handle_in->seqnum = filemgr_get_seqnum(file);
+    } else {
+        file = handle_in->file;
     }
 
     // if the max sequence number seen by this handle is lower than the
     // requested snapshot marker, it means the snapshot is not yet visible
     // even via the current fdb_handle
-    if (seqnum > handle_in->seqnum) {
+    if (seqnum != FDB_SNAPSHOT_INMEM && seqnum > handle_in->seqnum) {
         return FDB_RESULT_NO_DB_INSTANCE;
     }
 
@@ -707,9 +715,15 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     // do not perform compaction for snapshot
     config.compaction_mode = FDB_COMPACTION_MANUAL;
-    fs = _fdb_open(handle, handle_in->file->filename, &config);
+    fs = _fdb_open(handle, file->filename, &config);
 
     if (fs == FDB_RESULT_SUCCESS) {
+        if (seqnum == FDB_SNAPSHOT_INMEM) {
+            snap_init(handle->shandle, handle);
+            wal_snapshot(handle->file, (void *)handle->shandle,
+                    handle_in->txn,
+                    _fdb_wal_snapshot_func);
+        }
         *ptr_handle = handle;
     } else {
         *ptr_handle = NULL;
@@ -829,7 +843,7 @@ static fdb_status _fdb_open(fdb_handle *handle,
     size_t header_len = 0;
 
     uint64_t nlivenodes = 0;
-    bid_t hdr_bid;
+    bid_t hdr_bid = 0; // initialize to zero for in-memory snapshot
     char actual_filename[FDB_MAX_FILENAME_LEN];
 
     if (filename == NULL) {
@@ -897,49 +911,57 @@ static fdb_status _fdb_open(fdb_handle *handle,
         }
         seqnum = filemgr_get_seqnum(handle->file);
     }
-    filemgr_mutex_unlock(handle->file);
 
-    hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
-    hdr_bid = hdr_bid ? --hdr_bid : 0;
-
-    if (handle->max_seqnum) { // Given Marker, reverse scan file..
-        while (header_len && seqnum != handle->max_seqnum) {
-            hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
-                                      header_buf, &header_len, &seqnum,
-                                      &handle->log_callback);
-
-            if (header_len > 0) {
-                fdb_fetch_header(header_buf, &trie_root_bid,
-                                 &seq_root_bid, &ndocs, &nlivenodes,
-                                 &datasize, &last_wal_flush_hdr_bid,
-                                 &compacted_filename, NULL);
-                handle->last_hdr_bid = hdr_bid;
-            }
-        }
-        if (!header_len) { // Marker MUST match that of DB commit!
-            free(handle->filename);
-            handle->filename = NULL;
-            filemgr_close(handle->file, false, handle->filename,
-                          &handle->log_callback);
-            return FDB_RESULT_NO_DB_INSTANCE;
-        }
-
-        if (!handle->shandle) { // Rollback mode, destroy file WAL..
-            wal_shutdown(handle->file);
-        }
+    if (handle->shandle && handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
+        handle->max_seqnum = seqnum;
+        filemgr_mutex_unlock(handle->file);
+        hdr_bid = 0; // This prevents _fdb_restore_wal() as incoming handle's
+                     // fdb_open() should have already restored it
     } else {
-        if (handle->shandle) { // fdb_snapshot_open API call
-            if (seqnum) {
-                // Database currently has a non-zero seq number, but the snapshot was
-                // requested with a seq number zero.
+        filemgr_mutex_unlock(handle->file);
+
+        hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
+        hdr_bid = hdr_bid ? --hdr_bid : 0;
+        if (handle->max_seqnum) {
+            // Reverse scan the file to locate the DB header with seqnum marker
+            while (header_len && seqnum != handle->max_seqnum) {
+                hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
+                        header_buf, &header_len, &seqnum,
+                        &handle->log_callback);
+
+                if (header_len > 0) {
+                    fdb_fetch_header(header_buf, &trie_root_bid,
+                                     &seq_root_bid, &ndocs, &nlivenodes,
+                                     &datasize, &last_wal_flush_hdr_bid,
+                                     &compacted_filename, NULL);
+                    handle->last_hdr_bid = hdr_bid;
+                }
+            }
+            if (!header_len) { // Marker MUST match that of DB commit!
                 free(handle->filename);
                 handle->filename = NULL;
                 filemgr_close(handle->file, false, handle->filename,
-                              &handle->log_callback);
+                        &handle->log_callback);
                 return FDB_RESULT_NO_DB_INSTANCE;
             }
-        }
-    }
+
+            if (!handle->shandle) { // Rollback mode, destroy file WAL..
+                wal_shutdown(handle->file);
+            }
+        } else {
+            if (handle->shandle) { // fdb_snapshot_open API call
+                if (seqnum) {
+                    // Database currently has a non-zero seq number, but the
+                    // snapshot was requested with a seq number zero.
+                    free(handle->filename);
+                    handle->filename = NULL;
+                    filemgr_close(handle->file, false, handle->filename,
+                            &handle->log_callback);
+                    return FDB_RESULT_NO_DB_INSTANCE;
+                }
+            } // end of zero max_seqnum but non-rollback check
+        } // end of zero max_seqnum check
+    } // end of durable snapshot locating
 
     handle->btreeblkops = btreeblk_get_ops();
     handle->bhandle = (struct btreeblk_handle *)calloc(1, sizeof(struct btreeblk_handle));
@@ -1236,6 +1258,11 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     old_offset = _endian_decode(old_offset);
 
     return old_offset;
+}
+
+INLINE wal_result _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
+                                         uint64_t offset) {
+    return snap_insert((struct snap_handle *)handle, doc, offset);
 }
 
 INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)

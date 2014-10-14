@@ -269,6 +269,7 @@ typedef struct {
 
 
 typedef uint64_t fdb_seqnum_t;
+#define FDB_SNAPSHOT_INMEM ((fdb_seqnum_t)(-1))
 
 /**
  * ForestDB doc structure definition

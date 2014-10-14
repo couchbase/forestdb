@@ -67,6 +67,8 @@ struct wal_item{
 };
 
 typedef void wal_flush_func(void *dbhandle, struct wal_item *item);
+typedef wal_result wal_snapshot_func(void *shandle, fdb_doc *doc,
+                                     uint64_t offset);
 typedef uint64_t wal_get_old_offset_func(void *dbhandle,
                                          struct wal_item *item);
 typedef uint64_t wal_doc_move_func(void *dbhandle,
@@ -132,6 +134,9 @@ wal_result wal_flush_by_compactor(struct filemgr *file,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
                                   struct avl_tree *flush_items);
+wal_result wal_snapshot(struct filemgr *file,
+                        void *dbhandle, fdb_txn *txn,
+                        wal_snapshot_func *snapshot_func);
 wal_result wal_discard(struct filemgr *file, fdb_txn *txn);
 wal_result wal_close(struct filemgr *file);
 wal_result wal_shutdown(struct filemgr *file);
