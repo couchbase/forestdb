@@ -102,3 +102,13 @@ To run all the unit tests:
      `make test_coverage`
 
     This target will run the tests and output coverage report to ```<repo>/coverage/index.html```
+
+* To enable valgrind tests, install ```valgrind``` for your OS. (Windows not supported).  Also make sure build type is **Valgrind**
+
+     `cmake -DCMAKE_BUILD_TYPE=Valgrind ../`
+
+     `make all`
+
+     `make test_valgrind`
+
+    This target will run the tests and output the memory report to the console
