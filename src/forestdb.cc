@@ -708,6 +708,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
     handle->log_callback = handle_in->log_callback;
     handle->shandle = (struct snap_handle *) calloc(1, sizeof(snap_handle));
     if (!handle->shandle) {
+        free(handle);
         return FDB_RESULT_ALLOC_FAIL;
     }
     handle->max_seqnum = seqnum;
@@ -727,6 +728,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
         *ptr_handle = handle;
     } else {
         *ptr_handle = NULL;
+        free(handle->shandle);
         free(handle);
     }
     return fs;
