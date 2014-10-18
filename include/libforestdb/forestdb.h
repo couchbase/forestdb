@@ -460,8 +460,9 @@ fdb_status fdb_iterator_next_metaonly(fdb_iterator *iterator,
                                       fdb_doc **doc);
 
 /**
- * Fast forward an iterator to return documents after the given seek_key
- * If the key does not exist, seek forward to the next sorted key.
+ * Fast forward / backward an iterator to return documents after the given
+ * seek_key. If the seek key does not exist, the iterator is positioned to
+ * return the next sorted key.
  *
  * @param iterator Pointer to the iterator.
  * @param seek_key Pointer to the key to seek to.
