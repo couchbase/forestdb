@@ -570,6 +570,8 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     // remove previous dummy files
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
 
+    rollback_done = false;
+
     fdb_config fconfig = fdb_get_default_config();
     status = fdb_open(&db, "./test.fdb", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
