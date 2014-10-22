@@ -12,6 +12,7 @@
 #include "common.h"
 #include "list.h"
 #include "memleak.h"
+#include "option.h"
 
 typedef uint16_t key_len_t;
 
@@ -19,7 +20,9 @@ typedef uint16_t key_len_t;
 void freevars(void **vv, size_t n)
 {
     for(int i = 0; i < n; i++){
-        free(vv[i]);
+        void *p = vv[i];
+        free(p);
+        p = NULL;
     }
 }
 
@@ -134,12 +137,12 @@ void kv_free_test()
 struct bnode* dummy_node(uint8_t ksize, uint8_t vsize, uint16_t level)
 {
     struct bnode *node;
-    node = (struct bnode*)malloc(sizeof(bnode));
+    node = (struct bnode*)malloc(sizeof(bnode) + FDB_BLOCKSIZE);
     memset(node, 0, sizeof(bnode));
 
     node->kvsize = ksize<<4 | vsize;
     node->level = level;
-    node->data = (void *)malloc(node->kvsize);
+    node->data = (uint8_t *)node + sizeof(bnode);
     return node;
 }
 
@@ -209,7 +212,6 @@ void kv_set_var_test()
     int cmp;
     idx_t idx;
     char str[] = "teststring";
-    char str2[] = "test";
     key_len_t str_len = sizeof(str);
 
     vsize = sizeof(v);
@@ -237,12 +239,163 @@ void kv_set_var_test()
     cmp = memcmp((uint8_t *)node->data + ksize, value, vsize);
     TEST_CHK(cmp == 0);
 
-    void *vars[] = {node->data, node, key};
+    void *vars[] = {node, key};
     freevars(vars, sizeof(vars)/sizeof(void *));
 
     memleak_end();
     TEST_RESULT("kv set var test");
 }
+
+
+/*
+ * Test: kv_set_var_nentry_test
+ *
+ * verifies multiple key/value entries can be added to bnode
+ *
+ */
+void kv_set_var_nentry_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize;
+    uint8_t v;
+    idx_t idx;
+    int cmp, i;
+
+    const char *keys[] = {"string",
+                          "longstring",
+                          "longerstring",
+                          "",
+                          "123231234242423428492342",
+                          "string with space"};
+
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+
+    for (i = 0; i < n; i++) {
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+    }
+
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+    vsize = sizeof(v);
+    node = dummy_node(ksize, vsize, 1);
+    node->nentry = n;
+
+    idx = 0;
+    v = 100;
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+    size_t offset_idx = 0;
+
+    for (idx = 0; idx < n; idx ++){
+        // verify node->data at each offset
+        kv_ops->set_kv(node, idx, &key_ptrs[idx], (void *)&v);
+
+        // check key
+        offset_idx += sizeof(key_len_t);
+        char *node_str = (char *)((uint8_t *)node->data + offset_idx);
+        cmp = strcmp(node_str, keys[idx]);
+        TEST_CHK(cmp == 0);
+
+        // check value
+        offset_idx += strlen(keys[idx]) + 1;
+        cmp = memcmp((uint8_t *)node->data + offset_idx, &v, vsize);
+        TEST_CHK(cmp == 0);
+
+        // move offset to next entry
+        offset_idx += vsize;
+
+        // update value
+        v++;
+
+    }
+
+    free(node);
+    freevars(key_ptrs, n);
+    memleak_end();
+    TEST_RESULT("kv_set_var_nentry_test");
+}
+
+
+/*
+ * Test: kv_set_var_nentry_test
+ *
+ * verifies multiple key/value entries can be added to bnode
+ * then the same entries can be updated with new kvs
+ *
+ */
+void kv_set_var_nentry_update_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize;
+    uint8_t v;
+    idx_t idx;
+    int cmp, i;
+
+    const char *keys[] = {"string",
+                          "longstring",
+                          "longerstring",
+                          "",
+                          "123231234242423428492342",
+                          "string WITH space"};
+
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+    vsize = sizeof(v);
+    node = dummy_node(ksize, vsize, 1);
+    node->nentry = n;
+
+    idx = 0;
+    v = 100;
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+    size_t offset_idx = 0;
+
+    // first pass
+    for (i = 0; i < n; i++) {
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+        kv_ops->set_kv(node, i, &key_ptrs[i], (void *)&v);
+
+        // basic node->data verification
+        offset_idx += sizeof(key_len_t);
+        char *node_str = (char *)((uint8_t *)node->data + offset_idx);
+        cmp = strcmp(node_str, keys[i]);
+        TEST_CHK(cmp == 0);
+        offset_idx += vsize + strlen(keys[i]) + 1;
+    }
+
+    freevars(key_ptrs, n);
+    key_ptrs = alca(void *, n);
+    offset_idx = 0;
+
+    // second pass
+    for (i = 0; i < n; i++) {
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+        kv_ops->set_kv(node, i, &key_ptrs[i], (void *)&v);
+
+        // basic node->data verification
+        offset_idx += sizeof(key_len_t);
+        char *node_str = (char *)((uint8_t *)node->data + offset_idx);
+        cmp = strcmp(node_str, keys[i]);
+        TEST_CHK(cmp == 0);
+        offset_idx += vsize + strlen(keys[i]) + 1;
+    }
+
+    free(node);
+    freevars(key_ptrs, n);
+    memleak_end();
+    TEST_RESULT("kv_set_var_nentry_update_test");
+}
+
 
 int main()
 {
@@ -258,6 +411,8 @@ int main()
     kv_init_ops_test();
     kv_init_var_test();
     kv_set_var_test();
+    kv_set_var_nentry_test();
+    kv_set_var_nentry_update_test();
 
     return 0;
 }
