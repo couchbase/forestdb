@@ -420,6 +420,132 @@ void kv_set_var_nentry_update_test()
     TEST_RESULT("kv_set_var_nentry_update_test");
 }
 
+void kv_get_var_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    void *k_in, *k_out;
+    uint64_t v_in, v_out;
+    idx_t idx;
+    uint8_t ksize, vsize;
+    uint8_t offset;
+    char *key_str;
+    int cmp;
+    char str[] = "teststring";
+    key_len_t str_len = sizeof(str);
+
+    construct_key_ptr(str, str_len, &k_in);
+
+
+    ksize = str_len + sizeof(key_len_t);
+    vsize = sizeof(v_in);
+    node = dummy_node(ksize, vsize, 1);
+
+    idx = 0;
+    v_in = 20;
+    k_out = NULL;
+
+    // set get key
+    kv_ops = btree_str_kv_get_kb64_vb64(NULL);
+    kv_ops->set_kv(node, idx, &k_in, (void *)&v_in);
+    kv_ops->get_kv(node, idx, &k_out, (void *)&v_out);
+    key_str = (char *)((uint8_t *)k_out + sizeof(key_len_t));
+    cmp = strcmp(key_str, str);
+    TEST_CHK(cmp == 0);
+    cmp = memcmp(&v_out, &v_in, vsize);
+    TEST_CHK(cmp == 0);
+
+    // get with old key
+    kv_ops->get_kv(node, idx, &k_out, (void *)&v_out);
+    key_str = (char *)((uint8_t *)k_out + sizeof(key_len_t));
+    cmp = strcmp(key_str, str);
+    TEST_CHK(cmp == 0);
+    cmp = memcmp(&v_out, &v_in, vsize);
+    TEST_CHK(cmp == 0);
+
+    // get with value is NULL
+    kv_ops->get_kv(node, idx, &k_out, NULL);
+    key_str = (char *)((uint8_t *)k_out + sizeof(key_len_t));
+    cmp = strcmp(key_str, str);
+    TEST_CHK(cmp == 0);
+    cmp = memcmp(&v_out, &v_in, vsize);
+    TEST_CHK(cmp == 0);
+
+
+    free(node);
+    void *vars[] = {kv_ops, k_in, k_out};
+    freevars(vars, sizeof(vars)/sizeof(void *));
+    memleak_end();
+    TEST_RESULT("kv_get_var_test");
+}
+
+void kv_get_var_nentry_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize;
+    uint8_t v, v_out;
+    idx_t idx;
+    int cmp, i;
+    void *k_out = NULL;
+
+    const char *keys[] = {"string",
+                          "longstring",
+                          "longerstring",
+                          "",
+                          "123231234242423428492342",
+                          "string with space"};
+
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+
+    for (i = 0; i < n; i++) {
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+    }
+
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+    vsize = sizeof(v);
+    node = dummy_node(ksize, vsize, 1);
+    node->nentry = n;
+
+    idx = 0;
+    v = 100;
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+    size_t offset_idx = 0;
+
+    // set n keys
+    for (idx = 0; idx < n; idx ++){
+        kv_ops->set_kv(node, idx, &key_ptrs[idx], (void *)&v);
+        v++;
+    }
+
+    // get n keys
+    v = 100;
+    for (idx = 0; idx < n; idx ++){
+        kv_ops->get_kv(node, idx, &k_out, (void *)&v_out);
+        char *node_str = (char *)((uint8_t *)k_out + sizeof(key_len_t));
+        cmp = strcmp(node_str, keys[idx]);
+        TEST_CHK(cmp == 0);
+        cmp = memcmp(&v_out, &v, vsize);
+        TEST_CHK(cmp == 0);
+        v++;
+    }
+
+
+    void *vars[] = {(void *)node, k_out};
+    freevars(vars, sizeof(vars)/sizeof(void *));
+    freevars(key_ptrs, n);
+    memleak_end();
+    TEST_RESULT("kv_get_var_nentry_test");
+}
+
 
 int main()
 {
@@ -437,6 +563,8 @@ int main()
     kv_set_var_test();
     kv_set_var_nentry_test();
     kv_set_var_nentry_update_test();
+    kv_get_var_test();
+    kv_get_var_nentry_test();
 
     return 0;
 }
