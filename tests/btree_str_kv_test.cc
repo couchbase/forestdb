@@ -390,6 +390,30 @@ void kv_set_var_nentry_update_test()
         offset_idx += vsize + strlen(keys[i]) + 1;
     }
 
+    /* swap entries */
+
+    // copy first key to middle
+    kv_ops->set_kv(node, n/2, &key_ptrs[0], (void *)&v);
+    keys[n/2] = keys[0];
+
+    // copy last key to first
+    kv_ops->set_kv(node, 0, &key_ptrs[n-1], (void *)&v);
+    keys[0] = keys[n - 1];
+
+    // copy middle key to last
+    kv_ops->set_kv(node, n - 1, &key_ptrs[0], (void *)&v);
+    keys[n - 1] = keys[n/2];
+
+    // verify
+    offset_idx = 0;
+    for (i = 0; i < n; i++) {
+        offset_idx += sizeof(key_len_t);
+        char *node_str = (char *)((uint8_t *)node->data + offset_idx);
+        cmp = strcmp(node_str, keys[i]);
+        TEST_CHK(cmp == 0);
+        offset_idx += vsize + strlen(keys[i]) + 1;
+    }
+
     free(node);
     freevars(key_ptrs, n);
     memleak_end();
