@@ -141,8 +141,11 @@ int _filemgr_linux_fdatasync(int fd)
 void _filemgr_linux_get_errno_str(char *buf, size_t size) {
     if (!buf) {
         return;
+    } else {
+        char *tbuf = alca(char, size);
+        strerror_r(errno, tbuf, size);
+        snprintf(buf, size, "errno = %d: '%s'", errno, tbuf);
     }
-    snprintf(buf, size, "errno = %d: '%s'", errno, strerror(errno));
 }
 
 struct filemgr_ops linux_ops = {
