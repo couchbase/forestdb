@@ -716,6 +716,7 @@ fdb_status compactor_get_actual_filename(const char *filename,
                     }
                 }
             }
+            closedir(dir_info);
         }
 #else
         // Windows
