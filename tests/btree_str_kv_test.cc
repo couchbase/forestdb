@@ -546,7 +546,6 @@ void kv_get_var_nentry_test()
     TEST_RESULT("kv_get_var_nentry_test");
 }
 
-
 /*
  * Test: kv_ins_var
  *
@@ -671,6 +670,82 @@ void kv_ins_var_nentry_test()
     TEST_RESULT("kv_ins_var_nentry_test");
 }
 
+/*
+ * Test: kv_set_str_key_test
+ *
+ * verify set key string from src to empty dst and copy back to source
+ *
+ */
+void kv_set_str_key_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    void *src, *dst = NULL;
+    char str[] = "teststring";
+    char str2[] = "updated teststring";
+    int cmp;
+    key_len_t str_len = sizeof(str);
+    btree_kv_ops *kv_ops = btree_str_kv_get_kb64_vb64(NULL);
+    construct_key_ptr(str, str_len, &src);
+
+    // set src
+    kv_ops->set_key(NULL, &dst, &src);
+
+    // verify dst
+    cmp = strcmp((char *)dst + sizeof(key_len_t), str);
+    TEST_CHK(cmp == 0);
+    free(dst);
+
+    // update dst
+    str_len = sizeof(str2);
+    construct_key_ptr(str2, str_len, &dst);
+
+    // write back to src and verify
+    kv_ops->set_key(NULL, &src, &dst);
+    cmp = strcmp((char *)src + sizeof(key_len_t), str2);
+    TEST_CHK(cmp == 0);
+
+    free(kv_ops);
+    free(src);
+    free(dst);
+    memleak_end();
+    TEST_RESULT("kv_set_str_key_test");
+}
+
+/*
+ * Test: kv_set_str_value_test
+ *
+ * verify set kv value from src to empty dst and copy back to source
+ *
+ */
+void kv_set_str_value_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int cmp;
+    uint64_t v_dst, v_src = 100;
+    btree *tree = alca(struct btree, 1);
+    tree->vsize = sizeof(v_dst);
+    btree_kv_ops *kv_ops = btree_str_kv_get_kb64_vb64(NULL);
+
+    // set dst value
+    kv_ops->set_value(tree,(void *)&v_src,(void *)&v_dst);
+
+    // verify
+    TEST_CHK(v_src == v_dst);
+
+    // update dest and copy back to source
+    v_dst = 200;
+    kv_ops->set_value(tree,(void *)&v_dst,(void *)&v_src);
+    TEST_CHK(v_src == v_dst);
+
+    free(kv_ops);
+    memleak_end();
+    TEST_RESULT("kv_set_str_value_test");
+}
+
 int main()
 {
 
@@ -691,6 +766,8 @@ int main()
     kv_get_var_nentry_test();
     kv_ins_var();
     kv_ins_var_nentry_test();
+    kv_set_str_key_test();
+    kv_set_str_value_test();
 
     return 0;
 }
