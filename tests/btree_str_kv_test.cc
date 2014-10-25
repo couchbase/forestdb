@@ -547,6 +547,130 @@ void kv_get_var_nentry_test()
 }
 
 
+/*
+ * Test: kv_ins_var
+ *
+ * verifies insert op on empty bnode
+ *
+ */
+void kv_ins_var()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    void *k_in, *k_out;
+    uint64_t v_in, v_out;
+    idx_t idx;
+    uint8_t ksize, vsize;
+    uint8_t offset;
+    char *key_str;
+    int cmp;
+    char str[] = "teststring";
+    key_len_t str_len = sizeof(str);
+
+    construct_key_ptr(str, str_len, &k_in);
+
+
+    ksize = str_len + sizeof(key_len_t);
+    vsize = sizeof(v_in);
+    node = dummy_node(ksize, vsize, 1);
+
+    idx = 0;
+    v_in = 20;
+    k_out= NULL;
+
+    // insert key into to empty node
+    kv_ops = btree_str_kv_get_kb64_vb64(NULL);
+    kv_ops->ins_kv(node, idx, &k_in, (void *)&v_in);
+
+    // get and verify
+    kv_ops->get_kv(node, idx, &k_out, (void *)&v_out);
+    key_str = (char *)((uint8_t *)k_out + sizeof(key_len_t));
+    cmp = strcmp(key_str, str);
+    TEST_CHK(cmp == 0);
+    cmp = memcmp(&v_out, &v_in, vsize);
+    TEST_CHK(cmp == 0);
+
+    free(node); free(kv_ops); free(k_in); free(k_out);
+    memleak_end();
+    TEST_RESULT("kv_ins_var");
+}
+
+
+/*
+ * Test: kv_ins_var_nentry_test
+ *
+ * verifies inserting twice at index 0 causes entries to shift
+ *
+ */
+void kv_ins_var_nentry_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize;
+    uint8_t v;
+    idx_t idx;
+    int cmp, i, offset;
+    char *node_str;
+
+    const char *keys[] = {"string",
+                          "longstring"};
+
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+
+    for (i = 0; i < n; i++) {
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+    }
+
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+    vsize = sizeof(v);
+    node = dummy_node(ksize, vsize, 1);
+    node->nentry = n;
+
+    idx = 0;
+    v = 100;
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+    size_t offset_idx = 0;
+
+    // insert twice at beginning of node
+    kv_ops->ins_kv(node, 0, &key_ptrs[idx], (void *)&v);
+    idx++;
+    v++;
+    kv_ops->ins_kv(node, 0, &key_ptrs[idx], (void *)&(v));
+
+    // verify k1 is at entry 0
+    offset = sizeof(key_len_t);
+    node_str = (char *)((uint8_t *)node->data + offset);
+    cmp = strcmp(node_str, keys[1]);
+    TEST_CHK(cmp == 0);
+    offset += strlen(keys[1]) + 1;
+    cmp = memcmp((uint8_t *)node->data + offset, &v, vsize);
+    TEST_CHK(cmp == 0);
+
+    v--;
+    // verify k0 is at entry 1
+    offset += vsize + sizeof(key_len_t);
+    node_str = (char *)((uint8_t *)node->data + offset);
+    cmp = strcmp(node_str, keys[0]);
+    TEST_CHK(cmp == 0);
+    offset += strlen(keys[0]) + 1;
+    cmp = memcmp((uint8_t *)node->data + offset, &v, vsize);
+    TEST_CHK(cmp == 0);
+
+    free(node);
+    freevars(key_ptrs, n);
+    memleak_end();
+
+    TEST_RESULT("kv_ins_var_nentry_test");
+}
+
 int main()
 {
 
@@ -565,6 +689,8 @@ int main()
     kv_set_var_nentry_update_test();
     kv_get_var_test();
     kv_get_var_nentry_test();
+    kv_ins_var();
+    kv_ins_var_nentry_test();
 
     return 0;
 }
