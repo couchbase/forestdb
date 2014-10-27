@@ -1080,6 +1080,37 @@ void kv_cmp_key_str_test()
     TEST_RESULT("kv_cmp_key_str_test");
 }
 
+/*
+ * Test: kv_bid_to_value_to_bid_test
+ *
+ * verifies conversion of values to bid types and vice-versa
+ */
+void kv_bid_to_value_to_bid_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    btree_kv_ops *kv_ops;
+    void *value;
+    bid_t bid1, bid2;
+
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+
+    // bid to str value
+    bid1 = 10;
+    value = kv_ops->bid2value(&bid1);
+    TEST_CHK( *(bid_t *)value == bid1 );
+
+    // value to bid
+    bid2 = kv_ops->value2bid(value);
+    TEST_CHK( bid2 == bid1 );
+
+    memleak_end();
+    TEST_RESULT("kv_bid_to_value_to_bid_test");
+}
+
+
 int main()
 {
 
@@ -1115,6 +1146,8 @@ int main()
     kv_get_nth_splitter_test();
 
     kv_cmp_key_str_test();
+
+    kv_bid_to_value_to_bid_test();
 
     return 0;
 }
