@@ -812,6 +812,201 @@ void kv_get_str_data_size_test()
     TEST_RESULT("kv_get_str_data_size_test");
 }
 
+/*
+ * Test: kv_get_str_kv_size
+ *
+ * verifies retrieving size of a kv entry
+ *
+ */
+
+void kv_get_str_kv_size_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    btree_kv_ops *kv_ops;
+    btree *tree;
+    void *key;
+    int v;
+    size_t size;
+    char str[] = "teststring";
+
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+    tree = alca(struct btree, 1);
+    tree->vsize = sizeof(v);
+    v = 1;
+    construct_key_ptr(str, sizeof(str), &key);
+
+    // get/verify size of kv string
+    size = kv_ops->get_kv_size(tree, &key, (void *)&v);
+    TEST_CHK(size == (sizeof(str) + sizeof(key_len_t) + tree->vsize));
+
+    // verify with NULL key
+    size = kv_ops->get_kv_size(tree, NULL, (void *)&v);
+    TEST_CHK(size == (tree->vsize));
+
+    // verify with NULL value
+    size = kv_ops->get_kv_size(tree, &key, NULL);
+    TEST_CHK(size == (sizeof(str) + sizeof(key_len_t)));
+
+    // NULL key/value
+    size = kv_ops->get_kv_size(tree, NULL, NULL);
+    TEST_CHK(size == 0);
+
+    free(key);
+    memleak_end();
+    TEST_RESULT("kv_get_str_kv_size_test");
+}
+
+
+/*
+ * Test: kv_free_kv_var_test
+ *
+ * verifies freeing a kv entry
+ *
+ */
+void kv_free_kv_var_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    btree_kv_ops *kv_ops;
+    btree *tree;
+    void *key;
+    int v;
+    size_t size;
+    char str[] = "teststring";
+
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+    tree = alca(struct btree, 1);
+    tree->vsize = sizeof(v);
+    v = 1;
+    construct_key_ptr(str, sizeof(str), &key);
+
+    // free kv string
+    kv_ops->free_kv_var(tree, &key, (void *)&v);
+    TEST_CHK(key == NULL);
+
+    // attempt double free
+    kv_ops->free_kv_var(tree, &key, (void *)&v);
+    TEST_CHK(key == NULL);
+
+    memleak_end();
+    TEST_RESULT("kv_free_kv_var_test");
+}
+
+/*
+ * Test: kv_get_nth_idx_test
+ *
+ * verifies calculating nth index of bnode entry
+ *
+ */
+void kv_get_nth_idx_test()
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    btree_kv_ops *kv_ops;
+    bnoderef node;
+    idx_t num, den, location;
+
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+    node = dummy_node(0, 0, 0);
+    node->nentry = 4;
+    num = 3;
+    den = 4;
+
+    // verify 3/4th offset
+    kv_ops->get_nth_idx(node, num, den, &location);
+    TEST_CHK(location == 3);
+
+    // verify 1/4 offset
+    num = 1;
+    den = 4;
+    kv_ops->get_nth_idx(node, num, den, &location);
+    TEST_CHK(location == 1);
+
+     // verify with num == 0
+    num = 0;
+    den = 3;
+    kv_ops->get_nth_idx(node, num, den, &location);
+    TEST_CHK(location == 0);
+
+    free(node);
+    memleak_end();
+    TEST_RESULT("kv_get_nth_idx_test");
+}
+
+/*
+ * Test: kv_get_nth_splitter_test
+ *
+ * verifies splitter entry can be retrieved
+ *
+ */
+void kv_get_nth_splitter_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize;
+    uint8_t v;
+    idx_t idx;
+    int cmp;
+    void *key;
+
+    const char *keys[] = {"string",
+                          "longstring",
+                          "longerstring",
+                          "",
+                          "123231234242423428492342",
+                          "string with space"};
+
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+
+    for (int i = 0; i < n; i++) {
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+    }
+
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+    vsize = sizeof(v);
+    node = dummy_node(ksize, vsize, 1);
+    node->nentry = n;
+
+    idx = 0;
+    v = 100;
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+
+    // set n keys
+    for (idx = 0; idx < n; idx ++){
+        kv_ops->set_kv(node, idx, &key_ptrs[idx], (void *)&v);
+        v++;
+    }
+
+    // set *key to nth_splitter
+    key = NULL;
+    kv_ops->get_nth_splitter(NULL, node, &key);
+
+    // verify key[0] is set as splitter
+    cmp = memcmp(key, key_ptrs[0], ksize);
+    TEST_CHK(cmp == 0);
+
+    free(node);
+    free(key);
+    freevars(key_ptrs, n);
+    memleak_end();
+    TEST_RESULT("kv_get_nth_splitter_test");
+}
+
+
+
 int main()
 {
 
@@ -840,6 +1035,11 @@ int main()
     kv_set_str_value_test();
 
     kv_get_str_data_size_test();
+    kv_get_str_kv_size_test();
+
+    kv_free_kv_var_test();
+    kv_get_nth_idx_test();
+    kv_get_nth_splitter_test();
 
     return 0;
 }
