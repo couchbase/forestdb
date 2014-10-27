@@ -826,6 +826,26 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
     return fs;
 }
 
+static void _fdb_init_file_config(const fdb_config *config,
+                                  struct filemgr_config *fconfig) {
+    fconfig->blocksize = config->blocksize;
+    fconfig->ncacheblock = config->buffercache_size / config->blocksize;
+    fconfig->flag = 0x0;
+    fconfig->options = 0x0;
+    if (config->flags & FDB_OPEN_FLAG_CREATE) {
+        fconfig->options |= FILEMGR_CREATE;
+    }
+    if (config->flags & FDB_OPEN_FLAG_RDONLY) {
+        fconfig->options |= FILEMGR_READONLY;
+    }
+    if (!(config->durability_opt & FDB_DRB_ASYNC)) {
+        fconfig->options |= FILEMGR_SYNC;
+    }
+    if (config->durability_opt & FDB_DRB_ODIRECT) {
+        fconfig->flag |= _ARCH_O_DIRECT;
+    }
+}
+
 static fdb_status _fdb_open(fdb_handle *handle,
                             const char *filename,
                             const fdb_config *config)
@@ -857,26 +877,11 @@ static fdb_status _fdb_open(fdb_handle *handle,
         return FDB_RESULT_TOO_LONG_FILENAME;
     }
 
-    fconfig.blocksize = config->blocksize;
-    fconfig.ncacheblock = config->buffercache_size / config->blocksize;
-    fconfig.flag = 0x0;
-    fconfig.options = 0x0;
-    if (config->flags & FDB_OPEN_FLAG_CREATE) {
-        fconfig.options |= FILEMGR_CREATE;
-    }
-    if (config->flags & FDB_OPEN_FLAG_RDONLY) {
-        fconfig.options |= FILEMGR_READONLY;
-    }
-    if (!(config->durability_opt & FDB_DRB_ASYNC)) {
-        fconfig.options |= FILEMGR_SYNC;
-    }
-    if (config->durability_opt & FDB_DRB_ODIRECT) {
-        fconfig.flag |= _ARCH_O_DIRECT;
-    }
-
     if (!compactor_is_valid_mode(filename, (fdb_config *)config)) {
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
+
+    _fdb_init_file_config(config, &fconfig);
 
     compactor_get_actual_filename(filename, actual_filename,
                                   config->compaction_mode);
@@ -3087,6 +3092,59 @@ static fdb_status _fdb_close(fdb_handle *handle)
         handle->filename = NULL;
     }
     return fs;
+}
+
+LIBFDB_API
+fdb_status fdb_destroy(const char *fname,
+                       fdb_config *fdbconfig)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_config config;
+    struct filemgr_config fconfig;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    char *filename = (char *)alca(uint8_t, FDB_MAX_FILENAME_LEN);
+
+    if (fdbconfig) {
+        if (validate_fdb_config(fdbconfig)) {
+            config = *fdbconfig;
+        } else {
+            return FDB_RESULT_INVALID_CONFIG;
+        }
+    } else {
+        config = get_default_config();
+    }
+
+    strncpy(filename, fname, FDB_MAX_FILENAME_LEN);
+
+    if (!compactor_is_valid_mode(filename, &config)) {
+        status = FDB_RESULT_INVALID_COMPACTION_MODE;
+        return status;
+    }
+
+    _fdb_init_file_config(&config, &fconfig);
+
+    filemgr_mutex_openlock(&fconfig);
+
+    status = filemgr_destroy_file(filename, &fconfig, NULL);
+    if (status != FDB_RESULT_SUCCESS) {
+        filemgr_mutex_openunlock();
+        return status;
+    }
+
+    if (config.compaction_mode == FDB_COMPACTION_AUTO) {
+        status = compactor_destroy_file(filename, &config);
+        if (status != FDB_RESULT_SUCCESS) {
+            filemgr_mutex_openunlock();
+            return status;
+        }
+    }
+
+    filemgr_mutex_openunlock();
+
+    return status;
 }
 
 // roughly estimate the space occupied db handle HANDLE

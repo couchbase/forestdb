@@ -1157,6 +1157,97 @@ void db_drop_test()
     TEST_RESULT("Database drop test");
 }
 
+void db_destroy_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 30;
+    fdb_handle *db, *db2;
+    fdb_doc **doc = alca(fdb_doc *, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "db_destroy_test");
+
+    // insert 30 documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(db, FDB_COMMIT_NORMAL);
+
+    // Open the empty db with the same name.
+    fdb_open(&db2, "./dummy2", &fconfig);
+    status = fdb_set_log_callback(db2, logCallbackFunc,
+                                  (void *) "db_destroy_test");
+    // insert 30 documents
+    for (i=0;i<n;++i){
+        fdb_set(db2, doc[i]);
+    }
+
+    // commit
+    fdb_commit(db2, FDB_COMMIT_NORMAL);
+
+    // Only close db not db2 and try to destroy
+    fdb_close(db);
+
+    status = fdb_destroy("./dummy2", &fconfig);
+    TEST_CHK(status == FDB_RESULT_FILE_IS_BUSY);
+
+    //Now close the open db file
+    fdb_close(db2);
+
+    status = fdb_destroy("./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Open the same db with the same names.
+    fdb_open(&db, "./dummy1", &fconfig);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "db_destroy_test");
+
+    // search by key
+    fdb_doc_create(&rdoc, doc[0]->key, doc[0]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    fdb_close(db);
+
+    // free all documents
+    fdb_doc_free(rdoc);
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("Database destroy test");
+}
+
 struct work_thread_args{
     int tid;
     size_t nthreads;
@@ -4105,21 +4196,64 @@ void compaction_daemon_test(size_t time_sec)
     status = fdb_open(&db_non, "dummy_non", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    // close db files
+    // Now perform one manual compaction on dummy_non
+    fdb_compact(db_non, "dummy_non.manual");
+
+    // close all db files except dummy_non
     fdb_close(db);
     fdb_close(db_less);
-    fdb_close(db_non);
     fdb_close(db_manual);
 
     // open manual compact file (dummy_non) using auto compact mode
     fconfig.compaction_mode = FDB_COMPACTION_AUTO;
-    status = fdb_open(&db, "dummy_non", &fconfig);
+    status = fdb_open(&db, "dummy_non.manual", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
+
+    // Attempt to destroy manual compact file using auto compact mode
+    status = fdb_destroy("dummy_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
 
     // open auto copmact file (dummy_manual_compacted) using manual compact mode
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
     status = fdb_open(&db, "dummy_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
+
+    // Attempt to destroy auto copmact file using manual compact mode
+    status = fdb_destroy("dummy_manual_compacted", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
+
+    // DESTROY auto copmact file with correct mode
+    fconfig.compaction_mode = FDB_COMPACTION_AUTO;
+    status = fdb_destroy("dummy_manual_compacted", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // DESTROY manual compacted file with past version open!
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    status = fdb_destroy("dummy_non.manual", &fconfig);
+    TEST_CHK(status == FDB_RESULT_FILE_IS_BUSY);
+
+    // Simulate a database crash by doing a premature shutdown
+    // Note that db_non was never closed properly
+    fdb_shutdown();
+
+    status = fdb_destroy("dummy_non.manual", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Attempt to read-only auto compacted and destroyed file
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
+    status = fdb_open(&db, "./dummy_manual_compacted", &fconfig);
+    TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
+
+    status = fdb_open(&db, "./dummy_manual_compacted.meta", &fconfig);
+    TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
+
+    // Attempt to read-only past version of manually compacted destroyed file
+    status = fdb_open(&db, "dummy_non", &fconfig);
+    TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
+
+    // Attempt to read-only current version of manually compacted destroyed file
+    status = fdb_open(&db, "dummy_non.manual", &fconfig);
+    TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
 
     // free all documents
     for (i=0;i<n;++i){
@@ -5118,6 +5252,7 @@ int main(){
     reverse_sequence_iterator_test();
     reverse_iterator_test();
     db_drop_test();
+    db_destroy_test();
     doc_compression_test();
     read_doc_by_offset_test();
     api_wrapper_test();

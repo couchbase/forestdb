@@ -24,6 +24,7 @@
 #include <stdarg.h>
 
 #include "filemgr.h"
+#include "filemgr_ops.h"
 #include "hash_functions.h"
 #include "blockcache.h"
 #include "wal.h"
@@ -1113,6 +1114,128 @@ void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
     }
 }
 
+// Note: filemgr_openlock should be held before calling this function.
+fdb_status filemgr_destroy_file(char *filename,
+                                struct filemgr_config *config,
+                                struct hash *destroy_file_set)
+{
+    struct filemgr *file = NULL;
+    struct hash to_destroy_files;
+    struct hash *destroy_set = destroy_file_set ? destroy_file_set :
+                                                  &to_destroy_files;
+    struct filemgr query;
+    struct hash_elem *e = NULL;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    char *old_filename = NULL;
+
+    if (!destroy_file_set) { // top level or non-recursive call
+        hash_init(destroy_set, NBUCKET, _file_hash, _file_cmp);
+    }
+
+    query.filename = filename;
+    // check whether file is already being destroyed in parent recursive call
+    e = hash_find(destroy_set, &query.e);
+    if (e) { // Duplicate filename found, nothing to be done in this call
+        if (!destroy_file_set) { // top level or non-recursive call
+            hash_free(destroy_set);
+        }
+        return status;
+    } else {
+        // Remember file. Stack value ok IFF single direction recursion
+        hash_insert(destroy_set, &query.e);
+    }
+
+    // check global list of known files to see if it is already opened or not
+    e = hash_find(&hash, &query.e);
+    if (e) {
+        // already opened (return existing structure)
+        file = _get_entry(e, struct filemgr, e);
+
+        spin_lock(&file->lock);
+        if (file->ref_count) {
+            spin_unlock(&file->lock);
+            status = FDB_RESULT_FILE_IS_BUSY;
+            if (!destroy_file_set) { // top level or non-recursive call
+                hash_free(destroy_set);
+            }
+            return status;
+        }
+        spin_unlock(&file->lock);
+        if (file->old_filename) {
+            status = filemgr_destroy_file(file->old_filename, config,
+                                          destroy_set);
+            if (status != FDB_RESULT_SUCCESS) {
+                if (!destroy_file_set) { // top level or non-recursive call
+                    hash_free(destroy_set);
+                }
+                return status;
+            }
+        }
+
+        // Cleanup file from in-memory as well as on-disk
+        e = hash_remove(&hash, &file->e);
+        assert(e);
+        _filemgr_free_func(&file->e);
+        if (remove(filename)) {
+            status = FDB_RESULT_FILE_REMOVE_FAIL;
+        }
+    } else { // file not in memory, read on-disk to destroy older versions..
+        file = (struct filemgr *)alca(struct filemgr, 1);
+        file->filename = filename;
+        file->ops = get_filemgr_ops();
+        file->fd = file->ops->open(file->filename, O_RDWR, 0666);
+        file->blocksize = global_config.blocksize;
+        if (file->fd < 0) {
+            if (file->fd != FDB_RESULT_NO_SUCH_FILE) {
+                if (!destroy_file_set) { // top level or non-recursive call
+                    hash_free(destroy_set);
+                }
+                return FDB_RESULT_OPEN_FAIL;
+            }
+        } else { // file successfully opened, seek to end to get DB header
+            cs_off_t offset = file->ops->goto_eof(file->fd);
+            if (offset == FDB_RESULT_SEEK_FAIL) {
+                if (!destroy_file_set) { // top level or non-recursive call
+                    hash_free(destroy_set);
+                }
+                return FDB_RESULT_SEEK_FAIL;
+            } else { // Need to read DB header which contains old filename
+                file->pos = offset;
+                _filemgr_read_header(file);
+                if (file->header.data) {
+                    uint16_t *new_filename_len_ptr = (uint16_t *)((char *)
+                                                     file->header.data + 48);
+                    uint16_t new_filename_len =
+                                      _endian_decode(*new_filename_len_ptr);
+                    uint16_t *old_filename_len_ptr = (uint16_t *)((char *)
+                                                     file->header.data + 50);
+                    uint16_t old_filename_len =
+                                      _endian_decode(*old_filename_len_ptr);
+                    old_filename = (char *)file->header.data + 52
+                                   + new_filename_len;
+                    if (old_filename_len) {
+                        status = filemgr_destroy_file(old_filename, config,
+                                                      destroy_set);
+                    }
+                    free(file->header.data);
+                }
+                if (status == FDB_RESULT_SUCCESS) {
+                    if (remove(filename)) {
+                        status = FDB_RESULT_FILE_REMOVE_FAIL;
+                    }
+                }
+            }
+            file->ops->close(file->fd);
+        }
+    }
+
+    if (!destroy_file_set) { // top level or non-recursive call
+        hash_free(destroy_set);
+    }
+
+    return status;
+}
+
 file_status_t filemgr_get_file_status(struct filemgr *file)
 {
     spin_lock(&file->lock);
@@ -1150,6 +1273,18 @@ void filemgr_set_in_place_compaction(struct filemgr *file,
     spin_lock(&file->lock);
     file->in_place_compaction = in_place_compaction;
     spin_unlock(&file->lock);
+}
+
+void filemgr_mutex_openlock(struct filemgr_config *config)
+{
+    filemgr_init(config);
+
+    spin_lock(&filemgr_openlock);
+}
+
+void filemgr_mutex_openunlock(void)
+{
+    spin_unlock(&filemgr_openlock);
 }
 
 void filemgr_mutex_lock(struct filemgr *file)

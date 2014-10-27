@@ -88,9 +88,11 @@ struct openfiles_elem {
     struct avl_node avl;
 };
 
-struct compactor_args {
-    void *aux;
+struct compactor_args_t {
+    // void *aux; (reserved for future use)
+    size_t strcmp_len; // Used to search for prefix match
 };
+static struct compactor_args_t compactor_args;
 
 struct compactor_meta{
     uint32_t version;
@@ -140,9 +142,10 @@ static bool does_file_exist(const char *filename) {
 int _compactor_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct openfiles_elem *aa, *bb;
+    struct compactor_args_t *args = (struct compactor_args_t *)aux;
     aa = _get_entry(a, struct openfiles_elem, avl);
     bb = _get_entry(b, struct openfiles_elem, avl);
-    return strcmp(aa->file->filename, bb->file->filename);
+    return strncmp(aa->file->filename, bb->file->filename, args->strcmp_len);
 }
 
 INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
@@ -404,7 +407,8 @@ void compactor_init(struct compactor_config *config)
         spin_lock(&cpt_lock);
         if (!compactor_initialized) {
             // initialize
-            avl_init(&openfiles, NULL);
+            compactor_args.strcmp_len = MAX_FNAMELEN;
+            avl_init(&openfiles, &compactor_args);
             target_cursor = NULL;
 
             if (config) {
@@ -824,3 +828,144 @@ bool compactor_is_valid_mode(const char *filename, fdb_config *config)
     return true;
 }
 
+fdb_status _compactor_search_n_destroy(const char *filename)
+{
+    int i;
+    int filename_len;
+    int dirname_len;
+    int compaction_no, max_compaction_no = -1;
+    char path[MAX_FNAMELEN];
+    char dirname[MAX_FNAMELEN], prefix[MAX_FNAMELEN];
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    struct compactor_meta meta, *meta_ptr;
+
+    // error handling .. scan directory
+    // backward search until find the first '/' or '\' (Windows)
+    filename_len = strlen(filename);
+    dirname_len = 0;
+
+#if !defined(WIN32) && !defined(_WIN32)
+    DIR *dir_info;
+    struct dirent *dir_entry;
+
+    for (i=filename_len-1; i>=0; --i){
+        if (filename[i] == '/') {
+            dirname_len = i+1;
+            break;
+        }
+    }
+
+    if (dirname_len > 0) {
+        strncpy(dirname, filename, dirname_len);
+        dirname[dirname_len] = 0;
+    } else {
+        strcpy(dirname, ".");
+    }
+    strcpy(prefix, filename + dirname_len);
+    strcat(prefix, ".");
+
+    dir_info = opendir(dirname);
+    if (dir_info != NULL) {
+        while ((dir_entry = readdir(dir_info))) {
+            if (!strncmp(dir_entry->d_name, prefix, strlen(prefix))) {
+                // Need to check filemgr for possible open entry?
+                if (remove(dir_entry->d_name)) {
+                    fs = FDB_RESULT_FILE_REMOVE_FAIL;
+                    closedir(dir_info);
+                    return fs;
+                }
+            }
+        }
+        closedir(dir_info);
+    }
+#else
+    // Windows
+    for (i=filename_len-1; i>=0; --i){
+        if (filename[i] == '/' || filename[i] == '\\') {
+            dirname_len = i+1;
+            break;
+        }
+    }
+
+    if (dirname_len > 0) {
+        strncpy(dirname, filename, dirname_len);
+        dirname[dirname_len] = 0;
+    } else {
+        strcpy(dirname, ".");
+    }
+    strcpy(prefix, filename + dirname_len);
+    strcat(prefix, ".");
+
+    WIN32_FIND_DATA filedata;
+    HANDLE hfind;
+    char query_str[MAX_FNAMELEN];
+
+    // find all files start with 'prefix'
+    sprintf(query_str, "%s*", prefix);
+    hfind = FindFirstFile(query_str, &filedata);
+    while (hfind != INVALID_HANDLE_VALUE) {
+        if (!strncmp(filedata.cFileName, prefix, strlen(prefix))) {
+            // Need to check filemgr for possible open entry?
+            if (remove(filedata.cFileName)) {
+                fs = FDB_RESULT_FILE_REMOVE_FAIL;
+                FindClose(hfind);
+                hfind = INVALID_HANDLE_VALUE;
+                return fs;
+            }
+        }
+
+        if (!FindNextFile(hfind, &filedata)) {
+            FindClose(hfind);
+            hfind = INVALID_HANDLE_VALUE;
+        }
+    }
+
+#endif
+    return fs;
+}
+
+fdb_status compactor_destroy_file(char *filename,
+                                  fdb_config *config)
+{
+    int fd;
+    struct avl_node *a = NULL;
+    struct openfiles_elem query, *elem;
+    struct filemgr query_file;
+    struct filemgr *file = &query_file;
+    size_t strcmp_len;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    compactor_config c_config;
+
+    strcmp_len = strlen(filename);
+    filename[strcmp_len] = '.'; // add a . suffix in place
+    strcmp_len++;
+    filename[strcmp_len] = '\0';
+    file->filename = filename;
+
+    c_config.sleep_duration = config->compactor_sleep_duration;
+    compactor_init(&c_config);
+
+    spin_lock(&cpt_lock); // TODO: use mutex as we are doing I/O
+    query.file = file;
+    compactor_args.strcmp_len = strcmp_len; // Do prefix match for all vers
+    a = avl_search(&openfiles, &query.avl, _compactor_cmp);
+    if (a) {
+        elem = _get_entry(a, struct openfiles_elem, avl);
+        // if no handle refers this file
+        if (target_cursor == &elem->avl) {
+            // This file is waiting for compaction by compactor
+            // Return a temporary failure, user must retry after sometime
+            status = FDB_RESULT_IN_USE_BY_COMPACTOR;
+        } else { // File handle not closed, fail operation
+            status = FDB_RESULT_FILE_IS_BUSY;
+        }
+    }
+    compactor_args.strcmp_len = MAX_FNAMELEN; // restore for normal compare
+    filename[strcmp_len - 1] = '\0'; // restore the filename
+    if (status == FDB_RESULT_SUCCESS) {
+        status = _compactor_search_n_destroy(file->filename);
+    }
+    spin_unlock(&cpt_lock);
+
+    return status;
+}

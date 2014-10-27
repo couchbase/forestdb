@@ -171,6 +171,10 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
                                 char *old_filename);
 void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
+fdb_status filemgr_destroy_file(char *filename,
+                                struct filemgr_config *config,
+                                struct hash *destroy_set);
+
 file_status_t filemgr_get_file_status(struct filemgr *file);
 uint64_t filemgr_get_pos(struct filemgr *file);
 
@@ -180,6 +184,8 @@ void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
 void filemgr_set_in_place_compaction(struct filemgr *file,
                                      bool in_place_compaction);
 
+void filemgr_mutex_openlock(struct filemgr_config *config);
+void filemgr_mutex_openunlock(void);
 void filemgr_mutex_lock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);
 

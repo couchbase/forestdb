@@ -575,6 +575,28 @@ LIBFDB_API
 fdb_status fdb_close(fdb_handle *handle);
 
 /**
+ * Destroy all resources associated with the database file permanently
+ * (e.g., buffer cache, in-memory WAL, indexes, daemon compaction thread)
+ * including current and past versions of this file
+ * Note that all database files should be closed through fdb_close
+ * calls before calling this API.
+ * @param filename - the file path that needs to be destroyed
+ * @param fconfig  - the forestdb configuration to determine
+ *                   error log callbacks, manual/auto compaction etc
+ * NOTE: If manual compaction is being used, fdb_destroy() is best-effort only
+ *       and must be called with the correct filename
+ * Reason for best-effort in manual compaction case:
+ * FileA --> FileB --> FileC --> FileA --> FileD --> FileC -->DESTROY
+ * (In above case, FileB cannot be destroyed as its info is not
+ *  reachable from file path "FileC", api will wipe out FileA, FileC and FileD)
+ *
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_destroy(const char *filename,
+                       fdb_config *fconfig);
+
+/**
  * Destroy all the resources (e.g., buffer cache, in-memory WAL indexes,
  * daemon compaction thread, etc.) and then shutdown the ForestDB engine.
  * Note that all the database files should be closed through fdb_close calls

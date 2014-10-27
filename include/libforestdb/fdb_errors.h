@@ -122,7 +122,7 @@ typedef enum {
      */
     FDB_RESULT_INVALID_COMPACTION_MODE = -22,
     /**
-     * Other thread is opening the file.
+     * Operation cannot be performed as file handle has not been closed.
      */
     FDB_RESULT_FILE_IS_BUSY = -23,
     /**
@@ -149,6 +149,11 @@ typedef enum {
      * Filename is too long.
      */
     FDB_RESULT_TOO_LONG_FILENAME = -29,
+    /**
+     * DB file can't be destroyed as the file is being compacted.
+     * Please retry in sometime.
+     */
+    FDB_RESULT_IN_USE_BY_COMPACTOR = -30,
     /**
      * General database opertion fails.
      */
