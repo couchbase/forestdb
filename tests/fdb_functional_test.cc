@@ -2102,7 +2102,19 @@ void iterator_seek_test()
     TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
     fdb_doc_free(rdoc);
 
-    // seek backward to 2nd key ..
+    // seek backward to start key ..
+    i = 0;
+    status = fdb_iterator_seek(iterator, doc[i]->key, strlen(keybuf));
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_iterator_next(iterator, &rdoc);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+    fdb_doc_free(rdoc);
+
+    // seek forward to key2 ..
     status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf));
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
