@@ -746,6 +746,72 @@ void kv_set_str_value_test()
     TEST_RESULT("kv_set_str_value_test");
 }
 
+
+/*
+ * Test: kv_get_str_data_size_test
+ *
+ * verifies datasize of adding new kv values to a node
+ *
+ */
+
+void kv_get_str_data_size_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node;
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize, ksize_total = 0;
+    void *new_minkey;
+    size_t size, old_size;
+    const char *keys[] = {"string",
+                           "longstring"};
+    int value_arr[] = {1, 10};
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+
+
+    vsize = sizeof(int);
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+    node = dummy_node(ksize, vsize, 1);
+
+    new_minkey = NULL;
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+
+    // construct key_ptrs
+    for (int i = 0; i < n; i++){
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+        ksize_total += strlen(keys[i]) + 1 + sizeof(key_len_t);
+    }
+
+    // calculate datasize to extend empty node
+    size = kv_ops->get_data_size(node, new_minkey, key_ptrs, value_arr, 2);
+    TEST_CHK(size == (ksize_total + 2*vsize));
+
+    // set kvs
+    for (int i = 0; i < n; i++){
+        kv_ops->set_kv(node, i, &key_ptrs[i], (void *)&value_arr[i]);
+    }
+
+    // cacluate datasize to extend node with n entries
+    old_size = size;
+    node->nentry = n;
+    size = kv_ops->get_data_size(node, new_minkey, key_ptrs, value_arr, 2);
+    TEST_CHK(size == (old_size + ksize_total + 2*vsize));
+
+    // verify with new_min_key
+    memcpy(&new_minkey, &key_ptrs[1], sizeof(void *));
+    size = kv_ops->get_data_size(node, &new_minkey, key_ptrs, value_arr, 2);
+    old_size = old_size + (strlen(keys[1]) - strlen(keys[0]));
+    TEST_CHK(size == (old_size + ksize_total + 2*vsize));
+
+    free(node);
+    freevars(key_ptrs, n);
+    memleak_end();
+    TEST_RESULT("kv_get_str_data_size_test");
+}
+
 int main()
 {
 
@@ -759,15 +825,21 @@ int main()
     kv_free_test();
     kv_init_ops_test();
     kv_init_var_test();
+
     kv_set_var_test();
     kv_set_var_nentry_test();
     kv_set_var_nentry_update_test();
+
     kv_get_var_test();
     kv_get_var_nentry_test();
+
     kv_ins_var();
     kv_ins_var_nentry_test();
+
     kv_set_str_key_test();
     kv_set_str_value_test();
+
+    kv_get_str_data_size_test();
 
     return 0;
 }
