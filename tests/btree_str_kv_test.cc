@@ -1005,7 +1005,80 @@ void kv_get_nth_splitter_test()
     TEST_RESULT("kv_get_nth_splitter_test");
 }
 
+/*
+ * Test: kv_cmp_key_str_test
+ *
+ * test comparison of keys for the following scenarios
+ *  - equal keylens w/out equality
+ *  - variable keylens with w/out equality
+ *  - null key_ptrs
+ *
+ */
+void kv_cmp_key_str_test()
+{
 
+    TEST_INIT();
+    memleak_start();
+
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize, ksize_total = 0;
+    int cmp;
+    const char *keys[] = {"string",
+                          "srting",
+                          "longstring",
+                          "longstringsuffix"};
+
+    int value_arr[] = {1, 10};
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+    void *tmp = NULL;
+
+
+    vsize = sizeof(int);
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+
+    // construct key_ptrs
+    for (int i = 0; i < n; i++){
+        // omit null terminator
+        construct_key_ptr(keys[i], strlen(keys[i]), &key_ptrs[i]);
+    }
+
+
+    // compare strings equal length equal values
+    cmp = kv_ops->cmp(&key_ptrs[0], &key_ptrs[0], NULL);
+    TEST_CHK( cmp == 0 );
+
+    // compare strings equal length diff values
+    cmp = kv_ops->cmp(&key_ptrs[0], &key_ptrs[1], NULL);
+    TEST_CHK( cmp > 0 );
+
+    // compare strings diff length equal substrings
+    cmp = kv_ops->cmp(&key_ptrs[2], &key_ptrs[3], NULL);
+    TEST_CHK( cmp == (strlen(keys[2]) - strlen(keys[3])) );
+
+    // compare strings diff length diff substrings
+    cmp = kv_ops->cmp(&key_ptrs[0], &key_ptrs[3], NULL);
+    TEST_CHK( cmp > 0 );
+
+    // key1 is NULL
+    cmp = kv_ops->cmp(&tmp, &key_ptrs[0], NULL);
+    TEST_CHK( cmp == -1 );
+
+    // key2 is NULL
+    cmp = kv_ops->cmp(&key_ptrs[0], &tmp, NULL);
+    TEST_CHK( cmp == 1 );
+
+    // key1 and key2 are NULL
+    cmp = kv_ops->cmp(&tmp, &tmp, NULL);
+    TEST_CHK( cmp == 0 );
+
+    freevars(key_ptrs, n);
+    memleak_end();
+    TEST_RESULT("kv_cmp_key_str_test");
+}
 
 int main()
 {
@@ -1040,6 +1113,8 @@ int main()
     kv_free_kv_var_test();
     kv_get_nth_idx_test();
     kv_get_nth_splitter_test();
+
+    kv_cmp_key_str_test();
 
     return 0;
 }
