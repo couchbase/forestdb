@@ -264,7 +264,7 @@ void kv_set_var_nentry_test()
     uint8_t v;
     idx_t idx;
     int cmp, i;
-
+    char *node_str;
     const char *keys[] = {"string",
                           "longstring",
                           "longerstring",
@@ -859,6 +859,185 @@ void kv_get_str_kv_size_test()
     TEST_RESULT("kv_get_str_kv_size_test");
 }
 
+/*
+ * Test: kv_copy_var_test
+ *
+ * verify single entry from source bnode can be put into destination
+ *
+ */
+void kv_copy_var_test()
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node_src, node_dst;
+    btree_kv_ops *kv_ops;
+    idx_t src_idx, dst_idx, len;
+    uint8_t str_len, ksize, vsize;
+    uint16_t level;
+    uint64_t v, cmp;
+    char *key;
+    char str[] = "teststring";
+
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+
+    v = 64;
+    str_len = strlen(str) + 1;
+    ksize = str_len + sizeof(key_len_t);
+    vsize = sizeof(v);
+    level = 1;
+    node_dst = dummy_node(ksize, vsize, level);
+    node_src = dummy_node(ksize, vsize, level);
+    dst_idx = 0;
+    src_idx = 0;
+    len = 1;
+    construct_key_ptr(str, str_len, &key);
+
+    // set kv into src node and copy into dest
+    kv_ops->set_kv(node_src, src_idx, &key, &v);
+    kv_ops->copy_kv(node_dst, node_src, dst_idx, src_idx, len);
+
+    // verify
+    cmp = strcmp((char *)((uint8_t *)node_dst->data + sizeof(key_len_t)), str);
+    TEST_CHK(cmp == 0);
+    cmp = memcmp((uint8_t *)node_dst->data + ksize, (void *)&v, vsize);
+    TEST_CHK(cmp == 0);
+
+    void *vars[] = {(void *)node_src, (void *)node_dst, key};
+    freevars(vars, sizeof(vars)/sizeof(void *));
+
+    memleak_end();
+    TEST_RESULT("kv_copy_var_test");
+}
+
+/*
+ * Test: kv_copy_var_nentry_test
+ *
+ * verify n entries from source bnode can be copied into dest at various offsets
+ *   -1, copy n/2-entries into empty destination
+ *   -2, append n-entries into occupied destination
+ *   -3, prepend n-entries into occupied destination
+ *
+ */
+void kv_copy_var_nentry_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    bnoderef node, node_dst;
+    btree_kv_ops *kv_ops;
+    uint8_t ksize, vsize;
+    uint8_t v;
+    idx_t idx, src_idx, dst_idx, len;
+    int cmp, i;
+    size_t offset_idx;
+    const char *keys[] = {"string",
+                          "longstring",
+                          "longerstring",
+                          "",
+                          "123231234242423428492342",
+                          "string with space"};
+    char *node_str;
+    int n =  sizeof(keys)/sizeof(void *);
+    void **key_ptrs = alca(void *, n);
+
+    for (i = 0; i < n; i++) {
+        construct_key_ptr(keys[i], strlen(keys[i]) + 1, &key_ptrs[i]);
+    }
+
+    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
+    vsize = sizeof(v);
+    node = dummy_node(ksize, vsize, 1);
+    node->nentry = n;
+
+    idx = 0;
+    v = 100;
+    kv_ops = alca(btree_kv_ops, 1);
+    btree_str_kv_get_kb64_vb64(kv_ops);
+
+    // set n items into source node
+    offset_idx = 0;
+    for (idx = 0; idx < n; idx++){
+        kv_ops->set_kv(node, idx, &key_ptrs[idx], (void *)&v);
+    }
+
+    // copy n/2 entries into dest node
+    src_idx = n/2;
+    dst_idx = 0;
+    len = src_idx;
+    node_dst = dummy_node(ksize, vsize, 1);
+    kv_ops->copy_kv(node_dst, node, dst_idx, src_idx, len);
+
+    // verify
+    offset_idx = 0;
+    for (idx = src_idx; idx < n; idx++){
+
+        offset_idx += sizeof(key_len_t);
+        node_str = (char *)((uint8_t *)node_dst->data + offset_idx);
+        cmp = strcmp(node_str, keys[idx]);
+        TEST_CHK(cmp == 0);
+
+        // check value
+        offset_idx += strlen(keys[idx]) + 1;
+        cmp = memcmp((uint8_t *)node_dst->data + offset_idx, &v, vsize);
+        TEST_CHK(cmp == 0);
+
+        offset_idx += vsize;
+
+    }
+
+    // append n entries into dst node
+    dst_idx = src_idx;
+    src_idx = 0;
+    kv_ops->copy_kv(node_dst, node, dst_idx, src_idx, n);
+
+    // verify
+    for (idx = src_idx; idx < n; idx++){
+
+        offset_idx += sizeof(key_len_t);
+        node_str = (char *)((uint8_t *)node_dst->data + offset_idx);
+        cmp = strcmp(node_str, keys[idx]);
+        TEST_CHK(cmp == 0);
+
+        // check value
+        offset_idx += strlen(keys[idx]) + 1;
+        cmp = memcmp((uint8_t *)node_dst->data + offset_idx, &v, vsize);
+        TEST_CHK(cmp == 0);
+
+        offset_idx += vsize;
+    }
+
+    // prepend n entries into dst node
+    dst_idx = 0;
+    src_idx = 0;
+    kv_ops->copy_kv(node_dst, node, dst_idx, src_idx, n);
+
+    // verify
+    offset_idx = 0;
+    for (idx = src_idx; idx < n; idx++){
+
+        offset_idx += sizeof(key_len_t);
+        node_str = (char *)((uint8_t *)node_dst->data + offset_idx);
+        cmp = strcmp(node_str, keys[idx]);
+        TEST_CHK(cmp == 0);
+
+        // check value
+        offset_idx += strlen(keys[idx]) + 1;
+        cmp = memcmp((uint8_t *)node_dst->data + offset_idx, &v, vsize);
+        TEST_CHK(cmp == 0);
+
+        offset_idx += vsize;
+    }
+
+    free(node); free(node_dst);
+    freevars(key_ptrs, n);
+
+    memleak_end();
+    TEST_RESULT("kv_copy_var_nentry_test");
+}
+
 
 /*
  * Test: kv_free_kv_var_test
@@ -1140,6 +1319,9 @@ int main()
 
     kv_get_str_data_size_test();
     kv_get_str_kv_size_test();
+
+    kv_copy_var_test();
+    kv_copy_var_nentry_test();
 
     kv_free_kv_var_test();
     kv_get_nth_idx_test();
