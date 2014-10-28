@@ -35,16 +35,25 @@ extern "C" {
     #define calloc(nmemb, size) memleak_calloc(nmemb, size, (char*)__FILE__, __LINE__)
     #define realloc(ptr, size) memleak_realloc(ptr, size);
     #define free(addr) memleak_free(addr, (char*)__FILE__, __LINE__)
-#ifndef WIN32
+
+#if !defined(WIN32)
+
+#if !defined(__ANDROID__)
     #define posix_memalign(memptr, alignment, size) \
         memleak_posix_memalign(memptr, alignment, size, (char*)__FILE__, __LINE__)
-#else // WIN32
+#else // not __ANDROID__
+    #define memalign(alignment, size) \
+        memleak_memalign(alignment, size, (char*)__FILE__, __LINE__)
+#endif // not __ANDROID__
+
+#else // not WIN32
     #define _aligned_malloc(size, align) \
         memleak_aligned_malloc(size, align, (char*)__FILE__, __LINE__)
     #define _aligned_free(addr) \
         memleak_aligned_free(addr, (char*)__FILE__, __LINE__)
-#endif // WIN32
-#endif
+#endif // not WIN32
+
+#endif // not _MALLOC_OVERRIDE
 
 LIBMEMLEAK_API
 void memleak_start();

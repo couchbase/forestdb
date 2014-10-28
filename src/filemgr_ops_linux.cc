@@ -122,7 +122,7 @@ int _filemgr_linux_fsync(int fd)
 
 int _filemgr_linux_fdatasync(int fd)
 {
-#ifdef __linux__
+#if defined(__linux__) && !defined(__ANDROID__)
     int rv;
     do {
         rv = fdatasync(fd);
@@ -133,9 +133,9 @@ int _filemgr_linux_fdatasync(int fd)
     }
 
     return FDB_RESULT_SUCCESS;
-#else
+#else // __linux__ && not __ANDROID__
     return _filemgr_linux_fsync(fd);
-#endif
+#endif // __linux__ && not __ANDROID__
 }
 
 void _filemgr_linux_get_errno_str(char *buf, size_t size) {

@@ -246,7 +246,9 @@ void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
     return addr;
 }
 
-#ifndef WIN32
+#if !defined(WIN32)
+
+#if !defined(__ANDROID__)
 // posix only
 LIBMEMLEAK_API
 int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
@@ -262,7 +264,22 @@ int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *f
 
     return ret;
 }
-#else // WIN32
+#else // not __ANDROID__
+LIBMEMLEAK_API
+void * memleak_memalign(size_t size, size_t alignment, char *file, size_t line)
+{
+    void *addr = memalign(alignment, size);
+    if (addr && start_sw)
+    {
+        spin_lock(&lock);
+        _memleak_add_to_index(addr, size, file, line, INIT_VAL);
+        spin_unlock(&lock);
+    }
+    return addr;
+}
+#endif
+
+#else // not WIN32
 
 LIBMEMLEAK_API
 void * memleak_aligned_malloc(size_t size, size_t alignment, char *file, size_t line)
@@ -313,7 +330,7 @@ void memleak_aligned_free(void *addr, char *file, size_t line)
     _aligned_free(addr);
 }
 
-#endif // WIN32
+#endif // not WIN32
 
 LIBMEMLEAK_API
 void *memleak_realloc(void *ptr, size_t size)
