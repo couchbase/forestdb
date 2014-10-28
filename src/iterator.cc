@@ -796,8 +796,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
 
     // disable seeking beyond the end key...
     if (iterator->end_key && _fdb_key_cmp(iterator, (void *)iterator->end_key,
-                                         iterator->end_keylen,
-                                         (void *)seek_key, seek_keylen) <= 0) {
+                                          iterator->end_keylen,
+                                          (void *)seek_key, seek_keylen) < 0) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
