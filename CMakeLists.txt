@@ -7,13 +7,13 @@ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/src)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 --coverage")
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
 
 if (NOT WIN32)
+    set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 --coverage")
     set(PTHREAD_LIB pthread)
     set(LIBM m)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_linux.cc")
