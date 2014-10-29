@@ -20,6 +20,26 @@
         #error "not supported endian"
     #endif
 
+#elif __ANDROID__
+    #include <machine/endian.h>
+    #if _BYTE_ORDER == _LITTLE_ENDIAN
+        #ifndef _LITTLE_ENDIAN
+        #define _LITTLE_ENDIAN
+        #endif
+        #ifdef _BIG_ENDIAN
+        #undef _BIG_ENDIAN
+        #endif
+    #elif _BYTE_ORDER == _BIG_ENDIAN
+        #ifndef _BIG_ENDIAN
+        #define _BIG_ENDIAN
+        #endif
+        #ifdef _LITTLE_ENDIAN
+        #undef _LITTLE_ENDIAN
+        #endif
+    #else
+        #error "not supported endian"
+    #endif
+
 #elif __linux__
     #include <endian.h>
     #if __BYTE_ORDER == __LITTLE_ENDIAN
