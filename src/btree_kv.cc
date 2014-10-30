@@ -103,7 +103,7 @@ INLINE size_t _get_data_size(
 
 INLINE size_t _get_kv_size(struct btree *tree, void *key, void *value)
 {
-    return ((uint8_t *)key) ? tree->ksize : 0 + ((uint8_t *)value) ? tree->vsize : 0;
+    return (((uint8_t *)key) ? tree->ksize : 0) + (((uint8_t *)value) ? tree->vsize : 0);
 }
 
 INLINE void _init_kv_var(struct btree *tree, void *key, void *value)
