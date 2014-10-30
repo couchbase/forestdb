@@ -32,7 +32,7 @@ fdb_config get_default_config(void) {
     fconfig.buffercache_size = 134217728;
     // 4096 WAL entries by default.
     fconfig.wal_threshold = 4096;
-    fconfig.wal_flush_before_commit = false;
+    fconfig.wal_flush_before_commit = true;
     // 0 second by default.
     fconfig.purging_interval = 0;
     // Use a seq btree by default.
