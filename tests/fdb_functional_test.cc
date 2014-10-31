@@ -1330,7 +1330,7 @@ void *_worker_thread(void *voidargs)
             cnt_int = atoi(cnt_str);
 
             // increase and rephrase
-            sprintf(cnt_str, "%0"IDX_DIGIT_STR"d", ++cnt_int);
+            sprintf(cnt_str, "%0 " IDX_DIGIT_STR "d", ++cnt_int);
             memcpy((uint8_t *)rdoc->body + (IDX_DIGIT+1), cnt_str, IDX_DIGIT);
 
             // update and commit
@@ -1417,7 +1417,7 @@ void multi_thread_test(
     idx_digit = IDX_DIGIT;
 
     // remove previous dummy files
-    r = system(SHELL_DEL" "FILENAME"* > errorlog.txt");
+    r = system(SHELL_DEL" " FILENAME "* > errorlog.txt");
 
     fdb_config fconfig = fdb_get_default_config();
     fconfig.buffercache_size = 16777216;
@@ -1441,12 +1441,12 @@ void multi_thread_test(
     // insert documents
     for (i=0;i<ndocs;++i){
         _set_random_string_smallabt(temp, KSIZE - (IDX_DIGIT+1));
-        sprintf(keybuf, "k%0"IDX_DIGIT_STR"d%s", i, temp);
+        sprintf(keybuf, "k%0" IDX_DIGIT_STR "d%s", i, temp);
 
-        sprintf(metabuf, "m%0"IDX_DIGIT_STR"d", i);
+        sprintf(metabuf, "m%0" IDX_DIGIT_STR "d", i);
 
         _set_random_string_smallabt(temp, VSIZE-(IDX_DIGIT*2+1));
-        sprintf(bodybuf, "b%0"IDX_DIGIT_STR"d%0"IDX_DIGIT_STR"d%s", i, 0, temp);
+        sprintf(bodybuf, "b%0" IDX_DIGIT_STR "d%0" IDX_DIGIT_STR "d%s", i, 0, temp);
 
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
