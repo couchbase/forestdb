@@ -4962,6 +4962,147 @@ void flush_before_commit_test()
     TEST_RESULT("flush before commit test");
 }
 
+void flush_before_commit_multi_writers_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    size_t valuelen;
+    void *value;
+    fdb_handle *db1, *db2;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 8;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+    fconfig.wal_flush_before_commit = true;
+
+    // open db
+    fdb_open(&db1, "dummy1", &fconfig);
+    status = fdb_set_log_callback(db1, logCallbackFunc,
+                                  (void *) "flush_before_commit_multi_writers_test");
+
+    // create & insert docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db1, doc[i]);
+    }
+    fdb_commit(db1, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // open reader & second writer
+    fdb_open(&db2, "dummy1", &fconfig);
+    status = fdb_set_log_callback(db2, logCallbackFunc,
+                                  (void *) "flush_before_commit_multi_writers_test");
+
+    for (i=0;i<n/2;++i){
+        sprintf(metabuf, "meta2%d", i);
+        sprintf(bodybuf, "body2%d(db2)", i);
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+            (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db2, doc[i]);
+    }
+    for (i=n/2;i<n;++i){
+        sprintf(metabuf, "meta2%d", i);
+        sprintf(bodybuf, "body2%d(db1)", i);
+        fdb_doc_update(&doc[i], (void *)metabuf, strlen(metabuf),
+            (void *)bodybuf, strlen(bodybuf));
+        fdb_set(db1, doc[i]);
+    }
+
+    // retrieve before commit
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta2%d", i);
+        if (i < n/2) {
+            sprintf(bodybuf, "body2%d(db2)", i);
+        } else {
+            sprintf(bodybuf, "body2%d(db1)", i);
+        }
+        // retrieve through2 db1
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
+                                NULL, 0, NULL, 0);
+        status = fdb_get(db1, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+
+        // retrieve through db2
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
+                                NULL, 0, NULL, 0);
+        status = fdb_get(db2, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    fdb_commit(db1, FDB_COMMIT_NORMAL);
+    fdb_commit(db2, FDB_COMMIT_NORMAL);
+
+    // retrieve after commit
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta2%d", i);
+        if (i < n/2) {
+            sprintf(bodybuf, "body2%d(db2)", i);
+        } else {
+            sprintf(bodybuf, "body2%d(db1)", i);
+        }
+        // retrieve through2 db1
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
+                                NULL, 0, NULL, 0);
+        status = fdb_get(db1, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+
+        // retrieve through db2
+        fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
+                                NULL, 0, NULL, 0);
+        status = fdb_get(db2, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+
+    // close db file
+    fdb_close(db1);
+    fdb_close(db2);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("flush before commit test");
+}
+
 void last_wal_flush_header_test()
 {
     TEST_INIT();
@@ -5282,6 +5423,7 @@ int main(){
     transaction_test();
     transaction_simple_api_test();
     flush_before_commit_test();
+    flush_before_commit_multi_writers_test();
     last_wal_flush_header_test();
     long_key_test();
     purge_logically_deleted_doc_test();

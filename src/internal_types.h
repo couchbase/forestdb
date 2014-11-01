@@ -21,8 +21,7 @@
 #include <stdint.h>
 
 #include "libforestdb/fdb_types.h"
-#include "option.h"
-#include "arch.h"
+#include "common.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -135,7 +134,7 @@ struct _fdb_handle {
      */
     fdb_seqnum_t seqnum;
     /**
-     * Database's max sequence number for snapshot or rollback
+     * Database's max sequence number for snapshot or rollback.
      */
     fdb_seqnum_t max_seqnum;
     /**
@@ -143,9 +142,13 @@ struct _fdb_handle {
      */
     char *filename;
     /**
-     * Transaction handle
+     * Transaction handle.
      */
     fdb_txn *txn;
+    /**
+     * Flag that indicates whether this handle made dirty updates or not.
+     */
+    uint8_t dirty_updates;
 };
 
 struct hbtrie_iterator;
@@ -202,11 +205,11 @@ struct _fdb_iterator {
     /**
      * B-Tree iterator for custom compare function
      */
-     struct btree_iterator *idtree_iterator;
+    struct btree_iterator *idtree_iterator;
     /**
      * B-Tree iterator for sequence number iteration
      */
-     struct btree_iterator *seqtree_iterator;
+    struct btree_iterator *seqtree_iterator;
     /**
      * Current seqnum pointed by the iterator.
      */

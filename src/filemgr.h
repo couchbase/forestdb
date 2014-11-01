@@ -69,6 +69,8 @@ struct filemgr_header{
     filemgr_header_revnum_t revnum;
     volatile fdb_seqnum_t seqnum;
     bid_t bid;
+    bid_t dirty_idtree_root; // for wal_flush_before_commit option
+    bid_t dirty_seqtree_root; // for wal_flush_before_commit option
     void *data;
 };
 
@@ -188,6 +190,13 @@ void filemgr_mutex_openlock(struct filemgr_config *config);
 void filemgr_mutex_openunlock(void);
 void filemgr_mutex_lock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);
+
+void filemgr_set_dirty_root(struct filemgr *file,
+                            bid_t dirty_idtree_root,
+                            bid_t dirty_seqtree_root);
+void filemgr_get_dirty_root(struct filemgr *file,
+                            bid_t *dirty_idtree_root,
+                            bid_t *dirty_seqtree_root);
 
 #ifdef __cplusplus
 }

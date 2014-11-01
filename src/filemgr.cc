@@ -266,6 +266,9 @@ void _filemgr_read_header(struct filemgr *file)
                         file->header.size = len;
                         file->header.bid = (file->pos / file->blocksize) - 1;
 
+                        file->header.dirty_idtree_root = BLK_NOT_FOUND;
+                        file->header.dirty_seqtree_root = BLK_NOT_FOUND;
+
                         // release temp buffer
                         _filemgr_release_temp_buf(buf);
 
@@ -295,6 +298,8 @@ void _filemgr_read_header(struct filemgr *file)
     file->header.revnum = 0;
     file->header.seqnum = 0;
     file->header.data = NULL;
+    file->header.dirty_idtree_root = BLK_NOT_FOUND;
+    file->header.dirty_seqtree_root = BLK_NOT_FOUND;
 }
 
 size_t filemgr_get_ref_count(struct filemgr *file)
@@ -1039,6 +1044,9 @@ fdb_status filemgr_commit(struct filemgr *file,
         file->header.bid = file->pos / file->blocksize;
         file->pos += file->blocksize;
 
+        file->header.dirty_idtree_root = BLK_NOT_FOUND;
+        file->header.dirty_seqtree_root = BLK_NOT_FOUND;
+
         _filemgr_release_temp_buf(buf);
     }
     // race condition?
@@ -1303,5 +1311,25 @@ void filemgr_mutex_unlock(struct filemgr *file)
 #else
     spin_unlock(&file->mutex);
 #endif
+}
+
+void filemgr_set_dirty_root(struct filemgr *file,
+                            bid_t dirty_idtree_root,
+                            bid_t dirty_seqtree_root)
+{
+    spin_lock(&file->lock);
+    file->header.dirty_idtree_root = dirty_idtree_root;
+    file->header.dirty_seqtree_root = dirty_seqtree_root;
+    spin_unlock(&file->lock);
+}
+
+void filemgr_get_dirty_root(struct filemgr *file,
+                            bid_t *dirty_idtree_root,
+                            bid_t *dirty_seqtree_root)
+{
+    spin_lock(&file->lock);
+    *dirty_idtree_root = file->header.dirty_idtree_root;
+    *dirty_seqtree_root= file->header.dirty_seqtree_root;
+    spin_unlock(&file->lock);
 }
 
