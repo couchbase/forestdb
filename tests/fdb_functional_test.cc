@@ -3624,6 +3624,94 @@ void rollback_test()
     TEST_RESULT("rollback test");
 }
 
+void rollback_and_snapshot_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    uint64_t offset;
+    fdb_seqnum_t seqnum, rollback_seqnum;
+    fdb_info info;
+    fdb_status status;
+    fdb_config config;
+    fdb_handle *db,  *snapshot;
+    int r;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // MB-15230 open db
+    config = fdb_get_default_config();
+    status = fdb_open(&db, "dummy", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 2. Create Key 'a' and Commit
+    status = fdb_set_kv(db, (void *) "a", 1, (void *)"val-a", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(db, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_dbinfo(db, &info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    seqnum = info.last_seqnum;
+
+    // 3. Create Key 'b' and Commit
+    status = fdb_set_kv(db, (void *)"b", 1, (void *)"val-b", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(db, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_dbinfo(db, &info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    seqnum = info.last_seqnum;
+
+    // 4.  Remember this as our rollback point
+    rollback_seqnum = seqnum;
+
+    // 5. Create Key 'c' and Commit
+    status = fdb_set_kv(db, (void *)"c", 1,(void *) "val-c", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(db, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_dbinfo(db, &info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    seqnum = info.last_seqnum;
+
+    // 6. Rollback to rollback point (seq 2)
+    status = fdb_rollback(&db, rollback_seqnum);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_dbinfo(db, &info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    seqnum = info.last_seqnum;
+
+    // 7. Verify that Key 'c' is not found
+    void *val;
+    size_t vallen;
+    status = fdb_get_kv(db, (void *)"c", 1, &val, &vallen);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+    // 8. Open a snapshot at the same point
+    status = fdb_snapshot_open(db, &snapshot, seqnum);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 9. Verify that Key 'c' is not found
+    status = fdb_get_kv(snapshot, (void *)"c", 1, &val, &vallen);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+    // close db file
+    fdb_close(db);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("rollback and snapshot test");
+}
+
 void doc_compression_test()
 {
     TEST_INIT();
@@ -5413,6 +5501,7 @@ int main(){
     snapshot_test();
     in_memory_snapshot_test();
     rollback_test();
+    rollback_and_snapshot_test();
     reverse_sequence_iterator_test();
     reverse_iterator_test();
     db_drop_test();

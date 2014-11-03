@@ -234,9 +234,7 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
                             // read the previously skipped doc
                             _offset_temp = docio_read_doc(handle->dhandle,
                                                           doc_offset, &doc);
-                            if (doc.key == NULL) {
-                                // doc read error
-                                free(doc.key);
+                            if (doc.key == NULL) { // doc read error
                                 free(doc.meta);
                                 free(doc.body);
                                 offset = _offset;
@@ -244,6 +242,16 @@ INLINE void _fdb_restore_wal(fdb_handle *handle, bid_t hdr_bid)
                             }
                         } else {
                             doc_offset = offset;
+                        }
+
+                        // If say a snapshot is taken on a db handle after
+                        // rollback, then skip WAL items after rollback point
+                        if (doc.seqnum > handle->seqnum) {
+                            free(doc.key);
+                            free(doc.meta);
+                            free(doc.body);
+                            offset = _offset;
+                            continue;
                         }
 
                         // restore document
