@@ -1654,11 +1654,14 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
     struct filemgr *wal_file;
     wal_result wr;
     hbtrie_result hr;
-    fdb_txn *txn = handle->txn;
+    fdb_txn *txn;
 
-    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
+    if (handle == NULL || doc == NULL || doc->key == NULL ||
+        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    txn = handle->txn;
 
     if (!handle->shandle) {
         fdb_check_file_reopen(handle);
