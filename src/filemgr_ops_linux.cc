@@ -143,8 +143,13 @@ void _filemgr_linux_get_errno_str(char *buf, size_t size) {
         return;
     } else {
         char *tbuf = alca(char, size);
-        strerror_r(errno, tbuf, size);
+#ifdef _POSIX_SOURCE
+        char *ret = strerror_r(errno, tbuf, size);
+        snprintf(buf, size, "errno = %d: '%s'", errno, ret);
+#else
+        int ret = strerror_r(errno, tbuf, size);
         snprintf(buf, size, "errno = %d: '%s'", errno, tbuf);
+#endif
     }
 }
 
