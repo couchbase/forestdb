@@ -371,6 +371,7 @@
     #endif
 
 #else
+#pragma error "Unknown architecture"
     #define INLINE make_error
 #endif
 
