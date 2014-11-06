@@ -6,23 +6,30 @@ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/utils)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/src)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
+if (COUCHBASE_SERVER_BUILD)
+    ADD_DEFINITIONS(-D_DOC_COMP=1)
+    include_directories(AFTER ${SNAPPY_INCLUDE_DIR})
+else(COUCHBASE_SERVER_BUILD)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
+    if (NOT WIN32)
+        set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 --coverage")
+        if (NOT(SNAPPY_OPTION STREQUAL "Disable"))
+            LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
+            INCLUDE(FindSnappy)
+            set(SNAPPY_LIBRARIES snappy)
+            ADD_DEFINITIONS(-D_DOC_COMP=1)
+        endif (NOT(SNAPPY_OPTION STREQUAL "Disable"))
+    endif(NOT WIN32)
+endif(COUCHBASE_SERVER_BUILD)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
 
 if (NOT WIN32)
-    set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 --coverage")
     set(PTHREAD_LIB pthread)
     set(LIBM m)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_linux.cc")
-    if (NOT(SNAPPY_OPTION STREQUAL "Disable"))
-        LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
-        INCLUDE(FindSnappy)
-        set(LIBSNAPPY snappy)
-        ADD_DEFINITIONS(-D_DOC_COMP=1)
-    endif (NOT(SNAPPY_OPTION STREQUAL "Disable"))
 else (NOT WIN32)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_windows.cc")
     set(GETTIMEOFDAY_VS "utils/gettimeofday_vs.cc")
@@ -74,7 +81,7 @@ add_library(forestdb SHARED
             utils/adler32.cc
             utils/debug.cc
             utils/cJSON.cc)
-target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
+target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(fdb_functional_test
                tests/fdb_functional_test.cc
@@ -119,7 +126,7 @@ add_executable(forestdb_dump
                utils/debug.cc
                utils/cJSON.cc
                utils/iniparser.cc)
-target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
+target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 IF (INSTALL_HEADER_FILES)
@@ -227,7 +234,7 @@ add_executable(docio_test
                utils/adler32.cc
                utils/debug.cc
                utils/memleak.cc)
-target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
+target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(hbtrie_test
                tests/hbtrie_test.cc
@@ -252,7 +259,7 @@ add_executable(hbtrie_test
                utils/adler32.cc
                utils/debug.cc
                utils/memleak.cc)
-target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY})
+target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(crc_test
                tests/crc_test.cc
@@ -272,11 +279,13 @@ add_executable(btree_str_kv_test
                utils/memleak.cc)
 target_link_libraries(btree_str_kv_test  ${LIBM})
 
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
-    INCLUDE(CodeCoverage)
-    SETUP_TARGET_FOR_COVERAGE(test_coverage ctest ${PROJECT_SOURCE_DIR}/coverage)
-endif()
+if (NOT COUCHBASE_SERVER_BUILD)
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+        LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
+        INCLUDE(CodeCoverage)
+        SETUP_TARGET_FOR_COVERAGE(test_coverage ctest ${PROJECT_SOURCE_DIR}/coverage)
+    endif()
+endif(NOT COUCHBASE_SERVER_BUILD)
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Valgrind")
     LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR})
