@@ -3704,6 +3704,9 @@ void rollback_and_snapshot_test()
     // close db file
     fdb_close(db);
 
+    // close the snapshot db
+    fdb_close(snapshot);
+
     // free all resources
     fdb_shutdown();
 
