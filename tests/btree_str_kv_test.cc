@@ -48,10 +48,12 @@ void kv_set_key_test()
     TEST_CHK(kv_len_dec == str_len);
 
     // check key size
-    char kv_str[str_len];
+    char *kv_str = new char[str_len];
+    TEST_CHK(kv_str != NULL);
     memcpy(kv_str, ((char *)kv_addr) + sizeof(key_len_t), str_len);
     int cmp = strcmp(kv_str, str);
     TEST_CHK(cmp == 0);
+    delete []kv_str;
     free(kv_addr);
 
     memleak_end();
