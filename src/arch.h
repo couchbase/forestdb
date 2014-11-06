@@ -251,7 +251,9 @@
     //#define alloca(size) _alloca(size)
     #define _X64 "llx"
     #define _F64 "llu"
+#ifndef _CRT_SECURE_NO_WARNINGS
     #define _CRT_SECURE_NO_WARNINGS
+#endif
     #define gettimeofday gettimeofday_vs
     #define sleep(sec) Sleep((sec)*1000)
     typedef unsigned long mode_t;

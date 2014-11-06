@@ -47,7 +47,15 @@ if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fomit-frame-pointer -pthread")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4716 /W0")
+    if (COUCHBASE_SERVER_BUILD)
+       # using /W0 cause msvc to print out a warning that it overrides
+       # previous settings (/W3 is added by default).
+       # Let's just disable the ones we're "violating"
+       # (we should probably fix them at some point?)
+       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4716 /wd4244 /wd4267 /wd4101 /wd4800 /wd4700 /wd4018 /wd4102")
+    else(COUCHBASE_SERVER_BUILD)
+       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4716 /W0")
+    endif(COUCHBASE_SERVER_BUILD)
 endif()
 
 add_library(forestdb SHARED
