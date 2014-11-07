@@ -6476,7 +6476,7 @@ void multi_kv_txn_test(uint8_t opt)
     fdb_iterator *it;
     fdb_status s;
 
-    char *kvs_names[] = {NULL, (char*)"kv1", (char*)"kv2"};
+    char *kvs_names[] = {(char*)"default", (char*)"kv1", (char*)"kv2"};
     fdb_custom_cmp_variable functions[] = {_multi_kv_test_keycmp,
                                            _multi_kv_test_keycmp,
                                            _multi_kv_test_keycmp};

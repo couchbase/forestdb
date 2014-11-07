@@ -168,7 +168,8 @@ fdb_status fdb_kvs_cmp_check(fdb_handle *handle)
         e = list_begin(fhandle->cmp_func_list);
         while (e) {
             cmp_node = _get_entry(e, struct cmp_func_node, le);
-            if (cmp_node->kvs_name == NULL) { // default KVS
+            if (cmp_node->kvs_name == NULL ||
+                !strcmp(cmp_node->kvs_name, default_kvs_name)) { // default KVS
                 handle->kvs_config.custom_cmp = cmp_node->func;
                 file->kv_header->default_kvs_cmp = cmp_node->func;
                 file->kv_header->custom_cmp_enabled = 1;
