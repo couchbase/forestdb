@@ -6813,6 +6813,16 @@ void multi_kv_txn_test(uint8_t opt)
         s = fdb_doc_free(doc);
     }
 
+    // get KVS names
+    fdb_kvs_name_list kvs_name_list;
+    s = fdb_get_kvs_name_list(dbfile, &kvs_name_list);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CHK(kvs_name_list.num_kvs_names == 3);
+    for (i=0;i<kvs_name_list.num_kvs_names;++i){
+        TEST_CHK(!strcmp(kvs_name_list.kvs_names[i], kvs_names[i]));
+    }
+    fdb_free_kvs_name_list(&kvs_name_list);
+
     s = fdb_kvs_close(kv1);
     s = fdb_kvs_close(kv2);
     s = fdb_close(dbfile);

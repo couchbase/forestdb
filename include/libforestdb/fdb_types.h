@@ -328,12 +328,12 @@ typedef struct fdb_doc_struct {
 typedef void (*fdb_log_callback)(int err_code, const char *err_msg, void *ctx_data);
 
 /**
- *Opaque reference to a ForestDB file handle, which is exposed in public APIs.
+ * Opaque reference to a ForestDB file handle, which is exposed in public APIs.
  */
 typedef struct _fdb_file_handle fdb_file_handle;
 
 /**
- *Opaque reference to a ForestDB KV store handle, which is exposed in public APIs.
+ * Opaque reference to a ForestDB KV store handle, which is exposed in public APIs.
  */
 typedef struct _fdb_kvs_handle fdb_kvs_handle;
 
@@ -431,6 +431,21 @@ typedef struct {
      */
     uint64_t space_used;
 } fdb_kvs_info;
+
+/**
+ * List of ForestDB KV store names
+ */
+typedef struct {
+    /**
+     * Number of KV store names listed in kvs_names.
+     */
+    size_t num_kvs_names;
+    /**
+     * Pointer to array of KV store names.
+     */
+    char **kvs_names;
+} fdb_kvs_name_list;
+
 
 #ifdef __cplusplus
 }

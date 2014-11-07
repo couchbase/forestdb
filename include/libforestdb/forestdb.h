@@ -566,6 +566,28 @@ LIBFDB_API
 fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum);
 
 /**
+ * Get all KV store names in a ForestDB file.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param kvs_name_list Pointer to a KV store name list. Note that this list
+ *        should be released using fdb_free_kvs_name_list API call().
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
+                                 fdb_kvs_name_list *kvs_name_list);
+
+/**
+ * Free a KV store name list.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param kvs_name_list Pointer to a KV store name list to be freed.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list);
+
+/**
  * Change the compaction mode of a ForestDB file referred by the handle passed.
  * If the mode is changed to auto-compaction (i.e., FDB_COMPACTION_AUTO), the compaction
  * threshold is set to the threshold passed to this API.

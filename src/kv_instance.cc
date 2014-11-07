@@ -1546,6 +1546,10 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     struct kvs_header *kv_header;
     struct kvs_stat stat;
 
+    if (!handle || !info) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     if (handle->kvs == NULL) {
         info->name = default_kvs_name;
         kv_id = 0;
@@ -1589,6 +1593,90 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     info->space_used += nlivenodes * handle->config.blocksize;
 
     fdb_get_kvs_seqnum(handle, &info->last_seqnum);
+    return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
+fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
+                                 fdb_kvs_name_list *kvs_name_list)
+{
+    int i;
+    size_t num, size, offset;
+    char *ptr;
+    char **segment;
+    fdb_kvs_handle *root_handle;
+    struct kvs_header *kv_header;
+    struct kvs_node *node;
+    struct avl_node *a;
+
+    if (!fhandle || !kvs_name_list) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    root_handle = fhandle->root;
+    if (root_handle->new_file) {
+        kv_header = root_handle->new_file->kv_header;
+    } else {
+        kv_header = root_handle->file->kv_header;
+    }
+
+    spin_lock(&kv_header->lock);
+    // sum all lengths of KVS names first
+    // (to calculate the size of memory segment to be allocated)
+    num = 1;
+    size = strlen(default_kvs_name) + 1;
+    a = avl_first(kv_header->idx_id);
+    while (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        a = avl_next(&node->avl_id);
+
+        num++;
+        size += strlen(node->kvs_name) + 1;
+    }
+    size += num * sizeof(char*);
+
+    // allocate memory segment
+    segment = (char**)calloc(1, size);
+    kvs_name_list->num_kvs_names = num;
+    kvs_name_list->kvs_names = segment;
+
+    ptr = (char*)segment + num * sizeof(char*);
+    offset = num = 0;
+
+    // copy default KVS name
+    strcpy(ptr + offset, default_kvs_name);
+    segment[num] = ptr + offset;
+    num++;
+    offset += strlen(default_kvs_name) + 1;
+
+    // copy the others
+    a = avl_first(kv_header->idx_name);
+    while (a) {
+        node = _get_entry(a, struct kvs_node, avl_name);
+        a = avl_next(&node->avl_name);
+
+        strcpy(ptr + offset, node->kvs_name);
+        segment[num] = ptr + offset;
+
+        num++;
+        offset += strlen(node->kvs_name) + 1;
+    }
+
+    spin_unlock(&kv_header->lock);
+
+    return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
+fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
+{
+    if (!kvs_name_list) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    free(kvs_name_list->kvs_names);
+    kvs_name_list->kvs_names = NULL;
+    kvs_name_list->num_kvs_names = 0;
+
     return FDB_RESULT_SUCCESS;
 }
 
