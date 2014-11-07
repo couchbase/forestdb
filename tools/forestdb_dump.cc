@@ -258,7 +258,6 @@ void print_doc(fdb_handle *db,
 
     memset(&doc, 0, sizeof(struct docio_object));
 
-start:
     _offset = docio_read_doc(db->dhandle, offset, &doc);
     if (_offset == offset) {
         return;
