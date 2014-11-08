@@ -79,8 +79,9 @@ void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
                                     char **kvs_names,
                                     fdb_custom_cmp_variable *functions);
 void fdb_file_handle_free(fdb_file_handle *fhandle);
+
 fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle);
-void * fdb_kvs_find_cmp(void *chunk, void *aux);
+void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux);
 
 void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
                          fdb_kvs_handle *handle,

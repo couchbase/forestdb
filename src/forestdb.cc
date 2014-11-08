@@ -1220,7 +1220,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     hbtrie_set_leaf_cmp(handle->trie, _fdb_custom_cmp_wrap);
 
     if (handle->kvs) {
-        hbtrie_set_map_function(handle->trie, fdb_kvs_find_cmp);
+        hbtrie_set_map_function(handle->trie, fdb_kvs_find_cmp_chunk);
     }
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {

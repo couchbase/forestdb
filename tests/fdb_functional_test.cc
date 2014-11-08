@@ -6959,9 +6959,11 @@ void multi_kv_rollback_test(uint8_t opt)
     config.wal_threshold = 1000;
     config.buffercache_size = 0;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
     if (opt & MULTI_KV_VAR_CMP) {
-        kvs_config.custom_cmp = _multi_kv_test_keycmp;
+        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+                                3, kvs_names, functions);
+    } else {
+        s = fdb_open(&dbfile, "./dummy", &config);
     }
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     s = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
@@ -7139,6 +7141,7 @@ void multi_kv_rollback_test(uint8_t opt)
     } else {
         s = fdb_open(&dbfile, "./dummy", &config);
     }
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     s = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
     s = fdb_kvs_open(dbfile, &kv2, "kv2", &kvs_config);
@@ -7438,6 +7441,128 @@ void multi_kv_custom_cmp_test()
     TEST_RESULT("multiple KV instances custom comparison function test");
 }
 
+void multi_kv_fdb_open_custom_cmp_test()
+{
+    // Unit test for MB-12593
+    TEST_INIT();
+
+    int n = 1000;
+    int i, r;
+    char key[256], value[256];
+    char keystr[] = "key%06d";
+    char valuestr[] = "value%08d(%s)";
+    void *value_out;
+    size_t valuelen;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *kv1, *kv2;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_iterator *it;
+    fdb_status s;
+
+    char *kvs_names[] = {(char*)"default", (char*)"kv1", (char*)"kv2"};
+    fdb_custom_cmp_variable functions[] = {_multi_kv_test_keycmp,
+                                           _multi_kv_test_keycmp,
+                                           NULL};
+
+    sprintf(value, SHELL_DEL" dummy*");
+    r = system(value);
+
+    memleak_start();
+
+    config = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    config.multi_kv_instances = true;
+    config.wal_threshold = 256;
+    config.wal_flush_before_commit = false;
+    config.buffercache_size = 0;
+
+    s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+                            3, kvs_names, functions);
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    s = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+
+    kvs_config.custom_cmp = _multi_kv_test_keycmp;
+    s = fdb_kvs_open(dbfile, &kv2, "kv2", &kvs_config);
+
+    // insert using 'default' instance
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "default");
+        s = fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, value, strlen(value)+1);
+        s = fdb_set(db, doc);
+        s = fdb_doc_free(doc);
+    }
+
+    // insert using 'kv1' instance
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "kv1_custom_cmp");
+        s = fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, value, strlen(value)+1);
+        s = fdb_set(kv1, doc);
+        s = fdb_doc_free(doc);
+    }
+
+    // insert using 'kv2' instance
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "kv2");
+        s = fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, value, strlen(value)+1);
+        s = fdb_set(kv2, doc);
+        s = fdb_doc_free(doc);
+    }
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    s = fdb_close(dbfile);
+
+    s = fdb_open(&dbfile, "./dummy", &config);
+    TEST_CHK(s != FDB_RESULT_SUCCESS); // must fail
+
+    s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+                            3, kvs_names, functions);
+    TEST_CHK(s != FDB_RESULT_SUCCESS); // must fail
+
+    functions[2] = _multi_kv_test_keycmp;
+    s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+                            3, kvs_names, functions);
+    TEST_CHK(s == FDB_RESULT_SUCCESS); // must succeed
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    s = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+    s = fdb_kvs_open(dbfile, &kv2, "kv2", &kvs_config);
+
+    // retrieve check
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "default");
+        s = fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
+        s = fdb_get(db, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        s = fdb_doc_free(doc);
+
+        sprintf(value, valuestr, i, "kv1_custom_cmp");
+        s = fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
+        s = fdb_get(kv1, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        s = fdb_doc_free(doc);
+
+        sprintf(value, valuestr, i, "kv2");
+        s = fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
+        s = fdb_get(kv2, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        s = fdb_doc_free(doc);
+    }
+
+    s = fdb_close(dbfile);
+    s = fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("multiple KV instances fdb_open_custom_cmp test");
+}
+
+
 int main(){
     int i;
     uint8_t opt;
@@ -7489,6 +7614,7 @@ int main(){
         multi_kv_rollback_test(opt);
     }
     multi_kv_custom_cmp_test();
+    multi_kv_fdb_open_custom_cmp_test();
 
     purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
