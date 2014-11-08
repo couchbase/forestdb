@@ -56,7 +56,7 @@ struct snap_handle {
      struct avl_tree *seq_tree;
 };
 
-wal_result snap_init(struct snap_handle *shandle, fdb_handle *handle);
+wal_result snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle);
 wal_result snap_insert(struct snap_handle *shandle, fdb_doc *doc,
                         uint64_t offset);
 wal_result snap_find(struct snap_handle *shandle, fdb_doc *doc,

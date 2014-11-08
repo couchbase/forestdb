@@ -99,7 +99,7 @@ struct writer_thread_args {
 typedef void *(thread_func) (void *);
 
 static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
-                                   fdb_handle *db,
+                                   fdb_kvs_handle *db,
                                    fdb_doc **doc,
                                    int num_docs) {
     TEST_INIT();
@@ -123,7 +123,7 @@ static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
 }
 
 static void updateDocsWithRandomKeys(fdb_file_handle *dbfile,
-                                     fdb_handle *db,
+                                     fdb_kvs_handle *db,
                                      fdb_doc **doc,
                                      int start_doc,
                                      int end_doc) {
@@ -151,7 +151,7 @@ static void *_reader_thread(void *voidargs)
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
@@ -190,7 +190,7 @@ static void *_rollback_reader_thread(void *voidargs)
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
@@ -240,8 +240,8 @@ static void *_snapshot_reader_thread(void *voidargs)
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
-    fdb_handle *snap_db;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
@@ -301,8 +301,8 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
 
     struct reader_thread_args *args = (struct reader_thread_args *)voidargs;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
-    fdb_handle *snap_db;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
@@ -379,7 +379,7 @@ static void *_writer_thread(void *voidargs)
 
     struct writer_thread_args *args = (struct writer_thread_args *)voidargs;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     fdb_config fconfig = *(args->config);
@@ -451,7 +451,7 @@ static void test_multi_readers(multi_reader_type reader_type,
     int r;
     int num_docs = 100000;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
 
     // remove previous dummy files
@@ -521,7 +521,7 @@ static void test_writer_multi_readers(writer_type wtype,
     int r;
     int num_docs = 100000;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
 
     // remove previous dummy files
@@ -610,7 +610,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     int r;
     int num_docs = 100000;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
 
     // remove previous dummy files

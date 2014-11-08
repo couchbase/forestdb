@@ -71,7 +71,7 @@ int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 
 int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
-    fdb_handle *handle = (fdb_handle*)aux;
+    fdb_kvs_handle *handle = (fdb_kvs_handle*)aux;
     struct snap_wal_entry *aa, *bb;
     aa = _get_entry(a, struct snap_wal_entry, avl);
     bb = _get_entry(b, struct snap_wal_entry, avl);
@@ -159,7 +159,7 @@ void _fdb_free_iterator(fdb_iterator *iterator) {
     free(iterator);
 }
 
-fdb_status fdb_iterator_init(fdb_handle *handle,
+fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              fdb_iterator **ptr_iterator,
                              const void *start_key,
                              size_t start_keylen,
@@ -359,7 +359,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
 }
 
 LIBFDB_API
-fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
+fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                                       fdb_iterator **ptr_iterator,
                                       const fdb_seqnum_t start_seq,
                                       const fdb_seqnum_t end_seq,

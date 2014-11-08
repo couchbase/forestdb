@@ -42,7 +42,7 @@ extern "C" {
  * for ForestDB engine, using the given configurations. Note that all open API
  * calls automatically invoke this API if ForestDB engine is not initialized.
  *
- * @param config Pointer to the config instance that contains ForestDB database configs.
+ * @param config Pointer to the config instance that contains ForestDB configs.
  *               If NULL is passed, then we use default settings of ForestDB configs.
  * @return FDB_RESULT_SUCCESS on success.
  */
@@ -50,7 +50,7 @@ LIBFDB_API
 fdb_status fdb_init(fdb_config *config);
 
 /**
- * Get the default ForestDB database configs.
+ * Get the default ForestDB configs.
  * The general recommendation is to invoke this API to get the default configs
  * and change some configs if necessary and then pass them to fdb_open APIs.
  *
@@ -61,7 +61,7 @@ fdb_config fdb_get_default_config(void);
 
 /**
  * Get the default ForestDB KV(Key-Vaule) store configs. Note that multiple KV
- * store instances can be created in a single ForestDB database.
+ * store instances can be created in a single ForestDB file.
  * The general recommendation is to invoke this API to get the default configs
  * and change some configs if necessary and then pass them to fdb_kvs_open APIs.
  *
@@ -71,12 +71,12 @@ LIBFDB_API
 fdb_kvs_config fdb_get_default_kvs_config(void);
 
 /**
- * Open the database with a given file name.
- * The database should be closed with fdb_close API call.
+ * Open a ForestDB file.
+ * The file should be closed with fdb_close API call.
  *
  * @param ptr_fhandle Pointer to the place where ForestDB file handle is
  *        instantiated as result of this API call.
- * @param filename Name of database file to be opened.
+ * @param filename Name of the ForestDB file to be opened.
  * @param fconfig Pointer to the config instance that contains ForestDB configs.
  *        If NULL is passed, then we use default settings of ForestDB configs.
  * @return FDB_RESULT_SUCCESS on success.
@@ -87,19 +87,19 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
                     fdb_config *fconfig);
 
 /**
- * Open the database with a given file name.
- * Note that if any KV instance in the database uses a customized compare function,
- * then the database should be opened with this API by passing the list of all KV
+ * Open a ForestDB file.
+ * Note that if any KV store in the file uses a customized compare function,
+ * then the file should be opened with this API by passing the list of all KV
  * instance names that use customized compare functions, and their corresponding
  * customized compare functions.
  *
- * Documents in the database will be indexed using their corresponding
- * customized compare functions. The database should be closed with fdb_close
+ * Documents in the file will be indexed using their corresponding
+ * customized compare functions. The file should be closed with fdb_close
  * API call.
  *
  * @param ptr_fhandle Pointer to the place where ForestDB file handle is
  *        instantiated as result of this API call.
- * @param filename Name of database file to be opened.
+ * @param filename Name of the ForestDB file to be opened.
  * @param fconfig Pointer to the config instance that contains ForestDB configs.
  *        If NULL is passed, then we use default settings of ForestDB configs.
  * @param num_functions The number of customized compare functions.
@@ -129,7 +129,7 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_set_log_callback(fdb_handle *handle,
+fdb_status fdb_set_log_callback(fdb_kvs_handle *handle,
                                 fdb_log_callback log_callback,
                                 void *ctx_data);
 
@@ -157,7 +157,7 @@ fdb_status fdb_doc_create(fdb_doc **doc,
 
 /**
  * Update a FDB_DOC instance with a given metadata and body.
- * Note that this API does not update the ForestDB database, but
+ * Note that this API does not update an item in the ForestDB KV store, but
  * instead simply update a given FDB_DOC instance only.
  *
  * @param doc Pointer to a FDB_DOC instance to be updated.
@@ -188,13 +188,13 @@ fdb_status fdb_doc_free(fdb_doc *doc);
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0) before using this API.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance whose metadata and doc body
  *        are populated as a result of this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get(fdb_handle *handle,
+fdb_status fdb_get(fdb_kvs_handle *handle,
                    fdb_doc *doc);
 
 /**
@@ -202,7 +202,7 @@ fdb_status fdb_get(fdb_handle *handle,
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0) before using this API.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance whose metadata including the offset
  *        on disk is populated as a result of this API call.
  *        Note that the offset returned can be used by fdb_get_byoffset API to
@@ -210,7 +210,7 @@ fdb_status fdb_get(fdb_handle *handle,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_metaonly(fdb_handle *handle,
+fdb_status fdb_get_metaonly(fdb_kvs_handle *handle,
                             fdb_doc *doc);
 
 /**
@@ -218,13 +218,13 @@ fdb_status fdb_get_metaonly(fdb_handle *handle,
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0) before using this API.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance whose key, metadata and doc body
  *        are populated as a result of this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_byseq(fdb_handle *handle,
+fdb_status fdb_get_byseq(fdb_kvs_handle *handle,
                          fdb_doc *doc);
 
 /**
@@ -232,7 +232,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle,
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0) before using this API.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance whose key and metadata including
  *        the offset on disk are populated as a result of this API call.
  *        Note that the offset returned can be used by fdb_get_byoffset API to
@@ -240,23 +240,23 @@ fdb_status fdb_get_byseq(fdb_handle *handle,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_metaonly_byseq(fdb_handle *handle,
+fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle,
                                   fdb_doc *doc);
 
 /**
- * Retrieve a doc's metadata and body with a given doc offset in the database file.
+ * Retrieve a doc's metadata and body with a given doc offset in the file.
  * Note that FDB_DOC instance should be first instantiated and populated
  * by calling fdb_get_metaonly, fdb_get_metaonly_byseq, or
  * fdb_iterator_next_offset, which returns an offset to a doc. Then,
  * the FDB_DOC instance and the offset should be passed together to this API.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance that contains the offset to a doc
  *        and whose doc body is populated as a result of this API call.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_byoffset(fdb_handle *handle,
+fdb_status fdb_get_byoffset(fdb_kvs_handle *handle,
                             fdb_doc *doc);
 
 /**
@@ -266,12 +266,12 @@ fdb_status fdb_get_byoffset(fdb_handle *handle,
  * this API. Setting "deleted" flag in FDB_DOC instance to true is equivalent to
  * calling fdb_del api described below.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance that is used to update a key.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_set(fdb_handle *handle,
+fdb_status fdb_set(fdb_kvs_handle *handle,
                    fdb_doc *doc);
 
 /**
@@ -280,19 +280,19 @@ fdb_status fdb_set(fdb_handle *handle,
  * fdb_doc_create(doc, key, keylen, meta, metalen, body, bodylen) before using
  * this API.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance that is used to delete a key.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_del(fdb_handle *handle,
+fdb_status fdb_del(fdb_kvs_handle *handle,
                    fdb_doc *doc);
 
 /**
  * Simplified API for fdb_get:
  * Retrieve the value (doc body in fdb_get) for a given key.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param key Pointer to the key to be retrieved.
  * @param keylen Length of the key.
  * @param value_out Pointer to the value as a result of this API call. Note that this
@@ -301,7 +301,7 @@ fdb_status fdb_del(fdb_handle *handle,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_kv(fdb_handle *handle,
+fdb_status fdb_get_kv(fdb_kvs_handle *handle,
                       void *key, size_t keylen,
                       void **value_out, size_t *valuelen_out);
 
@@ -309,7 +309,7 @@ fdb_status fdb_get_kv(fdb_handle *handle,
  * Simplified API for fdb_set:
  * Update the value (doc body in fdb_set) for a given key.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param key Pointer to the key to be updated.
  * @param keylen Length of the key.
  * @param value Pointer to the value corresponding to the key.
@@ -317,7 +317,7 @@ fdb_status fdb_get_kv(fdb_handle *handle,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_set_kv(fdb_handle *handle,
+fdb_status fdb_set_kv(fdb_kvs_handle *handle,
                       void *key, size_t keylen,
                       void *value, size_t valuelen);
 
@@ -325,17 +325,18 @@ fdb_status fdb_set_kv(fdb_handle *handle,
  * Simplified API for fdb_del:
  * Delete a key, and its value (doc body in fdb_del).
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param key Pointer to the key to be deleted.
  * @param keylen Length of the key.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_del_kv(fdb_handle *handle,
+fdb_status fdb_del_kv(fdb_kvs_handle *handle,
                       void *key, size_t keylen);
 
 /**
- * Commit all pending changes into disk.
+ * Commit all pending changes on a ForestDB file into disk.
+ * Note that this API should be invoked with a ForestDB file handle.
  *
  * @param fhandle Pointer to ForestDB file handle.
  * @param opt Commit option.
@@ -345,14 +346,14 @@ LIBFDB_API
 fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt);
 
 /**
- * Create an snapshot of a database file in ForestDB.
+ * Create a snapshot of a KV store.
  *
- * @param handle_in ForestDB KV handle pointer from which snapshot is to be made
- * @param handle_out Pointer to KV snapshot handle, close with fdb_kvs_close()
+ * @param handle_in ForestDB KV store handle pointer from which snapshot is to be made
+ * @param handle_out Pointer to KV store snapshot handle, close with fdb_kvs_close()
  * @param snapshot_seqnum The sequence number or snapshot marker of snapshot.
  *        Note that this seq number should correspond to one of the commits
  *        that have been persisted for a given KV store instance.
- *        To create an in-memory snapshot for a given KV instance, pass
+ *        To create an in-memory snapshot for a given KV store, pass
  *        FDB_SNAPSHOT_INMEM as the sequence number.
  *        In-memory snapshot is a non-durable consistent copy of the KV store
  *        instance and carries the latest version of all the keys at the point
@@ -363,14 +364,14 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt);
  *         Any other error from fdb_open may be returned
  */
 LIBFDB_API
-fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **handle_out,
+fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **handle_out,
                              fdb_seqnum_t snapshot_seqnum);
 
 /**
- * Rollback an KV instance to a specified point represented by a given sequence
+ * Rollback a KV store to a specified point represented by a given sequence
  * number.
  *
- * @param handle_ptr ForestDB KV instance handle that needs to be rolled back.
+ * @param handle_ptr ForestDB KV store handle that needs to be rolled back.
  * @param rollback_seqnum sequence number or rollback point marker of snapshot
  * @return FDB_RESULT_SUCCESS on success.
  *         FDB_RESULT_INVALID_ARGS if any input param is NULL, or,
@@ -378,25 +379,25 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **handle_out,
  *         Any other error from fdb_open may be returned
  */
 LIBFDB_API
-fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t rollback_seqnum);
+fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t rollback_seqnum);
 
 /**
- * Create an iterator to traverse a ForestDB snapshot by key range
+ * Create an iterator to traverse a ForestDB KV store snapshot by key range
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param iterator Pointer to the place where the iterator is created
  *        as a result of this API call.
  * @param start_key Pointer to the start key. Passing NULL means that
- *        it wants to start with the smallest key in the database.
+ *        it wants to start with the smallest key in the KV store.
  * @param start_keylen Length of the start key.
  * @param end_key Pointer to the end key. Passing NULL means that it wants
- *        to end with the largest key in the database.
+ *        to end with the largest key in the KV store.
  * @param end_keylen Length of the end key.
  * @param opt Iterator option.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_iterator_init(fdb_handle *handle,
+fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              fdb_iterator **iterator,
                              const void *start_key,
                              size_t start_keylen,
@@ -405,9 +406,9 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
                              fdb_iterator_opt_t opt);
 
 /**
- * Create an iterator to traverse a ForestDB snapshot by sequence number range
+ * Create an iterator to traverse a ForestDB KV store snapshot by sequence number range
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param iterator Pointer to the iterator to be created as a result of
  *        this API call.
  * @param start_seq Starting document sequence number to begin iteration from
@@ -418,7 +419,7 @@ fdb_status fdb_iterator_init(fdb_handle *handle,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_iterator_sequence_init(fdb_handle *handle,
+fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                              fdb_iterator **iterator,
                              const fdb_seqnum_t start_seq,
                              const fdb_seqnum_t end_seq,
@@ -483,7 +484,7 @@ LIBFDB_API
 fdb_status fdb_iterator_close(fdb_iterator *iterator);
 
 /**
- * Compact the current database file and create a new compacted file.
+ * Compact the current file and create a new compacted file.
  * Note that a new file name passed to this API will be ignored if the compaction
  * mode of the handle is auto-compaction (i.e., FDB_COMPACTION_AUTO). In the auto
  * compaction mode, the name of a new compacted file will be automatically generated
@@ -509,14 +510,14 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator);
  *   ...
  *   fdb_close(db1);
  *   fdb_close(db2); // "test.fdb.2" is automatically renamed to the original
- *                   // file name "test.fdb" because there are no database handles
+ *                   // file name "test.fdb" because there are no file handles
  *                   // on "test.fdb.2".
  *
- * Also note that if a given database file is currently being compacted by the
+ * Also note that if a given ForestDB file is currently being compacted by the
  * compaction daemon, then FDB_RESULT_FILE_IS_BUSY is returned to the caller.
  *
  * @param fhandle Pointer to ForestDB file handle.
- * @param new_filename Name of a new compacted database file.
+ * @param new_filename Name of a new compacted file.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
@@ -524,7 +525,7 @@ fdb_status fdb_compact(fdb_file_handle *fhandle,
                        const char *new_filename);
 
 /**
- * Return the overall disk space actively used by the ForestDB database file.
+ * Return the overall disk space actively used by a ForestDB file.
  * Note that this doesn't include the disk space used by stale btree nodes
  * and docs.
  *
@@ -535,43 +536,43 @@ LIBFDB_API
 size_t fdb_estimate_space_used(fdb_file_handle *fhandle);
 
 /**
- * Return the information about a given ForestDB database instance.
+ * Return the information about a ForestDB file.
  *
  * @param fhandle Pointer to ForestDB file handle.
- * @param info Pointer to ForestDB Info instance.
+ * @param info Pointer to ForestDB File Info instance.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_dbinfo(fdb_file_handle *fhandle, fdb_info *info);
+fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info);
 
 /**
- * Return the information about a given KV store instance.
+ * Return the information about a ForestDB KV store instance.
  *
- * @param handle Pointer to ForestDB KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param info Pointer to KV Store Info instance.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_kvs_info(fdb_handle *handle, fdb_kvs_info *info);
+fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info);
 
 /**
- * Get the current sequence number of a given KV store instance.
+ * Get the current sequence number of a ForestDB KV store instance.
  *
- * @param handle Pointer to KV instance handle.
+ * @param handle Pointer to ForestDB KV store handle.
  * @param seqnum Pointer to the variable that sequence number will be returned.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_get_seqnum(fdb_handle *handle, fdb_seqnum_t *seqnum);
+fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum);
 
 /**
- * Change the compaction mode of a given database file referred by the handle passed.
+ * Change the compaction mode of a ForestDB file referred by the handle passed.
  * If the mode is changed to auto-compaction (i.e., FDB_COMPACTION_AUTO), the compaction
  * threshold is set to the threshold passed to this API.
- * This API can be also used to change the compaction threshould for a given database
- * file whose compaction mode is currently auto-compaction.
+ * This API can be also used to change the compaction threshould for a ForestDB file
+ * whose compaction mode is currently auto-compaction.
  *
- * Note that all the other handles referring the same database file should be closed
+ * Note that all the other handles referring the same ForestDB file should be closed
  * before this API call, and no concurrent operation should be performed on the same
  * file until the mode switching is done.
  *
@@ -586,7 +587,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
                                       size_t new_threshold);
 
 /**
- * Close the database file.
+ * Close a ForestDB file.
  *
  * @param fhandle Pointer to ForestDB file handle.
  * @return FDB_RESULT_SUCCESS on success.
@@ -595,10 +596,10 @@ LIBFDB_API
 fdb_status fdb_close(fdb_file_handle *fhandle);
 
 /**
- * Destroy all resources associated with the database file permanently
+ * Destroy all resources associated with a ForestDB file permanently
  * (e.g., buffer cache, in-memory WAL, indexes, daemon compaction thread)
- * including current and past versions of this file
- * Note that all handles on the database file should be closed through fdb_close
+ * including current and past versions of the file.
+ * Note that all handles on the file should be closed through fdb_close
  * calls before calling this API.
  * @param filename - the file path that needs to be destroyed
  * @param fconfig  - the forestdb configuration to determine
@@ -619,7 +620,7 @@ fdb_status fdb_destroy(const char *filename,
 /**
  * Destroy all the resources (e.g., buffer cache, in-memory WAL indexes,
  * daemon compaction thread, etc.) and then shutdown the ForestDB engine.
- * Note that all the database files should be closed through fdb_close calls
+ * Note that all the ForestDB files should be closed through fdb_close calls
  * before calling this API.
  *
  * @return FDB_RESULT_SUCCESS on success.
@@ -628,7 +629,7 @@ LIBFDB_API
 fdb_status fdb_shutdown();
 
 /**
- * Begin a transaction with the given database handle and isolation level.
+ * Begin a transaction with a given ForestDB file handle and isolation level.
  * The transaction should be closed with fdb_end_transaction API call.
  * The isolation levels supported are "read committed" or "read uncommitted".
  * We plan to support both serializable and repeatable read isolation levels
@@ -646,7 +647,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level);
 
 /**
- * End a transaction for the given database handle by commiting all the dirty
+ * End a transaction for a given ForestDB file handle by commiting all the dirty
  * updates and releasing all the resouces allocated for that transaction.
  *
  * @param fhandle Pointer to ForestDB file handle.
@@ -658,7 +659,7 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
                                fdb_commit_opt_t opt);
 
 /**
- * Abort the transaction for a given database handle.
+ * Abort the transaction for a given ForestDB file handle.
  * All uncommitted dirty updates in the handle will be discarded.
  *
  * @param fhandle Pointer to ForestDB file handle.
@@ -683,7 +684,7 @@ fdb_status fdb_abort_transaction(fdb_file_handle *fhandle);
  */
 LIBFDB_API
 fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
-                        fdb_handle **ptr_handle,
+                        fdb_kvs_handle **ptr_handle,
                         const char *kvs_name,
                         fdb_kvs_config *config);
 
@@ -701,7 +702,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
  */
 LIBFDB_API
 fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
-                                fdb_handle **ptr_handle,
+                                fdb_kvs_handle **ptr_handle,
                                 fdb_kvs_config *config);
 
 /**
@@ -711,10 +712,10 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_kvs_close(fdb_handle *handle);
+fdb_status fdb_kvs_close(fdb_kvs_handle *handle);
 
 /**
- * Permanently drop a given KV store instance from the database.
+ * Permanently drop a given KV store instance from a ForestDB file.
  *
  * @param fhandle Pointer to ForestDB file handle.
  * @param kvs_name The name of KV store instance to be removed. If the name is not given

@@ -211,7 +211,7 @@ typedef enum {
     FDB_RESTORE_KV_INS,
 } fdb_restore_mode_t;
 
-INLINE void _fdb_restore_wal(fdb_handle *handle,
+INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                              fdb_restore_mode_t mode,
                              bid_t hdr_bid,
                              fdb_kvs_id_t kv_id_req)
@@ -376,12 +376,12 @@ INLINE void _fdb_restore_wal(fdb_handle *handle,
 
 // restore the documents in NEW_FILENAME (corrupted file during compaction)
 // into the file referred by HANDLE
-INLINE fdb_status _fdb_recover_compaction(fdb_handle *handle,
+INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
                                           const char *new_filename)
 {
     uint64_t offset = 0;
     uint32_t blocksize = handle->config.blocksize;
-    fdb_handle new_db;
+    fdb_kvs_handle new_db;
     fdb_config config = handle->config;
     struct filemgr *new_file;
     struct docio_handle dhandle;
@@ -631,7 +631,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
 
     fdb_config config;
     fdb_file_handle *fhandle;
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
 
     if (fconfig) {
         if (validate_fdb_config(fconfig)) {
@@ -648,7 +648,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     }
 
-    handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) {
         free(fhandle);
         return FDB_RESULT_ALLOC_FAIL;
@@ -685,7 +685,7 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
 
     fdb_config config;
     fdb_file_handle *fhandle;
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
 
     if (fconfig) {
         if (validate_fdb_config(fconfig)) {
@@ -702,7 +702,7 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     }
 
-    handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) {
         free(fhandle);
         return FDB_RESULT_ALLOC_FAIL;
@@ -738,14 +738,14 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
 #endif
 
     fdb_file_handle *fhandle;
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
 
     fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
     if (!fhandle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
 
-    handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) {
         free(fhandle);
         return FDB_RESULT_ALLOC_FAIL;
@@ -765,7 +765,7 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
 }
 
 LIBFDB_API
-fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
+fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_handle,
                              fdb_seqnum_t seqnum)
 {
 #ifdef _MEMPOOL
@@ -774,7 +774,7 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
 
     fdb_config config = handle_in->config;
     fdb_kvs_config kvs_config = handle_in->kvs_config;
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
     fdb_status fs;
     filemgr *file;
     if (!handle_in || !ptr_handle) {
@@ -806,12 +806,12 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
 
     // if the max sequence number seen by this handle is lower than the
     // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current fdb_handle
+    // even via the current fdb_kvs_handle
     if (seqnum != FDB_SNAPSHOT_INMEM && seqnum > handle_in->seqnum) {
         return FDB_RESULT_NO_DB_INSTANCE;
     }
 
-    handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -855,14 +855,14 @@ fdb_status fdb_snapshot_open(fdb_handle *handle_in, fdb_handle **ptr_handle,
 }
 
 LIBFDB_API
-fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
+fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
 {
 #ifdef _MEMPOOL
     mempool_init();
 #endif
 
     fdb_config config;
-    fdb_handle *handle_in, *handle;
+    fdb_kvs_handle *handle_in, *handle;
     fdb_status fs;
     fdb_seqnum_t old_seqnum;
 
@@ -890,12 +890,12 @@ fdb_status fdb_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
 
     // if the max sequence number seen by this handle is lower than the
     // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current fdb_handle
+    // even via the current fdb_kvs_handle
     if (seqnum > handle_in->seqnum) {
         return FDB_RESULT_NO_DB_INSTANCE;
     }
 
-    handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -972,7 +972,7 @@ static void _fdb_init_file_config(const fdb_config *config,
     }
 }
 
-fdb_status _fdb_open(fdb_handle *handle,
+fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const char *filename,
                      const fdb_config *config)
 {
@@ -1310,7 +1310,7 @@ fdb_status _fdb_open(fdb_handle *handle,
 }
 
 LIBFDB_API
-fdb_status fdb_set_log_callback(fdb_handle *handle,
+fdb_status fdb_set_log_callback(fdb_kvs_handle *handle,
                                 fdb_log_callback log_callback,
                                 void *ctx_data)
 {
@@ -1453,7 +1453,7 @@ INLINE size_t _fdb_get_docsize(struct docio_length len)
 INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
                                         struct wal_item *item)
 {
-    fdb_handle *handle = (fdb_handle *)voidhandle;
+    fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset = 0;
     hbtrie_result hr;
@@ -1478,7 +1478,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 {
     hbtrie_result hr;
     btree_result br;
-    fdb_handle *handle = (fdb_handle *)voidhandle;
+    fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     fdb_seqnum_t _seqnum;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset, _offset;
@@ -1560,7 +1560,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     }
 }
 
-void fdb_sync_db_header(fdb_handle *handle)
+void fdb_sync_db_header(fdb_kvs_handle *handle)
 {
     uint64_t cur_revnum = filemgr_get_header_revnum(handle->file);
     if (handle->cur_header_revnum != cur_revnum) {
@@ -1619,7 +1619,7 @@ void fdb_sync_db_header(fdb_handle *handle)
     }
 }
 
-void fdb_check_file_reopen(fdb_handle *handle)
+void fdb_check_file_reopen(fdb_kvs_handle *handle)
 {
     // check whether the compaction is done
     if (filemgr_get_file_status(handle->file) == FILE_REMOVED_PENDING) {
@@ -1726,7 +1726,7 @@ void fdb_check_file_reopen(fdb_handle *handle)
     }
 }
 
-void fdb_link_new_file(fdb_handle *handle)
+void fdb_link_new_file(fdb_kvs_handle *handle)
 {
     // check whether this file is being compacted
     if (filemgr_get_file_status(handle->file) == FILE_COMPACT_OLD &&
@@ -1748,7 +1748,7 @@ void fdb_link_new_file(fdb_handle *handle)
 }
 
 LIBFDB_API
-fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
+fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
 {
     uint64_t offset, _offset;
     struct docio_object _doc;
@@ -1886,7 +1886,7 @@ fdb_status fdb_get(fdb_handle *handle, fdb_doc *doc)
 
 // search document metadata using key
 LIBFDB_API
-fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
+fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
     struct docio_object _doc;
@@ -2020,7 +2020,7 @@ fdb_status fdb_get_metaonly(fdb_handle *handle, fdb_doc *doc)
 
 // search document using sequence number
 LIBFDB_API
-fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
+fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 {
     uint64_t offset, _offset;
     struct docio_object _doc;
@@ -2164,7 +2164,7 @@ fdb_status fdb_get_byseq(fdb_handle *handle, fdb_doc *doc)
 
 // search document metadata using sequence number
 LIBFDB_API
-fdb_status fdb_get_metaonly_byseq(fdb_handle *handle, fdb_doc *doc)
+fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
     struct docio_object _doc;
@@ -2329,7 +2329,7 @@ INLINE void _remove_kv_id(struct docio_object *doc)
 
 // Retrieve a doc's metadata and body with a given doc offset in the database file.
 LIBFDB_API
-fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
+fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
 {
     uint64_t offset = doc->offset;
     struct docio_object _doc;
@@ -2415,7 +2415,7 @@ fdb_status fdb_get_byoffset(fdb_handle *handle, fdb_doc *doc)
     return FDB_RESULT_SUCCESS;
 }
 
-static uint64_t _fdb_get_wal_threshold(fdb_handle *handle)
+static uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
 {
     if (filemgr_get_file_status(handle->file) == FILE_COMPACT_NEW) {
         return wal_get_size(handle->file);
@@ -2424,7 +2424,7 @@ static uint64_t _fdb_get_wal_threshold(fdb_handle *handle)
 }
 
 LIBFDB_API
-fdb_status fdb_set(fdb_handle *handle, fdb_doc *doc)
+fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 {
     uint64_t offset;
     struct docio_object _doc;
@@ -2624,7 +2624,7 @@ fdb_set_start:
 }
 
 LIBFDB_API
-fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
+fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
 {
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
@@ -2644,7 +2644,7 @@ fdb_status fdb_del(fdb_handle *handle, fdb_doc *doc)
     return fdb_set(handle, &_doc);
 }
 
-uint64_t _fdb_export_header_flags(fdb_handle *handle)
+uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
 {
     uint64_t rv = 0;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -2662,7 +2662,7 @@ uint64_t _fdb_export_header_flags(fdb_handle *handle)
     return rv;
 }
 
-uint64_t fdb_set_file_header(fdb_handle *handle)
+uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
 {
     /*
     <ForestDB header>
@@ -2771,7 +2771,7 @@ uint64_t fdb_set_file_header(fdb_handle *handle)
 
 static void _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 {
-    fdb_handle *handle = (fdb_handle *)voidhandle;
+    fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     struct filemgr *file;
     struct docio_handle *dhandle;
 
@@ -2791,7 +2791,7 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
     return _fdb_commit(fhandle->root, opt);
 }
 
-fdb_status _fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
+fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
 {
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_txn *earliest_txn;
@@ -2928,7 +2928,7 @@ fdb_status _fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt)
     return fs;
 }
 
-static void _fdb_commit_and_remove_pending(fdb_handle *handle,
+static void _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
                                            struct filemgr *old_file,
                                            struct filemgr *new_file)
 {
@@ -3020,7 +3020,7 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
-INLINE void _fdb_compact_move_docs(fdb_handle *handle,
+INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                    struct filemgr *new_file,
                                    struct hbtrie *new_trie,
                                    struct btree *new_idtree,
@@ -3045,7 +3045,7 @@ INLINE void _fdb_compact_move_docs(fdb_handle *handle,
     struct btree_iterator bit;
     struct timeval tv;
     fdb_doc wal_doc;
-    fdb_handle new_handle;
+    fdb_kvs_handle new_handle;
     timestamp_t cur_timestamp;
 
     gettimeofday(&tv, NULL);
@@ -3171,7 +3171,7 @@ static uint64_t _fdb_doc_move(void *dbhandle,
 {
     uint8_t deleted;
     uint64_t new_offset;
-    fdb_handle *handle = (fdb_handle*)dbhandle;
+    fdb_kvs_handle *handle = (fdb_kvs_handle*)dbhandle;
     struct docio_handle *new_dhandle = (struct docio_handle*)void_new_dhandle;
     struct docio_object doc;
 
@@ -3214,7 +3214,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     char *old_filename = NULL;
     size_t old_filename_len = 0;
     uint64_t count, new_datasize;
-    fdb_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->root;
     fdb_seqnum_t seqnum;
 
     // prevent update to the target file
@@ -3441,7 +3441,7 @@ LIBFDB_API
 fdb_status fdb_compact(fdb_file_handle *fhandle,
                        const char *new_filename)
 {
-    fdb_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->root;
 
     if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
         // manual compaction
@@ -3489,7 +3489,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
 {
     int ret;
     fdb_status fs;
-    fdb_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->root;
     fdb_config config;
     char vfilename[FDB_MAX_FILENAME_LEN];
     char filename[FDB_MAX_FILENAME_LEN];
@@ -3582,7 +3582,7 @@ fdb_status fdb_close(fdb_file_handle *fhandle)
     return fs;
 }
 
-fdb_status _fdb_close_root(fdb_handle *handle)
+fdb_status _fdb_close_root(fdb_kvs_handle *handle)
 {
     fdb_status fs;
 
@@ -3612,7 +3612,7 @@ fdb_status _fdb_close_root(fdb_handle *handle)
     return fs;
 }
 
-fdb_status _fdb_close(fdb_handle *handle)
+fdb_status _fdb_close(fdb_kvs_handle *handle)
 {
     if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY) &&
         handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
@@ -3726,7 +3726,7 @@ LIBFDB_API
 size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
 {
     size_t ret = 0;
-    fdb_handle *handle = NULL;
+    fdb_kvs_handle *handle = NULL;
 
     if (!fhandle) {
         return FDB_RESULT_INVALID_ARGS;
@@ -3747,9 +3747,9 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
 }
 
 LIBFDB_API
-fdb_status fdb_get_dbinfo(fdb_file_handle *fhandle, fdb_info *info)
+fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
 {
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
 
     if (!fhandle || !info) {
         return FDB_RESULT_INVALID_ARGS;

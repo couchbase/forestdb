@@ -37,16 +37,16 @@ int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux);
 fdb_status fdb_log(err_log_callback *callback,
                    fdb_status status,
                    const char *format, ...);
-fdb_status _fdb_open(fdb_handle *handle,
+fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const char *filename,
                      const fdb_config *config);
-fdb_status _fdb_close_root(fdb_handle *handle);
-fdb_status _fdb_close(fdb_handle *handle);
-fdb_status _fdb_commit(fdb_handle *handle, fdb_commit_opt_t opt);
+fdb_status _fdb_close_root(fdb_kvs_handle *handle);
+fdb_status _fdb_close(fdb_kvs_handle *handle);
+fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt);
 
-void fdb_check_file_reopen(fdb_handle *handle);
-void fdb_link_new_file(fdb_handle *handle);
-void fdb_sync_db_header(fdb_handle *handle);
+void fdb_check_file_reopen(fdb_kvs_handle *handle);
+void fdb_link_new_file(fdb_kvs_handle *handle);
+void fdb_sync_db_header(fdb_kvs_handle *handle);
 
 void fdb_fetch_header(void *header_buf,
                       bid_t *trie_root_bid,
@@ -59,7 +59,7 @@ void fdb_fetch_header(void *header_buf,
                       uint64_t *header_flags,
                       char **new_filename,
                       char **old_filename);
-uint64_t fdb_set_file_header(fdb_handle *handle);
+uint64_t fdb_set_file_header(fdb_kvs_handle *handle);
 
 fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
                                   const char *filename,
@@ -69,31 +69,31 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                             const char *new_filename,
                             bool in_place_compaction);
 
-fdb_status _fdb_abort_transaction(fdb_handle *handle);
+fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle);
 
 void fdb_file_handle_init(fdb_file_handle *fhandle,
-                           fdb_handle *root);
+                           fdb_kvs_handle *root);
 void fdb_file_handle_close_all(fdb_file_handle *fhandle);
 void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
                                     size_t n_func,
                                     char **kvs_names,
                                     fdb_custom_cmp_variable *functions);
 void fdb_file_handle_free(fdb_file_handle *fhandle);
-fdb_status fdb_kvs_cmp_check(fdb_handle *handle);
+fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle);
 void * fdb_kvs_find_cmp(void *chunk, void *aux);
 
-void fdb_kvs_info_create(fdb_handle *root_handle,
-                         fdb_handle *handle,
+void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
+                         fdb_kvs_handle *handle,
                          struct filemgr *file,
                          const char *kvs_name);
-void fdb_kvs_info_free(fdb_handle *handle);
+void fdb_kvs_info_free(fdb_kvs_handle *handle);
 void fdb_kvs_header_create(struct filemgr *file);
 uint64_t fdb_kvs_header_append(struct filemgr *file,
                                   struct docio_handle *dhandle);
 void fdb_kvs_header_read(struct filemgr *file,
                             struct docio_handle *dhandle,
                             uint64_t kv_info_offset);
-void fdb_kvs_header_copy(fdb_handle *handle,
+void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle);
 
@@ -107,14 +107,14 @@ fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
 
 void fdb_kvs_header_free(struct filemgr *file);
 
-char* _fdb_kvs_get_name(fdb_handle *kv_ins, struct filemgr *file);
-fdb_status _fdb_kvs_open(fdb_handle *root_handle,
+char* _fdb_kvs_get_name(fdb_kvs_handle *kv_ins, struct filemgr *file);
+fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
                          struct filemgr *file,
                          const char *kvs_name,
-                         fdb_handle *handle);
-fdb_status fdb_kvs_close_all(fdb_handle *root_handle);
+                         fdb_kvs_handle *handle);
+fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle);
 
 fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
                                    fdb_kvs_id_t id);
@@ -122,7 +122,7 @@ void fdb_kvs_set_seqnum(struct filemgr *file,
                            fdb_kvs_id_t id,
                            fdb_seqnum_t seqnum);
 
-fdb_status fdb_kvs_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum);
+fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum);
 
 #ifdef __cplusplus
 }

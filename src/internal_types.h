@@ -81,20 +81,20 @@ struct kvs_info {
     /**
      * Pointer to root handle.
      */
-    fdb_handle *root;
+    fdb_kvs_handle *root;
 };
 
 #define FHANDLE_ROOT_OPENED (0x1)
 #define FHANDLE_ROOT_INITIALIZED (0x2)
 #define FHANDLE_ROOT_CUSTOM_CMP (0x4)
 /**
- * ForestDB database file handle definition.
+ * ForestDB file handle definition.
  */
 struct _fdb_file_handle {
     /**
-     * The root database handle.
+     * The root KV store handle.
      */
-    fdb_handle *root;
+    fdb_kvs_handle *root;
     /**
      * List of opened default KV store handles
      * (except for the root handle).
@@ -115,9 +115,9 @@ struct _fdb_file_handle {
 };
 
 /**
- * ForestDB database instance handle definition.
+ * ForestDB KV store handle definition.
  */
-struct _fdb_handle {
+struct _fdb_kvs_handle {
     /**
      * Pointer to the corresponding file handle.
      */
@@ -179,7 +179,7 @@ struct _fdb_handle {
      */
     err_log_callback log_callback;
     /**
-     * Database header revision number.
+     * File header revision number.
      */
     uint64_t cur_header_revnum;
     /**
@@ -195,11 +195,11 @@ struct _fdb_handle {
      */
     uint64_t kv_info_offset;
     /**
-     * Database overall size.
+     * KV store overall size.
      */
     uint64_t datasize;
     /**
-     * Number of documents in database.
+     * Number of documents in KV store.
      */
     uint64_t ndocs;
     /**
@@ -207,11 +207,11 @@ struct _fdb_handle {
      */
     struct snap_handle *shandle;
     /**
-     * Database's current sequence number.
+     * KV store's current sequence number.
      */
     fdb_seqnum_t seqnum;
     /**
-     * Database's max sequence number for snapshot or rollback.
+     * KV store's max sequence number for snapshot or rollback.
      */
     fdb_seqnum_t max_seqnum;
     /**
@@ -279,9 +279,9 @@ enum {
  */
 struct _fdb_iterator {
     /**
-     * ForestDB database handle.
+     * ForestDB KV store handle.
      */
-    fdb_handle handle;
+    fdb_kvs_handle handle;
     /**
      * HB+Trie iterator instance.
      */
@@ -376,9 +376,9 @@ struct wal_txn_wrapper;
  */
 struct _fdb_transaction {
     /**
-     * ForestDB database handle.
+     * ForestDB KV store handle.
      */
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
     /**
      * Block ID of the last header before the transaction begins.
      */

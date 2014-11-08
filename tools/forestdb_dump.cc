@@ -87,7 +87,7 @@ INLINE void subbid2bid(bid_t subbid, size_t *subblock_no, size_t *idx, bid_t *bi
     *bid = ((bid_t)(subbid << 16)) >> 16;
 }
 
-void print_header(fdb_handle *db)
+void print_header(fdb_kvs_handle *db)
 {
     uint8_t header_buf[FDB_BLOCKSIZE];
     uint64_t ndocs;
@@ -210,7 +210,7 @@ struct dump_option{
     scan_mode_t scan_mode;
 };
 
-INLINE void print_buf(fdb_handle *db, void *buf, size_t buflen, bool hex,
+INLINE void print_buf(fdb_kvs_handle *db, void *buf, size_t buflen, bool hex,
                       int align)
 {
     if (buf) {
@@ -248,7 +248,7 @@ INLINE void print_buf(fdb_handle *db, void *buf, size_t buflen, bool hex,
     }
 }
 
-void print_doc(fdb_handle *db,
+void print_doc(fdb_kvs_handle *db,
                uint64_t offset,
                struct dump_option *opt,
                uint8_t is_wal_entry)
@@ -310,7 +310,7 @@ void print_doc(fdb_handle *db,
     free(doc.body);
 }
 
-void scan_docs(fdb_handle *db, struct dump_option *opt)
+void scan_docs(fdb_kvs_handle *db, struct dump_option *opt)
 {
     uint8_t *keybuf = alca(uint8_t, FDB_MAX_KEYLEN_INTERNAL);
     uint64_t offset;
@@ -375,7 +375,7 @@ void scan_docs(fdb_handle *db, struct dump_option *opt)
 int process_file(struct dump_option *opt)
 {
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_status fs;

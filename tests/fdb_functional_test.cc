@@ -59,8 +59,8 @@ void basic_test()
     int i, r;
     int n = 10;
     fdb_file_handle *dbfile, *dbfile_rdonly;
-    fdb_handle *db;
-    fdb_handle *db_rdonly;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *db_rdonly;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -121,9 +121,9 @@ void basic_test()
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
-    // check the db info
-    fdb_info info;
-    fdb_get_dbinfo(dbfile, &info);
+    // check the file info
+    fdb_file_info info;
+    fdb_get_file_info(dbfile, &info);
     TEST_CHK(info.doc_count == 9);
     TEST_CHK(info.space_used > 0);
 
@@ -288,7 +288,7 @@ void long_filename_test()
     char keyword[] = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     char filename[4096], cmd[4096], temp[4096];
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_status s;
@@ -372,7 +372,7 @@ void seq_tree_exception_test()
     int i, r;
     int n = 10;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -507,7 +507,7 @@ void wal_commit_test()
     int i, r;
     int n = 10;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -607,8 +607,8 @@ void multi_version_test()
     int i, r;
     int n = 2;
     fdb_file_handle *dbfile, *dbfile_new;
-    fdb_handle *db;
-    fdb_handle *db_new;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *db_new;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -739,8 +739,8 @@ void compact_wo_reopen_test()
     int i, r;
     int n = 3;
     fdb_file_handle *dbfile, *dbfile_new;
-    fdb_handle *db;
-    fdb_handle *db_new;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *db_new;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -807,8 +807,8 @@ void compact_wo_reopen_test()
         fdb_doc_free(rdoc);
     }
     // check the other handle's filename
-    fdb_info info;
-    fdb_get_dbinfo(dbfile_new, &info);
+    fdb_file_info info;
+    fdb_get_file_info(dbfile_new, &info);
     TEST_CHK(!strcmp("./dummy2", info.filename));
 
     // free all documents
@@ -839,7 +839,7 @@ void compact_with_reopen_test()
     int i, r;
     int n = 100;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -912,8 +912,8 @@ void compact_with_reopen_test()
         fdb_doc_free(rdoc);
     }
     // check the other handle's filename
-    fdb_info info;
-    fdb_get_dbinfo(dbfile, &info);
+    fdb_file_info info;
+    fdb_get_file_info(dbfile, &info);
     TEST_CHK(!strcmp("./dummy1", info.filename));
 
     // update documents
@@ -927,7 +927,7 @@ void compact_with_reopen_test()
 
     // Open the database with another handle.
     fdb_file_handle *second_dbfile;
-    fdb_handle *second_dbh;
+    fdb_kvs_handle *second_dbh;
     fdb_open(&second_dbfile, "./dummy1", &fconfig);
     fdb_kvs_open_default(second_dbfile, &second_dbh, &kvs_config);
     status = fdb_set_log_callback(second_dbh, logCallbackFunc,
@@ -955,7 +955,7 @@ void compact_with_reopen_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
-    fdb_get_dbinfo(dbfile, &info);
+    fdb_get_file_info(dbfile, &info);
     // The actual file name should be a compacted one.
     TEST_CHK(!strcmp("./dummy1.1", info.filename));
 
@@ -992,7 +992,7 @@ void compact_with_reopen_test()
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_get_dbinfo(dbfile, &info);
+    fdb_get_file_info(dbfile, &info);
     TEST_CHK(!strcmp("./dummy.fdb", info.filename));
     TEST_CHK(info.doc_count == 100);
 
@@ -1021,8 +1021,8 @@ void auto_recover_compact_ok_test()
     int i, r;
     int n = 3;
     fdb_file_handle *dbfile, *dbfile_new;
-    fdb_handle *db;
-    fdb_handle *db_new;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *db_new;
     fdb_doc **doc = alca(fdb_doc *, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1119,8 +1119,8 @@ void auto_recover_compact_ok_test()
         fdb_doc_free(rdoc);
     }
     // check this handle's filename it should point to newly compacted file
-    fdb_info info;
-    fdb_get_dbinfo(dbfile_new, &info);
+    fdb_file_info info;
+    fdb_get_file_info(dbfile_new, &info);
     TEST_CHK(!strcmp("./dummy2", info.filename));
 
     // close the file
@@ -1149,7 +1149,7 @@ void db_drop_test()
     int i, r;
     int n = 3;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc *, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1240,7 +1240,7 @@ void db_destroy_test()
     int i, r;
     int n = 30;
     fdb_file_handle *dbfile, *dbfile2;
-    fdb_handle *db, *db2;
+    fdb_kvs_handle *db, *db2;
     fdb_doc **doc = alca(fdb_doc *, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1362,7 +1362,7 @@ void *_worker_thread(void *voidargs)
     int i, r, k, c, commit_count, filename_count;
     struct timeval ts_begin, ts_cur, ts_gap;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
     fdb_doc *rdoc;
     char temp[1024];
@@ -1425,8 +1425,8 @@ void *_worker_thread(void *voidargs)
                     // commit for every NBATCH
                     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
                     commit_count++;
-                    fdb_info info;
-                    fdb_get_dbinfo(dbfile, &info);
+                    fdb_file_info info;
+                    fdb_get_file_info(dbfile, &info);
                     if (args->compact_term == commit_count &&
                         args->compact_term > 0 &&
                         info.new_filename == NULL &&
@@ -1486,7 +1486,7 @@ void multi_thread_test(
     struct work_thread_args *args = alca(struct work_thread_args, n);
     struct timeval ts_begin, ts_cur, ts_gap;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, ndocs);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1620,7 +1620,7 @@ void crash_recovery_test()
     int i, r;
     int n = 10;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1730,7 +1730,7 @@ void incomplete_block_test()
     int i, r;
     int n = 2;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1805,7 +1805,7 @@ void iterator_test()
     int n = 10;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -2036,7 +2036,7 @@ void iterator_with_concurrent_updates_test()
     int i, n=10;
     int r;
     fdb_file_handle *dbfile;
-    fdb_handle *db1, *db2, *db3;
+    fdb_kvs_handle *db1, *db2, *db3;
     fdb_iterator *itr;
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
@@ -2129,7 +2129,7 @@ void iterator_seek_test()
     int n = 10;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -2304,7 +2304,7 @@ void sequence_iterator_test()
     int count;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -2531,7 +2531,7 @@ void sequence_iterator_duplicate_test()
     int count;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -2642,7 +2642,7 @@ void reverse_sequence_iterator_test()
     int n = 10;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -2788,7 +2788,7 @@ void reverse_iterator_test()
     int n = 10;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -2971,7 +2971,7 @@ void custom_compare_primitive_test()
     int n = 10;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -3084,7 +3084,7 @@ void custom_compare_variable_test()
     int n = 1000;
     uint64_t offset, count;
     fdb_file_handle *dbfile;
-    fdb_handle *db, *db2;
+    fdb_kvs_handle *db, *db2;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -3265,8 +3265,8 @@ void snapshot_test()
     int count;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
-    fdb_handle *snap_db;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
     fdb_seqnum_t snap_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -3453,8 +3453,8 @@ void in_memory_snapshot_test()
     int count;
     uint64_t offset;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
-    fdb_handle *snap_db;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
     fdb_seqnum_t snap_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -3641,7 +3641,7 @@ void rollback_test()
     int count;
     uint64_t offset;
     fdb_file_handle *dbfile, *dbfile_txn;
-    fdb_handle *db, *db_txn;
+    fdb_kvs_handle *db, *db_txn;
     fdb_seqnum_t rollback_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -3811,7 +3811,7 @@ void rollback_and_snapshot_test()
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_file_handle *dbfile;
-    fdb_handle *db,  *snapshot;
+    fdb_kvs_handle *db,  *snapshot;
     int r;
 
     // remove previous dummy files
@@ -3904,7 +3904,7 @@ void doc_compression_test()
     int n = 10;
     int dummy_len = 32;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -4046,7 +4046,7 @@ void read_doc_by_offset_test()
     int i, r;
     int n = 100;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -4155,7 +4155,7 @@ void purge_logically_deleted_doc_test()
     int i, r;
     int n = 10;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -4291,11 +4291,11 @@ void compaction_daemon_test(size_t time_sec)
     int compaction_threshold = 30;
     int escape = 0;
     fdb_file_handle *dbfile, *dbfile_less, *dbfile_non, *dbfile_manual, *dbfile_new;
-    fdb_handle *db, *db_less, *db_non, *db_manual, *db_new;
-    fdb_handle *snapshot;
+    fdb_kvs_handle *db, *db_less, *db_non, *db_manual, *db_new;
+    fdb_kvs_handle *snapshot;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
-    fdb_info info;
+    fdb_file_info info;
     fdb_status status;
     struct timeval ts_begin, ts_cur, ts_gap;
 
@@ -4342,7 +4342,7 @@ void compaction_daemon_test(size_t time_sec)
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compaction_daemon_test");
     // check db filename
-    fdb_get_dbinfo(dbfile, &info);
+    fdb_get_file_info(dbfile, &info);
     TEST_CHK(!strcmp(info.filename, "dummy"));
 
     // retrieve documents
@@ -4602,7 +4602,7 @@ void api_wrapper_test()
     size_t valuelen;
     void *value;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_status status;
 
     char keybuf[256], bodybuf[256], temp[256];
@@ -4691,7 +4691,7 @@ void transaction_test()
     size_t valuelen;
     void *value;
     fdb_file_handle *dbfile, *dbfile_txn1, *dbfile_txn2, *dbfile_txn3;
-    fdb_handle *db, *db_txn1, *db_txn2, *db_txn3;
+    fdb_kvs_handle *db, *db_txn1, *db_txn2, *db_txn3;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -5021,7 +5021,7 @@ void transaction_simple_api_test()
     size_t valuelen;
     void *value;
     fdb_file_handle *dbfile, *dbfile_txn1, *dbfile_txn2;
-    fdb_handle *db, *db_txn1, *db_txn2;
+    fdb_kvs_handle *db, *db_txn1, *db_txn2;
     fdb_status status;
 
     char keybuf[256], bodybuf[256], temp[256];
@@ -5155,7 +5155,7 @@ void flush_before_commit_test()
     size_t valuelen;
     void *value;
     fdb_file_handle *dbfile, *dbfile_txn;
-    fdb_handle *db, *db_txn;
+    fdb_kvs_handle *db, *db_txn;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -5294,7 +5294,7 @@ void flush_before_commit_multi_writers_test()
     size_t valuelen;
     void *value;
     fdb_file_handle *dbfile1, *dbfile2;
-    fdb_handle *db1, *db2;
+    fdb_kvs_handle *db1, *db2;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -5441,7 +5441,7 @@ void last_wal_flush_header_test()
     size_t valuelen;
     void *value;
     fdb_file_handle *dbfile, *dbfile_txn1, *dbfile_txn2;
-    fdb_handle *db, *db_txn1, *db_txn2;
+    fdb_kvs_handle *db, *db_txn1, *db_txn2;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -5650,7 +5650,7 @@ void long_key_test()
     size_t valuelen;
     void *value;
     fdb_file_handle *dbfile;
-    fdb_handle *db;
+    fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n*m);
     fdb_doc *rdoc;
     fdb_status status;
@@ -5771,7 +5771,7 @@ void multi_kv_test(uint8_t opt)
                                            _multi_kv_test_keycmp};
 
     fdb_file_handle *dbfile;
-    fdb_handle *db, *kv1;
+    fdb_kvs_handle *db, *kv1;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
@@ -6118,7 +6118,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
     size_t valuelen;
 
     fdb_file_handle *dbfile;
-    fdb_handle *db, *kv1, *kv2;
+    fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
@@ -6268,7 +6268,7 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     void *value_out;
     size_t valuelen;
     fdb_file_handle *dbfile;
-    fdb_handle *db, *kv1, *kv2;
+    fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
@@ -6468,8 +6468,8 @@ void multi_kv_txn_test(uint8_t opt)
     void *value_out;
     size_t valuelen;
     fdb_file_handle *dbfile, *dbfile_txn1;
-    fdb_handle *db, *kv1, *kv2;
-    fdb_handle *txn1, *txn1_kv1, *txn1_kv2;
+    fdb_kvs_handle *db, *kv1, *kv2;
+    fdb_kvs_handle *txn1, *txn1_kv1, *txn1_kv2;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
@@ -6781,15 +6781,15 @@ void multi_kv_snapshot_test(uint8_t opt)
     void *value_out;
     size_t valuelen;
     fdb_file_handle *dbfile;
-    fdb_handle *db, *kv1, *kv2;
-    fdb_handle *snap1, *snap2;
+    fdb_kvs_handle *db, *kv1, *kv2;
+    fdb_kvs_handle *snap1, *snap2;
     fdb_seqnum_t seq1, seq2;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
     fdb_iterator *it;
     fdb_status s;
-    fdb_info info;
+    fdb_file_info info;
 
     sprintf(value, SHELL_DEL" dummy*");
     r = system(value);
@@ -6827,7 +6827,7 @@ void multi_kv_snapshot_test(uint8_t opt)
         s = fdb_doc_free(doc);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
-    s = fdb_get_seqnum(kv1, &seq1);
+    s = fdb_get_kvs_seqnum(kv1, &seq1);
 
     // write documents second time
     for (i=0;i<n;++i){
@@ -6846,7 +6846,7 @@ void multi_kv_snapshot_test(uint8_t opt)
         s = fdb_doc_free(doc);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-    s = fdb_get_seqnum(kv2, &seq2);
+    s = fdb_get_kvs_seqnum(kv2, &seq2);
 
     // write documents third time
     for (i=0;i<n;++i){
@@ -6934,14 +6934,14 @@ void multi_kv_rollback_test(uint8_t opt)
     size_t valuelen;
 
     fdb_file_handle *dbfile;
-    fdb_handle *db, *kv1, *kv2;
+    fdb_kvs_handle *db, *kv1, *kv2;
     fdb_seqnum_t seq1, seq2, seq3;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
     fdb_iterator *it;
     fdb_status s;
-    fdb_info info;
+    fdb_file_info info;
 
     char *kvs_names[] = {NULL, (char*)"kv1", (char*)"kv2"};
     fdb_custom_cmp_variable functions[] = {_multi_kv_test_keycmp,
@@ -6986,7 +6986,7 @@ void multi_kv_rollback_test(uint8_t opt)
         s = fdb_doc_free(doc);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
-    s = fdb_get_seqnum(kv1, &seq1);
+    s = fdb_get_kvs_seqnum(kv1, &seq1);
 
     // write documents second time
     for (i=0;i<n;++i){
@@ -7007,7 +7007,7 @@ void multi_kv_rollback_test(uint8_t opt)
         s = fdb_doc_free(doc);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
-    s = fdb_get_seqnum(db, &seq2);
+    s = fdb_get_kvs_seqnum(db, &seq2);
 
     // write documents third time
     for (i=0;i<n;++i){
@@ -7028,7 +7028,7 @@ void multi_kv_rollback_test(uint8_t opt)
         s = fdb_doc_free(doc);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-    s = fdb_get_seqnum(kv2, &seq3);
+    s = fdb_get_kvs_seqnum(kv2, &seq3);
 
     // write documents third time
     for (i=0;i<n;++i){
@@ -7194,7 +7194,7 @@ void multi_kv_custom_cmp_test()
     void *value_out;
     size_t valuelen;
     fdb_file_handle *dbfile;
-    fdb_handle *db, *kv1, *kv2;
+    fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;

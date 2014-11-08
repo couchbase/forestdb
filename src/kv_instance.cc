@@ -61,7 +61,7 @@ struct kvs_node {
 // list element for opened KV store handles
 // (in-memory data: managed by the file handle)
 struct kvs_opened_node {
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
     struct list_elem le;
 };
 
@@ -96,7 +96,7 @@ static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)
 }
 
 void fdb_file_handle_init(fdb_file_handle *fhandle,
-                           fdb_handle *root)
+                           fdb_kvs_handle *root)
 {
     fhandle->root = root;
     fhandle->flags = 0x0;
@@ -152,7 +152,7 @@ void fdb_file_handle_free(fdb_file_handle *fhandle)
     free(fhandle);
 }
 
-fdb_status fdb_kvs_cmp_check(fdb_handle *handle)
+fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
 {
     fdb_file_handle *fhandle = handle->fhandle;
     struct filemgr *file = handle->file;
@@ -277,8 +277,8 @@ void * fdb_kvs_find_cmp(void *chunk, void *aux)
     return NULL;
 }
 
-void fdb_kvs_info_create(fdb_handle *root_handle,
-                         fdb_handle *handle,
+void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
+                         fdb_kvs_handle *handle,
                          struct filemgr *file,
                          const char *kvs_name)
 {
@@ -337,7 +337,7 @@ void fdb_kvs_info_create(fdb_handle *root_handle,
     }
 }
 
-void fdb_kvs_info_free(fdb_handle *handle)
+void fdb_kvs_info_free(fdb_kvs_handle *handle)
 {
     if (handle->kvs == NULL) {
         return;
@@ -375,7 +375,7 @@ void fdb_kvs_header_create(struct filemgr *file)
     file->free_kv_header = fdb_kvs_header_free;
 }
 
-void fdb_kvs_header_copy(fdb_handle *handle,
+void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle)
 {
@@ -634,7 +634,7 @@ fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
 }
 
 LIBFDB_API
-fdb_status fdb_get_seqnum(fdb_handle *handle, fdb_seqnum_t *seqnum)
+fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
 {
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -721,7 +721,7 @@ void fdb_kvs_header_free(struct filemgr *file)
     file->kv_header = NULL;
 }
 
-fdb_status _fdb_kvs_create(fdb_handle *root_handle,
+fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
                            const char *kvs_name,
                            fdb_kvs_config *kvs_config)
 {
@@ -828,7 +828,7 @@ fdb_kvs_create_start:
 }
 
 // this function just returns pointer
-char* _fdb_kvs_get_name(fdb_handle *handle, struct filemgr *file)
+char* _fdb_kvs_get_name(fdb_kvs_handle *handle, struct filemgr *file)
 {
     struct kvs_node *node, query;
     struct avl_node *a;
@@ -848,12 +848,12 @@ char* _fdb_kvs_get_name(fdb_handle *handle, struct filemgr *file)
     return NULL;
 }
 
-fdb_status _fdb_kvs_open(fdb_handle *root_handle,
+fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
                          struct filemgr *file,
                          const char *kvs_name,
-                         fdb_handle *handle)
+                         fdb_kvs_handle *handle)
 {
     fdb_status fs;
 
@@ -891,14 +891,14 @@ fdb_status _fdb_kvs_open(fdb_handle *root_handle,
 
 LIBFDB_API
 fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
-                        fdb_handle **ptr_handle,
+                        fdb_kvs_handle **ptr_handle,
                         const char *kvs_name,
                         fdb_kvs_config *kvs_config)
 {
-    fdb_handle *handle;
+    fdb_kvs_handle *handle;
     fdb_config config;
     fdb_status fs;
-    fdb_handle *root_handle;
+    fdb_kvs_handle *root_handle;
     fdb_kvs_config config_local;
     struct filemgr *file = NULL;
 
@@ -956,7 +956,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             // the root handle is already opened
             // open new default KV store handle
             spin_unlock(&fhandle->lock);
-            handle = (fdb_handle*)calloc(1, sizeof(fdb_handle));
+            handle = (fdb_kvs_handle*)calloc(1, sizeof(fdb_kvs_handle));
             handle->kvs_config = config_local;
             handle->fhandle = fhandle;
             fs = _fdb_open(handle, file->filename, &config);
@@ -990,7 +990,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    handle = (fdb_handle *)calloc(1, sizeof(fdb_handle));
+    handle = (fdb_kvs_handle *)calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -1009,15 +1009,15 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
 
 LIBFDB_API
 fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
-                                fdb_handle **ptr_handle,
+                                fdb_kvs_handle **ptr_handle,
                                 fdb_kvs_config *config)
 {
     return fdb_kvs_open(fhandle, ptr_handle, NULL, config);
 }
 
-fdb_status _fdb_kvs_close(fdb_handle *handle)
+fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
 {
-    fdb_handle *root_handle = handle->kvs->root;
+    fdb_kvs_handle *root_handle = handle->kvs->root;
     fdb_status fs;
 
     if (handle->node) {
@@ -1032,7 +1032,7 @@ fdb_status _fdb_kvs_close(fdb_handle *handle)
 }
 
 // close all sub-KV store handles belonging to the root handle
-fdb_status fdb_kvs_close_all(fdb_handle *root_handle)
+fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle)
 {
     fdb_status fs;
     struct list_elem *e;
@@ -1058,7 +1058,7 @@ fdb_status fdb_kvs_close_all(fdb_handle *root_handle)
 }
 
 LIBFDB_API
-fdb_status fdb_kvs_close(fdb_handle *handle)
+fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
 {
     fdb_status fs;
     struct filemgr *file;
@@ -1122,11 +1122,11 @@ fdb_status fdb_kvs_close(fdb_handle *handle)
     return fs;
 }
 
-fdb_status fdb_kvs_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
+fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
 {
     fdb_config config;
     fdb_kvs_config kvs_config;
-    fdb_handle *handle_in, *handle, *super_handle;
+    fdb_kvs_handle *handle_in, *handle, *super_handle;
     fdb_status fs;
     fdb_seqnum_t old_seqnum;
 
@@ -1157,12 +1157,12 @@ fdb_status fdb_kvs_rollback(fdb_handle **handle_ptr, fdb_seqnum_t seqnum)
 
     // if the max sequence number seen by this handle is lower than the
     // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current fdb_handle
+    // even via the current fdb_kvs_handle
     if (seqnum > handle_in->seqnum) {
         return FDB_RESULT_NO_DB_INSTANCE;
     }
 
-    handle = (fdb_handle *) calloc(1, sizeof(fdb_handle));
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) {
         return FDB_RESULT_ALLOC_FAIL;
     }
@@ -1263,7 +1263,7 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
     int kv_ins_name_len;
     fdb_status fs;
     fdb_kvs_id_t kv_id, _kv_id;
-    fdb_handle *root_handle;
+    fdb_kvs_handle *root_handle;
     struct avl_node *a = NULL;
     struct list_elem *e;
     struct filemgr *file;
@@ -1412,7 +1412,7 @@ fdb_kvs_remove_start:
 }
 
 LIBFDB_API
-fdb_status fdb_get_kvs_info(fdb_handle *handle, fdb_kvs_info *info)
+fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
 {
     struct avl_node *a;
     struct kvs_node *node, query;
@@ -1436,7 +1436,7 @@ fdb_status fdb_get_kvs_info(fdb_handle *handle, fdb_kvs_info *info)
         spin_unlock(&kv_header->lock);
     }
 
-    fdb_get_seqnum(handle, &info->last_seqnum);
+    fdb_get_kvs_seqnum(handle, &info->last_seqnum);
     return FDB_RESULT_SUCCESS;
 }
 
