@@ -35,29 +35,6 @@
 
 static const char *default_kvs_name = "default";
 
-// global KV store header for each file
-struct kvs_header {
-    fdb_kvs_id_t id_counter;    // increasing counter for KV store ID
-    fdb_custom_cmp_variable default_kvs_cmp;
-    struct avl_tree *idx_name;
-    struct avl_tree *idx_id;
-    uint8_t custom_cmp_enabled;
-    spin_t lock;
-};
-
-// mapping data for each KV store
-// (global & permanent data: written into DB file)
-#define KVS_FLAG_CUSTOM_CMP (0x1)
-struct kvs_node {
-    char *kvs_name;
-    fdb_kvs_id_t id;
-    fdb_seqnum_t seqnum;
-    uint64_t flags;
-    fdb_custom_cmp_variable custom_cmp; // in-memory attribute
-    struct avl_node avl_name;
-    struct avl_node avl_id;
-};
-
 // list element for opened KV store handles
 // (in-memory data: managed by the file handle)
 struct kvs_opened_node {
@@ -442,6 +419,22 @@ void fdb_kvs_header_create(struct filemgr *file)
     file->free_kv_header = fdb_kvs_header_free;
 }
 
+static void fdb_kvs_header_reset_all_stats(struct filemgr *file)
+{
+    struct avl_node *a;
+    struct kvs_node *node;
+    struct kvs_header *kv_header = file->kv_header;
+
+    spin_lock(&kv_header->lock);
+    a = avl_first(kv_header->idx_id);
+    while (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        a = avl_next(&node->avl_id);
+        memset(&node->stat, 0x0, sizeof(node->stat));
+    }
+    spin_unlock(&kv_header->lock);
+}
+
 void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle)
@@ -454,6 +447,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
     // write KV header in 'new_file' using 'new_dhandle'
     handle->kv_info_offset = fdb_kvs_header_append(new_file,
                                                       new_dhandle);
+    fdb_kvs_header_reset_all_stats(new_file);
     spin_lock(&handle->file->kv_header->lock);
     spin_lock(&new_file->kv_header->lock);
     new_file->kv_header->default_kvs_cmp =
@@ -469,11 +463,17 @@ void _fdb_kvs_header_export(struct kvs_header *kv_header,
                                void **data, size_t *len)
 {
     /* << raw data structure >>
-     * [# KV instances]: 8 bytes
+     * [# KV instances]:        8 bytes
      * [current KV ID counter]: 8 bytes
-     * <---- 2 ----><----- x -----><---- 8 ----><------ 8 ------><- 8 ->
-     * [name length][instance name][instance ID][sequence number][flags]
-     * [name length][instance name][instance ID][sequence number][flags]
+     * ---
+     * [name length]:           2 bytes
+     * [instance name]:         x bytes
+     * [instance ID]:           8 bytes
+     * [sequence number]:       8 bytes
+     * [# live index nodes]:    8 bytes
+     * [# docs]:                8 bytes
+     * [data size]:             8 bytes
+     * [flags]:                 8 bytes
      * ...
      */
 
@@ -483,6 +483,7 @@ void _fdb_kvs_header_export(struct kvs_header *kv_header,
     uint16_t name_len, _name_len;
     uint64_t c = 0;
     uint64_t _n_kv, _kv_id, _flags;
+    uint64_t _nlivenodes, _ndocs, _datasize;
     fdb_kvs_id_t _id_counter;
     fdb_seqnum_t _seqnum;
     struct kvs_node *node;
@@ -507,6 +508,9 @@ void _fdb_kvs_header_export(struct kvs_header *kv_header,
         size += strlen(node->kvs_name)+1; // name
         size += sizeof(node->id); // ID
         size += sizeof(node->seqnum); // seq number
+        size += sizeof(node->stat.nlivenodes); // # live index nodes
+        size += sizeof(node->stat.ndocs); // # docs
+        size += sizeof(node->stat.datasize); // data size
         size += sizeof(node->flags); // flags
         a = avl_next(a);
     }
@@ -547,6 +551,21 @@ void _fdb_kvs_header_export(struct kvs_header *kv_header,
         memcpy((uint8_t*)*data + offset, &_seqnum, sizeof(_seqnum));
         offset += sizeof(_seqnum);
 
+        // # live index nodes
+        _nlivenodes = _endian_encode(node->stat.nlivenodes);
+        memcpy((uint8_t*)*data + offset, &_nlivenodes, sizeof(_nlivenodes));
+        offset += sizeof(_nlivenodes);
+
+        // # docs
+        _ndocs = _endian_encode(node->stat.ndocs);
+        memcpy((uint8_t*)*data + offset, &_ndocs, sizeof(_ndocs));
+        offset += sizeof(_ndocs);
+
+        // datasize
+        _datasize = _endian_encode(node->stat.datasize);
+        memcpy((uint8_t*)*data + offset, &_datasize, sizeof(_datasize));
+        offset += sizeof(_datasize);
+
         // flags
         _flags = _endian_encode(node->flags);
         memcpy((uint8_t*)*data + offset, &_flags, sizeof(_flags));
@@ -567,6 +586,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     uint16_t name_len, _name_len;
     uint64_t c = 0;
     uint64_t n_kv, _n_kv, kv_id, _kv_id, flags, _flags;
+    uint64_t _nlivenodes, _ndocs, _datasize;
     fdb_kvs_id_t id_counter, _id_counter;
     fdb_seqnum_t seqnum, _seqnum;
     struct kvs_node *node;
@@ -609,6 +629,21 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
         offset += sizeof(_seqnum);
         seqnum = _endian_decode(_seqnum);
         node->seqnum = seqnum;
+
+        // # live index nodes
+        memcpy(&_nlivenodes, (uint8_t*)data + offset, sizeof(_nlivenodes));
+        offset += sizeof(_nlivenodes);
+        node->stat.nlivenodes = _endian_decode(_nlivenodes);
+
+        // # docs
+        memcpy(&_ndocs, (uint8_t*)data + offset, sizeof(_ndocs));
+        offset += sizeof(_ndocs);
+        node->stat.ndocs = _endian_decode(_ndocs);
+
+        // datasize
+        memcpy(&_datasize, (uint8_t*)data + offset, sizeof(_datasize));
+        offset += sizeof(_datasize);
+        node->stat.datasize = _endian_decode(_datasize);
 
         // flags
         memcpy(&_flags, (uint8_t*)data + offset, sizeof(_flags));
@@ -1499,15 +1534,25 @@ fdb_kvs_remove_start:
 LIBFDB_API
 fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
 {
+    uint64_t ndocs;
+    uint64_t wal_docs;
+    uint64_t wal_deletes;
+    uint64_t wal_n_inserts;
+    uint64_t datasize;
+    uint64_t nlivenodes;
+    fdb_kvs_id_t kv_id;
     struct avl_node *a;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
+    struct kvs_stat stat;
 
     if (handle->kvs == NULL) {
         info->name = default_kvs_name;
+        kv_id = 0;
 
     } else {
         kv_header = handle->file->kv_header;
+        kv_id = handle->kvs->id;
         spin_lock(&kv_header->lock);
 
         query.id = handle->kvs->id;
@@ -1520,6 +1565,28 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         }
         spin_unlock(&kv_header->lock);
     }
+
+    _kvs_stat_get(handle->file, kv_id, &stat);
+    ndocs = stat.ndocs;
+    wal_docs = stat.wal_ndocs;
+    wal_deletes = stat.wal_ndeletes;
+    wal_n_inserts = wal_docs - wal_deletes;
+
+    if (ndocs + wal_n_inserts < wal_deletes) {
+        info->doc_count = 0;
+    } else {
+        if (ndocs) {
+            info->doc_count = ndocs + wal_n_inserts - wal_deletes;
+        } else {
+            info->doc_count = wal_n_inserts;
+        }
+    }
+
+    datasize = stat.datasize;
+    nlivenodes = stat.nlivenodes;
+
+    info->space_used = datasize;
+    info->space_used += nlivenodes * handle->config.blocksize;
 
     fdb_get_kvs_seqnum(handle, &info->last_seqnum);
     return FDB_RESULT_SUCCESS;

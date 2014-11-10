@@ -71,6 +71,7 @@ struct filemgr_header{
     bid_t bid;
     bid_t dirty_idtree_root; // for wal_flush_before_commit option
     bid_t dirty_seqtree_root; // for wal_flush_before_commit option
+    struct kvs_stat stat; // stats for the default KVS
     void *data;
 };
 
@@ -200,6 +201,19 @@ void filemgr_set_dirty_root(struct filemgr *file,
 void filemgr_get_dirty_root(struct filemgr *file,
                             bid_t *dirty_idtree_root,
                             bid_t *dirty_seqtree_root);
+
+void _kvs_stat_set(struct filemgr *file,
+                   fdb_kvs_id_t kv_id,
+                   struct kvs_stat stat);
+void _kvs_stat_update_attr(struct filemgr *file,
+                           fdb_kvs_id_t kv_id,
+                           kvs_stat_attr_t attr,
+                           int delta);
+void _kvs_stat_get(struct filemgr *file,
+                   fdb_kvs_id_t kv_id,
+                   struct kvs_stat *stat);
+uint64_t _kvs_stat_get_sum(struct filemgr *file,
+                           kvs_stat_attr_t attr);
 
 #ifdef __cplusplus
 }

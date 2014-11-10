@@ -93,8 +93,6 @@ struct wal {
     uint8_t flag;
     size_t size; // total # entries in WAL
     size_t num_flushable; // # flushable entries in WAL
-    size_t num_docs; // # committed docs
-    size_t num_deletes; // # committed deleted docs
     uint64_t datasize;
     struct hash hash_bykey; // indexes 'wal_item_header's
     struct hash hash_byseq; // indexes 'wal_item's

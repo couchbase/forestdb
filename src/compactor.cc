@@ -150,31 +150,16 @@ int _compactor_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 
 INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
 {
-    bid_t dummy_bid;
-    uint64_t dummy_64;
     uint64_t ret = 0;
     uint64_t datasize;
     uint64_t nlivenodes;
-    size_t header_len;
-    void *header_buf = NULL;
 
-    header_buf = filemgr_fetch_header(elem->file, NULL, &header_len);
-    if (header_len > 0) {
-        char *compacted_filename;
+    datasize = _kvs_stat_get_sum(elem->file, KVS_STAT_DATASIZE);
+    nlivenodes = _kvs_stat_get_sum(elem->file, KVS_STAT_NLIVENODES);
 
-        fdb_fetch_header(header_buf, &dummy_bid, &dummy_bid,
-                         &dummy_64, &nlivenodes,
-                         &datasize, &dummy_64, &dummy_64, &dummy_64,
-                         &compacted_filename, NULL);
-
-        ret += datasize;
-        ret += nlivenodes * elem->config.blocksize;
-        ret += wal_get_datasize(elem->file);
-    }
-
-    if (header_buf) {
-        free(header_buf);
-    }
+    ret = datasize;
+    ret += nlivenodes * elem->config.blocksize;
+    ret += wal_get_datasize(elem->file);
 
     return ret;
 }

@@ -84,6 +84,43 @@ struct kvs_info {
     fdb_kvs_handle *root;
 };
 
+/**
+ * Attributes in KV store statistics.
+ */
+typedef enum {
+    KVS_STAT_NLIVENODES,
+    KVS_STAT_NDOCS,
+    KVS_STAT_DATASIZE,
+    KVS_STAT_WAL_NDOCS,
+    KVS_STAT_WAL_NDELETES
+} kvs_stat_attr_t;
+
+/**
+ * KV store statistics.
+ */
+struct kvs_stat {
+    /**
+     * The number of live index nodes.
+     */
+    uint64_t nlivenodes;
+    /**
+     * The number of documents.
+     */
+    uint64_t ndocs;
+    /**
+     * The amount of space occupied by documents.
+     */
+    uint64_t datasize;
+    /**
+     * The number of documents in WAL.
+     */
+    uint64_t wal_ndocs;
+    /**
+     * The number of deleted documents in WAL.
+     */
+    uint64_t wal_ndeletes;
+};
+
 #define FHANDLE_ROOT_OPENED (0x1)
 #define FHANDLE_ROOT_INITIALIZED (0x2)
 #define FHANDLE_ROOT_CUSTOM_CMP (0x4)
@@ -194,14 +231,6 @@ struct _fdb_kvs_handle {
      * File offset of a document containing KV instance info.
      */
     uint64_t kv_info_offset;
-    /**
-     * KV store overall size.
-     */
-    uint64_t datasize;
-    /**
-     * Number of documents in KV store.
-     */
-    uint64_t ndocs;
     /**
      * Snapshot Information.
      */

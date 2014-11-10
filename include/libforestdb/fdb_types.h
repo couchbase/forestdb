@@ -423,6 +423,14 @@ typedef struct {
      * Last sequence number assigned
      */
     fdb_seqnum_t last_seqnum;
+    /**
+     * Total number of non-deleted documents in the KV store.
+     */
+    uint64_t doc_count;
+    /**
+     * Disk space actively used by the KV store.
+     */
+    uint64_t space_used;
 } fdb_kvs_info;
 
 #ifdef __cplusplus

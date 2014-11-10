@@ -268,6 +268,7 @@ void _filemgr_read_header(struct filemgr *file)
 
                         file->header.dirty_idtree_root = BLK_NOT_FOUND;
                         file->header.dirty_seqtree_root = BLK_NOT_FOUND;
+                        memset(&file->header.stat, 0x0, sizeof(file->header.stat));
 
                         // release temp buffer
                         _filemgr_release_temp_buf(buf);
@@ -300,6 +301,7 @@ void _filemgr_read_header(struct filemgr *file)
     file->header.data = NULL;
     file->header.dirty_idtree_root = BLK_NOT_FOUND;
     file->header.dirty_seqtree_root = BLK_NOT_FOUND;
+    memset(&file->header.stat, 0x0, sizeof(file->header.stat));
 }
 
 size_t filemgr_get_ref_count(struct filemgr *file)
@@ -649,11 +651,11 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             bcache_remove_dirty_blocks(file);
         }
 
-        spin_lock(&file->lock);
         if (wal_is_initialized(file)) {
             wal_close(file);
         }
 
+        spin_lock(&file->lock);
         rv = file->ops->close(file->fd);
         if (file->status == FILE_REMOVED_PENDING) {
             _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
@@ -1337,5 +1339,150 @@ void filemgr_get_dirty_root(struct filemgr *file,
     *dirty_idtree_root = file->header.dirty_idtree_root;
     *dirty_seqtree_root= file->header.dirty_seqtree_root;
     spin_unlock(&file->lock);
+}
+
+static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct kvs_node *aa, *bb;
+    aa = _get_entry(a, struct kvs_node, avl_id);
+    bb = _get_entry(b, struct kvs_node, avl_id);
+
+    if (aa->id < bb->id) {
+        return -1;
+    } else if (aa->id > bb->id) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+void _kvs_stat_set(struct filemgr *file,
+                   fdb_kvs_id_t kv_id,
+                   struct kvs_stat stat)
+{
+    if (kv_id == 0) {
+        spin_lock(&file->lock);
+        file->header.stat = stat;
+        spin_unlock(&file->lock);
+    } else {
+        struct avl_node *a;
+        struct kvs_node query, *node;
+        struct kvs_header *kv_header = file->kv_header;
+
+        spin_lock(&kv_header->lock);
+        query.id = kv_id;
+        a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+        node = _get_entry(a, struct kvs_node, avl_id);
+        node->stat = stat;
+        spin_unlock(&kv_header->lock);
+    }
+}
+
+void _kvs_stat_update_attr(struct filemgr *file,
+                           fdb_kvs_id_t kv_id,
+                           kvs_stat_attr_t attr,
+                           int delta)
+{
+    spin_t *lock = NULL;
+    struct kvs_stat *stat;
+
+    if (kv_id == 0) {
+        stat = &file->header.stat;
+        lock = &file->lock;
+        spin_lock(lock);
+    } else {
+        struct avl_node *a;
+        struct kvs_node query, *node;
+        struct kvs_header *kv_header = file->kv_header;
+
+        lock = &kv_header->lock;
+        spin_lock(lock);
+        query.id = kv_id;
+        a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+        node = _get_entry(a, struct kvs_node, avl_id);
+        stat = &node->stat;
+    }
+
+    if (attr == KVS_STAT_DATASIZE) {
+        stat->datasize += delta;
+    } else if (attr == KVS_STAT_NDOCS) {
+        stat->ndocs += delta;
+    } else if (attr == KVS_STAT_NLIVENODES) {
+        stat->nlivenodes += delta;
+    } else if (attr == KVS_STAT_WAL_NDELETES) {
+        stat->wal_ndeletes += delta;
+    } else if (attr == KVS_STAT_WAL_NDOCS) {
+        stat->wal_ndocs += delta;
+    }
+    spin_unlock(lock);
+}
+
+void _kvs_stat_get(struct filemgr *file,
+                   fdb_kvs_id_t kv_id,
+                   struct kvs_stat *stat)
+{
+    if (kv_id == 0) {
+        spin_lock(&file->lock);
+        *stat = file->header.stat;
+        spin_unlock(&file->lock);
+    } else {
+        struct avl_node *a;
+        struct kvs_node query, *node;
+        struct kvs_header *kv_header = file->kv_header;
+
+        spin_lock(&kv_header->lock);
+        query.id = kv_id;
+        a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+        node = _get_entry(a, struct kvs_node, avl_id);
+        *stat = node->stat;
+        spin_unlock(&kv_header->lock);
+    }
+}
+
+uint64_t _kvs_stat_get_sum(struct filemgr *file,
+                           kvs_stat_attr_t attr)
+{
+    struct avl_node *a;
+    struct kvs_node *node;
+    struct kvs_header *kv_header = file->kv_header;
+
+    uint64_t ret = 0;
+    spin_lock(&file->lock);
+    if (attr == KVS_STAT_DATASIZE) {
+        ret += file->header.stat.datasize;
+    } else if (attr == KVS_STAT_NDOCS) {
+        ret += file->header.stat.ndocs;
+    } else if (attr == KVS_STAT_NLIVENODES) {
+        ret += file->header.stat.nlivenodes;
+    } else if (attr == KVS_STAT_WAL_NDELETES) {
+        ret += file->header.stat.wal_ndeletes;
+    } else if (attr == KVS_STAT_WAL_NDOCS) {
+        ret += file->header.stat.wal_ndocs;
+    }
+    spin_unlock(&file->lock);
+
+    if (kv_header) {
+        spin_lock(&kv_header->lock);
+        a = avl_first(kv_header->idx_id);
+        while (a) {
+            node = _get_entry(a, struct kvs_node, avl_id);
+            a = avl_next(&node->avl_id);
+
+            if (attr == KVS_STAT_DATASIZE) {
+                ret += node->stat.datasize;
+            } else if (attr == KVS_STAT_NDOCS) {
+                ret += node->stat.ndocs;
+            } else if (attr == KVS_STAT_NLIVENODES) {
+                ret += node->stat.nlivenodes;
+            } else if (attr == KVS_STAT_WAL_NDELETES) {
+                ret += node->stat.wal_ndeletes;
+            } else if (attr == KVS_STAT_WAL_NDOCS) {
+                ret += node->stat.wal_ndocs;
+            }
+        }
+        spin_unlock(&kv_header->lock);
+    }
+
+    return ret;
 }
 

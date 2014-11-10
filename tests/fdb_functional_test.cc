@@ -5775,6 +5775,8 @@ void multi_kv_test(uint8_t opt)
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
+    fdb_file_info file_info;
+    fdb_kvs_info kvs_info;
     fdb_status s;
 
     sprintf(value, SHELL_DEL" dummy*");
@@ -5988,6 +5990,14 @@ void multi_kv_test(uint8_t opt)
         s = fdb_doc_free(doc);
     }
 
+    // info check
+    s = fdb_get_file_info(dbfile, &file_info);
+    TEST_CHK(file_info.doc_count == n*2);
+    s = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(kvs_info.doc_count == n);
+    s = fdb_get_kvs_info(kv1, &kvs_info);
+    TEST_CHK(kvs_info.doc_count == n);
+
     s = fdb_kvs_close(kv1);
     s = fdb_close(dbfile);
 
@@ -6015,6 +6025,13 @@ void multi_kv_test(uint8_t opt)
         TEST_CHK(!memcmp(value, value_out, valuelen));
         free(value_out);
     }
+    // info check after reopen
+    s = fdb_get_file_info(dbfile, &file_info);
+    TEST_CHK(file_info.doc_count == n*2);
+    s = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(kvs_info.doc_count == n);
+    s = fdb_get_kvs_info(kv1, &kvs_info);
+    TEST_CHK(kvs_info.doc_count == n);
 
     s = fdb_compact(dbfile, "./dummy2");
     // retrieve check after compaction
@@ -6032,6 +6049,13 @@ void multi_kv_test(uint8_t opt)
         TEST_CHK(!memcmp(value, value_out, valuelen));
         free(value_out);
     }
+    // info check after compaction
+    s = fdb_get_file_info(dbfile, &file_info);
+    TEST_CHK(file_info.doc_count == n*2);
+    s = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(kvs_info.doc_count == n);
+    s = fdb_get_kvs_info(kv1, &kvs_info);
+    TEST_CHK(kvs_info.doc_count == n);
 
     // reopen using "default" KVS name
     s = fdb_kvs_close(db);

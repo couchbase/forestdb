@@ -314,7 +314,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                 _kv_id = (fdb_kvs_id_t*)wal_doc.key;
                                 kv_id = _endian_decode(*_kv_id);
 
-                                kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
+                                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                                    kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
+                                } else {
+                                    kv_seqnum = SEQNUM_NOT_USED;
+                                }
                                 if (doc.seqnum <= kv_seqnum &&
                                         ((mode == FDB_RESTORE_KV_INS &&
                                             kv_id == kv_id_req) ||
@@ -411,8 +415,6 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
         // If new file has a recorded old_filename then it means that
         // compaction has completed successfully. Mark self for deletion
         filemgr_mutex_lock(new_file);
-        handle->ndocs = new_db.ndocs;
-        handle->datasize = new_db.datasize;
 
         btreeblk_end(handle->bhandle);
         btreeblk_free(handle->bhandle);
@@ -977,6 +979,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const fdb_config *config)
 {
     struct filemgr_config fconfig;
+    struct kvs_stat stat, empty_stat;
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
     fdb_seqnum_t seqnum = 0;
@@ -1164,10 +1167,17 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
     handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
-    handle->ndocs = ndocs;
-    handle->bhandle->nlivenodes = nlivenodes;
-    handle->datasize = datasize;
     handle->last_wal_flush_hdr_bid = last_wal_flush_hdr_bid;
+
+    memset(&empty_stat, 0x0, sizeof(empty_stat));
+    _kvs_stat_get(handle->file, 0, &stat);
+    if (!memcmp(&stat, &empty_stat, sizeof(stat))) { // first open
+        // sync (default) KVS stat with DB header
+        stat.nlivenodes = nlivenodes;
+        stat.ndocs = ndocs;
+        stat.datasize = datasize;
+        _kvs_stat_set(handle->file, 0, stat);
+    }
 
     if (config->multi_kv_instances) {
         // multi KV instance mode
@@ -1480,13 +1490,26 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     btree_result br;
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     fdb_seqnum_t _seqnum;
+    fdb_kvs_id_t kv_id, *_kv_id;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset, _offset;
+    int delta;
+    struct filemgr *file = handle->dhandle->file;
+    struct kvs_stat stat;
 
     memset(var_key, 0, handle->config.chunksize);
+    if (handle->kvs) {
+        _kv_id = (fdb_kvs_id_t*)item->header->key;
+        kv_id = _endian_decode(*_kv_id);
+    } else {
+        kv_id = 0;
+    }
 
     if (item->action == WAL_ACT_INSERT || item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
+
+        _kvs_stat_get(file, kv_id, &stat);
+        handle->bhandle->nlivenodes = stat.nlivenodes;
 
         hr = hbtrie_insert(handle->trie,
                            item->header->key,
@@ -1518,11 +1541,15 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             btreeblk_end(handle->bhandle);
         }
 
+        delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
+        _kvs_stat_update_attr(file, kv_id, KVS_STAT_NLIVENODES, delta);
+
         if (hr == HBTRIE_RESULT_SUCCESS) {
             if (item->action == WAL_ACT_INSERT) {
-                ++handle->ndocs;
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, 1);
             }
-            handle->datasize += item->doc_size;
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE,
+                                  item->doc_size);
         } else { // update or logical delete
             struct docio_length len;
             // This block is already cached when we call HBTRIE_INSERT.
@@ -1531,16 +1558,16 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
             if (!(len.flag & DOCIO_DELETED)) {
                 if (item->action == WAL_ACT_LOGICAL_REMOVE) {
-                    --handle->ndocs;
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
                 }
             } else {
                 if (item->action == WAL_ACT_INSERT) {
-                    ++handle->ndocs;
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, 1);
                 }
             }
 
-            handle->datasize -= _fdb_get_docsize(len);
-            handle->datasize += item->doc_size;
+            delta = (int)item->doc_size - (int)_fdb_get_docsize(len);
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
         }
     } else {
         // Immediate remove
@@ -1554,8 +1581,9 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            --handle->ndocs;
-            handle->datasize -= item->doc_size;
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
+            delta = -(int)item->doc_size;
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
         }
     }
 }
@@ -1570,7 +1598,7 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
         handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
         header_buf = filemgr_fetch_header(handle->file, NULL, &header_len);
         if (header_len > 0) {
-            uint64_t header_flags;
+            uint64_t header_flags, dummy64;
             bid_t idtree_root;
             bid_t new_seq_root;
             char *compacted_filename;
@@ -1578,8 +1606,8 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
 
             fdb_fetch_header(header_buf, &idtree_root,
                              &new_seq_root,
-                             &handle->ndocs, &handle->bhandle->nlivenodes,
-                             &handle->datasize, &handle->last_wal_flush_hdr_bid,
+                             &dummy64, &dummy64,
+                             &dummy64, &handle->last_wal_flush_hdr_bid,
                              &handle->kv_info_offset, &header_flags,
                              &compacted_filename, &prev_filename);
 
@@ -1691,9 +1719,6 @@ void fdb_check_file_reopen(fdb_kvs_handle *handle)
 
             // the others
             handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
-            handle->ndocs = ndocs;
-            handle->bhandle->nlivenodes = nlivenodes;
-            handle->datasize = datasize;
             handle->dirty_updates = 0;
 
             // note that we don't need to call 'compactor_deregister_file'
@@ -2695,6 +2720,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     uint64_t _edn_safe_64;
     size_t offset = 0;
     struct filemgr *cur_file;
+    struct kvs_stat stat;
 
     cur_file = (handle->file->new_file)?(handle->file->new_file):
                                         (handle->file);
@@ -2713,16 +2739,19 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
         offset += sizeof(uint64_t);
     }
 
+    // get stat
+    _kvs_stat_get(cur_file, 0, &stat);
+
     // # docs
-    _edn_safe_64 = _endian_encode(handle->ndocs);
-    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->ndocs), offset);
+    _edn_safe_64 = _endian_encode(stat.ndocs);
+    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
     // # live nodes
-    _edn_safe_64 = _endian_encode(handle->bhandle->nlivenodes);
+    _edn_safe_64 = _endian_encode(stat.nlivenodes);
     seq_memcpy(buf + offset, &_edn_safe_64,
-               sizeof(handle->bhandle->nlivenodes), offset);
+               sizeof(_edn_safe_64), offset);
     // data size
-    _edn_safe_64 = _endian_encode(handle->datasize);
-    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->datasize), offset);
+    _edn_safe_64 = _endian_encode(stat.datasize);
+    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
     // last header bid
     _edn_safe_64 = _endian_encode(handle->last_wal_flush_hdr_bid);
     seq_memcpy(buf + offset, &_edn_safe_64,
@@ -2874,12 +2903,6 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
             btreeblk_discard_blocks(handle->bhandle);
         }
 
-        if (handle->kvs) {
-            // multi KV instance mode .. append up-to-date KV header
-            handle->kv_info_offset = fdb_kvs_header_append(handle->file,
-                                                              handle->dhandle);
-        }
-
         if (wal_get_num_flushable(handle->file) > _fdb_get_wal_threshold(handle) ||
             wal_get_dirty_status(handle->file) == FDB_WAL_PENDING ||
             opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
@@ -2888,6 +2911,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
             // 2. wal is already flushed before commit
             //    (in this case, flush the rest of entries)
             // 3. user forces to manually flush wal
+
             wal_flush(handle->file, (void *)handle,
                       _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                       &flush_items);
@@ -2913,6 +2937,12 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
         if (txn == NULL) {
             // update global_txn's previous header BID
             handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
+        }
+
+        if (handle->kvs) {
+            // multi KV instance mode .. append up-to-date KV header
+            handle->kv_info_offset = fdb_kvs_header_append(handle->file,
+                                                              handle->dhandle);
         }
 
         handle->cur_header_revnum = fdb_set_file_header(handle);
@@ -3026,9 +3056,7 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                    struct btree *new_idtree,
                                    struct btree *new_seqtree,
                                    struct docio_handle *new_dhandle,
-                                   struct btreeblk_handle *new_bhandle,
-                                   uint64_t *count_out,
-                                   uint64_t *new_datasize_out)
+                                   struct btreeblk_handle *new_bhandle)
 {
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint8_t deleted;
@@ -3062,8 +3090,6 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
     }
     new_handle.dhandle = new_dhandle;
     new_handle.bhandle = new_bhandle;
-    new_handle.ndocs = 0;
-    new_handle.datasize = 0;
 
     offset_array_max =
         handle->config.compaction_buf_maxsize / sizeof(uint64_t);
@@ -3154,11 +3180,6 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
             }
         }
     }
-    // *(count_out) can be smaller than handle->ndocs
-    // when there are new updates by other writers
-    // so that wal have to be flushed one more time.
-    *(count_out) = new_handle.ndocs;
-    *(new_datasize_out) = new_handle.datasize;
 
     hr = hbtrie_iterator_free(&it);
     free(offset_array);
@@ -3213,7 +3234,6 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     struct avl_tree flush_items;
     char *old_filename = NULL;
     size_t old_filename_len = 0;
-    uint64_t count, new_datasize;
     fdb_kvs_handle *handle = fhandle->root;
     fdb_seqnum_t seqnum;
 
@@ -3341,8 +3361,6 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
         fdb_kvs_header_copy(handle, new_file, new_dhandle);
     }
 
-    count = new_datasize = 0;
-
     // flush WAL and set DB header
     wal_commit(&handle->file->global_txn, handle->file, NULL);
     wal_flush(handle->file, (void*)handle,
@@ -3383,15 +3401,13 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     if (handle->kvs) {
         _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
                                (struct btree*)new_seqtrie, new_dhandle,
-                               new_bhandle, &count, &new_datasize);
+                               new_bhandle);
     } else {
         _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree, new_seqtree,
-                               new_dhandle, new_bhandle, &count, &new_datasize);
+                               new_dhandle, new_bhandle);
     }
 
     filemgr_mutex_lock(new_file);
-    handle->ndocs = count;
-    handle->datasize = new_datasize;
 
     old_file = handle->file;
     compactor_switch_file(old_file, new_file);
@@ -3726,7 +3742,10 @@ LIBFDB_API
 size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
 {
     size_t ret = 0;
+    size_t datasize;
+    size_t nlivenodes;
     fdb_kvs_handle *handle = NULL;
+    struct filemgr *file;
 
     if (!fhandle) {
         return FDB_RESULT_INVALID_ARGS;
@@ -3738,9 +3757,13 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
     fdb_link_new_file(handle);
     fdb_sync_db_header(handle);
 
-    ret += handle->datasize;
-    ret += handle->bhandle->nlivenodes * handle->config.blocksize;
+    file = (handle->new_file)?(handle->new_file):(handle->file);
 
+    datasize = _kvs_stat_get_sum(file, KVS_STAT_DATASIZE);
+    nlivenodes = _kvs_stat_get_sum(file, KVS_STAT_NLIVENODES);
+
+    ret = datasize;
+    ret += nlivenodes * handle->config.blocksize;
     ret += wal_get_datasize(handle->file);
 
     return ret;
@@ -3749,6 +3772,7 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
 LIBFDB_API
 fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
 {
+    uint64_t ndocs;
     fdb_kvs_handle *handle;
 
     if (!fhandle || !info) {
@@ -3784,11 +3808,14 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
     size_t wal_docs = wal_get_num_docs(handle->file);
     size_t wal_deletes = wal_get_num_deletes(handle->file);
     size_t wal_n_inserts = wal_docs - wal_deletes;
-    if (handle->ndocs + wal_n_inserts < wal_deletes) {
+
+    ndocs = _kvs_stat_get_sum(handle->file, KVS_STAT_NDOCS);
+
+    if (ndocs + wal_n_inserts < wal_deletes) {
         info->doc_count = 0;
     } else {
-        if (handle->ndocs) {
-            info->doc_count = handle->ndocs + wal_n_inserts - wal_deletes;
+        if (ndocs) {
+            info->doc_count = ndocs + wal_n_inserts - wal_deletes;
         } else {
             info->doc_count = wal_n_inserts;
         }

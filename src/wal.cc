@@ -26,6 +26,7 @@
 #include "docio.h"
 #include "wal.h"
 #include "hash_functions.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -101,8 +102,6 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     file->wal->flag = WAL_FLAG_INITIALIZED;
     file->wal->size = 0;
     file->wal->num_flushable = 0;
-    file->wal->num_docs = 0;
-    file->wal->num_deletes = 0;
     file->wal->datasize = 0;
     file->wal->wal_dirty = FDB_WAL_CLEAN;
     hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
@@ -132,7 +131,14 @@ static wal_result _wal_insert(fdb_txn *txn,
     struct hash_elem *he;
     void *key = doc->key;
     size_t keylen = doc->keylen;
+    fdb_kvs_id_t kv_id, *_kv_id;
 
+    if (file->kv_header) { // multi KV instance mode
+        _kv_id = (fdb_kvs_id_t*)doc->key;
+        kv_id = _endian_decode(*_kv_id);
+    } else {
+        kv_id = 0;
+    }
     query.key = key;
     query.keylen = keylen;
 
@@ -179,7 +185,7 @@ static wal_result _wal_insert(fdb_txn *txn,
                 le = list_next(le);
             }
         } else {
-            // inserted by compactor
+            // insertion by compactor
             // check whether there is a committed entry
             le = list_end(&header->items);
             if (le) {
@@ -190,7 +196,7 @@ static wal_result _wal_insert(fdb_txn *txn,
                     // increase num_docs
                     // (if committed entry already exists,
                     //  num_docs doesn't need to be increased)
-                    file->wal->num_docs++;
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
                 }
             }
         }
@@ -272,7 +278,7 @@ static wal_result _wal_insert(fdb_txn *txn,
             list_push_back(txn->items, &item->list_elem_txn);
         } else {
             // increase num_docs
-            file->wal->num_docs++;
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
         }
 
         // insert header into wal global list
@@ -486,6 +492,7 @@ wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
     struct wal_item *item;
     struct wal_item *_item;
     struct list_elem *e1, *e2;
+    fdb_kvs_id_t kv_id, *_kv_id;
 
     spin_lock(&file->wal->lock);
 
@@ -495,6 +502,14 @@ wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
         assert(item->txn == txn);
 
         if (!(item->flag & WAL_ITEM_COMMITTED)) {
+            // get KVS ID
+            if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
+                _kv_id = (fdb_kvs_id_t*)item->header->key;
+                kv_id = _endian_decode(*_kv_id);
+            } else {
+                kv_id = 0;
+            }
+
             item->flag |= WAL_ITEM_COMMITTED;
             // append commit mark if necessary
             if (func) {
@@ -525,17 +540,17 @@ wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
             }
             if (!prev_commit) {
                 // there was no previous commit .. increase num_docs
-                file->wal->num_docs++;
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
                 if (item->action == WAL_ACT_LOGICAL_REMOVE) {
-                    file->wal->num_deletes++;
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
                 }
             } else {
                 if (prev_action == WAL_ACT_INSERT &&
                     item->action == WAL_ACT_LOGICAL_REMOVE) {
-                    file->wal->num_deletes++;
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
                 } else if (prev_action == WAL_ACT_LOGICAL_REMOVE &&
                            item->action == WAL_ACT_INSERT) {
-                    file->wal->num_deletes--;
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
                 }
             }
             // increase num_flushable if it is transactional update
@@ -584,6 +599,7 @@ wal_result wal_release_flushed_items(struct filemgr *file,
     struct avl_node *a;
     struct wal_item *item;
     struct wal_item_header *header;
+    fdb_kvs_id_t kv_id, *_kv_id;
 
     // scan and remove entries in the avl-tree
     spin_lock(&file->wal->lock);
@@ -593,6 +609,14 @@ wal_result wal_release_flushed_items(struct filemgr *file,
         }
         item = _get_entry(a, struct wal_item, avl);
         avl_remove(tree, &item->avl);
+
+        // get KVS ID
+        if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
+            _kv_id = (fdb_kvs_id_t*)item->header->key;
+            kv_id = _endian_decode(*_kv_id);
+        } else {
+            kv_id = 0;
+        }
 
         list_remove(&item->header->items, &item->list_elem);
         hash_remove(&file->wal->hash_byseq, &item->he_seq);
@@ -607,9 +631,9 @@ wal_result wal_release_flushed_items(struct filemgr *file,
 
         if (item->action == WAL_ACT_LOGICAL_REMOVE ||
             item->action == WAL_ACT_REMOVE) {
-            --file->wal->num_deletes;
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
         }
-        file->wal->num_docs--;
+        _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
         file->wal->size--;
         file->wal->num_flushable--;
         if (item->action != WAL_ACT_REMOVE) {
@@ -803,6 +827,8 @@ wal_result _wal_close(struct filemgr *file,
     struct wal_item_header *header;
     struct list_elem *e1, *e2;
     fdb_kvs_id_t *_kv_id, kv_id, kv_id_req;
+    bool committed;
+    wal_item_action committed_item_action;
 
     if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
         if (aux == NULL) { // aux must contain pointer to KV ID
@@ -823,9 +849,11 @@ wal_result _wal_close(struct filemgr *file,
             // begin while loop only on matching KV ID
             e2 = (kv_id == kv_id_req)?(list_begin(&header->items)):(NULL);
         } else {
+            kv_id = 0;
             e2 = list_begin(&header->items);
         }
 
+        committed = false;
         while(e2) {
             item = _get_entry(e2, struct wal_item, list_elem);
 
@@ -838,6 +866,10 @@ wal_result _wal_close(struct filemgr *file,
                 if (!(item->flag & WAL_ITEM_COMMITTED)) {
                     // and also remove from transaction's list
                     list_remove(item->txn->items, &item->list_elem_txn);
+                } else {
+                    // committed item exists and will be removed
+                    committed = true;
+                    committed_item_action = item->action;
                 }
                 // remove from seq hash table
                 hash_remove(&file->wal->hash_byseq, &item->he_seq);
@@ -864,6 +896,16 @@ wal_result _wal_close(struct filemgr *file,
             hash_remove(&file->wal->hash_bykey, &header->he_key);
             free(header->key);
             free(header);
+
+            if (committed) {
+                // this document was committed
+                // num_docs and num_deletes should be updated
+                if (committed_item_action == WAL_ACT_LOGICAL_REMOVE ||
+                    committed_item_action == WAL_ACT_REMOVE) {
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
+                }
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
+            }
         }
     }
 
@@ -882,8 +924,6 @@ wal_result wal_shutdown(struct filemgr *file)
     wal_result wr = _wal_close(file, WAL_DISCARD_ALL, NULL);
     file->wal->size = 0;
     file->wal->num_flushable = 0;
-    file->wal->num_docs = 0;
-    file->wal->num_deletes = 0;
     return wr;
 }
 
@@ -905,11 +945,11 @@ size_t wal_get_num_flushable(struct filemgr *file)
 }
 
 size_t wal_get_num_docs(struct filemgr *file) {
-    return file->wal->num_docs;
+    return _kvs_stat_get_sum(file, KVS_STAT_WAL_NDOCS);
 }
 
 size_t wal_get_num_deletes(struct filemgr *file) {
-    return file->wal->num_deletes;
+    return _kvs_stat_get_sum(file, KVS_STAT_WAL_NDELETES);
 }
 
 size_t wal_get_datasize(struct filemgr *file)
