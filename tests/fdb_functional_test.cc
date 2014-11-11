@@ -79,6 +79,7 @@ void basic_test()
     fconfig.flags = 0;
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
+    TEST_CHK(!strcmp(fdb_error_msg(status), "no such file"));
 
     // Read-Only mode test: Must not create new file.
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
@@ -89,11 +90,13 @@ void basic_test()
     fconfig.flags = FDB_OPEN_FLAG_RDONLY | FDB_OPEN_FLAG_CREATE;
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_INVALID_CONFIG);
+    TEST_CHK(!strcmp(fdb_error_msg(status), "invalid configuration"));
 
     // open and close db with a create flag.
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(!strcmp(fdb_error_msg(status), "success"));
     fdb_close(dbfile);
 
     // reopen db
@@ -170,6 +173,7 @@ void basic_test()
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+            TEST_CHK(!strcmp(fdb_error_msg(status), "key not found"));
         }
 
         // free result document
@@ -250,6 +254,7 @@ void basic_test()
 
     status = fdb_set(db_rdonly, doc[i]);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
+    TEST_CHK(!strcmp(fdb_error_msg(status), "database is read-only"));
 
     status = fdb_commit(dbfile_rdonly, FDB_COMMIT_NORMAL);
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);

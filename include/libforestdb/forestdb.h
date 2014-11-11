@@ -727,6 +727,17 @@ LIBFDB_API
 fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
                           const char *kvs_name);
 
+/**
+ * Retrieve ForestDB error code as a string
+ *
+ * @param  err_code Error code
+ * @return A text string that describes an error code. Note that the string
+ *         returned is a constant. The application must not try to modify
+ *         it or try to free the pointer to this string.
+ */
+LIBFDB_API
+const char* fdb_error_msg(fdb_status err_code);
+
 #ifdef __cplusplus
 }
 #endif

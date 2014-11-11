@@ -75,6 +75,7 @@ add_library(forestdb SHARED
             src/filemgr_ops.cc
             ${FORESTDB_FILE_OPS}
             src/forestdb.cc
+            src/fdb_errors.cc
             src/hash_functions.cc
             src/hbtrie.cc
             src/iterator.cc
