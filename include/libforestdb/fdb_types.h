@@ -397,8 +397,7 @@ typedef struct {
      */
     const char* new_filename;
     /**
-     * Total number of non-deleted documents.
-     * TODO: This should be moved to fdb_kvs_info structure.
+     * Total number of non-deleted documents aggregated across all KV stores.
      */
     uint64_t doc_count;
     /**
@@ -424,7 +423,7 @@ typedef struct {
      */
     fdb_seqnum_t last_seqnum;
     /**
-     * Total number of non-deleted documents in the KV store.
+     * Total number of non-deleted documents in a KV store.
      */
     uint64_t doc_count;
     /**
