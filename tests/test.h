@@ -38,6 +38,10 @@ extern "C" {
 #define TEST_INIT() \
     static int __test_pass=1; \
     struct timeval __test_begin, __test_prev, __test_cur, __test_interval_total, __test_interval_ins; \
+    (void)__test_prev; \
+    (void)__test_interval_total; \
+    (void)__test_interval_ins; \
+    (void)__test_pass; \
     gettimeofday(&__test_begin, NULL); \
     __test_cur = __test_begin
 
