@@ -173,7 +173,8 @@ INLINE int _bnode_size_check(
         e = list_begin(kv_ins_list);
         item = _get_entry(e, struct kv_ins_item, le);
         cursize = _bnode_size(btree, node, new_minkey, item->key, item->value, 1);
-    }else if (nitem == 0) {
+    } else {
+        assert(nitem == 0); /* nitem should never be negative due to size_t */
         cursize = _bnode_size(btree, node, new_minkey, NULL, NULL, 0);
     }
 
