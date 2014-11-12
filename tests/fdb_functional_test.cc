@@ -1615,6 +1615,59 @@ void multi_thread_test(
     TEST_RESULT("multi thread test");
 }
 
+void *multi_thread_client_shutdown(void *args)
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int nclients;
+    fdb_file_handle *tdbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    thread_t *tid;
+    void **thread_ret;
+
+    if (args == NULL)
+    { // parent
+
+        r = system(SHELL_DEL" dummy* > errorlog.txt");
+        nclients = 2;
+        tid = alca(thread_t, nclients);
+        thread_ret = alca(void *, nclients);
+        for (i=0;i<nclients;++i){
+            thread_create(&tid[i], multi_thread_client_shutdown, (void *)&i);
+        }
+        for (i=0;i<nclients;++i){
+            thread_join(tid[i], &thread_ret[i]);
+        }
+
+        memleak_end();
+        TEST_RESULT("multi thread client shutdown");
+        return NULL;
+    }
+
+    // threads enter here //
+
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.compaction_threshold = 0;
+
+    // open/close db
+    status = fdb_open(&tdbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(fdb_close(tdbfile) == FDB_RESULT_SUCCESS);
+
+    // shutdown
+    fdb_shutdown();
+    thread_exit(0);
+    return NULL;
+}
+
 void crash_recovery_test()
 {
     TEST_INIT();
@@ -4550,7 +4603,8 @@ void compaction_daemon_test(size_t time_sec)
 
     // Simulate a database crash by doing a premature shutdown
     // Note that db_non was never closed properly
-    fdb_shutdown();
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_destroy("dummy_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -7625,5 +7679,6 @@ int main(){
     purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
+    multi_thread_client_shutdown(NULL);
     return 0;
 }

@@ -55,6 +55,7 @@
 #endif
 
 static volatile uint8_t fdb_initialized = 0;
+static volatile uint8_t fdb_open_inprog = 0;
 #ifdef SPIN_INITIALIZER
 static spin_t initial_lock = SPIN_INITIALIZER;
 #else
@@ -594,21 +595,23 @@ fdb_status fdb_init(fdb_config *config)
         }
 #endif
 
-        spin_lock(&initial_lock);
-        if (!fdb_initialized) {
-            // initialize file manager and block cache
-            f_config.blocksize = _config.blocksize;
-            f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
-            filemgr_init(&f_config);
-
-            // initialize compaction daemon
-            c_config.sleep_duration = _config.compactor_sleep_duration;
-            compactor_init(&c_config);
-
-            fdb_initialized = 1;
-        }
-        spin_unlock(&initial_lock);
     }
+    spin_lock(&initial_lock);
+    if (!fdb_initialized) {
+        // initialize file manager and block cache
+        f_config.blocksize = _config.blocksize;
+        f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
+        filemgr_init(&f_config);
+
+        // initialize compaction daemon
+        c_config.sleep_duration = _config.compactor_sleep_duration;
+        compactor_init(&c_config);
+
+        fdb_initialized = 1;
+    }
+    fdb_open_inprog++;
+    spin_unlock(&initial_lock);
+
     return FDB_RESULT_SUCCESS;
 }
 
@@ -670,6 +673,9 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
         free(handle);
         fdb_file_handle_free(fhandle);
     }
+    spin_lock(&initial_lock);
+    fdb_open_inprog--;
+    spin_unlock(&initial_lock);
     return fs;
 }
 
@@ -728,6 +734,9 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
         free(handle);
         fdb_file_handle_free(fhandle);
     }
+    spin_lock(&initial_lock);
+    fdb_open_inprog--;
+    spin_unlock(&initial_lock);
     return fs;
 }
 
@@ -3830,12 +3839,20 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
 LIBFDB_API
 fdb_status fdb_shutdown()
 {
-    compactor_shutdown();
-    filemgr_shutdown();
+    if (fdb_initialized) {
+        spin_lock(&initial_lock);
+        if (fdb_open_inprog) {
+            spin_unlock(&initial_lock);
+            return FDB_RESULT_FILE_IS_BUSY;
+        }
+        compactor_shutdown();
+        filemgr_shutdown();
 #ifdef _MEMPOOL
-    mempool_shutdown();
+        mempool_shutdown();
 #endif
 
-    fdb_initialized = 0;
+        fdb_initialized = 0;
+        spin_unlock(&initial_lock);
+    }
     return FDB_RESULT_SUCCESS;
 }
