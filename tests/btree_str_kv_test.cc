@@ -105,7 +105,7 @@ void kv_get_key_isnull_test()
     memleak_start();
 
     void *key = NULL;
-    char *strbuf;
+    char *strbuf = NULL;
     size_t len;
     btree_str_kv_get_key(&key, strbuf, &len);
 
