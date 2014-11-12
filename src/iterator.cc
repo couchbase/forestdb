@@ -876,7 +876,7 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     int save_direction; // if we move past seek_key and need to turn back to it
     size_t seek_keylen_kv = seek_keylen + sizeof(fdb_kvs_id_t);
     size_t finalRun = (size_t) (-1);
-    uint8_t *seek_key_kv = alca(uint8_t, seek_keylen_kv);
+    uint8_t *seek_key_kv;
     fdb_kvs_id_t _kv_id;
 
     if (!iterator || !seek_key || !iterator->_key ||
@@ -1530,12 +1530,11 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator, fdb_doc **doc)
 
 fdb_status fdb_iterator_close(fdb_iterator *iterator)
 {
-    hbtrie_result hr;
     struct avl_node *a;
     struct snap_wal_entry *snap_item;
 
     if (iterator->hbtrie_iterator) {
-        hr = hbtrie_iterator_free(iterator->hbtrie_iterator);
+        hbtrie_iterator_free(iterator->hbtrie_iterator);
         free(iterator->hbtrie_iterator);
     }
     if (iterator->idtree_iterator) {
@@ -1547,7 +1546,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         free(iterator->seqtree_iterator);
     }
     if (iterator->seqtrie_iterator) {
-        hr = hbtrie_iterator_free(iterator->seqtrie_iterator);
+        hbtrie_iterator_free(iterator->seqtrie_iterator);
         free(iterator->seqtrie_iterator);
     }
 

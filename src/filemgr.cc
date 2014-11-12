@@ -951,7 +951,9 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
                 // write partially .. we have to read previous contents of the block
                 void *_buf = _filemgr_get_temp_buf();
 
-                r = file->ops->pread(file->fd, _buf, file->blocksize, bid * file->blocksize);
+                r = file->ops->pread(file->fd, _buf, file->blocksize,
+                                     bid * file->blocksize);
+                (void)r; // TODO:propogate error to caller
                 memcpy((uint8_t *)_buf + offset, buf, len);
                 bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
 

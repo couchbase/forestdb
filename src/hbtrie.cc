@@ -872,7 +872,7 @@ void _hbtrie_btree_cascaded_update(
             bid_new = btreeitem_child->btree.root_bid;
             _bid = _endian_encode(bid_new);
             _hbtrie_set_msb(trie, (void *)&_bid);
-            r = btree_insert(&btreeitem->btree,
+            btree_insert(&btreeitem->btree,
                     (uint8_t*)key + btreeitem->chunkno * trie->chunksize,
                     (void *)&_bid);
         }
@@ -923,7 +923,7 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
     nchunk = _get_nchunk(trie, key, keylen);
 
     meta.data = buf;
-    prevchunkno = curchunkno = 0;
+    curchunkno = 0;
 
     if (trie->map) { // custom cmp functions exist
         if (!memcmp(trie->last_map_chunk, key, trie->chunksize)) {
@@ -955,6 +955,9 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
         r = btree_init_from_bid(btree, trie->btreeblk_handle, trie->btree_blk_ops,
                                 trie->btree_kv_ops, trie->btree_nodesize,
                                 trie->root_bid);
+        if (r != BTREE_RESULT_SUCCESS) {
+            return HBTRIE_RESULT_FAIL;
+        }
         btree->aux = trie->aux;
         assert(btree->ksize == trie->chunksize && btree->vsize == trie->valuelen);
     }
@@ -1045,6 +1048,9 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
                 // fetch sub-tree
                 r = btree_init_from_bid(btree, trie->btreeblk_handle, trie->btree_blk_ops,
                                         trie->btree_kv_ops, trie->btree_nodesize, bid_new);
+                if (r != BTREE_RESULT_SUCCESS) {
+                    return HBTRIE_RESULT_FAIL;
+                }
                 btree->aux = trie->aux;
             } else {
                 // this is offset of document (as it is)
@@ -1397,8 +1403,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
     bid_t bid_new, _bid;
 
     meta.data = buf;
-    prevchunkno = curchunkno = 0;
+    curchunkno = 0;
     keylen = _hbtrie_reform_key(trie, rawkey, rawkeylen, key);
+    (void)keylen;
 
     if (trie->map) { // custom cmp functions exist
         if (!memcmp(trie->last_map_chunk, key, trie->chunksize)) {
@@ -1426,11 +1433,17 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
         r = btree_init(
             &btreeitem->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
             trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
-    }else{
+        if (r != BTREE_RESULT_SUCCESS) {
+            return HBTRIE_RESULT_FAIL;
+        }
+    } else {
         // read from root_bid
         r = btree_init_from_bid(
             &btreeitem->btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
             trie->btree_nodesize, trie->root_bid);
+        if (r != BTREE_RESULT_SUCCESS) {
+            return HBTRIE_RESULT_FAIL;
+        }
     }
     btreeitem->btree.aux = trie->aux;
 
@@ -1492,12 +1505,18 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                                trie->btree_blk_ops, trie->btree_kv_ops,
                                trie->btree_nodesize, trie->chunksize,
                                trie->valuelen, 0x0, &meta);
+                if (r != BTREE_RESULT_SUCCESS) {
+                    return HBTRIE_RESULT_FAIL;
+                }
                 btreeitem_new->btree.aux = trie->aux;
                 list_insert_before(&btreelist, &btreeitem->e, &btreeitem_new->e);
 
                 // insert chunk for 'key'
                 chunk_new = key + (prevchunkno + diffchunkno + 1) * trie->chunksize;
                 r = btree_insert(&btreeitem_new->btree, chunk_new, value);
+                if (r != BTREE_RESULT_SUCCESS) {
+                    return HBTRIE_RESULT_FAIL;
+                }
                 // insert chunk for existing btree
                 chunk_new = (uint8_t*)old_prefix + diffchunkno * trie->chunksize;
                 btreeitem_new->child_rootbid = bid_new = btreeitem->btree.root_bid;
@@ -1505,6 +1524,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 _bid = _endian_encode(bid_new);
                 _hbtrie_set_msb(trie, (void*)&_bid);
                 r = btree_insert(&btreeitem_new->btree, chunk_new, (void*)&_bid);
+                if (r != BTREE_RESULT_SUCCESS) {
+                    return HBTRIE_RESULT_FAIL;
+                }
 
                 break;
             }
@@ -1544,6 +1566,11 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 // leaf b-tree
                 _set_leaf_key(k, chunk, rawkeylen - curchunkno*trie->chunksize);
                 r = btree_insert(&btreeitem->btree, k, value);
+                if (r != BTREE_RESULT_SUCCESS) {
+                    _free_leaf_key(k);
+                    ret_result = HBTRIE_RESULT_FAIL;
+                    break; // while loop
+                }
                 _free_leaf_key(k);
 
                 if (btreeitem->btree.height > trie->leaf_height_limit) {
@@ -1554,6 +1581,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 }
             } else {
                 r = btree_insert(&btreeitem->btree, chunk, value);
+                if (r != BTREE_RESULT_SUCCESS) {
+                    ret_result = HBTRIE_RESULT_FAIL;
+                }
             }
             break; // while loop
 
@@ -1568,7 +1598,11 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 }
                 // assume that always normal b-tree
                 r = btree_insert(&btreeitem->btree, chunk, value);
-                ret_result = HBTRIE_RESULT_UPDATE;
+                if (r != BTREE_RESULT_SUCCESS) {
+                    ret_result = HBTRIE_RESULT_FAIL;
+                } else {
+                    ret_result = HBTRIE_RESULT_UPDATE;
+                }
                 break;
             }
 
@@ -1590,6 +1624,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                                         trie->btree_blk_ops,
                                         trie->btree_kv_ops,
                                         trie->btree_nodesize, bid_new);
+                if (r != BTREE_RESULT_SUCCESS) {
+                    ret_result = HBTRIE_RESULT_FAIL;
+                }
                 btreeitem->btree.aux = trie->aux;
                 list_push_back(&btreelist, &btreeitem->e);
 
@@ -1653,7 +1690,11 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                         // normal b-tree
                         r = btree_insert(&btreeitem->btree, chunk, value);
                     }
-                    ret_result = HBTRIE_RESULT_UPDATE;
+                    if (r != BTREE_RESULT_SUCCESS) {
+                        ret_result = HBTRIE_RESULT_FAIL;
+                    } else {
+                        ret_result = HBTRIE_RESULT_UPDATE;
+                    }
                     break;
 
                 }else if (minchunkno == diffchunkno && minchunkno == newchunkno) {
@@ -1686,6 +1727,8 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                         nchunk_long = docnchunk;
                         rawkeylen_long = docrawkeylen;
                     }
+                    (void)key_short;
+                    (void)nchunk_long;
 
                     _hbtrie_store_meta(
                             trie, &meta.size, newchunkno, opt,
@@ -1698,6 +1741,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                             &btreeitem_new->btree, trie->btreeblk_handle,
                             trie->btree_blk_ops, kv_ops,
                             trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
+                    if (r != BTREE_RESULT_SUCCESS) {
+                        return HBTRIE_RESULT_FAIL;
+                    }
                     btreeitem_new->btree.aux = trie->aux;
 
                     list_push_back(&btreelist, &btreeitem_new->e);
@@ -1709,10 +1755,16 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                         // optimization mode
                         _set_leaf_key(k, chunk_new, rawkeylen_long - newchunkno*trie->chunksize);
                         r = btree_insert(&btreeitem_new->btree, k, value_long);
+                        if (r != BTREE_RESULT_SUCCESS) {
+                            ret_result = HBTRIE_RESULT_FAIL;
+                        }
                         _free_leaf_key(k);
                     } else {
                         // normal mode
                         r = btree_insert(&btreeitem_new->btree, chunk_new, value_long);
+                        if (r != BTREE_RESULT_SUCCESS) {
+                            ret_result = HBTRIE_RESULT_FAIL;
+                        }
                     }
 
                 } else {
@@ -1729,10 +1781,12 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                             &btreeitem_new->btree, trie->btreeblk_handle,
                             trie->btree_blk_ops, kv_ops,
                             trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
+                    if (r == BTREE_RESULT_FAIL) {
+                        ret_result = HBTRIE_RESULT_FAIL;
+                    }
                     btreeitem_new->btree.aux = trie->aux;
 
                     list_push_back(&btreelist, &btreeitem_new->e);
-
                     // insert KEY
                     chunk_new = key + newchunkno * trie->chunksize;
                     if (opt == HBMETA_LEAF) {
@@ -1742,6 +1796,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                         _free_leaf_key(k);
                     } else {
                         r = btree_insert(&btreeitem_new->btree, chunk_new, value);
+                    }
+                    if (r == BTREE_RESULT_FAIL) {
+                        ret_result = HBTRIE_RESULT_FAIL;
                     }
 
                     // insert the original DOCKEY
@@ -1754,6 +1811,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                     } else {
                         r = btree_insert(&btreeitem_new->btree, chunk_new, btree_value);
                     }
+                    if (r == BTREE_RESULT_FAIL) {
+                        ret_result = HBTRIE_RESULT_FAIL;
+                    }
                 }
 
                 // update previous (parent) b-tree
@@ -1765,6 +1825,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 _hbtrie_set_msb(trie, (void *)&_bid);
                 // ASSUMPTION: parent b-tree always MUST be non-leaf b-tree
                 r = btree_insert(&btreeitem->btree, chunk, (void*)&_bid);
+                if (r == BTREE_RESULT_FAIL) {
+                    ret_result = HBTRIE_RESULT_FAIL;
+                }
 
                 break;
 

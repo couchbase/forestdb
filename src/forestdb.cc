@@ -269,11 +269,9 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                         !(doc.length.flag & DOCIO_SYSTEM)) {
                         if (doc.length.flag & DOCIO_TXN_COMMITTED) {
                             // commit mark .. read doc offset
-                            uint64_t _offset_temp;
                             doc_offset = doc.doc_offset;
                             // read the previously skipped doc
-                            _offset_temp = docio_read_doc(handle->dhandle,
-                                                          doc_offset, &doc);
+                            docio_read_doc(handle->dhandle, doc_offset, &doc);
                             if (doc.key == NULL) { // doc read error
                                 free(doc.meta);
                                 free(doc.body);
@@ -484,11 +482,9 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
                         !(doc.length.flag & DOCIO_SYSTEM)) {
                         if (doc.length.flag & DOCIO_TXN_COMMITTED) {
                             // commit mark .. read doc offset
-                            uint64_t _offset_temp;
                             doc_offset = doc.doc_offset;
                             // read the previously skipped doc
-                            _offset_temp = docio_read_doc(handle->dhandle,
-                                                          doc_offset, &doc);
+                            docio_read_doc(handle->dhandle, doc_offset, &doc);
                             if (doc.key == NULL) {
                                 // doc read error
                                 if (doc.key) free(doc.key);
@@ -497,8 +493,6 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
                                 offset = _offset;
                                 continue;
                             }
-                        } else {
-                            doc_offset = offset;
                         }
 
                         // this document was interleaved during compaction
@@ -1475,13 +1469,11 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset = 0;
-    hbtrie_result hr;
-    btree_result br;
 
-    hr = hbtrie_find_offset(handle->trie,
-                            item->header->key,
-                            item->header->keylen,
-                            (void*)&old_offset);
+    hbtrie_find_offset(handle->trie,
+                       item->header->key,
+                       item->header->keylen,
+                       (void*)&old_offset);
     btreeblk_end(handle->bhandle);
     old_offset = _endian_decode(old_offset);
 
@@ -1496,7 +1488,6 @@ INLINE wal_result _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
 INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 {
     hbtrie_result hr;
-    btree_result br;
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     fdb_seqnum_t _seqnum;
     fdb_kvs_id_t kv_id, *_kv_id;
@@ -1545,7 +1536,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
                 hbtrie_insert(handle->seqtrie, kvid_seqnum, size_id + size_seq,
                               (void *)&_offset, (void *)&old_offset_local);
             } else {
-                br = btree_insert(handle->seqtree, (void *)&_seqnum, (void *)&_offset);
+                btree_insert(handle->seqtree, (void *)&_seqnum, (void *)&_offset);
             }
             btreeblk_end(handle->bhandle);
         }
@@ -1585,7 +1576,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             _seqnum = _endian_encode(item->seqnum);
-            br = btree_remove(handle->seqtree, (void*)&_seqnum);
+            btree_remove(handle->seqtree, (void*)&_seqnum);
             btreeblk_end(handle->bhandle);
         }
 
@@ -2481,8 +2472,6 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    file = handle->file;
-
     _doc.length.keylen = doc->keylen;
     _doc.length.metalen = doc->metalen;
     _doc.length.bodylen = doc->deleted ? 0 : doc->bodylen;
@@ -2810,14 +2799,11 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
 static void _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 {
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
-    struct filemgr *file;
     struct docio_handle *dhandle;
 
     if (handle->new_file) {
-        file = handle->new_file;
         dhandle = handle->new_dhandle;
     } else {
-        file = handle->file;
         dhandle = handle->dhandle;
     }
     docio_append_commit_mark(dhandle, offset);
@@ -3190,7 +3176,7 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
         }
     }
 
-    hr = hbtrie_iterator_free(&it);
+    hbtrie_iterator_free(&it);
     free(offset_array);
 }
 
@@ -3497,11 +3483,13 @@ fdb_status fdb_compact(fdb_file_handle *fhandle,
             // compaction succeeded
             // clear compaction flag
             ret = compactor_switch_compaction_flag(handle->file, false);
+            (void)ret;
             return fs;
         }
         // compaction failed
         // clear compaction flag
         ret = compactor_switch_compaction_flag(handle->file, false);
+        (void)ret;
         return fs;
     }
     return FDB_RESULT_MANUAL_COMPACTION_FAIL;

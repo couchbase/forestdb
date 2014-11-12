@@ -690,7 +690,6 @@ void fdb_kvs_header_read(struct filemgr *file,
                             struct docio_handle *dhandle,
                             uint64_t kv_info_offset)
 {
-    char *doc_key = alca(char, 32);
     void *data;
     size_t len;
     uint64_t offset;
@@ -1381,7 +1380,7 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
                           const char *kvs_name)
 {
     int kv_ins_name_len;
-    fdb_status fs;
+    fdb_status fs = FDB_RESULT_SUCCESS;
     fdb_kvs_id_t kv_id, _kv_id;
     fdb_kvs_handle *root_handle;
     struct avl_node *a = NULL;

@@ -438,7 +438,6 @@ struct avl_node* avl_insert(struct avl_tree *tree,
 
         if (p) {
             // if parent exists
-            cur = node;
             bf_old = avl_bf(node);
 
             if (p->right == node) {

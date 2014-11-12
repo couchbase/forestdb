@@ -182,7 +182,7 @@ void basic_test()
         keybuf[keylen] = 0;
         DBG("%s\n", keybuf);
     }
-    r = hbtrie_iterator_free(&it);
+    hbtrie_iterator_free(&it);
 
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
