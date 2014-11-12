@@ -196,7 +196,6 @@ static void _copy_str_kv(struct bnode *node_dst,
     int i;
     int ksize, vsize;
     void *ptr_src, *ptr_dst;
-    void *key_ptr;
     key_len_t keylen, _keylen;
     size_t src_offset, src_len, dst_offset;
 

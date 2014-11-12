@@ -32,7 +32,6 @@ void basic_test()
     const char *dbheader = "dbheader";
     const char *dbheader2 = "dbheader2222222222";
     char buf[256];
-    int len;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;

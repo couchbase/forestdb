@@ -598,7 +598,6 @@ wal_result wal_release_flushed_items(struct filemgr *file,
     struct avl_tree *tree = flush_items;
     struct avl_node *a;
     struct wal_item *item;
-    struct wal_item_header *header;
     fdb_kvs_id_t kv_id, *_kv_id;
 
     // scan and remove entries in the avl-tree
@@ -733,7 +732,6 @@ wal_result wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
                         wal_snapshot_func *snapshot_func)
 {
-    struct avl_node *a;
     struct list_elem *e, *ee;
     struct wal_item *item;
     struct wal_item_header *header;

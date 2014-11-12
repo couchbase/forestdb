@@ -65,7 +65,7 @@ void basic_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -383,7 +383,7 @@ void seq_tree_exception_test()
     fdb_status status;
     fdb_iterator *it;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -517,7 +517,7 @@ void wal_commit_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -618,7 +618,7 @@ void multi_version_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -750,7 +750,7 @@ void compact_wo_reopen_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -1032,7 +1032,7 @@ void auto_recover_compact_ok_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* > errorlog.txt");
@@ -1159,7 +1159,7 @@ void db_drop_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* > errorlog.txt");
@@ -1252,7 +1252,7 @@ void db_destroy_test()
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL " dummy* > errorlog.txt");
@@ -1364,7 +1364,7 @@ void *_worker_thread(void *voidargs)
     TEST_INIT();
 
     struct work_thread_args *args = (struct work_thread_args *)voidargs;
-    int i, r, k, c, commit_count, filename_count;
+    int i, c, commit_count, filename_count;
     struct timeval ts_begin, ts_cur, ts_gap;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
@@ -1484,7 +1484,7 @@ void multi_thread_test(
     TEST_INIT();
 
     size_t nwrites, nreads;
-    int i, r, idx_digit, temp_len;
+    int i, r, idx_digit;
     int n = nwriters + nreaders;;
     thread_t *tid = alca(thread_t, n);
     void **thread_ret = alca(void *, n);
@@ -1493,7 +1493,6 @@ void multi_thread_test(
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, ndocs);
-    fdb_doc *rdoc;
     fdb_status status;
     fdb_kvs_info kvs_info;
 
@@ -1630,7 +1629,7 @@ void crash_recovery_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -1740,7 +1739,7 @@ void incomplete_block_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -1808,7 +1807,6 @@ void iterator_test()
 
     int i, r;
     int n = 10;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2048,7 +2046,7 @@ void iterator_with_concurrent_updates_test()
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2132,7 +2130,6 @@ void iterator_seek_test()
 
     int i, r;
     int n = 10;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2140,7 +2137,7 @@ void iterator_seek_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2307,7 +2304,6 @@ void sequence_iterator_test()
     int i, r;
     int n = 10;
     int count;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2315,7 +2311,7 @@ void sequence_iterator_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2534,7 +2530,6 @@ void sequence_iterator_duplicate_test()
     int i, r;
     int n = 100;
     int count;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2543,7 +2538,7 @@ void sequence_iterator_duplicate_test()
     fdb_iterator *iterator;
     fdb_seqnum_t seqnum;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2645,7 +2640,6 @@ void reverse_sequence_iterator_test()
 
     int i, r, count;
     int n = 10;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2653,7 +2647,7 @@ void reverse_sequence_iterator_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2789,9 +2783,8 @@ void reverse_iterator_test()
 
     memleak_start();
 
-    int i, r, count;
+    int i, r;
     int n = 10;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2799,7 +2792,7 @@ void reverse_iterator_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2974,7 +2967,6 @@ void custom_compare_primitive_test()
 
     int i, r;
     int n = 10;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -2982,7 +2974,7 @@ void custom_compare_primitive_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], bodybuf[256];
     double key_double, key_double_prev;
 
     // remove previous dummy files
@@ -3087,7 +3079,7 @@ void custom_compare_variable_test()
 
     int i, j, r;
     int n = 1000;
-    uint64_t offset, count;
+    uint64_t count;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *db2;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -3097,7 +3089,7 @@ void custom_compare_variable_test()
 
     size_t keylen = 16;
     size_t prev_keylen;
-    char keybuf[256], metabuf[256], bodybuf[256];
+    char keybuf[256], bodybuf[256];
     char prev_key[256];
 
     // remove previous dummy files
@@ -3268,7 +3260,6 @@ void snapshot_test()
     int i, r;
     int n = 20;
     int count;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_kvs_handle *snap_db;
@@ -3279,7 +3270,7 @@ void snapshot_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -3456,7 +3447,6 @@ void in_memory_snapshot_test()
     int i, r;
     int n = 20;
     int count;
-    uint64_t offset;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_kvs_handle *snap_db;
@@ -3467,7 +3457,7 @@ void in_memory_snapshot_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -3644,7 +3634,6 @@ void rollback_test()
     int i, r;
     int n = 20;
     int count;
-    uint64_t offset;
     fdb_file_handle *dbfile, *dbfile_txn;
     fdb_kvs_handle *db, *db_txn;
     fdb_seqnum_t rollback_seq;
@@ -3654,7 +3643,7 @@ void rollback_test()
     fdb_status status;
     fdb_iterator *iterator;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -3809,7 +3798,6 @@ void rollback_and_snapshot_test()
 
     memleak_start();
 
-    uint64_t offset;
     fdb_seqnum_t seqnum, rollback_seqnum;
     fdb_kvs_info kvs_info;
     fdb_status status;
@@ -4165,7 +4153,7 @@ void purge_logically_deleted_doc_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* fdb_test_config.json > errorlog.txt");
@@ -4291,7 +4279,7 @@ void compaction_daemon_test(size_t time_sec)
 
     memleak_start();
 
-    int i, j, r;
+    int i, r;
     int n = 10000;
     int compaction_threshold = 30;
     int escape = 0;
@@ -4304,7 +4292,7 @@ void compaction_daemon_test(size_t time_sec)
     fdb_status status;
     struct timeval ts_begin, ts_cur, ts_gap;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -4693,15 +4681,13 @@ void transaction_test()
 
     int i, r;
     int n = 10;
-    size_t valuelen;
-    void *value;
     fdb_file_handle *dbfile, *dbfile_txn1, *dbfile_txn2, *dbfile_txn3;
     fdb_kvs_handle *db, *db_txn1, *db_txn2, *db_txn3;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -5029,7 +5015,7 @@ void transaction_simple_api_test()
     fdb_kvs_handle *db, *db_txn1, *db_txn2;
     fdb_status status;
 
-    char keybuf[256], bodybuf[256], temp[256];
+    char keybuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -5157,15 +5143,12 @@ void flush_before_commit_test()
 
     int i, r;
     int n = 30;
-    size_t valuelen;
-    void *value;
     fdb_file_handle *dbfile, *dbfile_txn;
     fdb_kvs_handle *db, *db_txn;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -5296,8 +5279,6 @@ void flush_before_commit_multi_writers_test()
 
     int i, r;
     int n = 10;
-    size_t valuelen;
-    void *value;
     fdb_file_handle *dbfile1, *dbfile2;
     fdb_kvs_handle *db1, *db2;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -5306,7 +5287,7 @@ void flush_before_commit_multi_writers_test()
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -5443,15 +5424,13 @@ void last_wal_flush_header_test()
 
     int i, r;
     int n = 30;
-    size_t valuelen;
-    void *value;
     fdb_file_handle *dbfile, *dbfile_txn1, *dbfile_txn2;
     fdb_kvs_handle *db, *db_txn1, *db_txn2;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[256], metabuf[256], bodybuf[256], temp[256];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -5652,8 +5631,6 @@ void long_key_test()
     int i, j, idx, r;
     int n=300, m=20; // n: # prefixes, m: # postfixes
     int keylen_limit = FDB_MAX_KEYLEN; // need to modify if FDB_MAX_KEYLEN is changed
-    size_t valuelen;
-    void *value;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n*m);

@@ -818,11 +818,8 @@ fdb_status _compactor_search_n_destroy(const char *filename)
     int i;
     int filename_len;
     int dirname_len;
-    int compaction_no, max_compaction_no = -1;
-    char path[MAX_FNAMELEN];
     char dirname[MAX_FNAMELEN], prefix[MAX_FNAMELEN];
     fdb_status fs = FDB_RESULT_SUCCESS;
-    struct compactor_meta meta, *meta_ptr;
 
     // error handling .. scan directory
     // backward search until find the first '/' or '\' (Windows)
@@ -912,7 +909,6 @@ fdb_status _compactor_search_n_destroy(const char *filename)
 fdb_status compactor_destroy_file(char *filename,
                                   fdb_config *config)
 {
-    int fd;
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
     struct filemgr query_file;

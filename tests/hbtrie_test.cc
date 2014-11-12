@@ -54,7 +54,7 @@ void hbtrie_key_test()
     TEST_INIT();
 
     struct hbtrie trie;
-    int i,j,n;
+    int i,j;
 
     trie.chunksize = 4;
 
@@ -105,7 +105,7 @@ void basic_test()
     struct hbtrie_iterator it;
     size_t keylen;
 
-    int i, j, n=7, rr;
+    int i, n=7, rr;
     char **key = alca(char*, n);
     const char *key_ori[] = {"aaaa", "aaab", "aaac", "aba", "aaba", "bbbb", "aaac"};
     for (i=0;i<n;++i) {
@@ -215,12 +215,11 @@ void large_test()
     uint8_t valuebuf[8];
     hbtrie_result r;
 
-    int i, j, k, n=100000, m=1, rr;
+    int i, k, n=100000, m=1, rr;
     size_t keylen = 8;
     char **key;
     uint64_t *offset;
     uint64_t _offset;
-    int sw;
 
     key = (char **)malloc(sizeof(char*) * n);
     offset = (uint64_t *)malloc(sizeof(uint64_t) * n);
@@ -365,16 +364,14 @@ void skew_basic_test()
     struct hbtrie trie;
     struct filemgr_config config;
     uint8_t value_buf[8];
-    hbtrie_result r;
     struct hbtrie_iterator it;
     hbtrie_result hr;
     size_t keylen;
-    void *addr;
     uint64_t offset, _offset;
 
     memleak_start();
 
-    int i, j, n=22, rr;
+    int i, n=22, rr;
     const char *key_const[] = {
         "aaaaaaa_",
         "aaaaaaa_aaaaaaa_",
@@ -553,7 +550,7 @@ void hbtrie_reverse_iterator_test()
 
     int ksize = 8, vsize = 8, r, n=30, c;
     int nodesize = 256;
-    uint64_t i, k, v, v_out;
+    uint64_t i, v, v_out;
     char key[256], key_temp[256];
     size_t keylen;
     struct filemgr *file;

@@ -312,18 +312,11 @@ void print_doc(fdb_kvs_handle *db,
 
 void scan_docs(fdb_kvs_handle *db, struct dump_option *opt)
 {
-    uint8_t *keybuf = alca(uint8_t, FDB_MAX_KEYLEN_INTERNAL);
     uint64_t offset;
-    size_t keylen;
-    hbtrie_result hr;
     fdb_iterator *fit;
     fdb_status fs;
     fdb_doc *fdoc;
     wal_result wr;
-    struct list_elem *e, *ee;
-    struct wal_item_header *witem_header;
-    struct wal_item *witem;
-    struct hbtrie_iterator it;
 
     if (opt->one_key) {
         fdb_doc_create(&fdoc, opt->one_key,

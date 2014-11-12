@@ -45,7 +45,7 @@ Note that the maximum node size is limited to 2^(8*sizeof(key_len_t)) bytes
 
 static void _get_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
-    int ksize, vsize, i;
+    int ksize, vsize;
     void *key_ptr, *ptr;
     key_len_t *_offset_arr;
     key_len_t keylen, _keylen;
@@ -91,8 +91,8 @@ static void _set_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
     int ksize, vsize, i;
     void *key_ptr, *ptr;
     key_len_t *_offset_arr, offset;
-    key_len_t keylen, keylen_ins, keylen_idx;
-    key_len_t _keylen, _keylen_ins;
+    key_len_t keylen_ins, keylen_idx;
+    key_len_t _keylen_ins;
     key_len_t offset_idx, offset_next, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
@@ -172,8 +172,8 @@ static void _ins_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
     int ksize, vsize, i;
     void *key_ptr, *ptr;
     key_len_t *_offset_arr;
-    key_len_t keylen, keylen_ins;
-    key_len_t _keylen, _keylen_ins;
+    key_len_t keylen_ins;
+    key_len_t _keylen_ins;
     key_len_t offset, offset_begin, offset_idx, offset_next, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
@@ -270,9 +270,7 @@ static void _copy_fast_str_kv(struct bnode *node_dst,
     int i;
     int ksize, vsize;
     void *ptr_src, *ptr_dst, *ptr_swap;
-    void *key_ptr;
     key_len_t *_src_offset_arr, *_dst_offset_arr;
-    key_len_t keylen, _keylen;
     key_len_t offset, src_offset, src_len, dst_offset;
 
     // not support when dst_idx != 0
@@ -608,5 +606,3 @@ struct btree_kv_ops * btree_fast_str_kv_get_kb64_vb64(struct btree_kv_ops *kv_op
 
     return btree_kv_ops;
 }
-
-

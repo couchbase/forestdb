@@ -266,7 +266,6 @@ void kv_set_var_nentry_test()
     uint8_t v;
     idx_t idx;
     int cmp, i;
-    char *node_str;
     const char *keys[] = {"string",
                           "longstring",
                           "longerstring",
@@ -433,7 +432,6 @@ void kv_get_var_test()
     uint64_t v_in, v_out;
     idx_t idx;
     uint8_t ksize, vsize;
-    uint8_t offset;
     char *key_str;
     int cmp;
     char str[] = "teststring";
@@ -520,7 +518,6 @@ void kv_get_var_nentry_test()
     v = 100;
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);
-    size_t offset_idx = 0;
 
     // set n keys
     for (idx = 0; idx < n; idx ++){
@@ -565,7 +562,6 @@ void kv_ins_var()
     uint64_t v_in, v_out;
     idx_t idx;
     uint8_t ksize, vsize;
-    uint8_t offset;
     char *key_str;
     int cmp;
     char str[] = "teststring";
@@ -638,7 +634,6 @@ void kv_ins_var_nentry_test()
     v = 100;
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);
-    size_t offset_idx = 0;
 
     // insert twice at beginning of node
     kv_ops->ins_kv(node, 0, &key_ptrs[idx], (void *)&v);
@@ -726,7 +721,6 @@ void kv_set_str_value_test()
     TEST_INIT();
     memleak_start();
 
-    int cmp;
     uint64_t v_dst, v_src = 100;
     btree *tree = alca(struct btree, 1);
     tree->vsize = sizeof(v_dst);
@@ -1056,7 +1050,6 @@ void kv_free_kv_var_test()
     btree *tree;
     void *key;
     int v;
-    size_t size;
     char str[] = "teststring";
 
     kv_ops = alca(btree_kv_ops, 1);
@@ -1202,14 +1195,13 @@ void kv_cmp_key_str_test()
     memleak_start();
 
     btree_kv_ops *kv_ops;
-    uint8_t ksize, vsize, ksize_total = 0;
+    uint8_t ksize, vsize;
     int cmp;
     const char *keys[] = {"string",
                           "srting",
                           "longstring",
                           "longstringsuffix"};
 
-    int value_arr[] = {1, 10};
     int n =  sizeof(keys)/sizeof(void *);
     void **key_ptrs = alca(void *, n);
     void *tmp = NULL;

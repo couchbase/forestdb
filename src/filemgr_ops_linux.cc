@@ -147,7 +147,7 @@ void _filemgr_linux_get_errno_str(char *buf, size_t size) {
         char *ret = strerror_r(errno, tbuf, size);
         snprintf(buf, size, "errno = %d: '%s'", errno, ret);
 #else
-        int ret = strerror_r(errno, tbuf, size);
+        (void)strerror_r(errno, tbuf, size);
         snprintf(buf, size, "errno = %d: '%s'", errno, tbuf);
 #endif
     }

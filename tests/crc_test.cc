@@ -67,7 +67,6 @@ void basic_test()
 
 void adler_test()
 {
-    int i;
     char *str = (char*)"abcdefgh";
     uint32_t a1, a2, a3;
 

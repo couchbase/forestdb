@@ -33,8 +33,7 @@ void basic_test()
 
     struct filemgr *file;
     struct filemgr_config config;
-    bid_t bid;
-    int i, j;
+    int i;
     uint8_t buf[4096];
     char *fname = (char *) "./dummy";
 
@@ -79,8 +78,7 @@ void basic_test2()
 
     struct filemgr *file;
     struct filemgr_config config;
-    bid_t bid;
-    int i, j;
+    int i;
     uint8_t buf[4096];
     char *fname = (char *) "./dummy";
     int r;
@@ -178,7 +176,6 @@ void multi_thread_test(
 
     struct filemgr *file;
     struct filemgr_config config;
-    bid_t bid;
     int n = nwriters + nreaders;
     uint64_t i, j;
     uint32_t crc;
