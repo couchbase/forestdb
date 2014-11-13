@@ -718,17 +718,15 @@ void hbtrie_partial_update_test()
 {
     TEST_INIT();
 
-    int ksize = 8, vsize = 8, r, n=27, c;
+    int ksize = 8, vsize = 8, r, n=27;
     int nodesize = 256;
-    uint64_t i, k, v, v_out;
+    uint64_t i, v, v_out;
     uint64_t v1[3], v2[9];
     char key[256];
     char keystr[] = "key%05d%08d%08d";
-    size_t keylen;
     struct filemgr *file;
     struct btreeblk_handle bhandle;
     struct hbtrie trie;
-    struct hbtrie_iterator hit;
     struct filemgr_config config;
     hbtrie_result hr;
     filemgr_open_result fr;

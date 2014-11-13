@@ -1671,7 +1671,6 @@ void *multi_thread_client_shutdown(void *args)
     int i, r;
     int nclients;
     fdb_file_handle *tdbfile;
-    fdb_kvs_handle *db;
     fdb_status status;
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
@@ -4423,7 +4422,7 @@ void compaction_daemon_test(size_t time_sec)
     int compaction_threshold = 30;
     int escape = 0;
     fdb_file_handle *dbfile, *dbfile_less, *dbfile_non, *dbfile_manual, *dbfile_new;
-    fdb_kvs_handle *db, *db_less, *db_non, *db_manual, *db_new;
+    fdb_kvs_handle *db, *db_less, *db_non, *db_manual;
     fdb_kvs_handle *snapshot;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
@@ -5553,9 +5552,6 @@ void flush_before_commit_multi_writers_test()
         // retrieve through db2
         fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
                                 NULL, 0, NULL, 0);
-        if (i==9) {
-            int abc=0;
-        }
         status = fdb_get(db2, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
@@ -6319,9 +6315,6 @@ void multi_kv_iterator_key_test(uint8_t opt)
     char key[256], value[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
-    void *value_out;
-    size_t valuelen;
-
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
@@ -6489,8 +6482,6 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     char key[256], value[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
-    void *value_out;
-    size_t valuelen;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
@@ -6716,15 +6707,12 @@ void multi_kv_txn_test(uint8_t opt)
     char key[256], value[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
-    void *value_out;
-    size_t valuelen;
     fdb_file_handle *dbfile, *dbfile_txn1;
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_kvs_handle *txn1, *txn1_kv1, *txn1_kv2;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
-    fdb_iterator *it;
     fdb_status s;
 
     char *kvs_names[] = {(char*)"default", (char*)"kv1", (char*)"kv2"};
@@ -7095,8 +7083,6 @@ void multi_kv_snapshot_test(uint8_t opt)
     char key[256], value[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
-    void *value_out;
-    size_t valuelen;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_kvs_handle *snap1, *snap2;
@@ -7104,9 +7090,7 @@ void multi_kv_snapshot_test(uint8_t opt)
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
-    fdb_iterator *it;
     fdb_status s;
-    fdb_file_info info;
 
     sprintf(value, SHELL_DEL" dummy*");
     r = system(value);
@@ -7274,18 +7258,13 @@ void multi_kv_rollback_test(uint8_t opt)
     char key[256], value[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
-    void *value_out;
-    size_t valuelen;
-
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_seqnum_t seq1, seq2, seq3;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
-    fdb_iterator *it;
     fdb_status s;
-    fdb_file_info info;
 
     char *kvs_names[] = {NULL, (char*)"kv1", (char*)"kv2"};
     fdb_custom_cmp_variable functions[] = {_multi_kv_test_keycmp,
@@ -7579,8 +7558,6 @@ void multi_kv_custom_cmp_test()
     char key[256], value[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
-    void *value_out;
-    size_t valuelen;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
@@ -7858,14 +7835,11 @@ void multi_kv_fdb_open_custom_cmp_test()
     char key[256], value[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
-    void *value_out;
-    size_t valuelen;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_doc *doc;
-    fdb_iterator *it;
     fdb_status s;
 
     char *kvs_names[] = {(char*)"default", (char*)"kv1", (char*)"kv2"};

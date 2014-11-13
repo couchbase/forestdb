@@ -853,7 +853,6 @@ void _hbtrie_btree_cascaded_update(
     struct hbtrie *trie, struct list *btreelist, void *key, int free_opt)
 {
     bid_t bid_new, _bid;
-    btree_result r;
     struct btreelist_item *btreeitem, *btreeitem_child;
     struct list_elem *e, *e_child;
 
@@ -1852,5 +1851,3 @@ hbtrie_result hbtrie_insert_partial(struct hbtrie *trie,
     return _hbtrie_insert(trie, rawkey, rawkeylen,
                           value, oldvalue_out, HBTRIE_PARTIAL_UPDATE);
 }
-
-

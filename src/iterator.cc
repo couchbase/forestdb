@@ -169,7 +169,6 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 {
     int cmp;
     hbtrie_result hr;
-    btree_result br;
     struct list_elem *he, *ie;
     struct wal_item_header *wal_item_header;
     struct wal_item *wal_item;
@@ -541,7 +540,6 @@ static fdb_status _fdb_iterator_prev(fdb_iterator *iterator,
     size_t keylen;
     uint64_t offset;
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
-    btree_result br;
     fdb_status fs;
     struct docio_object _doc;
     struct docio_handle *dhandle;
@@ -704,7 +702,6 @@ static fdb_status _fdb_iterator_next(fdb_iterator *iterator,
     size_t keylen;
     uint64_t offset;
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
-    btree_result br;
     fdb_status fs;
     struct docio_object _doc;
     struct docio_handle *dhandle;
@@ -870,7 +867,6 @@ start:
 fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
                              const size_t seek_keylen) {
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
-    btree_result br;
     struct snap_wal_entry *snap_item = NULL;
     int dir; // compare result gives seek direction >0 is forward, <=0 reverse
     int save_direction; // if we move past seek_key and need to turn back to it
@@ -1575,4 +1571,3 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
 
     return FDB_RESULT_SUCCESS;
 }
-

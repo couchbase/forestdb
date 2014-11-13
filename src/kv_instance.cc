@@ -477,7 +477,6 @@ void _fdb_kvs_header_export(struct kvs_header *kv_header,
      * ...
      */
 
-    int i;
     int size = 0;
     int offset = 0;
     uint16_t name_len, _name_len;
@@ -584,13 +583,11 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
 {
     int i, offset = 0;
     uint16_t name_len, _name_len;
-    uint64_t c = 0;
     uint64_t n_kv, _n_kv, kv_id, _kv_id, flags, _flags;
     uint64_t _nlivenodes, _ndocs, _datasize;
     fdb_kvs_id_t id_counter, _id_counter;
     fdb_seqnum_t seqnum, _seqnum;
     struct kvs_node *node;
-    struct avl_node *a;
 
     // # KV instances
     memcpy(&_n_kv, (uint8_t*)data + offset, sizeof(_n_kv));
@@ -690,8 +687,6 @@ void fdb_kvs_header_read(struct filemgr *file,
                             struct docio_handle *dhandle,
                             uint64_t kv_info_offset)
 {
-    void *data;
-    size_t len;
     uint64_t offset;
     struct docio_object doc;
 
@@ -833,7 +828,6 @@ fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
     struct docio_handle *dhandle;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
-    struct docio_object doc;
 
     if (root_handle->config.multi_kv_instances == false) {
         // cannot open KV instance under single DB instance mode
@@ -1180,7 +1174,6 @@ LIBFDB_API
 fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
 {
     fdb_status fs;
-    struct filemgr *file;
 
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -1379,7 +1372,6 @@ LIBFDB_API
 fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
                           const char *kvs_name)
 {
-    int kv_ins_name_len;
     fdb_status fs = FDB_RESULT_SUCCESS;
     fdb_kvs_id_t kv_id, _kv_id;
     fdb_kvs_handle *root_handle;
@@ -1390,7 +1382,6 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
     struct kvs_opened_node *opened_node;
-    struct docio_object doc;
 
     if (!fhandle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -1599,7 +1590,6 @@ LIBFDB_API
 fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
                                  fdb_kvs_name_list *kvs_name_list)
 {
-    int i;
     size_t num, size, offset;
     char *ptr;
     char **segment;
@@ -1678,4 +1668,3 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
 
     return FDB_RESULT_SUCCESS;
 }
-
