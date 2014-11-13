@@ -1001,6 +1001,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     char *compacted_filename = NULL;
     char *prev_filename = NULL;
     size_t header_len = 0;
+    bool multi_kv_instances = config->multi_kv_instances;
 
     uint64_t nlivenodes = 0;
     bid_t hdr_bid = 0; // initialize to zero for in-memory snapshot
@@ -1062,10 +1063,17 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         if (header_flags & FDB_FLAG_ROOT_CUSTOM_CMP) {
             handle->fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
         }
+        // use existing setting for multi KV instance mode
+        if (kv_info_offset == BLK_NOT_FOUND) {
+            multi_kv_instances = false;
+        } else {
+            multi_kv_instances = true;
+        }
     }
 
     handle->config = *config;
     handle->config.seqtree_opt = seqtree_opt;
+    handle->config.multi_kv_instances = multi_kv_instances;
 
     handle->dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
     handle->dhandle->log_callback = &handle->log_callback;
@@ -1135,7 +1143,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             }
 
             if (!handle->shandle) { // Rollback mode, destroy file WAL..
-                if (config->multi_kv_instances) {
+                if (handle->config.multi_kv_instances) {
                     // multi KV instance mode
                     // clear only WAL items belonging to the instance
                     wal_close_kv_ins(handle->file,
@@ -1187,7 +1195,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         _kvs_stat_set(handle->file, 0, stat);
     }
 
-    if (config->multi_kv_instances) {
+    if (handle->config.multi_kv_instances) {
         // multi KV instance mode
         if (kv_info_offset == BLK_NOT_FOUND) {
             // there is no KV header .. create & initialize
@@ -1276,7 +1284,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         handle->seqtree = NULL;
     }
 
-    if (config->multi_kv_instances && handle->max_seqnum) {
+    if (handle->config.multi_kv_instances && handle->max_seqnum) {
         // restore only docs belonging to the KV instance
         // handle->kvs should not be NULL
         _fdb_restore_wal(handle, FDB_RESTORE_KV_INS,

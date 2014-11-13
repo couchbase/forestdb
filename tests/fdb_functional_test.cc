@@ -7960,6 +7960,125 @@ void multi_kv_fdb_open_custom_cmp_test()
     TEST_RESULT("multiple KV instances fdb_open_custom_cmp test");
 }
 
+void multi_kv_use_existing_mode_test()
+{
+    TEST_INIT();
+
+    int n = 1000;
+    int i, r;
+    char key[256], value[256];
+    char keystr[] = "key%06d";
+    char valuestr[] = "value%08d(%s)";
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_status s;
+
+    sprintf(value, SHELL_DEL" dummy*");
+    r = system(value);
+    (void)r;
+
+    memleak_start();
+
+    config = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    config.wal_threshold = 256;
+    config.buffercache_size = 0;
+
+    // create DB file under multi KV instance mode
+    config.multi_kv_instances = true;
+    s = fdb_open(&dbfile, "./dummy_multi", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // insert using 'default' instance
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "default");
+        fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, value, strlen(value)+1);
+        s = fdb_set(db, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc);
+    }
+
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // open under single KV instance mode
+    config.multi_kv_instances = false;
+    s = fdb_open(&dbfile, "./dummy_multi", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS); // must succeed
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // retrieve check
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "default");
+        fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
+        s = fdb_get(db, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        fdb_doc_free(doc);
+    }
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // create DB file under single KV instance mode
+    config.multi_kv_instances = false;
+    s = fdb_open(&dbfile, "./dummy_single", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // insert using 'default' instance
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "default");
+        fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, value, strlen(value)+1);
+        s = fdb_set(db, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc);
+    }
+
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // open under multi KV instance mode
+    config.multi_kv_instances = true;
+    s = fdb_open(&dbfile, "./dummy_single", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS); // must succeed
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // retrieve check
+    for (i=0;i<n;++i) {
+        sprintf(key, keystr, i);
+        sprintf(value, valuestr, i, "default");
+        fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
+        s = fdb_get(db, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        fdb_doc_free(doc);
+    }
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    memleak_end();
+
+    TEST_RESULT("multiple KV instances use existing mode test");
+}
 
 int main(){
     int i;
@@ -8013,6 +8132,7 @@ int main(){
     }
     multi_kv_custom_cmp_test();
     multi_kv_fdb_open_custom_cmp_test();
+    multi_kv_use_existing_mode_test();
 
     purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
