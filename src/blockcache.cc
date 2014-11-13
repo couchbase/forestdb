@@ -37,7 +37,6 @@
     #define DBGCMD(...)
     #define DBGSW(n, ...)
 #endif
-static uint64_t _dirty = 0;
 #endif
 
 // global lock

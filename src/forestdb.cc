@@ -3073,10 +3073,8 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
     size_t i, j, c, count;
     size_t offset_array_max;
     hbtrie_result hr;
-    btree_result br;
     struct docio_object doc[FDB_COMPACTION_BATCHSIZE];
     struct hbtrie_iterator it;
-    struct btree_iterator bit;
     struct timeval tv;
     fdb_doc wal_doc;
     fdb_kvs_handle new_handle;
