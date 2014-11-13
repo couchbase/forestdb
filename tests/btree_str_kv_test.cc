@@ -160,7 +160,9 @@ void kv_init_ops_test()
 
     // re-init with existing ops
     btree_kv_ops *kv_ops_copy =  btree_str_kv_get_kb64_vb64(kv_ops);
-    TEST_CHK(memcmp(kv_ops, kv_ops_copy, sizeof(btree_kv_ops)) == 0);
+    if (kv_ops && kv_ops_copy) {
+        TEST_CHK(memcmp(kv_ops, kv_ops_copy, sizeof(btree_kv_ops)) == 0);
+    }
 
     free(kv_ops);
     memleak_end();
@@ -285,7 +287,6 @@ void kv_set_var_nentry_test()
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
-    idx = 0;
     v = 100;
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);
@@ -337,7 +338,6 @@ void kv_set_var_nentry_update_test()
     btree_kv_ops *kv_ops;
     uint8_t ksize, vsize;
     uint8_t v;
-    idx_t idx;
     int cmp, i;
 
     const char *keys[] = {"string",
@@ -355,7 +355,6 @@ void kv_set_var_nentry_update_test()
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
-    idx = 0;
     v = 100;
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);
@@ -514,7 +513,6 @@ void kv_get_var_nentry_test()
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
-    idx = 0;
     v = 100;
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);
@@ -948,13 +946,11 @@ void kv_copy_var_nentry_test()
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
-    idx = 0;
     v = 100;
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);
 
     // set n items into source node
-    offset_idx = 0;
     for (idx = 0; idx < n; idx++){
         kv_ops->set_kv(node, idx, &key_ptrs[idx], (void *)&v);
     }
@@ -1153,7 +1149,6 @@ void kv_get_nth_splitter_test()
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
-    idx = 0;
     v = 100;
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);
@@ -1195,7 +1190,6 @@ void kv_cmp_key_str_test()
     memleak_start();
 
     btree_kv_ops *kv_ops;
-    uint8_t ksize, vsize;
     int cmp;
     const char *keys[] = {"string",
                           "srting",
@@ -1206,9 +1200,6 @@ void kv_cmp_key_str_test()
     void **key_ptrs = alca(void *, n);
     void *tmp = NULL;
 
-
-    vsize = sizeof(int);
-    ksize = strlen(keys[0]) + 1 + sizeof(key_len_t);
 
     kv_ops = alca(btree_kv_ops, 1);
     btree_str_kv_get_kb64_vb64(kv_ops);

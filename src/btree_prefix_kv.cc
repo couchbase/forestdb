@@ -845,7 +845,6 @@ INLINE void _get_prefix_nth_splitter(struct bnode *prev_node, struct bnode *node
     key_len_t key1_len, key2_len, prefix_len;
     key_len_t _key1_len, _key2_len;
 
-    key1_len = key2_len = 0;
     memset(key1, 0, ksize);
     memset(key2, 0, ksize);
 

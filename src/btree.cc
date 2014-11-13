@@ -880,6 +880,7 @@ int _btree_move_modified_node(
 
     // get new bid[i]
     addr = btree->blk_ops->blk_move(btree->blk_handle, bid[i], &bid[i]);
+    (void)addr;
     //node[i] = _fetch_bnode(btree, addr, i+1);
     moved[i] = 1;
 

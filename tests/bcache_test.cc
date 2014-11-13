@@ -83,6 +83,7 @@ void basic_test2()
     char *fname = (char *) "./dummy";
     int r;
     r = system(SHELL_DEL " dummy");
+    (void)r;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
@@ -126,6 +127,7 @@ void * worker(void *voidargs)
     bid_t bid;
     uint32_t crc, crc_file;
     uint64_t i, c, run_count=0;
+    TEST_INIT();
 
     memset(buf, 0, 4096);
     gettimeofday(&ts_begin, NULL);
@@ -136,14 +138,14 @@ void * worker(void *voidargs)
         if (ret <= 0) {
             ret = args->file->ops->pread(args->file->fd, buf,
                                          args->file->blocksize, bid * args->file->blocksize);
-            assert(ret == args->file->blocksize);
+            TEST_CHK(ret == args->file->blocksize);
             ret = bcache_write(args->file, bid, buf, BCACHE_REQ_CLEAN);
-            assert(ret == args->file->blocksize);
+            TEST_CHK(ret == args->file->blocksize);
         }
         crc_file = crc32_8(buf, sizeof(uint64_t)*2, 0);
         memcpy(&i, buf, sizeof(i));
         memcpy(&crc, buf + sizeof(uint64_t)*2, sizeof(crc));
-        assert(crc == crc_file && i==bid);
+        TEST_CHK(crc == crc_file && i==bid);
         //DBG("%d %d %d %x %x\n", (int)args->n, (int)i, (int)bid, (int)crc, (int)crc_file);
 
         if (args->writer) {
@@ -154,7 +156,7 @@ void * worker(void *voidargs)
             memcpy(buf + sizeof(uint64_t)*2, &crc, sizeof(crc));
 
             ret = bcache_write(args->file, bid, buf, BCACHE_REQ_DIRTY);
-            assert(ret == args->file->blocksize);
+            TEST_CHK(ret == args->file->blocksize);
         }
 
         gettimeofday(&ts_cur, NULL);
@@ -187,6 +189,7 @@ void multi_thread_test(
     void **ret = alca(void *, n);
 
     r = system(SHELL_DEL " dummy");
+    (void)r;
 
     memleak_start();
 

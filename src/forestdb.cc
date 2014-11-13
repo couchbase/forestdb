@@ -1467,7 +1467,6 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
                                         struct wal_item *item)
 {
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
-    uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset = 0;
 
     hbtrie_find_offset(handle->trie,
@@ -3053,7 +3052,6 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                    struct docio_handle *new_dhandle,
                                    struct btreeblk_handle *new_bhandle)
 {
-    uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint8_t deleted;
     uint64_t offset;
     uint64_t new_offset;

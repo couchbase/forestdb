@@ -93,7 +93,7 @@ void string_hash_test()
     TEST_INIT();
 
     randomize();
-    unsigned a = rand(), b;
+    unsigned a, b;
     char str[32];
 
     int i,j;

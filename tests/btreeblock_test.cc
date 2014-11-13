@@ -55,6 +55,7 @@ void basic_test()
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
     r = system(SHELL_DEL" dummy");
+    (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
@@ -146,6 +147,7 @@ void iterator_test()
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
     r = system(SHELL_DEL" dummy");
+    (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
@@ -269,6 +271,7 @@ void range_test()
     fconfig.options = FILEMGR_CREATE;
 
     r = system(SHELL_DEL" dummy");
+    (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -341,6 +344,7 @@ void subblock_test()
 
     // btree initialization using large metadata test
     r = system(SHELL_DEL" dummy");
+    (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     meta.data = (void*)malloc(4096);
@@ -401,6 +405,7 @@ void subblock_test()
 
     // coverage: enlarge case 1-1
     r = system(SHELL_DEL" dummy");
+    (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -425,6 +430,7 @@ void subblock_test()
 
     // coverage: enlarge case 1-2, move case 1
     r = system(SHELL_DEL" dummy");
+    (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -451,6 +457,7 @@ void subblock_test()
     // coverage: enlarge case 1-1, 2-1, 2-2, 3-1
     nbtrees = 2;
     r = system(SHELL_DEL" dummy");
+    (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -480,6 +487,7 @@ void subblock_test()
     // coverage: enlarge case 1-2, 2-1, 3-1, move case 1, 2-1, 2-2
     nbtrees = 2;
     r = system(SHELL_DEL" dummy");
+    (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -512,6 +520,7 @@ void subblock_test()
     // coverage: enlarge case 1-1, 2-1, 3-2, move case 1, 2-1
     nbtrees = 7;
     r = system(SHELL_DEL" dummy");
+    (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -536,6 +545,7 @@ void subblock_test()
     // coverage: enlarge case 1-1, 1-2, 2-1, 3-2, move case 1, 2-1
     nbtrees = 7;
     r = system(SHELL_DEL" dummy");
+    (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -580,6 +590,7 @@ void btree_reverse_iterator_test()
     char *fname = (char *) "./dummy";
 
     r = system(SHELL_DEL" dummy");
+    (void)r;
 
     memleak_start();
 
@@ -678,6 +689,7 @@ void btree_reverse_iterator_test()
     for (i=0;i<15;++i){
         c += 0x10;
         br = btree_next(&bi, &k, &v);
+        TEST_CHK(br == BTREE_RESULT_SUCCESS);
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
@@ -696,6 +708,7 @@ void btree_reverse_iterator_test()
     for (i=0;i<10;++i){
         c += 0x10;
         br = btree_next(&bi, &k, &v);
+        TEST_CHK(br == BTREE_RESULT_SUCCESS);
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
@@ -705,6 +718,7 @@ void btree_reverse_iterator_test()
     for (i=0;i<17;++i){
         c -= 0x10;
         br = btree_prev(&bi, &k, &v);
+        TEST_CHK(br == BTREE_RESULT_SUCCESS);
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
@@ -734,6 +748,7 @@ int main()
 #endif
 
     int r = system(SHELL_DEL" dummy");
+    (void)r;
     basic_test();
     iterator_test();
     two_btree_test();

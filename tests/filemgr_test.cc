@@ -40,7 +40,6 @@ void basic_test()
 
     filemgr_open_result result = filemgr_open((char *) "./dummy",
                                               get_filemgr_ops(), &config, NULL);
-    file = result.file;
     result = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
     file = result.file;
 
@@ -70,6 +69,7 @@ void mt_init_test()
 int main()
 {
     int r = system(SHELL_DEL" dummy");
+    (void)r;
 
     basic_test();
     mt_init_test();

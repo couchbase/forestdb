@@ -113,6 +113,7 @@ void basic_test()
     }
 
     rr = system(SHELL_DEL " dummy");
+    (void)rr;
 
     doc.key = (void*)keybuf;
     doc.meta = (void*)metabuf;
@@ -139,6 +140,7 @@ void basic_test()
         sprintf(meta, "metadata_%03d", i);
         sprintf(body, "body_%03d", i);
         docsize = _set_doc(&doc, dockey, meta, body);
+        TEST_CHK(docsize != 0);
         offset = docio_append_doc(&dhandle, &doc, 0, 0);
         _offset = _endian_encode(offset);
         hbtrie_insert(&trie, (void*)key[i], strlen(key[i]),
@@ -236,6 +238,7 @@ void large_test()
 
     DBG("filemgr, bcache init .. \n");
     rr = system(SHELL_DEL" dummy");
+    (void)rr;
     filemgr_open_result result = filemgr_open((char *) "./dummy",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -257,6 +260,7 @@ void large_test()
             sprintf(meta, "m");
             sprintf(body, "body_%3d", i);
             docsize = _set_doc(&doc, dockey, meta, body);
+            TEST_CHK(docsize != 0);
             offset[i] = docio_append_doc(&dhandle, &doc, 0, 0);
         }
         TEST_TIME();
@@ -281,6 +285,7 @@ void large_test()
             sprintf(meta, "me");
             sprintf(body, "body2_%3d", i);
             docsize = _set_doc(&doc, dockey, meta, body);
+            TEST_CHK(docsize != 0);
             offset[i] = docio_append_doc(&dhandle, &doc, 0, 0);
         }
         TEST_TIME();
@@ -324,6 +329,7 @@ void large_test()
     hbtrie_iterator_init(&trie, &it, NULL, 0);
     for (i=0;i<n;++i){
         r = hbtrie_next(&it, (void*)keybuf, &keylen, (void*)&_offset);
+        TEST_CHK(r != HBTRIE_RESULT_FAIL);
         btreeblk_end(&bhandle);
         docio_read_doc(&dhandle, _offset, &doc);
         /*
@@ -407,6 +413,7 @@ void skew_basic_test()
     _skew_key_ptr = key_cpy;
 
     rr = system(SHELL_DEL " dummy");
+    (void)rr;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
@@ -469,11 +476,14 @@ void skew_basic_test()
 
     // remove metasection key
     hr = hbtrie_remove(&trie, (void*)key_cpy[6], strlen(key_cpy[6]));
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     btreeblk_end(&bhandle);
     sprintf(key_buf, "aaaaaaa_a");  // not exist key
     hr = hbtrie_remove(&trie, (void*)key_buf, strlen(key_buf));    // must fail
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     btreeblk_end(&bhandle);
     hr = hbtrie_remove(&trie, (void*)key_cpy[4], strlen(key_cpy[4]));
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     btreeblk_end(&bhandle);
 
     // update metasection key
@@ -481,6 +491,7 @@ void skew_basic_test()
     _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
                        (void*)&_offset, (void*)value_buf);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     btreeblk_end(&bhandle);
 
     // update leaf tree key
@@ -488,6 +499,7 @@ void skew_basic_test()
     _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
                        (void*)&_offset, (void*)value_buf);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     btreeblk_end(&bhandle);
 
     // update normal tree key
@@ -495,6 +507,7 @@ void skew_basic_test()
     _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
                        (void*)&_offset, (void*)value_buf);
+    TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     btreeblk_end(&bhandle);
 
     // range scan from the beginning
@@ -563,6 +576,7 @@ void hbtrie_reverse_iterator_test()
     char *fname = (char *) "./dummy";
 
     r = system(SHELL_DEL" dummy");
+    (void)r;
     memleak_start();
 
     memset(&config, 0, sizeof(config));
@@ -649,6 +663,7 @@ void hbtrie_reverse_iterator_test()
     for (i=0;i<21;++i){
         c++;
         hr=hbtrie_next(&hit, key, &keylen, &v);
+        TEST_CHK(hr != HBTRIE_RESULT_FAIL);
         btreeblk_end(&bhandle);
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
@@ -658,6 +673,7 @@ void hbtrie_reverse_iterator_test()
     for (i=0;i<10;++i){
         c--;
         hr=hbtrie_prev(&hit, key, &keylen, &v);
+        TEST_CHK(hr != HBTRIE_RESULT_FAIL);
         btreeblk_end(&bhandle);
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
@@ -667,6 +683,7 @@ void hbtrie_reverse_iterator_test()
     for (i=0;i<19;++i){
         c++;
         hr=hbtrie_next(&hit, key, &keylen, &v);
+        TEST_CHK(hr != HBTRIE_RESULT_FAIL);
         btreeblk_end(&bhandle);
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
@@ -720,6 +737,7 @@ void hbtrie_partial_update_test()
     memleak_start();
 
     r = system(SHELL_DEL" dummy");
+    (void)r;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = nodesize;

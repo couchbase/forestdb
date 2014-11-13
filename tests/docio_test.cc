@@ -64,6 +64,7 @@ void basic_test()
     config.ncacheblock = 1024;
     config.options = FILEMGR_CREATE;
     r = system(SHELL_DEL " dummy");
+    (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     docio_init(&handle, file, false);

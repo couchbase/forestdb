@@ -392,6 +392,7 @@ void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
         avl_remove(&fname_item->tree, &ditem->avl);
         // move to clean list
         prevhead = fname_item->cleanlist.head;
+        (void)prevhead;
         list_push_front(&fname_item->cleanlist, &ditem->item->list_elem);
 
         assert(!(ditem->item->flag & BCACHE_FREE));

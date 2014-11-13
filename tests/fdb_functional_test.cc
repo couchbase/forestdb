@@ -1682,6 +1682,7 @@ void *multi_thread_client_shutdown(void *args)
     { // parent
 
         r = system(SHELL_DEL" dummy* > errorlog.txt");
+        (void)r;
         nclients = 2;
         tid = alca(thread_t, nclients);
         thread_ret = alca(void *, nclients);

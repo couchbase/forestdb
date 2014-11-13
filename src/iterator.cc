@@ -874,7 +874,7 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     struct snap_wal_entry *snap_item = NULL;
     int dir; // compare result gives seek direction >0 is forward, <=0 reverse
     int save_direction; // if we move past seek_key and need to turn back to it
-    size_t seek_keylen_kv = seek_keylen + sizeof(fdb_kvs_id_t);
+    size_t seek_keylen_kv;
     size_t finalRun = (size_t) (-1);
     uint8_t *seek_key_kv;
     fdb_kvs_id_t _kv_id;

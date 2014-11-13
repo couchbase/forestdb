@@ -757,7 +757,6 @@ wal_result wal_snapshot(struct filemgr *file,
             doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
                     item->action == WAL_ACT_REMOVE);
             snapshot_func(dbhandle, &doc, item->offset);
-            ee = list_next(ee);
             break; // We just require a single latest copy in the snapshot
         }
         e = list_next(e);
