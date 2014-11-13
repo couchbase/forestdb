@@ -580,7 +580,6 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
 /**
  * Free a KV store name list.
  *
- * @param fhandle Pointer to ForestDB file handle.
  * @param kvs_name_list Pointer to a KV store name list to be freed.
  * @return FDB_RESULT_SUCCESS on success.
  */
