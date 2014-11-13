@@ -3109,6 +3109,7 @@ void custom_compare_primitive_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = true;
 
     kvs_config.custom_cmp = _cmp_double;
 
@@ -3226,7 +3227,8 @@ void custom_compare_variable_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
-    //fconfig.chunksize = MAX(sizeof(void*)/2, 4); // must be re-adjusted automatically
+    fconfig.multi_kv_instances = true;
+
     kvs_config.custom_cmp = _cmp_variable;
 
     // open db with custom compare function for variable length key type

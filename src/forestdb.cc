@@ -699,6 +699,11 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
         config = get_default_config();
     }
 
+    if (config.multi_kv_instances == false) {
+        // single KV instance mode does not support customized cmp function
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+
     fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
     if (!fhandle) {
         return FDB_RESULT_ALLOC_FAIL;

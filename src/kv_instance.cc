@@ -1036,24 +1036,26 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
 
             root_handle->kvs_config = config_local;
 
-            // search fhandle's custom cmp func list first
-            default_kvs_cmp = fdb_kvs_find_cmp_name(root_handle, (char *)kvs_name);
+            if (root_handle->file->kv_header) {
+                // search fhandle's custom cmp func list first
+                default_kvs_cmp = fdb_kvs_find_cmp_name(root_handle, (char *)kvs_name);
 
-            spin_lock(&root_handle->file->kv_header->lock);
-            root_handle->file->kv_header->default_kvs_cmp = default_kvs_cmp;
+                spin_lock(&root_handle->file->kv_header->lock);
+                root_handle->file->kv_header->default_kvs_cmp = default_kvs_cmp;
 
-            if (root_handle->file->kv_header->default_kvs_cmp == NULL &&
-                root_handle->kvs_config.custom_cmp) {
-                // follow kvs_config's custom cmp next
-                root_handle->file->kv_header->default_kvs_cmp =
-                    root_handle->kvs_config.custom_cmp;
+                if (root_handle->file->kv_header->default_kvs_cmp == NULL &&
+                    root_handle->kvs_config.custom_cmp) {
+                    // follow kvs_config's custom cmp next
+                    root_handle->file->kv_header->default_kvs_cmp =
+                        root_handle->kvs_config.custom_cmp;
+                }
+
+                if (root_handle->file->kv_header->default_kvs_cmp) {
+                    root_handle->file->kv_header->custom_cmp_enabled = 1;
+                    fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
+                }
+                spin_unlock(&root_handle->file->kv_header->lock);
             }
-
-            if (root_handle->file->kv_header->default_kvs_cmp) {
-                root_handle->file->kv_header->custom_cmp_enabled = 1;
-                fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
-            }
-            spin_unlock(&root_handle->file->kv_header->lock);
 
             *ptr_handle = root_handle;
             fhandle->flags |= FHANDLE_ROOT_INITIALIZED;
@@ -1067,10 +1069,14 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             spin_unlock(&fhandle->lock);
             handle = (fdb_kvs_handle*)calloc(1, sizeof(fdb_kvs_handle));
             handle->kvs_config = config_local;
-            spin_lock(&root_handle->file->kv_header->lock);
-            handle->kvs_config.custom_cmp =
-                root_handle->file->kv_header->default_kvs_cmp;
-            spin_unlock(&root_handle->file->kv_header->lock);
+
+            if (root_handle->file->kv_header) {
+                spin_lock(&root_handle->file->kv_header->lock);
+                handle->kvs_config.custom_cmp =
+                    root_handle->file->kv_header->default_kvs_cmp;
+                spin_unlock(&root_handle->file->kv_header->lock);
+            }
+
             handle->fhandle = fhandle;
             fs = _fdb_open(handle, file->filename, &config);
             if (fs != FDB_RESULT_SUCCESS) {
