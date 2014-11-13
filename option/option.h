@@ -21,6 +21,7 @@
 //#include "mempool.h"
 
 #define SEQNUM_NOT_USED (UINT64_C(0xffffffffffffffff))
+#define DEFAULT_KVS_NAME "default"
 
 #define __FDB_BCACHE_USE
 #ifdef __FDB_BCACHE_USE

@@ -33,7 +33,7 @@
 
 #include "memleak.h"
 
-static const char *default_kvs_name = "default";
+static const char *default_kvs_name = DEFAULT_KVS_NAME;
 
 // list element for opened KV store handles
 // (in-memory data: managed by the file handle)

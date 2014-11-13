@@ -57,15 +57,16 @@ void print_usage(void)
 {
     printf("\nUsage: forestdb_dump [OPTION]... [filename]\n"
     "\nOptions:\n"
-    "\n      --key <key>  dump only specified document"
-    "\n      --byid       sort output by document id"
-    "\n      --byseq      sort output by sequence number"
-    "\n      --hex-key    convert document id to hex (for binary key)"
-    "\n      --hex-body   convert document body data to hex (for binary data)"
-    "\n      --hex-align  number of bytes of hex alignment (default 16)"
-    "\n      --plain-meta print meta data in plain text (default hex)"
-    "\n      --no-body    do not retrieve document bodies"
-    "\n      --no-meta    do not print meta data of documents"
+    "\n      --key <key>           dump only specified document"
+    "\n      --kvs <KV store name> name of KV store to be dumped"
+    "\n      --byid                sort output by document id"
+    "\n      --byseq               sort output by sequence number"
+    "\n      --hex-key             convert document id to hex (for binary key)"
+    "\n      --hex-body            convert document body data to hex (for binary data)"
+    "\n      --hex-align           number of bytes of hex alignment (default 16)"
+    "\n      --plain-meta          print meta data in plain text (default hex)"
+    "\n      --no-body             do not retrieve document bodies"
+    "\n      --no-meta             do not print meta data of documents"
     "\n");
 }
 
@@ -85,6 +86,16 @@ INLINE void subbid2bid(bid_t subbid, size_t *subblock_no, size_t *idx, bid_t *bi
     *subblock_no -= 1;
     *idx = flag & (0x20 - 0x01);
     *bid = ((bid_t)(subbid << 16)) >> 16;
+}
+
+static int _kvs_cmp_name_fdb_dump(struct avl_node *a,
+                                  struct avl_node *b,
+                                  void *aux)
+{
+    struct kvs_node *aa, *bb;
+    aa = _get_entry(a, struct kvs_node, avl_name);
+    bb = _get_entry(b, struct kvs_node, avl_name);
+    return strcmp(aa->kvs_name, bb->kvs_name);
 }
 
 void print_header(fdb_kvs_handle *db)
@@ -116,11 +127,7 @@ void print_header(fdb_kvs_handle *db)
                          &seq_root_bid, &ndocs, &nlivenodes,
                          &datasize, &last_header_bid, &kv_info_offset,
                          &header_flags, &compacted_filename, &prev_filename);
-        seqnum = filemgr_get_seqnum(db->file);
         revnum = filemgr_get_header_revnum(db->file);
-        ndocs_wal_inserted = wal_get_size(db->file);
-        ndocs_wal_deleted = wal_get_num_deletes(db->file);
-        datasize_wal = wal_get_datasize(db->file);
 
         bid = filemgr_get_header_bid(db->file);
         printf("    BID: %" _F64 " (0x%" _X64 ", byte offset: %" _F64 ")\n",
@@ -162,15 +169,6 @@ void print_header(fdb_kvs_handle *db)
             printf("    Seq B+tree root BID: not exist\n");
         }
 
-        printf("    # documents in the main index: %" _F64 " / "
-               "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
-               ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
-        printf("    # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
-               nlivenodes, nlivenodes * FDB_BLOCKSIZE);
-        printf("    Total document size: %" _F64 " bytes, (index: %" _F64 " bytes, "
-               "WAL: %" _F64 " bytes)\n",
-               datasize + datasize_wal, datasize, datasize_wal);
-
         if (last_header_bid != BLK_NOT_FOUND) {
             printf("    DB header BID of the last WAL flush: %" _F64
                    " (0x%" _X64 ", byte offset: %" _F64 ")\n",
@@ -179,7 +177,91 @@ void print_header(fdb_kvs_handle *db)
             printf("    DB header BID of the last WAL flush: not exist\n");
         }
 
-        printf("    Last sequence number: %" _F64 "\n", seqnum);
+        if (db->config.multi_kv_instances) {
+            // multi KV instance mode
+            int i;
+            fdb_kvs_name_list name_list;
+            struct kvs_node *node, query;
+            struct avl_node *a;
+
+            ndocs = _kvs_stat_get_sum(db->file, KVS_STAT_NDOCS);
+            nlivenodes = _kvs_stat_get_sum(db->file, KVS_STAT_NLIVENODES);
+            ndocs_wal_inserted = wal_get_size(db->file);
+            ndocs_wal_deleted = wal_get_num_deletes(db->file);
+            datasize = _kvs_stat_get_sum(db->file, KVS_STAT_DATASIZE);
+            datasize_wal = wal_get_datasize(db->file);
+
+            printf("    # documents in the main index: %" _F64 " / "
+                   "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
+                   ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
+            printf("    # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
+                   nlivenodes, nlivenodes * FDB_BLOCKSIZE);
+            printf("    Total document size: %" _F64 " bytes, (index: %" _F64 " bytes, "
+                   "WAL: %" _F64 " bytes)\n",
+                   datasize + datasize_wal, datasize, datasize_wal);
+
+            fdb_get_kvs_name_list(db->fhandle, &name_list);
+
+            printf("    # KV stores: %d\n", (int)name_list.num_kvs_names);
+            for (i=0; i<name_list.num_kvs_names; ++i){
+                if (strcmp(name_list.kvs_names[i], DEFAULT_KVS_NAME)) {
+                    query.kvs_name = name_list.kvs_names[i];
+                    a = avl_search(db->file->kv_header->idx_name,
+                                   &query.avl_name,
+                                   _kvs_cmp_name_fdb_dump);
+                    if (!a) {
+                        continue;
+                    }
+
+                    printf("      KV store name: %s\n", name_list.kvs_names[i]);
+                    node = _get_entry(a, struct kvs_node, avl_name);
+                    seqnum = node->seqnum;
+                    ndocs = node->stat.ndocs;
+                    nlivenodes = node->stat.nlivenodes;
+                    ndocs_wal_inserted = node->stat.wal_ndocs - node->stat.wal_ndeletes;
+                    ndocs_wal_deleted = node->stat.wal_ndeletes;
+                    datasize = node->stat.datasize;
+                } else { // default KVS
+                    printf("      KV store name: %s\n", name_list.kvs_names[i]);
+                    ndocs = db->file->header.stat.ndocs;
+                    nlivenodes = db->file->header.stat.nlivenodes;
+                    seqnum = db->file->header.seqnum;
+                    ndocs_wal_inserted = db->file->header.stat.wal_ndocs -
+                                         db->file->header.stat.wal_ndeletes;
+                    ndocs_wal_deleted = db->file->header.stat.wal_ndeletes;
+                    datasize = db->file->header.stat.datasize;
+                }
+
+                printf("      # documents in the main index: %" _F64 " / "
+                       "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
+                       ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
+                printf("      # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
+                       nlivenodes, nlivenodes * FDB_BLOCKSIZE);
+                printf("      Total document size: %" _F64 " bytes\n", datasize);
+                printf("      Last sequence number: %" _F64 "\n", seqnum);
+                printf("\n");
+            }
+
+            fdb_free_kvs_name_list(&name_list);
+
+        } else {
+            // single KV instance mode
+            seqnum = filemgr_get_seqnum(db->file);
+            ndocs_wal_inserted = wal_get_size(db->file);
+            ndocs_wal_deleted = wal_get_num_deletes(db->file);
+            datasize_wal = wal_get_datasize(db->file);
+
+            printf("    # documents in the main index: %" _F64 " / "
+                   "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
+                   ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
+            printf("    # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
+                   nlivenodes, nlivenodes * FDB_BLOCKSIZE);
+            printf("    Total document size: %" _F64 " bytes, (index: %" _F64 " bytes, "
+                   "WAL: %" _F64 " bytes)\n",
+                   datasize + datasize_wal, datasize, datasize_wal);
+            printf("    Last sequence number: %" _F64 "\n", seqnum);
+        }
+
         if (compacted_filename) {
             printf("    Next file after compaction: %s\n", compacted_filename);
         }
@@ -201,6 +283,7 @@ typedef enum  {
 struct dump_option{
     char *dump_file;
     char *one_key;
+    char *one_kvs;
     int hex_align;
     bool no_body;
     bool no_meta;
@@ -249,11 +332,16 @@ INLINE void print_buf(fdb_kvs_handle *db, void *buf, size_t buflen, bool hex,
 }
 
 void print_doc(fdb_kvs_handle *db,
+               char *kvs_name,
                uint64_t offset,
-               struct dump_option *opt,
-               uint8_t is_wal_entry)
+               struct dump_option *opt)
 {
+    uint8_t is_wal_entry;
     uint64_t _offset;
+    void *key;
+    keylen_t keylen;
+    wal_result wr;
+    fdb_doc fdoc;
     struct docio_object doc;
 
     memset(&doc, 0, sizeof(struct docio_object));
@@ -270,16 +358,32 @@ void print_doc(fdb_kvs_handle *db,
         }
     }
 
+    if (db->kvs) {
+        key = (uint8_t*)doc.key + sizeof(fdb_kvs_id_t);
+        keylen = doc.length.keylen - sizeof(fdb_kvs_id_t);
+    } else {
+        key = doc.key;
+        keylen = doc.length.keylen;
+    }
+
     printf("Doc ID: ");
-    print_buf(db, doc.key, doc.length.keylen,
+    print_buf(db, key, keylen,
               opt->print_key_in_hex, opt->hex_align);
+    if (kvs_name) {
+        printf("    KV store name: %s\n", kvs_name);
+    }
     if (db->config.seqtree_opt == FDB_SEQTREE_USE) {
         printf("    Sequence number: %" _F64 "\n", doc.seqnum);
     }
     printf("    Byte offset: %" _F64 "\n", offset);
+
+    fdoc.key = doc.key;
+    fdoc.keylen = doc.length.keylen;
+    wr = wal_find(&db->file->global_txn, db->file, &fdoc, &offset);
+    is_wal_entry = (wr == WAL_RESULT_SUCCESS)?(1):(0);
     printf("    Indexed by %s\n", (is_wal_entry)?("WAL"):("the main index"));
     printf("    Length: %d (key), %d (metadata), %d (body)\n",
-           doc.length.keylen, doc.length.metalen, doc.length.bodylen);
+           keylen, doc.length.metalen, doc.length.bodylen);
     if (doc.length.flag & DOCIO_COMPRESSED) {
         printf("    Compressed body size on disk: %d\n",
                doc.length.bodylen_ondisk);
@@ -310,13 +414,12 @@ void print_doc(fdb_kvs_handle *db,
     free(doc.body);
 }
 
-void scan_docs(fdb_kvs_handle *db, struct dump_option *opt)
+int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
 {
     uint64_t offset;
     fdb_iterator *fit;
     fdb_status fs;
     fdb_doc *fdoc;
-    wal_result wr;
 
     if (opt->one_key) {
         fdb_doc_create(&fdoc, opt->one_key,
@@ -324,24 +427,21 @@ void scan_docs(fdb_kvs_handle *db, struct dump_option *opt)
        fs = fdb_get(db, fdoc);
        if (fs == FDB_RESULT_SUCCESS) {
            offset = fdoc->offset;
-           wr = wal_find(&db->file->global_txn, db->file, fdoc, &offset);
-           print_doc(db, offset, opt, (wr == WAL_RESULT_SUCCESS));
+           print_doc(db, kvs_name, offset, opt);
        } else {
-           printf("Key not found\n");
+           return -1;
        }
        fdb_doc_free(fdoc);
     } else if (opt->scan_mode == SCAN_BY_KEY) {
         fs = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, 0x0);
         if (fs != FDB_RESULT_SUCCESS) {
-            return;
+            return -2;
         }
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
             if (fs == FDB_RESULT_SUCCESS) {
                 offset = fdoc->offset;
-                // retrieve WAL
-                wr = wal_find(&db->file->global_txn, db->file, fdoc, &offset);
-                print_doc(db, offset, opt, (wr == WAL_RESULT_SUCCESS));
+                print_doc(db, kvs_name, offset, opt);
                 fdb_doc_free(fdoc);
             }
         }
@@ -349,28 +449,30 @@ void scan_docs(fdb_kvs_handle *db, struct dump_option *opt)
     } else if (opt->scan_mode == SCAN_BY_SEQ) {
         fs = fdb_iterator_sequence_init(db, &fit, 0, -1, 0x0);
         if (fs != FDB_RESULT_SUCCESS) {
-            return;
+            return -2;
         }
         while (fs == FDB_RESULT_SUCCESS) {
             fs = fdb_iterator_next(fit, &fdoc);
             if (fs == FDB_RESULT_SUCCESS) {
                 offset = fdoc->offset;
-                // retrieve WAL
-                wr = wal_find(&db->file->global_txn, db->file, fdoc, &offset);
-                print_doc(db, offset, opt, (wr == WAL_RESULT_SUCCESS));
+                print_doc(db, kvs_name, offset, opt);
                 fdb_doc_free(fdoc);
             }
         }
         fdb_iterator_close(fit);
     }
+
+    return 0;
 }
 
 int process_file(struct dump_option *opt)
 {
+    int i, ret;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_config config;
     fdb_kvs_config kvs_config;
+    fdb_kvs_name_list name_list;
     fdb_status fs;
     char *filename = opt->dump_file;
 
@@ -382,19 +484,52 @@ int process_file(struct dump_option *opt)
         printf("\nUnable to open %s\n", filename);
         return -3;
     }
+    print_header(dbfile->root);
 
     kvs_config = fdb_get_default_kvs_config();
 
-    fs = fdb_kvs_open_default(dbfile, &db, &kvs_config);
-    if (fs != FDB_RESULT_SUCCESS) {
-        printf("\nUnable to open %s\n", filename);
-        return -3;
+    if (dbfile->root->config.multi_kv_instances) {
+        fdb_get_kvs_name_list(dbfile, &name_list);
+        for (i=0; i<name_list.num_kvs_names; ++i) {
+            if (opt->one_kvs &&
+                strcmp(opt->one_kvs, name_list.kvs_names[i])) {
+                continue;
+            }
+
+            fs = fdb_kvs_open(dbfile, &db, name_list.kvs_names[i], &kvs_config);
+            if (fs != FDB_RESULT_SUCCESS) {
+                printf("\nUnable to open KV store %s\n", name_list.kvs_names[i]);
+                continue;
+            }
+            if (db->kvs_config.custom_cmp) {
+                printf("\nUnable to dump KV store %s due to "
+                       "customized comparison function\n", name_list.kvs_names[i]);
+                fdb_kvs_close(db);
+                continue;
+            }
+
+            ret = scan_docs(db, opt, name_list.kvs_names[i]);
+            if (ret == -1) {
+                printf("KV store '%s': key not found\n", name_list.kvs_names[i]);
+            }
+            fdb_kvs_close(db);
+        }
+
+        fdb_free_kvs_name_list(&name_list);
+    } else {
+        fs = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+        if (fs != FDB_RESULT_SUCCESS) {
+            printf("\nUnable to open KV store\n");
+            return -3;
+        }
+
+        printf("\n");
+        ret = scan_docs(db, opt, NULL);
+        if (ret == -1) {
+            printf("Key not found\n");
+        }
+        fdb_kvs_close(db);
     }
-
-    print_header(db);
-
-    printf("\n");
-    scan_docs(db, opt);
 
     fs = fdb_close(dbfile);
     if (fs != FDB_RESULT_SUCCESS) {
@@ -426,6 +561,8 @@ int parse_options(int argc, char **argv, struct dump_option *opt)
         if (argv[i][0] == '-' && argv[i][1] == '-') {
             if (strncmp(argv[i], "--key", 16) == 0) {
                 opt->one_key = argv[++i];
+            } else if (strncmp(argv[i], "--kvs", 16) == 0) {
+                opt->one_kvs = argv[++i];
             } else if (strncmp(argv[i], "--no-body", 16) == 0) {
                 opt->no_body = true;
             } else if (strncmp(argv[i], "--no-meta", 16) == 0) {
