@@ -499,7 +499,7 @@ void skew_basic_test()
     _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
                        (void*)&_offset, (void*)value_buf);
-    TEST_CHK(hr != HBTRIE_RESULT_SUCCESS);
+    TEST_CHK(hr == HBTRIE_RESULT_UPDATE);
     btreeblk_end(&bhandle);
 
     // update normal tree key
@@ -507,7 +507,7 @@ void skew_basic_test()
     _offset = _endian_encode(offset);
     hr = hbtrie_insert(&trie, (void*)key_cpy[offset], strlen(key_cpy[offset]),
                        (void*)&_offset, (void*)value_buf);
-    TEST_CHK(hr != HBTRIE_RESULT_SUCCESS);
+    TEST_CHK(hr == HBTRIE_RESULT_UPDATE);
     btreeblk_end(&bhandle);
 
     // range scan from the beginning

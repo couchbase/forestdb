@@ -1513,7 +1513,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 // insert chunk for 'key'
                 chunk_new = key + (prevchunkno + diffchunkno + 1) * trie->chunksize;
                 r = btree_insert(&btreeitem_new->btree, chunk_new, value);
-                if (r != BTREE_RESULT_SUCCESS) {
+                if (r == BTREE_RESULT_FAIL) {
                     return HBTRIE_RESULT_FAIL;
                 }
                 // insert chunk for existing btree
@@ -1523,7 +1523,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 _bid = _endian_encode(bid_new);
                 _hbtrie_set_msb(trie, (void*)&_bid);
                 r = btree_insert(&btreeitem_new->btree, chunk_new, (void*)&_bid);
-                if (r != BTREE_RESULT_SUCCESS) {
+                if (r == BTREE_RESULT_FAIL) {
                     return HBTRIE_RESULT_FAIL;
                 }
 
@@ -1565,7 +1565,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 // leaf b-tree
                 _set_leaf_key(k, chunk, rawkeylen - curchunkno*trie->chunksize);
                 r = btree_insert(&btreeitem->btree, k, value);
-                if (r != BTREE_RESULT_SUCCESS) {
+                if (r == BTREE_RESULT_FAIL) {
                     _free_leaf_key(k);
                     ret_result = HBTRIE_RESULT_FAIL;
                     break; // while loop
@@ -1580,7 +1580,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 }
             } else {
                 r = btree_insert(&btreeitem->btree, chunk, value);
-                if (r != BTREE_RESULT_SUCCESS) {
+                if (r == BTREE_RESULT_FAIL) {
                     ret_result = HBTRIE_RESULT_FAIL;
                 }
             }
@@ -1597,7 +1597,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 }
                 // assume that always normal b-tree
                 r = btree_insert(&btreeitem->btree, chunk, value);
-                if (r != BTREE_RESULT_SUCCESS) {
+                if (r == BTREE_RESULT_FAIL) {
                     ret_result = HBTRIE_RESULT_FAIL;
                 } else {
                     ret_result = HBTRIE_RESULT_UPDATE;
@@ -1623,7 +1623,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                                         trie->btree_blk_ops,
                                         trie->btree_kv_ops,
                                         trie->btree_nodesize, bid_new);
-                if (r != BTREE_RESULT_SUCCESS) {
+                if (r == BTREE_RESULT_FAIL) {
                     ret_result = HBTRIE_RESULT_FAIL;
                 }
                 btreeitem->btree.aux = trie->aux;
@@ -1689,7 +1689,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                         // normal b-tree
                         r = btree_insert(&btreeitem->btree, chunk, value);
                     }
-                    if (r != BTREE_RESULT_SUCCESS) {
+                    if (r == BTREE_RESULT_FAIL) {
                         ret_result = HBTRIE_RESULT_FAIL;
                     } else {
                         ret_result = HBTRIE_RESULT_UPDATE;
@@ -1740,7 +1740,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                             &btreeitem_new->btree, trie->btreeblk_handle,
                             trie->btree_blk_ops, kv_ops,
                             trie->btree_nodesize, trie->chunksize, trie->valuelen, 0x0, &meta);
-                    if (r != BTREE_RESULT_SUCCESS) {
+                    if (r == BTREE_RESULT_FAIL) {
                         return HBTRIE_RESULT_FAIL;
                     }
                     btreeitem_new->btree.aux = trie->aux;
@@ -1754,14 +1754,14 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                         // optimization mode
                         _set_leaf_key(k, chunk_new, rawkeylen_long - newchunkno*trie->chunksize);
                         r = btree_insert(&btreeitem_new->btree, k, value_long);
-                        if (r != BTREE_RESULT_SUCCESS) {
+                        if (r == BTREE_RESULT_FAIL) {
                             ret_result = HBTRIE_RESULT_FAIL;
                         }
                         _free_leaf_key(k);
                     } else {
                         // normal mode
                         r = btree_insert(&btreeitem_new->btree, chunk_new, value_long);
-                        if (r != BTREE_RESULT_SUCCESS) {
+                        if (r == BTREE_RESULT_FAIL) {
                             ret_result = HBTRIE_RESULT_FAIL;
                         }
                     }
