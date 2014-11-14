@@ -1055,7 +1055,12 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         } else {
             seqtree_opt = FDB_SEQTREE_NOT_USE;
         }
-        seqnum = filemgr_get_seqnum(handle->file);
+        // set seqnum based on handle type (multikv or default)
+        if (handle->kvs && handle->kvs->id > 0) {
+            seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header, handle->kvs->id);
+        } else {
+            seqnum = filemgr_get_seqnum(handle->file);
+        }
         // other flags
         if (header_flags & FDB_FLAG_ROOT_INITIALIZED) {
             handle->fhandle->flags |= FHANDLE_ROOT_INITIALIZED;
