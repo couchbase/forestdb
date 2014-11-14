@@ -699,6 +699,7 @@ void btree_reverse_iterator_test()
     for (i=0;i<7;++i){
         c -= 0x10;
         br = btree_prev(&bi, &k, &v);
+        TEST_CHK(br == BTREE_RESULT_SUCCESS);
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);

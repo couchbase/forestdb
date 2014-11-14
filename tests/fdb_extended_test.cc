@@ -615,6 +615,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_status status;
+    size_t n_readers = num_readers;
 
     // remove previous dummy files
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
@@ -641,10 +642,11 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     mutex_init(&rollback_mutex);
 
     // create reader threads.
-    thread_t *tid = alca(thread_t, num_readers);
-    void **thread_ret = alca(void *, num_readers);
-    struct reader_thread_args *args = alca(struct reader_thread_args, num_readers);
-    for (int i = 0; i < num_readers; ++i){
+    thread_t *tid = alca(thread_t, n_readers);
+    void **thread_ret = alca(void *, n_readers);
+    struct reader_thread_args *args = alca(struct reader_thread_args,
+                                           n_readers);
+    for (int i = 0; i < n_readers; ++i){
         args[i].tid = i;
         args[i].ndocs = num_docs;
         args[i].doc = doc;
@@ -677,7 +679,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // wait for thread termination
-    for (int i = 0; i < num_readers; ++i){
+    for (int i = 0; i < n_readers; ++i){
         thread_join(tid[i], &thread_ret[i]);
     }
 

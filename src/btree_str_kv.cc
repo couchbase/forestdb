@@ -130,7 +130,7 @@ static void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     void *key_ptr, *ptr;
     key_len_t keylen, keylen_ins;
     key_len_t _keylen, _keylen_ins;
-    size_t offset, offset_idx, offset_next, next_len;
+    size_t offset, offset_idx, offset_next = 0, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
     ksize = sizeof(void *);
@@ -183,7 +183,8 @@ static void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
             offset += sizeof(key_len_t) + keylen + vsize;
         }
         // remove
-        memmove((uint8_t*)ptr + offset_idx, (uint8_t*)ptr + offset_next, next_len);
+        memmove((uint8_t*)ptr + offset_idx, (uint8_t*)ptr + offset_next,
+                 next_len);
     }
 }
 
