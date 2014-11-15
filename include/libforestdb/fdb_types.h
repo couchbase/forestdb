@@ -419,7 +419,7 @@ typedef struct {
      */
     const char* name;
     /**
-     * Last sequence number assigned
+     * Last sequence number assigned.
      */
     fdb_seqnum_t last_seqnum;
     /**
@@ -430,6 +430,10 @@ typedef struct {
      * Disk space actively used by the KV store.
      */
     uint64_t space_used;
+    /**
+     * File handle that owns the KV store.
+     */
+    fdb_file_handle* file;
 } fdb_kvs_info;
 
 /**

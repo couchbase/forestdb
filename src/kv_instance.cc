@@ -1589,6 +1589,8 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     info->space_used += nlivenodes * handle->config.blocksize;
 
     fdb_get_kvs_seqnum(handle, &info->last_seqnum);
+
+    info->file = handle->fhandle;
     return FDB_RESULT_SUCCESS;
 }
 
