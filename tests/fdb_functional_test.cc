@@ -6293,6 +6293,10 @@ void multi_kv_test(uint8_t opt)
     s = fdb_kvs_close(db);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
+    // remove the empty "kv1" instance
+    s = fdb_kvs_remove(dbfile, "kv1");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 

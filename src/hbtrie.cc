@@ -830,7 +830,7 @@ hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
 }
 
 hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
-                                 void *value_buf)
+                                     void *value_buf)
 {
     hbtrie_result hr;
 
@@ -849,8 +849,24 @@ hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
     return hr;
 }
 
-void _hbtrie_btree_cascaded_update(
-    struct hbtrie *trie, struct list *btreelist, void *key, int free_opt)
+void _hbtrie_free_btreelist(struct list *btreelist)
+{
+    struct btreelist_item *btreeitem;
+    struct list_elem *e;
+
+    // free all items on list
+    e = list_begin(btreelist);
+    while(e) {
+        btreeitem = _get_entry(e, struct btreelist_item, e);
+        e = list_remove(btreelist, e);
+        mempool_free(btreeitem);
+    }
+}
+
+void _hbtrie_btree_cascaded_update(struct hbtrie *trie,
+                                   struct list *btreelist,
+                                   void *key,
+                                   int free_opt)
 {
     bid_t bid_new, _bid;
     struct btreelist_item *btreeitem, *btreeitem_child;
@@ -867,7 +883,8 @@ void _hbtrie_btree_cascaded_update(
         btreeitem_child = _get_entry(e_child, struct btreelist_item, e);
 
         if (btreeitem->child_rootbid != btreeitem_child->btree.root_bid) {
-            // root node of child sub-tree has been moved to another block -> update parent sub-tree
+            // root node of child sub-tree has been moved to another block
+            // update parent sub-tree
             bid_new = btreeitem_child->btree.root_bid;
             _bid = _endian_encode(bid_new);
             _hbtrie_set_msb(trie, (void *)&_bid);
@@ -891,13 +908,7 @@ void _hbtrie_btree_cascaded_update(
     }
 
     if (free_opt) {
-        // free all items on list
-        e = list_begin(btreelist);
-        while(e) {
-            btreeitem = _get_entry(e, struct btreelist_item, e);
-            e = list_remove(btreelist, e);
-            mempool_free(btreeitem);
-        }
+        _hbtrie_free_btreelist(btreelist);
     }
 }
 
@@ -1186,9 +1197,14 @@ INLINE hbtrie_result _hbtrie_remove(struct hbtrie *trie,
             //assert(br != BTREE_RESULT_FAIL);
             if (br == BTREE_RESULT_FAIL) r = HBTRIE_RESULT_FAIL;
         }
+        _hbtrie_btree_cascaded_update(trie, &btreelist, key, 1);
+    } else {
+        // key (to be removed) not found
+        // no update occurred .. we don't need to update b-trees on the path
+        // just free the btreelist
+        _hbtrie_free_btreelist(&btreelist);
     }
 
-    _hbtrie_btree_cascaded_update(trie, &btreelist, key, 1);
     return r;
 }
 
