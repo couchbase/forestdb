@@ -181,31 +181,33 @@ struct avl_node* _balance_tree(struct avl_node *node, int bf)
     int child_bf;
     int height_diff= _get_balance(node) + bf;
 
-    __AVL_DEBUG_BAL_BEGIN(node, bf, height_diff);
+    if (node) {
+        __AVL_DEBUG_BAL_BEGIN(node, bf, height_diff);
 
-    if(height_diff < -1 && node->left) {
-        // balance left sub tree
-        if(_get_balance(node->left) <= 0) {
-            child_bf = avl_bf(node->left);
-            node = _rotate_LL(node, height_diff, &child_bf, NULL);
-            avl_set_bf(node, child_bf);
+        if(height_diff < -1 && node->left) {
+            // balance left sub tree
+            if(_get_balance(node->left) <= 0) {
+                child_bf = avl_bf(node->left);
+                node = _rotate_LL(node, height_diff, &child_bf, NULL);
+                avl_set_bf(node, child_bf);
+            } else {
+                node = _rotate_LR(node, height_diff);
+            }
+        } else if(height_diff > 1 && node->right) {
+            // balance right sub tree
+            if(_get_balance(node->right) >= 0) {
+                child_bf = avl_bf(node->right);
+                node = _rotate_RR(node, height_diff, &child_bf, NULL);
+                avl_set_bf(node, child_bf);
+            } else {
+                node = _rotate_RL(node, height_diff);
+            }
         } else {
-            node = _rotate_LR(node, height_diff);
+            avl_set_bf(node, avl_bf(node) + bf);
         }
-    } else if(height_diff > 1 && node->right) {
-        // balance right sub tree
-        if(_get_balance(node->right) >= 0) {
-            child_bf = avl_bf(node->right);
-            node = _rotate_RR(node, height_diff, &child_bf, NULL);
-            avl_set_bf(node, child_bf);
-        } else {
-            node = _rotate_RL(node, height_diff);
-        }
-    } else {
-        avl_set_bf(node, avl_bf(node) + bf);
+
+        __AVL_DEBUG_BAL_END(node);
     }
-
-    __AVL_DEBUG_BAL_END(node);
 
     return node;
 }

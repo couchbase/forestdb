@@ -1000,17 +1000,21 @@ void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nod
         _nodesize = _nodesize << 1;
     }
     handle->nsb = i;
-    handle->sb = (struct btreeblk_subblocks*)
-                        malloc(sizeof(struct btreeblk_subblocks) * handle->nsb);
-    // initialize each subblock set
-    _nodesize = BTREEBLK_MIN_SUBBLOCK;
-    for (i=0;i<handle->nsb;++i){
-        handle->sb[i].bid = BLK_NOT_FOUND;
-        handle->sb[i].sb_size = _nodesize;
-        handle->sb[i].nblocks = nodesize / _nodesize;
-        handle->sb[i].bitmap = (uint8_t*)malloc(handle->sb[i].nblocks);
-        memset(handle->sb[i].bitmap, 0, handle->sb[i].nblocks);
-        _nodesize = _nodesize << 1;
+    if (i) {
+        handle->sb = (struct btreeblk_subblocks*)
+                     malloc(sizeof(struct btreeblk_subblocks) * handle->nsb);
+        // initialize each subblock set
+        _nodesize = BTREEBLK_MIN_SUBBLOCK;
+        for (i=0;i<handle->nsb;++i){
+            handle->sb[i].bid = BLK_NOT_FOUND;
+            handle->sb[i].sb_size = _nodesize;
+            handle->sb[i].nblocks = nodesize / _nodesize;
+            handle->sb[i].bitmap = (uint8_t*)malloc(handle->sb[i].nblocks);
+            memset(handle->sb[i].bitmap, 0, handle->sb[i].nblocks);
+            _nodesize = _nodesize << 1;
+        }
+    } else {
+        handle->sb = NULL;
     }
 #endif
 }

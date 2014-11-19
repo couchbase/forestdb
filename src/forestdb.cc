@@ -2215,7 +2215,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     struct docio_handle *dhandle;
     struct filemgr *wal_file = NULL;
     wal_result wr;
-    btree_result br;
+    btree_result br = BTREE_RESULT_FAIL;
     fdb_seqnum_t _seqnum;
     fdb_txn *txn = handle->fhandle->root->txn;
 
@@ -3242,8 +3242,8 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     struct docio_handle *new_dhandle;
     struct hbtrie *new_trie = NULL;
     struct btree *new_idtree = NULL;
-    struct btree *new_seqtree, *old_seqtree;
-    struct hbtrie *new_seqtrie;
+    struct btree *new_seqtree = NULL, *old_seqtree;
+    struct hbtrie *new_seqtrie = NULL;
     struct avl_tree flush_items;
     char *old_filename = NULL;
     size_t old_filename_len = 0;

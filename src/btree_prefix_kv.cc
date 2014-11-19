@@ -464,7 +464,7 @@ INLINE void _ins_prefix_kv(struct bnode *node, idx_t idx, void *key, void *value
             _get_common_prefix(first_key, first_keylen,
                                last_key, last_keylen, &new_prefix_len);
 
-            if (new_prefix_len > 0) {
+            if (new_prefix_len > 0 && first_key) {
                 // prefix is modified ..
                 // we have to modify all entries in the node
                 comp_key = (void*)malloc(sizeof(key_len_t) +
@@ -871,11 +871,11 @@ INLINE void _get_prefix_nth_splitter(struct bnode *prev_node, struct bnode *node
         if (key) {
             // if key already points to another memory space, free it
             btree_prefix_kv_free_key(key);
-        }
-        // set longest prefix + one more chr in key2 as splitter
-        btree_prefix_kv_set_key(key,
-                                (uint8_t*)key2_ptr + sizeof(key_len_t),
+            // set longest prefix + one more chr in key2 as splitter
+            btree_prefix_kv_set_key(key,
+                    (uint8_t*)key2_ptr + sizeof(key_len_t),
                                 prefix_len+1);
+        }
     } else {
         // index nodes
         // Note that setting the longest prefix as parent node's splitter can be used
