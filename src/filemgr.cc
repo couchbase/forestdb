@@ -71,6 +71,63 @@ static spin_t temp_buf_lock;
 
 static void _filemgr_free_func(struct hash_elem *h);
 
+static void spin_init_wrap(void *lock) {
+    spin_init((spin_t*)lock);
+}
+
+static void spin_destroy_wrap(void *lock) {
+    spin_destroy((spin_t*)lock);
+}
+
+static void spin_lock_wrap(void *lock) {
+    spin_lock((spin_t*)lock);
+}
+
+static void spin_unlock_wrap(void *lock) {
+    spin_unlock((spin_t*)lock);
+}
+
+static void mutex_init_wrap(void *lock) {
+    mutex_init((mutex_t*)lock);
+}
+
+static void mutex_destroy_wrap(void *lock) {
+    mutex_destroy((mutex_t*)lock);
+}
+
+static void mutex_lock_wrap(void *lock) {
+    mutex_lock((mutex_t*)lock);
+}
+
+static void mutex_unlock_wrap(void *lock) {
+    mutex_unlock((mutex_t*)lock);
+}
+
+static int _block_is_overlapped(void *pbid1, void *pis_writer1,
+                                void *pbid2, void *pis_writer2,
+                                void *aux)
+{
+    (void)aux;
+    bid_t bid1, is_writer1, bid2, is_writer2;
+    bid1 = *(bid_t*)pbid1;
+    is_writer1 = *(bid_t*)pis_writer1;
+    bid2 = *(bid_t*)pbid2;
+    is_writer2 = *(bid_t*)pis_writer2;
+
+    if (bid1 != bid2) {
+        // not overlapped
+        return 0;
+    } else {
+        // overlapped
+        if (!is_writer1 && !is_writer2) {
+            // both are readers
+            return 0;
+        } else {
+            return 1;
+        }
+    }
+}
+
 fdb_status fdb_log(err_log_callback *log_callback,
                    fdb_status status,
                    const char *format, ...)
@@ -449,10 +506,39 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     _filemgr_read_header(file);
 
     spin_init(&file->lock);
+
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+    struct plock_ops pops;
+    struct plock_config pconfig;
+
+    pops.init_user = mutex_init_wrap;
+    pops.lock_user = mutex_lock_wrap;
+    pops.unlock_user = mutex_unlock_wrap;
+    pops.destroy_user = mutex_destroy_wrap;
+    pops.init_internal = spin_init_wrap;
+    pops.lock_internal = spin_lock_wrap;
+    pops.unlock_internal = spin_unlock_wrap;
+    pops.destroy_internal = spin_destroy_wrap;
+    pops.is_overlapped = _block_is_overlapped;
+
+    memset(&pconfig, 0x0, sizeof(pconfig));
+    pconfig.ops = &pops;
+    pconfig.sizeof_lock_internal = sizeof(spin_t);
+    pconfig.sizeof_lock_user = sizeof(mutex_t);
+    pconfig.sizeof_range = sizeof(bid_t);
+    pconfig.aux = NULL;
+    plock_init(&file->plock, &pconfig);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
     int i;
     for (i=0;i<DLOCK_MAX;++i) {
-        spin_init(&file->datalock[i]);
+        mutex_init(&file->data_mutex[i]);
     }
+#else
+    int i;
+    for (i=0;i<DLOCK_MAX;++i) {
+        spin_init(&file->data_spinlock[i]);
+    }
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
 
 #ifdef __FILEMGR_MUTEX_LOCK
     mutex_init(&file->mutex);
@@ -742,10 +828,21 @@ static void _filemgr_free_func(struct hash_elem *h)
 
     // destroy locks
     spin_destroy(&file->lock);
+
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+    plock_destroy(&file->plock);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
     int i;
     for (i=0;i<DLOCK_MAX;++i) {
-        spin_destroy(&file->datalock[i]);
+        mutex_destroy(&file->data_mutex[i]);
     }
+#else
+    int i;
+    for (i=0;i<DLOCK_MAX;++i) {
+        spin_destroy(&file->data_spinlock[i]);
+    }
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+
 #ifdef __FILEMGR_MUTEX_LOCK
     mutex_destroy(&file->mutex);
 #else
@@ -896,16 +993,44 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
-        spin_lock(&file->datalock[lock_no]);
+
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+        plock_entry_t *plock_entry = NULL;
+        bid_t is_writer = 0;
+#endif
+        bool locked = false;
+        // Note: we don't need to grab lock for committed blocks
+        // because they are immutable so that no writer will interfere and
+        // overwrite dirty data
+        if (pos >= file->last_commit) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+            plock_entry = plock_lock(&file->plock, &bid, &is_writer);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+            mutex_lock(&file->data_mutex[lock_no]);
+#else
+            spin_lock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+            locked = true;
+        }
+
         r = bcache_read(file, bid, buf);
         if (r == 0) {
             // cache miss
             // if normal file, just read a block
             r = file->ops->pread(file->fd, buf, file->blocksize, pos);
             if (r != file->blocksize) {
-                _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
+                _log_errno_str(file->ops, log_callback,
+                               (fdb_status) r, "READ", file->filename);
                 // TODO: This function should return an appropriate fdb_status.
-                spin_unlock(&file->datalock[lock_no]);
+                if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                    plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                    mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                    spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
                 return;
             }
 #ifdef __CRC32
@@ -913,7 +1038,15 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 #endif
             bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
         }
-        spin_unlock(&file->datalock[lock_no]);
+        if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+            plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+            mutex_unlock(&file->data_mutex[lock_no]);
+#else
+            spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+        }
     } else {
         r = file->ops->pread(file->fd, buf, file->blocksize, pos);
         if (r != file->blocksize) {
@@ -939,7 +1072,17 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
-        spin_lock(&file->datalock[lock_no]);
+
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+        plock_entry_t *plock_entry;
+        bid_t is_writer = 1;
+        plock_entry = plock_lock(&file->plock, &bid, &is_writer);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+        mutex_lock(&file->data_mutex[lock_no]);
+#else
+        spin_lock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
             bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
@@ -960,7 +1103,13 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
                 _filemgr_release_temp_buf(_buf);
             }
         }
-        spin_unlock(&file->datalock[lock_no]);
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+        plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+        mutex_unlock(&file->data_mutex[lock_no]);
+#else
+        spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
     } else {
 
 #ifdef __CRC32

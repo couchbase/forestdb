@@ -94,7 +94,8 @@ add_library(forestdb SHARED
             utils/crc32.cc
             utils/adler32.cc
             utils/debug.cc
-            utils/cJSON.cc)
+            utils/cJSON.cc
+            utils/partiallock.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(fdb_functional_test
@@ -140,7 +141,8 @@ add_executable(forestdb_dump
                utils/adler32.cc
                utils/debug.cc
                utils/cJSON.cc
-               utils/iniparser.cc)
+               utils/iniparser.cc
+               utils/partiallock.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
@@ -186,7 +188,8 @@ add_executable(bcache_test
                utils/crc32.cc
                utils/adler32.cc
                utils/debug.cc
-               utils/memleak.cc)
+               utils/memleak.cc
+               utils/partiallock.cc)
 target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM})
 
 
@@ -206,7 +209,8 @@ add_executable(filemgr_test
                utils/crc32.cc
                utils/adler32.cc
                utils/debug.cc
-               utils/memleak.cc)
+               utils/memleak.cc
+               utils/partiallock.cc)
 target_link_libraries(filemgr_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(btreeblock_test
@@ -228,7 +232,8 @@ add_executable(btreeblock_test
                utils/crc32.cc
                utils/adler32.cc
                utils/debug.cc
-               utils/memleak.cc)
+               utils/memleak.cc
+               utils/partiallock.cc)
 target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(docio_test
@@ -248,7 +253,8 @@ add_executable(docio_test
                utils/crc32.cc
                utils/adler32.cc
                utils/debug.cc
-               utils/memleak.cc)
+               utils/memleak.cc
+               utils/partiallock.cc)
 target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(hbtrie_test
@@ -274,7 +280,8 @@ add_executable(hbtrie_test
                utils/crc32.cc
                utils/adler32.cc
                utils/debug.cc
-               utils/memleak.cc)
+               utils/memleak.cc
+               utils/partiallock.cc)
 target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(crc_test

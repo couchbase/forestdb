@@ -27,6 +27,7 @@
 #include "internal_types.h"
 #include "common.h"
 #include "hash.h"
+#include "partiallock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,8 +105,16 @@ struct filemgr {
 
     // spin lock for small region
     spin_t lock;
-    // spin lock for data consistency
-    spin_t datalock[DLOCK_MAX];
+
+    // lock for data consistency
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+    struct plock plock;
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+    mutex_t data_mutex[DLOCK_MAX];
+#else
+    spin_t data_spinlock[DLOCK_MAX];
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+
     // spin lock for race condition between separate writer
 #ifdef __FILEMGR_MUTEX_LOCK
     mutex_t mutex;
