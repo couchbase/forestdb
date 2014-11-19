@@ -1915,7 +1915,7 @@ void iterator_test()
     int i, r;
     int n = 10;
     fdb_file_handle *dbfile;
-    fdb_kvs_handle *db;
+    fdb_kvs_handle *db, *kv1;;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -1940,6 +1940,22 @@ void iterator_test()
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "iterator_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Create another KV store..
+    status = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert using 'kv1' instance to ensure it does not interfere
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "kEy%d", i);
+        sprintf(metabuf, "mEta%d", i);
+        sprintf(bodybuf, "bOdy%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        status = fdb_set(kv1, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc[i]);
+    }
 
     // insert documents of even number
     for (i=0;i<n;i+=2){
@@ -2009,7 +2025,8 @@ void iterator_test()
 
     // create another iterator starts from doc[3]
     sprintf(keybuf, "key%d", 3);
-    fdb_iterator_init(db, &iterator, (void*)keybuf, strlen(keybuf), NULL, 0, FDB_ITR_NONE);
+    fdb_iterator_init(db, &iterator, (void*)keybuf, strlen(keybuf), NULL, 0,
+                      FDB_ITR_NONE);
 
     // repeat until fail
     i=3;
@@ -2050,11 +2067,13 @@ void iterator_test()
     fdb_iterator_close(iterator);
 
     // remove document #8 and #9
-    fdb_doc_create(&rdoc, doc[8]->key, doc[8]->keylen, doc[8]->meta, doc[8]->metalen, NULL, 0);
+    fdb_doc_create(&rdoc, doc[8]->key, doc[8]->keylen, doc[8]->meta,
+                   doc[8]->metalen, NULL, 0);
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
-    fdb_doc_create(&rdoc, doc[9]->key, doc[9]->keylen, doc[9]->meta, doc[9]->metalen, NULL, 0);
+    fdb_doc_create(&rdoc, doc[9]->key, doc[9]->keylen, doc[9]->meta,
+                   doc[9]->metalen, NULL, 0);
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
@@ -2122,6 +2141,8 @@ void iterator_test()
     TEST_CHK(i==8);
     fdb_iterator_close(iterator);
 
+    // close kvs1 instance
+    fdb_kvs_close(kv1);
     // close db file
     fdb_kvs_close(db);
     fdb_close(dbfile);
@@ -2244,7 +2265,7 @@ void iterator_seek_test()
     int i, r;
     int n = 10;
     fdb_file_handle *dbfile;
-    fdb_kvs_handle *db;
+    fdb_kvs_handle *db, *kv1;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
     fdb_status status;
@@ -2270,7 +2291,23 @@ void iterator_seek_test()
                                   (void *) "iterator_seek_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    // insert documents of odd number
+    // Create another KV store..
+    status = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert using 'kv1' instance to ensure it does not interfere
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "kEy%d", i);
+        sprintf(metabuf, "mEta%d", i);
+        sprintf(bodybuf, "bOdy%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        status = fdb_set(kv1, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc[i]);
+    }
+
+    // insert documents of odd number into the main (default) KV store handle
     for (i=1;i<n;i+=2){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
@@ -2393,6 +2430,8 @@ void iterator_seek_test()
 
     fdb_iterator_close(iterator);
 
+    // close the kvs kv1
+    fdb_kvs_close(kv1);
     // close db file
     fdb_kvs_close(db);
     fdb_close(dbfile);
