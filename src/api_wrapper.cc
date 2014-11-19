@@ -47,6 +47,7 @@ fdb_status fdb_get_kv(fdb_kvs_handle *handle,
     fdb_status fs;
 
     if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN ||
+        keylen > handle->config.blocksize - 256 ||
         value_out == NULL || valuelen_out == NULL) {
         return FDB_RESULT_INVALID_ARGS;
     }
@@ -84,7 +85,8 @@ fdb_status fdb_set_kv(fdb_kvs_handle *handle,
     fdb_doc *doc;
     fdb_status fs;
 
-    if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN) {
+    if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN ||
+        keylen > handle->config.blocksize - 256) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -115,7 +117,8 @@ fdb_status fdb_del_kv(fdb_kvs_handle *handle,
     fdb_doc *doc;
     fdb_status fs;
 
-    if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN) {
+    if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN ||
+        keylen > handle->config.blocksize - 256) {
         return FDB_RESULT_INVALID_ARGS;
     }
 

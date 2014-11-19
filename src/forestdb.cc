@@ -1801,7 +1801,8 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_doc doc_kv = *doc;
 
-    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
+    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
+        doc->keylen > handle->config.blocksize - 256) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1940,7 +1941,8 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_doc doc_kv = *doc;
 
     if (handle == NULL || doc == NULL || doc->key == NULL ||
-        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
+        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
+        doc->keylen > handle->config.blocksize - 256) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2484,6 +2486,7 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if ( doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
+         doc->keylen > handle->config.blocksize - 256 ||
         (doc->metalen > 0 && doc->meta == NULL) ||
         (doc->bodylen > 0 && doc->body == NULL)) {
         return FDB_RESULT_INVALID_ARGS;
@@ -2672,7 +2675,8 @@ fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
                        handle->file->filename);
     }
 
-    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN) {
+    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
+        doc->keylen > handle->config.blocksize - 256) {
         return FDB_RESULT_INVALID_ARGS;
     }
 

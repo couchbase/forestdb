@@ -5793,14 +5793,14 @@ void long_key_test()
 
     int i, j, idx, r;
     int n=300, m=20; // n: # prefixes, m: # postfixes
-    int keylen_limit = FDB_MAX_KEYLEN; // need to modify if FDB_MAX_KEYLEN is changed
+    int keylen_limit;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n*m);
     fdb_doc *rdoc;
     fdb_status status;
 
-    char *keybuf = alca(char, keylen_limit);
+    char *keybuf;
     char metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
@@ -5814,12 +5814,15 @@ void long_key_test()
     fconfig.purging_interval = 0;
     fconfig.compaction_threshold = 0;
 
+    keylen_limit = fconfig.blocksize - 256;
+    keybuf = alca(char, keylen_limit);
+
     // open db
     fdb_open(&dbfile, "dummy1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
 
     // key structure:
-    // <----------------- 3840 bytes ------------------>
+    // <------------ <keylen_limit> bytes ------------->
     // <-- 8 bytes -->             <-- 8 bytes  -->< 1 >
     // [prefix number]____ ... ____[postfix number][ \0]
     // e.g.)

@@ -174,8 +174,11 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
 
-    if (handle == NULL || start_keylen > FDB_MAX_KEYLEN ||
-        end_keylen > FDB_MAX_KEYLEN) {
+    if (handle == NULL ||
+        start_keylen > FDB_MAX_KEYLEN ||
+        start_keylen > handle->config.blocksize - 256 ||
+        end_keylen > FDB_MAX_KEYLEN ||
+        end_keylen > handle->config.blocksize - 256) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -876,7 +879,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
     fdb_kvs_id_t _kv_id;
 
     if (!iterator || !seek_key || !iterator->_key ||
-        seek_keylen > FDB_MAX_KEYLEN) {
+        seek_keylen > FDB_MAX_KEYLEN ||
+        seek_keylen > iterator->handle.config.blocksize - 256) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
