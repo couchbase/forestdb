@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 2.8)
-
 project (ForestDB)
+
+IF (${CMAKE_MAJOR_VERSION} GREATER 2)
+    CMAKE_POLICY(SET CMP0042 NEW)
+ENDIF (${CMAKE_MAJOR_VERSION} GREATER 2)
+
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/option)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/utils)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/src)
