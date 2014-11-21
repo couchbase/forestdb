@@ -1073,16 +1073,6 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
 
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-        plock_entry_t *plock_entry;
-        bid_t is_writer = 1;
-        plock_entry = plock_lock(&file->plock, &bid, &is_writer);
-#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-        mutex_lock(&file->data_mutex[lock_no]);
-#else
-        spin_lock(&file->data_spinlock[lock_no]);
-#endif //__FILEMGR_DATA_PARTIAL_LOCK
-
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
             bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
@@ -1092,24 +1082,49 @@ void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
+                uint64_t cur_file_pos = file->ops->goto_eof(file->fd);
+                bid_t cur_file_last_bid = cur_file_pos / file->blocksize;
+                bool locked = false;
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                plock_entry_t *plock_entry;
+#endif
                 void *_buf = _filemgr_get_temp_buf();
 
-                r = file->ops->pread(file->fd, _buf, file->blocksize,
-                                     bid * file->blocksize);
-                (void)r; // TODO:propogate error to caller
+                if (bid >= cur_file_last_bid) {
+                    // this is the first time to write this block
+                    // we don't need to read previous block from file
+                    // and also we don't need to grab lock
+                } else {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                    bid_t is_writer = 1;
+                    plock_entry = plock_lock(&file->plock, &bid, &is_writer);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                    mutex_lock(&file->data_mutex[lock_no]);
+#else
+                    spin_lock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                    locked = true;
+
+                    r = file->ops->pread(file->fd, _buf, file->blocksize,
+                                         bid * file->blocksize);
+                    (void)r; // TODO:propogate error to caller
+                }
                 memcpy((uint8_t *)_buf + offset, buf, len);
                 bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
+
+                if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                    plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                    mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                    spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
 
                 _filemgr_release_temp_buf(_buf);
             }
         }
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-        plock_unlock(&file->plock, plock_entry);
-#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-        mutex_unlock(&file->data_mutex[lock_no]);
-#else
-        spin_unlock(&file->data_spinlock[lock_no]);
-#endif //__FILEMGR_DATA_PARTIAL_LOCK
     } else {
 
 #ifdef __CRC32
