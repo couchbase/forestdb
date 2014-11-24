@@ -55,6 +55,8 @@ fdb_config get_default_config(void) {
     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
     // Disable supporting multiple KV instances by default
     fconfig.multi_kv_instances = true;
+    // 30 seconds by default
+    fconfig.prefetch_duration = 30;
 
     return fconfig;
 }

@@ -22,6 +22,9 @@
 #include <assert.h>
 #include <sys/stat.h>
 #include <stdarg.h>
+#if !defined(WIN32) && !defined(_WIN32)
+#include <sys/time.h>
+#endif
 
 #include "filemgr.h"
 #include "filemgr_ops.h"
@@ -30,6 +33,7 @@
 #include "wal.h"
 #include "list.h"
 #include "fdb_internal.h"
+#include "time_utils.h"
 
 #include "memleak.h"
 
@@ -370,6 +374,96 @@ size_t filemgr_get_ref_count(struct filemgr *file)
     return ret;
 }
 
+struct filemgr_prefetch_args {
+    struct filemgr *file;
+    uint64_t duration;
+    void *aux;
+};
+
+void *_filemgr_prefetch_thread(void *voidargs)
+{
+    struct filemgr_prefetch_args *args = (struct filemgr_prefetch_args*)voidargs;
+    uint8_t *buf = alca(uint8_t, args->file->blocksize);
+    uint64_t cur_pos = 0, i;
+    uint64_t bcache_free_space;
+    bid_t bid;
+    bool terminate = false;
+    struct timeval begin, cur, gap;
+
+    spin_lock(&args->file->lock);
+    cur_pos = args->file->last_commit;
+    spin_unlock(&args->file->lock);
+    if (cur_pos < FILEMGR_PREFETCH_UNIT) {
+        terminate = true;
+    } else {
+        cur_pos -= FILEMGR_PREFETCH_UNIT;
+    }
+    // read backwards from the end of the file, in the unit of FILEMGR_PREFETCH_UNIT
+    gettimeofday(&begin, NULL);
+    while (!terminate) {
+        for (i = cur_pos;
+             i < cur_pos + FILEMGR_PREFETCH_UNIT;
+             i += args->file->blocksize) {
+
+            gettimeofday(&cur, NULL);
+            gap = _utime_gap(begin, cur);
+            bcache_free_space = bcache_get_num_free_blocks();
+            bcache_free_space *= args->file->blocksize;
+
+            if (args->file->prefetch_status == FILEMGR_PREFETCH_ABORT ||
+                gap.tv_sec >= args->duration ||
+                bcache_free_space < FILEMGR_PREFETCH_UNIT) {
+                // terminate thread when
+                // 1. got abort signal
+                // 2. time out
+                // 3. not enough free space in block cache
+                terminate = true;
+                break;
+            } else {
+                bid = i / args->file->blocksize;
+                filemgr_read(args->file, bid, buf, NULL);
+            }
+        }
+
+        if (cur_pos >= FILEMGR_PREFETCH_UNIT) {
+            cur_pos -= FILEMGR_PREFETCH_UNIT;
+        } else {
+            // remaining space is less than FILEMGR_PREFETCH_UNIT
+            terminate = true;
+        }
+    }
+
+    args->file->prefetch_status = FILEMGR_PREFETCH_IDLE;
+    free(args);
+    return NULL;
+}
+
+// prefetch the given DB file
+void filemgr_prefetch(struct filemgr *file,
+                      struct filemgr_config *config)
+{
+    uint64_t bcache_free_space;
+
+    bcache_free_space = bcache_get_num_free_blocks();
+    bcache_free_space *= file->blocksize;
+
+    // block cache should have free space larger than FILEMGR_PREFETCH_UNIT
+    spin_lock(&file->lock);
+    if (file->last_commit > 0 &&
+        bcache_free_space >= FILEMGR_PREFETCH_UNIT) {
+        // invoke prefetch thread
+        struct filemgr_prefetch_args *args;
+        args = (struct filemgr_prefetch_args *)
+               calloc(1, sizeof(struct filemgr_prefetch_args));
+        args->file = file;
+        args->duration = config->prefetch_duration;
+
+        file->prefetch_status = FILEMGR_PREFETCH_RUNNING;
+        thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
+    }
+    spin_unlock(&file->lock);
+}
+
 filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                  struct filemgr_config *config,
                                  err_log_callback *log_callback)
@@ -502,6 +596,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->bcache = NULL;
     file->in_place_compaction = false;
     file->kv_header = NULL;
+    file->prefetch_status = FILEMGR_PREFETCH_IDLE;
 
     _filemgr_read_header(file);
 
@@ -567,6 +662,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     wal_add_transaction(file, &file->global_txn);
 
     hash_insert(&hash, &file->e);
+    if (config->prefetch_duration > 0) {
+        filemgr_prefetch(file, config);
+    }
     spin_unlock(&filemgr_openlock);
 
     if (config->options & FILEMGR_SYNC) {
@@ -794,6 +892,18 @@ static void _filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
 
+    spin_lock(&file->lock);
+    if (file->prefetch_status == FILEMGR_PREFETCH_RUNNING) {
+        // prefetch thread is running
+        void *ret;
+        file->prefetch_status = FILEMGR_PREFETCH_ABORT;
+        spin_unlock(&file->lock);
+        // wait
+        thread_join(file->prefetch_tid, &ret);
+    } else {
+        spin_unlock(&file->lock);
+    }
+
     // remove all cached blocks
     if (global_config.ncacheblock > 0) {
         bcache_remove_dirty_blocks(file);
@@ -1002,7 +1112,7 @@ void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         // Note: we don't need to grab lock for committed blocks
         // because they are immutable so that no writer will interfere and
         // overwrite dirty data
-        if (pos >= file->last_commit) {
+        if (filemgr_is_writable(file, bid)) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
             plock_entry = plock_lock(&file->plock, &bid, &is_writer);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)

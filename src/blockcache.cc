@@ -86,7 +86,7 @@ struct fnamedic_item {
 
     spin_t lock;
     uint64_t nvictim;
-    uint32_t nitems;
+    uint64_t nitems;
 };
 
 #define BCACHE_DIRTY (0x1)
@@ -1035,6 +1035,11 @@ void bcache_init(int nblock, int blocksize)
         e = list_next(e);
     }
 
+}
+
+uint64_t bcache_get_num_free_blocks()
+{
+    return freelist_count;
 }
 
 void bcache_print_items()

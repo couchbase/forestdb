@@ -966,7 +966,7 @@ static void _fdb_init_file_config(const fdb_config *config,
                                   struct filemgr_config *fconfig) {
     fconfig->blocksize = config->blocksize;
     fconfig->ncacheblock = config->buffercache_size / config->blocksize;
-    fconfig->flag = 0x0;
+
     fconfig->options = 0x0;
     if (config->flags & FDB_OPEN_FLAG_CREATE) {
         fconfig->options |= FILEMGR_CREATE;
@@ -977,9 +977,13 @@ static void _fdb_init_file_config(const fdb_config *config,
     if (!(config->durability_opt & FDB_DRB_ASYNC)) {
         fconfig->options |= FILEMGR_SYNC;
     }
+
+    fconfig->flag = 0x0;
     if (config->durability_opt & FDB_DRB_ODIRECT) {
         fconfig->flag |= _ARCH_O_DIRECT;
     }
+
+    fconfig->prefetch_duration = config->prefetch_duration;
 }
 
 fdb_status _fdb_open(fdb_kvs_handle *handle,

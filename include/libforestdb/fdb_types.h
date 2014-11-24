@@ -249,7 +249,7 @@ typedef struct {
      */
     uint64_t compaction_minimum_filesize;
     /**
-     * Duration that the compaction daemon periodically waks up, in the unit of
+     * Duration that the compaction daemon periodically wakes up, in the unit of
      * second. This is a global config that is used across all ForestDB files.
      */
     uint64_t compactor_sleep_duration;
@@ -258,6 +258,12 @@ typedef struct {
      * This is a global config that is used across all ForestDB files.
      */
     bool multi_kv_instances;
+    /**
+     * Duration that prefetching of DB file will be performed when the file
+     * is opened, in the unit of second. If the duration is set to zero,
+     * prefetching is disabled. This is a local config to each ForestDB file.
+     */
+    uint64_t prefetch_duration;
 } fdb_config;
 
 typedef struct {

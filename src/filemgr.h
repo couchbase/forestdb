@@ -42,6 +42,7 @@ struct filemgr_config {
 #define FILEMGR_READONLY 0x02
 #define FILEMGR_ROLLBACK_IN_PROG 0x04
 #define FILEMGR_CREATE 0x08
+    uint64_t prefetch_duration;
 };
 
 struct filemgr_ops {
@@ -76,6 +77,13 @@ struct filemgr_header{
     void *data;
 };
 
+typedef uint8_t filemgr_prefetch_status_t;
+enum {
+    FILEMGR_PREFETCH_IDLE = 0,
+    FILEMGR_PREFETCH_RUNNING = 1,
+    FILEMGR_PREFETCH_ABORT = 2
+};
+
 #define DLOCK_MAX (41) /* a prime number */
 struct wal;
 struct fnamedic_item;
@@ -102,6 +110,10 @@ struct filemgr {
     bool in_place_compaction;
     struct kvs_header *kv_header;
     void (*free_kv_header)(struct filemgr *file); // callback function
+
+    // variables related to prefetching
+    volatile filemgr_prefetch_status_t prefetch_status;
+    thread_t prefetch_tid;
 
     // spin lock for small region
     spin_t lock;
