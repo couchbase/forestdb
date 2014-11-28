@@ -3105,6 +3105,193 @@ void reverse_iterator_test()
     TEST_RESULT("reverse iterator test");
 }
 
+void reverse_sequence_iterator_kvs_test()
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    int i, r, count;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *kv1, *kv2;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc **doc2 = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+    fdb_iterator *iterator2;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &kv1, &kvs_config);
+    status = fdb_set_log_callback(kv1, logCallbackFunc,
+                                  (void *) "reverse_sequence_iterator_kvs_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Create another KV store...
+    status = fdb_kvs_open(dbfile, &kv2, "kv2", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // to 'kv2' with entire range
+    for (i=0;i<n;++i) {
+        sprintf(keybuf, "kEy%d", i);
+        sprintf(metabuf, "mEta%d", i);
+        sprintf(bodybuf, "bOdy%d", i);
+        fdb_doc_create(&doc2[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        status = fdb_set(kv2, doc2[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // insert kv1 documents of even number
+    for (i=0;i<n;i+=2) {
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(kv1, doc[i]);
+    }
+
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert kv1 documents of odd number
+    for (i=1;i<n;i+=2) {
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(kv1, doc[i]);
+    }
+    // commit without WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // iterate even docs on kv1
+    fdb_iterator_sequence_init(kv1, &iterator, 0, 0, FDB_ITR_NONE);
+    i=0;
+    count = 0;
+    while (1) {
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+        count++;
+        if (i + 2 >= n) {
+            break;
+        }
+        i = i + 2; // by-seq, first come even docs, then odd
+    }
+    TEST_CHK(count==n/2);
+
+    // iterate all docs over kv2
+    fdb_iterator_sequence_init(kv2, &iterator2, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    while(1) {
+        status = fdb_iterator_next(iterator2, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            break;
+        }
+        fdb_doc_free(rdoc);
+    }
+
+    // manually flush WAL & commit
+    // iterators should be unaffected
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // reverse iterate even docs over kv1
+     i = n - 4;
+    count = 0;
+    while (1) {
+        status = fdb_iterator_prev(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            break;
+        }
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+        i-=2;
+        count++;
+    }
+
+    TEST_CHK(count==4);
+    fdb_iterator_close(iterator);
+
+    i = n-1;
+    count = 0;
+    // reverse iterate all docs over kv2
+    while (1) {
+        status = fdb_iterator_prev(iterator2, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            break;
+        }
+        TEST_CHK(!memcmp(rdoc->key, doc2[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc2[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc2[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+        i--;
+        count++;
+    }
+    TEST_CHK(count==n);
+    fdb_iterator_close(iterator2);
+
+    // re-open iterator after commit should return all docs for kv1
+    i = 0;
+    count = 0;
+    fdb_iterator_sequence_init(kv1, &iterator, 0, 0, FDB_ITR_NONE);
+    while (1) {
+        status = fdb_iterator_next(iterator, &rdoc);
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            break;
+        }
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+        if (i == 8) {
+            i=1; // switch to odds
+        } else {
+            i+=2;
+        }
+        count++;
+    }
+    TEST_CHK(count==n);
+    fdb_iterator_close(iterator);
+
+    // free all documents
+    for (i=0;i<n;++i) {
+        fdb_doc_free(doc[i]);
+        fdb_doc_free(doc2[i]);
+    }
+
+    fdb_kvs_close(kv1);
+    fdb_kvs_close(kv2);
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("reverse sequence iterator kvs test");
+
+}
+
 static int _cmp_double(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
     double aa, bb;
@@ -8154,6 +8341,7 @@ int main(){
     rollback_test();
     rollback_and_snapshot_test();
     reverse_sequence_iterator_test();
+    reverse_sequence_iterator_kvs_test();
     reverse_iterator_test();
     db_drop_test();
     db_destroy_test();
