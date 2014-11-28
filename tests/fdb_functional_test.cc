@@ -1182,6 +1182,141 @@ void auto_recover_compact_ok_test()
     TEST_RESULT("auto recovery after compaction test");
 }
 
+void db_compact_overwrite()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 30;
+    fdb_file_handle *dbfile, *dbfile2;
+    fdb_kvs_handle *db, *db2;
+    fdb_doc **doc = alca(fdb_doc *, n);
+    fdb_doc **doc2 = alca(fdb_doc *, 2*n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_info kvs_info;
+    fdb_kvs_config kvs_config;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // write to db1
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "db_destroy_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // Open the empty db with future compact name
+    fdb_open(&dbfile2, "./dummy1.1", &fconfig);
+    fdb_kvs_open(dbfile2, &db2, NULL, &kvs_config);
+    status = fdb_set_log_callback(db2, logCallbackFunc,
+                                  (void *) "db_destroy_test");
+    // write to db2
+    for (i=0;i < 2*n;++i){
+        sprintf(keybuf, "k2ey%d", i);
+        sprintf(metabuf, "m2eta%d", i);
+        sprintf(bodybuf, "b2ody%d", i);
+        fdb_doc_create(&doc2[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db2, doc2[i]);
+    }
+    fdb_commit(dbfile2, FDB_COMMIT_NORMAL);
+
+
+    // verify db2 seqnum and close
+    fdb_get_kvs_info(db2, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum = 2*n);
+    fdb_kvs_close(db2);
+    fdb_close(dbfile2);
+
+    // compact db1
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db1
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // reopen db1
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "db_destroy_test");
+    // read db1
+    for (i=0;i<n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // reopen db2
+    fdb_open(&dbfile2, "./dummy1.1", &fconfig);
+    fdb_kvs_open(dbfile2, &db2, NULL, &kvs_config);
+    status = fdb_set_log_callback(db2, logCallbackFunc,
+                                  (void *) "db_destroy_test");
+
+    fdb_get_kvs_info(db2, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum = 2*n);
+
+    // read db2
+    for (i=0;i<2*n;++i){
+        // search by key
+        fdb_doc_create(&rdoc, doc2[i]->key, doc2[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db2, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->meta, doc2[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc2[i]->body, rdoc->bodylen));
+        // free result document
+        fdb_doc_free(rdoc);
+    }
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+        fdb_doc_free(doc2[i]);
+    }
+    for (i=n;i<2*n;++i){
+        fdb_doc_free(doc2[i]);
+    }
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_kvs_close(db2);
+    fdb_close(dbfile2);
+
+
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("compact overwrite");
+}
+
 void db_drop_test()
 {
     TEST_INIT();
@@ -8431,6 +8566,7 @@ int main(){
     compact_wo_reopen_test();
     compact_with_reopen_test();
     auto_recover_compact_ok_test();
+    db_compact_overwrite();
 #ifdef __CRC32
     crash_recovery_test();
 #endif
