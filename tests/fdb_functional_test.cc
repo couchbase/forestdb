@@ -8313,6 +8313,112 @@ void multi_kv_use_existing_mode_test()
     TEST_RESULT("multiple KV instances use existing mode test");
 }
 
+void multi_kv_close_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile1;
+    fdb_kvs_handle *db1, *db2, *db3, *db4, *db5;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 8;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+    fconfig.wal_flush_before_commit = true;
+
+    kvs_config = fdb_get_default_kvs_config();
+
+    // open db
+    fdb_open(&dbfile1, "dummy1", &fconfig);
+    fdb_kvs_open(dbfile1, &db1, "db1", &kvs_config);
+    fdb_kvs_open(dbfile1, &db2, "db2", &kvs_config);
+    fdb_kvs_open(dbfile1, &db3, "db3", &kvs_config);
+    fdb_kvs_open(dbfile1, &db4, "db4", &kvs_config);
+    fdb_kvs_open(dbfile1, &db5, "db5", &kvs_config);
+    fdb_open(&dbfile1, "dummy1", &fconfig);
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db1, doc[i]);
+        fdb_set(db2, doc[i]);
+        fdb_set(db3, doc[i]);
+        fdb_set(db4, doc[i]);
+        fdb_set(db5, doc[i]);
+    }
+    // close db3,4
+    fdb_kvs_close(db3);
+    fdb_kvs_close(db4);
+
+
+    // insert documents
+    for (i=0;i<n;++i){
+        fdb_set(db1, doc[i]);
+        fdb_set(db2, doc[i]);
+        fdb_set(db5, doc[i]);
+    }
+
+    // remove db1
+    fdb_kvs_close(db1);
+    status = fdb_kvs_remove(dbfile1,"db1");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // commit
+    status = fdb_commit(dbfile1, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // remove db5
+    fdb_kvs_close(db5);
+    status = fdb_kvs_remove(dbfile1, "db5");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // attempt to read from remaining open kvs
+    for (i=0; i<n; i++){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db2, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+
+    // close db2
+    status = fdb_kvs_close(db2);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // free resources
+    for (i=0; i<n; i++){
+       status = fdb_doc_free(doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_close(dbfile1);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+    TEST_RESULT("multi KV close");
+}
+
 int main(){
     int i;
     uint8_t opt;
@@ -8367,6 +8473,7 @@ int main(){
     multi_kv_custom_cmp_test();
     multi_kv_fdb_open_custom_cmp_test();
     multi_kv_use_existing_mode_test();
+    multi_kv_close_test();
 
     purge_logically_deleted_doc_test();
     compaction_daemon_test(20);
