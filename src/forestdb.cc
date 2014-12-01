@@ -1514,7 +1514,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     fdb_kvs_id_t kv_id, *_kv_id;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset, _offset;
-    int delta;
+    int delta, r;
     struct filemgr *file = handle->dhandle->file;
     struct kvs_stat stat;
 
@@ -1529,7 +1529,12 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     if (item->action == WAL_ACT_INSERT || item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
 
-        _kvs_stat_get(file, kv_id, &stat);
+        r = _kvs_stat_get(file, kv_id, &stat);
+        if (r != 0) {
+            // KV store corresponding to kv_id is already removed
+            // skip this item
+            return;
+        }
         handle->bhandle->nlivenodes = stat.nlivenodes;
 
         hr = hbtrie_insert(handle->trie,
@@ -2939,6 +2944,18 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
             wal_flushed = true;
         }
 
+        // Note: Appending KVS header must be done after flushing WAL
+        //       because KVS stats info is updated during WAL flushing.
+        if (handle->kvs) {
+            // multi KV instance mode .. append up-to-date KV header
+            handle->kv_info_offset = fdb_kvs_header_append(handle->file,
+                                                           handle->dhandle);
+        }
+
+        // Note: Getting header BID must be done after
+        //       all other data are written into the file!!
+        //       Or, header BID inconsistency will occur (it will
+        //       point to wrong block).
         handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
         if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
             earliest_txn = wal_earliest_txn(handle->file,
@@ -2957,12 +2974,6 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
         if (txn == NULL) {
             // update global_txn's previous header BID
             handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
-        }
-
-        if (handle->kvs) {
-            // multi KV instance mode .. append up-to-date KV header
-            handle->kv_info_offset = fdb_kvs_header_append(handle->file,
-                                                              handle->dhandle);
         }
 
         handle->cur_header_revnum = fdb_set_file_header(handle);
@@ -3326,6 +3337,17 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     filemgr_set_in_place_compaction(new_file, in_place_compaction);
     // prevent update to the new_file
     filemgr_mutex_lock(new_file);
+
+    // sync dirty root nodes
+    bid_t dirty_idtree_root, dirty_seqtree_root;
+    filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
+    if (dirty_idtree_root != BLK_NOT_FOUND) {
+        handle->trie->root_bid = dirty_idtree_root;
+    }
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+        dirty_seqtree_root != BLK_NOT_FOUND) {
+        handle->seqtree->root_bid = dirty_seqtree_root;
+    }
 
     // create new hb-trie and related handles
     new_bhandle = (struct btreeblk_handle *)calloc(1, sizeof(struct btreeblk_handle));

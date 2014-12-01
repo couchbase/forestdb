@@ -711,8 +711,15 @@ fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
     spin_lock(&kv_header->lock);
     query.id = id;
     a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
-    node = _get_entry(a, struct kvs_node, avl_id);
-    seqnum = node->seqnum;
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        seqnum = node->seqnum;
+    } else {
+        // not existing KV ID.
+        // this is necessary for _fdb_restore_wal()
+        // not to restore documents in deleted KV store.
+        seqnum = 0;
+    }
     spin_unlock(&kv_header->lock);
 
     return seqnum;
@@ -911,6 +918,17 @@ fdb_kvs_create_start:
     avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
     avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
     spin_unlock(&kv_header->lock);
+
+    // sync dirty root nodes
+    bid_t dirty_idtree_root, dirty_seqtree_root;
+    filemgr_get_dirty_root(root_handle->file, &dirty_idtree_root, &dirty_seqtree_root);
+    if (dirty_idtree_root != BLK_NOT_FOUND) {
+        root_handle->trie->root_bid = dirty_idtree_root;
+    }
+    if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+        dirty_seqtree_root != BLK_NOT_FOUND) {
+        root_handle->seqtree->root_bid = dirty_seqtree_root;
+    }
 
     // append system doc
     root_handle->kv_info_offset = fdb_kvs_header_append(file, dhandle);
@@ -1503,6 +1521,17 @@ fdb_kvs_remove_start:
         // free node
         free(node->kvs_name);
         free(node);
+    }
+
+    // sync dirty root nodes
+    bid_t dirty_idtree_root, dirty_seqtree_root;
+    filemgr_get_dirty_root(root_handle->file, &dirty_idtree_root, &dirty_seqtree_root);
+    if (dirty_idtree_root != BLK_NOT_FOUND) {
+        root_handle->trie->root_bid = dirty_idtree_root;
+    }
+    if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+        dirty_seqtree_root != BLK_NOT_FOUND) {
+        root_handle->seqtree->root_bid = dirty_seqtree_root;
     }
 
     // remove from super handle's HB+trie

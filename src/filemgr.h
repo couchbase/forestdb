@@ -230,9 +230,9 @@ void _kvs_stat_update_attr(struct filemgr *file,
                            fdb_kvs_id_t kv_id,
                            kvs_stat_attr_t attr,
                            int delta);
-void _kvs_stat_get(struct filemgr *file,
-                   fdb_kvs_id_t kv_id,
-                   struct kvs_stat *stat);
+int _kvs_stat_get(struct filemgr *file,
+                  fdb_kvs_id_t kv_id,
+                  struct kvs_stat *stat);
 uint64_t _kvs_stat_get_sum(struct filemgr *file,
                            kvs_stat_attr_t attr);
 

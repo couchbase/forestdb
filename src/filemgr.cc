@@ -1648,8 +1648,10 @@ void _kvs_stat_set(struct filemgr *file,
         spin_lock(&kv_header->lock);
         query.id = kv_id;
         a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
-        node = _get_entry(a, struct kvs_node, avl_id);
-        node->stat = stat;
+        if (a) {
+            node = _get_entry(a, struct kvs_node, avl_id);
+            node->stat = stat;
+        }
         spin_unlock(&kv_header->lock);
     }
 }
@@ -1675,6 +1677,11 @@ void _kvs_stat_update_attr(struct filemgr *file,
         spin_lock(lock);
         query.id = kv_id;
         a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+        if (!a) {
+            // KV instance corresponding to the kv_id is already removed
+            spin_unlock(lock);
+            return;
+        }
         node = _get_entry(a, struct kvs_node, avl_id);
         stat = &node->stat;
     }
@@ -1693,10 +1700,12 @@ void _kvs_stat_update_attr(struct filemgr *file,
     spin_unlock(lock);
 }
 
-void _kvs_stat_get(struct filemgr *file,
-                   fdb_kvs_id_t kv_id,
-                   struct kvs_stat *stat)
+int _kvs_stat_get(struct filemgr *file,
+                  fdb_kvs_id_t kv_id,
+                  struct kvs_stat *stat)
 {
+    int ret = 0;
+
     if (kv_id == 0) {
         spin_lock(&file->lock);
         *stat = file->header.stat;
@@ -1709,10 +1718,16 @@ void _kvs_stat_get(struct filemgr *file,
         spin_lock(&kv_header->lock);
         query.id = kv_id;
         a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
-        node = _get_entry(a, struct kvs_node, avl_id);
-        *stat = node->stat;
+        if (a) {
+            node = _get_entry(a, struct kvs_node, avl_id);
+            *stat = node->stat;
+        } else {
+            ret = -1;
+        }
         spin_unlock(&kv_header->lock);
     }
+
+    return ret;
 }
 
 uint64_t _kvs_stat_get_sum(struct filemgr *file,
