@@ -249,13 +249,17 @@ void compactor_get_next_filename(char *file, char *nextfile)
     if (prefix_len > 0 && _allDigit(file + prefix_len)) {
         sscanf(file+prefix_len, "%d", &compaction_no);
         strncpy(nextfile, file, prefix_len);
-        nextfile[prefix_len] = 0;
-        sprintf(str_no, "%d", compaction_no + 1);
-        strcat(nextfile, str_no);
+        do {
+            nextfile[prefix_len] = 0;
+            sprintf(str_no, "%d", ++compaction_no);
+            strcat(nextfile, str_no);
+        } while (does_file_exist(nextfile));
     } else {
-        strcpy(nextfile, file);
-        sprintf(str_no, ".%d", compaction_no + 1);
-        strcat(nextfile, str_no);
+        do {
+            strcpy(nextfile, file);
+            sprintf(str_no, ".%d", ++compaction_no);
+            strcat(nextfile, str_no);
+        } while (does_file_exist(nextfile));
     }
 }
 
