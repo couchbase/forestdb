@@ -150,15 +150,6 @@ int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
     return cmp;
 }
 
-void _fdb_free_iterator(fdb_iterator *iterator) {
-    free(iterator->_key);
-    free(iterator->end_key);
-    free(iterator->idtree_iterator);
-    free(iterator->hbtrie_iterator);
-    free(iterator->seqtree_iterator);
-    free(iterator);
-}
-
 fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              fdb_iterator **ptr_iterator,
                              const void *start_key,
@@ -268,10 +259,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     iterator->hbtrie_iterator = (struct hbtrie_iterator *)malloc(sizeof(struct hbtrie_iterator));
     hr = hbtrie_iterator_init(handle->trie, iterator->hbtrie_iterator,
                               (void *)start_key, start_keylen);
-    if (hr == HBTRIE_RESULT_FAIL) {
-        _fdb_free_iterator(iterator);
-        return FDB_RESULT_ITERATOR_FAIL;
-    }
+    assert(hr == HBTRIE_RESULT_SUCCESS);
 
     // create a snapshot for WAL (avl-tree)
     // (from the beginning to the last committed element)
