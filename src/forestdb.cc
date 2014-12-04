@@ -2989,7 +2989,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
     return fs;
 }
 
-static void _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
+static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
                                            struct filemgr *old_file,
                                            struct filemgr *new_file)
 {
@@ -2997,6 +2997,7 @@ static void _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     bool wal_flushed = false;
     bid_t dirty_idtree_root, dirty_seqtree_root;
     struct avl_tree flush_items;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     filemgr_mutex_lock(handle->file);
 
@@ -3042,7 +3043,11 @@ static void _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
 
     handle->cur_header_revnum = fdb_set_file_header(handle);
-    filemgr_commit(handle->file, &handle->log_callback);
+    status = filemgr_commit(handle->file, &handle->log_callback);
+    if (status != FDB_RESULT_SUCCESS) {
+        filemgr_mutex_unlock(handle->file);
+        return status;
+    }
 
     if (wal_flushed) {
         wal_release_flushed_items(handle->file, &flush_items);
@@ -3058,6 +3063,7 @@ static void _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
 
     filemgr_mutex_unlock(handle->file);
+    return status;
 }
 
 INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
@@ -3487,9 +3493,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     // 1) commit new file
     // 2) set remove pending flag of the old file
     // 3) close the old file
-    _fdb_commit_and_remove_pending(handle, old_file, new_file);
-
-    return FDB_RESULT_SUCCESS;
+    return _fdb_commit_and_remove_pending(handle, old_file, new_file);
 }
 
 LIBFDB_API

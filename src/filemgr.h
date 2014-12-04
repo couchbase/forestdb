@@ -177,13 +177,13 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
 
 void filemgr_invalidate_block(struct filemgr *file, bid_t bid);
 
-void filemgr_read(struct filemgr *file,
+fdb_status filemgr_read(struct filemgr *file,
                   bid_t bid, void *buf,
                   err_log_callback *log_callback);
 
-void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
+fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
                           uint64_t len, void *buf, err_log_callback *log_callback);
-void filemgr_write(struct filemgr *file, bid_t bid, void *buf,
+fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback);
 int filemgr_is_writable(struct filemgr *file, bid_t bid);
 void filemgr_remove_file(struct filemgr *file);
