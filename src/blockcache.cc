@@ -118,41 +118,6 @@ struct dirty_item {
     struct avl_node avl;
 };
 
-#ifdef __DEBUG
-uint64_t _gn(struct list *list)
-{
-    uint64_t c = 0;
-    struct list_elem *e;
-    e = list_begin(list);
-    while(e) {
-        c++;
-        e = list_next(e);
-    }
-    return c;
-}
-void _pl(struct list *list, uint64_t begin, uint64_t n)
-{
-    uint64_t c = 0;
-    struct list_elem *e;
-    struct bcache_item *item;
-    char fname_buf[FDB_MAX_FILENAME_LEN];
-    uint8_t marker;
-
-    e = list_begin(list);
-    while(e) {
-        if (begin <= c && c < begin+n) {
-            item = _get_entry(e, struct bcache_item, list_elem);
-            memcpy(fname_buf, item->fname->filename, item->fname->filename_len);
-            fname_buf[item->fname->filename_len] = 0;
-            memcpy(&marker, ((uint8_t *)item->addr) + 4095, 1);
-            printf("#%" _F64 ": BID %" _F64 ", marker 0x%x, file %s\n", c, item->bid, marker, fname_buf);
-        }
-        c++;
-        e = list_next(e);
-    }
-}
-#endif
-
 INLINE int _dirty_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct dirty_item *aa, *bb;
