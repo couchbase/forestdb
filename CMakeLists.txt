@@ -76,6 +76,7 @@ add_library(forestdb SHARED
             src/filemgr.cc
             src/filemgr_ops.cc
             ${FORESTDB_FILE_OPS}
+            src/filemgr_ops_anomalous.cc
             src/forestdb.cc
             src/fdb_errors.cc
             src/hash_functions.cc
@@ -105,6 +106,11 @@ add_executable(fdb_extended_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(fdb_extended_test forestdb)
 
+add_executable(fdb_anomaly_test
+               tests/fdb_anomaly_test.cc
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(fdb_anomaly_test forestdb)
+
 add_executable(forestdb_dump
                tools/forestdb_dump.cc
                src/api_wrapper.cc
@@ -121,6 +127,7 @@ add_executable(forestdb_dump
                src/filemgr.cc
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
+               src/filemgr_ops_anomalous.cc
                src/forestdb.cc
                src/hash_functions.cc
                src/hbtrie.cc
@@ -175,6 +182,7 @@ add_executable(bcache_test
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
                ${GETTIMEOFDAY_VS}
+               src/filemgr_ops_anomalous.cc
                src/hash.cc
                src/hash_functions.cc
                src/list.cc
@@ -196,6 +204,7 @@ add_executable(filemgr_test
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
                ${GETTIMEOFDAY_VS}
+               src/filemgr_ops_anomalous.cc
                src/hash.cc
                src/hash_functions.cc
                src/list.cc
@@ -219,6 +228,7 @@ add_executable(btreeblock_test
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
                ${GETTIMEOFDAY_VS}
+               src/filemgr_ops_anomalous.cc
                src/hash.cc
                src/hash_functions.cc
                src/list.cc
@@ -240,6 +250,7 @@ add_executable(docio_test
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
                ${GETTIMEOFDAY_VS}
+               src/filemgr_ops_anomalous.cc
                src/hash.cc
                src/hash_functions.cc
                src/list.cc
@@ -265,6 +276,7 @@ add_executable(hbtrie_test
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
                ${GETTIMEOFDAY_VS}
+               src/filemgr_ops_anomalous.cc
                src/hash.cc
                src/hash_functions.cc
                src/hbtrie.cc
@@ -313,6 +325,7 @@ endif()
 enable_testing()
 add_test(fdb_functional_test fdb_functional_test)
 add_test(fdb_extended_test fdb_extended_test)
+add_test(fdb_anomaly_test fdb_anomaly_test)
 add_test(hash_test hash_test)
 add_test(bcache_test bcache_test)
 add_test(filemgr_test filemgr_test)

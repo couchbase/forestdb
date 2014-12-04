@@ -16,12 +16,24 @@
  */
 
 #include "filemgr_ops.h"
+#include "libforestdb/forestdb.h"
 
 struct filemgr_ops * get_win_filemgr_ops();
 struct filemgr_ops * get_linux_filemgr_ops();
+struct filemgr_ops * get_anomalous_filemgr_ops();
+
+static int filemgr_anomalous_behavior = 0;
+LIBFDB_API
+void filemgr_ops_set_anomalous(int behavior) {
+    filemgr_anomalous_behavior = behavior;
+}
 
 struct filemgr_ops * get_filemgr_ops()
 {
+    if (filemgr_anomalous_behavior) {
+        return get_anomalous_filemgr_ops();
+    }
+
 #if defined(WIN32) || defined(_WIN32)
     // windows
     return get_win_filemgr_ops();
@@ -30,4 +42,3 @@ struct filemgr_ops * get_filemgr_ops()
     return get_linux_filemgr_ops();
 #endif
 }
-
