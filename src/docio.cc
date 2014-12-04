@@ -49,7 +49,8 @@ void docio_free(struct docio_handle *handle)
 #define _add_blk_marker(file, bid, blocksize, marker, log_callback) \
     filemgr_write_offset((file), (bid), (blocksize), BLK_MARKER_SIZE, (marker), (log_callback))
 #else
-#define _add_blk_marker(file, bid, blocksize, marker, log_callback)
+#define _add_blk_marker(file, bid, blocksize, marker, log_callback) \
+    FDB_RESULT_SUCCESS
 #endif
 
 bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)
@@ -78,8 +79,14 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
     if (size <= blocksize - handle->curpos) {
         // simply append to current block
         offset = handle->curpos;
-        _add_blk_marker(handle->file, handle->curblock, blocksize, marker, log_callback);
-        filemgr_write_offset(handle->file, handle->curblock, offset, size, buf, log_callback);
+        if (_add_blk_marker(handle->file, handle->curblock, blocksize, marker,
+                            log_callback) != FDB_RESULT_SUCCESS) {
+            return BLK_NOT_FOUND;
+        }
+        if (filemgr_write_offset(handle->file, handle->curblock, offset, size,
+                                 buf, log_callback) != FDB_RESULT_SUCCESS) {
+            return BLK_NOT_FOUND;
+        }
         handle->curpos += size;
 
         return handle->curblock * real_blocksize + offset;
@@ -101,10 +108,16 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             // start from current block
             assert(begin == handle->curblock + 1);
 
-            _add_blk_marker(handle->file, handle->curblock, blocksize, marker, log_callback);
+            if (_add_blk_marker(handle->file, handle->curblock, blocksize,
+                                marker, log_callback) != FDB_RESULT_SUCCESS) {
+                return BLK_NOT_FOUND;
+            }
             if (offset > 0) {
-                filemgr_write_offset(handle->file, handle->curblock, handle->curpos,
-                                     offset, buf, log_callback);
+                if (filemgr_write_offset(handle->file, handle->curblock,
+                                         handle->curpos, offset, buf,
+                                         log_callback) != FDB_RESULT_SUCCESS) {
+                    return BLK_NOT_FOUND;
+                }
             }
             remainsize -= offset;
 
@@ -127,10 +140,16 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             // start from current block
             assert(begin == handle->curblock + 1);
 
-            _add_blk_marker(handle->file, handle->curblock, blocksize, marker, log_callback);
+            if (_add_blk_marker(handle->file, handle->curblock, blocksize,
+                                marker, log_callback) != FDB_RESULT_SUCCESS) {
+                return BLK_NOT_FOUND;
+            }
             if (offset > 0) {
-                filemgr_write_offset(handle->file, handle->curblock, handle->curpos,
-                                     offset, buf, log_callback);
+                if (filemgr_write_offset(handle->file, handle->curblock,
+                                         handle->curpos, offset, buf,
+                                         log_callback) != FDB_RESULT_SUCCESS) {
+                    return BLK_NOT_FOUND;
+                }
             }
             remainsize -= offset;
 
@@ -150,9 +169,15 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             handle->curblock = i;
             if (remainsize >= blocksize) {
                 // write entire block
-                _add_blk_marker(handle->file, i, blocksize, marker, log_callback);
-                filemgr_write_offset(handle->file, i, 0, blocksize,
-                                     (uint8_t *)buf + offset, log_callback);
+                if (_add_blk_marker(handle->file, i, blocksize, marker,
+                                    log_callback) != FDB_RESULT_SUCCESS) {
+                    return BLK_NOT_FOUND;
+                }
+                if (filemgr_write_offset(handle->file, i, 0, blocksize,
+                                     (uint8_t *)buf + offset,
+                                     log_callback) != FDB_RESULT_SUCCESS) {
+                    return BLK_NOT_FOUND;
+                }
                 offset += blocksize;
                 remainsize -= blocksize;
                 handle->curpos = blocksize;
@@ -160,9 +185,15 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             } else {
                 // write rest of document
                 assert(i==end);
-                _add_blk_marker(handle->file, i, blocksize, marker, log_callback);
-                filemgr_write_offset(handle->file, i, 0, remainsize,
-                                     (uint8_t *)buf + offset, log_callback);
+                if (_add_blk_marker(handle->file, i, blocksize, marker,
+                                    log_callback) != FDB_RESULT_SUCCESS) {
+                    return BLK_NOT_FOUND;
+                }
+                if (filemgr_write_offset(handle->file, i, 0, remainsize,
+                                     (uint8_t *)buf + offset,
+                                     log_callback) != FDB_RESULT_SUCCESS) {
+                    return BLK_NOT_FOUND;
+                }
                 offset += remainsize;
                 handle->curpos = remainsize;
             }
