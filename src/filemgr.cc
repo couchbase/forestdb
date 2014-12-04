@@ -267,14 +267,13 @@ void _filemgr_shutdown_temp_buf()
     spin_unlock(&temp_buf_lock);
 }
 
-fdb_status _filemgr_read_header(struct filemgr *file)
+void _filemgr_read_header(struct filemgr *file)
 {
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
     filemgr_header_len_t len;
     uint8_t *buf;
     uint32_t crc, crc_file;
-    fdb_status status = FDB_RESULT_SUCCESS;
 
     // get temp buffer
     buf = (uint8_t *) _filemgr_get_temp_buf();
@@ -290,14 +289,8 @@ fdb_status _filemgr_read_header(struct filemgr *file)
         }
 
         do {
-            ssize_t rv = file->ops->pread(file->fd, buf, file->blocksize,
+            file->ops->pread(file->fd, buf, file->blocksize,
                              file->pos - file->blocksize);
-            if (rv != file->blocksize) {
-                status = FDB_RESULT_READ_FAIL;
-                DBG("Unable to read file %s blocksize %llu\n",
-                    file->filename, file->blocksize);
-                break;
-            }
             memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE,
                    BLK_MARKER_SIZE);
 
@@ -341,7 +334,7 @@ fdb_status _filemgr_read_header(struct filemgr *file)
                         // release temp buffer
                         _filemgr_release_temp_buf(buf);
 
-                        return status;
+                        return;
                     } else {
                         DBG("Crash Detected: CRC on disk %u != %u\n",
                                 crc_file, crc);
@@ -370,7 +363,6 @@ fdb_status _filemgr_read_header(struct filemgr *file)
     file->header.dirty_idtree_root = BLK_NOT_FOUND;
     file->header.dirty_seqtree_root = BLK_NOT_FOUND;
     memset(&file->header.stat, 0x0, sizeof(file->header.stat));
-    return status;
 }
 
 size_t filemgr_get_ref_count(struct filemgr *file)
@@ -429,12 +421,7 @@ void *_filemgr_prefetch_thread(void *voidargs)
                 break;
             } else {
                 bid = i / args->file->blocksize;
-                if (filemgr_read(args->file, bid, buf, NULL)
-                        != FDB_RESULT_SUCCESS) {
-                    // 4. read failure
-                    terminate = true;
-                    break;
-                }
+                filemgr_read(args->file, bid, buf, NULL);
             }
         }
 
@@ -789,10 +776,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     bid--;
     // Reverse scan the file for a previous DB header
     do {
-        if (filemgr_read(file, (bid_t)bid, _buf, log_callback)
-             != FDB_RESULT_SUCCESS) {
-            break;
-        }
+        filemgr_read(file, (bid_t)bid, _buf, log_callback);
         memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
                 BLK_MARKER_SIZE);
 
@@ -1109,7 +1093,7 @@ void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
     }
 }
 
-fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
+void filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                   err_log_callback *log_callback)
 {
     size_t lock_no;
@@ -1147,6 +1131,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
             if (r != file->blocksize) {
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "READ", file->filename);
+                // TODO: This function should return an appropriate fdb_status.
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                     plock_unlock(&file->plock, plock_entry);
@@ -1156,17 +1141,12 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                return (fdb_status)r;
+                return;
             }
 #ifdef __CRC32
             _filemgr_crc32_check(file, buf);
 #endif
-            r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
-            if (r != global_config.blocksize) {
-                _log_errno_str(file->ops, log_callback,
-                               (fdb_status) r, "WRITE", file->filename);
-                return FDB_RESULT_WRITE_FAIL;
-            }
+            bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
         }
         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1180,21 +1160,18 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
     } else {
         r = file->ops->pread(file->fd, buf, file->blocksize, pos);
         if (r != file->blocksize) {
-            _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",
-                           file->filename);
-            return (fdb_status)r;
+            _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ", file->filename);
+            return;
         }
 
 #ifdef __CRC32
         _filemgr_crc32_check(file, buf);
 #endif
     }
-    return FDB_RESULT_SUCCESS;
 }
 
-fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
-                                uint64_t offset, uint64_t len, void *buf,
-                                err_log_callback *log_callback)
+void filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
+                          uint64_t len, void *buf, err_log_callback *log_callback)
 {
     assert(offset + len <= file->blocksize);
 
@@ -1208,12 +1185,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
-            r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
-            if (r != global_config.blocksize) {
-                _log_errno_str(file->ops, log_callback,
-                               (fdb_status) r, "WRITE", file->filename);
-                return FDB_RESULT_WRITE_FAIL;
-            }
+            bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
         } else {
             // partially write buffer cache first
             r = bcache_write_partial(file, bid, buf, offset, len);
@@ -1245,21 +1217,10 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
                     r = file->ops->pread(file->fd, _buf, file->blocksize,
                                          bid * file->blocksize);
-                    if (r != file->blocksize) {
-                        _filemgr_release_temp_buf(_buf);
-                        _log_errno_str(file->ops, log_callback, (fdb_status) r,
-                                       "READ", file->filename);
-                        return FDB_RESULT_READ_FAIL;
-                    }
+                    (void)r; // TODO:propogate error to caller
                 }
                 memcpy((uint8_t *)_buf + offset, buf, len);
-                r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
-                if (r != global_config.blocksize) {
-                    _filemgr_release_temp_buf(_buf);
-                    _log_errno_str(file->ops, log_callback,
-                            (fdb_status) r, "WRITE", file->filename);
-                    return FDB_RESULT_WRITE_FAIL;
-                }
+                bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
 
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1290,18 +1251,15 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
         r = file->ops->pwrite(file->fd, buf, len, pos);
         _log_errno_str(file->ops, log_callback, (fdb_status) r, "WRITE", file->filename);
-        if (r != len) {
-            return FDB_RESULT_READ_FAIL;
-        }
+        assert(r == len);
+
     }
-    return FDB_RESULT_SUCCESS;
 }
 
-fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
+void filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback)
 {
-    return filemgr_write_offset(file, bid, 0, file->blocksize, buf,
-                                log_callback);
+    filemgr_write_offset(file, bid, 0, file->blocksize, buf, log_callback);
 }
 
 int filemgr_is_writable(struct filemgr *file, bid_t bid)
@@ -1326,12 +1284,7 @@ fdb_status filemgr_commit(struct filemgr *file,
     filemgr_magic_t _magic;
 
     if (global_config.ncacheblock > 0) {
-        result = bcache_flush(file);
-        if (result != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, (fdb_status) result,
-                           "WRITE", file->filename);
-            return (fdb_status)result;
-        }
+        bcache_flush(file);
     }
 
     spin_lock(&file->lock);
@@ -1372,11 +1325,6 @@ fdb_status filemgr_commit(struct filemgr *file,
 
         ssize_t rv = file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
         _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
-        if (rv != file->blocksize) {
-            _filemgr_release_temp_buf(buf);
-            spin_unlock(&file->lock);
-            return FDB_RESULT_WRITE_FAIL;
-        }
         file->header.bid = file->pos / file->blocksize;
         file->pos += file->blocksize;
 
@@ -1399,14 +1347,8 @@ fdb_status filemgr_commit(struct filemgr *file,
 
 fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
 {
-    fdb_status result = FDB_RESULT_SUCCESS;
     if (global_config.ncacheblock > 0) {
-        result = bcache_flush(file);
-        if (result != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, (fdb_status) result,
-                           "WRITE", file->filename);
-            return result;
-        }
+        bcache_flush(file);
     }
 
     if (file->fflags & FILEMGR_SYNC) {
@@ -1414,7 +1356,7 @@ fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
         _log_errno_str(file->ops, log_callback, (fdb_status)rv, "FSYNC", file->filename);
         return (fdb_status) rv;
     }
-    return result;
+    return FDB_RESULT_SUCCESS;
 }
 
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,

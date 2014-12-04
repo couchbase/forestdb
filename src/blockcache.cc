@@ -331,7 +331,7 @@ void _bcache_release_freeblock(struct bcache_item *item)
 
 // flush a bunch of dirty blocks (BCACHE_FLUSH_UNIT) & make then as clean
 //2 FNAME_LOCK is already acquired by caller (of the caller)
-fdb_status _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
+void _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 {
     // get oldest dirty block
     void *buf = NULL;
@@ -343,7 +343,6 @@ fdb_status _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
     bid_t start_bid, prev_bid;
     void *ptr = NULL;
     uint8_t marker = 0x0;
-    fdb_status status = FDB_RESULT_SUCCESS;
 
     // scan and gather rb-tree items sequentially
     if (sync) {
@@ -413,12 +412,9 @@ fdb_status _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
         ret = fname_item->curfile->ops->pwrite(
             fname_item->curfile->fd, buf, count * bcache_blocksize, start_bid * bcache_blocksize);
 
-        if (ret != count * bcache_blocksize) {
-            status = FDB_RESULT_WRITE_FAIL;
-        }
+        assert(ret == count * bcache_blocksize);
         free_align(buf);
     }
-    return status;
 }
 
 // perform eviction
@@ -466,10 +462,7 @@ struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
             e = list_pop_back(&victim->cleanlist);
             while (e == NULL) {
                 // when the victim file has no clean block .. evict dirty block
-                if (_bcache_evict_dirty(victim, 1) != FDB_RESULT_SUCCESS) {
-                    spin_unlock(&victim->lock);
-                    return NULL;
-                }
+                _bcache_evict_dirty(victim, 1);
 
                 // pop back from cleanlist
                 e = list_pop_back(&victim->cleanlist);
@@ -488,10 +481,7 @@ struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
         e = list_pop_back(&victim->cleanlist);
         while (e == NULL) {
             // when the victim file has no clean block .. evict dirty block
-            if (_bcache_evict_dirty(victim, 1) != FDB_RESULT_SUCCESS) {
-                spin_unlock(&victim->lock);
-                return NULL;
-            }
+            _bcache_evict_dirty(victim, 1);
 
             // pop back from cleanlist
             e = list_pop_back(&victim->cleanlist);
@@ -987,10 +977,9 @@ void bcache_remove_file(struct filemgr *file)
 
 // flush and synchronize all dirty blocks of the FILE
 // dirty blocks will be changed to clean blocks (not discarded)
-fdb_status bcache_flush(struct filemgr *file)
+void bcache_flush(struct filemgr *file)
 {
     struct fnamedic_item *fname_item;
-    fdb_status status = FDB_RESULT_SUCCESS;
 
     fname_item = file->bcache;
 
@@ -999,16 +988,11 @@ fdb_status bcache_flush(struct filemgr *file)
         spin_lock(&fname_item->lock);
 
         while(!_tree_empty(fname_item->tree)) {
-
-            status = _bcache_evict_dirty(fname_item, 1);
-            if (status != FDB_RESULT_SUCCESS) {
-                break;
-            }
+            _bcache_evict_dirty(fname_item, 1);
         }
 
         spin_unlock(&fname_item->lock);
     }
-    return status;
 }
 
 void bcache_init(int nblock, int blocksize)
