@@ -25,13 +25,38 @@
 #include <string.h>
 
 #include "filemgr.h"
-#include "filemgr_ops.h"
+#include "filemgr_anomalous_ops.h"
 #include "libforestdb/forestdb.h"
+
+struct filemgr_ops * get_anomalous_filemgr_ops();
+static int filemgr_anomalous_behavior = 0;
+
+// The routines below are adapted from filemgr_ops.cc to add indirection
+struct filemgr_ops * get_win_filemgr_ops();
+struct filemgr_ops * get_linux_filemgr_ops();
+struct filemgr_ops * get_filemgr_ops()
+{
+    if (filemgr_anomalous_behavior) {
+        return get_anomalous_filemgr_ops();
+    }
+
+#if defined(WIN32) || defined(_WIN32)
+    // windows
+    return get_win_filemgr_ops();
+#else
+    // linux, mac os x
+    return get_linux_filemgr_ops();
+#endif
+}
+
+
+void filemgr_ops_set_anomalous(int behavior) {
+    filemgr_anomalous_behavior = behavior;
+}
 
 static struct filemgr_ops *normal_filemgr_ops;
 static int _write_fails;
 
-LIBFDB_API
 void filemgr_ops_anomalous_init() {
     filemgr_ops_set_anomalous(0);
     normal_filemgr_ops = get_filemgr_ops();
@@ -39,7 +64,6 @@ void filemgr_ops_anomalous_init() {
     _write_fails = 0;
 }
 
-LIBFDB_API
 void filemgr_anomalous_writes_set(int behavior) {
     _write_fails = behavior;
 }

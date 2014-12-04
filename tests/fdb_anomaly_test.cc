@@ -26,7 +26,7 @@
 
 #include "libforestdb/forestdb.h"
 #include "test.h"
-#include "filemgr_ops.h"
+#include "filemgr_anomalous_ops.h"
 
 void logCallbackFunc(int err_code,
                      const char *err_msg,

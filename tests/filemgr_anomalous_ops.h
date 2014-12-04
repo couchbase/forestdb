@@ -15,14 +15,17 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_FILEMGR_OPS
-#define _JSAHN_FILEMGR_OPS
+#ifndef _FILEMGR_ANOMALOUS_OPS
+#define _FILEMGR_ANOMALOUS_OPS
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct filemgr_ops * get_filemgr_ops();
+void filemgr_ops_set_anomalous(int behavior);
+void filemgr_ops_anomalous_init();
+void filemgr_anomalous_writes_set(int behavior);
 
 #ifdef __cplusplus
 }
