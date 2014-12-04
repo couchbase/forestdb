@@ -92,7 +92,6 @@ add_library(forestdb SHARED
             utils/crc32.cc
             utils/adler32.cc
             utils/debug.cc
-            utils/cJSON.cc
             utils/partiallock.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
@@ -137,7 +136,6 @@ add_executable(forestdb_dump
                utils/crc32.cc
                utils/adler32.cc
                utils/debug.cc
-               utils/cJSON.cc
                utils/iniparser.cc
                utils/partiallock.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
