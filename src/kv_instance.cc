@@ -829,7 +829,7 @@ fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
                            fdb_kvs_config *kvs_config)
 {
     int kv_ins_name_len;
-    fdb_status fs;
+    fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a;
     struct filemgr *file;
     struct docio_handle *dhandle;
