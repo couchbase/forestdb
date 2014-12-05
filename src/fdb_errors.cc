@@ -113,11 +113,23 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_TOO_LONG_FILENAME:
             return "filename is too long";
 
-        case FDB_RESULT_IN_USE_BY_COMPACTOR:
-            return "database destroy operation failed";
+        case FDB_RESULT_INVALID_HANDLE:
+            return "ForestDB handle is invalid";
 
-        case FDB_RESULT_FAIL:
-            return "database failure";
+        case FDB_RESULT_KV_STORE_NOT_FOUND:
+            return "KV store not found in database";
+
+        case FDB_RESULT_KV_STORE_BUSY:
+            return "there is an active open handle on the kvstore";
+
+        case FDB_RESULT_INVALID_KV_INSTANCE_NAME:
+            return "same KV instance name already exists";
+
+        case FDB_RESULT_INVALID_CMP_FUNCTION:
+            return "custom compare function is assigned incorrectly";
+
+        case FDB_RESULT_IN_USE_BY_COMPACTOR:
+            return "file is in use by compactor, retry later";
 
         default:
             return "unknown error";

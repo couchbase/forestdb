@@ -373,6 +373,27 @@ void long_filename_test()
     TEST_RESULT("long filename test");
 }
 
+void error_to_str_test()
+{
+    TEST_INIT();
+    memleak_start();
+    int i;
+    const char *err_msg;
+
+    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_IN_USE_BY_COMPACTOR; --i) {
+        err_msg = fdb_error_msg((fdb_status)i);
+        // Verify that all error codes have corresponding error messages
+        TEST_CHK(strcmp(err_msg, "unknown error"));
+    }
+
+    err_msg = fdb_error_msg((fdb_status)i);
+    // Verify that the last error code has been checked
+    TEST_CHK(!strcmp(err_msg, "unknown error"));
+
+    memleak_end();
+    TEST_RESULT("error to string message test");
+}
+
 void seq_tree_exception_test()
 {
     TEST_INIT();
@@ -8664,6 +8685,7 @@ int main(){
 
     basic_test();
     long_filename_test();
+    error_to_str_test();
     seq_tree_exception_test();
     wal_commit_test();
     multi_version_test();

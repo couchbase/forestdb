@@ -174,10 +174,6 @@ typedef enum {
      * Please retry in sometime.
      */
     FDB_RESULT_IN_USE_BY_COMPACTOR = -35,
-    /**
-     * General database opertion fails.
-     */
-    FDB_RESULT_FAIL = -100
 } fdb_status;
 
 #ifdef __cplusplus

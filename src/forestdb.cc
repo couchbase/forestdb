@@ -457,7 +457,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
         filemgr_remove_pending(old_file, new_db.file);
         filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
         free(new_db.filename);
-        return FDB_RESULT_FAIL;
+        return FDB_RESULT_FAIL_BY_COMPACTION;
     }
     docio_init(&dhandle, new_file, config.compress_document_body);
 
