@@ -3681,14 +3681,19 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
         compactor_deregister_file(handle->file);
     }
 
-    fdb_status fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose,
+    btreeblk_end(handle->bhandle);
+    btreeblk_free(handle->bhandle);
+
+    fdb_status fs = filemgr_close(handle->file,
+                                  handle->config.cleanup_cache_onclose,
                                   handle->filename, &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
     docio_free(handle->dhandle);
     if (handle->new_file) {
-        fs = filemgr_close(handle->new_file, handle->config.cleanup_cache_onclose,
+        fs = filemgr_close(handle->new_file,
+                           handle->config.cleanup_cache_onclose,
                            handle->filename, &handle->log_callback);
         if (fs != FDB_RESULT_SUCCESS) {
             return fs;
@@ -3698,9 +3703,6 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
         handle->new_file = NULL;
         handle->new_dhandle = NULL;
     }
-
-    btreeblk_end(handle->bhandle);
-    btreeblk_free(handle->bhandle);
 
     hbtrie_free(handle->trie);
     free(handle->trie);
