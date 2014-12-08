@@ -8611,7 +8611,6 @@ void multi_kv_close_test()
     fdb_kvs_open(dbfile1, &db3, "db3", &kvs_config);
     fdb_kvs_open(dbfile1, &db4, "db4", &kvs_config);
     fdb_kvs_open(dbfile1, &db5, "db5", &kvs_config);
-    fdb_open(&dbfile1, "dummy1", &fconfig);
 
     // insert documents
     for (i=0;i<n;++i){
