@@ -63,7 +63,7 @@ static volatile unsigned int initial_lock_status = 0;
 static spin_t initial_lock;
 #endif
 
-static wal_result _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
+static fdb_status _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
                                          uint64_t offset);
 
 INLINE int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
@@ -1501,7 +1501,7 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     return old_offset;
 }
 
-INLINE wal_result _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
+INLINE fdb_status _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
                                          uint64_t offset) {
     return snap_insert((struct snap_handle *)handle, doc, offset);
 }
@@ -1805,7 +1805,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     struct docio_object _doc;
     struct filemgr *wal_file = NULL;
     struct docio_handle *dhandle;
-    wal_result wr;
+    fdb_status wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_doc doc_kv = *doc;
@@ -1854,7 +1854,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         dhandle = handle->dhandle;
     }
 
-    if (wr == WAL_RESULT_FAIL) {
+    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = false;
         bid_t dirty_idtree_root, dirty_seqtree_root;
 
@@ -1896,7 +1896,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr != WAL_RESULT_FAIL || hr != HBTRIE_RESULT_FAIL) {
+    if (wr == FDB_RESULT_SUCCESS || hr != HBTRIE_RESULT_FAIL) {
         if (handle->kvs) {
             _doc.key = doc_kv.key;
             _doc.length.keylen = doc_kv.keylen;
@@ -1907,7 +1907,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
-        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
+        if (wr == FDB_RESULT_SUCCESS && doc->deleted) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -1944,7 +1944,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     struct docio_object _doc;
     struct docio_handle *dhandle;
     struct filemgr *wal_file = NULL;
-    wal_result wr;
+    fdb_status wr;
     hbtrie_result hr;
     fdb_txn *txn;
     fdb_doc doc_kv = *doc;
@@ -1996,7 +1996,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         dhandle = handle->dhandle;
     }
 
-    if (wr == WAL_RESULT_FAIL) {
+    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = false;
         bid_t dirty_idtree_root, dirty_seqtree_root;
 
@@ -2006,7 +2006,8 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
             locked = true;
 
             // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
+            filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
+                                   &dirty_seqtree_root);
             if (dirty_idtree_root != BLK_NOT_FOUND) {
                 handle->trie->root_bid = dirty_idtree_root;
             }
@@ -2037,7 +2038,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr != WAL_RESULT_FAIL || hr != HBTRIE_RESULT_FAIL) {
+    if (wr == FDB_RESULT_SUCCESS || hr != HBTRIE_RESULT_FAIL) {
         if (handle->kvs) {
             _doc.key = doc_kv.key;
             _doc.length.keylen = doc_kv.keylen;
@@ -2079,7 +2080,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     struct docio_object _doc;
     struct docio_handle *dhandle;
     struct filemgr *wal_file = NULL;
-    wal_result wr;
+    fdb_status wr;
     btree_result br = BTREE_RESULT_FAIL;
     fdb_seqnum_t _seqnum;
     fdb_txn *txn = handle->fhandle->root->txn;
@@ -2118,7 +2119,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         dhandle = handle->dhandle;
     }
 
-    if (wr == WAL_RESULT_FAIL) {
+    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = false;
         bid_t dirty_idtree_root, dirty_seqtree_root;
 
@@ -2171,12 +2172,12 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr != WAL_RESULT_FAIL || br != BTREE_RESULT_FAIL) {
+    if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
         _doc.key = doc->key;
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
-        if (wr == WAL_RESULT_SUCCESS && doc->deleted) {
+        if (wr == FDB_RESULT_SUCCESS && doc->deleted) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -2223,7 +2224,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     struct docio_object _doc;
     struct docio_handle *dhandle;
     struct filemgr *wal_file = NULL;
-    wal_result wr;
+    fdb_status wr;
     btree_result br = BTREE_RESULT_FAIL;
     fdb_seqnum_t _seqnum;
     fdb_txn *txn = handle->fhandle->root->txn;
@@ -2262,7 +2263,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         dhandle = handle->dhandle;
     }
 
-    if (wr == WAL_RESULT_FAIL) {
+    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = false;
         bid_t dirty_idtree_root, dirty_seqtree_root;
 
@@ -2315,7 +2316,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr != WAL_RESULT_FAIL || br != BTREE_RESULT_FAIL) {
+    if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
         _doc.key = doc->key;
         _doc.meta = _doc.body = NULL;
 

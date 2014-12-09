@@ -23,15 +23,11 @@
 #include "hash.h"
 #include "list.h"
 #include "avltree.h"
+#include "libforestdb/fdb_errors.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef enum {
-    WAL_RESULT_SUCCESS,
-    WAL_RESULT_FAIL
-} wal_result;
 
 typedef uint8_t wal_item_action;
 enum{
@@ -68,7 +64,7 @@ struct wal_item{
 };
 
 typedef void wal_flush_func(void *dbhandle, struct wal_item *item);
-typedef wal_result wal_snapshot_func(void *shandle, fdb_doc *doc,
+typedef fdb_status wal_snapshot_func(void *shandle, fdb_doc *doc,
                                      uint64_t offset);
 typedef uint64_t wal_get_old_offset_func(void *dbhandle,
                                          struct wal_item *item);
@@ -107,46 +103,46 @@ struct wal_txn_wrapper {
     struct list_elem le;
 };
 
-wal_result wal_init(struct filemgr *file, int nbucket);
+fdb_status wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
-wal_result wal_insert(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t offset);
-wal_result wal_insert_by_compactor(fdb_txn *txn,
+fdb_status wal_insert(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t offset);
+fdb_status wal_insert_by_compactor(fdb_txn *txn,
                                    struct filemgr *file,
                                    fdb_doc *doc,
                                    uint64_t offset);
-wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset);
-wal_result wal_find_kv_id(fdb_txn *txn,
+fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset);
+fdb_status wal_find_kv_id(fdb_txn *txn,
                           struct filemgr *file,
                           fdb_kvs_id_t kv_id,
                           fdb_doc *doc,
                           uint64_t *offset);
 
-wal_result wal_remove(fdb_txn *txn, struct filemgr *file, fdb_doc *doc);
-wal_result wal_txn_migration(void *dbhandle,
+fdb_status wal_remove(fdb_txn *txn, struct filemgr *file, fdb_doc *doc);
+fdb_status wal_txn_migration(void *dbhandle,
                              void *new_dhandle,
                              struct filemgr *old_file,
                              struct filemgr *new_file,
                              wal_doc_move_func *move_doc);
-wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func);
-wal_result wal_release_flushed_items(struct filemgr *file,
+fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func);
+fdb_status wal_release_flushed_items(struct filemgr *file,
                                      struct avl_tree *flush_items);
-wal_result wal_flush(struct filemgr *file,
+fdb_status wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
                      struct avl_tree *flush_items);
-wal_result wal_flush_by_compactor(struct filemgr *file,
+fdb_status wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
                                   struct avl_tree *flush_items);
-wal_result wal_snapshot(struct filemgr *file,
+fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
                         wal_snapshot_func *snapshot_func);
-wal_result wal_discard(struct filemgr *file, fdb_txn *txn);
-wal_result wal_close(struct filemgr *file);
-wal_result wal_shutdown(struct filemgr *file);
-wal_result wal_close_kv_ins(struct filemgr *file,
+fdb_status wal_discard(struct filemgr *file, fdb_txn *txn);
+fdb_status wal_close(struct filemgr *file);
+fdb_status wal_shutdown(struct filemgr *file);
+fdb_status wal_close_kv_ins(struct filemgr *file,
                             fdb_kvs_id_t kv_id);
 
 size_t wal_get_size(struct filemgr *file);

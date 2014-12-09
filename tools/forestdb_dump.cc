@@ -340,7 +340,7 @@ void print_doc(fdb_kvs_handle *db,
     uint64_t _offset;
     void *key;
     keylen_t keylen;
-    wal_result wr;
+    fdb_status wr;
     fdb_doc fdoc;
     struct docio_object doc;
 
@@ -380,7 +380,7 @@ void print_doc(fdb_kvs_handle *db,
     fdoc.key = doc.key;
     fdoc.keylen = doc.length.keylen;
     wr = wal_find(&db->file->global_txn, db->file, &fdoc, &offset);
-    is_wal_entry = (wr == WAL_RESULT_SUCCESS)?(1):(0);
+    is_wal_entry = (wr == FDB_RESULT_SUCCESS)?(1):(0);
     printf("    Indexed by %s\n", (is_wal_entry)?("WAL"):("the main index"));
     printf("    Length: %d (key), %d (metadata), %d (body)\n",
            keylen, doc.length.metalen, doc.length.bodylen);

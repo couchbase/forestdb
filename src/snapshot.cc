@@ -98,22 +98,22 @@ int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 }
 
 
-wal_result snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle)
+fdb_status snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle)
 {
     shandle->key_tree = (struct avl_tree *) malloc(sizeof(struct avl_tree));
     if (!shandle->key_tree) {
-        return WAL_RESULT_FAIL;
+        return FDB_RESULT_ALLOC_FAIL;
     }
     avl_init(shandle->key_tree, (void *) handle);
     shandle->seq_tree = (struct avl_tree *) malloc(sizeof(struct avl_tree));
     if (!shandle->seq_tree) {
-        return WAL_RESULT_FAIL;
+        return FDB_RESULT_ALLOC_FAIL;
     }
     avl_init(shandle->seq_tree, NULL);
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
-wal_result snap_insert(struct snap_handle *shandle, fdb_doc *doc,
+fdb_status snap_insert(struct snap_handle *shandle, fdb_doc *doc,
                         uint64_t offset)
 {
     struct snap_wal_entry query;
@@ -134,7 +134,6 @@ wal_result snap_insert(struct snap_handle *shandle, fdb_doc *doc,
         item->flag = 0;
         avl_insert(shandle->key_tree, &item->avl, _snp_wal_cmp);
         avl_insert(shandle->seq_tree, &item->avl_seq, _snp_seqnum_cmp);
-        return WAL_RESULT_SUCCESS;
     } else {
         // replace existing node with new values so there are no duplicates
         item = _get_entry(node, struct snap_wal_entry, avl);
@@ -150,10 +149,10 @@ wal_result snap_insert(struct snap_handle *shandle, fdb_doc *doc,
         item->offset = offset;
     }
 
-    return WAL_RESULT_FAIL;
+    return FDB_RESULT_SUCCESS;
 }
 
-wal_result snap_find(struct snap_handle *shandle, fdb_doc *doc,
+fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,
                       uint64_t *offset)
 {
     struct snap_wal_entry query;
@@ -161,14 +160,14 @@ wal_result snap_find(struct snap_handle *shandle, fdb_doc *doc,
     memset(&query, 0, sizeof(snap_wal_entry));
     if (doc->seqnum == SEQNUM_NOT_USED || (doc->key && doc->keylen > 0)) {
         if (!shandle->key_tree) {
-            return WAL_RESULT_FAIL;
+            return FDB_RESULT_KEY_NOT_FOUND;
         }
         // search by key
         query.key = doc->key;
         query.keylen = doc->keylen;
         node = avl_search(shandle->key_tree, &query.avl, _snp_wal_cmp);
         if (!node) {
-            return WAL_RESULT_FAIL;
+            return FDB_RESULT_KEY_NOT_FOUND;
         } else {
             struct snap_wal_entry *item;
             item = _get_entry(node, struct snap_wal_entry, avl);
@@ -178,17 +177,17 @@ wal_result snap_find(struct snap_handle *shandle, fdb_doc *doc,
             } else {
                 doc->deleted = true;
             }
-            return WAL_RESULT_SUCCESS;
+            return FDB_RESULT_SUCCESS;
         }
     } else {
         if (!shandle->seq_tree) {
-            return WAL_RESULT_FAIL;
+            return FDB_RESULT_KEY_NOT_FOUND;
         }
         // search by sequence number
         query.seqnum = doc->seqnum;
         node = avl_search(shandle->seq_tree, &query.avl_seq, _snp_seqnum_cmp);
         if (!node) {
-            return WAL_RESULT_FAIL;
+            return FDB_RESULT_KEY_NOT_FOUND;
         } else {
             struct snap_wal_entry *item;
             item = _get_entry(node, struct snap_wal_entry, avl_seq);
@@ -198,13 +197,13 @@ wal_result snap_find(struct snap_handle *shandle, fdb_doc *doc,
             } else {
                 doc->deleted = true;
             }
-            return WAL_RESULT_SUCCESS;
+            return FDB_RESULT_SUCCESS;
         }
     }
-    return WAL_RESULT_FAIL;
+    return FDB_RESULT_KEY_NOT_FOUND;
 }
 
-wal_result snap_close(struct snap_handle *shandle)
+fdb_status snap_close(struct snap_handle *shandle)
 {
     struct avl_node *a;
     struct snap_wal_entry *snap_item;
@@ -221,5 +220,5 @@ wal_result snap_close(struct snap_handle *shandle)
         free(shandle->key_tree);
         free(shandle->seq_tree);
     }
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }

@@ -97,7 +97,7 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
     }
 }
 
-wal_result wal_init(struct filemgr *file, int nbucket)
+fdb_status wal_init(struct filemgr *file, int nbucket)
 {
     file->wal->flag = WAL_FLAG_INITIALIZED;
     file->wal->size = 0;
@@ -111,7 +111,7 @@ wal_result wal_init(struct filemgr *file, int nbucket)
     spin_init(&file->wal->lock);
 
     DBG("wal item size %d\n", (int)sizeof(struct wal_item));
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
 int wal_is_initialized(struct filemgr *file)
@@ -119,7 +119,7 @@ int wal_is_initialized(struct filemgr *file)
     return file->wal->flag & WAL_FLAG_INITIALIZED;
 }
 
-static wal_result _wal_insert(fdb_txn *txn,
+static fdb_status _wal_insert(fdb_txn *txn,
                               struct filemgr *file,
                               fdb_doc *doc,
                               uint64_t offset,
@@ -288,15 +288,15 @@ static wal_result _wal_insert(fdb_txn *txn,
 
     spin_unlock(&file->wal->lock);
 
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
-wal_result wal_insert(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t offset)
+fdb_status wal_insert(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t offset)
 {
     return _wal_insert(txn, file, doc, offset, 0);
 }
 
-wal_result wal_insert_by_compactor(fdb_txn *txn,
+fdb_status wal_insert_by_compactor(fdb_txn *txn,
                                    struct filemgr *file,
                                    fdb_doc *doc,
                                    uint64_t offset)
@@ -304,7 +304,7 @@ wal_result wal_insert_by_compactor(fdb_txn *txn,
     return _wal_insert(txn, file, doc, offset, 1);
 }
 
-static wal_result _wal_find(fdb_txn *txn,
+static fdb_status _wal_find(fdb_txn *txn,
                             struct filemgr *file,
                             fdb_kvs_id_t kv_id,
                             fdb_doc *doc,
@@ -343,7 +343,7 @@ static wal_result _wal_find(fdb_txn *txn,
                         doc->deleted = true;
                     }
                     spin_unlock(&file->wal->lock);
-                    return WAL_RESULT_SUCCESS;
+                    return FDB_RESULT_SUCCESS;
                 }
                 le = list_next(le);
             }
@@ -372,21 +372,21 @@ static wal_result _wal_find(fdb_txn *txn,
                     doc->deleted = true;
                 }
                 spin_unlock(&file->wal->lock);
-                return WAL_RESULT_SUCCESS;
+                return FDB_RESULT_SUCCESS;
             }
         }
     }
 
     spin_unlock(&file->wal->lock);
-    return WAL_RESULT_FAIL;
+    return FDB_RESULT_KEY_NOT_FOUND;
 }
 
-wal_result wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset)
+fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset)
 {
     return _wal_find(txn, file, 0, doc, offset);
 }
 
-wal_result wal_find_kv_id(fdb_txn *txn,
+fdb_status wal_find_kv_id(fdb_txn *txn,
                           struct filemgr *file,
                           fdb_kvs_id_t kv_id,
                           fdb_doc *doc,
@@ -396,7 +396,7 @@ wal_result wal_find_kv_id(fdb_txn *txn,
 }
 
 // move all uncommitted items into 'new_file'
-wal_result wal_txn_migration(void *dbhandle,
+fdb_status wal_txn_migration(void *dbhandle,
                              void *new_dhandle,
                              struct filemgr *old_file,
                              struct filemgr *new_file,
@@ -482,10 +482,10 @@ wal_result wal_txn_migration(void *dbhandle,
 
     spin_unlock(&old_file->wal->lock);
 
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
-wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func)
+fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func)
 {
     int prev_commit;
     wal_item_action prev_action;
@@ -567,7 +567,7 @@ wal_result wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
     }
 
     spin_unlock(&file->wal->lock);
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
 int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
@@ -592,7 +592,7 @@ int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
-wal_result wal_release_flushed_items(struct filemgr *file,
+fdb_status wal_release_flushed_items(struct filemgr *file,
                                      struct avl_tree *flush_items)
 {
     struct avl_tree *tree = flush_items;
@@ -642,10 +642,10 @@ wal_result wal_release_flushed_items(struct filemgr *file,
     }
     spin_unlock(&file->wal->lock);
 
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
-wal_result _wal_flush(struct filemgr *file,
+fdb_status _wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
@@ -704,10 +704,10 @@ wal_result _wal_flush(struct filemgr *file,
         }
     }
 
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
-wal_result wal_flush(struct filemgr *file,
+fdb_status wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
@@ -717,7 +717,7 @@ wal_result wal_flush(struct filemgr *file,
                       flush_items, false);
 }
 
-wal_result wal_flush_by_compactor(struct filemgr *file,
+fdb_status wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
@@ -728,7 +728,7 @@ wal_result wal_flush_by_compactor(struct filemgr *file,
 }
 
 // Used to copy all the WAL items for non-durable snapshots
-wal_result wal_snapshot(struct filemgr *file,
+fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
                         wal_snapshot_func *snapshot_func)
 {
@@ -763,11 +763,11 @@ wal_result wal_snapshot(struct filemgr *file,
     }
     spin_unlock(&file->wal->lock);
 
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
 // discard entries in txn
-wal_result wal_discard(struct filemgr *file, fdb_txn *txn)
+fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
 {
     struct wal_item *item;
     struct list_elem *e;
@@ -807,7 +807,7 @@ wal_result wal_discard(struct filemgr *file, fdb_txn *txn)
     }
 
     spin_unlock(&file->wal->lock);
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
 typedef enum wal_discard_type {
@@ -817,7 +817,7 @@ typedef enum wal_discard_type {
 } wal_discard_t;
 
 // discard all entries
-wal_result _wal_close(struct filemgr *file,
+fdb_status _wal_close(struct filemgr *file,
                       wal_discard_t type, void *aux)
 {
     struct wal_item *item;
@@ -829,7 +829,7 @@ wal_result _wal_close(struct filemgr *file,
 
     if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
         if (aux == NULL) { // aux must contain pointer to KV ID
-            return WAL_RESULT_FAIL;
+            return FDB_RESULT_INVALID_ARGS;
         }
         kv_id_req = *(fdb_kvs_id_t*)aux;
     }
@@ -907,25 +907,25 @@ wal_result _wal_close(struct filemgr *file,
     }
 
     spin_unlock(&file->wal->lock);
-    return WAL_RESULT_SUCCESS;
+    return FDB_RESULT_SUCCESS;
 }
 
-wal_result wal_close(struct filemgr *file)
+fdb_status wal_close(struct filemgr *file)
 {
     return _wal_close(file, WAL_DISCARD_UNCOMMITTED_ONLY, NULL);
 }
 
 // discard all WAL entries
-wal_result wal_shutdown(struct filemgr *file)
+fdb_status wal_shutdown(struct filemgr *file)
 {
-    wal_result wr = _wal_close(file, WAL_DISCARD_ALL, NULL);
+    fdb_status wr = _wal_close(file, WAL_DISCARD_ALL, NULL);
     file->wal->size = 0;
     file->wal->num_flushable = 0;
     return wr;
 }
 
 // discard all WAL entries belonging to KV_ID
-wal_result wal_close_kv_ins(struct filemgr *file,
+fdb_status wal_close_kv_ins(struct filemgr *file,
                             fdb_kvs_id_t kv_id)
 {
     return _wal_close(file, WAL_DISCARD_KV_INS, &kv_id);
