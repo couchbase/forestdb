@@ -485,7 +485,8 @@ fdb_status wal_txn_migration(void *dbhandle,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func)
+fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
+                      wal_commit_mark_func *func)
 {
     int prev_commit;
     wal_item_action prev_action;
@@ -493,6 +494,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
     struct wal_item *_item;
     struct list_elem *e1, *e2;
     fdb_kvs_id_t kv_id, *_kv_id;
+    fdb_status status;
 
     spin_lock(&file->wal->lock);
 
@@ -513,7 +515,11 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
             item->flag |= WAL_ITEM_COMMITTED;
             // append commit mark if necessary
             if (func) {
-                func(txn->handle, item->offset);
+                status = func(txn->handle, item->offset);
+                if (status != FDB_RESULT_SUCCESS) {
+                    spin_unlock(&file->wal->lock);
+                    return status;
+                }
             }
             // remove previously committed item
             prev_commit = 0;
@@ -700,7 +706,10 @@ fdb_status _wal_flush(struct filemgr *file,
 
         // check weather this item is updated after insertion into tree
         if (item->flag & WAL_ITEM_FLUSH_READY) {
-            flush_func(dbhandle, item);
+            fdb_status fs = flush_func(dbhandle, item);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
         }
     }
 

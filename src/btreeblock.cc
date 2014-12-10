@@ -819,23 +819,27 @@ INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle,
     mempool_free(block);
 }
 
-INLINE void _btreeblk_write_dirty_block(struct btreeblk_handle *handle,
+INLINE fdb_status _btreeblk_write_dirty_block(struct btreeblk_handle *handle,
                                         struct btreeblk_block *block)
 {
+    fdb_status status;
     //2 MUST BE modified to support multiple nodes in a block
 
     _btreeblk_encode(handle, block);
-    filemgr_write(handle->file, block->bid, block->addr, handle->log_callback);
+    status = filemgr_write(handle->file, block->bid, block->addr,
+                           handle->log_callback);
     _btreeblk_decode(handle, block);
+    return status;
 }
 
-void btreeblk_operation_end(void *voidhandle)
+fdb_status btreeblk_operation_end(void *voidhandle)
 {
     // flush and write all items in allocation list
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;
     struct btreeblk_block *block;
     int writable;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     // write and free items in allocation list
     e = list_begin(&handle->alc_list);
@@ -843,7 +847,10 @@ void btreeblk_operation_end(void *voidhandle)
         block = _get_entry(e, struct btreeblk_block, le);
         writable = filemgr_is_writable(handle->file, block->bid);
         if (writable) {
-            _btreeblk_write_dirty_block(handle, block);
+            status = _btreeblk_write_dirty_block(handle, block);
+            if (status != FDB_RESULT_SUCCESS) {
+                return status;
+            }
         }else{
             assert(0);
         }
@@ -873,7 +880,10 @@ void btreeblk_operation_end(void *voidhandle)
 
         if (block->dirty) {
             // write back only when the block is modified
-            _btreeblk_write_dirty_block(handle, block);
+            status = _btreeblk_write_dirty_block(handle, block);
+            if (status != FDB_RESULT_SUCCESS) {
+                return status;
+            }
             block->dirty = 0;
         }
 
@@ -893,7 +903,10 @@ void btreeblk_operation_end(void *voidhandle)
 
         if (block->dirty) {
             // write back only when the block is modified
-            _btreeblk_write_dirty_block(handle, block);
+            status = _btreeblk_write_dirty_block(handle, block);
+            if (status != FDB_RESULT_SUCCESS) {
+                return status;
+            }
             block->dirty = 0;
         }
 
@@ -906,6 +919,7 @@ void btreeblk_operation_end(void *voidhandle)
         }
     }
 #endif
+    return status;
 }
 
 void btreeblk_discard_blocks(struct btreeblk_handle *handle)
@@ -1077,13 +1091,17 @@ void btreeblk_free(struct btreeblk_handle *handle)
 #endif
 }
 
-void btreeblk_end(struct btreeblk_handle *handle)
+fdb_status btreeblk_end(struct btreeblk_handle *handle)
 {
     struct list_elem *e;
     struct btreeblk_block *block;
+    fdb_status status = FDB_RESULT_SUCCESS;
 
     // flush all dirty items
-    btreeblk_operation_end((void *)handle);
+    status = btreeblk_operation_end((void *)handle);
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
+    }
 
     // remove all items in lists
     e = list_begin(&handle->alc_list);
@@ -1097,4 +1115,5 @@ void btreeblk_end(struct btreeblk_handle *handle)
         avl_insert(&handle->read_tree, &block->avl, _btreeblk_bid_cmp);
 #endif
     }
+    return status;
 }

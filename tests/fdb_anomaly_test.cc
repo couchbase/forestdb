@@ -41,74 +41,103 @@ void write_failure_test()
 
     memleak_start();
 
-    int i, r;
-    int n = 10;
+    int i, j, idx, r;
+    int n=300, m=20; // n: # prefixes, m: # postfixes
+    int keylen_limit;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
-    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc **doc = alca(fdb_doc*, n*m);
     fdb_doc *rdoc;
     fdb_status status;
+    int anomaly_hit = 0;
 
-    char keybuf[256], metabuf[256], bodybuf[256];
+    char *keybuf;
+    char metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
-    (void)rdoc;
+
+    // Reset anomalous behavior stats..
+    filemgr_ops_anomalous_init();
+
+    // The number indicates the count after which all writes begin to fail
+    // This number is unique to this test suite and can cause a segmentation
+    // fault if the underlying fixed issue resurfaces
+    filemgr_make_writes_fail(10112);
 
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    fconfig.wal_threshold = 1024;
-    fconfig.compaction_threshold = 0;
     fconfig.buffercache_size = 0;
-
-    // open and close db with a create flag.
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-    TEST_CHK(!strcmp(fdb_error_msg(status), "success"));
-    fdb_close(dbfile);
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
 
-    // reopen db
-    fdb_open(&dbfile, "./dummy1",&fconfig);
+    keylen_limit = fconfig.blocksize - 256;
+    keybuf = alca(char, keylen_limit);
+
+    // open db
+    fdb_open(&dbfile, "dummy1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
-    status = fdb_set_log_callback(db, logCallbackFunc, (void *) "write_failure_test");
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    // insert documents
-    i = 0;
-    sprintf(keybuf, "key%d", i);
-    sprintf(metabuf, "meta%d", i);
-    sprintf(bodybuf, "body%d", i);
-    fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
-            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+    // key structure:
+    // <------------ <keylen_limit> bytes ------------->
+    // <-- 8 bytes -->             <-- 8 bytes  -->< 1 >
+    // [prefix number]____ ... ____[postfix number][ \0]
+    // e.g.)
+    // 00000001____ ... ____00000013[\0]
 
-    // Cause write failures..
-    filemgr_anomalous_writes_set(1);
-    status = fdb_set(db, doc[i]);
-    TEST_CHK(status == FDB_RESULT_WRITE_FAIL);
-    // Restore normal operation..
-    filemgr_anomalous_writes_set(0);
+    // create docs
+    for (i=0;i<keylen_limit-1;++i){
+        keybuf[i] = '_';
+    }
+    keybuf[keylen_limit-1] = 0;
 
-    status = fdb_set(db, doc[i]);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    for (i=0;i<n;++i){
+        // set prefix
+        sprintf(temp, "%08d", i);
+        memcpy(keybuf, temp, 8);
+        for (j=0;j<m;++j){
+            idx = i*m + j;
+            // set postfix
+            sprintf(temp, "%08d", j);
+            memcpy(keybuf + (keylen_limit-1) - 8, temp, 8);
+            sprintf(metabuf, "meta%d", idx);
+            sprintf(bodybuf, "body%d", idx);
+            fdb_doc_create(&doc[idx], (void*)keybuf, strlen(keybuf)+1,
+                                    (void*)metabuf, strlen(metabuf)+1,
+                                    (void*)bodybuf, strlen(bodybuf)+1);
+        }
+    }
 
-    // Cause write failures..
-    filemgr_anomalous_writes_set(1);
-    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-    TEST_CHK(status == FDB_RESULT_WRITE_FAIL);
+    // insert docs
+    for (i=0;i<n*m;++i) {
+        fdb_set(db, doc[i]);
+    }
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
-    // Restore normal operation..
-    filemgr_anomalous_writes_set(0);
-    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // retrieval check
+    for (i=0;i<n*m;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        status = fdb_get(db, rdoc);
+        if (status != FDB_RESULT_SUCCESS) {
+            anomaly_hit = 1;
+            break;
+        }
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        fdb_doc_free(rdoc);
+    }
+    TEST_CHK(anomaly_hit);
 
-    // close the db
-    fdb_kvs_close(db);
     fdb_close(dbfile);
 
     // free all documents
-    fdb_doc_free(doc[0]);
+    for (i=0;i<n*m;++i){
+        fdb_doc_free(doc[i]);
+    }
 
     // free all resources
     fdb_shutdown();
@@ -120,7 +149,6 @@ void write_failure_test()
 
 int main(){
 
-    filemgr_ops_anomalous_init();
     write_failure_test();
 
     return 0;

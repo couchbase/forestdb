@@ -415,7 +415,12 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
         // compaction has completed successfully. Mark self for deletion
         filemgr_mutex_lock(new_file);
 
-        btreeblk_end(handle->bhandle);
+        status = btreeblk_end(handle->bhandle);
+        if (status != FDB_RESULT_SUCCESS) {
+            filemgr_mutex_unlock(new_file);
+            _fdb_close(&new_db);
+            return status;
+        }
         btreeblk_free(handle->bhandle);
         free(handle->bhandle);
         handle->bhandle = new_db.bhandle;
@@ -1010,6 +1015,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     uint64_t nlivenodes = 0;
     bid_t hdr_bid = 0; // initialize to zero for in-memory snapshot
     char actual_filename[FDB_MAX_FILENAME_LEN];
+    fdb_status status;
 
     if (filename == NULL) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1333,7 +1339,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
     }
 
-    btreeblk_end(handle->bhandle);
+    status = btreeblk_end(handle->bhandle);
+    assert(status == FDB_RESULT_SUCCESS);
+    (void)status;
 
     // do not register read-only handles
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
@@ -1506,12 +1514,13 @@ INLINE fdb_status _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
     return snap_insert((struct snap_handle *)handle, doc, offset);
 }
 
-INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
+INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 {
     hbtrie_result hr;
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     fdb_seqnum_t _seqnum;
     fdb_kvs_id_t kv_id, *_kv_id;
+    fdb_status fs = FDB_RESULT_SUCCESS;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset, _offset;
     int delta, r;
@@ -1526,14 +1535,15 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         kv_id = 0;
     }
 
-    if (item->action == WAL_ACT_INSERT || item->action == WAL_ACT_LOGICAL_REMOVE) {
+    if (item->action == WAL_ACT_INSERT ||
+        item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
 
         r = _kvs_stat_get(file, kv_id, &stat);
         if (r != 0) {
             // KV store corresponding to kv_id is already removed
             // skip this item
-            return;
+            return FDB_RESULT_SUCCESS;
         }
         handle->bhandle->nlivenodes = stat.nlivenodes;
 
@@ -1543,7 +1553,10 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
                            (void *)&_offset,
                            (void *)&old_offset);
 
-        btreeblk_end(handle->bhandle);
+        fs = btreeblk_end(handle->bhandle);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
         old_offset = _endian_decode(old_offset);
 
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -1562,9 +1575,13 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
                 hbtrie_insert(handle->seqtrie, kvid_seqnum, size_id + size_seq,
                               (void *)&_offset, (void *)&old_offset_local);
             } else {
-                btree_insert(handle->seqtree, (void *)&_seqnum, (void *)&_offset);
+                btree_insert(handle->seqtree, (void *)&_seqnum,
+                             (void *)&_offset);
             }
-            btreeblk_end(handle->bhandle);
+            fs = btreeblk_end(handle->bhandle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
         }
 
         delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
@@ -1597,13 +1614,20 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
     } else {
         // Immediate remove
-        hr = hbtrie_remove(handle->trie, item->header->key, item->header->keylen);
-        btreeblk_end(handle->bhandle);
+        hr = hbtrie_remove(handle->trie, item->header->key,
+                           item->header->keylen);
+        fs = btreeblk_end(handle->bhandle);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
 
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             _seqnum = _endian_encode(item->seqnum);
             btree_remove(handle->seqtree, (void*)&_seqnum);
-            btreeblk_end(handle->bhandle);
+            fs = btreeblk_end(handle->bhandle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
         }
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
@@ -1612,6 +1636,7 @@ INLINE void _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
         }
     }
+    return FDB_RESULT_SUCCESS;
 }
 
 void fdb_sync_db_header(fdb_kvs_handle *handle)
@@ -1673,8 +1698,9 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
     }
 }
 
-void fdb_check_file_reopen(fdb_kvs_handle *handle)
+fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
 {
+    fdb_status fs = FDB_RESULT_SUCCESS;
     // check whether the compaction is done
     if (filemgr_get_file_status(handle->file) == FILE_REMOVED_PENDING) {
         uint64_t ndocs, datasize, nlivenodes, last_wal_flush_hdr_bid;
@@ -1694,7 +1720,7 @@ void fdb_check_file_reopen(fdb_kvs_handle *handle)
             docio_free(handle->dhandle);
             free(handle->dhandle);
             // close btree block handle
-            btreeblk_end(handle->bhandle);
+            fs = btreeblk_end(handle->bhandle);
             btreeblk_free(handle->bhandle);
 
             // switch to new file & docio handle
@@ -1775,6 +1801,7 @@ void fdb_check_file_reopen(fdb_kvs_handle *handle)
             }
         }
     }
+    return fs;
 }
 
 void fdb_link_new_file(fdb_kvs_handle *handle)
@@ -2488,6 +2515,7 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
     bool txn_enabled = false;
     bool sub_handle = false;
     fdb_txn *txn = handle->fhandle->root->txn;
+    fdb_status wr = FDB_RESULT_SUCCESS;
 
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
@@ -2651,9 +2679,18 @@ fdb_set_start:
             btreeblk_discard_blocks(handle->bhandle);
 
             // commit only for non-transactional WAL entries
-            wal_commit(&file->global_txn, file, NULL);
-            wal_flush(file, (void *)handle,
-                      _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
+            wr = wal_commit(&file->global_txn, file, NULL);
+            if (wr != FDB_RESULT_SUCCESS) {
+                filemgr_mutex_unlock(file);
+                return wr;
+            }
+            wr = wal_flush(file, (void *)handle,
+                      _fdb_wal_flush_func, _fdb_wal_get_old_offset,
+                      &flush_items);
+            if (wr != FDB_RESULT_SUCCESS) {
+                filemgr_mutex_unlock(file);
+                return wr;
+            }
             wal_set_dirty_status(file, FDB_WAL_PENDING);
             // it is ok to release flushed items becuase
             // these items are not actually committed yet.
@@ -2827,7 +2864,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     return filemgr_update_header(handle->file, buf, offset);
 }
 
-static void _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
+static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 {
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     struct docio_handle *dhandle;
@@ -2837,7 +2874,10 @@ static void _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
     } else {
         dhandle = handle->dhandle;
     }
-    docio_append_commit_mark(dhandle, offset);
+    if (docio_append_commit_mark(dhandle, offset) == BLK_NOT_FOUND) {
+        return FDB_RESULT_WRITE_FAIL;
+    }
+    return FDB_RESULT_SUCCESS;
 }
 
 LIBFDB_API
@@ -2854,6 +2894,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
     bool wal_flushed = false;
     bid_t dirty_idtree_root, dirty_seqtree_root;
     struct avl_tree flush_items;
+    fdb_status wr = FDB_RESULT_SUCCESS;
 
     if (handle->kvs) {
         if (handle->kvs->type == KVS_SUB) {
@@ -2888,7 +2929,11 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
 
         if (txn) {
             // transactional updates
-            wal_commit(txn, handle->new_file, _fdb_append_commit_mark);
+            wr = wal_commit(txn, handle->new_file, _fdb_append_commit_mark);
+            if (wr != FDB_RESULT_SUCCESS) {
+                filemgr_mutex_unlock(handle->new_file);
+                return wr;
+            }
         } else {
             // non-transactional updates
             wal_commit(&handle->new_file->global_txn, handle->new_file, NULL);
@@ -2899,12 +2944,20 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
         filemgr_mutex_unlock(handle->new_file);
     } else {
         // normal case
-        btreeblk_end(handle->bhandle);
+        fs = btreeblk_end(handle->bhandle);
+        if (fs != FDB_RESULT_SUCCESS) {
+            filemgr_mutex_unlock(handle->file);
+            return fs;
+        }
 
         // commit wal
         if (txn) {
             // transactional updates
-            wal_commit(txn, handle->file, _fdb_append_commit_mark);
+            wr = wal_commit(txn, handle->file, _fdb_append_commit_mark);
+            if (wr != FDB_RESULT_SUCCESS) {
+                filemgr_mutex_unlock(handle->file);
+                return wr;
+            }
             if (wal_get_dirty_status(handle->file)== FDB_WAL_CLEAN) {
                 wal_set_dirty_status(handle->file, FDB_WAL_DIRTY);
             }
@@ -2914,7 +2967,8 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
         }
 
         // sync dirty root nodes
-        filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
+        filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
+                               &dirty_seqtree_root);
         if (dirty_idtree_root != BLK_NOT_FOUND) {
             handle->trie->root_bid = dirty_idtree_root;
         }
@@ -2938,9 +2992,13 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
             //    (in this case, flush the rest of entries)
             // 3. user forces to manually flush wal
 
-            wal_flush(handle->file, (void *)handle,
+            wr = wal_flush(handle->file, (void *)handle,
                       _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                       &flush_items);
+            if (wr != FDB_RESULT_SUCCESS) {
+                filemgr_mutex_unlock(handle->file);
+                return wr;
+            }
             wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
             wal_flushed = true;
         }
@@ -3088,13 +3146,13 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
-INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
-                                   struct filemgr *new_file,
-                                   struct hbtrie *new_trie,
-                                   struct btree *new_idtree,
-                                   struct btree *new_seqtree,
-                                   struct docio_handle *new_dhandle,
-                                   struct btreeblk_handle *new_bhandle)
+INLINE fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
+                                         struct filemgr *new_file,
+                                         struct hbtrie *new_trie,
+                                         struct btree *new_idtree,
+                                         struct btree *new_seqtree,
+                                         struct docio_handle *new_dhandle,
+                                         struct btreeblk_handle *new_bhandle)
 {
     uint8_t deleted;
     uint64_t offset;
@@ -3110,6 +3168,7 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
     fdb_doc wal_doc;
     fdb_kvs_handle new_handle;
     timestamp_t cur_timestamp;
+    fdb_status fs = FDB_RESULT_SUCCESS;
 
     gettimeofday(&tv, NULL);
     cur_timestamp = tv.tv_sec;
@@ -3136,7 +3195,12 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
     while( hr != HBTRIE_RESULT_FAIL ) {
 
         hr = hbtrie_next_value_only(&it, (void*)&offset);
-        btreeblk_end(handle->bhandle);
+        fs = btreeblk_end(handle->bhandle);
+        if (fs != FDB_RESULT_SUCCESS) {
+            hbtrie_iterator_free(&it);
+            free(offset_array);
+            return fs;
+        }
         offset = _endian_decode(offset);
 
         if ( hr != HBTRIE_RESULT_FAIL ) {
@@ -3168,13 +3232,15 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     // compare timestamp
                     deleted = doc[j-i].length.flag & DOCIO_DELETED;
                     if (!deleted ||
-                        (cur_timestamp < doc[j-i].timestamp + handle->config.purging_interval &&
+                        (cur_timestamp < doc[j-i].timestamp +
+                                         handle->config.purging_interval &&
                          deleted)) {
                         // re-write the document to new file when
                         // 1. the document is not deleted
                         // 2. the document is logically deleted but
                         //    its timestamp isn't overdue
-                        new_offset = docio_append_doc(new_dhandle, &doc[j-i], deleted, 0);
+                        new_offset = docio_append_doc(new_dhandle, &doc[j-i],
+                                                      deleted, 0);
 
                         wal_doc.keylen = doc[j-i].length.keylen;
                         wal_doc.metalen = doc[j-i].length.metalen;
@@ -3218,6 +3284,7 @@ INLINE void _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
     hbtrie_iterator_free(&it);
     free(offset_array);
+    return fs;
 }
 
 static uint64_t _fdb_doc_move(void *dbhandle,
@@ -3676,6 +3743,7 @@ fdb_status _fdb_close_root(fdb_kvs_handle *handle)
 
 fdb_status _fdb_close(fdb_kvs_handle *handle)
 {
+    fdb_status fs;
     if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY) &&
         handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
         // read-only file is not registered in compactor
@@ -3685,8 +3753,7 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
     btreeblk_end(handle->bhandle);
     btreeblk_free(handle->bhandle);
 
-    fdb_status fs = filemgr_close(handle->file,
-                                  handle->config.cleanup_cache_onclose,
+    fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose,
                                   handle->filename, &handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;

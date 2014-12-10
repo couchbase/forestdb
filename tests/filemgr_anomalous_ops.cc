@@ -55,17 +55,23 @@ void filemgr_ops_set_anomalous(int behavior) {
 }
 
 static struct filemgr_ops *normal_filemgr_ops;
-static int _write_fails;
+// Write failure stats...
+static int _write_failure;
+static int _num_write_fails;
+static int _num_writes;
 
 void filemgr_ops_anomalous_init() {
     filemgr_ops_set_anomalous(0);
     normal_filemgr_ops = get_filemgr_ops();
     filemgr_ops_set_anomalous(1);
-    _write_fails = 0;
+    _write_failure = 0;
+    _num_write_fails = 0;
+    _num_writes = 0;
 }
 
-void filemgr_anomalous_writes_set(int behavior) {
-    _write_fails = behavior;
+void filemgr_make_writes_fail(int start_failing_at) {
+    _write_failure = start_failing_at;
+    _num_write_fails = 0; // reset stats to 0
 }
 
 int _filemgr_anomalous_open(const char *pathname, int flags, mode_t mode)
@@ -75,7 +81,10 @@ int _filemgr_anomalous_open(const char *pathname, int flags, mode_t mode)
 
 ssize_t _filemgr_anomalous_pwrite(int fd, void *buf, size_t count, cs_off_t offset)
 {
-    if (_write_fails) {
+    _num_writes++;
+    if (_num_writes >= _write_failure) {
+        errno = _write_failure;
+        _num_write_fails++;
         return -1;
     }
 

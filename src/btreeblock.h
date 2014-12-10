@@ -22,6 +22,7 @@
 #include "list.h"
 #include "avltree.h"
 #include "btree.h"
+#include "libforestdb/fdb_errors.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,7 +67,7 @@ struct btree_blk_ops *btreeblk_get_ops();
 void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nodesize);
 void btreeblk_free(struct btreeblk_handle *handle);
 void btreeblk_discard_blocks(struct btreeblk_handle *handle);
-void btreeblk_end(struct btreeblk_handle *handle);
+fdb_status btreeblk_end(struct btreeblk_handle *handle);
 
 #ifdef __cplusplus
 }
