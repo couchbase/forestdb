@@ -316,10 +316,6 @@ struct _fdb_iterator {
      */
     struct hbtrie_iterator *hbtrie_iterator;
     /**
-     * B+Tree iterator for custom compare function
-     */
-    struct btree_iterator *idtree_iterator;
-    /**
      * B+Tree iterator for sequence number iteration
      */
     struct btree_iterator *seqtree_iterator;
@@ -332,14 +328,6 @@ struct _fdb_iterator {
      * Current seqnum pointed by the iterator.
      */
     fdb_seqnum_t _seqnum;
-    /**
-     * Iterator start seqnum.
-     */
-    fdb_seqnum_t start_seqnum;
-    /**
-     * Iterator end seqnum.
-     */
-    fdb_seqnum_t end_seqnum;
     /**
      * AVL tree for WAL entries.
      */
@@ -360,18 +348,30 @@ struct _fdb_iterator {
      * Iterator start key.
      */
     void *start_key;
-    /**
-     * Start key length.
-     */
-    size_t start_keylen;
+    union {
+        /**
+         * Iterator start seqnum.
+         */
+        fdb_seqnum_t start_seqnum;
+        /**
+         * Start key length.
+         */
+        size_t start_keylen;
+    };
     /**
      * Iterator end key.
      */
     void *end_key;
-    /**
-     * End key length.
-     */
-    size_t end_keylen;
+    union {
+        /**
+         * Iterator end seqnum.
+         */
+        fdb_seqnum_t end_seqnum;
+        /**
+         * End key length.
+         */
+        size_t end_keylen;
+    };
     /**
      * Iterator option.
      */
@@ -396,6 +396,14 @@ struct _fdb_iterator {
      * Key offset.
      */
     uint64_t _offset;
+    /**
+     * Doc IO handle instance to the correct file.
+     */
+    struct docio_handle *_dhandle;
+    /**
+     * Cursor offset to key, meta and value on disk
+     */
+    uint64_t _get_offset;
 };
 
 struct wal_txn_wrapper;

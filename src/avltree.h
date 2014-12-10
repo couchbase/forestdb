@@ -58,8 +58,11 @@ struct avl_node* avl_search(struct avl_tree *tree,
                             struct avl_node *node,
                             avl_cmp_func *func);
 struct avl_node* avl_search_greater(struct avl_tree *tree,
-                            struct avl_node *node,
-                            avl_cmp_func *func);
+                                    struct avl_node *node,
+                                    avl_cmp_func *func);
+struct avl_node* avl_search_smaller(struct avl_tree *tree,
+                                    struct avl_node *node,
+                                    avl_cmp_func *func);
 void avl_remove(struct avl_tree *tree,
                 struct avl_node *node);
 struct avl_node* avl_first(struct avl_tree *tree);

@@ -27,12 +27,13 @@
 #include "libforestdb/forestdb.h"
 #include "test.h"
 
+#include "internal_types.h"
 void _set_random_string(char *str, int len)
 {
     str[len--] = 0;
     do {
         str[len] = '!' + random('~'-'!');
-    } while(len--);
+    } while (len--);
 }
 
 void _set_random_string_smallabt(char *str, int len)
@@ -40,7 +41,7 @@ void _set_random_string_smallabt(char *str, int len)
     str[len--] = 0;
     do {
         str[len] = 'a' + random('z'-'a');
-    } while(len--);
+    } while (len--);
 }
 
 void logCallbackFunc(int err_code,
@@ -135,7 +136,7 @@ void basic_test()
     status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == true);
-    TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
+    TEST_CMP(rdoc->meta, doc[5]->meta, rdoc->metalen);
     fdb_doc_free(rdoc);
 
     // close the db
@@ -169,8 +170,8 @@ void basic_test()
         if (i != 5) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -193,8 +194,8 @@ void basic_test()
         if (i != 5) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -610,8 +611,8 @@ void wal_commit_test()
         if (i < n/2) {
             // committed documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             // not committed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -710,8 +711,8 @@ void multi_version_test()
         status = fdb_get(db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         // free result document
         fdb_doc_free(rdoc);
@@ -724,8 +725,8 @@ void multi_version_test()
         status = fdb_get(db_new, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         // free result document
         fdb_doc_free(rdoc);
@@ -747,8 +748,8 @@ void multi_version_test()
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         // the new version of data should be read
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         // free result document
         fdb_doc_free(rdoc);
@@ -844,8 +845,8 @@ void compact_wo_reopen_test()
 
         if (i != 1) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         }else{
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
@@ -953,8 +954,8 @@ void compact_with_reopen_test()
 
         if (i != 1) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         }else{
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
@@ -994,8 +995,8 @@ void compact_with_reopen_test()
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(second_dbh, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         // free result document
         fdb_doc_free(rdoc);
     }
@@ -1020,8 +1021,8 @@ void compact_with_reopen_test()
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         // free result document
         fdb_doc_free(rdoc);
     }
@@ -1172,8 +1173,8 @@ void auto_recover_compact_ok_test()
 
         if (i != 1) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         }else{
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
@@ -1254,6 +1255,7 @@ void db_compact_overwrite()
     fdb_kvs_open(dbfile2, &db2, NULL, &kvs_config);
     status = fdb_set_log_callback(db2, logCallbackFunc,
                                   (void *) "db_destroy_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     // write to db2
     for (i=0;i < 2*n;++i){
         sprintf(keybuf, "k2ey%d", i);
@@ -1285,6 +1287,7 @@ void db_compact_overwrite()
     fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "db_destroy_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     // read db1
     for (i=0;i<n;++i){
         // search by key
@@ -1302,6 +1305,7 @@ void db_compact_overwrite()
     fdb_kvs_open(dbfile2, &db2, NULL, &kvs_config);
     status = fdb_set_log_callback(db2, logCallbackFunc,
                                   (void *) "db_destroy_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_get_kvs_info(db2, &kvs_info);
     TEST_CHK(kvs_info.last_seqnum = 2*n);
@@ -1600,20 +1604,20 @@ void *_worker_thread(void *voidargs)
         spin_unlock(args->filename_count_lock);
         // sleep 1 sec
         sleep(1);
-    } while(1);
+    } while (1);
 
     gettimeofday(&ts_begin, NULL);
 
     c = cnt_int = commit_count = 0;
     cnt_str[IDX_DIGIT] = 0;
 
-    while(1){
+    while (1){
         i = rand() % args->ndocs;
         fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, (IDX_DIGIT+1)));
+        TEST_CMP(rdoc->body, args->doc[i]->body, (IDX_DIGIT+1));
 
         if (args->writer) {
             // if writer,
@@ -2053,8 +2057,8 @@ void crash_recovery_test()
         status = fdb_get(db, rdoc);
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         // free result document
         fdb_doc_free(rdoc);
@@ -2142,8 +2146,8 @@ void incomplete_block_test()
 
         // updated documents
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         // free result document
         fdb_doc_free(rdoc);
@@ -2248,17 +2252,17 @@ void iterator_test()
 
     // repeat until fail
     i=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
     fdb_iterator_close(iterator);
 
@@ -2267,19 +2271,19 @@ void iterator_test()
 
     // repeat until fail
     i=0;
-    while(1){
+    do {
         // retrieve the next doc and get the byte offset of the returned doc
-        status = fdb_iterator_next_metaonly(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+        status = fdb_iterator_get_metaonly(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         TEST_CHK(rdoc->offset != BLK_NOT_FOUND);
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
         TEST_CHK(rdoc->body == NULL);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
     fdb_iterator_close(iterator);
 
@@ -2290,17 +2294,17 @@ void iterator_test()
 
     // repeat until fail
     i=3;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
     fdb_iterator_close(iterator);
 
@@ -2312,17 +2316,17 @@ void iterator_test()
 
     // repeat until fail
     i=4;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==9);
     fdb_iterator_close(iterator);
 
@@ -2344,21 +2348,21 @@ void iterator_test()
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
     // repeat until fail
     i=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
         if (i < 8) {
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             TEST_CHK(rdoc->deleted == true);
         }
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
     fdb_iterator_close(iterator);
 
@@ -2366,17 +2370,17 @@ void iterator_test()
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
     // repeat until fail
     i=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==8);
     fdb_iterator_close(iterator);
 
@@ -2387,17 +2391,17 @@ void iterator_test()
                       FDB_ITR_METAONLY | FDB_ITR_NO_DELETES);
     // repeat until fail
     i=4;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
         TEST_CHK(rdoc->deleted == false);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==8);
     fdb_iterator_close(iterator);
 
@@ -2418,6 +2422,707 @@ void iterator_test()
     memleak_end();
 
     TEST_RESULT("iterator test");
+}
+
+void iterator_complete_test(int insert_opt, int delete_opt)
+{
+    TEST_INIT();
+
+    int n = 30;
+    int i, r, c;
+    int *doc_status = alca(int, n); // 0:HB+trie, 1:WAL, 2:deleted
+    char cmd[256];
+    char key[256], value[256];
+    char keystr[] = "key%06d";
+    char keystr_mid[] = "key%06d+";
+    char valuestr[] = "value%08d";
+    char valuestr2[] = "value%08d(WAL)";
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *db_prev, *db_next;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_iterator *fit;
+    fdb_iterator_opt_t itr_opt;
+    fdb_status s;
+    uint64_t mask = 0x11111111111; //0x11111111111
+
+    sprintf(cmd, SHELL_DEL " dummy*");
+    r = system(cmd);
+    (void)r;
+
+    memleak_start();
+
+    config = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    s = fdb_open(&dbfile, "./dummy", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db_prev, "prev KVS", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(dbfile, &db, "cur KVS", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(dbfile, &db_next, "next KVS", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    sprintf(key, "prev_key");
+    sprintf(value, "prev_value");
+    s = fdb_set_kv(db_prev, key, strlen(key)+1, value, strlen(value)+1);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    sprintf(key, "next_key");
+    sprintf(value, "next_value");
+    s = fdb_set_kv(db_next, key, strlen(key)+1, value, strlen(value)+1);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    sprintf(key, "next_key2");
+    sprintf(value, "next_value2");
+    s = fdb_set_kv(db_next, key, strlen(key)+1, value, strlen(value)+1);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    if (insert_opt == 0) {
+        // HB+trie contains all keys
+        // WAL contains even number keys only
+        for (i=0;i<n;++i){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 0;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        if (delete_opt) {
+            // remove doc #15
+            i = 15;
+            sprintf(key, keystr, (int)i);
+            s = fdb_del_kv(db, key, strlen(key)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 2;
+        }
+
+        for (i=0;i<n;i+=2){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr2, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 1;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else if (insert_opt == 1) {
+        // HB+trie contains all keys
+        // WAL contains odd number keys only
+        for (i=0;i<n;++i){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 0;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        for (i=1;i<n;i+=2){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr2, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 1;
+        }
+        if (delete_opt) {
+            // remove doc #15
+            i = 15;
+            sprintf(key, keystr, (int)i);
+            s = fdb_del_kv(db, key, strlen(key)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 2;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else if (insert_opt == 2) {
+        // HB+trie contains odd number keys
+        // WAL contains even number keys
+        for (i=1;i<n;i+=2){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 0;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        if (delete_opt) {
+            // remove doc #15
+            i = 15;
+            sprintf(key, keystr, (int)i);
+            s = fdb_del_kv(db, key, strlen(key)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 2;
+        }
+
+        for (i=0;i<n;i+=2){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr2, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 1;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else if (insert_opt == 3) {
+        // HB+trie contains even number keys
+        // WAL contains odd number keys
+        for (i=0;i<n;i+=2){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 0;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        for (i=1;i<n;i+=2){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr2, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 1;
+        }
+        if (delete_opt) {
+            // remove doc #15
+            i = 15;
+            sprintf(key, keystr, (int)i);
+            s = fdb_del_kv(db, key, strlen(key)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 2;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else if (insert_opt == 4) {
+        // HB+trie contains all keys
+        // WAL is empty
+        for (i=0;i<n;i+=1){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 0;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        if (delete_opt) {
+            // remove doc #15
+            i = 15;
+            sprintf(key, keystr, (int)i);
+            s = fdb_del_kv(db, key, strlen(key)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 2;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else if (insert_opt == 5) {
+        // HB+trie is empty
+        // WAL contains all keys
+        for (i=0;i<n;i+=1){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 0;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        if (delete_opt) {
+            // remove doc #15
+            i = 15;
+            sprintf(key, keystr, (int)i);
+            s = fdb_del_kv(db, key, strlen(key)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 2;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else if (insert_opt == 6) {
+        // Both HB+trie and WAL contains all keys
+        for (i=0;i<n;++i){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 0;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        for (i=0;i<n;i++){
+            sprintf(key, keystr, (int)i);
+            sprintf(value, valuestr2, (int)i);
+            s = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 1;
+        }
+        if (delete_opt) {
+            // remove doc #15
+            i = 15;
+            sprintf(key, keystr, (int)i);
+            s = fdb_del_kv(db, key, strlen(key)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            doc_status[i] = 2;
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    if (delete_opt) {
+        itr_opt = FDB_ITR_NO_DELETES;
+    } else {
+        itr_opt = FDB_ITR_NONE;
+    }
+
+    s = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, itr_opt);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    if (mask & 0x1) {
+        c = 0;
+        do {
+            s = fdb_iterator_get(fit, &doc);
+            if (s != FDB_RESULT_SUCCESS) {
+                if (s == FDB_RESULT_KEY_NOT_FOUND) {
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            c += ((doc_status[c] == 2)?(1):(0));
+            sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+            TEST_CMP(doc->body, value, doc->bodylen);
+            fdb_doc_free(doc);
+            c++;
+        } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
+        TEST_CHK(c == n);
+        while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL) {
+            c--;
+            s = fdb_iterator_get(fit, &doc);
+            if (s != FDB_RESULT_SUCCESS) {
+                if (s == FDB_RESULT_KEY_NOT_FOUND) {
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            c -= ((doc_status[c] == 2)?(1):(0));
+            sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+            TEST_CMP(doc->body, value, doc->bodylen);
+            fdb_doc_free(doc);
+        }
+        TEST_CHK(c == 0);
+    }
+
+    if (mask & 0x10) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, 0x0);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            c = i;
+            if (doc_status[c] == 2) {
+                c++; // higher mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr, (int)c);
+                c += ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c++;
+            } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
+            TEST_CHK(c == n);
+        }
+    }
+
+    if (mask & 0x100) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, 0x0);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            c = i;
+            if (doc_status[c] == 2) {
+                c++; // higher mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr, (int)c);
+                c -= ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c--;
+            } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
+            TEST_CHK(c == -1);
+        }
+    }
+
+    if (mask & 0x1000) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, FDB_ITR_SEEK_LOWER);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            c = i;
+            if (doc_status[c] == 2) {
+                c--; // lower mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr, (int)c);
+                c += ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c++;
+            } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
+            TEST_CHK(c == n);
+        }
+    }
+
+    if (mask & 0x10000) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, FDB_ITR_SEEK_LOWER);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            c = i;
+            if (doc_status[c] == 2) {
+                c--; // lower mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr, (int)c);
+                c -= ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c--;
+            } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
+            TEST_CHK(c == -1);
+        }
+    }
+
+    if (mask & 0x100000) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr_mid, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, 0x0);
+            (void)s;
+            c = i+1;
+            if (doc_status[c] == 2) {
+                c++; // higher mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr_mid, (int)c);
+                c += ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c++;
+            } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
+            TEST_CHK(c == n);
+        }
+    }
+
+    if (mask & 0x1000000) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr_mid, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, 0x0);
+            (void)s;
+            c = i+1;
+            if (doc_status[c] == 2) {
+                c++; // higher mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr_mid, (int)c);
+                c -= ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c--;
+            } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
+            if (i == n-1) {
+                TEST_CHK(c == n);
+            } else {
+                TEST_CHK(c == -1);
+            }
+        }
+    }
+
+    if (mask & 0x10000000) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr_mid, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, FDB_ITR_SEEK_LOWER);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            c = i;
+            if (doc_status[c] == 2) {
+                c--; // lower mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr_mid, (int)c);
+                c += ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c++;
+            } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
+            TEST_CHK(c == n);
+        }
+    }
+
+    if (mask & 0x100000000) {
+        for (i=0;i<n;++i){
+            sprintf(key, keystr_mid, (int)i);
+            s = fdb_iterator_seek(fit, key, strlen(key)+1, FDB_ITR_SEEK_LOWER);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            c = i;
+            if (doc_status[c] == 2) {
+                c--; // lower mode
+            }
+            do {
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) break;
+                sprintf(key, keystr_mid, (int)c);
+                c -= ((doc_status[c] == 2)?(1):(0));
+                sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+                TEST_CMP(doc->body, value, doc->bodylen);
+                fdb_doc_free(doc);
+                c--;
+            } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
+            TEST_CHK(c == -1);
+        }
+    }
+
+    if (mask & 0x1000000000) {
+        s = fdb_iterator_seek_to_min(fit);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        c = 0;
+        do {
+            s = fdb_iterator_get(fit, &doc);
+            if (s != FDB_RESULT_SUCCESS) break;
+            sprintf(key, keystr_mid, (int)c);
+            c += ((doc_status[c] == 2)?(1):(0));
+            sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+            TEST_CMP(doc->body, value, doc->bodylen);
+            fdb_doc_free(doc);
+            c++;
+        } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
+        TEST_CHK(c == n);
+
+        s = fdb_iterator_seek_to_max(fit);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        c = n-1;
+        do {
+            s = fdb_iterator_get(fit, &doc);
+            if (s != FDB_RESULT_SUCCESS) break;
+            sprintf(key, keystr_mid, (int)c);
+            c -= ((doc_status[c] == 2)?(1):(0));
+            sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+            TEST_CMP(doc->body, value, doc->bodylen);
+            fdb_doc_free(doc);
+            c--;
+        } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
+        TEST_CHK(c == -1);
+    }
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    if (mask & 0x10000000000) {
+        // create an iterator with an end key and skip max key option
+        i = n/3*2;
+        sprintf(key, keystr, (int)i);
+        s = fdb_iterator_init(db, &fit, NULL, 0, key, strlen(key)+1, FDB_ITR_SKIP_MAX_KEY);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_iterator_seek_to_max(fit);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_iterator_get(fit, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        c = i-1;
+        sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        fdb_doc_free(doc);
+        s = fdb_iterator_close(fit);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+        // create an iterator with an start key and skip min key option
+        i = n/3;
+        sprintf(key, keystr, (int)i);
+        s = fdb_iterator_init(db, &fit, key, strlen(key)+1, NULL, 0, FDB_ITR_SKIP_MIN_KEY);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_iterator_seek_to_min(fit);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_iterator_get(fit, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        c = i+1;
+        sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        fdb_doc_free(doc);
+        s = fdb_iterator_close(fit);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+        s = fdb_close(dbfile);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_shutdown();
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        memleak_end();
+    }
+
+    sprintf(cmd, "iterator complete test ");
+    if (insert_opt == 0) {
+        strcat(cmd, "(HB+trie: all, WAL: even");
+    } else if (insert_opt == 1) {
+        strcat(cmd, "(HB+trie: all, WAL: odd");
+    } else if (insert_opt == 2) {
+        strcat(cmd, "(HB+trie: odd, WAL: even");
+    } else if (insert_opt == 3) {
+        strcat(cmd, "(HB+trie: even, WAL: odd");
+    } else if (insert_opt == 4) {
+        strcat(cmd, "(HB+trie: all, WAL: empty");
+    } else if (insert_opt == 5) {
+        strcat(cmd, "(HB+trie: empty, WAL: all");
+    } else if (insert_opt == 6) {
+        strcat(cmd, "(HB+trie: all, WAL: all");
+    }
+    if (delete_opt) {
+        strcat(cmd, ", doc deletion)");
+    } else {
+        strcat(cmd, ")");
+    }
+    TEST_RESULT(cmd);
+}
+
+void iterator_extreme_key_test()
+{
+    TEST_INIT();
+
+    int n = 30;
+    int i, r, c;
+    char cmd[256];
+    char key[256], value[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_iterator *fit;
+    fdb_status s;
+
+    sprintf(cmd, SHELL_DEL " dummy*");
+    r = system(cmd);
+    (void)r;
+
+    memleak_start();
+
+    config = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    s = fdb_open(&dbfile, "./dummy", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    memset(key, 0xff, 256);
+    for (i=1;i<n;i+=1){
+        sprintf(value, "0xff length %d", (int)i);
+        fdb_set_kv(db, key, i, value, strlen(value)+1);
+    }
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    s = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_iterator_seek_to_max(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    c = n-1;
+    while (s == FDB_RESULT_SUCCESS) {
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        sprintf(value, "0xff length %d", (int)c);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        fdb_doc_free(doc);
+        s = fdb_iterator_prev(fit);
+        c--;
+    }
+
+    i = 8;
+    c = i;
+    s = fdb_iterator_seek(fit, key, i, FDB_ITR_SEEK_LOWER);
+    while (s == FDB_RESULT_SUCCESS) {
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        sprintf(value, "0xff length %d", (int)c);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        fdb_doc_free(doc);
+        s = fdb_iterator_prev(fit);
+        c--;
+    }
+
+    i = 8;
+    c = i;
+    s = fdb_iterator_seek(fit, key, i, FDB_ITR_SEEK_LOWER);
+    while (s == FDB_RESULT_SUCCESS) {
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        sprintf(value, "0xff length %d", (int)c);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        fdb_doc_free(doc);
+        s = fdb_iterator_next(fit);
+        c++;
+    }
+
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // Initialize iterator to an extreme non-existent end_key
+    s = fdb_iterator_init(db, &fit, NULL, 0, key, 256, 0x0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_iterator_seek_to_max(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    c = n-1;
+    while (s == FDB_RESULT_SUCCESS) {
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        sprintf(value, "0xff length %d", (int)c);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        fdb_doc_free(doc);
+        s = fdb_iterator_prev(fit);
+        c--;
+    }
+
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    memleak_end();
+    TEST_RESULT("iterator extreme key test");
 }
 
 void iterator_with_concurrent_updates_test()
@@ -2475,31 +3180,27 @@ void iterator_with_concurrent_updates_test()
     // create an iterator using db2
     fdb_iterator_init(db2, &itr, NULL, 0, NULL, 0, FDB_ITR_NONE);
     r = 0;
-    while (1) {
-        status = fdb_iterator_next(itr, &rdoc);
-        if (status != FDB_RESULT_SUCCESS) {
-            break;
-        }
-        TEST_CHK(!memcmp(rdoc->key, doc[r]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->body, doc[r]->body, rdoc->bodylen));
+    do {
+        status = fdb_iterator_get(itr, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(rdoc->key, doc[r]->key, rdoc->keylen);
+        TEST_CMP(rdoc->body, doc[r]->body, rdoc->bodylen);
         r++;
         fdb_doc_free(rdoc);
-    }
+    } while (fdb_iterator_next(itr) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(itr);
     TEST_CHK(r == n);
 
     // same for sequence number
     fdb_iterator_sequence_init(db3, &itr, 0, 0, FDB_ITR_NONE);
     r = 0;
-    while (1) {
-        status = fdb_iterator_next(itr, &rdoc);
-        if (status != FDB_RESULT_SUCCESS) {
-            break;
-        }
+    do {
+        status = fdb_iterator_get(itr, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         r++;
         TEST_CHK(rdoc->seqnum == r);
         fdb_doc_free(rdoc);
-    }
+    } while (fdb_iterator_next(itr) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(itr);
     TEST_CHK(r == n);
 
@@ -2597,98 +3298,179 @@ void iterator_seek_test()
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
 
     // seek current iterator to inside the WAL's avl tree..
-    status = fdb_iterator_next(iterator, &rdoc);
+    status = fdb_iterator_get(iterator, &rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    TEST_CHK(!memcmp(rdoc->key, doc[0]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[0]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[0]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[0]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[0]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[0]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // seek forward to 2nd key ..
-    status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf));
+    i=2;
+    status = fdb_iterator_seek(iterator, doc[i]->key, strlen(keybuf), 0);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    // repeat until fail
-    i=2;
-    status = fdb_iterator_next(iterator, &rdoc);
-    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
-
-    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // iterator should be able to proceed forward
-    status = fdb_iterator_next(iterator, &rdoc);
+    status = fdb_iterator_next(iterator);
     TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     i++;
-    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // seek forward to the last key.
-    status = fdb_iterator_seek(iterator, doc[n-1]->key, strlen(keybuf));
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-    status = fdb_iterator_next(iterator, &rdoc);
+    status = fdb_iterator_seek(iterator, doc[n-1]->key, strlen(keybuf), 0);
     TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    TEST_CHK(!memcmp(rdoc->key, doc[n-1]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[n-1]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[n-1]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[n-1]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[n-1]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[n-1]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // seek backward to start key ..
     i = 0;
-    status = fdb_iterator_seek(iterator, doc[i]->key, strlen(keybuf));
+    status = fdb_iterator_seek(iterator, doc[i]->key, strlen(keybuf), 0);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_iterator_next(iterator, &rdoc);
-    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
-    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // seek forward to key2 ..
-    status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf));
+    status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf), 0);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     i=2;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
 
     // Seek backward again to a key in the trie...
-    status = fdb_iterator_seek(iterator, doc[3]->key, strlen(keybuf));
+    status = fdb_iterator_seek(iterator, doc[3]->key, strlen(keybuf), 0);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     i=3;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
 
     fdb_iterator_close(iterator);
+
+    // Test fdb_iterator_seek_to_max with key range
+    // create an iterator for range of doc[4] ~ doc[8]
+    sprintf(keybuf, "key%d", 4); // reuse buffer for start key
+    sprintf(metabuf, "key%d", 8); // reuse buffer for end_key
+    status = fdb_iterator_init(db, &iterator, keybuf, strlen(keybuf),
+                      metabuf, strlen(metabuf),
+                      FDB_ITR_NO_DELETES);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    i = 8;
+    status = fdb_iterator_seek_to_max(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // test fdb_iterator_seek_to_min
+    i = 4;
+    status = fdb_iterator_seek_to_min(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Test fdb_iterator_seek_to_max over full range
+    status = fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i = n - 1;
+    status = fdb_iterator_seek_to_max(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // test fdb_iterator_seek_to_min
+    i = 0;
+    status = fdb_iterator_seek_to_min(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // seek to max using a non-existent FFFF key
+    if (status == FDB_RESULT_SUCCESS) {
+        uint8_t *big_seek_key = alca(uint8_t, FDB_MAX_KEYLEN);
+        memset(big_seek_key, 0xff, FDB_MAX_KEYLEN);
+        status = fdb_iterator_seek(iterator, big_seek_key, FDB_MAX_KEYLEN,
+                                   FDB_ITR_SEEK_LOWER);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        i = n - 1;
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+        fdb_doc_free(rdoc);
+    }
+
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // close the kvs kv1
     fdb_kvs_close(kv1);
@@ -2707,6 +3489,249 @@ void iterator_seek_test()
     memleak_end();
 
     TEST_RESULT("iterator seek test");
+}
+
+void iterator_seek_wal_only_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *kv1;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "iterator_seek_wal_only_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Create another KV store..
+    status = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert using 'kv1' instance to ensure it does not interfere
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "kEy%d", i);
+        sprintf(metabuf, "mEta%d", i);
+        sprintf(bodybuf, "bOdy%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        status = fdb_set(kv1, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc[i]);
+    }
+
+    // insert all documents into WAL only
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // create an iterator for full range
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // seek current iterator to inside the WAL's avl tree..
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[0]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[0]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[0]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // seek forward to 2nd key ..
+    i=2;
+    status = fdb_iterator_seek(iterator, doc[i]->key, strlen(keybuf), 0);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // iterator should be able to proceed forward
+    status = fdb_iterator_next(iterator);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i++;
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // seek forward to the last key.
+    status = fdb_iterator_seek(iterator, doc[n-1]->key, strlen(keybuf), 0);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[n-1]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[n-1]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[n-1]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // seek backward to start key ..
+    i = 0;
+    status = fdb_iterator_seek(iterator, doc[i]->key, strlen(keybuf), 0);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // seek forward to key2 ..
+    status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf), 0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i=2;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        i++;
+    } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(i==10);
+
+    // Seek backward again to a key...
+    status = fdb_iterator_seek(iterator, doc[3]->key, strlen(keybuf), 0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i=3;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        i++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(i==10);
+
+    fdb_iterator_close(iterator);
+
+    // Test fdb_iterator_seek_to_max with key range
+    // create an iterator for range of doc[4] ~ doc[8]
+    sprintf(keybuf, "key%d", 4); // reuse buffer for start key
+    sprintf(metabuf, "key%d", 8); // reuse buffer for end_key
+    status = fdb_iterator_init(db, &iterator, keybuf, strlen(keybuf),
+                      metabuf, strlen(metabuf),
+                      FDB_ITR_NO_DELETES);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    i = 8;
+    status = fdb_iterator_seek_to_max(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // test fdb_iterator_seek_to_min
+    i = 4;
+    status = fdb_iterator_seek_to_min(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Test fdb_iterator_seek_to_max over full range
+    status = fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i = n - 1;
+    status = fdb_iterator_seek_to_max(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    // test fdb_iterator_seek_to_min
+    i = 0;
+    status = fdb_iterator_seek_to_min(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close the kvs kv1
+    fdb_kvs_close(kv1);
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("iterator seek wal only test");
 }
 
 void sequence_iterator_test()
@@ -2777,18 +3802,18 @@ void sequence_iterator_test()
     // repeat until fail
     i=0;
     count = 0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==n);
     fdb_iterator_close(iterator);
 
@@ -2798,18 +3823,18 @@ void sequence_iterator_test()
     // repeat until fail
     i=0;
     count = 0;
-    while(1){
-        status = fdb_iterator_next_metaonly(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get_metaonly(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
         TEST_CHK(rdoc->body == NULL);
 
         fdb_doc_free(rdoc);
         i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==n);
     fdb_iterator_close(iterator);
 
@@ -2819,18 +3844,18 @@ void sequence_iterator_test()
     // repeat until fail
     i=2;
     count = 0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==6);
     fdb_iterator_close(iterator);
     // remove document #8 and #9
@@ -2850,14 +3875,14 @@ void sequence_iterator_test()
     // repeat until fail
     i=0;
     count=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         if (count != 8 && count != 9) { // do not look validate key8 and key9
-            TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             TEST_CHK(rdoc->deleted == true);
         }
@@ -2866,7 +3891,7 @@ void sequence_iterator_test()
         // Turn around when we hit 8 as the last items, key8 and key9 are gone
         i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==10); // 10 items, with 2 deletions
     fdb_iterator_close(iterator);
 
@@ -2875,20 +3900,20 @@ void sequence_iterator_test()
     // repeat until fail
     i=0;
     count=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         if (i != 8 && i != 9) { // key8 and key9 are deleted
-            TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         }
 
         fdb_doc_free(rdoc);
         i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==8); // 10 items, with 2 deletions
     fdb_iterator_close(iterator);
 
@@ -2901,21 +3926,21 @@ void sequence_iterator_test()
     // repeat until fail
     i=2; // i == 0 should not appear until the end
     count=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         if (i != 8 && i != 9) { // key8 and key9 are deleted
-            TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         }
 
         fdb_doc_free(rdoc);
         i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
         if (count == 6) i = 0; // go back to test for i=0 at the end
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==8); // 10 items, with 2 deletions
     fdb_iterator_close(iterator);
 
@@ -3008,9 +4033,9 @@ void sequence_iterator_duplicate_test()
 
     // repeat until fail
     count = 0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         if (count<50) {
             // HB+trie
             i = count*2 + 1;
@@ -3023,14 +4048,14 @@ void sequence_iterator_duplicate_test()
             sprintf(bodybuf, "body%d(third)", i);
         }
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         TEST_CHK(rdoc->seqnum == seqnum);
 
         count++;
         fdb_doc_free(rdoc);
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==70);
     fdb_iterator_close(iterator);
 
@@ -3117,65 +4142,71 @@ void reverse_sequence_iterator_test()
     // move iterator forward up till middle...
     i=0;
     count = 0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         count++;
         if (i + 2 >= n) break;
         i = i + 2; // by-seq, first come even docs, then odd
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==n/2);
 
     // Now test reverse sequence iterator from mid-way..
 
     i = i - 2;
-    status = fdb_iterator_prev(iterator, &rdoc);
+    status = fdb_iterator_prev(iterator);
     TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
     fdb_doc_free(rdoc);
     count++;
 
+    // change direction to forward again...
+    TEST_CHK(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     i = i + 2;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i = (i + 2 >= n) ? 1 : i + 2;// by-seq, first come even docs, then odd
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
 
     TEST_CHK(count==n+2); // two items were double counted due to reverse
 
     // Reached End, now reverse iterate till start
     i = n - 1;
     count = n;
-    while (1) {
-       status = fdb_iterator_prev(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    status = fdb_iterator_prev(iterator);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i = (i - 2 < 0) ? n - 2 : i - 2;
         if (count) count--;
-    }
+    } while (fdb_iterator_prev(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == 0);
     fdb_iterator_close(iterator);
 
@@ -3263,87 +4294,86 @@ void reverse_iterator_test()
 
     // first test forward iterator - repeat until fail
     i=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
 
     // Now test reverse iterator..
-    i--;
-    while (1) {
-        status = fdb_iterator_prev(iterator, &rdoc);
+    for (--i; fdb_iterator_prev(iterator) != FDB_RESULT_ITERATOR_FAIL; --i) {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
-
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         if (i == 5) break; // Change direction at half point
-        i--;
     }
     TEST_CHK(i == 5);
 
     // Mid-way reverse direction, again test forward iterator...
     i++;
-    status = fdb_iterator_next(iterator, &rdoc);
+    status = fdb_iterator_next(iterator);
     TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
     fdb_doc_free(rdoc);
 
     // Mid-way reverse direction, again test forward iterator...
     i++;
-    status = fdb_iterator_next(iterator, &rdoc);
+    status = fdb_iterator_next(iterator);
     TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-    TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
     fdb_doc_free(rdoc);
 
     // Again change direction and test reverse iterator..
-    i--;
-    while (1) {
-        status = fdb_iterator_prev(iterator, &rdoc);
+    for (--i; fdb_iterator_prev(iterator) != FDB_RESULT_ITERATOR_FAIL; --i) {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
-
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
-        i--;
     }
     TEST_CHK(i == -1);
 
     // Reached end - now test forward iterator...
+    TEST_CHK(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     i++;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
 
     fdb_iterator_close(iterator);
@@ -3447,8 +4477,7 @@ void reverse_sequence_iterator_kvs_test()
     i=0;
     count = 0;
     while (1) {
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+        status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
@@ -3458,6 +4487,8 @@ void reverse_sequence_iterator_kvs_test()
             break;
         }
         i = i + 2; // by-seq, first come even docs, then odd
+        status = fdb_iterator_next(iterator);
+        if (status == FDB_RESULT_ITERATOR_FAIL) break;
     }
     TEST_CHK(count==n/2);
 
@@ -3465,11 +4496,13 @@ void reverse_sequence_iterator_kvs_test()
     fdb_iterator_sequence_init(kv2, &iterator2, 0, 0, FDB_ITR_NONE);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     while(1) {
-        status = fdb_iterator_next(iterator2, &rdoc);
+        status = fdb_iterator_get(iterator2, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+        status = fdb_iterator_next(iterator2);
         if (status == FDB_RESULT_ITERATOR_FAIL) {
             break;
         }
-        fdb_doc_free(rdoc);
     }
 
     // manually flush WAL & commit
@@ -3480,10 +4513,12 @@ void reverse_sequence_iterator_kvs_test()
      i = n - 4;
     count = 0;
     while (1) {
-        status = fdb_iterator_prev(iterator, &rdoc);
+        status = fdb_iterator_prev(iterator);
         if (status == FDB_RESULT_ITERATOR_FAIL) {
             break;
         }
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
@@ -3499,10 +4534,12 @@ void reverse_sequence_iterator_kvs_test()
     count = 0;
     // reverse iterate all docs over kv2
     while (1) {
-        status = fdb_iterator_prev(iterator2, &rdoc);
+        status = fdb_iterator_prev(iterator2);
         if (status == FDB_RESULT_ITERATOR_FAIL) {
             break;
         }
+        status = fdb_iterator_get(iterator2, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(rdoc->key, doc2[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc2[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc2[i]->body, rdoc->bodylen));
@@ -3518,10 +4555,8 @@ void reverse_sequence_iterator_kvs_test()
     count = 0;
     fdb_iterator_sequence_init(kv1, &iterator, 0, 0, FDB_ITR_NONE);
     while (1) {
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) {
-            break;
-        }
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
@@ -3532,6 +4567,10 @@ void reverse_sequence_iterator_kvs_test()
             i+=2;
         }
         count++;
+        status = fdb_iterator_next(iterator);
+        if (status == FDB_RESULT_ITERATOR_FAIL) {
+            break;
+        }
     }
     TEST_CHK(count==n);
     fdb_iterator_close(iterator);
@@ -3618,14 +4657,14 @@ void custom_compare_primitive_test()
     // range scan (before flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
-    while(1){
-        if ( (status = fdb_iterator_next(iterator, &rdoc)) == FDB_RESULT_ITERATOR_FAIL)
-            break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
-    };
+    } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
 
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
@@ -3633,14 +4672,14 @@ void custom_compare_primitive_test()
     // range scan (after flushing WAL)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
-    while(1){
-        if (fdb_iterator_next(iterator, &rdoc) == FDB_RESULT_ITERATOR_FAIL)
-            break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
 
     // do compaction
@@ -3649,14 +4688,14 @@ void custom_compare_primitive_test()
     // range scan (after compaction)
     fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
     key_double_prev = -1;
-    while(1){
-        if (fdb_iterator_next(iterator, &rdoc) == FDB_RESULT_ITERATOR_FAIL)
-            break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         memcpy(&key_double, rdoc->key, rdoc->keylen);
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
-    };
+    } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
 
     // close db file
@@ -3747,7 +4786,7 @@ void custom_compare_variable_test()
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(rdoc->bodylen == doc[i]->bodylen);
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
     }
@@ -3757,15 +4796,15 @@ void custom_compare_variable_test()
     sprintf(prev_key, "%016d", 0);
     count = 0;
     prev_keylen = 16;
-    while(1){
-        if (fdb_iterator_next(iterator, &rdoc) == FDB_RESULT_ITERATOR_FAIL)
-            break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(_cmp_variable(prev_key, prev_keylen, rdoc->key, rdoc->keylen) <= 0);
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
     fdb_iterator_close(iterator);
 
@@ -3776,15 +4815,16 @@ void custom_compare_variable_test()
     sprintf(prev_key, "%016d", 0);
     count = 0;
     prev_keylen = 16;
-    while(1){
-        if (fdb_iterator_next(iterator, &rdoc) == FDB_RESULT_ITERATOR_FAIL)
-            break;
-        TEST_CHK(_cmp_variable(prev_key, prev_keylen, rdoc->key, rdoc->keylen) <= 0);
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(_cmp_variable(prev_key, prev_keylen, rdoc->key, rdoc->keylen)
+                 <= 0);
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
     fdb_iterator_close(iterator);
 
@@ -3796,37 +4836,34 @@ void custom_compare_variable_test()
     sprintf(prev_key, "%016d", 0);
     count = 0;
     prev_keylen = 16;
-    while(1){
-        if (fdb_iterator_next(iterator, &rdoc) == FDB_RESULT_ITERATOR_FAIL)
-            break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(_cmp_variable(prev_key, prev_keylen, rdoc->key, rdoc->keylen) <= 0);
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
     fdb_iterator_close(iterator);
 
     // range scan by sequence
     fdb_iterator_sequence_init(db, &iterator, 0, 0, 0x0);
     count = 0;
-    while(1){ // forward
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) {
-            break;
-        }
+    do { // forward
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
         count++;
-    };
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
-    while(1){ // backward
-        status = fdb_iterator_prev(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) {
-            break;
-        }
+
+    // Reverse direction
+    for (; fdb_iterator_prev(iterator) != FDB_RESULT_ITERATOR_FAIL; --count) {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
-        count--;
     };
     TEST_CHK(count == 0);
     fdb_iterator_close(iterator);
@@ -3842,7 +4879,7 @@ void custom_compare_variable_test()
 
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(rdoc->bodylen == doc[i]->bodylen);
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
     }
@@ -3915,7 +4952,7 @@ void snapshot_test()
     // create an iterator on the snapshot for full range
     fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
     // Iterator should not return any items.
-    status = fdb_iterator_next(iterator, &rdoc);
+    status = fdb_iterator_get(iterator, &rdoc);
     TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
     fdb_kvs_close(snap_db);
@@ -4017,18 +5054,18 @@ void snapshot_test()
     // repeat until fail
     i=0;
     count=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i ++;
         count++;
-    }
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
 
     TEST_CHK(count==n/2); // Only unique items from the first half
 
@@ -4105,7 +5142,7 @@ void in_memory_snapshot_test()
     // create an iterator on the snapshot for full range
     fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
     // Iterator should not return any items.
-    status = fdb_iterator_next(iterator, &rdoc);
+    status = fdb_iterator_get(iterator, &rdoc);
     TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
     fdb_kvs_close(snap_db);
@@ -4204,18 +5241,18 @@ void in_memory_snapshot_test()
     // repeat until fail
     i=0;
     count=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i++;
         count++;
-    }
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
 
     TEST_CHK(count==n/2); // Only unique items from the first half
 
@@ -4378,18 +5415,18 @@ void rollback_test()
     // repeat until fail
     i=0;
     count=0;
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
         i ++;
         count++;
-    }
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
 
     TEST_CHK(count==n/2 + 1); // Items from first half and newly set item
 
@@ -4602,8 +5639,8 @@ void doc_compression_test()
         if (i != 5) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -4625,8 +5662,8 @@ void doc_compression_test()
         if (i != 5) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -4723,13 +5760,13 @@ void read_doc_by_offset_test()
     status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == false);
-    TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
+    TEST_CMP(rdoc->meta, doc[5]->meta, rdoc->metalen);
     // Fetch #5 doc using its offset.
     status = fdb_get_byoffset(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == false);
-    TEST_CHK(!memcmp(rdoc->meta, doc[5]->meta, rdoc->metalen));
-    TEST_CHK(!memcmp(rdoc->body, doc[5]->body, rdoc->bodylen));
+    TEST_CMP(rdoc->meta, doc[5]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[5]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // do compaction
@@ -4739,7 +5776,7 @@ void read_doc_by_offset_test()
     status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == true);
-    TEST_CHK(!memcmp(rdoc->meta, doc[50]->meta, rdoc->metalen));
+    TEST_CMP(rdoc->meta, doc[50]->meta, rdoc->metalen);
     // Fetch #50 doc using its offset.
     status = fdb_get_byoffset(db, rdoc);
     TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -4829,8 +5866,8 @@ void purge_logically_deleted_doc_test()
         if (i != 5) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -4861,8 +5898,8 @@ void purge_logically_deleted_doc_test()
         if (i != 5) {
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-            TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+            TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -4975,7 +6012,7 @@ void compaction_daemon_test(size_t time_sec)
         status = fdb_get(db, rdoc);
         //printf("%s %s\n", rdoc->key, rdoc->body);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -5008,7 +6045,7 @@ void compaction_daemon_test(size_t time_sec)
         status = fdb_get(db, rdoc);
         //printf("%s %s\n", rdoc->key, rdoc->body);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
     // close db file
@@ -5034,7 +6071,7 @@ void compaction_daemon_test(size_t time_sec)
         status = fdb_get(db, rdoc);
         //printf("%s %s\n", rdoc->key, rdoc->body);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
     // close db file
@@ -5077,7 +6114,7 @@ void compaction_daemon_test(size_t time_sec)
     // continuously update documents
     printf("wait for %d seconds..\n", (int)time_sec);
     gettimeofday(&ts_begin, NULL);
-    while(!escape) {
+    while (!escape) {
         for (i=0;i<n;++i){
             // update db
             fdb_set(db, doc[i]);
@@ -5287,7 +6324,7 @@ void api_wrapper_test()
             // updated documents
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             sprintf(temp, "body%d", i);
-            TEST_CHK(!memcmp(value, temp, valuelen));
+            TEST_CMP(value, temp, valuelen);
             free(value);
         } else {
             // removed document
@@ -5501,7 +6538,7 @@ void transaction_test()
         fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
 
         // get from txn1
@@ -5509,7 +6546,7 @@ void transaction_test()
         status = fdb_get(db_txn1, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         sprintf(bodybuf, "body%d_txn1", i);
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         fdb_doc_free(rdoc);
 
         // get from txn2
@@ -5517,7 +6554,7 @@ void transaction_test()
         status = fdb_get(db_txn2, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         sprintf(bodybuf, "body%d_txn2", i);
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -5530,7 +6567,7 @@ void transaction_test()
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         sprintf(bodybuf, "body%d_txn2", i);
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         fdb_doc_free(rdoc);
 
         // get from txn1
@@ -5538,7 +6575,7 @@ void transaction_test()
         status = fdb_get(db_txn1, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         sprintf(bodybuf, "body%d_txn1", i);
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -5551,7 +6588,7 @@ void transaction_test()
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         sprintf(bodybuf, "body%d_txn1", i);
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -5576,7 +6613,7 @@ void transaction_test()
     fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
     status = fdb_get(db_txn1, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+    TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // general retrieval
@@ -5584,7 +6621,7 @@ void transaction_test()
     status = fdb_get(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     sprintf(bodybuf, "body%d_txn1", i);
-    TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+    TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
     fdb_doc_free(rdoc);
 
     // commit transaction
@@ -5601,7 +6638,7 @@ void transaction_test()
         } else {
             sprintf(bodybuf, "body%d_before_compaction", i);
         }
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -5624,7 +6661,7 @@ void transaction_test()
         } else {
             sprintf(bodybuf, "body%d_before_compaction", i);
         }
-        TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+        TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -5718,7 +6755,7 @@ void transaction_simple_api_test()
         sprintf(bodybuf, "body%d", i);
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        TEST_CMP(value, bodybuf, valuelen);
         free(value);
 
         // txn1
@@ -5726,7 +6763,7 @@ void transaction_simple_api_test()
         sprintf(bodybuf, "body%d_txn1", i);
         status = fdb_get_kv(db_txn1, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        TEST_CMP(value, bodybuf, valuelen);
         free(value);
 
         // txn2
@@ -5734,7 +6771,7 @@ void transaction_simple_api_test()
         sprintf(bodybuf, "body%d_txn2", i);
         status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        TEST_CMP(value, bodybuf, valuelen);
         free(value);
     }
 
@@ -5746,7 +6783,7 @@ void transaction_simple_api_test()
         sprintf(bodybuf, "body%d_txn1", i);
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        TEST_CMP(value, bodybuf, valuelen);
         free(value);
 
         // txn2
@@ -5754,7 +6791,7 @@ void transaction_simple_api_test()
         sprintf(bodybuf, "body%d_txn2", i);
         status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        TEST_CMP(value, bodybuf, valuelen);
         free(value);
     }
 
@@ -5766,7 +6803,7 @@ void transaction_simple_api_test()
         sprintf(bodybuf, "body%d_txn2", i);
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, bodybuf, valuelen));
+        TEST_CMP(value, bodybuf, valuelen);
         free(value);
     }
 
@@ -6002,8 +7039,8 @@ void flush_before_commit_multi_writers_test()
                                 NULL, 0, NULL, 0);
         status = fdb_get(db1, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
+        TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
 
         // retrieve through db2
@@ -6011,8 +7048,8 @@ void flush_before_commit_multi_writers_test()
                                 NULL, 0, NULL, 0);
         status = fdb_get(db2, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
+        TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -6033,8 +7070,8 @@ void flush_before_commit_multi_writers_test()
                                 NULL, 0, NULL, 0);
         status = fdb_get(db1, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
+        TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
 
         // retrieve through db2
@@ -6042,8 +7079,8 @@ void flush_before_commit_multi_writers_test()
                                 NULL, 0, NULL, 0);
         status = fdb_get(db2, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(metabuf, rdoc->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(bodybuf, rdoc->body, rdoc->bodylen));
+        TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
+        TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -6348,9 +7385,9 @@ void long_key_test()
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
     }
 
@@ -6454,15 +7491,15 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr, i);
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get_metaonly(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
         fdb_doc_free(doc);
 
         // by seq
@@ -6470,8 +7507,8 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_byseq(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
 
         // metaonly by seq
@@ -6479,8 +7516,8 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_metaonly_byseq(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
         fdb_doc_free(doc);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -6514,15 +7551,15 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr_kv, i);
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get_metaonly(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
         fdb_doc_free(doc);
 
         // by seq
@@ -6530,8 +7567,8 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_byseq(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
 
         // metaonly by seq
@@ -6539,8 +7576,8 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_metaonly_byseq(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
         fdb_doc_free(doc);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -6555,15 +7592,15 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr, i);
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get_metaonly(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
         fdb_doc_free(doc);
 
         // by seq
@@ -6571,8 +7608,8 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_byseq(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
 
         // metaonly by seq
@@ -6580,14 +7617,14 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_metaonly_byseq(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
 
         // by offset
         s = fdb_get_byoffset(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
 
         // ==== 'kv1' instance ====
@@ -6596,15 +7633,15 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr_kv, i);
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get_metaonly(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
         fdb_doc_free(doc);
 
         // by seq
@@ -6612,8 +7649,8 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_byseq(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
 
         // metaonly by seq
@@ -6621,14 +7658,14 @@ void multi_kv_test(uint8_t opt)
         doc->seqnum = i+1;
         s = fdb_get_metaonly_byseq(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->meta, meta, doc->metalen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->meta, meta, doc->metalen);
 
         // by offset
         s = fdb_get_byoffset(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -6667,13 +7704,13 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr, i);
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
 
         sprintf(value, valuestr_kv, i);
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
     }
     // info check after reopen
@@ -6695,13 +7732,13 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr, i);
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
 
         sprintf(value, valuestr_kv, i);
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
     }
     // info check after compaction
@@ -6724,7 +7761,7 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr, i);
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
     }
 
@@ -6758,7 +7795,7 @@ void multi_kv_test(uint8_t opt)
         sprintf(value, valuestr, i);
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, value_out, valuelen));
+        TEST_CMP(value, value_out, valuelen);
         free(value_out);
 
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
@@ -6874,16 +7911,18 @@ void multi_kv_iterator_key_test(uint8_t opt)
     i = 0;
     s = fdb_iterator_init(db, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         sprintf(key, keystr, i);
         sprintf(value, valuestr, i, "default");
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
         TEST_CHK(doc->seqnum == r);
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
     fdb_iterator_close(it);
 
@@ -6891,28 +7930,33 @@ void multi_kv_iterator_key_test(uint8_t opt)
     i = 0;
     s = fdb_iterator_init(kv1, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         sprintf(key, keystr, i);
         sprintf(value, valuestr, i, "kv1");
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
         TEST_CHK(doc->seqnum == r);
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
     // reverse iterate in kv1 instance
-    while (fdb_iterator_prev(it, &doc) == FDB_RESULT_SUCCESS) {
+    TEST_CHK(fdb_iterator_prev(it) == FDB_RESULT_SUCCESS);
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         i--;
         sprintf(key, keystr, i);
         sprintf(value, valuestr, i, "kv1");
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
         TEST_CHK(doc->seqnum == r);
         fdb_doc_free(doc);
-    }
+    } while (fdb_iterator_prev(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 0);
     fdb_iterator_close(it);
 
@@ -6920,14 +7964,16 @@ void multi_kv_iterator_key_test(uint8_t opt)
     i = 0;
     s = fdb_iterator_init(kv2, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         sprintf(key, keystr, i);
         sprintf(value, valuestr, i, "kv2");
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
     fdb_iterator_close(it);
 
@@ -6936,16 +7982,19 @@ void multi_kv_iterator_key_test(uint8_t opt)
     char key2[256];
     sprintf(key, keystr, 40);
     sprintf(key2, keystr, 59);
-    s = fdb_iterator_init(kv1, &it, key, strlen(key)+1, key2, strlen(key2)+1, FDB_ITR_NONE);
+    s = fdb_iterator_init(kv1, &it, key, strlen(key)+1, key2, strlen(key2)+1,
+                          FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         sprintf(key, keystr, i);
         sprintf(value, valuestr, i, "kv1");
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 60);
     fdb_iterator_close(it);
 
@@ -7077,11 +8126,10 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // iterate in default KV instance
-    i = 0;
+    i = 1;
     s = fdb_iterator_sequence_init(db, &it, 0, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
-        fdb_doc_free(doc);
+    while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS) {
         i++;
     }
     TEST_CHK(i == n);
@@ -7091,7 +8139,9 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     i = 0;
     s = fdb_iterator_sequence_init(kv1, &it, 0, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         if (i < 50) {
             r = i*2 + 1;
             seqnum = 100 + (i+1)*2;
@@ -7102,15 +8152,18 @@ void multi_kv_iterator_seq_test(uint8_t opt)
             sprintf(value, valuestr, r, "kv1_third");
         }
         sprintf(key, keystr, r);
-        TEST_CHK(!memcmp(key, doc->key, doc->keylen));
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(key, doc->key, doc->keylen);
+        TEST_CMP(value, doc->body, doc->bodylen);
         TEST_CHK(doc->seqnum == seqnum);
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
     // reverse iterate in KV1
-    while (fdb_iterator_prev(it, &doc) == FDB_RESULT_SUCCESS) {
+    TEST_CHK(fdb_iterator_prev(it) == FDB_RESULT_SUCCESS);
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         i--;
         if (i < 50) {
             r = i*2 + 1;
@@ -7122,11 +8175,11 @@ void multi_kv_iterator_seq_test(uint8_t opt)
             sprintf(value, valuestr, r, "kv1_third");
         }
         sprintf(key, keystr, r);
-        TEST_CHK(!memcmp(key, doc->key, doc->keylen));
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(key, doc->key, doc->keylen);
+        TEST_CMP(value, doc->body, doc->bodylen);
         TEST_CHK(doc->seqnum == seqnum);
         fdb_doc_free(doc);
-    }
+    } while (fdb_iterator_prev(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 0);
     fdb_iterator_close(it);
 
@@ -7134,7 +8187,9 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     i = 0;
     s = fdb_iterator_sequence_init(kv2, &it, 0, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         if (i < 50) {
             r = i*2 + 1;
             seqnum = 100 + (i+1)*2;
@@ -7148,7 +8203,7 @@ void multi_kv_iterator_seq_test(uint8_t opt)
         sprintf(key, keystr, r);
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
     fdb_iterator_close(it);
 
@@ -7156,7 +8211,9 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     i = 0;
     s = fdb_iterator_sequence_init(kv1, &it, 150, 220, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         //printf("%d %s %s %d\n", i, (char*)doc->key, (char*)doc->body, (int)doc->seqnum);
         if (i<26) {
             r = 49 + i*2;
@@ -7170,7 +8227,7 @@ void multi_kv_iterator_seq_test(uint8_t opt)
         (void)seqnum;
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 46);
     fdb_iterator_close(it);
 
@@ -7305,20 +8362,20 @@ void multi_kv_txn_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(txn1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         sprintf(value, valuestr, i, "kv1(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(txn1_kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(txn1_kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7329,19 +8386,19 @@ void multi_kv_txn_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7355,19 +8412,19 @@ void multi_kv_txn_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(txn1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(txn1_kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(txn1_kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7378,19 +8435,19 @@ void multi_kv_txn_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7430,19 +8487,19 @@ void multi_kv_txn_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7523,19 +8580,19 @@ void multi_kv_txn_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(txn)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7694,28 +8751,28 @@ void multi_kv_snapshot_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv2(commit3)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv1(commit1)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(snap1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv2(commit2)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(snap2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7914,19 +8971,19 @@ void multi_kv_rollback_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(commit1)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(commit4)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7941,19 +8998,19 @@ void multi_kv_rollback_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(commit1)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(commit4)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -7968,19 +9025,19 @@ void multi_kv_rollback_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(commit1)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(commit3)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8012,19 +9069,19 @@ void multi_kv_rollback_test(uint8_t opt)
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv1(commit1)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
         sprintf(value, valuestr, i, "kv2(commit3)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8115,14 +9172,14 @@ void multi_kv_custom_cmp_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv1_custom_cmp");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8161,14 +9218,14 @@ void multi_kv_custom_cmp_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv1_custom_cmp");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8196,21 +9253,21 @@ void multi_kv_custom_cmp_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv1_custom_cmp");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv2");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8248,21 +9305,21 @@ void multi_kv_custom_cmp_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv1_custom_cmp(updated)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv2(updated)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8277,21 +9334,21 @@ void multi_kv_custom_cmp_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv1_custom_cmp(updated)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv2(updated)");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8299,14 +9356,16 @@ void multi_kv_custom_cmp_test()
     i = 0;
     s = fdb_iterator_init(kv1, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it, &doc) == FDB_RESULT_SUCCESS) {
+    do {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         sprintf(key, keystr, i);
         sprintf(value, valuestr, i, "kv1_custom_cmp(updated)");
-        TEST_CHK(!memcmp(doc->key, key, doc->keylen));
-        TEST_CHK(!memcmp(doc->body, value, doc->bodylen));
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
         i++;
-    }
+    } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
     s = fdb_iterator_close(it);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -8426,21 +9485,21 @@ void multi_kv_fdb_open_custom_cmp_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv1_custom_cmp");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv1, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
 
         sprintf(value, valuestr, i, "kv2");
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(kv2, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8516,7 +9575,7 @@ void multi_kv_use_existing_mode_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8559,7 +9618,7 @@ void multi_kv_use_existing_mode_test()
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(value, doc->body, doc->bodylen));
+        TEST_CMP(value, doc->body, doc->bodylen);
         fdb_doc_free(doc);
     }
 
@@ -8679,7 +9738,7 @@ void multi_kv_close_test()
 }
 
 int main(){
-    int i;
+    int i, j;
     uint8_t opt;
 
     basic_test();
@@ -8699,6 +9758,12 @@ int main(){
     iterator_test();
     iterator_with_concurrent_updates_test();
     iterator_seek_test();
+    for (i=0;i<=6;++i){
+        for (j=0;j<2;++j){
+            iterator_complete_test(i, j);
+        }
+    }
+    iterator_extreme_key_test();
     sequence_iterator_test();
     sequence_iterator_duplicate_test();
     custom_compare_primitive_test();
@@ -8710,6 +9775,7 @@ int main(){
     reverse_sequence_iterator_test();
     reverse_sequence_iterator_kvs_test();
     reverse_iterator_test();
+    iterator_seek_wal_only_test();
     db_drop_test();
     db_destroy_test();
     doc_compression_test();

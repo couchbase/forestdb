@@ -348,7 +348,7 @@ typedef struct _fdb_kvs_handle fdb_kvs_handle;
  * For example, FDB_ITR_METAONLY | FDB_ITR_NO_DELETES means
  * "Return non-deleted key and its metadata only through iterator".
  */
-typedef uint8_t fdb_iterator_opt_t;
+typedef uint16_t fdb_iterator_opt_t;
 enum {
     /**
      * Return both key and value through iterator.
@@ -361,7 +361,30 @@ enum {
     /**
      * Return only non-deleted items through iterator.
      */
-    FDB_ITR_NO_DELETES = 0x02
+    FDB_ITR_NO_DELETES = 0x02,
+    /**
+     * The lowest key specified will not be returned by the iterator.
+     */
+    FDB_ITR_SKIP_MIN_KEY = 0x04,
+    /**
+     * The highest key specified will not be returned by the iterator.
+     */
+    FDB_ITR_SKIP_MAX_KEY = 0x08
+};
+
+/**
+ * ForestDB iterator seek options.
+ */
+typedef uint8_t fdb_iterator_seek_opt_t;
+enum {
+    /**
+     * If seek_key does not exist return the next sorted key higher than it.
+     */
+    FDB_ITR_SEEK_HIGHER = 0x00,
+    /**
+     * If seek_key does not exist return the previous sorted key lower than it.
+     */
+    FDB_ITR_SEEK_LOWER = 0x01
 };
 
 /**

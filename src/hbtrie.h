@@ -68,6 +68,7 @@ struct hbtrie_iterator {
     uint8_t flags;
 #define HBTRIE_ITERATOR_REV    0x01
 #define HBTRIE_ITERATOR_FAILED 0x02
+#define HBTRIE_ITERATOR_MOVED  0x04
 };
 
 #define HBTRIE_ITR_IS_REV(iterator) \
@@ -84,14 +85,27 @@ struct hbtrie_iterator {
     ((iterator)->flags |= HBTRIE_ITERATOR_FAILED)
 #define HBTRIE_ITR_CLR_FAILED(iterator) \
     ((iterator)->flags &= ~HBTRIE_ITERATOR_FAILED)
+#define HBTRIE_ITR_IS_MOVED(iterator) \
+    ((iterator)->flags & HBTRIE_ITERATOR_MOVED)
+#define HBTRIE_ITR_SET_MOVED(iterator) \
+    ((iterator)->flags |= HBTRIE_ITERATOR_MOVED)
 
 int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey, int rawkeylen, void *outkey);
-void hbtrie_get_chunk(struct hbtrie *trie, void *key, int keylen, int chunkno, void *out);
+void hbtrie_get_chunk(struct hbtrie *trie,
+                      void *key,
+                      int keylen,
+                      int chunkno,
+                      void *out);
 
-void hbtrie_init(
-            struct hbtrie *trie, int chunksize,     int valuelen,    int btree_nodesize, bid_t root_bid,
-            void *btreeblk_handle, struct btree_blk_ops *btree_blk_ops,
-            void *doc_handle, hbtrie_func_readkey *readkey);
+void hbtrie_init(struct hbtrie *trie,
+                 int chunksize,
+                 int valuelen,
+                 int btree_nodesize,
+                 bid_t root_bid,
+                 void *btreeblk_handle,
+                 struct btree_blk_ops *btree_blk_ops,
+                 void *doc_handle,
+                 hbtrie_func_readkey *readkey);
 void hbtrie_free(struct hbtrie *trie);
 
 void hbtrie_set_flag(struct hbtrie *trie, uint8_t flag);
@@ -101,9 +115,12 @@ void hbtrie_set_leaf_cmp(struct hbtrie *trie,
 void hbtrie_set_map_function(struct hbtrie *trie,
                              hbtrie_cmp_map *map_func);
 
-hbtrie_result hbtrie_iterator_init(
-    struct hbtrie *trie, struct hbtrie_iterator *it, void *initial_key, size_t keylen);
+hbtrie_result hbtrie_iterator_init(struct hbtrie *trie,
+                                   struct hbtrie_iterator *it,
+                                   void *initial_key,
+                                   size_t keylen);
 hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it);
+hbtrie_result hbtrie_last(struct hbtrie_iterator *it);
 hbtrie_result hbtrie_prev(struct hbtrie_iterator *it,
                           void *key_buf,
                           size_t *keylen,
@@ -115,9 +132,14 @@ hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
 hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
                                  void *value_buf);
 
-hbtrie_result hbtrie_find(struct hbtrie *trie, void *rawkey, int rawkeylen, void *valuebuf);
-hbtrie_result hbtrie_find_offset(struct hbtrie *trie, void *rawkey,
-                        int rawkeylen, void *valuebuf);
+hbtrie_result hbtrie_find(struct hbtrie *trie,
+                          void *rawkey,
+                          int rawkeylen,
+                          void *valuebuf);
+hbtrie_result hbtrie_find_offset(struct hbtrie *trie,
+                                 void *rawkey,
+                                 int rawkeylen,
+                                 void *valuebuf);
 hbtrie_result hbtrie_find_partial(struct hbtrie *trie, void *rawkey,
                                   int rawkeylen, void *valuebuf);
 
@@ -125,8 +147,11 @@ hbtrie_result hbtrie_remove(struct hbtrie *trie, void *rawkey, int rawkeylen);
 hbtrie_result hbtrie_remove_partial(struct hbtrie *trie,
                                     void *rawkey,
                                     int rawkeylen);
-hbtrie_result hbtrie_insert(struct hbtrie *trie, void *rawkey, int rawkeylen,
-            void *value, void *oldvalue_out);
+hbtrie_result hbtrie_insert(struct hbtrie *trie,
+                            void *rawkey,
+                            int rawkeylen,
+                            void *value,
+                            void *oldvalue_out);
 hbtrie_result hbtrie_insert_partial(struct hbtrie *trie,
                                     void *rawkey, int rawkeylen,
                                     void *value, void *oldvalue_out);

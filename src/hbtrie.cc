@@ -71,40 +71,32 @@ int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey,
     int nchunk;
     int i;
     uint8_t rsize;
+    size_t csize = trie->chunksize;
 
     nchunk = _get_nchunk_raw(trie, rawkey, rawkeylen);
-    outkeylen = nchunk * trie->chunksize;
+    outkeylen = nchunk * csize;
 
-    for (i=0; i<nchunk; ++i) {
-        if (i < nchunk-2) {
-            // full chunk
-            memcpy((uint8_t*)outkey + i * trie->chunksize,
-                   (uint8_t*)rawkey + i * trie->chunksize,
-                   trie->chunksize);
-        } else if (i == nchunk-2) {
-            // just before the last chunk
-            rsize = rawkeylen % trie->chunksize;
-            if (rsize == 0) {
-                memcpy((uint8_t*)outkey + i * trie->chunksize,
-                       (uint8_t*)rawkey + i * trie->chunksize,
-                       trie->chunksize);
-            } else {
-                memcpy((uint8_t*)outkey + i * trie->chunksize,
-                       (uint8_t*)rawkey + i * trie->chunksize, rsize);
-                memset((uint8_t*)outkey + i * trie->chunksize + rsize,
-                       0, trie->chunksize - rsize);
-            }
-        } else {
-            // the last(rightmost) chunk .. this is dummy chunk
-            // add 'last chunk length'
-            // at the last byte of the last chunk
-
-            memset((uint8_t*)outkey + i * trie->chunksize,
-                   0, trie->chunksize - 1);
-            memset((uint8_t*)outkey + (i+1) * trie->chunksize - 1,
-                   rsize, 1);
-        }
+    if (nchunk > 2) {
+        // copy chunk[0] ~ chunk[nchunk-2]
+        rsize = rawkeylen - ((nchunk - 2) * csize);
+    } else {
+        rsize = rawkeylen;
     }
+    assert(rsize && rsize <= trie->chunksize);
+    memcpy((uint8_t*)outkey, (uint8_t*)rawkey, rawkeylen);
+
+    if (rsize < csize) {
+        // zero-fill rest space
+        i = nchunk - 2;
+        memset((uint8_t*)outkey + (i*csize) + rsize, 0x0, 2*csize - rsize);
+    } else {
+        // zero-fill the last chunk
+        i = nchunk - 1;
+        memset((uint8_t*)outkey + i * csize, 0x0, csize);
+    }
+
+    // assign rsize at the end of the outkey
+    *((uint8_t*)outkey + outkeylen - 1) = rsize;
 
     return outkeylen;
 }
@@ -116,11 +108,12 @@ int _hbtrie_reform_key_reverse(struct hbtrie *trie,
 {
     uint8_t rsize;
     rsize = *((uint8_t*)key + keylen - 1);
+    assert(rsize);
 
-    if (rsize == 0) {
+    if (rsize == trie->chunksize) {
         return keylen - trie->chunksize;
     } else {
-        // rsize: 1~7
+        // rsize: 1 ~ chunksize-1
         return keylen - (trie->chunksize * 2) + rsize;
     }
 }
@@ -348,8 +341,10 @@ struct btreeit_item {
 #define _is_leaf_btree(chunkno) ((chunkno) & CHUNK_FLAG)
 #define _get_chunkno(chunkno) ((chunkno) & (~(CHUNK_FLAG)))
 
-hbtrie_result hbtrie_iterator_init(
-    struct hbtrie *trie, struct hbtrie_iterator *it, void *initial_key, size_t keylen)
+hbtrie_result hbtrie_iterator_init(struct hbtrie *trie,
+                                   struct hbtrie_iterator *it,
+                                   void *initial_key,
+                                   size_t keylen)
 {
     it->trie = *trie;
 
@@ -384,6 +379,31 @@ hbtrie_result hbtrie_iterator_free(struct hbtrie_iterator *it)
     }
     free(it->trie.last_map_chunk);
     if (it->curkey) free(it->curkey);
+    return HBTRIE_RESULT_SUCCESS;
+}
+
+// move iterator's cursor to the end of the key range.
+// hbtrie_prev() call after hbtrie_last() will return the last key.
+hbtrie_result hbtrie_last(struct hbtrie_iterator *it)
+{
+    struct hbtrie_iterator temp;
+
+    temp = *it;
+    hbtrie_iterator_free(it);
+
+    it->trie = temp.trie;
+    // MUST NOT affect the original trie due to sharing the same memory segment
+    it->trie.last_map_chunk = (void *)malloc(it->trie.chunksize);
+    memset(it->trie.last_map_chunk, 0xff, it->trie.chunksize);
+
+    it->curkey = (void *)malloc(HBTRIE_MAX_KEYLEN);
+    // init with the infinite (0xff..) key without reforming
+    memset(it->curkey, 0xff, it->trie.chunksize);
+    it->keylen = it->trie.chunksize;
+
+    list_init(&it->btreeit_list);
+    it->flags = 0;
+
     return HBTRIE_RESULT_SUCCESS;
 }
 
@@ -456,6 +476,7 @@ hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                     item->btree_it.btree.aux) != 0) {
                 // not exact match key .. the rest of string is not necessary anymore
                 it->keylen = (item->chunkno+1) * trie->chunksize;
+                HBTRIE_ITR_SET_MOVED(it);
             }
         }
 
@@ -475,18 +496,17 @@ hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
             _hbtrie_clear_msb(trie, v);
             bid = trie->btree_kv_ops->value2bid(v);
             bid = _endian_decode(bid);
-            btree_init_from_bid(
-                &btree, trie->btreeblk_handle, trie->btree_blk_ops,
-                trie->btree_kv_ops,
-                trie->btree_nodesize, bid);
+            btree_init_from_bid(&btree, trie->btreeblk_handle,
+                                trie->btree_blk_ops, trie->btree_kv_ops,
+                                trie->btree_nodesize, bid);
 
             // get sub b-tree's chunk number
             bmeta.data = (void *)mempool_alloc(trie->btree_nodesize);
             bmeta.size = btree_read_meta(&btree, bmeta.data);
             _hbtrie_fetch_meta(trie, bmeta.size, &hbmeta, bmeta.data);
 
-            item_new = (struct btreeit_item *)mempool_alloc(sizeof(
-                                                        struct btreeit_item));
+            item_new = (struct btreeit_item *)
+                       mempool_alloc(sizeof(struct btreeit_item));
             if (_is_leaf_btree(hbmeta.chunkno)) {
                 void *void_cmp;
 
@@ -513,13 +533,30 @@ hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
             hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
             item_new->chunkno = hbmeta.chunkno;
 
-            if ( (item_new->chunkno+1)*trie->chunksize <= it->keylen ) {
+            // Note: if user's key is exactly aligned to chunk size, then the
+            //       dummy chunk will be a zero-filled value, and it is used
+            //       as a key in the next level of B+tree. Hence, there will be
+            //       no problem to assign the dummy chunk to the 'chunk' variable.
+            if ( (item_new->chunkno+1) * trie->chunksize <= it->keylen) {
                 // happen only once for the first call (for each level of b-trees)
                 chunk = (uint8_t*)it->curkey +
                         item_new->chunkno*trie->chunksize;
             } else {
                 // chunk number of the b-tree is shorter than current iterator's key
-                // set largest key, so set it to the largest key of the prev call
+                if (!HBTRIE_ITR_IS_MOVED(it)) {
+                    // The first prev call right after iterator init call.
+                    // This means that the init key is smaller than
+                    // the smallest key of the current tree, and larger than
+                    // the largest key of the previous tree.
+                    // So we have to go back to the parent tree, and
+                    // return the largest key of the previous tree.
+                    mempool_free(bmeta.data);
+                    mempool_free(item_new);
+                    it->keylen = (item->chunkno+1) * trie->chunksize;
+                    HBTRIE_ITR_SET_MOVED(it);
+                    continue;
+                }
+                // set largest key
                 chunk = alca(uint8_t, trie->chunksize);
                 memset(chunk, 0xff, trie->chunksize);
             }
@@ -569,12 +606,13 @@ hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                 return hr;
 
             // fail searching .. get back to parent tree
-            // (this happens when the initial key is greater than
-            // the largest key in the current tree (ITEM_NEW) ..
+            // (this happens when the initial key is smaller than
+            // the smallest key in the current tree (ITEM_NEW) ..
             // so return back to ITEM and retrieve next child)
             it->keylen = (item->chunkno+1) * trie->chunksize;
+            HBTRIE_ITR_SET_MOVED(it);
 
-        }else{
+        } else {
             // MSB is not set -> doc
             // read entire key and return the doc offset
             offset = trie->btree_kv_ops->value2bid(v);
@@ -606,9 +644,10 @@ hbtrie_result hbtrie_prev(struct hbtrie_iterator *it,
     if (e) item = _get_entry(e, struct btreeit_item, le);
 
     hr = _hbtrie_prev(it, item, key_buf, keylen, value_buf, 0x0);
+    HBTRIE_ITR_SET_REV(it);
     if (hr == HBTRIE_RESULT_SUCCESS) {
-        HBTRIE_ITR_SET_REV(it);
         HBTRIE_ITR_CLR_FAILED(it);
+        HBTRIE_ITR_SET_MOVED(it);
     } else {
         HBTRIE_ITR_SET_FAILED(it);
     }
@@ -680,6 +719,7 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                     item->btree_it.btree.aux) != 0) {
                 // not exact match key .. the rest of string is not necessary anymore
                 it->keylen = (item->chunkno+1) * trie->chunksize;
+                HBTRIE_ITR_SET_MOVED(it);
             }
         }
 
@@ -699,16 +739,17 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             _hbtrie_clear_msb(trie, v);
             bid = trie->btree_kv_ops->value2bid(v);
             bid = _endian_decode(bid);
-            btree_init_from_bid(
-                &btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
-                trie->btree_nodesize, bid);
+            btree_init_from_bid(&btree, trie->btreeblk_handle,
+                                trie->btree_blk_ops, trie->btree_kv_ops,
+                                trie->btree_nodesize, bid);
 
             // get sub b-tree's chunk number
             bmeta.data = (void *)mempool_alloc(trie->btree_nodesize);
             bmeta.size = btree_read_meta(&btree, bmeta.data);
             _hbtrie_fetch_meta(trie, bmeta.size, &hbmeta, bmeta.data);
 
-            item_new = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
+            item_new = (struct btreeit_item *)
+                       mempool_alloc(sizeof(struct btreeit_item));
             if (_is_leaf_btree(hbmeta.chunkno)) {
                 void *void_cmp;
 
@@ -735,7 +776,11 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
             item_new->chunkno = hbmeta.chunkno;
 
-            if ( (item_new->chunkno+1)*trie->chunksize <= it->keylen ) {
+            // Note: if user's key is exactly aligned to chunk size, then the
+            //       dummy chunk will be a zero-filled value, and it is used
+            //       as a key in the next level of B+tree. Hence, there will be
+            //       no problem to assign the dummy chunk to the 'chunk' variable.
+            if ( (item_new->chunkno+1) * trie->chunksize <= it->keylen) {
                 // happen only once for the first call (for each level of b-trees)
                 chunk = (uint8_t*)it->curkey +
                         item_new->chunkno*trie->chunksize;
@@ -820,9 +865,10 @@ hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
     if (e) item = _get_entry(e, struct btreeit_item, le);
 
     hr = _hbtrie_next(it, item, key_buf, keylen, value_buf, 0x0);
+    HBTRIE_ITR_SET_FWD(it);
     if (hr == HBTRIE_RESULT_SUCCESS) {
-        HBTRIE_ITR_SET_FWD(it);
         HBTRIE_ITR_CLR_FAILED(it);
+        HBTRIE_ITR_SET_MOVED(it);
     } else {
         HBTRIE_ITR_SET_FAILED(it);
     }

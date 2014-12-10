@@ -337,8 +337,8 @@ struct avl_node* avl_search(struct avl_tree *tree,
 }
 
 struct avl_node* avl_search_greater(struct avl_tree *tree,
-                            struct avl_node *node,
-                            avl_cmp_func *func)
+                                    struct avl_node *node,
+                                    avl_cmp_func *func)
 // if an exact match does not exist,
 // return smallest node greater than NODE
 {
@@ -361,11 +361,52 @@ struct avl_node* avl_search_greater(struct avl_tree *tree,
         }
     }
 
+    if (!pp) {
+        return pp;
+    }
+
     cmp = func(pp, node, tree->aux);
     if (cmp > 0) {
         return pp;
     }else{
         return avl_next(pp);
+    }
+}
+
+struct avl_node* avl_search_smaller(struct avl_tree *tree,
+                                    struct avl_node *node,
+                                    avl_cmp_func *func)
+// if an exact match does not exist,
+// return greatest node smaller than NODE
+{
+    struct avl_node *p = tree->root;
+    struct avl_node *pp = NULL;
+    int cmp;
+
+    while(p)
+    {
+        cmp = func(p, node, tree->aux);
+        pp = p;
+
+        if (cmp > 0) {
+            p = p->left;
+        }else if (cmp < 0){
+            p = p->right;
+        }else {
+            // search success
+            return p;
+        }
+    }
+
+    if (!pp) {
+        return pp;
+    }
+
+    cmp = func(pp, node, tree->aux);
+    if (cmp < 0) {
+        return pp;
+    }else{
+        return avl_prev(pp);
     }
 }
 

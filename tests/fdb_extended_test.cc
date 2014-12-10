@@ -274,9 +274,9 @@ static void *_snapshot_reader_thread(void *voidargs)
     fdb_iterator *iterator;
     fdb_iterator_sequence_init(snap_db, &iterator, 90000, 100000, FDB_ITR_NONE);
     // repeat until fail
-    while(1){
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         TEST_CHK(!memcmp(rdoc->key, args->doc[i-1]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, args->doc[i-1]->meta, rdoc->metalen));
@@ -284,7 +284,7 @@ static void *_snapshot_reader_thread(void *voidargs)
 
         fdb_doc_free(rdoc);
         ++i;
-    }
+    } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(iterator);
 
     fdb_kvs_close(snap_db);
@@ -352,9 +352,9 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
     fdb_iterator *iterator;
     fdb_iterator_sequence_init(snap_db, &iterator, 140000, 150000, FDB_ITR_NONE);
     // repeat until fail
-    while (1) {
-        status = fdb_iterator_next(iterator, &rdoc);
-        if (status == FDB_RESULT_ITERATOR_FAIL) break;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         TEST_CHK(!memcmp(rdoc->key, args->doc[i-1]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, args->doc[i-1]->meta, rdoc->metalen));
@@ -362,7 +362,7 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
 
         fdb_doc_free(rdoc);
         ++i;
-    }
+    } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(iterator);
 
     fdb_kvs_close(snap_db);

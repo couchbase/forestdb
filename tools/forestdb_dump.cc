@@ -437,28 +437,26 @@ int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
         if (fs != FDB_RESULT_SUCCESS) {
             return -2;
         }
-        while (fs == FDB_RESULT_SUCCESS) {
-            fs = fdb_iterator_next(fit, &fdoc);
-            if (fs == FDB_RESULT_SUCCESS) {
+        do {
+            if (fdb_iterator_get(fit, &fdoc) == FDB_RESULT_SUCCESS) {
                 offset = fdoc->offset;
                 print_doc(db, kvs_name, offset, opt);
                 fdb_doc_free(fdoc);
             }
-        }
+        } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
         fdb_iterator_close(fit);
     } else if (opt->scan_mode == SCAN_BY_SEQ) {
         fs = fdb_iterator_sequence_init(db, &fit, 0, -1, 0x0);
         if (fs != FDB_RESULT_SUCCESS) {
             return -2;
         }
-        while (fs == FDB_RESULT_SUCCESS) {
-            fs = fdb_iterator_next(fit, &fdoc);
-            if (fs == FDB_RESULT_SUCCESS) {
+        do {
+            if (fdb_iterator_get(fit, &fdoc) == FDB_RESULT_SUCCESS) {
                 offset = fdoc->offset;
                 print_doc(db, kvs_name, offset, opt);
                 fdb_doc_free(fdoc);
             }
-        }
+        } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
         fdb_iterator_close(fit);
     }
 

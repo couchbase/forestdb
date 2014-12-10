@@ -387,33 +387,35 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t rollback_seqnu
  * @param handle Pointer to ForestDB KV store handle.
  * @param iterator Pointer to the place where the iterator is created
  *        as a result of this API call.
- * @param start_key Pointer to the start key. Passing NULL means that
+ * @param min_key Pointer to the smallest key. Passing NULL means that
  *        it wants to start with the smallest key in the KV store.
- * @param start_keylen Length of the start key.
- * @param end_key Pointer to the end key. Passing NULL means that it wants
- *        to end with the largest key in the KV store.
- * @param end_keylen Length of the end key.
+ * @param min_keylen Length of the smallest key.
+ * @param max_key Pointer to the largest key. Passing NULL means that it wants
+ *        to end iteration with the largest key in the KV store.
+ * @param max_keylen Length of the largest key.
  * @param opt Iterator option.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              fdb_iterator **iterator,
-                             const void *start_key,
-                             size_t start_keylen,
-                             const void *end_key,
-                             size_t end_keylen,
+                             const void *min_key,
+                             size_t min_keylen,
+                             const void *max_key,
+                             size_t max_keylen,
                              fdb_iterator_opt_t opt);
 
 /**
- * Create an iterator to traverse a ForestDB KV store snapshot by sequence number range
+ * Create an iterator to traverse a ForestDB KV store snapshot by sequence
+ * number range
  *
  * @param handle Pointer to ForestDB KV store handle.
  * @param iterator Pointer to the iterator to be created as a result of
  *        this API call.
- * @param start_seq Starting document sequence number to begin iteration from
- * @param end_seq Ending sequence number indicating the last iterated item.
- *        Passing 0 means that it wants to end with the latest key
+ * @param min_seq Smallest document sequence number of the iteration.
+ * @param max_seq Largest document sequence number of the iteration.
+ *        Passing 0 means that it wants iteration to end with the latest
+ *        mutation
  *
  * @param opt Iterator option.
  * @return FDB_RESULT_SUCCESS on success.
@@ -421,34 +423,40 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 LIBFDB_API
 fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                              fdb_iterator **iterator,
-                             const fdb_seqnum_t start_seq,
-                             const fdb_seqnum_t end_seq,
+                             const fdb_seqnum_t min_seq,
+                             const fdb_seqnum_t max_seq,
                              fdb_iterator_opt_t opt);
 
 /**
- * Get the prev item (key, metadata, doc body) from the iterator.
+ * Moves the iterator backward by one.
+ *
+ * @param iterator Pointer to the iterator.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_iterator_prev(fdb_iterator *iterator);
+
+/**
+ * Moves the iterator forward by one.
+ *
+ * @param iterator Pointer to the iterator.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_iterator_next(fdb_iterator *iterator);
+
+/**
+ * Get the item (key, metadata, doc body) from the iterator.
  *
  * @param iterator Pointer to the iterator.
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_iterator_prev(fdb_iterator *iterator,
-                             fdb_doc **doc);
+fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc);
 
 /**
- * Get the next item (key, metadata, doc body) from the iterator.
- *
- * @param iterator Pointer to the iterator.
- * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
- * @return FDB_RESULT_SUCCESS on success.
- */
-LIBFDB_API
-fdb_status fdb_iterator_next(fdb_iterator *iterator,
-                             fdb_doc **doc);
-
-/**
- * Get the next item (key, metadata, offset to doc body) from the iterator.
+ * Get item metadata only(key, metadata, offset to doc body) from the iterator.
  *
  * @param iterator Pointer to the iterator.
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
@@ -457,8 +465,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator,
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
-fdb_status fdb_iterator_next_metaonly(fdb_iterator *iterator,
-                                      fdb_doc **doc);
+fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc);
 
 /**
  * Fast forward / backward an iterator to return documents starting from
@@ -468,11 +475,32 @@ fdb_status fdb_iterator_next_metaonly(fdb_iterator *iterator,
  * @param iterator Pointer to the iterator.
  * @param seek_key Pointer to the key to seek to.
  * @param seek_keylen Length of the seek_key
+ * @param direction Specifies which key to return if seek_key does not exist
+ *                  default value of 0 indicates FDB_ITR_SEEK_HIGHER
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_iterator_seek(fdb_iterator *iterator, const void *seek_key,
-                             const size_t seek_keylen);
+                             const size_t seek_keylen,
+                             const fdb_iterator_seek_opt_t direction);
+
+/**
+ * Rewind an iterator to position at the smallest key of the iteration.
+ *
+ * @param iterator Pointer to the iterator.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator);
+
+/**
+ * Fast forward an iterator to position at the largest key of the iteration.
+ *
+ * @param iterator Pointer to the iterator.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator);
 
 /**
  * Close the iterator and free its associated resources.
