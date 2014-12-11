@@ -1451,29 +1451,15 @@ start_seq:
         _doc.length.keylen = 0;
         _doc.meta = NULL;
         _doc.body = NULL;
-        if (iterator->opt & FDB_ITR_METAONLY) {
-            uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
-            if (_offset == offset) {
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            if (_doc.length.flag & DOCIO_DELETED &&
-                    (iterator->opt & FDB_ITR_NO_DELETES)) {
-                free(_doc.key);
-                free(_doc.meta);
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-        } else {
-            uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
-            if (_offset == offset) {
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            if (_doc.length.flag & DOCIO_DELETED &&
-                    (iterator->opt & FDB_ITR_NO_DELETES)) {
-                free(_doc.key);
-                free(_doc.meta);
-                free(_doc.body);
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
+        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+        if (_doc.length.flag & DOCIO_DELETED &&
+            (iterator->opt & FDB_ITR_NO_DELETES)) {
+            free(_doc.key);
+            free(_doc.meta);
+            return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         for (cursor = iterator->tree_cursor_start;
@@ -1489,7 +1475,6 @@ start_seq:
                              _doc.key, _doc.length.keylen)) {
                 free(_doc.key);
                 free(_doc.meta);
-                free(_doc.body);
                 goto start_seq; // B-tree item exists in WAL, skip for now
             }
         }
@@ -1503,7 +1488,6 @@ start_seq:
         if (hr == HBTRIE_RESULT_FAIL) {
             free(_doc.key);
             free(_doc.meta);
-            free(_doc.body);
             goto start_seq;
         } else { // If present in HB-trie ensure it's seqnum is in range
             uint64_t _offset;
@@ -1514,7 +1498,6 @@ start_seq:
             if (_offset == hboffset) {
                 free(_doc.key);
                 free(_doc.meta);
-                free(_doc.body);
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             if (_doc.seqnum < _hbdoc.seqnum &&
@@ -1522,14 +1505,12 @@ start_seq:
                 free(_doc.key);
                 free(_doc.meta);
                 free(_hbdoc.meta);
-                free(_doc.body);
                 goto start_seq;
             }
             free(_hbdoc.meta);
         }
         free(_doc.key);
         free(_doc.meta);
-        free(_doc.body);
     }
 
     iterator->_dhandle = dhandle; // store for fdb_iterator_get()
@@ -1665,28 +1646,14 @@ start_seq:
         _doc.length.keylen = 0;
         _doc.meta = NULL;
         _doc.body = NULL;
-        if (iterator->opt & FDB_ITR_METAONLY) {
-            uint64_t _offset = docio_read_doc_key_meta(dhandle,
-                    offset, &_doc);
-            if (_offset == offset) {
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            if (_doc.length.flag & DOCIO_DELETED && (iterator->opt & FDB_ITR_NO_DELETES)) {
-                free(_doc.key);
-                free(_doc.meta);
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-        } else {
-            uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
-            if (_offset == offset) {
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            if (_doc.length.flag & DOCIO_DELETED && (iterator->opt & FDB_ITR_NO_DELETES)) {
-                free(_doc.key);
-                free(_doc.meta);
-                free(_doc.body);
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
+        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        if (_offset == offset) {
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+        if (_doc.length.flag & DOCIO_DELETED && (iterator->opt & FDB_ITR_NO_DELETES)) {
+            free(_doc.key);
+            free(_doc.meta);
+            return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         for (cursor = iterator->tree_cursor; cursor;
@@ -1701,7 +1668,6 @@ start_seq:
                              _doc.key, _doc.length.keylen)) {
                 free(_doc.key);
                 free(_doc.meta);
-                free(_doc.body);
                 goto start_seq; // B-tree item exists in WAL, skip for now
             }
         } // WAL search complete
@@ -1715,7 +1681,6 @@ start_seq:
         if (hr == HBTRIE_RESULT_FAIL) {
             free(_doc.key);
             free(_doc.meta);
-            free(_doc.body);
             goto start_seq;
         } else { // If present in HB-trie ensure it's seqnum is in range
             uint64_t _offset;
@@ -1727,7 +1692,6 @@ start_seq:
             if (_offset == hboffset) {
                 free(_doc.key);
                 free(_doc.meta);
-                free(_doc.body);
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             if (_doc.seqnum < _hbdoc.seqnum &&
@@ -1735,14 +1699,12 @@ start_seq:
                 free(_doc.key);
                 free(_doc.meta);
                 free(_hbdoc.meta);
-                free(_doc.body);
                 goto start_seq;
             }
             free(_hbdoc.meta);
         }
         free(_doc.key);
         free(_doc.meta);
-        free(_doc.body);
     }
 
     iterator->_dhandle = dhandle; // store for fdb_iterator_get
@@ -1844,29 +1806,16 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     _doc.meta = NULL;
     _doc.body = NULL;
 
-    if (iterator->opt & FDB_ITR_METAONLY) {
-        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
-        if (_offset == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-        if (_doc.length.flag & DOCIO_DELETED &&
-            (iterator->opt & FDB_ITR_NO_DELETES)) {
-            free(_doc.key);
-            free(_doc.meta);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-    } else {
-        uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
-        if (_offset == offset) {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-        if (_doc.length.flag & DOCIO_DELETED &&
-            (iterator->opt & FDB_ITR_NO_DELETES)) {
-            free(_doc.key);
-            free(_doc.meta);
-            free(_doc.body);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
+    uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
+    if (_offset == offset) {
+        return FDB_RESULT_KEY_NOT_FOUND;
+    }
+    if (_doc.length.flag & DOCIO_DELETED &&
+        (iterator->opt & FDB_ITR_NO_DELETES)) {
+        free(_doc.key);
+        free(_doc.meta);
+        free(_doc.body);
+        return FDB_RESULT_KEY_NOT_FOUND;
     }
 
     ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);

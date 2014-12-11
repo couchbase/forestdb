@@ -345,8 +345,9 @@ typedef struct _fdb_kvs_handle fdb_kvs_handle;
 
 /**
  * ForestDB iterator options.Combinational options can be passed to the iterator.
- * For example, FDB_ITR_METAONLY | FDB_ITR_NO_DELETES means
- * "Return non-deleted key and its metadata only through iterator".
+ * For example, FDB_ITR_SKIP_MIN_KEY | FDB_ITR_SKIP_MAX_KEY means
+ * "The smallest and largest keys in the iteration ragne won't be returned by the
+ * iterator".
  */
 typedef uint16_t fdb_iterator_opt_t;
 enum {
@@ -354,10 +355,6 @@ enum {
      * Return both key and value through iterator.
      */
     FDB_ITR_NONE = 0x00,
-    /**
-     * Return key and its metadata only through iterator.
-     */
-    FDB_ITR_METAONLY = 0x01,
     /**
      * Return only non-deleted items through iterator.
      */

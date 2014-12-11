@@ -2266,8 +2266,8 @@ void iterator_test()
     TEST_CHK(i==10);
     fdb_iterator_close(iterator);
 
-    // create an iterator with metaonly option
-    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_METAONLY);
+    // create an iterator.
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
 
     // repeat until fail
     i=0;
@@ -2384,11 +2384,11 @@ void iterator_test()
     TEST_CHK(i==8);
     fdb_iterator_close(iterator);
 
-    // create an iterator for range of doc[4] ~ doc[8], but metadata only and no deletes.
+    // create an iterator for range of doc[4] ~ doc[8], but no deletes.
     sprintf(keybuf, "key%d", 4);
     sprintf(temp, "key%d", 8);
     fdb_iterator_init(db, &iterator, keybuf, strlen(keybuf), temp, strlen(temp),
-                      FDB_ITR_METAONLY | FDB_ITR_NO_DELETES);
+                      FDB_ITR_NO_DELETES);
     // repeat until fail
     i=4;
     do {
@@ -3817,8 +3817,8 @@ void sequence_iterator_test()
     TEST_CHK(count==n);
     fdb_iterator_close(iterator);
 
-    // create an iterator over sequence number with META ONLY
-    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_METAONLY);
+    // create an iterator over sequence number.
+    fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_NONE);
 
     // repeat until fail
     i=0;
