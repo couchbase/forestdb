@@ -915,19 +915,23 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         return FDB_RESULT_ALLOC_FAIL;
     }
 
+    filemgr_mutex_lock(handle_in->file);
     filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
     // All transactions should be closed before rollback
     if (wal_txn_exists(handle_in->file)) {
         filemgr_set_rollback(handle_in->file, 0);
+        filemgr_mutex_unlock(handle_in->file);
         free(handle);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
     }
     // There should be no compaction on the file
     if (filemgr_get_file_status(handle_in->file) != FILE_NORMAL) {
         filemgr_set_rollback(handle_in->file, 0);
+        filemgr_mutex_unlock(handle_in->file);
         free(handle);
         return FDB_RESULT_FAIL_BY_COMPACTION;
     }
+    filemgr_mutex_unlock(handle_in->file);
 
     handle->log_callback = handle_in->log_callback;
     handle->max_seqnum = seqnum;
@@ -1807,8 +1811,8 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
 void fdb_link_new_file(fdb_kvs_handle *handle)
 {
     // check whether this file is being compacted
-    if (filemgr_get_file_status(handle->file) == FILE_COMPACT_OLD &&
-        handle->new_file == NULL) {
+    if (!handle->new_file &&
+        filemgr_get_file_status(handle->file) == FILE_COMPACT_OLD) {
         assert(handle->file->new_file);
 
         // open new file and new dhandle
@@ -2559,31 +2563,24 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 fdb_set_start:
     fdb_check_file_reopen(handle);
     fdb_sync_db_header(handle);
+    filemgr_mutex_lock(handle->file);
+    fdb_link_new_file(handle);
+
+    if (filemgr_is_rollback_on(handle->file)) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
 
     if (handle->new_file == NULL) {
         file = handle->file;
         dhandle = handle->dhandle;
-        filemgr_mutex_lock(file);
-
-        fdb_link_new_file(handle);
-        if (handle->new_file) {
-            // compaction is being performed and new file exists
-            // relay lock
-            filemgr_mutex_lock(handle->new_file);
-            filemgr_mutex_unlock(handle->file);
-            // reset FILE and DHANDLE
-            file = handle->new_file;
-            dhandle = handle->new_dhandle;
-        }
     } else {
+        // compaction is being performed and new file exists
+        // relay lock
+        filemgr_mutex_lock(handle->new_file);
+        filemgr_mutex_unlock(handle->file);
         file = handle->new_file;
         dhandle = handle->new_dhandle;
-        filemgr_mutex_lock(file);
-    }
-
-    if (filemgr_is_rollback_on(file)) {
-        filemgr_mutex_unlock(file);
-        return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
     if (!(file->status == FILE_NORMAL ||

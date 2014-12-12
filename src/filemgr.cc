@@ -1602,9 +1602,12 @@ uint64_t filemgr_get_pos(struct filemgr *file)
     return pos;
 }
 
-uint8_t filemgr_is_rollback_on(struct filemgr *file)
+bool filemgr_is_rollback_on(struct filemgr *file)
 {
-    return (file->fflags & FILEMGR_ROLLBACK_IN_PROG);
+    spin_lock(&file->lock);
+    bool rv = (file->fflags & FILEMGR_ROLLBACK_IN_PROG);
+    spin_unlock(&file->lock);
+    return rv;
 }
 
 void filemgr_set_rollback(struct filemgr *file, uint8_t new_val)

@@ -40,10 +40,6 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         // transaction already exists
         return FDB_RESULT_TRANSACTION_FAIL;
     }
-    if (filemgr_is_rollback_on(handle->file)) {
-        // deny beginning transaction during rollback
-        return FDB_RESULT_FAIL_BY_ROLLBACK;
-    }
     if (handle->kvs) {
         if (handle->kvs->type == KVS_SUB) {
             // deny transaction on sub handle
@@ -53,22 +49,23 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
 
     fdb_check_file_reopen(handle);
     fdb_sync_db_header(handle);
+    filemgr_mutex_lock(handle->file);
+    fdb_link_new_file(handle);
+
+    if (filemgr_is_rollback_on(handle->file)) {
+        // deny beginning transaction during rollback
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
     if (handle->new_file == NULL) {
         file = handle->file;
-        filemgr_mutex_lock(file);
-
-        fdb_link_new_file(handle);
-        if (handle->new_file) {
-            // compaction is being performed and new file exists
-            // relay lock
-            filemgr_mutex_lock(handle->new_file);
-            filemgr_mutex_unlock(handle->file);
-            // reset FILE
-            file = handle->new_file;
-        }
     } else {
+        // compaction is being performed and new file exists
+        // relay lock
+        filemgr_mutex_lock(handle->new_file);
+        filemgr_mutex_unlock(handle->file);
         file = handle->new_file;
-        filemgr_mutex_lock(file);
     }
 
     handle->txn = (fdb_txn*)malloc(sizeof(fdb_txn));

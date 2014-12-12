@@ -205,7 +205,7 @@ fdb_status filemgr_destroy_file(char *filename,
 file_status_t filemgr_get_file_status(struct filemgr *file);
 uint64_t filemgr_get_pos(struct filemgr *file);
 
-uint8_t filemgr_is_rollback_on(struct filemgr *file);
+bool filemgr_is_rollback_on(struct filemgr *file);
 void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
 
 void filemgr_set_in_place_compaction(struct filemgr *file,
