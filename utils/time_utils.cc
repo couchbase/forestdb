@@ -15,42 +15,23 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_TIME_UTILS_H
-#define _JSAHN_TIME_UTILS_H
+#include "time_utils.h"
 
-#include <time.h>
 #if defined(WIN32) || defined(_WIN32)
-#include <Windows.h>
-#else
-#include <unistd.h>
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-static inline struct timeval _utime_gap(struct timeval a, struct timeval b)
+void usleep(unsigned int useconds)
 {
-    struct timeval ret;
-    if (b.tv_usec >= a.tv_usec) {
-        ret.tv_usec = b.tv_usec - a.tv_usec;
-        ret.tv_sec = b.tv_sec - a.tv_sec;
-    }else{
-        ret.tv_usec = 1000000 + b.tv_usec - a.tv_usec;
-        ret.tv_sec = b.tv_sec - a.tv_sec - 1;
+    unsigned int msec = useconds / 1000;
+    if (msec == 0) {
+        msec = 1;
     }
-    return ret;
-}
-
-#if defined(WIN32) || defined(_WIN32)
-void usleep(unsigned int useconds);
-#endif
-
-void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time);
-
-#ifdef __cplusplus
+    Sleep(msec);
 }
 #endif
 
-#endif
-
+void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {
+    usleep(*sleep_time);
+    *sleep_time = *sleep_time << 1;
+    if (max_sleep_time < *sleep_time) {
+        *sleep_time = max_sleep_time;
+    }
+}

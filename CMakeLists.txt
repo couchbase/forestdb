@@ -92,7 +92,8 @@ add_library(forestdb SHARED
             utils/crc32.cc
             utils/adler32.cc
             utils/debug.cc
-            utils/partiallock.cc)
+            utils/partiallock.cc
+            utils/time_utils.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(forestdb_dump
@@ -127,7 +128,8 @@ add_executable(forestdb_dump
                utils/adler32.cc
                utils/debug.cc
                utils/iniparser.cc
-               utils/partiallock.cc)
+               utils/partiallock.cc
+               utils/time_utils.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 

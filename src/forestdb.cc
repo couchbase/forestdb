@@ -42,6 +42,7 @@
 #include "internal_types.h"
 #include "compactor.h"
 #include "memleak.h"
+#include "time_utils.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB
@@ -195,6 +196,8 @@ void fdb_fetch_header(void *header_buf,
     old_filename_len = _endian_decode(old_filename_len);
     if (new_filename_len) {
         *new_filename = (char*)((uint8_t *)header_buf + offset);
+    } else {
+        *new_filename = NULL;
     }
     offset += new_filename_len;
     if (old_filename && old_filename_len) {
@@ -944,14 +947,23 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         free(handle);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
     }
-    // There should be no compaction on the file
-    if (filemgr_get_file_status(handle_in->file) != FILE_NORMAL) {
-        filemgr_set_rollback(handle_in->file, 0);
+
+    // If compaction is running, wait until it is aborted.
+    // TODO: Find a better way of waiting for the compaction abortion.
+    unsigned int sleep_time = 10000; // 10 ms.
+    file_status_t fstatus;
+    while ((fstatus = filemgr_get_file_status(handle_in->file)) == FILE_COMPACT_OLD) {
         filemgr_mutex_unlock(handle_in->file);
-        free(handle);
-        return FDB_RESULT_FAIL_BY_COMPACTION;
+        decaying_usleep(&sleep_time, 1000000);
+        filemgr_mutex_lock(handle_in->file);
     }
-    filemgr_mutex_unlock(handle_in->file);
+    if (fstatus == FILE_REMOVED_PENDING) {
+        filemgr_mutex_unlock(handle_in->file);
+        fdb_check_file_reopen(handle_in);
+        fdb_sync_db_header(handle_in);
+    } else {
+        filemgr_mutex_unlock(handle_in->file);
+    }
 
     handle->log_callback = handle_in->log_callback;
     handle->max_seqnum = seqnum;
@@ -3273,13 +3285,13 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
-INLINE fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
-                                         struct filemgr *new_file,
-                                         struct hbtrie *new_trie,
-                                         struct btree *new_idtree,
-                                         struct btree *new_seqtree,
-                                         struct docio_handle *new_dhandle,
-                                         struct btreeblk_handle *new_bhandle)
+fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
+                                  struct filemgr *new_file,
+                                  struct hbtrie *new_trie,
+                                  struct btree *new_idtree,
+                                  struct btree *new_seqtree,
+                                  struct docio_handle *new_dhandle,
+                                  struct btreeblk_handle *new_bhandle)
 {
     uint8_t deleted;
     uint64_t offset;
@@ -3405,6 +3417,12 @@ INLINE fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                 wal_release_flushed_items(new_file, &flush_items);
                 n_moved_docs = 0;
+            }
+
+            // If the rollback operation is issued, abort the compaction task.
+            if (filemgr_is_rollback_on(handle->file)) {
+                fs = FDB_RESULT_FAIL_BY_ROLLBACK;
+                break;
             }
         }
     }
@@ -3612,7 +3630,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                       handle->file, new_file, _fdb_doc_move);
 
     // mark name of new file in old file
-    filemgr_set_compaction_old(handle->file, new_file);
+    filemgr_set_compaction_state(handle->file, new_file, FILE_COMPACT_OLD);
 
     handle->last_hdr_bid = (handle->file->pos) / handle->file->blocksize;
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
@@ -3624,8 +3642,26 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     fdb_status fs = filemgr_commit(handle->file, &handle->log_callback);
     wal_release_flushed_items(handle->file, &flush_items);
     if (fs != FDB_RESULT_SUCCESS) {
+        filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
+        filemgr_set_compaction_state(new_file, NULL, FILE_REMOVED_PENDING);
         filemgr_mutex_unlock(handle->file);
         filemgr_mutex_unlock(new_file);
+        filemgr_close(new_file, true, new_filename, &handle->log_callback);
+        // Free all the resources allocated in this function.
+        btreeblk_free(new_bhandle);
+        free(new_bhandle);
+        docio_free(new_dhandle);
+        free(new_dhandle);
+        hbtrie_free(new_trie);
+        free(new_trie);
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (handle->kvs) {
+                hbtrie_free(new_seqtrie);
+                free(new_seqtrie);
+            } else {
+                free(new_seqtree);
+            }
+        }
         return fs;
     }
 
@@ -3639,12 +3675,34 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     // now compactor & another writer can be interleaved
 
     if (handle->kvs) {
-        _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
-                               (struct btree*)new_seqtrie, new_dhandle,
-                               new_bhandle);
+        fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
+                                    (struct btree*)new_seqtrie, new_dhandle,
+                                    new_bhandle);
     } else {
-        _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree, new_seqtree,
-                               new_dhandle, new_bhandle);
+        fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree, new_seqtree,
+                                    new_dhandle, new_bhandle);
+    }
+
+    if (fs != FDB_RESULT_SUCCESS) {
+        filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
+        filemgr_set_compaction_state(new_file, NULL, FILE_REMOVED_PENDING);
+        filemgr_close(new_file, false, new_filename, &handle->log_callback);
+        // Free all the resources allocated in this function.
+        btreeblk_free(new_bhandle);
+        free(new_bhandle);
+        docio_free(new_dhandle);
+        free(new_dhandle);
+        hbtrie_free(new_trie);
+        free(new_trie);
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (handle->kvs) {
+                hbtrie_free(new_seqtrie);
+                free(new_seqtrie);
+            } else {
+                free(new_seqtree);
+            }
+        }
+        return fs;
     }
 
     filemgr_mutex_lock(new_file);
@@ -3708,8 +3766,7 @@ fdb_status fdb_compact(fdb_file_handle *fhandle,
         }
         return fdb_compact_file(fhandle, new_filename, in_place_compaction);
 
-    } else if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-        // auto compaction
+    } else { // auto compaction mode.
         bool ret;
         char nextfile[FDB_MAX_FILENAME_LEN];
         fdb_status fs;
@@ -3722,20 +3779,11 @@ fdb_status fdb_compact(fdb_file_handle *fhandle,
         // get next filename
         compactor_get_next_filename(handle->file->filename, nextfile);
         fs = fdb_compact_file(fhandle, nextfile, false);
-        if (fs == FDB_RESULT_SUCCESS) {
-            // compaction succeeded
-            // clear compaction flag
-            ret = compactor_switch_compaction_flag(handle->file, false);
-            (void)ret;
-            return fs;
-        }
-        // compaction failed
         // clear compaction flag
         ret = compactor_switch_compaction_flag(handle->file, false);
         (void)ret;
         return fs;
     }
-    return FDB_RESULT_MANUAL_COMPACTION_FAIL;
 }
 
 LIBFDB_API

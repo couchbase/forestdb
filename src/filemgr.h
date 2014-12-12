@@ -198,7 +198,9 @@ fdb_status filemgr_sync(struct filemgr *file,
 void filemgr_shutdown();
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,
                                 char *old_filename);
-void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file);
+void filemgr_set_compaction_state(struct filemgr *old_file,
+                                  struct filemgr *new_file,
+                                  file_status_t status);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
 fdb_status filemgr_destroy_file(char *filename,
                                 struct filemgr_config *config,
