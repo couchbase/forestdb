@@ -54,11 +54,11 @@ fdb_status fdb_get_kv(fdb_kvs_handle *handle,
 
     fs = fdb_doc_create(&doc, key, keylen, NULL, 0, NULL, 0);
     if (fs != FDB_RESULT_SUCCESS) {
-        if (doc) {
+        if (doc) { // LCOV_EXCL_START
             fdb_doc_free(doc);
         }
         return fs;
-    }
+    } // LCOV_EXCL_STOP
 
     fs = fdb_get(handle, doc);
     if (fs != FDB_RESULT_SUCCESS) {
@@ -92,11 +92,11 @@ fdb_status fdb_set_kv(fdb_kvs_handle *handle,
 
     fs = fdb_doc_create(&doc, key, keylen, NULL, 0, value, valuelen);
     if (fs != FDB_RESULT_SUCCESS) {
-        if (doc) {
+        if (doc) { // LCOV_EXCL_START
             fdb_doc_free(doc);
         }
         return fs;
-    }
+    } // LCOV_EXCL_STOP
 
     fs = fdb_set(handle, doc);
     if (fs != FDB_RESULT_SUCCESS) {
@@ -124,11 +124,11 @@ fdb_status fdb_del_kv(fdb_kvs_handle *handle,
 
     fs = fdb_doc_create(&doc, key, keylen, NULL, 0, NULL, 0);
     if (fs != FDB_RESULT_SUCCESS) {
-        if (doc) {
+        if (doc) { // LCOV_EXCL_START
             fdb_doc_free(doc);
         }
         return fs;
-    }
+    } // LCOV_EXCL_STOP
 
     fs = fdb_del(handle, doc);
     if (fs != FDB_RESULT_SUCCESS) {
