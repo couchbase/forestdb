@@ -7335,6 +7335,86 @@ void flush_before_commit_multi_writers_test()
     TEST_RESULT("flush before commit with multi writers test");
 }
 
+void auto_commit_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 5000;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+
+    char key[256], value[256];
+    void *value_out;
+    size_t valuelen;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 4096;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.durability_opt = FDB_DRB_ASYNC;
+    fconfig.auto_commit = true;
+
+    // open db
+    status = fdb_open(&dbfile, "dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert docs
+    for (i=0;i<n;++i){
+        sprintf(key, "key%d", i);
+        sprintf(value, "body%d", i);
+        status = fdb_set_kv(db, key, strlen(key)+1, value, strlen(value)+1);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // retrieve check before close
+    for (i=0;i<n;++i){
+        sprintf(key, "key%d", i);
+        sprintf(value, "body%d", i);
+        status = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(value_out, value, valuelen);
+        free(value_out);
+    }
+
+    // close & reopen
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_open(&dbfile, "dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retrieve check again
+    for (i=0;i<n;++i){
+        sprintf(key, "key%d", i);
+        sprintf(value, "body%d", i);
+        status = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(value_out, value, valuelen);
+        free(value_out);
+    }
+
+    // free all resources
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("auto commit test");
+}
+
 void last_wal_flush_header_test()
 {
     TEST_INIT();
@@ -10020,6 +10100,7 @@ int main(){
     transaction_simple_api_test();
     flush_before_commit_test();
     flush_before_commit_multi_writers_test();
+    auto_commit_test();
     last_wal_flush_header_test();
     long_key_test();
 

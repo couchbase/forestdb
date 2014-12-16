@@ -192,6 +192,11 @@ typedef struct {
      */
     bool wal_flush_before_commit;
     /**
+     * Flag to enable automatic commit.
+     * This is a local config to each ForestDB file.
+     */
+    bool auto_commit;
+    /**
      * Interval for purging logically deleted documents in the unit of second.
      * It is set to 0 second (purge during next compaction) by default.
      * This is a local config to each ForestDB file.

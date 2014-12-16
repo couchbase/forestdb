@@ -2553,6 +2553,7 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
     struct timeval tv;
     bool txn_enabled = false;
     bool sub_handle = false;
+    bool wal_flushed = false;
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_status wr = FDB_RESULT_SUCCESS;
 
@@ -2681,7 +2682,8 @@ fdb_set_start:
         wal_set_dirty_status(file, FDB_WAL_DIRTY);
     }
 
-    if (handle->config.wal_flush_before_commit &&
+    if ((handle->config.wal_flush_before_commit ||
+         handle->config.auto_commit) &&
         filemgr_get_file_status(handle->file) == FILE_NORMAL) {
         bid_t dirty_idtree_root, dirty_seqtree_root;
 
@@ -2737,11 +2739,16 @@ fdb_set_start:
             filemgr_set_dirty_root(file,
                                    dirty_idtree_root,
                                    dirty_seqtree_root);
+
+            wal_flushed = true;
         }
     }
 
     filemgr_mutex_unlock(file);
 
+    if (wal_flushed && handle->config.auto_commit) {
+        return fdb_commit(handle->fhandle, FDB_COMMIT_NORMAL);
+    }
     return FDB_RESULT_SUCCESS;
 }
 
@@ -3735,6 +3742,17 @@ LIBFDB_API
 fdb_status fdb_close(fdb_file_handle *fhandle)
 {
     fdb_status fs;
+
+    if (fhandle->root->config.auto_commit &&
+        filemgr_get_ref_count(fhandle->root->file) == 1) {
+        // auto commit mode & the last handle referring the file
+        // commit file before close
+        fs = fdb_commit(fhandle, FDB_COMMIT_NORMAL);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
+    }
+
     fs = _fdb_close_root(fhandle->root);
     if (fs == FDB_RESULT_SUCCESS) {
         fdb_file_handle_close_all(fhandle);

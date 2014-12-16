@@ -33,6 +33,7 @@ fdb_config get_default_config(void) {
     // 4096 WAL entries by default.
     fconfig.wal_threshold = 4096;
     fconfig.wal_flush_before_commit = true;
+    fconfig.auto_commit = false;
     // 0 second by default.
     fconfig.purging_interval = 0;
     // Use a seq btree by default.
