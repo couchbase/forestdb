@@ -5280,6 +5280,240 @@ void in_memory_snapshot_test()
     TEST_RESULT("in-memory snapshot test");
 }
 
+void snapshot_clone_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    int count;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db, *snap_inmem;
+    fdb_kvs_handle *snap_db2, *snap_inmem2; // clones from stable & inmemory
+    fdb_seqnum_t snap_seq;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_kvs_info kvs_info;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Create a snapshot from an empty database file
+    status = fdb_snapshot_open(db, &snap_db, 0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // check if snapshot's sequence number is zero.
+    fdb_get_kvs_info(snap_db, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum == 0);
+    // create an iterator on the snapshot for full range
+    fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    // Iterator should not return any items.
+    status = fdb_iterator_next(iterator);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(iterator);
+    fdb_kvs_close(snap_db);
+
+    // ------- Setup test ----------------------------------
+    // insert documents of 0-4
+    for (i=0; i<n/4; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 4 - 8
+    for (; i < n/2 - 1; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // We want to create:
+    // |WALFlushHDR|Key-Value1|HDR|Key-Value2|SnapshotHDR|Key-Value1|HDR|
+    // Insert doc 9 with a different value to test duplicate elimination..
+    sprintf(keybuf, "key%d", i);
+    sprintf(metabuf, "meta%d", i);
+    sprintf(bodybuf, "Body%d", i);
+    fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+    fdb_set(db, doc[i]);
+
+    // commit again without a WAL flush (last doc goes into the AVL tree)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // Insert doc 9 now again with expected value..
+    *(char *)doc[i]->body = 'b';
+    fdb_set(db, doc[i]);
+    // commit again without a WAL flush (these documents go into the AVL trees)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // TAKE SNAPSHOT: pick up sequence number of a commit without a WAL flush
+    snap_seq = doc[i]->seqnum;
+
+    // Initialize an in-memory snapshot Without a Commit...
+    // WAL items are not flushed...
+    status = fdb_snapshot_open(db, &snap_inmem, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Now re-insert doc 9 as another duplicate (only newer sequence number)
+    fdb_set(db, doc[i]);
+    // commit again without a WAL flush (last doc goes into the AVL tree)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // insert documents from 10-14 into HB-trie
+    for (++i; i < (n/2 + n/4); i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "snapshot_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // ---------- Snapshot tests begin -----------------------
+    // Attempt to take snapshot with out-of-range marker..
+    status = fdb_snapshot_open(db, &snap_db, 999999);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+
+    // Init Snapshot of open file with saved document seqnum as marker
+    status = fdb_snapshot_open(db, &snap_db, snap_seq);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Clone a snapshot into another snapshot...
+    status = fdb_snapshot_open(snap_db, &snap_db2, snap_seq);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close snapshot handle
+    status = fdb_kvs_close(snap_db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // check snapshot's sequence number
+    fdb_get_kvs_info(snap_db2, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum == snap_seq);
+
+    // insert documents from 15 - 19 on file into the WAL
+    for (; i < n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without a WAL flush (This WAL must not affect snapshot)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // Clone the in-memory snapshot into another snapshot
+    status = fdb_snapshot_open(snap_inmem, &snap_inmem2, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Stable Snapshot Scan Tests..........
+
+    // create an iterator on the snapshot for full range
+    fdb_iterator_init(snap_db2, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count=0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        i ++;
+        count++;
+    } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
+
+    TEST_CHK(count==n/2); // Only unique items from the first half
+
+    fdb_iterator_close(iterator);
+
+    // create an iterator on the in-memory snapshot clone for full range
+    fdb_iterator_init(snap_inmem2, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count=0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        i ++;
+        count++;
+    } while(fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
+
+    TEST_CHK(count==n/2); // Only unique items from the first half
+
+    fdb_iterator_close(iterator);
+
+    // close db handle
+    fdb_kvs_close(db);
+    // close the in-memory snapshot handle
+    fdb_kvs_close(snap_inmem);
+    // close the in-memory clone snapshot handle
+    fdb_kvs_close(snap_inmem2);
+    // close the clone snapshot handle
+    fdb_kvs_close(snap_db2);
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("snapshot clone test");
+}
+
 void rollback_test()
 {
     TEST_INIT();
@@ -9770,6 +10004,7 @@ int main(){
     custom_compare_variable_test();
     snapshot_test();
     in_memory_snapshot_test();
+    snapshot_clone_test();
     rollback_test();
     rollback_and_snapshot_test();
     reverse_sequence_iterator_test();

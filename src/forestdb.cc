@@ -241,10 +241,6 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
         return;
     }
 
-    if (handle->shandle) {
-        snap_init(handle->shandle, handle);
-    }
-
     // Temporarily disable the error logging callback as there are false positive
     // checksum errors in docio_read_doc.
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.
@@ -832,17 +828,32 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
     }
 
     handle->log_callback = handle_in->log_callback;
-    handle->shandle = (struct snap_handle *) calloc(1, sizeof(snap_handle));
-    if (!handle->shandle) {
-        free(handle);
-        return FDB_RESULT_ALLOC_FAIL;
-    }
     handle->max_seqnum = seqnum;
     handle->fhandle = handle_in->fhandle;
 
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     // do not perform compaction for snapshot
     config.compaction_mode = FDB_COMPACTION_MANUAL;
+
+    // If cloning an existing snapshot handle, then rewind indexes
+    // to its last DB header and point its avl tree to existing snapshot's tree
+    if (handle_in->shandle) {
+        handle->last_hdr_bid = handle_in->last_hdr_bid;
+        if (snap_clone(handle_in->shandle, handle_in->max_seqnum,
+                   &handle->shandle, seqnum) == FDB_RESULT_SUCCESS) {
+            handle->max_seqnum = FDB_SNAPSHOT_INMEM;
+        }
+    }
+
+    if (!handle->shandle) {
+        handle->shandle = (struct snap_handle *) calloc(1, sizeof(snap_handle));
+        if (!handle->shandle) {
+            free(handle);
+            return FDB_RESULT_ALLOC_FAIL;
+        }
+        snap_init(handle->shandle, handle);
+    }
+
     if (handle_in->kvs) {
         // sub-handle in multi KV instance mode
         fs = _fdb_kvs_open(handle_in->kvs->root,
@@ -855,10 +866,18 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
     }
 
     if (fs == FDB_RESULT_SUCCESS) {
-        if (seqnum == FDB_SNAPSHOT_INMEM) {
-            snap_init(handle->shandle, handle);
+        if (seqnum == FDB_SNAPSHOT_INMEM && !handle_in->shandle) {
             wal_snapshot(handle->file, (void *)handle->shandle,
-                         handle_in->txn, _fdb_wal_snapshot_func);
+                    handle_in->txn, _fdb_wal_snapshot_func);
+            // set seqnum based on handle type (multikv or default)
+            if (handle_in->kvs && handle_in->kvs->id > 0) {
+                handle->max_seqnum = _fdb_kvs_get_seqnum(file->kv_header,
+                                                         handle_in->kvs->id);
+            } else {
+                handle->max_seqnum = filemgr_get_seqnum(file);
+            }
+        } else if (handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
+            handle->max_seqnum = handle_in->seqnum;
         }
         *ptr_handle = handle;
     } else {
@@ -1046,7 +1065,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     strcpy(handle->filename, filename);
 
     handle->fileops = get_filemgr_ops();
-    filemgr_open_result result = filemgr_open((char *)actual_filename, handle->fileops,
+    filemgr_open_result result = filemgr_open((char *)actual_filename,
+                                              handle->fileops,
                                               &fconfig, &handle->log_callback);
     if (result.rv != FDB_RESULT_SUCCESS) {
         free(handle->filename);
@@ -1056,8 +1076,21 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     handle->file = result.file;
     filemgr_mutex_lock(handle->file);
-    filemgr_fetch_header(handle->file, header_buf, &header_len);
-    handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
+    // Check if snapshot clone wants to rewind to a specific header
+    if (handle->shandle && handle->last_hdr_bid) {
+        status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
+                                      header_buf, &header_len,
+                                      &handle->log_callback);
+        if (status != FDB_RESULT_SUCCESS) {
+            free(handle->filename);
+            handle->filename = NULL;
+            return status;
+        }
+    } else { // Normal open
+        filemgr_get_header(handle->file, header_buf, &header_len);
+        handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
+    }
+
     if (header_len > 0) {
         fdb_fetch_header(header_buf, &trie_root_bid,
                          &seq_root_bid, &ndocs, &nlivenodes,
@@ -1071,7 +1104,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
         // set seqnum based on handle type (multikv or default)
         if (handle->kvs && handle->kvs->id > 0) {
-            seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header, handle->kvs->id);
+            seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                         handle->kvs->id);
         } else {
             seqnum = filemgr_get_seqnum(handle->file);
         }
@@ -1101,10 +1135,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     docio_init(handle->dhandle, handle->file, config->compress_document_body);
 
     if (handle->shandle && handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
-        handle->max_seqnum = seqnum;
         filemgr_mutex_unlock(handle->file);
         hdr_bid = 0; // This prevents _fdb_restore_wal() as incoming handle's
-                     // fdb_open() should have already restored it
+                     // *_open() should have already restored it
     } else {
         filemgr_mutex_unlock(handle->file);
 
@@ -1134,7 +1167,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                         if (handle->kvs->id > 0) {
                             _fdb_kvs_header_create(&kv_header);
                             memset(&doc, 0, sizeof(struct docio_object));
-                            doc_offset = docio_read_doc(handle->dhandle, kv_info_offset, &doc);
+                            doc_offset = docio_read_doc(handle->dhandle,
+                                                        kv_info_offset, &doc);
 
                             if (doc_offset == kv_info_offset) {
                                 header_len = 0; // fail
@@ -1143,7 +1177,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                 _fdb_kvs_header_import(kv_header, doc.body,
                                                           doc.length.bodylen);
                                 // get local sequence number for the KV instance
-                                seqnum = _fdb_kvs_get_seqnum(kv_header, handle->kvs->id);
+                                seqnum = _fdb_kvs_get_seqnum(kv_header,
+                                                             handle->kvs->id);
                                 free_docio_object(&doc, 1, 1, 1);
                                 _fdb_kvs_header_free(kv_header);
                             }
@@ -1174,8 +1209,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         } else {
             if (handle->shandle) { // fdb_snapshot_open API call
                 if (seqnum) {
-                    // Database currently has a non-zero seq number, but the snapshot was
-                    // requested with a seq number zero.
+                    // Database currently has a non-zero seq number,
+                    // but the snapshot was requested with a seq number zero.
                     docio_free(handle->dhandle);
                     free(handle->dhandle);
                     free(handle->filename);
@@ -1514,6 +1549,7 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
 
 INLINE fdb_status _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
                                          uint64_t offset) {
+
     return snap_insert((struct snap_handle *)handle, doc, offset);
 }
 
@@ -1650,7 +1686,7 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
         size_t header_len;
 
         handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
-        header_buf = filemgr_fetch_header(handle->file, NULL, &header_len);
+        header_buf = filemgr_get_header(handle->file, NULL, &header_len);
         if (header_len > 0) {
             uint64_t header_flags, dummy64;
             bid_t idtree_root;
@@ -1735,7 +1771,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
             btreeblk_init(handle->bhandle, handle->file, handle->config.blocksize);
 
             // read new file's header
-            filemgr_fetch_header(handle->file, buf, &header_len);
+            filemgr_get_header(handle->file, buf, &header_len);
             fdb_fetch_header(buf,
                              &trie_root_bid, &seq_root_bid,
                              &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
@@ -1793,7 +1829,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
                 _fdb_open(handle, filename, &config);
 
             } else {
-                filemgr_fetch_header(handle->file, buf, &header_len);
+                filemgr_get_header(handle->file, buf, &header_len);
                 fdb_fetch_header(buf,
                                  &trie_root_bid, &seq_root_bid,
                                  &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
@@ -3786,7 +3822,6 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
     free(handle->dhandle);
     if (handle->shandle) {
         snap_close(handle->shandle);
-        free(handle->shandle);
     }
     if (handle->filename) {
         free(handle->filename);

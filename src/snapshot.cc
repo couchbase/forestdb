@@ -110,6 +110,8 @@ fdb_status snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle)
         return FDB_RESULT_ALLOC_FAIL;
     }
     avl_init(shandle->seq_tree, NULL);
+    spin_init(&shandle->lock);
+    shandle->ref_cnt = 1;
     return FDB_RESULT_SUCCESS;
 }
 
@@ -203,22 +205,45 @@ fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
+fdb_status snap_clone(struct snap_handle *shandle_in, fdb_seqnum_t in_seqnum,
+                      struct snap_handle **shandle, fdb_seqnum_t snap_seqnum)
+{
+    if (snap_seqnum == FDB_SNAPSHOT_INMEM ||
+        in_seqnum == snap_seqnum) {
+        spin_lock(&shandle_in->lock);
+        shandle_in->ref_cnt++;
+        spin_unlock(&shandle_in->lock);
+        *shandle = shandle_in;
+        return FDB_RESULT_SUCCESS;
+    }
+
+    return FDB_RESULT_INVALID_ARGS;
+}
+
 fdb_status snap_close(struct snap_handle *shandle)
 {
     struct avl_node *a;
     struct snap_wal_entry *snap_item;
 
-    if (shandle->key_tree) {
-        a = avl_first(shandle->key_tree);
-        while (a) {
-            snap_item = _get_entry(a, struct snap_wal_entry, avl);
-            a = avl_next(a);
-            avl_remove(shandle->key_tree, &snap_item->avl);
-            free(snap_item->key);
-            free(snap_item);
+    spin_lock(&shandle->lock);
+    assert(shandle->ref_cnt);
+
+    if (--shandle->ref_cnt == 0) {
+        if (shandle->key_tree) {
+            a = avl_first(shandle->key_tree);
+            while (a) {
+                snap_item = _get_entry(a, struct snap_wal_entry, avl);
+                a = avl_next(a);
+                avl_remove(shandle->key_tree, &snap_item->avl);
+                free(snap_item->key);
+                free(snap_item);
+            }
+            free(shandle->key_tree);
+            free(shandle->seq_tree);
         }
-        free(shandle->key_tree);
-        free(shandle->seq_tree);
+        free(shandle);
     }
+
+    spin_unlock(&shandle->lock);
     return FDB_RESULT_SUCCESS;
 }

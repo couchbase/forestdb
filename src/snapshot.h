@@ -24,6 +24,7 @@
 #include "list.h"
 #include "wal.h"
 #include "avltree.h"
+#include "partiallock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,9 +44,13 @@ struct snap_wal_entry {
 
 struct snap_handle {
     /**
-     * Snapshot marker indicating highest sequence number
+     * Lock to protect the reference count of cloned snapshots
      */
-     fdb_seqnum_t max_seqnum;
+    spin_t lock;
+    /**
+     * Reference count to avoid copy in cloned snapshots
+     */
+     volatile uint16_t ref_cnt;
     /**
      * AVL tree to store unflushed WAL entries of a snapshot by key range
      */
@@ -62,6 +67,8 @@ fdb_status snap_insert(struct snap_handle *shandle, fdb_doc *doc,
 fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,
                       uint64_t *offset);
 fdb_status snap_remove(struct snap_handle *shandle, fdb_doc *doc);
+fdb_status snap_clone(struct snap_handle *in, fdb_seqnum_t in_seq,
+                      struct snap_handle **out, fdb_seqnum_t snap_seq);
 fdb_status snap_close(struct snap_handle *shandle);
 
 #ifdef __cplusplus

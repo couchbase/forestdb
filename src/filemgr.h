@@ -157,7 +157,9 @@ void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
 char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
 
 bid_t filemgr_get_header_bid(struct filemgr *file);
-void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len);
+void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len);
+fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid, void *buf,
+                           size_t *len, err_log_callback *log_callback);
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    err_log_callback *log_callback);

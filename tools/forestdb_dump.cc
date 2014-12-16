@@ -121,7 +121,7 @@ void print_header(fdb_kvs_handle *db)
 
     printf("DB header info:\n");
 
-    filemgr_fetch_header(db->file, header_buf, &header_len);
+    filemgr_get_header(db->file, header_buf, &header_len);
     if (header_len > 0) {
         fdb_fetch_header(header_buf, &trie_root_bid,
                          &seq_root_bid, &ndocs, &nlivenodes,

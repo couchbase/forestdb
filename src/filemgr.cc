@@ -751,7 +751,7 @@ bid_t filemgr_get_header_bid(struct filemgr *file)
     }
 }
 
-void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
+void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len)
 {
     spin_lock(&file->lock);
 
@@ -766,6 +766,56 @@ void* filemgr_fetch_header(struct filemgr *file, void *buf, size_t *len)
     spin_unlock(&file->lock);
 
     return buf;
+}
+
+fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
+                                void *buf, size_t *len,
+                                err_log_callback *log_callback)
+{
+    uint8_t *_buf;
+    uint8_t marker[BLK_MARKER_SIZE];
+    filemgr_header_len_t hdr_len;
+    filemgr_magic_t magic;
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    if (!bid || bid == BLK_NOT_FOUND) {
+        *len = 0; // No other header available
+        return FDB_RESULT_SUCCESS;
+    }
+    _buf = (uint8_t *)_filemgr_get_temp_buf();
+
+    status = filemgr_read(file, (bid_t)bid, _buf, log_callback);
+
+    if (status != FDB_RESULT_SUCCESS) {
+        _filemgr_release_temp_buf(_buf);
+        return status;
+    }
+    memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
+            BLK_MARKER_SIZE);
+
+    if (marker[0] != BLK_MARKER_DBHEADER) {
+        _filemgr_release_temp_buf(_buf);
+        return FDB_RESULT_READ_FAIL;
+    }
+    memcpy(&magic,
+            _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
+            sizeof(magic));
+    magic = _endian_decode(magic);
+    if (magic != FILEMGR_MAGIC) {
+        _filemgr_release_temp_buf(_buf);
+        return FDB_RESULT_READ_FAIL;
+    }
+    memcpy(&hdr_len,
+            _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
+            sizeof(hdr_len), sizeof(hdr_len));
+    hdr_len = _endian_decode(hdr_len);
+
+    memcpy(buf, _buf, hdr_len);
+    *len = hdr_len;
+
+    _filemgr_release_temp_buf(_buf);
+
+    return status;
 }
 
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
@@ -807,8 +857,8 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
             continue;
         }
         memcpy(&hdr_len,
-               _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) - sizeof(hdr_len),
-               sizeof(hdr_len));
+               _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
+               sizeof(hdr_len), sizeof(hdr_len));
         hdr_len = _endian_decode(hdr_len);
 
         memcpy(buf, _buf, hdr_len);
