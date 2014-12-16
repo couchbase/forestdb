@@ -330,7 +330,7 @@ void * compactor_thread(void *voidargs)
                 fs = fdb_open_for_compactor(&fhandle, vfilename, &config);
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(filename, new_filename);
-                    fs = fdb_compact_file(fhandle, new_filename, false);
+                    fdb_compact_file(fhandle, new_filename, false);
 
                     spin_lock(&cpt_lock);
                     a = avl_next(target_cursor);
@@ -338,7 +338,7 @@ void * compactor_thread(void *voidargs)
                     target_cursor = NULL;
                     spin_unlock(&cpt_lock);
 
-                    fs = fdb_close(fhandle);
+                    fdb_close(fhandle);
 
                     spin_lock(&cpt_lock);
                     compactor_status = CPT_IDLE;
@@ -462,9 +462,9 @@ void compactor_shutdown()
 
 fdb_status _compactor_store_metafile(char *metafile,
                                      struct compactor_meta *metadata);
-void compactor_register_file(struct filemgr *file, fdb_config *config)
+fdb_status compactor_register_file(struct filemgr *file, fdb_config *config)
 {
-    fdb_status fs;
+    fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
@@ -495,6 +495,7 @@ void compactor_register_file(struct filemgr *file, fdb_config *config)
         elem->register_count++;
     }
     spin_unlock(&cpt_lock);
+    return fs;
 }
 
 void compactor_deregister_file(struct filemgr *file)

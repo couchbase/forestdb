@@ -1119,6 +1119,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
+        (void)lock_no;
 
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
         plock_entry_t *plock_entry = NULL;
@@ -1205,6 +1206,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
+        (void)lock_no;
 
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block

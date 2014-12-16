@@ -379,7 +379,6 @@ bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset)
     // copy doc_offset
     _doc_offset = _endian_encode(doc_offset);
     memcpy((uint8_t *)buf + offset, &_doc_offset, sizeof(_doc_offset));
-    offset += sizeof(_doc_offset);
 
     ret_offset = docio_append_doc_raw(handle, docsize, buf);
     free(buf);
@@ -643,7 +642,7 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
         return;
     }
 
-    _offset = _docio_read_doc_component(handle, _offset, length.keylen, keybuf, log_callback);
+    _docio_read_doc_component(handle, _offset, length.keylen, keybuf, log_callback);
     *keylen = length.keylen;
 }
 

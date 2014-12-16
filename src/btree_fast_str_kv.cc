@@ -55,7 +55,6 @@ static void _get_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
     ksize = sizeof(void *);
 
     ptr = node->data;
-    offset = 0;
 
     // get offset array
     _offset_arr = (key_len_t*)ptr;
@@ -277,7 +276,6 @@ static void _copy_fast_str_kv(struct bnode *node_dst,
     assert(dst_idx == 0);
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
-    ksize = sizeof(void *);
 
     ptr_src = node_src->data;
     ptr_dst = node_dst->data;
@@ -347,7 +345,6 @@ static size_t _get_fast_str_data_size(
     ksize = sizeof(void *);
 
     ptr = node->data;
-    size = 0;
 
     if (node->nentry == 0) return 0;
 

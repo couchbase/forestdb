@@ -1345,15 +1345,14 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     status = btreeblk_end(handle->bhandle);
     assert(status == FDB_RESULT_SUCCESS);
-    (void)status;
 
     // do not register read-only handles
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
         config->compaction_mode == FDB_COMPACTION_AUTO) {
-        compactor_register_file(handle->file, (fdb_config *)config);
+        status = compactor_register_file(handle->file, (fdb_config *)config);
     }
 
-    return FDB_RESULT_SUCCESS;
+    return status;
 }
 
 LIBFDB_API
@@ -1781,7 +1780,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
             // because the old file is already removed when compaction is complete.
             if (!(config.flags & FDB_OPEN_FLAG_RDONLY) &&
                 config.compaction_mode == FDB_COMPACTION_AUTO) {
-                compactor_register_file(handle->file, &config);
+                fs = compactor_register_file(handle->file, &config);
             }
 
         } else {
@@ -1976,7 +1975,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     struct docio_handle *dhandle;
     struct filemgr *wal_file = NULL;
     fdb_status wr;
-    hbtrie_result hr;
+    hbtrie_result hr = HBTRIE_RESULT_FAIL;
     fdb_txn *txn;
     fdb_doc doc_kv = *doc;
 

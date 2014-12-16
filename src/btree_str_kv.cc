@@ -155,7 +155,6 @@ static void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
 
         // we have to move idx ~ nentry KVs to (next) appropriate position
         next_len = 0;
-        offset_next = offset;
         for (i=idx;i<node->nentry;++i){
             memcpy(&_keylen, (uint8_t*)ptr + offset, sizeof(key_len_t));
             keylen = _endian_decode(_keylen);
@@ -203,7 +202,6 @@ static void _copy_str_kv(struct bnode *node_dst,
     if (node_dst == node_src) return;
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
-    ksize = sizeof(void *);
 
     ptr_src = node_src->data;
     ptr_dst = node_dst->data;

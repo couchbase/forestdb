@@ -375,7 +375,6 @@ void kv_ins_var_nentry_test(btree_kv_ops *kv_ops)
     uint8_t ksize, vsize;
     uint64_t v = 100;
     int n = 10;
-    int offset = 0;
     char k1[] = "key1";
     char k2[] = "key2";
 
@@ -390,7 +389,6 @@ void kv_ins_var_nentry_test(btree_kv_ops *kv_ops)
     kv_ops->ins_kv(node, 0, k2, (void *)&v);
 
     // verify k2 is at entry 0, and k2 at 1
-    offset = 0;
     TEST_CHK(!memcmp(node->data, k2, ksize));
     TEST_CHK(!memcmp((uint8_t *)node->data + ksize + vsize, k1, ksize));
 
@@ -474,13 +472,12 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
     char key[n][ksize];
     int value[n];
     void *new_minkey;
-    size_t old_size, size;
+    size_t size;
 
 
     node = dummy_node(ksize, vsize, 1);
     node->nentry = 0;
 
-    v = 100;
     new_minkey = NULL;
 
     for (i = 0; i < n; i++){
@@ -498,7 +495,6 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
     }
 
     // cacluate datasize to extend node with n entries
-    old_size = size;
     node->nentry = n;
     size = kv_ops->get_data_size(node, new_minkey, key, value, n);
     TEST_CHK(size == 2*(n*(ksize+vsize)));

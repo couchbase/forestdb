@@ -2649,7 +2649,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
         }
         s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-    } else if (insert_opt == 6) {
+    } else { // if (insert_opt == 6) {
         // Both HB+trie and WAL contains all keys
         for (i=0;i<n;++i){
             sprintf(key, keystr, (int)i);

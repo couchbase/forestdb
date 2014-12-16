@@ -109,7 +109,9 @@ INLINE struct kv_ins_item * _kv_ins_item_create(
     item->key = (void *)malloc(btree->ksize);
     item->value = (void *)malloc(btree->vsize);
 
-    btree->kv_ops->init_kv_var(btree, item->key, item->value);
+    if (btree->kv_ops->init_kv_var) {
+        btree->kv_ops->init_kv_var(btree, item->key, item->value);
+    }
     if (key) {
         btree->kv_ops->set_key(btree, item->key, key);
     }
@@ -272,7 +274,6 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
     node = _fetch_bnode(btree, addr, btree->height);
 
     ptr = ((uint8_t *)node) + sizeof(struct bnode);
-    metasize = old_metasize = 0;
 
     if (node->flag & BNODE_MASK_METADATA) {
         memcpy(&old_metasize, ptr, sizeof(metasize_t));
@@ -284,6 +285,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
 
         // new meta size cannot be larger than old meta size
         assert(metasize <= old_metasize);
+        (void)metasize;
 
         // overwrite
         if (meta->size > 0) {
@@ -308,7 +310,8 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
     }else {
         if (node->flag & BNODE_MASK_METADATA) {
             // existing metadata is removed
-            memmove(ptr, node->data, btree->kv_ops->get_data_size(node, NULL, NULL, NULL, 0));
+            memmove(ptr, node->data, btree->kv_ops->get_data_size(node,
+                                                    NULL, NULL, NULL, 0));
             node->data = (uint8_t *)node->data - (_metasize_align(old_metasize) +
                          sizeof(metasize_t));
             // clear the flag
@@ -318,7 +321,8 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
 
     if (!btree->blk_ops->blk_is_writable(btree->blk_handle, btree->root_bid)) {
         // already flushed block -> cannot overwrite, we have to move to new block
-        addr = btree->blk_ops->blk_move(btree->blk_handle, btree->root_bid, &btree->root_bid);
+        btree->blk_ops->blk_move(btree->blk_handle, btree->root_bid,
+                                &btree->root_bid);
     }else{
         btree->blk_ops->blk_set_dirty(btree->blk_handle, btree->root_bid);
     }
@@ -356,7 +360,6 @@ btree_result btree_init(
 {
     void *addr;
     size_t min_nodesize = 0;
-    struct bnode *root;
 
     btree->root_flag = BNODE_MASK_ROOT | flag;
     btree->blk_ops = blk_ops;
@@ -398,8 +401,8 @@ btree_result btree_init(
     } else {
         addr = btree->blk_ops->blk_alloc (btree->blk_handle, &btree->root_bid);
     }
-    root = _btree_init_node(btree, btree->root_bid, addr,
-                            btree->root_flag, BNODE_MASK_ROOT, meta);
+    _btree_init_node(btree, btree->root_bid, addr,
+                     btree->root_flag, BNODE_MASK_ROOT, meta);
 
     return BTREE_RESULT_SUCCESS;
 }
@@ -476,7 +479,6 @@ idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
 idx_t _btree_add_entry(struct btree *btree, struct bnode *node, void *key, void *value)
 {
     idx_t idx, idx_insert;
-    void *ptr;
     uint8_t *k = alca(uint8_t, btree->ksize);
 
     if (btree->kv_ops->init_kv_var) btree->kv_ops->init_kv_var(btree, k, NULL);
@@ -498,7 +500,6 @@ idx_t _btree_add_entry(struct btree *btree, struct bnode *node, void *key, void 
         }
 
         if (idx_insert < node->nentry) {
-            ptr = node->data;
 
             /*
             shift [idx+1, nentry) key-value pairs to right
@@ -528,14 +529,11 @@ idx_t _btree_add_entry(struct btree *btree, struct bnode *node, void *key, void 
 idx_t _btree_remove_entry(struct btree *btree, struct bnode *node, void *key)
 {
     idx_t idx;
-    void *ptr;
 
     if (node->nentry > 0) {
         idx = _btree_find_entry(btree, node, key);
 
         if (idx == BTREE_IDX_NOT_FOUND) return idx;
-
-        ptr = node->data;
 
         /*
         shift [idx+1, nentry) key-value pairs to left
