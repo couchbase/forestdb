@@ -24,8 +24,23 @@ extern "C" {
 
 struct filemgr_ops * get_filemgr_ops();
 void filemgr_ops_set_anomalous(int behavior);
-void filemgr_ops_anomalous_init();
-void filemgr_make_writes_fail(int behavior);
+
+// These callbacks allow test-suite to control how the file ops should behave
+// If these return 0, then normal operation will happen,
+// If these return a non-zero value, then the file ops will return the same result
+struct anomalous_callbacks {
+    int (*open_cb)(void *ctx);
+    ssize_t (*pwrite_cb)(void *ctx);
+    ssize_t (*pread_cb)(void *ctx);
+    int (*close_cb)(void *ctx);
+    cs_off_t (*goto_eof_cb)(void *ctx);
+    cs_off_t (*file_size_cb)(void *ctx);
+    int (*fdatasync_cb)(void *ctx);
+    int (*fsync_cb)(void *ctx);
+};
+
+struct anomalous_callbacks * get_default_anon_cbs();
+void filemgr_ops_anomalous_init(struct anomalous_callbacks *cbs, void *ctx);
 
 #ifdef __cplusplus
 }

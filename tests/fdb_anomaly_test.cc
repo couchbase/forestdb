@@ -22,6 +22,7 @@
 #include <time.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <unistd.h>
+#include <errno.h>
 #endif
 
 #include "libforestdb/forestdb.h"
@@ -33,6 +34,23 @@ void logCallbackFunc(int err_code,
                      void *pCtxData) {
     fprintf(stderr, "%s - error code: %d, error message: %s\n",
             (char *) pCtxData, err_code, err_msg);
+}
+
+struct write_fail_ctx {
+    int num_write_fails;
+    int num_writes;
+    int start_failing_after;
+};
+
+ssize_t pwrite_failure_cb(void *ctx) {
+    struct write_fail_ctx *wctx = (struct write_fail_ctx *)ctx;
+    wctx->num_writes++;
+    if (wctx->num_writes > wctx->start_failing_after) {
+        wctx->num_write_fails++;
+        errno = -2;
+        return (ssize_t)FDB_RESULT_WRITE_FAIL;
+    }
+    return (ssize_t)FDB_RESULT_SUCCESS;
 }
 
 void write_failure_test()
@@ -53,18 +71,24 @@ void write_failure_test()
 
     char *keybuf;
     char metabuf[256], bodybuf[256], temp[256];
+    // Get the default callbacks which result in normal operation for other ops
+    struct anomalous_callbacks *write_fail_cb = get_default_anon_cbs();
+    struct write_fail_ctx fail_ctx;
+    memset(&fail_ctx, 0, sizeof(struct write_fail_ctx));
+    // Modify the pwrite callback to redirect to test-specific function
+    write_fail_cb->pwrite_cb = &pwrite_failure_cb;
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
 
     // Reset anomalous behavior stats..
-    filemgr_ops_anomalous_init();
+    filemgr_ops_anomalous_init(write_fail_cb, &fail_ctx);
 
     // The number indicates the count after which all writes begin to fail
     // This number is unique to this test suite and can cause a segmentation
     // fault if the underlying fixed issue resurfaces
-    filemgr_make_writes_fail(10112);
+    fail_ctx.start_failing_after = 10112;
 
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
@@ -144,7 +168,10 @@ void write_failure_test()
 
     memleak_end();
 
-    TEST_RESULT("write failure test");
+    sprintf(temp, "write failure test: %d failures out of %d writes",
+            fail_ctx.num_write_fails, fail_ctx.num_writes);
+
+    TEST_RESULT(temp);
 }
 
 int main(){
