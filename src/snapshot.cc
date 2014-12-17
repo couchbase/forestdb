@@ -241,9 +241,11 @@ fdb_status snap_close(struct snap_handle *shandle)
             free(shandle->key_tree);
             free(shandle->seq_tree);
         }
+        spin_unlock(&shandle->lock);
         free(shandle);
+    } else {
+        spin_unlock(&shandle->lock);
     }
 
-    spin_unlock(&shandle->lock);
     return FDB_RESULT_SUCCESS;
 }
