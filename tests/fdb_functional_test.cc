@@ -10135,9 +10135,111 @@ void multi_kv_close_test()
     TEST_RESULT("multi KV close");
 }
 
+void *db_compact_during_doc_delete(void *args)
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 100;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    fdb_kvs_info kvs_info;
+    thread_t tid;
+    void *thread_ret;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    if (args == NULL)
+    { // parent
+
+        r = system(SHELL_DEL" dummy* > errorlog.txt");
+        (void)r;
+        // init dbfile
+        kvs_config = fdb_get_default_kvs_config();
+        fconfig = fdb_get_default_config();
+        fconfig.buffercache_size = 0;
+        fconfig.wal_threshold = 1024;
+        fconfig.compaction_threshold = 0;
+
+        status = fdb_open(&dbfile, "./dummy1", &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // insert documents
+        for (i=0;i<n;++i){
+            sprintf(keybuf, "key%d", i);
+            sprintf(metabuf, "meta%d", i);
+            sprintf(bodybuf, "body%d", i);
+            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+            fdb_set(db, doc[i]);
+        }
+
+        fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        // verify no docs remaining
+        fdb_get_kvs_info(db, &kvs_info);
+        TEST_CHK(kvs_info.doc_count == n);
+
+        // start deleting docs
+        for (i=0;i<n;++i){
+            fdb_del(db, doc[i]);
+            if (i == n/2){
+                // compact half-way
+                thread_create(&tid, db_compact_during_doc_delete, (void *)dbfile);
+            }
+        }
+
+        // join compactor
+        thread_join(tid, &thread_ret);
+
+        // verify no docs remaining
+        fdb_get_kvs_info(db, &kvs_info);
+        TEST_CHK(kvs_info.doc_count == 0);
+
+        // reopen
+        fdb_kvs_close(db);
+        fdb_close(dbfile);
+        status = fdb_open(&dbfile, "./dummy1", &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        fdb_get_kvs_info(db, &kvs_info);
+        TEST_CHK(kvs_info.doc_count == 0);
+
+        // cleanup
+        for (i=0;i<n;++i){
+            fdb_doc_free(doc[i]);
+        }
+        fdb_kvs_close(db);
+        fdb_close(dbfile);
+        fdb_shutdown();
+
+        memleak_end();
+        TEST_RESULT("multi thread client shutdown");
+        return NULL;
+    }
+
+    // threads enter here //
+    dbfile = (fdb_file_handle *)args;
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // shutdown
+    thread_exit(0);
+    return NULL;
+}
+
 int main(){
     int i, j;
     uint8_t opt;
+
 
     basic_test();
     long_filename_test();
@@ -10150,6 +10252,7 @@ int main(){
     auto_recover_compact_ok_test();
     db_compact_overwrite();
     db_close_and_remove();
+    db_compact_during_doc_delete(NULL);
 #ifdef __CRC32
     crash_recovery_test();
 #endif
