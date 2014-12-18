@@ -1342,6 +1342,63 @@ void db_compact_overwrite()
     TEST_RESULT("compact overwrite");
 }
 
+void db_close_and_remove()
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc *, n);
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    // open dbfile
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    fconfig.cleanup_cache_onclose = false;
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+
+    // write to db
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+        fdb_doc_free(doc[i]);
+    }
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // remove dbfile
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    // re-open read-only
+    fconfig.flags = FDB_OPEN_FLAG_RDONLY;
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
+
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("db close and remove");
+}
+
 void db_drop_test()
 {
     TEST_INIT();
@@ -10092,6 +10149,7 @@ int main(){
     compact_with_reopen_test();
     auto_recover_compact_ok_test();
     db_compact_overwrite();
+    db_close_and_remove();
 #ifdef __CRC32
     crash_recovery_test();
 #endif
