@@ -64,8 +64,8 @@ int _fdb_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
 int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct snap_wal_entry *aa, *bb;
-    aa = _get_entry(a, struct snap_wal_entry, avl);
-    bb = _get_entry(b, struct snap_wal_entry, avl);
+    aa = _get_entry(a, struct snap_wal_entry, avl_seq);
+    bb = _get_entry(b, struct snap_wal_entry, avl_seq);
     return (aa->seqnum - bb->seqnum);
 }
 
@@ -511,7 +511,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                     }
 
                     // insert into tree
-                    avl_insert(iterator->wal_tree, &snap_item->avl,
+                    avl_insert(iterator->wal_tree, &snap_item->avl_seq,
                                _fdb_seqnum_cmp);
                 }
             }
@@ -1418,7 +1418,7 @@ start_seq:
     } else while (iterator->tree_cursor) {
         // get the current item of avl tree
         snap_item = _get_entry(iterator->tree_cursor,
-                struct snap_wal_entry, avl);
+                struct snap_wal_entry, avl_seq);
         iterator->tree_cursor = avl_prev(iterator->tree_cursor);
         iterator->tree_cursor_prev = iterator->tree_cursor;
         uint8_t drop_logical_deletes =
@@ -1466,7 +1466,7 @@ start_seq:
              cursor;
              cursor = avl_next(cursor)) {
             // get the current item of avl tree
-            snap_item = _get_entry(cursor, struct snap_wal_entry, avl);
+            snap_item = _get_entry(cursor, struct snap_wal_entry, avl_seq);
             // we MUST not use 'memcmp' for comparison of two keys
             // because it returns false positive when snap_item->key is a
             // sub-string of _doc.key
@@ -1603,7 +1603,7 @@ start_seq:
             while (iterator->tree_cursor) {
                 // get the current item of avl tree
                 snap_item = _get_entry(iterator->tree_cursor,
-                                       struct snap_wal_entry, avl);
+                                       struct snap_wal_entry, avl_seq);
                 // save the current point for reverse iteration
                 iterator->tree_cursor_prev = iterator->tree_cursor;
                 iterator->tree_cursor = avl_next(iterator->tree_cursor);
@@ -1659,7 +1659,7 @@ start_seq:
         for (cursor = iterator->tree_cursor; cursor;
              cursor = avl_next(cursor)) {
             // get the current item of avl tree
-            snap_item = _get_entry(cursor, struct snap_wal_entry, avl);
+            snap_item = _get_entry(cursor, struct snap_wal_entry, avl_seq);
             // we MUST not use 'memcmp' for comparison of two keys
             // because it returns false positive when snap_item->key is a
             // sub-string of _doc.key
@@ -1912,7 +1912,36 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     if (iterator->hbtrie_iterator) {
         hbtrie_iterator_free(iterator->hbtrie_iterator);
         free(iterator->hbtrie_iterator);
+
+        if (!iterator->handle.shandle) {
+            a = avl_first(iterator->wal_tree);
+            while(a) {
+                snap_item = _get_entry(a, struct snap_wal_entry, avl);
+                a = avl_next(a);
+                avl_remove(iterator->wal_tree, &snap_item->avl);
+
+                free(snap_item->key);
+                free(snap_item);
+            }
+
+            free(iterator->wal_tree);
+        }
+    } else { // sequence iterator
+        if (!iterator->handle.shandle) {
+            a = avl_first(iterator->wal_tree);
+            while(a) {
+                snap_item = _get_entry(a, struct snap_wal_entry, avl_seq);
+                a = avl_next(a);
+                avl_remove(iterator->wal_tree, &snap_item->avl_seq);
+
+                free(snap_item->key);
+                free(snap_item);
+            }
+
+            free(iterator->wal_tree);
+        }
     }
+
     if (iterator->seqtree_iterator) {
         btree_iterator_free(iterator->seqtree_iterator);
         free(iterator->seqtree_iterator);
@@ -1929,19 +1958,6 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         free(iterator->end_key);
     }
 
-    if (!iterator->handle.shandle) {
-        a = avl_first(iterator->wal_tree);
-        while(a) {
-            snap_item = _get_entry(a, struct snap_wal_entry, avl);
-            a = avl_next(a);
-            avl_remove(iterator->wal_tree, &snap_item->avl);
-
-            free(snap_item->key);
-            free(snap_item);
-        }
-
-        free(iterator->wal_tree);
-    }
     free(iterator->_key);
     free(iterator);
 

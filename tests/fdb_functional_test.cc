@@ -5071,6 +5071,29 @@ void snapshot_test()
 
     fdb_iterator_close(iterator);
 
+    // create a sequence iterator on the snapshot for full range
+    fdb_iterator_sequence_init(snap_db, &iterator, 0, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count=0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        i ++;
+        count++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+
+    TEST_CHK(count==n/2); // Only unique items from the first half
+
+    fdb_iterator_close(iterator);
+
     // close db handle
     fdb_kvs_close(db);
     // close snapshot handle
