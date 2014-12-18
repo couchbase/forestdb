@@ -6422,6 +6422,10 @@ void compaction_daemon_test(size_t time_sec)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // switch compaction mode of 'db_manual' from MANUAL to AUTO
+    status = fdb_switch_compaction_mode(dbfile_manual, FDB_COMPACTION_AUTO, 10);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // change compaction value
     status = fdb_switch_compaction_mode(dbfile_manual, FDB_COMPACTION_AUTO, 30);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
