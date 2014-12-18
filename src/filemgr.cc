@@ -517,14 +517,23 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 if (file->fd == FDB_RESULT_NO_SUCH_FILE) {
                     // A database file was manually deleted by the user.
                     // Clean up global hash table, WAL index, and buffer cache.
-                    // Then, retry it with a create option below.
+                    // Then, retry it with a create option below IFF it is not
+                    // a read-only open attempt
                     struct hash_elem *ret;
                     spin_unlock(&file->lock);
                     ret = hash_remove(&hash, &file->e);
                     assert(ret);
                     _filemgr_free_func(&file->e);
+                    if (!create) {
+                        _log_errno_str(ops, log_callback,
+                                FDB_RESULT_NO_SUCH_FILE, "OPEN", filename);
+                        spin_unlock(&filemgr_openlock);
+                        result.rv = FDB_RESULT_NO_SUCH_FILE;
+                        return result;
+                    }
                 } else {
-                    _log_errno_str(file->ops, log_callback, (fdb_status)file->fd, "OPEN", filename);
+                    _log_errno_str(file->ops, log_callback,
+                                  (fdb_status)file->fd, "OPEN", filename);
                     file->ref_count--;
                     spin_unlock(&file->lock);
                     spin_unlock(&filemgr_openlock);
