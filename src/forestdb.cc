@@ -841,7 +841,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
         handle->last_hdr_bid = handle_in->last_hdr_bid;
         if (snap_clone(handle_in->shandle, handle_in->max_seqnum,
                    &handle->shandle, seqnum) == FDB_RESULT_SUCCESS) {
-            handle->max_seqnum = FDB_SNAPSHOT_INMEM;
+            handle->max_seqnum = FDB_SNAPSHOT_INMEM; // temp value to skip WAL
         }
     }
 
@@ -851,7 +851,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
             free(handle);
             return FDB_RESULT_ALLOC_FAIL;
         }
-        snap_init(handle->shandle, handle);
+        snap_init(handle->shandle, handle_in);
     }
 
     if (handle_in->kvs) {
@@ -1873,7 +1873,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     struct docio_handle *dhandle;
     fdb_status wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
-    fdb_txn *txn = handle->fhandle->root->txn;
+    fdb_txn *txn;
     fdb_doc doc_kv = *doc;
 
     if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
@@ -1903,6 +1903,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         }
         dhandle = handle->dhandle;
 
+        txn = handle->fhandle->root->txn;
         if (!txn) {
             txn = &wal_file->global_txn;
         }
@@ -2021,7 +2022,6 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    txn = handle->fhandle->root->txn;
 
     if (handle->kvs) {
         // multi KV instance mode
@@ -2045,6 +2045,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         }
         dhandle = handle->dhandle;
 
+        txn = handle->fhandle->root->txn;
         if (!txn) {
             txn = &wal_file->global_txn;
         }
@@ -2149,7 +2150,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_status wr;
     btree_result br = BTREE_RESULT_FAIL;
     fdb_seqnum_t _seqnum;
-    fdb_txn *txn = handle->fhandle->root->txn;
+    fdb_txn *txn;
 
     if (doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
@@ -2172,6 +2173,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
         dhandle = handle->dhandle;
 
+        txn = handle->fhandle->root->txn;
         if (!txn) {
             txn = &wal_file->global_txn;
         }

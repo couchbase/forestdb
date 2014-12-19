@@ -5525,6 +5525,29 @@ void snapshot_clone_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // Stable Snapshot Scan Tests..........
+    // Retrieve metaonly by key from snapshot
+    i = snap_seq + 1;
+    fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get_metaonly(snap_db2, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    fdb_doc_free(rdoc);
+
+    i = 5;
+    fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get_metaonly(snap_db2, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc->key, doc[i]->key, doc[i]->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, doc[i]->metalen);
+    fdb_doc_free(rdoc);
+
+    // Retrieve by seq from snapshot
+    fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+    rdoc->seqnum = 6;
+    status = fdb_get_byseq(snap_db2, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
 
     // create an iterator on the snapshot for full range
     fdb_iterator_init(snap_db2, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
