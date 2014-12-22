@@ -1940,7 +1940,8 @@ void *multi_thread_kvs_client(void *args)
 
     int i, j, r;
     int n = 50;
-    int nclients = 5;
+    int nclients = 20;
+    int *tid_args = alca(int, nclients);
     char dbstr[256];
     char keybuf[256], metabuf[256], bodybuf[256];
     fdb_file_handle *dbfile;
@@ -1977,7 +1978,13 @@ void *multi_thread_kvs_client(void *args)
             kvs_config = fdb_get_default_kvs_config();
             status = fdb_kvs_open(dbfile, &db[i], dbstr, &kvs_config);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            thread_create(&tid[i], multi_thread_kvs_client, (void *)&db[i]);
+            status = fdb_kvs_close(db[i]);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+        for (i=0;i<nclients;++i){
+            tid_args[i] = i;
+            thread_create(&tid[i], multi_thread_kvs_client,
+                          (void *)&tid_args[i]);
         }
         for (i=0;i<nclients;++i){
             thread_join(tid[i], &thread_ret[i]);
@@ -1988,6 +1995,10 @@ void *multi_thread_kvs_client(void *args)
 
         // check threads updated kvs
         for (i=0; i<nclients; i++){
+            sprintf(dbstr, "db%d", i);
+            kvs_config = fdb_get_default_kvs_config();
+            status = fdb_kvs_open(dbfile, &db[i], dbstr, &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
 
             // verify seqnum
             status = fdb_get_kvs_seqnum(db[i], &seqnum);
@@ -1998,7 +2009,8 @@ void *multi_thread_kvs_client(void *args)
                 sprintf(keybuf, "key%d", j);
                 sprintf(metabuf, "meta%d", j);
                 sprintf(bodybuf, "body%d", j);
-                fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+                fdb_doc_create(&rdoc, keybuf, strlen(keybuf),
+                                      NULL, 0, NULL, 0);
                 status = fdb_get(db[i], rdoc);
                 TEST_CHK(status == FDB_RESULT_SUCCESS);
                 TEST_CHK(!memcmp(rdoc->key, keybuf, strlen(keybuf)));
@@ -2018,7 +2030,16 @@ void *multi_thread_kvs_client(void *args)
     }
 
     // threads enter here //
-    memcpy(&tdb, args, sizeof(void *));
+
+    // open fhandle
+    fconfig = fdb_get_default_config();
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+
+    // get kvs ID from args
+    memcpy(&i, args, sizeof(int));
+    sprintf(dbstr, "db%d", i);
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open(dbfile, &tdb, dbstr, &kvs_config);
 
     // insert documents
     for (i=0;i<n;++i){
@@ -2026,12 +2047,16 @@ void *multi_thread_kvs_client(void *args)
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
-            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
         status = fdb_set(tdb, doc[i]);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(doc[i]);
     }
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    fdb_close(dbfile);
     memleak_end();
     return NULL;
 }
@@ -10262,7 +10287,6 @@ void *db_compact_during_doc_delete(void *args)
 int main(){
     int i, j;
     uint8_t opt;
-
 
     basic_test();
     long_filename_test();
