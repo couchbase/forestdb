@@ -48,8 +48,8 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
     }
 
     fdb_check_file_reopen(handle);
-    fdb_sync_db_header(handle);
     filemgr_mutex_lock(handle->file);
+    fdb_sync_db_header(handle);
     fdb_link_new_file(handle);
 
     if (filemgr_is_rollback_on(handle->file)) {
@@ -114,11 +114,10 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
     }
 
     fdb_check_file_reopen(handle);
-    fdb_sync_db_header(handle);
     if (handle->new_file == NULL) {
         file = handle->file;
         filemgr_mutex_lock(file);
-
+        fdb_sync_db_header(handle);
         fdb_link_new_file(handle);
         if (handle->new_file) {
             // compaction is being performed and new file exists
@@ -131,6 +130,7 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
     } else {
         file = handle->new_file;
         filemgr_mutex_lock(file);
+        fdb_sync_db_header(handle);
     }
 
     wal_discard(file, handle->txn);
@@ -171,11 +171,10 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
 
     if (fs == FDB_RESULT_SUCCESS) {
         fdb_check_file_reopen(handle);
-        fdb_sync_db_header(handle);
         if (handle->new_file == NULL) {
             file = handle->file;
             filemgr_mutex_lock(file);
-
+            fdb_sync_db_header(handle);
             fdb_link_new_file(handle);
             if (handle->new_file) {
                 // compaction is being performed and new file exists
@@ -188,6 +187,7 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
         } else {
             file = handle->new_file;
             filemgr_mutex_lock(file);
+            fdb_sync_db_header(handle);
         }
 
         wal_remove_transaction(file, handle->txn);

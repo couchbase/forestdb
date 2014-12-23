@@ -846,8 +846,8 @@ fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
 
 fdb_kvs_create_start:
     fdb_check_file_reopen(root_handle);
-    fdb_sync_db_header(root_handle);
     filemgr_mutex_lock(root_handle->file);
+    fdb_sync_db_header(root_handle);
     fdb_link_new_file(root_handle);
 
     if (filemgr_is_rollback_on(root_handle->file)) {
@@ -1419,8 +1419,8 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
 
 fdb_kvs_remove_start:
     fdb_check_file_reopen(root_handle);
-    fdb_sync_db_header(root_handle);
     filemgr_mutex_lock(root_handle->file);
+    fdb_sync_db_header(root_handle);
     fdb_link_new_file(root_handle);
 
     if (filemgr_is_rollback_on(root_handle->file)) {

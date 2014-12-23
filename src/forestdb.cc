@@ -2600,8 +2600,8 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 
 fdb_set_start:
     fdb_check_file_reopen(handle);
-    fdb_sync_db_header(handle);
     filemgr_mutex_lock(handle->file);
+    fdb_sync_db_header(handle);
     fdb_link_new_file(handle);
 
     if (filemgr_is_rollback_on(handle->file)) {
@@ -2950,9 +2950,9 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
     }
 
     fdb_check_file_reopen(handle);
-    fdb_sync_db_header(handle);
 
     filemgr_mutex_lock(handle->file);
+    fdb_sync_db_header(handle);
     fdb_link_new_file(handle);
 
     if (filemgr_is_rollback_on(handle->file)) {
