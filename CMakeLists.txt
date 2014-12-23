@@ -140,6 +140,7 @@ add_executable(fdb_anomaly_test
                utils/partiallock.cc)
 target_link_libraries(fdb_anomaly_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES})
+set_target_properties(fdb_anomaly_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_dump
                tools/forestdb_dump.cc
@@ -340,15 +341,15 @@ add_executable(btree_kv_test
                utils/memleak.cc)
 target_link_libraries(btree_kv_test ${LIBM})
 
-if (NOT COUCHBASE_SERVER_BUILD)
+if ((NOT COUCHBASE_SERVER_BUILD) AND (NOT WIN32))
     if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
         LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
         INCLUDE(CodeCoverage)
         SETUP_TARGET_FOR_COVERAGE(test_coverage ctest ${PROJECT_SOURCE_DIR}/coverage)
     endif()
-endif(NOT COUCHBASE_SERVER_BUILD)
+endif((NOT COUCHBASE_SERVER_BUILD) AND (NOT WIN32))
 
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "Valgrind")
+if (("${CMAKE_BUILD_TYPE}" STREQUAL "Valgrind") AND (NOT WIN32))
     LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR})
     INCLUDE(MemoryCheck)
     SETUP_TARGET_FOR_MEMCHECK(test_valgrind ${PROJECT_BINARY_DIR}/fdb_functional_test)

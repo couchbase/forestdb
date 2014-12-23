@@ -140,7 +140,7 @@ void kv_set_var_nentry_test(btree_kv_ops *kv_ops)
     uint8_t ksize = 8;
     uint8_t vsize = sizeof(v);
     size_t offset = 0;
-    char key[ksize];
+    char *key = alca(char, ksize);
 
 
     node = dummy_node(ksize, vsize, 1);
@@ -188,7 +188,7 @@ void kv_set_var_nentry_update_test(btree_kv_ops *kv_ops)
     uint8_t ksize = 8;
     uint8_t vsize = sizeof(v);
     size_t offset = 0;
-    char key[n][ksize];
+    char **key = alca(char*, n);
 
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
@@ -197,7 +197,7 @@ void kv_set_var_nentry_update_test(btree_kv_ops *kv_ops)
 
     // first pass
     for (i = 0; i < n; i++) {
-
+        key[i] = alca(char, ksize);
         sprintf(key[i], "key%d", i);
         kv_ops->set_kv(node, i, key[i], (void *)&v);
 
@@ -253,14 +253,16 @@ void kv_get_var_test(btree_kv_ops *kv_ops)
     uint64_t v_in, v_out;
     idx_t idx;
     uint8_t ksize, vsize;
-    char str[] = "keystr";
-    char *k1 = alca(char, strlen(str));
-    char *k2 = alca(char, strlen(str));
-
 
     ksize = 8;
     vsize = sizeof(v_in);
     node = dummy_node(ksize, vsize, 1);
+
+    char *str = alca(char, ksize);
+    char *k1 = alca(char, ksize);
+    char *k2 = alca(char, ksize);
+    memset(str, 0x0, ksize);
+    strcpy(str, "keystr");
 
     idx = 0;
     v_in = 20;
@@ -291,8 +293,8 @@ void kv_get_var_nentry_test(btree_kv_ops *kv_ops)
     int n = 10;
     uint8_t ksize = 8;
     uint8_t vsize = sizeof(v);
-    char key[n][ksize];
-    char k_out[ksize];
+    char **key = alca(char*, n);
+    char *k_out = alca(char, ksize);
 
 
     node = dummy_node(ksize, vsize, 1);
@@ -302,6 +304,7 @@ void kv_get_var_nentry_test(btree_kv_ops *kv_ops)
 
     // set n keys
     for (idx = 0; idx < n; idx ++){
+        key[idx] = alca(char, ksize);
         sprintf(key[idx], "key%d", idx);
         kv_ops->set_kv(node, idx, key[idx], (void *)&v);
         v++;
@@ -315,7 +318,6 @@ void kv_get_var_nentry_test(btree_kv_ops *kv_ops)
         TEST_CHK(v_out == v);
         v++;
     }
-
 
     free(node);
     memleak_end();
@@ -336,14 +338,17 @@ void kv_ins_var(btree_kv_ops *kv_ops)
     bnoderef node;
     uint8_t ksize, vsize;
     idx_t idx;
-    char key[] = "key";
     uint64_t value = 10;
     uint64_t v_out;
-    char *k_out = alca(char, strlen(key));
 
     ksize = 8;
     vsize = sizeof(value);
     node = dummy_node(ksize, vsize, 1);
+
+    char *key = alca(char, ksize);
+    char *k_out = alca(char, ksize);
+    memset(key, 0x0, ksize);
+    strcpy(key, "key");
 
     // insert key into to empty node
     idx = 0;
@@ -375,13 +380,20 @@ void kv_ins_var_nentry_test(btree_kv_ops *kv_ops)
     uint8_t ksize, vsize;
     uint64_t v = 100;
     int n = 10;
-    char k1[] = "key1";
-    char k2[] = "key2";
+    char *k1;
+    char *k2;
 
     ksize = 8;
     vsize = sizeof(v);
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
+
+    k1 = alca(char, ksize);
+    k2 = alca(char, ksize);
+    memset(k1, 0x0, ksize);
+    memset(k2, 0x0, ksize);
+    strcpy(k1, "key1");
+    strcpy(k2, "key2");
 
     // insert twice at beginning of node
     kv_ops->ins_kv(node, 0, k1, (void *)&v);
@@ -414,7 +426,7 @@ void kv_set_str_key_test(btree_kv_ops *kv_ops)
     char *dst = alca(char, strlen(src));
     tree->ksize = strlen(src);
     kv_ops->set_key(tree, dst, src);
-    TEST_CHK(!strcmp(dst, src));
+    TEST_CHK(!memcmp(dst, src, tree->ksize));
 
     memleak_end();
     TEST_RESULT("kv_set_str_key_test");
@@ -469,8 +481,8 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
     uint8_t i, n = 10;
     uint8_t ksize = 8;
     uint8_t vsize = sizeof(v);
-    char key[n][ksize];
-    int value[n];
+    char **key = alca(char*, n);
+    int *value = alca(int, n);
     void *new_minkey;
     size_t size;
 
@@ -481,6 +493,7 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
     new_minkey = NULL;
 
     for (i = 0; i < n; i++){
+        key[i] = alca(char, ksize);
         sprintf(key[i], "key%d", i);
         value[i] = i;
     }
@@ -607,8 +620,8 @@ void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
     int n=10;
     uint8_t ksize = 8;
     uint8_t vsize = sizeof(v);
-    char key[n][ksize];
-    char k_out[ksize];
+    char **key = alca(char*, n);
+    char *k_out = alca(char, ksize);
 
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
@@ -616,6 +629,7 @@ void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
     v = 100;
     // set n items into source node
     for (idx = 0; idx < n; idx++){
+        key[idx] = alca(char, ksize);
         sprintf(key[idx], "key%d", idx);
         kv_ops->set_kv(node, idx, key[idx], (void *)&v);
         v++;
@@ -734,8 +748,8 @@ void kv_get_nth_splitter_test(btree_kv_ops *kv_ops)
     int n = 10;
     uint8_t ksize = 8;
     uint8_t vsize = sizeof(v);
-    char key[ksize];
-    char split[ksize];
+    char *key = alca(char, ksize);
+    char *split = alca(char, ksize);
 
 
     node = dummy_node(ksize, vsize, 1);
@@ -751,7 +765,7 @@ void kv_get_nth_splitter_test(btree_kv_ops *kv_ops)
     }
 
     // set *key to nth_splitter
-    kv_ops->get_nth_splitter(NULL, node, &split);
+    kv_ops->get_nth_splitter(NULL, node, split);
 
     // verify key[0] is set as splitter
     TEST_CHK(!(strcmp(split, "key0")));
@@ -778,7 +792,7 @@ void kv_cmp_key_str_test(btree_kv_ops *kv_ops, int i)
     idx_t idx;
     int cmp;
     int n = 4;
-    char keys[n][8];
+    char **keys = alca(char*, n);
     void *tmp;
     btree_kv_ops *kv_ops2;
 
@@ -793,6 +807,7 @@ void kv_cmp_key_str_test(btree_kv_ops *kv_ops, int i)
     tmp = NULL;
 
     for (idx = 0; idx < n; idx ++){
+        keys[idx] = alca(char, 8);
         sprintf(keys[idx], "key%d", idx);
     }
 

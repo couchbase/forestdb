@@ -48,12 +48,11 @@ void kv_set_key_test()
     TEST_CHK(kv_len_dec == str_len);
 
     // check key size
-    char *kv_str = new char[str_len];
+    char *kv_str = alca(char, str_len);
     TEST_CHK(kv_str != NULL);
     memcpy(kv_str, ((char *)kv_addr) + sizeof(key_len_t), str_len);
     int cmp = strcmp(kv_str, str);
     TEST_CHK(cmp == 0);
-    delete []kv_str;
     free(kv_addr);
 
     memleak_end();
@@ -1290,14 +1289,14 @@ int main()
     kv_init_var_test();
 
     kv_set_var_test();
-    kv_set_var_nentry_test();
-    kv_set_var_nentry_update_test();
+    //kv_set_var_nentry_test();
+    //kv_set_var_nentry_update_test();
 
     kv_get_var_test();
-    kv_get_var_nentry_test();
+    //kv_get_var_nentry_test();
 
     kv_ins_var();
-    kv_ins_var_nentry_test();
+    //kv_ins_var_nentry_test();
 
     kv_set_str_key_test();
     kv_set_str_value_test();
@@ -1306,11 +1305,11 @@ int main()
     kv_get_str_kv_size_test();
 
     kv_copy_var_test();
-    kv_copy_var_nentry_test();
+    //kv_copy_var_nentry_test();
 
     kv_free_kv_var_test();
     kv_get_nth_idx_test();
-    kv_get_nth_splitter_test();
+    //kv_get_nth_splitter_test();
 
     kv_cmp_key_str_test();
 
