@@ -152,9 +152,31 @@ struct _fdb_file_handle {
 };
 
 /**
+ * ForestDB KV store key comparison callback context
+ */
+struct _fdb_key_cmp_info {
+    /**
+     * ForestDB KV store level config.
+     */
+    fdb_kvs_config kvs_config;
+    /**
+     * KV store information.
+     */
+    struct kvs_info *kvs;
+};
+
+/**
  * ForestDB KV store handle definition.
  */
 struct _fdb_kvs_handle {
+    /**
+     * ForestDB KV store level config. (Please retain as first struct member)
+     */
+    fdb_kvs_config kvs_config;
+    /**
+     * KV store information. (Please retain as second struct member)
+     */
+    struct kvs_info *kvs;
     /**
      * Pointer to the corresponding file handle.
      */
@@ -208,10 +230,6 @@ struct _fdb_kvs_handle {
      */
     fdb_config config;
     /**
-     * ForestDB KV store level config.
-     */
-    fdb_kvs_config kvs_config;
-    /**
      * Error logging callback.
      */
     err_log_callback log_callback;
@@ -247,10 +265,6 @@ struct _fdb_kvs_handle {
      * Virtual filename (DB instance filename given by users).
      */
     char *filename;
-    /**
-     * KV store information.
-     */
-    struct kvs_info *kvs;
     /**
      * Transaction handle.
      */

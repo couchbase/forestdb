@@ -42,11 +42,6 @@ struct snap_wal_entry {
     struct avl_node avl_seq;
 };
 
-struct snap_cmp_info {
-    fdb_kvs_config kvs_config;
-    bool is_multi_kvs;
-};
-
 struct snap_handle {
     /**
      * Lock to protect the reference count of cloned snapshots
@@ -59,7 +54,7 @@ struct snap_handle {
      /**
       * Cache custom compare function from original handle
       */
-     struct snap_cmp_info cmp_info;
+     struct _fdb_key_cmp_info cmp_info;
     /**
      * AVL tree to store unflushed WAL entries of a snapshot by key range
      */

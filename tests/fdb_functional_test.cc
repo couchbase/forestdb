@@ -5188,6 +5188,78 @@ void snapshot_test()
         fdb_doc_free(doc[i]);
     }
 
+    // 1. Open Database File
+    status = fdb_open(&dbfile, "./dummy2", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 2. Open KV Store
+    status = fdb_kvs_open(dbfile, &db, "kv2", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 2. Create Key 'a' and Commit
+    status = fdb_set_kv(db, (void *) "a", 1, (void *)"val-a", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 3. Create Key 'b' and Commit
+    status = fdb_set_kv(db, (void *)"b", 1, (void *)"val-b", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 4. Create Key 'c' and Commit
+    status = fdb_set_kv(db, (void *)"c", 1, (void *)"val-c", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 5. Remember seqnum for opening snapshot
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    snap_seq = kvs_info.last_seqnum;
+
+    // 6.  Create an iterator
+    status = fdb_iterator_init(db, &iterator, (void *)"a", 1,
+                               (void *)"c", 1, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 7. Do a seek
+    status = fdb_iterator_seek(iterator, (void *)"b", 1, FDB_ITR_SEEK_HIGHER);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 8. Close the iterator
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 9. Open a snapshot at the same point
+    status = fdb_snapshot_open(db, &snap_db, snap_seq);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // That works, now attempt to do exact same sequence on a snapshot
+    // The snapshot is opened at the exact same place that the original
+    // database handle should be at (last seq 3)
+
+    // 10.  Create an iterator on snapshot
+    status = fdb_iterator_init(snap_db, &iterator, (void *)"a", 1,
+                               (void *)"c", 1, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 11. Do a seek
+    status = fdb_iterator_seek(iterator, (void *)"b", 1, FDB_ITR_SEEK_HIGHER);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // 12. Close the iterator
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db handle
+    fdb_kvs_close(db);
+    // close snapshot handle
+    fdb_kvs_close(snap_db);
+    // close db file
+    fdb_close(dbfile);
+
     // free all resources
     fdb_shutdown();
 
@@ -5316,7 +5388,7 @@ void in_memory_snapshot_test()
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
-            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+                (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(db, doc[i]);
     }
 

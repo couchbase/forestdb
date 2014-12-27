@@ -62,14 +62,14 @@ int _snp_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 
 int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
-    struct snap_cmp_info *info = (struct snap_cmp_info*)aux;
+    struct _fdb_key_cmp_info *info = (struct _fdb_key_cmp_info*)aux;
     struct snap_wal_entry *aa, *bb;
     aa = _get_entry(a, struct snap_wal_entry, avl);
     bb = _get_entry(b, struct snap_wal_entry, avl);
 
     if (info->kvs_config.custom_cmp) {
         // custom compare function for variable-length key
-        if (info->is_multi_kvs) {
+        if (info->kvs) {
             // multi KV instance mode
             // KV ID should be compared separately
             size_t size_id = sizeof(fdb_kvs_id_t);
@@ -105,7 +105,7 @@ fdb_status snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle)
         return FDB_RESULT_ALLOC_FAIL;
     }
     shandle->cmp_info.kvs_config = handle->kvs_config;
-    shandle->cmp_info.is_multi_kvs = handle->kvs ? true : false;
+    shandle->cmp_info.kvs = handle->kvs;
 
     avl_init(shandle->key_tree, (void *)&shandle->cmp_info);
     shandle->seq_tree = (struct avl_tree *) malloc(sizeof(struct avl_tree));

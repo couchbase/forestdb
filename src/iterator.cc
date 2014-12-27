@@ -71,14 +71,14 @@ int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 
 int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
-    fdb_kvs_handle *handle = (fdb_kvs_handle*)aux;
+    _fdb_key_cmp_info *info = (_fdb_key_cmp_info*)aux;
     struct snap_wal_entry *aa, *bb;
     aa = _get_entry(a, struct snap_wal_entry, avl);
     bb = _get_entry(b, struct snap_wal_entry, avl);
 
-    if (handle->kvs_config.custom_cmp) {
+    if (info->kvs_config.custom_cmp) {
         // custom compare function for variable-length key
-        if (handle->kvs) {
+        if (info->kvs) {
             // multi KV instance mode
             // KV ID should be compared separately
             size_t size_id = sizeof(fdb_kvs_id_t);
@@ -98,12 +98,12 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
                 } else if (bb->keylen == size_id) { // key1 > key2
                     return 1;
                 }
-                return handle->kvs_config.custom_cmp(
+                return info->kvs_config.custom_cmp(
                             (uint8_t*)aa->key + size_id, aa->keylen - size_id,
                             (uint8_t*)bb->key + size_id, bb->keylen - size_id);
             }
         } else {
-            return handle->kvs_config.custom_cmp(aa->key, aa->keylen,
+            return info->kvs_config.custom_cmp(aa->key, aa->keylen,
                                                bb->key, bb->keylen);
         }
     } else {
@@ -350,7 +350,16 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     }
 
     if (iterator->wal_tree) {
-        iterator->tree_cursor = avl_first(iterator->wal_tree);
+        if (start_key) {
+            struct snap_wal_entry query;
+            query.key = (void*)start_key;
+            query.keylen = start_keylen;
+            iterator->tree_cursor = avl_search_greater(iterator->wal_tree,
+                                                       &query.avl,
+                                                       _fdb_wal_cmp);
+        } else {
+            iterator->tree_cursor = avl_first(iterator->wal_tree);
+        }
     } else {
         iterator->tree_cursor = NULL;
     }
