@@ -2829,8 +2829,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     struct filemgr *cur_file;
     struct kvs_stat stat;
 
-    cur_file = (handle->file->new_file)?(handle->file->new_file):
-                                        (handle->file);
+    cur_file = handle->file;
 
     // hb+trie or idtree root bid
     _edn_safe_64 = _endian_encode(handle->trie->root_bid);
