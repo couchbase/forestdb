@@ -996,7 +996,17 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
             return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
         }
     }
-    return _fdb_open(handle, file->filename, config);
+    fs = _fdb_open(handle, file->filename, config);
+    if (fs != FDB_RESULT_SUCCESS) {
+        if (handle->node) {
+            spin_lock(&root_handle->fhandle->lock);
+            list_remove(root_handle->fhandle->handles, &handle->node->le);
+            spin_unlock(&root_handle->fhandle->lock);
+            free(handle->node);
+        } // 'handle->node == NULL' happens only during rollback
+        free(handle->kvs);
+    }
+    return fs;
 }
 
 LIBFDB_API
@@ -1099,7 +1109,9 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
                 node = (struct kvs_opened_node *)
                        calloc(1, sizeof(struct kvs_opened_node));
                 node->handle = handle;
+                spin_lock(&fhandle->lock);
                 list_push_front(fhandle->handles, &node->le);
+                spin_unlock(&fhandle->lock);
 
                 handle->node = node;
                 *ptr_handle = handle;

@@ -882,7 +882,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
         *ptr_handle = handle;
     } else {
         *ptr_handle = NULL;
-        free(handle->shandle);
+        snap_close(handle->shandle);
         free(handle);
     }
     return fs;
