@@ -1076,7 +1076,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     handle->file = result.file;
     filemgr_mutex_lock(handle->file);
-    // Check if snapshot clone wants to rewind to a specific header
+    // If cloning from a snapshot handle, fdb_snapshot_open would have already
+    // set handle->last_hdr_bid to the block id of required header, so rewind..
     if (handle->shandle && handle->last_hdr_bid) {
         status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                       header_buf, &header_len,
@@ -1084,6 +1085,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         if (status != FDB_RESULT_SUCCESS) {
             free(handle->filename);
             handle->filename = NULL;
+            filemgr_close(handle->file, false, handle->filename,
+                              &handle->log_callback);
             return status;
         }
     } else { // Normal open
@@ -1135,6 +1138,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     docio_init(handle->dhandle, handle->file, config->compress_document_body);
 
     if (handle->shandle && handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
+        // Either an in-memory snapshot or cloning from an existing snapshot..
         filemgr_mutex_unlock(handle->file);
         hdr_bid = 0; // This prevents _fdb_restore_wal() as incoming handle's
                      // *_open() should have already restored it
@@ -1143,14 +1147,17 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
         hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
         hdr_bid = hdr_bid ? --hdr_bid : 0;
-
         if (handle->max_seqnum) {
+            if (handle->max_seqnum == seqnum && hdr_bid > handle->last_hdr_bid){
+                // In case, snapshot_open is attempted with latest uncommitted
+                // sequence number
+                header_len = 0;
+            }
             // Reverse scan the file to locate the DB header with seqnum marker
             while (header_len && seqnum != handle->max_seqnum) {
                 hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                           header_buf, &header_len, &seqnum,
                                           &handle->log_callback);
-
                 if (header_len > 0) {
                     fdb_fetch_header(header_buf, &trie_root_bid,
                                      &seq_root_bid, &ndocs, &nlivenodes,

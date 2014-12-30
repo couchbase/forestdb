@@ -5368,6 +5368,12 @@ void in_memory_snapshot_test()
     // TAKE SNAPSHOT: pick up sequence number of a commit without a WAL flush
     snap_seq = doc[i]->seqnum;
 
+    // Creation of a snapshot with a sequence number that was taken WITHOUT a
+    // commit must fail even if it from the latest document that was set...
+    fdb_get_kvs_info(db, &kvs_info);
+    status = fdb_snapshot_open(db, &snap_db, kvs_info.last_seqnum);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+
     // ---------- Snapshot tests begin -----------------------
     // Initialize an in-memory snapshot Without a Commit...
     // WAL items are not flushed...
@@ -5379,6 +5385,7 @@ void in_memory_snapshot_test()
 
     // Now re-insert doc 9 as another duplicate (only newer sequence number)
     fdb_set(db, doc[i]);
+
     // commit again without a WAL flush (last doc goes into the AVL tree)
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
@@ -5442,7 +5449,6 @@ void in_memory_snapshot_test()
 
     // close db file
     fdb_close(dbfile);
-
 
     // free all documents
     for (i=0;i<n;++i){
