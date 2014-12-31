@@ -3207,6 +3207,85 @@ void iterator_extreme_key_test()
     TEST_RESULT("iterator extreme key test");
 }
 
+void iterator_no_deletes_test()
+{
+
+    TEST_INIT();
+    memleak_start();
+    int i, r, n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle  *kv;
+    char keybuf[256], bodybuf[256];
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_iterator *it;
+    fdb_status status;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./dummy", &fconfig);
+    fdb_kvs_open(dbfile, &kv, "all_docs",  &kvs_config);
+
+    // insert docs to kv
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf), NULL, 0,
+                       (void*)bodybuf, strlen(bodybuf));
+        fdb_set(kv, doc[i]);
+    }
+
+    // delete all docs
+    for (i=0;i<n;i++){
+        status = fdb_del_kv(kv, doc[i]->key, doc[i]->keylen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // set doc that was deleted
+    status = fdb_set(kv, doc[2]);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // get doc from db and verify not-deleted
+    fdb_doc_create(&rdoc, doc[2]->key, doc[2]->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(kv, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(rdoc->deleted == false);
+    fdb_doc_free(rdoc);
+
+    // iterate over all docs to retrieve undeleted key
+    status = fdb_iterator_init(kv, &it, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    if(status == FDB_RESULT_SUCCESS){
+        fdb_doc_free(rdoc);
+    }
+    fdb_iterator_close(it);
+
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    fdb_kvs_close(kv);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("iterator no deletes test");
+}
+
 void iterator_with_concurrent_updates_test()
 {
     // unit test for MB-12287
@@ -10402,6 +10481,7 @@ int main(){
         }
     }
     iterator_extreme_key_test();
+    iterator_no_deletes_test();
     sequence_iterator_test();
     sequence_iterator_duplicate_test();
     custom_compare_primitive_test();
