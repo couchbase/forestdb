@@ -366,7 +366,11 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
     block->age = 0;
 
     _btreeblk_get_aligned_block(handle, block);
-    filemgr_read(handle->file, block->bid, block->addr, handle->log_callback);
+    if (filemgr_read(handle->file, block->bid, block->addr,
+                     handle->log_callback) != FDB_RESULT_SUCCESS) {
+        mempool_free(block);
+        return NULL;
+    }
     _btreeblk_decode(handle, block);
 
     list_push_front(&handle->read_list, &block->le);

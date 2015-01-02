@@ -341,16 +341,19 @@ fdb_status _filemgr_read_header(struct filemgr *file)
                         // release temp buffer
                         _filemgr_release_temp_buf(buf);
 
-                        return status;
+                        return FDB_RESULT_SUCCESS;
                     } else {
+                        status = FDB_RESULT_CHECKSUM_ERROR;
                         DBG("Crash Detected: CRC on disk %u != %u\n",
                                 crc_file, crc);
                     }
                 } else {
+                    status = FDB_RESULT_FILE_CORRUPTION;
                     DBG("Crash Detected: Wrong Magic %llu != %llu\n", magic,
                             FILEMGR_MAGIC);
                 }
             } else {
+                status = FDB_RESULT_FILE_CORRUPTION;
                 DBG("Crash Detected: Last Block not DBHEADER %0.01x\n",
                         marker[0]);
             }
@@ -487,6 +490,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     bool create = config->options & FILEMGR_CREATE;
     int file_flag = 0x0;
     int fd = -1;
+    fdb_status status;
     filemgr_open_result result = {NULL, FDB_RESULT_OPEN_FAIL};
 
     filemgr_init(config);
@@ -620,7 +624,17 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->kv_header = NULL;
     file->prefetch_status = FILEMGR_PREFETCH_IDLE;
 
-    _filemgr_read_header(file);
+    status = _filemgr_read_header(file);
+    if (status != FDB_RESULT_SUCCESS) {
+        _log_errno_str(file->ops, log_callback, status, "READ", filename);
+        free(file->wal);
+        free(file->filename);
+        free(file->config);
+        free(file);
+        spin_unlock(&filemgr_openlock);
+        result.rv = status;
+        return result;
+    }
 
     spin_init(&file->lock);
 
@@ -1148,7 +1162,7 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
 }
 
 #ifdef __CRC32
-INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
+INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
 {
     if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file, crc;
@@ -1156,8 +1170,11 @@ INLINE void _filemgr_crc32_check(struct filemgr *file, void *buf)
         crc_file = _endian_decode(crc_file);
         memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
         crc = chksum(buf, file->blocksize);
-        assert(crc == crc_file);
+        if (crc != crc_file) {
+            return FDB_RESULT_CHECKSUM_ERROR;
+        }
     }
+    return FDB_RESULT_SUCCESS;
 }
 #endif
 
@@ -1174,6 +1191,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
     size_t lock_no;
     ssize_t r;
     uint64_t pos = bid * file->blocksize;
+    fdb_status status = FDB_RESULT_SUCCESS;
     assert(pos < file->pos);
 
     if (global_config.ncacheblock > 0) {
@@ -1219,7 +1237,12 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 return (fdb_status)r;
             }
 #ifdef __CRC32
-            _filemgr_crc32_check(file, buf);
+            status = _filemgr_crc32_check(file, buf);
+            if (status != FDB_RESULT_SUCCESS) {
+                _log_errno_str(file->ops, log_callback, status, "READ",
+                        file->filename);
+                return status;
+            }
 #endif
             r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
             if (r != global_config.blocksize) {
@@ -1246,10 +1269,15 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         }
 
 #ifdef __CRC32
-        _filemgr_crc32_check(file, buf);
+        status = _filemgr_crc32_check(file, buf);
+        if (status != FDB_RESULT_SUCCESS) {
+            _log_errno_str(file->ops, log_callback, status, "READ",
+                           file->filename);
+            return status;
+        }
 #endif
     }
-    return FDB_RESULT_SUCCESS;
+    return status;
 }
 
 fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
@@ -1612,7 +1640,13 @@ fdb_status filemgr_destroy_file(char *filename,
                 return FDB_RESULT_SEEK_FAIL;
             } else { // Need to read DB header which contains old filename
                 file->pos = offset;
-                _filemgr_read_header(file);
+                status = _filemgr_read_header(file);
+                if (status != FDB_RESULT_SUCCESS) {
+                    if (!destroy_file_set) { // top level or non-recursive call
+                        hash_free(destroy_set);
+                    }
+                    return status;
+                }
                 if (file->header.data) {
                     uint16_t *new_filename_len_ptr = (uint16_t *)((char *)
                                                      file->header.data + 64);

@@ -49,6 +49,8 @@ void basic_test()
     uint64_t k,v;
     char *fname = (char *) "./dummy";
 
+    r = system(SHELL_DEL" dummy");
+    (void)r;
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
     config.ncacheblock = 0;
@@ -220,6 +222,8 @@ void two_btree_test()
     struct filemgr_config config;
     uint64_t k,v;
     char *fname = (char *) "./dummy";
+    int r = system(SHELL_DEL" dummy");
+    (void)r;
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
@@ -748,8 +752,6 @@ int main()
     mempool_init();
 #endif
 
-    int r = system(SHELL_DEL" dummy");
-    (void)r;
     basic_test();
     iterator_test();
     two_btree_test();

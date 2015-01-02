@@ -418,12 +418,18 @@ bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *
     return _docio_append_doc(handle, doc);
 }
 
-INLINE void _docio_read_through_buffer(struct docio_handle *handle, bid_t bid,
-                                       err_log_callback *log_callback)
+INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
+                                             bid_t bid,
+                                             err_log_callback *log_callback)
 {
+    fdb_status status = FDB_RESULT_SUCCESS;
     // to reduce the overhead from memcpy the same block
     if (handle->lastbid != bid) {
-        filemgr_read(handle->file, bid, handle->readbuffer, log_callback);
+        status = filemgr_read(handle->file, bid, handle->readbuffer,
+                              log_callback);
+        if (status != FDB_RESULT_SUCCESS) {
+            return status;
+        }
 
         if (filemgr_is_writable(handle->file, bid)) {
             // this block can be modified later .. must be re-read
@@ -432,6 +438,8 @@ INLINE void _docio_read_through_buffer(struct docio_handle *handle, bid_t bid,
             handle->lastbid = bid;
         }
     }
+
+    return status;
 }
 
 uint64_t _docio_read_length(struct docio_handle *handle,
