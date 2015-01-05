@@ -5720,7 +5720,7 @@ void snapshot_clone_test()
     TEST_RESULT("snapshot clone test");
 }
 
-void rollback_test()
+void rollback_test(bool multi_kv)
 {
     TEST_INIT();
 
@@ -5750,6 +5750,7 @@ void rollback_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
 
     // remove previous dummy files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -5757,7 +5758,11 @@ void rollback_test()
 
     // open db
     fdb_open(&dbfile, "./dummy1", &fconfig);
-    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    if (multi_kv) {
+        fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    } else {
+        fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    }
 
    // ------- Setup test ----------------------------------
    // insert documents of 0-4
@@ -5825,7 +5830,11 @@ void rollback_test()
 
     // Open another handle & begin transaction
     fdb_open(&dbfile_txn, "./dummy1", &fconfig);
-    fdb_kvs_open_default(dbfile_txn, &db_txn, &kvs_config);
+    if (multi_kv) {
+        fdb_kvs_open_default(dbfile_txn, &db_txn, &kvs_config);
+    } else {
+        fdb_kvs_open(dbfile_txn, &db_txn, NULL, &kvs_config);
+    }
     fdb_begin_transaction(dbfile_txn, FDB_ISOLATION_READ_COMMITTED);
     // Attempt to rollback while the transaction is active
     status =  fdb_rollback(&db, rollback_seq);
@@ -5886,7 +5895,9 @@ void rollback_test()
 
     memleak_end();
 
-    TEST_RESULT("rollback test");
+    sprintf(bodybuf, "rollback test %s", multi_kv ? "multiple kv mode:"
+                                                  : "single kv mode:");
+    TEST_RESULT(bodybuf);
 }
 
 void rollback_and_snapshot_test()
@@ -10398,7 +10409,8 @@ int main(){
     snapshot_test();
     in_memory_snapshot_test();
     snapshot_clone_test();
-    rollback_test();
+    rollback_test(false); // single kv instance mode
+    rollback_test(true); // multi kv instance mode
     rollback_and_snapshot_test();
     reverse_sequence_iterator_test();
     reverse_sequence_iterator_kvs_test();
