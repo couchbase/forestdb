@@ -3287,6 +3287,88 @@ void iterator_no_deletes_test()
     TEST_RESULT("iterator no deletes test");
 }
 
+void iterator_set_del_docs_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    int i, j, k, n=100;
+    int expected_doc_count=0;
+    char keybuf[256], metabuf[256], bodybuf[256];
+    int val2;
+    fdb_file_handle *dbfile;
+    fdb_iterator *it;
+    fdb_kvs_handle *kv1;
+    fdb_kvs_info info;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *vdoc;
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 10;
+
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+
+    for(k=0;k<20;++k){
+        // set n docs
+        for(i=0;i<n;++i){
+            sprintf(keybuf, "key%02d%03d", k, i);
+            sprintf(metabuf, "meta%02d%03d", k, i);
+            sprintf(bodybuf, "body%02d%03d", k, i);
+            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+            fdb_set(kv1, doc[i]);
+            expected_doc_count++;
+        }
+
+        // commit
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+        // delete subset of recently loaded docs
+        for(j=n/4;j<n/2;j++){
+            fdb_del(kv1, doc[j]);
+            expected_doc_count--;
+        }
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+        fdb_get_kvs_info(kv1, &info);
+        if(info.doc_count != expected_doc_count){
+            // test already failed further debugging check info
+            fdb_iterator_init(kv1, &it, NULL, 0,
+                              NULL, 0, FDB_ITR_NONE);
+            val2=0;
+            do {
+                fdb_iterator_get(it, &vdoc);
+                if (!vdoc->deleted){
+                    val2++;
+                }
+                fdb_doc_free(vdoc);
+            } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+            fdb_iterator_close(it);
+            printf("dbdocs(%d) expected(%d)\n", val2, expected_doc_count);
+        }
+        TEST_CHK(info.doc_count == expected_doc_count);
+
+        // preliminary cleanup
+        for(i=0;i<n;++i){
+            fdb_doc_free(doc[i]);
+        }
+    }
+
+    fdb_kvs_close(kv1);
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("iterator set del docs");
+}
+
 void iterator_with_concurrent_updates_test()
 {
     // unit test for MB-12287
@@ -10580,6 +10662,7 @@ int main(){
     }
     iterator_extreme_key_test();
     iterator_no_deletes_test();
+    iterator_set_del_docs_test();
     sequence_iterator_test();
     sequence_iterator_duplicate_test();
     custom_compare_primitive_test();
