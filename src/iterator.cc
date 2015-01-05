@@ -292,9 +292,20 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         he = list_begin(&wal_file->wal->list);
         while(he) {
             wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
+            ie = list_begin(&wal_item_header->items);
+            if (txn->isolation == FDB_ISOLATION_READ_COMMITTED) {
+                // Search for the first uncommitted item belonging to this txn..
+                for (; ie; ie = list_next(ie)) {
+                    wal_item = _get_entry(ie, struct wal_item, list_elem);
+                    if (wal_item->txn == txn) {
+                        break;
+                    } // else fall through and pick the committed item at end..
+                }
+                if (!ie) {
+                    ie = list_end(&wal_item_header->items);
+                }
+            }
 
-            // compare committed item only (at the end of the list)
-            ie = list_end(&wal_item_header->items);
             wal_item = _get_entry(ie, struct wal_item, list_elem);
             if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
                 // ignore items moved by compactor
