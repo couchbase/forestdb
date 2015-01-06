@@ -1926,6 +1926,139 @@ void transaction_simple_api_test()
     TEST_RESULT("transaction simple API test");
 }
 
+
+void rollback_prior_to_ops(bool walflush)
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    int i, j, n=100;
+    int expected_doc_count = 0;
+    int rb_seqnum;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_iterator *it;
+    fdb_kvs_handle *kv1, *mirror_kv1;
+    fdb_kvs_info info;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc, *vdoc;
+    fdb_status status;
+
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 10;
+
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+
+    if(walflush){
+        fdb_kvs_open(dbfile, &mirror_kv1, NULL, &kvs_config);
+    } else {
+        fdb_kvs_open(dbfile, &mirror_kv1, "mirror", &kvs_config);
+    }
+
+    // set n docs
+    for(i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            NULL, 0, NULL, 0);
+        fdb_set(kv1, doc[i]);
+        fdb_set(mirror_kv1, doc[i]);
+        expected_doc_count++;
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // delete subset of recently loaded docs
+    for(i=0;i<n/2;++i){
+        fdb_del(kv1, doc[i]);
+        fdb_del(mirror_kv1, doc[i]);
+        expected_doc_count--;
+        fdb_doc_free(doc[i]);
+    }
+
+    for(i=n/2;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // commit and save seqnum
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    fdb_get_kvs_info(kv1, &info);
+    TEST_CHK(info.doc_count == expected_doc_count);
+    rb_seqnum = info.last_seqnum;
+
+    for (j=0;j<100;++j){
+        // load some more docs but stop mirroring
+        for(i=0;i<n;++i){
+            sprintf(keybuf, "key%d", n+i);
+            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                NULL, 0, NULL, 0);
+            fdb_set(kv1, doc[i]);
+            if( n%2 == 0){
+                fdb_del(kv1, doc[i]);
+            }
+            fdb_doc_free(doc[i]);
+        }
+    }
+
+    // commit wal or normal
+    if(walflush){
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    } else {
+        fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    }
+
+    // rollback
+    status = fdb_rollback(&kv1, rb_seqnum);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_get_kvs_info(kv1, &info);
+    TEST_CHK(info.doc_count == expected_doc_count);
+    fdb_get_kvs_info(mirror_kv1, &info);
+    TEST_CHK(info.doc_count == expected_doc_count);
+
+    status = fdb_iterator_sequence_init(mirror_kv1, &it, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    do {
+        status = fdb_iterator_get_metaonly(it, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        fdb_doc_create(&vdoc, rdoc->key, rdoc->keylen,
+                              rdoc->meta, rdoc->metalen,
+                              rdoc->body, rdoc->bodylen);
+        status = fdb_get(kv1, vdoc);
+        TEST_CHK(rdoc->deleted == vdoc->deleted);
+        if (rdoc->deleted){
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        } else {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+        fdb_doc_free(rdoc);
+        fdb_doc_free(vdoc);
+    } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+
+    fdb_iterator_close(it);
+    fdb_kvs_close(mirror_kv1);
+    fdb_kvs_close(kv1);
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+
+    sprintf(bodybuf, "rollback prior to ops test %s", walflush? "commi with wal flush:"
+                                                  : "normal commit:");
+    TEST_RESULT(bodybuf);
+}
+
+
+
 int main(){
 
     multi_version_test();
@@ -1942,6 +2075,8 @@ int main(){
     rollback_ncommits();
     transaction_test();
     transaction_simple_api_test();
+    rollback_prior_to_ops(true); // wal commit
+    rollback_prior_to_ops(false); // normal commit
 
     return 0;
 }
