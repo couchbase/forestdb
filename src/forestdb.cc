@@ -975,6 +975,7 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
             handle_in->fhandle->root = handle;
             _fdb_close_root(handle_in);
             handle->max_seqnum = 0;
+            handle->seqnum = seqnum;
             *handle_ptr = handle;
         } else {
             // cancel the rolling-back of the sequence number

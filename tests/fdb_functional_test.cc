@@ -3091,6 +3091,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
     TEST_RESULT(cmd);
 }
 
+
 void iterator_extreme_key_test()
 {
     TEST_INIT();
@@ -5977,6 +5978,103 @@ void rollback_test(bool multi_kv)
     sprintf(bodybuf, "rollback test %s", multi_kv ? "multiple kv mode:"
                                                   : "single kv mode:");
     TEST_RESULT(bodybuf);
+}
+
+void rollback_forward_seqnum(){
+
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    int i, n=100;
+    int rb1_seqnum, rb2_seqnum;
+    char keybuf[256];
+    char setop[3];
+    fdb_file_handle *dbfile;
+    fdb_iterator *it;
+    fdb_kvs_handle *kv1, *mirror_kv1;
+    fdb_kvs_info info;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+    fdb_kvs_open(dbfile, &mirror_kv1, NULL, &kvs_config);
+
+
+    // set n docs within both dbs
+    for(i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            NULL, 0, NULL, 0);
+        fdb_set(kv1, doc[i]);
+        fdb_set_kv(mirror_kv1, keybuf, strlen(keybuf), setop, 3);
+    }
+
+    // commit and save seqnum1
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    fdb_get_kvs_info(kv1, &info);
+    rb1_seqnum = info.last_seqnum;
+
+    // delete all docs in kv1
+    for(i=0;i<n;++i){
+        fdb_del(kv1, doc[i]);
+    }
+
+    // commit and save seqnum2
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    fdb_get_kvs_info(kv1, &info);
+    rb2_seqnum = info.last_seqnum;
+
+
+    // sets again
+    for(i=0;i<n;++i){
+        doc[i]->deleted = false;
+        fdb_set(kv1, doc[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // rollback to first seqnum
+    status = fdb_rollback(&kv1, rb1_seqnum);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // rollback to second seqnum
+    status = fdb_rollback(&kv1, rb2_seqnum);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+
+    status = fdb_iterator_sequence_init(mirror_kv1, &it, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    do {
+        status = fdb_iterator_get(it, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_get(kv1, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(rdoc->deleted == false);
+        fdb_doc_free(rdoc);
+    } while(fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+    fdb_iterator_close(it);
+    fdb_kvs_close(kv1);
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("rollback forward seqnum");
 }
 
 void rollback_and_snapshot_test()
@@ -10489,6 +10587,7 @@ int main(){
     snapshot_test();
     in_memory_snapshot_test();
     snapshot_clone_test();
+    rollback_forward_seqnum();
     rollback_test(false); // single kv instance mode
     rollback_test(true); // multi kv instance mode
     rollback_and_snapshot_test();

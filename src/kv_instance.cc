@@ -1376,6 +1376,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                                         handle_in->kvs->id);
         fdb_kvs_set_seqnum(handle_in->file,
                            handle_in->kvs->id, seqnum);
+        handle_in->seqnum = seqnum;
         filemgr_mutex_unlock(handle_in->file);
 
         fs = _fdb_commit(super_handle, FDB_COMMIT_NORMAL);
