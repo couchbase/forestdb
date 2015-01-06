@@ -78,8 +78,8 @@ static int _btreeblk_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 }
 #endif
 
-INLINE void _btreeblk_get_aligned_block(
-    struct btreeblk_handle *handle, struct btreeblk_block *block)
+INLINE void _btreeblk_get_aligned_block(struct btreeblk_handle *handle,
+                                        struct btreeblk_block *block)
 {
 #ifdef __BTREEBLK_BLOCKPOOL
     struct list_elem *e;
@@ -91,14 +91,15 @@ INLINE void _btreeblk_get_aligned_block(
         return;
     }
     // no free addr .. create
-    block->addr_item = (struct btreeblk_addr *)mempool_alloc(sizeof(struct btreeblk_addr));
+    block->addr_item = (struct btreeblk_addr *)
+                       mempool_alloc(sizeof(struct btreeblk_addr));
 #endif
 
     malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
 }
 
-INLINE void _btreeblk_free_aligned_block(
-    struct btreeblk_handle *handle, struct btreeblk_block *block)
+INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,
+                                         struct btreeblk_block *block)
 {
 #ifdef __BTREEBLK_BLOCKPOOL
     assert(block->addr_item);
@@ -368,6 +369,7 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
     _btreeblk_get_aligned_block(handle, block);
     if (filemgr_read(handle->file, block->bid, block->addr,
                      handle->log_callback) != FDB_RESULT_SUCCESS) {
+        _btreeblk_free_aligned_block(handle, block);
         mempool_free(block);
         return NULL;
     }
