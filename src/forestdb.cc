@@ -3132,6 +3132,14 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
     }
 
+    // Note: Appending KVS header must be done after flushing WAL
+    //       because KVS stats info is updated during WAL flushing.
+    if (handle->kvs) {
+        // multi KV instance mode .. append up-to-date KV header
+        handle->kv_info_offset = fdb_kvs_header_append(handle->file,
+                                                       handle->dhandle);
+    }
+
     handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
     if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
         earliest_txn = wal_earliest_txn(handle->file, &handle->file->global_txn);
