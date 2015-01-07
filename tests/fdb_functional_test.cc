@@ -6221,7 +6221,7 @@ void rollback_forward_seqnum(){
     do {
         status = fdb_iterator_get(it, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        status = fdb_get(kv1, rdoc);
+        status = fdb_get_metaonly_byseq(kv1, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(rdoc->deleted == false);
         fdb_doc_free(rdoc);
