@@ -6333,6 +6333,71 @@ void rollback_and_snapshot_test()
     TEST_RESULT("rollback and snapshot test");
 }
 
+void rollback_ncommits(){
+
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    int i, j, n=100;
+    int ncommits=10;
+    char keybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *kv1, *kv2;
+    fdb_kvs_info info;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_status status;
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
+    fdb_kvs_open(dbfile, &kv2, NULL, &kvs_config);
+
+
+    for(j=0;j<ncommits;++j){
+
+        // set n docs per commit
+        for(i=0;i<n;++i){
+            sprintf(keybuf, "key%02d%03d", j, i);
+            fdb_set_kv(kv1, keybuf, strlen(keybuf), NULL, 0);
+            fdb_set_kv(kv2, keybuf, strlen(keybuf), NULL, 0);
+        }
+        // alternate commit pattern
+        if((j % 2) == 0){
+            fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        } else {
+            fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        }
+
+        // doc_count should match seqnum since they are unique
+        fdb_get_kvs_info(kv1, &info);
+        TEST_CHK(info.doc_count == info.last_seqnum);
+    }
+
+    // iteratively rollback 5 commits
+     for(j=ncommits;j>0;--j){
+        status = fdb_rollback(&kv1, j*n);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // check rollback doc_count
+        fdb_get_kvs_info(kv1, &info);
+        TEST_CHK(info.doc_count == info.last_seqnum);
+    }
+
+    fdb_kvs_close(kv1);
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("rollback n commits");
+}
+
 void doc_compression_test()
 {
     TEST_INIT();
@@ -10755,6 +10820,7 @@ int main(){
     rollback_test(false); // single kv instance mode
     rollback_test(true); // multi kv instance mode
     rollback_and_snapshot_test();
+    rollback_ncommits();
     reverse_sequence_iterator_test();
     reverse_sequence_iterator_kvs_test();
     reverse_iterator_test();
