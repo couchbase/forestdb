@@ -2185,6 +2185,8 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         if (!txn) {
             txn = &wal_file->global_txn;
         }
+        // prevent searching by key in WAL if 'doc' is not empty
+        doc->keylen = 0;
         if (handle->kvs) {
             wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, doc, &offset);
         } else {
@@ -2329,6 +2331,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         if (!txn) {
             txn = &wal_file->global_txn;
         }
+        // prevent searching by key in WAL if 'doc' is not empty
+        doc->keylen = 0;
         if (handle->kvs) {
             wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, doc, &offset);
         } else {

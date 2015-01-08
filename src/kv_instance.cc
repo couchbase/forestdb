@@ -1350,6 +1350,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         // by old BIDs
         bid_t id_root, seq_root, dummy;
         fdb_kvs_id_t _kv_id;
+        hbtrie_result hr;
 
         filemgr_mutex_lock(handle_in->file);
 
@@ -1357,20 +1358,26 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
 
         // read root BID of the KV instance from the old handle
         // and overwrite into the current handle
-        hbtrie_find_partial(handle->trie, &_kv_id,
-                            sizeof(fdb_kvs_id_t), &id_root);
-        hbtrie_insert_partial(super_handle->trie,
-                              &_kv_id, sizeof(fdb_kvs_id_t),
-                              &id_root, &dummy);
-        btreeblk_end(super_handle->bhandle);
+        hr = hbtrie_find_partial(handle->trie, &_kv_id,
+                                 sizeof(fdb_kvs_id_t), &id_root);
+        btreeblk_end(handle->bhandle);
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            hr = hbtrie_insert_partial(super_handle->trie,
+                                       &_kv_id, sizeof(fdb_kvs_id_t),
+                                       &id_root, &dummy);
+            btreeblk_end(super_handle->bhandle);
+        }
 
         // same as above for seq-trie
-        hbtrie_find_partial(handle->seqtrie, &_kv_id,
-                            sizeof(fdb_kvs_id_t), &seq_root);
-        hbtrie_insert_partial(super_handle->seqtrie,
-                              &_kv_id, sizeof(fdb_kvs_id_t),
-                              &seq_root, &dummy);
-        btreeblk_end(super_handle->bhandle);
+        hr = hbtrie_find_partial(handle->seqtrie, &_kv_id,
+                                 sizeof(fdb_kvs_id_t), &seq_root);
+        btreeblk_end(handle->bhandle);
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            hr = hbtrie_insert_partial(super_handle->seqtrie,
+                                       &_kv_id, sizeof(fdb_kvs_id_t),
+                                       &seq_root, &dummy);
+            btreeblk_end(super_handle->bhandle);
+        }
 
         old_seqnum = fdb_kvs_get_seqnum(handle_in->file,
                                         handle_in->kvs->id);

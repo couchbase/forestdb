@@ -647,6 +647,7 @@ void * btreeblk_alloc_sub(void *voidhandle, bid_t *bid)
                     handle->sb[0].bitmap[i] = 1;
                     bid2subbid(handle->sb[0].bid, 0, i, bid);
                     addr = _btreeblk_read(voidhandle, handle->sb[0].bid, 0);
+                    btreeblk_set_dirty(voidhandle, handle->sb[0].bid);
                     return (void*)
                            ((uint8_t*)addr +
                             handle->sb[0].sb_size * i);
