@@ -2186,7 +2186,8 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
             _doc.key = doc->key;
             _doc.length.keylen = doc->keylen;
         }
-        _doc.meta = _doc.body = NULL;
+        _doc.meta = doc->meta;
+        _doc.body = doc->body;
 
         uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (body_offset == offset){
@@ -2463,7 +2464,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
         _doc.key = doc->key;
-        _doc.meta = _doc.body = NULL;
+        _doc.meta = doc->meta;
+        _doc.body = doc->body;
 
         uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
         if (body_offset == offset) {
