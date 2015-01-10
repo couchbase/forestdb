@@ -30,6 +30,7 @@
 #include "wal.h"
 #include "hbtrie.h"
 #include "btreeblock.h"
+#include "snapshot.h"
 
 #include "memleak.h"
 
@@ -1605,7 +1606,12 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         spin_unlock(&kv_header->lock);
     }
 
-    _kvs_stat_get(handle->file, kv_id, &stat);
+    if (handle->shandle) {
+        // snapshot .. get its local stats
+        snap_get_stat(handle->shandle, &stat);
+    } else {
+        _kvs_stat_get(handle->file, kv_id, &stat);
+    }
     ndocs = stat.ndocs;
     wal_docs = stat.wal_ndocs;
     wal_deletes = stat.wal_ndeletes;

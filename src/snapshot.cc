@@ -139,6 +139,12 @@ fdb_status snap_insert(struct snap_handle *shandle, fdb_doc *doc,
         item->flag = 0;
         avl_insert(shandle->key_tree, &item->avl, _snp_wal_cmp);
         avl_insert(shandle->seq_tree, &item->avl_seq, _snp_seqnum_cmp);
+
+        // Note: same logic in wal_commit
+        shandle->stat.wal_ndocs++;
+        if (doc->deleted) {
+            shandle->stat.wal_ndeletes++;
+        }
     } else {
         // replace existing node with new values so there are no duplicates
         item = _get_entry(node, struct snap_wal_entry, avl);
@@ -150,6 +156,16 @@ fdb_status snap_insert(struct snap_handle *shandle, fdb_doc *doc,
             avl_remove(shandle->seq_tree, &item->avl_seq);
             avl_insert(shandle->seq_tree, &item->avl_seq, _snp_seqnum_cmp);
         }
+
+        // Note: same logic in wal_commit
+        if (item->action == WAL_ACT_INSERT &&
+            doc->deleted) {
+            shandle->stat.wal_ndeletes++;
+        } else if (item->action == WAL_ACT_LOGICAL_REMOVE &&
+                   !doc->deleted) {
+            shandle->stat.wal_ndeletes--;
+        }
+
         item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
     }
@@ -252,3 +268,10 @@ fdb_status snap_close(struct snap_handle *shandle)
 
     return FDB_RESULT_SUCCESS;
 }
+
+fdb_status snap_get_stat(struct snap_handle *shandle, struct kvs_stat *stat)
+{
+    *stat = shandle->stat;
+    return FDB_RESULT_SUCCESS;
+}
+

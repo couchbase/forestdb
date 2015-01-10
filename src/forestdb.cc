@@ -329,6 +329,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                             }
                             if (doc.key) free(doc.key);
                         } else {
+                            // snapshot
                             if (handle->kvs) {
                                 fdb_kvs_id_t *_kv_id, kv_id;
                                 _kv_id = (fdb_kvs_id_t*)wal_doc.key;
@@ -1132,7 +1133,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     handle->config.seqtree_opt = seqtree_opt;
     handle->config.multi_kv_instances = multi_kv_instances;
 
-    handle->dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
+    handle->dhandle = (struct docio_handle *)
+                      calloc(1, sizeof(struct docio_handle));
     handle->dhandle->log_callback = &handle->log_callback;
     handle->new_file = NULL;
     handle->new_dhandle = NULL;
@@ -1149,7 +1151,16 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
         hdr_bid = hdr_bid ? --hdr_bid : 0;
         if (handle->max_seqnum) {
-            if (handle->max_seqnum == seqnum && hdr_bid > handle->last_hdr_bid){
+            struct kvs_stat stat_ori;
+            // backup original stats
+            if (handle->kvs) {
+                _kvs_stat_get(handle->file, handle->kvs->id, &stat_ori);
+            } else {
+                _kvs_stat_get(handle->file, 0, &stat_ori);
+            }
+
+            if (handle->max_seqnum == seqnum &&
+                hdr_bid > handle->last_hdr_bid){
                 // In case, snapshot_open is attempted with latest uncommitted
                 // sequence number
                 header_len = 0;
@@ -1159,42 +1170,96 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                           header_buf, &header_len, &seqnum,
                                           &handle->log_callback);
-                if (header_len > 0) {
-                    fdb_fetch_header(header_buf, &trie_root_bid,
-                                     &seq_root_bid, &ndocs, &nlivenodes,
-                                     &datasize, &last_wal_flush_hdr_bid,
-                                     &kv_info_offset, &header_flags,
-                                     &compacted_filename, NULL);
-                    handle->last_hdr_bid = hdr_bid;
+                if (header_len == 0) {
+                    continue; // header doesn't exist
+                }
+                fdb_fetch_header(header_buf, &trie_root_bid,
+                                 &seq_root_bid, &ndocs, &nlivenodes,
+                                 &datasize, &last_wal_flush_hdr_bid,
+                                 &kv_info_offset, &header_flags,
+                                 &compacted_filename, NULL);
+                handle->last_hdr_bid = hdr_bid;
 
-                    if (handle->kvs) {
-                        uint64_t doc_offset;
-                        struct kvs_header *kv_header;
-                        struct docio_object doc;
-
-                        if (handle->kvs->id > 0) {
-                            _fdb_kvs_header_create(&kv_header);
-                            memset(&doc, 0, sizeof(struct docio_object));
-                            doc_offset = docio_read_doc(handle->dhandle,
-                                                        kv_info_offset, &doc);
-
-                            if (doc_offset == kv_info_offset) {
-                                header_len = 0; // fail
-                                _fdb_kvs_header_free(kv_header);
-                            } else {
-                                _fdb_kvs_header_import(kv_header, doc.body,
-                                                          doc.length.bodylen);
-                                // get local sequence number for the KV instance
-                                seqnum = _fdb_kvs_get_seqnum(kv_header,
-                                                             handle->kvs->id);
-                                free_docio_object(&doc, 1, 1, 1);
-                                _fdb_kvs_header_free(kv_header);
-                            }
-                        }
+                if (!handle->kvs || handle->kvs->id == 0) {
+                    // single KVS mode OR default KVS
+                    if (handle->shandle) {
+                        // snapshot
+                        memset(&handle->shandle->stat, 0x0,
+                               sizeof(handle->shandle->stat));
+                        handle->shandle->stat.ndocs = ndocs;
+                        handle->shandle->stat.datasize = datasize;
+                        handle->shandle->stat.nlivenodes = nlivenodes;
+                    } else {
+                        // rollback
+                        struct kvs_stat stat_dst;
+                        _kvs_stat_get(handle->file, 0, &stat_dst);
+                        stat_dst.ndocs = ndocs;
+                        stat_dst.datasize = datasize;
+                        stat_dst.nlivenodes = nlivenodes;
+                        _kvs_stat_set(handle->file, 0, stat_dst);
                     }
+                    continue;
+                }
+
+                uint64_t doc_offset;
+                struct kvs_header *kv_header;
+                struct docio_object doc;
+
+                _fdb_kvs_header_create(&kv_header);
+                memset(&doc, 0, sizeof(struct docio_object));
+                doc_offset = docio_read_doc(handle->dhandle,
+                                            kv_info_offset, &doc);
+
+                if (doc_offset == kv_info_offset) {
+                    header_len = 0; // fail
+                    _fdb_kvs_header_free(kv_header);
+                } else {
+                    _fdb_kvs_header_import(kv_header, doc.body,
+                                           doc.length.bodylen);
+                    // get local sequence number for the KV instance
+                    seqnum = _fdb_kvs_get_seqnum(kv_header,
+                                                 handle->kvs->id);
+                    if (handle->shandle) {
+                        // snapshot: store stats in shandle
+                        memset(&handle->shandle->stat, 0x0,
+                               sizeof(handle->shandle->stat));
+                        _kvs_stat_get(handle->file,
+                                      handle->kvs->id,
+                                      &handle->shandle->stat);
+                    } else {
+                        // rollback: replace kv_header stats
+                        // read from the current header's kv_header
+                        struct kvs_stat stat_src, stat_dst;
+                        _kvs_stat_get_kv_header(kv_header,
+                                                handle->kvs->id,
+                                                &stat_src);
+                        _kvs_stat_get(handle->file,
+                                      handle->kvs->id,
+                                      &stat_dst);
+                        // update ndocs, datasize, nlivenodes
+                        // into the current file's kv_header
+                        // Note: stats related to WAL should not be updated
+                        //       at this time. They will be adjusted through
+                        //       discard & restore routines below.
+                        stat_dst.ndocs = stat_src.ndocs;
+                        stat_dst.datasize = stat_src.datasize;
+                        stat_dst.nlivenodes = stat_src.nlivenodes;
+                        _kvs_stat_set(handle->file,
+                                      handle->kvs->id,
+                                      stat_dst);
+                    }
+                    _fdb_kvs_header_free(kv_header);
+                    free_docio_object(&doc, 1, 1, 1);
                 }
             }
             if (!header_len) { // Marker MUST match that of DB commit!
+                // rollback original stats
+                if (handle->kvs) {
+                    _kvs_stat_get(handle->file, handle->kvs->id, &stat_ori);
+                } else {
+                    _kvs_stat_get(handle->file, 0, &stat_ori);
+                }
+
                 docio_free(handle->dhandle);
                 free(handle->dhandle);
                 free(handle->filename);

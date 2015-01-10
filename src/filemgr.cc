@@ -1856,6 +1856,25 @@ void _kvs_stat_update_attr(struct filemgr *file,
     spin_unlock(lock);
 }
 
+int _kvs_stat_get_kv_header(struct kvs_header *kv_header,
+                            fdb_kvs_id_t kv_id,
+                            struct kvs_stat *stat)
+{
+    int ret = 0;
+    struct avl_node *a;
+    struct kvs_node query, *node;
+
+    query.id = kv_id;
+    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        *stat = node->stat;
+    } else {
+        ret = -1;
+    }
+    return ret;
+}
+
 int _kvs_stat_get(struct filemgr *file,
                   fdb_kvs_id_t kv_id,
                   struct kvs_stat *stat)
@@ -1867,19 +1886,10 @@ int _kvs_stat_get(struct filemgr *file,
         *stat = file->header.stat;
         spin_unlock(&file->lock);
     } else {
-        struct avl_node *a;
-        struct kvs_node query, *node;
         struct kvs_header *kv_header = file->kv_header;
 
         spin_lock(&kv_header->lock);
-        query.id = kv_id;
-        a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
-        if (a) {
-            node = _get_entry(a, struct kvs_node, avl_id);
-            *stat = node->stat;
-        } else {
-            ret = -1;
-        }
+        ret = _kvs_stat_get_kv_header(kv_header, kv_id, stat);
         spin_unlock(&kv_header->lock);
     }
 

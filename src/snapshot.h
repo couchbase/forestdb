@@ -50,19 +50,23 @@ struct snap_handle {
     /**
      * Reference count to avoid copy in cloned snapshots
      */
-     volatile uint16_t ref_cnt;
-     /**
-      * Cache custom compare function from original handle
-      */
-     struct _fdb_key_cmp_info cmp_info;
+    volatile uint16_t ref_cnt;
+    /**
+     * Cache custom compare function from original handle
+     */
+    struct _fdb_key_cmp_info cmp_info;
     /**
      * AVL tree to store unflushed WAL entries of a snapshot by key range
      */
-     struct avl_tree *key_tree;
+    struct avl_tree *key_tree;
     /**
      * AVL tree to store unflushed WAL entries of a snapshot by sequence number
      */
-     struct avl_tree *seq_tree;
+    struct avl_tree *seq_tree;
+    /**
+     * Local DB stats for cloned snapshots
+     */
+    struct kvs_stat stat;
 };
 
 fdb_status snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle);
@@ -74,6 +78,7 @@ fdb_status snap_remove(struct snap_handle *shandle, fdb_doc *doc);
 fdb_status snap_clone(struct snap_handle *in, fdb_seqnum_t in_seq,
                       struct snap_handle **out, fdb_seqnum_t snap_seq);
 fdb_status snap_close(struct snap_handle *shandle);
+fdb_status snap_get_stat(struct snap_handle *shandle, struct kvs_stat *stat);
 
 #ifdef __cplusplus
 }
