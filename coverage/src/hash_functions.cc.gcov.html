@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - src/hash_functions.cc</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">src</a> - hash_functions.cc<span style="font-size: 80%;"> (source / <a href="hash_functions.cc.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">21</td>
+            <td class="headerCovTableEntryLo">57.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2015-01-12 16:10:39</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryLo">50.0 %</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /* -*- Mode: C++; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */</a>
+<span class="lineNum">       2 </span>                :            : /*
+<span class="lineNum">       3 </span>                :            :  * Hash Functions
+<span class="lineNum">       4 </span>                :            :  * (C) 2013  Jung-Sang Ahn &lt;jungsang.ahn@gmail.com&gt;
+<span class="lineNum">       5 </span>                :            :  */
+<span class="lineNum">       6 </span>                :            : 
+<span class="lineNum">       7 </span>                :            : #include &quot;hash_functions.h&quot;
+<span class="lineNum">       8 </span>                :            : #include &quot;common.h&quot;
+<a name="9"><span class="lineNum">       9 </span>                :            : </a>
+<span class="lineNum">      10 </span>                :            : // djb2 hashing using last LEN digits in VALUE
+<span class="lineNum">      11 </span>                :<span class="lineCov">         35 : uint32_t hash_djb2(uint8_t *value, int len)</span>
+<span class="lineNum">      12 </span>                :            : {
+<span class="lineNum">      13 </span>                :<span class="lineCov">         35 :     unsigned hash = 5381;</span>
+<span class="lineNum">      14 </span>        [<span class="branchCov" title="Branch 0 was taken 1073742114 times"> + </span><span class="branchCov" title="Branch 1 was taken 35 times"> + </span>]:<span class="lineCov"> 1073742149 :     while(len--){</span>
+<span class="lineNum">      15 </span>                :<span class="lineCov"> 1073742114 :         hash = ((hash &lt;&lt; 5) + hash) + *((uint8_t*)value + len);</span>
+<span class="lineNum">      16 </span>                :            :     }
+<span class="lineNum">      17 </span>                :<span class="lineCov">         35 :     return hash;</span>
+<a name="18"><span class="lineNum">      18 </span>                :            : }</a>
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :<span class="lineCov">          4 : uint32_t hash_djb2_last8(uint8_t *value, int len)</span>
+<span class="lineNum">      21 </span>                :            : {
+<span class="lineNum">      22 </span>                :<span class="lineCov">          4 :     int min = MIN(len, 8), c;</span>
+<span class="lineNum">      23 </span>                :<span class="lineCov">          4 :     unsigned hash = 5381;</span>
+<span class="lineNum">      24 </span>                :<span class="lineCov">          4 :     c = min;</span>
+<span class="lineNum">      25 </span>        [<span class="branchCov" title="Branch 0 was taken 32 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">         36 :     while(c--){</span>
+<span class="lineNum">      26 </span>                :<span class="lineCov">         32 :         hash = ((hash &lt;&lt; 5) + hash) + *((uint8_t*)value + (len - min) + c);</span>
+<span class="lineNum">      27 </span>                :            :     }
+<span class="lineNum">      28 </span>                :<span class="lineCov">          4 :     return hash;</span>
+<a name="29"><span class="lineNum">      29 </span>                :            : }</a>
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :<span class="lineNoCov">          0 : uint32_t hash_uint_modular(uint64_t value, uint64_t mod)</span>
+<span class="lineNum">      32 </span>                :            : {
+<span class="lineNum">      33 </span>                :<span class="lineNoCov">          0 :     return value % mod;</span>
+<a name="34"><span class="lineNum">      34 </span>                :            : }</a>
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :<span class="lineNoCov">          0 : uint32_t hash_shuffle_2uint(uint64_t a, uint64_t b)</span>
+<span class="lineNum">      37 </span>                :            : {
+<span class="lineNum">      38 </span>                :            :     uint32_t c;
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>                :<span class="lineNoCov">          0 :     a ^= bitswap64(a ^ UINT64_C(0xffffffffffffffff));</span>
+<span class="lineNum">      41 </span>                :<span class="lineNoCov">          0 :     b ^= bitswap64(b ^ UINT64_C(0xffffffffffffffff));</span>
+<span class="lineNum">      42 </span>                :            : 
+<span class="lineNum">      43 </span>                :            :     a = (a &amp; 0xffff) ^ ((a &amp; 0xffff0000) &gt;&gt; 16) ^
+<span class="lineNum">      44 </span>                :            :         ((a &amp; UINT64_C(0xffff00000000)) &gt;&gt; 32) ^
+<span class="lineNum">      45 </span>                :<span class="lineNoCov">          0 :         ((a &amp; UINT64_C(0xffff000000000000)) &gt;&gt; 48);</span>
+<span class="lineNum">      46 </span>                :            :     b = (b &amp; 0xffff) ^ ((b &amp; 0xffff0000) &gt;&gt; 16) ^
+<span class="lineNum">      47 </span>                :            :         ((b &amp; UINT64_C(0xffff00000000)) &gt;&gt; 32) ^
+<span class="lineNum">      48 </span>                :<span class="lineNoCov">          0 :         ((b &amp; UINT64_C(0xffff000000000000)) &gt;&gt; 48);</span>
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>                :            :     c = (((a &amp; 0x0000000f) &lt;&lt; 0) |
+<span class="lineNum">      51 </span>                :            :         ((b &amp; 0x0000000f) &lt;&lt; 4) |
+<span class="lineNum">      52 </span>                :            :         ((a &amp; 0x000000f0) &lt;&lt; 4) |
+<span class="lineNum">      53 </span>                :            :         ((b &amp; 0x000000f0) &lt;&lt; 8) |
+<span class="lineNum">      54 </span>                :            :         ((a &amp; 0x00000f00) &lt;&lt; 8) |
+<span class="lineNum">      55 </span>                :            :         ((b &amp; 0x00000f00) &lt;&lt; 12) |
+<span class="lineNum">      56 </span>                :            :         ((a &amp; 0x0000f000) &lt;&lt; 12) |
+<span class="lineNum">      57 </span>                :<span class="lineNoCov">          0 :         ((b &amp; 0x0000f000) &lt;&lt; 16));</span>
+<span class="lineNum">      58 </span>                :            : 
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :     return (((c &lt;&lt; 5) + c) &lt;&lt; 5) + c;</span>
+<span class="lineNum">      60 </span>                :            : }
+<span class="lineNum">      61 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.11</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

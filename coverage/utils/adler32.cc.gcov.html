@@ -1,0 +1,227 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - utils/adler32.cc</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">utils</a> - adler32.cc<span style="font-size: 80%;"> (source / <a href="adler32.cc.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">31</td>
+            <td class="headerCovTableEntry">44</td>
+            <td class="headerCovTableEntryLo">70.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2015-01-12 16:10:39</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryLo">50.0 %</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">24</td>
+            <td class="headerCovTableEntryLo">66.7 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /* adler32.c -- compute the Adler-32 checksum of a data stream</a>
+<span class="lineNum">       2 </span>                :            :  * Copyright (C) 1995-2003 Mark Adler
+<span class="lineNum">       3 </span>                :            :  * For conditions of distribution and use, see copyright notice in zlib.h
+<span class="lineNum">       4 </span>                :            :  */
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : /* @(#) $Id: adler32.c,v 1.1.1.2 2002/03/11 21:53:23 tromey Exp $ */
+<span class="lineNum">       7 </span>                :            : 
+<span class="lineNum">       8 </span>                :            : /* Modified by Jung-Sang Ahn in 2014 */
+<span class="lineNum">       9 </span>                :            : 
+<span class="lineNum">      10 </span>                :            : #include &quot;adler32.h&quot;
+<span class="lineNum">      11 </span>                :            : 
+<span class="lineNum">      12 </span>                :            : #define BASE 65521      /* largest prime smaller than 65536 */
+<span class="lineNum">      13 </span>                :            : #define NMAX 5552
+<span class="lineNum">      14 </span>                :            : /* NMAX is the largest n such that 255n(n+1)/2 + (n+1)(BASE-1) &lt;= 2^32-1 */
+<span class="lineNum">      15 </span>                :            : 
+<span class="lineNum">      16 </span>                :            : #define DO1(buf,i)  {adler += (buf)[i]; sum2 += adler;}
+<span class="lineNum">      17 </span>                :            : #define DO2(buf,i)  DO1(buf,i); DO1(buf,i+1);
+<span class="lineNum">      18 </span>                :            : #define DO4(buf,i)  DO2(buf,i); DO2(buf,i+2);
+<span class="lineNum">      19 </span>                :            : #define DO8(buf,i)  DO4(buf,i); DO4(buf,i+4);
+<span class="lineNum">      20 </span>                :            : #define DO16(buf)   DO8(buf,0); DO8(buf,8);
+<span class="lineNum">      21 </span>                :            : 
+<span class="lineNum">      22 </span>                :            : /* use NO_DIVIDE if your processor does not do division in hardware --
+<span class="lineNum">      23 </span>                :            :    try it both ways to see which is faster */
+<span class="lineNum">      24 </span>                :            : #ifdef NO_DIVIDE
+<span class="lineNum">      25 </span>                :            : /* note that this assumes BASE is 65521, where 65536 % 65521 == 15
+<span class="lineNum">      26 </span>                :            :    (thank you to John Reiser for pointing this out) */
+<span class="lineNum">      27 </span>                :            : #  define CHOP(a) \
+<span class="lineNum">      28 </span>                :            :     do { \
+<span class="lineNum">      29 </span>                :            :         unsigned long tmp = a &gt;&gt; 16; \
+<span class="lineNum">      30 </span>                :            :         a &amp;= 0xffffUL; \
+<span class="lineNum">      31 </span>                :            :         a += (tmp &lt;&lt; 4) - tmp; \
+<span class="lineNum">      32 </span>                :            :     } while (0)
+<span class="lineNum">      33 </span>                :            : #  define MOD28(a) \
+<span class="lineNum">      34 </span>                :            :     do { \
+<span class="lineNum">      35 </span>                :            :         CHOP(a); \
+<span class="lineNum">      36 </span>                :            :         if (a &gt;= BASE) a -= BASE; \
+<span class="lineNum">      37 </span>                :            :     } while (0)
+<span class="lineNum">      38 </span>                :            : #  define MOD(a) \
+<span class="lineNum">      39 </span>                :            :     do { \
+<span class="lineNum">      40 </span>                :            :         CHOP(a); \
+<span class="lineNum">      41 </span>                :            :         MOD28(a); \
+<span class="lineNum">      42 </span>                :            :     } while (0)
+<span class="lineNum">      43 </span>                :            : #  define MOD63(a) \
+<span class="lineNum">      44 </span>                :            :     do { /* this assumes a is not negative */ \
+<span class="lineNum">      45 </span>                :            :         z_off64_t tmp = a &gt;&gt; 32; \
+<span class="lineNum">      46 </span>                :            :         a &amp;= 0xffffffffL; \
+<span class="lineNum">      47 </span>                :            :         a += (tmp &lt;&lt; 8) - (tmp &lt;&lt; 5) + tmp; \
+<span class="lineNum">      48 </span>                :            :         tmp = a &gt;&gt; 16; \
+<span class="lineNum">      49 </span>                :            :         a &amp;= 0xffffL; \
+<span class="lineNum">      50 </span>                :            :         a += (tmp &lt;&lt; 4) - tmp; \
+<span class="lineNum">      51 </span>                :            :         tmp = a &gt;&gt; 16; \
+<span class="lineNum">      52 </span>                :            :         a &amp;= 0xffffL; \
+<span class="lineNum">      53 </span>                :            :         a += (tmp &lt;&lt; 4) - tmp; \
+<span class="lineNum">      54 </span>                :            :         if (a &gt;= BASE) a -= BASE; \
+<span class="lineNum">      55 </span>                :            :     } while (0)
+<span class="lineNum">      56 </span>                :            : #else
+<span class="lineNum">      57 </span>                :            : #  define MOD(a) a %= BASE
+<span class="lineNum">      58 </span>                :            : #  define MOD28(a) a %= BASE
+<span class="lineNum">      59 </span>                :            : #  define MOD63(a) a %= BASE
+<span class="lineNum">      60 </span>                :            : #endif
+<a name="61"><span class="lineNum">      61 </span>                :            : </a>
+<span class="lineNum">      62 </span>                :            : /* ========================================================================= */
+<span class="lineNum">      63 </span>                :<span class="lineCov">          4 : uint32_t adler32(uint32_t adler, uint8_t *buf, size_t len)</span>
+<span class="lineNum">      64 </span>                :            : {
+<span class="lineNum">      65 </span>                :            :     unsigned long sum2;
+<span class="lineNum">      66 </span>                :            :     unsigned n;
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>                :            :     /* split Adler-32 into component sums */
+<span class="lineNum">      69 </span>                :<span class="lineCov">          4 :     sum2 = (adler &gt;&gt; 16) &amp; 0xffff;</span>
+<span class="lineNum">      70 </span>                :<span class="lineCov">          4 :     adler &amp;= 0xffff;</span>
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            :     /* in case user likes doing a byte at a time, keep it fast */
+<span class="lineNum">      73 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">          4 :     if (len == 1) {</span>
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :         adler += buf[0];</span>
+<span class="lineNum">      75 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (adler &gt;= BASE)</span>
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :             adler -= BASE;</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :         sum2 += adler;</span>
+<span class="lineNum">      78 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sum2 &gt;= BASE)</span>
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :             sum2 -= BASE;</span>
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :         return adler | (sum2 &lt;&lt; 16);</span>
+<span class="lineNum">      81 </span>                :            :     }
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :            :     /* initial Adler-32 value (deferred check for len == 1 speed) */
+<span class="lineNum">      84 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">          4 :     if (buf == NULL)</span>
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         return 1L;</span>
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>                :            :     /* in case short lengths are provided, keep it somewhat fast */
+<span class="lineNum">      88 </span>        [<span class="branchCov" title="Branch 0 was taken 3 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">          4 :     if (len &lt; 16) {</span>
+<span class="lineNum">      89 </span>        [<span class="branchCov" title="Branch 0 was taken 16 times"> + </span><span class="branchCov" title="Branch 1 was taken 3 times"> + </span>]:<span class="lineCov">         19 :         while (len--) {</span>
+<span class="lineNum">      90 </span>                :<span class="lineCov">         16 :             adler += *buf++;</span>
+<span class="lineNum">      91 </span>                :<span class="lineCov">         16 :             sum2 += adler;</span>
+<span class="lineNum">      92 </span>                :            :         }
+<span class="lineNum">      93 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3 times"> + </span>]:<span class="lineCov">          3 :         if (adler &gt;= BASE)</span>
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :             adler -= BASE;</span>
+<span class="lineNum">      95 </span>                :<span class="lineCov">          3 :         MOD28(sum2);            /* only added so many BASE's */</span>
+<span class="lineNum">      96 </span>                :<span class="lineCov">          3 :         return adler | (sum2 &lt;&lt; 16);</span>
+<span class="lineNum">      97 </span>                :            :     }
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>                :            :     /* do length NMAX blocks -- requires just one modulo operation */
+<span class="lineNum">     100 </span>        [<span class="branchCov" title="Branch 0 was taken 193397 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">     193398 :     while (len &gt;= NMAX) {</span>
+<span class="lineNum">     101 </span>                :<span class="lineCov">     193397 :         len -= NMAX;</span>
+<span class="lineNum">     102 </span>                :<span class="lineCov">     193397 :         n = NMAX / 16;          /* NMAX is divisible by 16 */</span>
+<span class="lineNum">     103 </span>        [<span class="branchCov" title="Branch 0 was taken 66915362 times"> + </span><span class="branchCov" title="Branch 1 was taken 193397 times"> + </span>]:<span class="lineCov">   67108759 :         do {</span>
+<span class="lineNum">     104 </span>                :<span class="lineCov">   67108759 :             DO16(buf);          /* 16 sums unrolled */</span>
+<span class="lineNum">     105 </span>                :<span class="lineCov">   67108759 :             buf += 16;</span>
+<span class="lineNum">     106 </span>                :            :         } while (--n);
+<span class="lineNum">     107 </span>                :<span class="lineCov">     193397 :         MOD(adler);</span>
+<span class="lineNum">     108 </span>                :<span class="lineCov">     193397 :         MOD(sum2);</span>
+<span class="lineNum">     109 </span>                :            :     }
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :            :     /* do remaining bytes (less than NMAX, still just one modulo) */
+<span class="lineNum">     112 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (len) {                  /* avoid modulos if none remaining */</span>
+<span class="lineNum">     113 </span>        [<span class="branchCov" title="Branch 0 was taken 105 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">        106 :         while (len &gt;= 16) {</span>
+<span class="lineNum">     114 </span>                :<span class="lineCov">        105 :             len -= 16;</span>
+<span class="lineNum">     115 </span>                :<span class="lineCov">        105 :             DO16(buf);</span>
+<span class="lineNum">     116 </span>                :<span class="lineCov">        105 :             buf += 16;</span>
+<span class="lineNum">     117 </span>                :            :         }
+<span class="lineNum">     118 </span>        [<span class="branchCov" title="Branch 0 was taken 7 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">          8 :         while (len--) {</span>
+<span class="lineNum">     119 </span>                :<span class="lineCov">          7 :             adler += *buf++;</span>
+<span class="lineNum">     120 </span>                :<span class="lineCov">          7 :             sum2 += adler;</span>
+<span class="lineNum">     121 </span>                :            :         }
+<span class="lineNum">     122 </span>                :<span class="lineCov">          1 :         MOD(adler);</span>
+<span class="lineNum">     123 </span>                :<span class="lineCov">          1 :         MOD(sum2);</span>
+<span class="lineNum">     124 </span>                :            :     }
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>                :            :     /* return recombined sums */
+<span class="lineNum">     127 </span>                :<span class="lineCov">          4 :     return adler | (sum2 &lt;&lt; 16);</span>
+<span class="lineNum">     128 </span>                :            : }
+<a name="129"><span class="lineNum">     129 </span>                :            : </a>
+<span class="lineNum">     130 </span>                :            : #define MIN(a,b) (((a)&lt;(b))?(a):(b))
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 : uint32_t adler32_last8(uint32_t adler, uint8_t *buf, size_t len)</span>
+<span class="lineNum">     132 </span>                :            : {
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :     size_t min = MIN(len, 8);</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :     uint8_t *src = buf + (len-min);</span>
+<span class="lineNum">     135 </span>                :            : #ifdef _ALIGN_MEM_ACCESS
+<span class="lineNum">     136 </span>                :            :     uint64_t temp; // aligned
+<span class="lineNum">     137 </span>                :            :     memcpy(&amp;temp, src, min);
+<span class="lineNum">     138 </span>                :            :     src = &amp;temp;
+<span class="lineNum">     139 </span>                :            : #endif
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :     return adler32(adler, src, min);</span>
+<span class="lineNum">     141 </span>                :            : }
+<span class="lineNum">     142 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.11</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

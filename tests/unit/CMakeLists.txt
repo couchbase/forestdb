@@ -15,7 +15,7 @@ add_executable(bcache_test
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${PROJECT_SOURCE_DIR}/${GETTIMEOFDAY_VS}
+               ${GETTIMEOFDAY_VS}
                ${ROOT_SRC}/hash.cc
                ${ROOT_SRC}/hash_functions.cc
                ${ROOT_SRC}/list.cc
@@ -36,7 +36,7 @@ add_executable(filemgr_test
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${PROJECT_SOURCE_DIR}/${GETTIMEOFDAY_VS}
+               ${GETTIMEOFDAY_VS}
                ${ROOT_SRC}/hash.cc
                ${ROOT_SRC}/hash_functions.cc
                ${ROOT_SRC}/list.cc
@@ -59,7 +59,7 @@ add_executable(btreeblock_test
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${PROJECT_SOURCE_DIR}/${GETTIMEOFDAY_VS}
+               ${GETTIMEOFDAY_VS}
                ${ROOT_SRC}/hash.cc
                ${ROOT_SRC}/hash_functions.cc
                ${ROOT_SRC}/list.cc
@@ -80,7 +80,7 @@ add_executable(docio_test
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${PROJECT_SOURCE_DIR}/${GETTIMEOFDAY_VS}
+               ${GETTIMEOFDAY_VS}
                ${ROOT_SRC}/hash.cc
                ${ROOT_SRC}/hash_functions.cc
                ${ROOT_SRC}/list.cc
@@ -105,7 +105,7 @@ add_executable(hbtrie_test
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${PROJECT_SOURCE_DIR}/${GETTIMEOFDAY_VS}
+               ${GETTIMEOFDAY_VS}
                ${ROOT_SRC}/hash.cc
                ${ROOT_SRC}/hash_functions.cc
                ${ROOT_SRC}/hbtrie.cc

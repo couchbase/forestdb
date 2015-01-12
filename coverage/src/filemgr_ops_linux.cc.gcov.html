@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - src/filemgr_ops_linux.cc</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">src</a> - filemgr_ops_linux.cc<span style="font-size: 80%;"> (source / <a href="filemgr_ops_linux.cc.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">42</td>
+            <td class="headerCovTableEntry">53</td>
+            <td class="headerCovTableEntryMed">79.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2015-01-12 16:10:39</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryMed">80.0 %</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntry">58</td>
+            <td class="headerCovTableEntryLo">44.8 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /* -*- Mode: C++; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */</a>
+<span class="lineNum">       2 </span>                :            : /*
+<span class="lineNum">       3 </span>                :            :  *     Copyright 2010 Couchbase, Inc
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  *   Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+<span class="lineNum">       6 </span>                :            :  *   you may not use this file except in compliance with the License.
+<span class="lineNum">       7 </span>                :            :  *   You may obtain a copy of the License at
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *       http://www.apache.org/licenses/LICENSE-2.0
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  *   Unless required by applicable law or agreed to in writing, software
+<span class="lineNum">      12 </span>                :            :  *   distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+<span class="lineNum">      13 </span>                :            :  *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+<span class="lineNum">      14 </span>                :            :  *   See the License for the specific language governing permissions and
+<span class="lineNum">      15 </span>                :            :  *   limitations under the License.
+<span class="lineNum">      16 </span>                :            :  */
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &lt;sys/types.h&gt;
+<span class="lineNum">      19 </span>                :            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      20 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      21 </span>                :            : #include &lt;stdint.h&gt;
+<span class="lineNum">      22 </span>                :            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      23 </span>                :            : #include &lt;stdio.h&gt;
+<span class="lineNum">      24 </span>                :            : #include &lt;errno.h&gt;
+<span class="lineNum">      25 </span>                :            : #include &lt;string.h&gt;
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : #include &quot;filemgr.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;filemgr_ops.h&quot;
+<span class="lineNum">      29 </span>                :            : 
+<a name="30"><span class="lineNum">      30 </span>                :            : #if !defined(WIN32) &amp;&amp; !defined(_WIN32)</a>
+<span class="lineNum">      31 </span>                :            : 
+<span class="lineNum">      32 </span>                :<span class="lineCov">       1405 : int _filemgr_linux_open(const char *pathname, int flags, mode_t mode)</span>
+<span class="lineNum">      33 </span>                :            : {
+<span class="lineNum">      34 </span>                :            :     int fd;
+<span class="lineNum">      35 </span>  [<span class="branchCov" title="Branch 0 was taken 1049 times"> + </span><span class="branchCov" title="Branch 1 was taken 357 times"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1048 times"> + </span>]:<span class="lineCov">       2454 :     do {</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 1405 times"> + </span>]
+<span class="lineNum">      36 </span>                :<span class="lineCov">       1405 :         fd = open(pathname, flags | O_LARGEFILE, mode);</span>
+<span class="lineNum">      37 </span>                :<span class="lineCov">       1049 :     } while (fd == -1 &amp;&amp; errno == EINTR);</span>
+<span class="lineNum">      38 </span>                :            : 
+<span class="lineNum">      39 </span>        [<span class="branchCov" title="Branch 0 was taken 1049 times"> + </span><span class="branchCov" title="Branch 1 was taken 356 times"> + </span>]:<span class="lineCov">       1405 :     if (fd &lt; 0) {</span>
+<span class="lineNum">      40 </span>        [<span class="branchCov" title="Branch 1 was taken 1049 times"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span>]:<span class="lineCov">       1049 :         if (errno == ENOENT) {</span>
+<span class="lineNum">      41 </span>                :<span class="lineCov">       1049 :             return (int) FDB_RESULT_NO_SUCH_FILE;</span>
+<span class="lineNum">      42 </span>                :            :         } else {
+<span class="lineNum">      43 </span>                :            :             return (int) FDB_RESULT_OPEN_FAIL; // LCOV_EXCL_LINE
+<span class="lineNum">      44 </span>                :            :         }
+<span class="lineNum">      45 </span>                :            :     }
+<span class="lineNum">      46 </span>                :<span class="lineCov">       1405 :     return fd;</span>
+<a name="47"><span class="lineNum">      47 </span>                :            : }</a>
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :<span class="lineCov">    1147874 : ssize_t _filemgr_linux_pwrite(int fd, void *buf, size_t count, cs_off_t offset)</span>
+<span class="lineNum">      50 </span>                :            : {
+<span class="lineNum">      51 </span>                :            :     ssize_t rv;
+<span class="lineNum">      52 </span>  [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1147931 times"> + </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">    1147931 :     do {</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 1147948 times"> + </span>]
+<span class="lineNum">      53 </span>                :<span class="lineCov">    1147874 :         rv = pwrite(fd, buf, count, offset);</span>
+<span class="lineNum">      54 </span>                :            :     } while (rv == -1 &amp;&amp; errno == EINTR); // LCOV_EXCL_LINE
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1147948 times"> + </span>]:<span class="lineCov">    1147948 :     if (rv &lt; 0) {</span>
+<span class="lineNum">      57 </span>                :            :         return (ssize_t) FDB_RESULT_WRITE_FAIL; // LCOV_EXCL_LINE
+<span class="lineNum">      58 </span>                :            :     }
+<span class="lineNum">      59 </span>                :<span class="lineCov">    1147948 :     return rv;</span>
+<a name="60"><span class="lineNum">      60 </span>                :            : }</a>
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :<span class="lineCov">    1725483 : ssize_t _filemgr_linux_pread(int fd, void *buf, size_t count, cs_off_t offset)</span>
+<span class="lineNum">      63 </span>                :            : {
+<span class="lineNum">      64 </span>                :            :     ssize_t rv;
+<span class="lineNum">      65 </span>  [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 1720298 times"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1 time"> + </span>]:<span class="lineCov">    1720300 :     do {</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 39 times"> + </span><span class="branchCov" title="Branch 5 was taken 1720514 times"> + </span>]
+<span class="lineNum">      66 </span>                :<span class="lineCov">    1725483 :         rv = pread(fd, buf, count, offset);</span>
+<span class="lineNum">      67 </span>                :            :     } while (rv == -1 &amp;&amp; errno == EINTR); // LCOV_EXCL_LINE
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 1720513 times"> + </span>]:<span class="lineCov">    1720514 :     if (rv &lt; 0) {</span>
+<span class="lineNum">      70 </span>                :            :         return (ssize_t) FDB_RESULT_READ_FAIL; // LCOV_EXCL_LINE
+<span class="lineNum">      71 </span>                :            :     }
+<span class="lineNum">      72 </span>                :<span class="lineCov">    1720514 :     return rv;</span>
+<a name="73"><span class="lineNum">      73 </span>                :            : }</a>
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :<span class="lineCov">        352 : int _filemgr_linux_close(int fd)</span>
+<span class="lineNum">      76 </span>                :            : {
+<span class="lineNum">      77 </span>                :<span class="lineCov">        352 :     int rv = 0;</span>
+<span class="lineNum">      78 </span>        [<span class="branchCov" title="Branch 0 was taken 352 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">        352 :     if (fd != -1) {</span>
+<span class="lineNum">      79 </span>  [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 353 times"> + </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">        353 :         do {</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 353 times"> + </span>]
+<span class="lineNum">      80 </span>                :<span class="lineCov">        352 :             rv = close(fd);</span>
+<span class="lineNum">      81 </span>                :            :         } while (rv == -1 &amp;&amp; errno == EINTR); // LCOV_EXCL_LINE
+<span class="lineNum">      82 </span>                :            :     }
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 353 times"> + </span>]:<span class="lineCov">        353 :     if (rv &lt; 0) {</span>
+<span class="lineNum">      85 </span>                :            :         return FDB_RESULT_CLOSE_FAIL; // LCOV_EXCL_LINE
+<span class="lineNum">      86 </span>                :            :     }
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>                :<span class="lineCov">        353 :     return FDB_RESULT_SUCCESS;</span>
+<a name="89"><span class="lineNum">      89 </span>                :            : }</a>
+<span class="lineNum">      90 </span>                :            : 
+<span class="lineNum">      91 </span>                :<span class="lineCov">     188767 : cs_off_t _filemgr_linux_goto_eof(int fd)</span>
+<span class="lineNum">      92 </span>                :            : {
+<span class="lineNum">      93 </span>                :<span class="lineCov">     188767 :     cs_off_t rv = lseek(fd, 0, SEEK_END);</span>
+<span class="lineNum">      94 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 188767 times"> + </span>]:<span class="lineCov">     188767 :     if (rv &lt; 0) {</span>
+<span class="lineNum">      95 </span>                :            :         return (cs_off_t) FDB_RESULT_SEEK_FAIL; // LCOV_EXCL_LINE
+<span class="lineNum">      96 </span>                :            :     }
+<span class="lineNum">      97 </span>                :<span class="lineCov">     188767 :     return rv;</span>
+<a name="98"><span class="lineNum">      98 </span>                :            : }</a>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 : cs_off_t _filemgr_linux_file_size(const char *filename)</span>
+<span class="lineNum">     101 </span>                :            : {
+<span class="lineNum">     102 </span>                :            :     struct stat st;
+<span class="lineNum">     103 </span>        [<span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (stat(filename, &amp;st) == -1) {</span>
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :         return (cs_off_t) FDB_RESULT_READ_FAIL;</span>
+<span class="lineNum">     105 </span>                :            :     }
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :     return st.st_size;</span>
+<a name="107"><span class="lineNum">     107 </span>                :            : }</a>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :<span class="lineCov">      15663 : int _filemgr_linux_fsync(int fd)</span>
+<span class="lineNum">     110 </span>                :            : {
+<span class="lineNum">     111 </span>                :            :     int rv;
+<span class="lineNum">     112 </span>  [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 15663 times"> + </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">      15663 :     do {</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 15663 times"> + </span>]
+<span class="lineNum">     113 </span>                :<span class="lineCov">      15663 :         rv = fsync(fd);</span>
+<span class="lineNum">     114 </span>                :            :     } while (rv == -1 &amp;&amp; errno == EINTR); // LCOV_EXCL_LINE
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 15663 times"> + </span>]:<span class="lineCov">      15663 :     if (rv == -1) {</span>
+<span class="lineNum">     117 </span>                :            :         return FDB_RESULT_FSYNC_FAIL; // LCOV_EXCL_LINE
+<span class="lineNum">     118 </span>                :            :     }
+<span class="lineNum">     119 </span>                :            : 
+<span class="lineNum">     120 </span>                :<span class="lineCov">      15663 :     return FDB_RESULT_SUCCESS;</span>
+<a name="121"><span class="lineNum">     121 </span>                :            : }</a>
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 : int _filemgr_linux_fdatasync(int fd)</span>
+<span class="lineNum">     124 </span>                :            : {
+<span class="lineNum">     125 </span>                :            : #if defined(__linux__) &amp;&amp; !defined(__ANDROID__)
+<span class="lineNum">     126 </span>                :            :     int rv;
+<span class="lineNum">     127 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     do {</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :         rv = fdatasync(fd);</span>
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :     } while (rv == -1 &amp;&amp; errno == EINTR);</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (rv == -1) {</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :         return FDB_RESULT_FSYNC_FAIL;</span>
+<span class="lineNum">     133 </span>                :            :     }
+<span class="lineNum">     134 </span>                :            : 
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     136 </span>                :            : #else // __linux__ &amp;&amp; not __ANDROID__
+<span class="lineNum">     137 </span>                :            :     return _filemgr_linux_fsync(fd);
+<span class="lineNum">     138 </span>                :            : #endif // __linux__ &amp;&amp; not __ANDROID__
+<a name="139"><span class="lineNum">     139 </span>                :            : }</a>
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :<span class="lineCov">       7858 : void _filemgr_linux_get_errno_str(char *buf, size_t size) {</span>
+<span class="lineNum">     142 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 7858 times"> + </span>]:<span class="lineCov">       7858 :     if (!buf) {</span>
+<span class="lineNum">     143 </span>                :<span class="lineCov">       7858 :         return;</span>
+<span class="lineNum">     144 </span>                :            :     } else {
+<span class="lineNum">     145 </span>                :<span class="lineCov">       7858 :         char *tbuf = alca(char, size);</span>
+<span class="lineNum">     146 </span>                :            : #ifdef _POSIX_SOURCE
+<span class="lineNum">     147 </span>                :<span class="lineCov">       7858 :         char *ret = strerror_r(errno, tbuf, size);</span>
+<span class="lineNum">     148 </span>                :<span class="lineCov">       7858 :         snprintf(buf, size, &quot;errno = %d: '%s'&quot;, errno, ret);</span>
+<span class="lineNum">     149 </span>                :            : #else
+<span class="lineNum">     150 </span>                :            :         (void)strerror_r(errno, tbuf, size);
+<span class="lineNum">     151 </span>                :            :         snprintf(buf, size, &quot;errno = %d: '%s'&quot;, errno, tbuf);
+<span class="lineNum">     152 </span>                :            : #endif
+<span class="lineNum">     153 </span>                :            :     }
+<span class="lineNum">     154 </span>                :            : }
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :            : struct filemgr_ops linux_ops = {
+<span class="lineNum">     157 </span>                :            :     _filemgr_linux_open,
+<span class="lineNum">     158 </span>                :            :     _filemgr_linux_pwrite,
+<span class="lineNum">     159 </span>                :            :     _filemgr_linux_pread,
+<span class="lineNum">     160 </span>                :            :     _filemgr_linux_close,
+<span class="lineNum">     161 </span>                :            :     _filemgr_linux_goto_eof,
+<span class="lineNum">     162 </span>                :            :     _filemgr_linux_file_size,
+<span class="lineNum">     163 </span>                :            :     _filemgr_linux_fdatasync,
+<span class="lineNum">     164 </span>                :            :     _filemgr_linux_fsync,
+<span class="lineNum">     165 </span>                :            :     _filemgr_linux_get_errno_str
+<a name="166"><span class="lineNum">     166 </span>                :            : };</a>
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :<span class="lineCov">       1647 : struct filemgr_ops * get_linux_filemgr_ops()</span>
+<span class="lineNum">     169 </span>                :            : {
+<span class="lineNum">     170 </span>                :<span class="lineCov">       1647 :     return &amp;linux_ops;</span>
+<span class="lineNum">     171 </span>                :            : }
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :            : #endif
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.11</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

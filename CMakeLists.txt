@@ -35,7 +35,7 @@ if (NOT WIN32)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_linux.cc")
 else (NOT WIN32)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_windows.cc")
-    set(GETTIMEOFDAY_VS "utils/gettimeofday_vs.cc")
+    set(GETTIMEOFDAY_VS "${PROJECT_SOURCE_DIR}/utils/gettimeofday_vs.cc")
 endif(NOT WIN32)
 
 IF (_MEMLEAK EQUAL 1)
