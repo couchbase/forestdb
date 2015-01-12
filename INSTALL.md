@@ -93,9 +93,9 @@ To run all the unit tests:
 
     `nmake test`
 
-* To enable code-coverage reporting for tests, install ```gcov``` and ```lcov``` for your OS. (Windows not supported).  Also make sure build type is **Debug**
+* To enable code-coverage reporting for tests, install ```gcov``` and ```lcov``` for your OS. (Windows not supported).  Also make sure build type is **Coverage**
 
-     `cmake -DCMAKE_BUILD_TYPE=Debug ../`
+     `cmake -DCMAKE_BUILD_TYPE=Coverage ../`
 
      `make all`
 
