@@ -21,8 +21,6 @@
 #include <time.h>
 #if defined(WIN32) || defined(_WIN32)
 #include <Windows.h>
-#else
-#include <unistd.h>
 #endif
 
 #ifdef __cplusplus
@@ -41,12 +39,6 @@ static inline struct timeval _utime_gap(struct timeval a, struct timeval b)
     }
     return ret;
 }
-
-#if defined(WIN32) || defined(_WIN32)
-void usleep(unsigned int useconds);
-#endif
-
-void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time);
 
 #ifdef __cplusplus
 }

@@ -33,7 +33,6 @@
 #include "snapshot.h"
 
 #include "memleak.h"
-#include "time_utils.h"
 
 static const char *default_kvs_name = DEFAULT_KVS_NAME;
 
@@ -1319,23 +1318,14 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         free(handle);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
     }
-
-    // If compaction is running, wait until it is aborted.
-    // TODO: Find a better way of waiting for the compaction abortion.
-    unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fstatus;
-    while ((fstatus = filemgr_get_file_status(handle_in->file)) == FILE_COMPACT_OLD) {
+    // There should be no compaction on the file
+    if (filemgr_get_file_status(handle_in->file) != FILE_NORMAL) {
+        filemgr_set_rollback(handle_in->file, 0);
         filemgr_mutex_unlock(handle_in->file);
-        decaying_usleep(&sleep_time, 1000000);
-        filemgr_mutex_lock(handle_in->file);
+        free(handle);
+        return FDB_RESULT_FAIL_BY_COMPACTION;
     }
-    if (fstatus == FILE_REMOVED_PENDING) {
-        filemgr_mutex_unlock(handle_in->file);
-        fdb_check_file_reopen(handle_in);
-        fdb_sync_db_header(handle_in);
-    } else {
-        filemgr_mutex_unlock(handle_in->file);
-    }
+    filemgr_mutex_unlock(handle_in->file);
 
     handle->log_callback = handle_in->log_callback;
     handle->max_seqnum = seqnum;
