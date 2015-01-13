@@ -1,5 +1,6 @@
 add_executable(fdb_functional_test
                fdb_functional_test.cc
+               ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(fdb_functional_test forestdb)
 
