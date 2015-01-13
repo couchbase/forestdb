@@ -1525,13 +1525,12 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
     return ret;
 }
 
-void filemgr_set_compaction_old(struct filemgr *old_file, struct filemgr *new_file)
+void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_file,
+                                  file_status_t status)
 {
-    assert(new_file);
-
     spin_lock(&old_file->lock);
     old_file->new_file = new_file;
-    old_file->status = FILE_COMPACT_OLD;
+    old_file->status = status;
     spin_unlock(&old_file->lock);
 }
 

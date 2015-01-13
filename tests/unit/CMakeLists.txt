@@ -25,7 +25,8 @@ add_executable(bcache_test
                ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
-               ${ROOT_UTILS}/partiallock.cc)
+               ${ROOT_UTILS}/partiallock.cc
+               ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM})
 
 
@@ -46,7 +47,8 @@ add_executable(filemgr_test
                ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
-               ${ROOT_UTILS}/partiallock.cc)
+               ${ROOT_UTILS}/partiallock.cc
+               ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(filemgr_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(btreeblock_test
@@ -69,7 +71,8 @@ add_executable(btreeblock_test
                ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
-               ${ROOT_UTILS}/partiallock.cc)
+               ${ROOT_UTILS}/partiallock.cc
+               ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(docio_test
@@ -90,7 +93,8 @@ add_executable(docio_test
                ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
-               ${ROOT_UTILS}/partiallock.cc)
+               ${ROOT_UTILS}/partiallock.cc
+               ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(hbtrie_test
@@ -116,7 +120,8 @@ add_executable(hbtrie_test
                ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
-               ${ROOT_UTILS}/partiallock.cc)
+               ${ROOT_UTILS}/partiallock.cc
+               ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(crc_test
@@ -126,7 +131,8 @@ add_executable(crc_test
                ${GETTIMEOFDAY_VS}
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/adler32.cc
-               ${ROOT_UTILS}/memleak.cc)
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(crc_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(btree_str_kv_test
