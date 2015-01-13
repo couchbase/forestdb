@@ -24,6 +24,7 @@
 #include "common.h"
 #include "internal_types.h"
 #include "btree_var_kv_ops.h"
+#include "hbtrie.h"
 
 #include "memleak.h"
 
@@ -47,8 +48,9 @@ fdb_status fdb_get_kv(fdb_kvs_handle *handle,
     fdb_status fs;
 
     if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN ||
-        keylen > handle->config.blocksize - 256 ||
-        value_out == NULL || valuelen_out == NULL) {
+        value_out == NULL || valuelen_out == NULL ||
+        (handle->kvs_config.custom_cmp &&
+            keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -86,7 +88,8 @@ fdb_status fdb_set_kv(fdb_kvs_handle *handle,
     fdb_status fs;
 
     if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN ||
-        keylen > handle->config.blocksize - 256) {
+        (handle->kvs_config.custom_cmp &&
+            keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -118,7 +121,8 @@ fdb_status fdb_del_kv(fdb_kvs_handle *handle,
     fdb_status fs;
 
     if (key == NULL || keylen == 0 || keylen > FDB_MAX_KEYLEN ||
-        keylen > handle->config.blocksize - 256) {
+        (handle->kvs_config.custom_cmp &&
+            keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 

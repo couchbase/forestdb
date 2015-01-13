@@ -27,6 +27,7 @@ extern "C" {
 #endif
 
 #define HBTRIE_MAX_KEYLEN (FDB_MAX_KEYLEN_INTERNAL+16)
+#define HBTRIE_HEADROOM (256)
 
 typedef size_t hbtrie_func_readkey(void *handle, uint64_t offset, void *buf);
 typedef int hbtrie_cmp_func(void *key1, void *key2, void* aux);

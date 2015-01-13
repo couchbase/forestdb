@@ -8253,31 +8253,31 @@ void long_key_test()
 
     memleak_start();
 
-    int i, j, idx, r;
-    int n=300, m=20; // n: # prefixes, m: # postfixes
+    int i, j, k, idx, r;
+    int l=3, n=100, m=10; // l: # length groups, n: # prefixes, m: # postfixes
     int keylen_limit;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
-    fdb_doc **doc = alca(fdb_doc*, n*m);
+    fdb_doc **doc = alca(fdb_doc*, l*n*m);
     fdb_doc *rdoc;
     fdb_status status;
+    fdb_file_info info;
 
     char *keybuf;
     char metabuf[256], bodybuf[256], temp[256];
 
     // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    fconfig.buffercache_size = 0;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.purging_interval = 0;
     fconfig.compaction_threshold = 0;
+    fconfig.durability_opt = FDB_DRB_ASYNC;
 
-    keylen_limit = fconfig.blocksize - 256;
-    keybuf = alca(char, keylen_limit);
+    keybuf = alca(char, FDB_MAX_KEYLEN);
 
     // open db
     fdb_open(&dbfile, "dummy1", &fconfig);
@@ -8291,36 +8291,48 @@ void long_key_test()
     // 00000001____ ... ____00000013[\0]
 
     // create docs
-    for (i=0;i<keylen_limit-1;++i){
-        keybuf[i] = '_';
-    }
-    keybuf[keylen_limit-1] = 0;
+    for (k=0; k<l; ++k) {
+        if (k == 0) {
+            keylen_limit = 32768; // mid-length key
+        } else if (k == 1) {
+            keylen_limit = 8192; // short-length key
+        } else {
+            keylen_limit = FDB_MAX_KEYLEN; // max-length key
+        }
 
-    for (i=0;i<n;++i){
-        // set prefix
-        sprintf(temp, "%08d", i);
-        memcpy(keybuf, temp, 8);
-        for (j=0;j<m;++j){
-            idx = i*m + j;
-            // set postfix
-            sprintf(temp, "%08d", j);
-            memcpy(keybuf + (keylen_limit-1) - 8, temp, 8);
-            sprintf(metabuf, "meta%d", idx);
-            sprintf(bodybuf, "body%d", idx);
-            fdb_doc_create(&doc[idx], (void*)keybuf, strlen(keybuf)+1,
-                                    (void*)metabuf, strlen(metabuf)+1,
-                                    (void*)bodybuf, strlen(bodybuf)+1);
+        memset(keybuf, '_', keylen_limit-1);
+        keybuf[keylen_limit-1] = 0;
+
+        for (i=0;i<n;++i){
+            // set prefix
+            sprintf(temp, "%08d", i);
+            memcpy(keybuf, temp, 8);
+            for (j=0;j<m;++j){
+                idx = k*n*m + i*m + j;
+                // set postfix
+                sprintf(temp, "%08d", j);
+                memcpy(keybuf + (keylen_limit-1) - 8, temp, 8);
+                sprintf(metabuf, "meta%d", idx);
+                sprintf(bodybuf, "body%d", idx);
+                fdb_doc_create(&doc[idx], (void*)keybuf, strlen(keybuf)+1,
+                                          (void*)metabuf, strlen(metabuf)+1,
+                                          (void*)bodybuf, strlen(bodybuf)+1);
+            }
         }
     }
 
     // insert docs
-    for (i=0;i<n*m;++i) {
+    for (i=0;i<l*n*m;++i) {
         fdb_set(db, doc[i]);
     }
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
+    // doc count check
+    fdb_get_file_info(dbfile, &info);
+    TEST_CHK(info.doc_count == l*n*m);
+
     // retrieval check
-    for (i=0;i<n*m;++i){
+    for (i=0;i<l*n*m;++i){
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -8333,7 +8345,7 @@ void long_key_test()
     fdb_close(dbfile);
 
     // free all documents
-    for (i=0;i<n*m;++i){
+    for (i=0;i<l*n*m;++i){
         fdb_doc_free(doc[i]);
     }
 
