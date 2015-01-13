@@ -67,6 +67,7 @@ void list_insert_before(struct list *list, struct list_elem *before, struct list
 }
 
 // insert E just after AFTER
+// LCOV_EXCL_START
 void list_insert_after(struct list *list, struct list_elem *after, struct list_elem *e)
 {
     IFDEF_LOCK( spin_lock(&list->lock); );
@@ -77,6 +78,7 @@ void list_insert_after(struct list *list, struct list_elem *after, struct list_e
     after->next = e;
     IFDEF_LOCK( spin_unlock(&list->lock); );
 }
+// LCOV_EXCL_STOP
 
 struct list_elem *list_remove(struct list *list, struct list_elem *e)
 {

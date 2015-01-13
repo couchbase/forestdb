@@ -1269,6 +1269,7 @@ btree_result btree_remove(struct btree *btree, void *key)
     return BTREE_RESULT_SUCCESS;
 }
 
+// LCOV_EXCL_START
 btree_result btree_operation_end(struct btree *btree)
 {
     if (btree->blk_ops->blk_operation_end) {
@@ -1276,6 +1277,7 @@ btree_result btree_operation_end(struct btree *btree)
     }
     return BTREE_RESULT_SUCCESS;
 }
+// LCOV_EXCL_STOP
 
 btree_result btree_iterator_init(struct btree *btree,
                                  struct btree_iterator *it, void *initial_key)

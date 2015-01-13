@@ -1135,9 +1135,9 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     }
 
     handle = (fdb_kvs_handle *)calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) {
+    if (!handle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     handle->fhandle = fhandle;
     fs = _fdb_kvs_open(root_handle, &config, &config_local,
@@ -1306,9 +1306,9 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     }
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) {
+    if (!handle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     filemgr_mutex_lock(handle_in->file);
     filemgr_set_rollback(handle_in->file, 1); // disallow writes operations

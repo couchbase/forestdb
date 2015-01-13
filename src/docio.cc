@@ -265,14 +265,14 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 
         _len = compbuf_len;
         ret = snappy_compress((char*)doc->body, length.bodylen, (char*)compbuf, &_len);
-        if (ret < 0) {
+        if (ret < 0) { // LCOV_EXCL_START
             fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
                     "Error in compressing the doc body of key '%s'",
                     (char *) doc->key);
             // we use BLK_NOT_FOUND for error code of appending instead of 0
             // because document can be written at the byte offset 0
             return BLK_NOT_FOUND;
-        }
+        } // LCOV_EXCL_STOP
 
         length.bodylen_ondisk = compbuf_len = _len;
         length.flag |= DOCIO_COMPRESSED;

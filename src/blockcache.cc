@@ -1096,6 +1096,7 @@ uint64_t bcache_get_num_free_blocks()
     return freelist_count;
 }
 
+// LCOV_EXCL_START
 void bcache_print_items()
 {
     int n=1;
@@ -1209,7 +1210,9 @@ scan:
     printf("Documents: %d blocks\n", (int)docs);
     printf("Index nodes: %d blocks\n", (int)bnodes);
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START
 INLINE void _bcache_free_bcache_item(struct hash_elem *h)
 {
     struct bcache_item *item = _get_entry(h, struct bcache_item, hash_elem);
@@ -1217,7 +1220,9 @@ INLINE void _bcache_free_bcache_item(struct hash_elem *h)
     spin_destroy(&item->lock);
     free(item);
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START
 INLINE void _bcache_free_fnamedic(struct hash_elem *h)
 {
     struct fnamedic_item *item;
@@ -1229,6 +1234,7 @@ INLINE void _bcache_free_fnamedic(struct hash_elem *h)
     free(item->filename);
     free(item);
 }
+// LCOV_EXCL_STOP
 
 void bcache_shutdown()
 {
