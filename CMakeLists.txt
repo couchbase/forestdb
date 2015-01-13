@@ -133,13 +133,13 @@ add_executable(forestdb_dump
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
-IF (INSTALL_HEADER_FILES)
-   INSTALL(FILES
-           include/libforestdb/forestdb.h
-           include/libforestdb/fdb_types.h
-           include/libforestdb/fdb_errors.h
-           DESTINATION include/libforestdb)
-ENDIF(INSTALL_HEADER_FILES)
+if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))
+    INSTALL(FILES
+            include/libforestdb/forestdb.h
+            include/libforestdb/fdb_types.h
+            include/libforestdb/fdb_errors.h
+            DESTINATION include/libforestdb)
+endif((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))
 
 INSTALL(TARGETS forestdb
         RUNTIME DESTINATION bin
