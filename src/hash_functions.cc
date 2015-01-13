@@ -28,11 +28,14 @@ uint32_t hash_djb2_last8(uint8_t *value, int len)
     return hash;
 }
 
+// LCOV_EXCL_START
 uint32_t hash_uint_modular(uint64_t value, uint64_t mod)
 {
     return value % mod;
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START
 uint32_t hash_shuffle_2uint(uint64_t a, uint64_t b)
 {
     uint32_t c;
@@ -58,4 +61,5 @@ uint32_t hash_shuffle_2uint(uint64_t a, uint64_t b)
 
     return (((c << 5) + c) << 5) + c;
 }
+// LCOV_EXCL_STOP
 

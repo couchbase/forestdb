@@ -318,6 +318,7 @@ static void _copy_fast_str_kv(struct bnode *node_dst,
     }
 }
 
+// LCOV_EXCL_START
 static size_t _get_fast_str_kv_size(struct btree *tree, void *key, void *value)
 {
     void *key_ptr;
@@ -331,6 +332,7 @@ static size_t _get_fast_str_kv_size(struct btree *tree, void *key, void *value)
 
     return ((key)?(sizeof(key_len_t) + keylen):0) + ((value)?tree->vsize:0);
 }
+// LCOV_EXCL_STOP
 
 static size_t _get_fast_str_data_size(
     struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)

@@ -756,6 +756,7 @@ void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum)
     file->header.seqnum = seqnum;
 }
 
+// LCOV_EXCL_START
 char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len)
 {
     spin_lock(&file->lock);
@@ -764,6 +765,7 @@ char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *
     spin_unlock(&file->lock);
     return *filename;
 }
+// LCOV_EXCL_STOP
 
 bid_t filemgr_get_header_bid(struct filemgr *file)
 {
@@ -1054,6 +1056,7 @@ static void _filemgr_free_func(struct hash_elem *h)
 }
 
 // permanently remove file from cache (not just close)
+// LCOV_EXCL_START
 void filemgr_remove_file(struct filemgr *file)
 {
     struct hash_elem *ret;
@@ -1069,6 +1072,7 @@ void filemgr_remove_file(struct filemgr *file)
 
     _filemgr_free_func(&file->e);
 }
+// LCOV_EXCL_STOP
 
 void filemgr_shutdown()
 {
@@ -1544,11 +1548,13 @@ void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
         old_file->new_file = new_file;
         old_file->status = FILE_REMOVED_PENDING;
         spin_unlock(&old_file->lock);
-    }else{
+    } else {
         // immediatly remove
+        // LCOV_EXCL_START
         spin_unlock(&old_file->lock);
         remove(old_file->filename);
         filemgr_remove_file(old_file);
+        // LCOV_EXCL_STOP
     }
 }
 

@@ -114,12 +114,14 @@ INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,
     free_align(block->addr);
 }
 
+// LCOV_EXCL_START
 INLINE int is_subblock(bid_t subbid)
 {
     uint8_t flag;
     flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
     return flag;
 }
+// LCOV_EXCL_STOP
 
 INLINE void bid2subbid(bid_t bid, size_t subblock_no, size_t idx, bid_t *subbid)
 {
@@ -479,6 +481,7 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
     }
 }
 
+// LCOV_EXCL_START
 void btreeblk_remove(void *voidhandle, bid_t bid)
 {
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
@@ -514,6 +517,7 @@ void btreeblk_remove(void *voidhandle, bid_t bid)
         filemgr_invalidate_block(handle->file, bid);
     }
 }
+// LCOV_EXCL_STOP
 
 int btreeblk_is_writable(void *voidhandle, bid_t bid)
 {

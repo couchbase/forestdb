@@ -101,17 +101,17 @@ int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 fdb_status snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle)
 {
     shandle->key_tree = (struct avl_tree *) malloc(sizeof(struct avl_tree));
-    if (!shandle->key_tree) {
+    if (!shandle->key_tree) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
     shandle->cmp_info.kvs_config = handle->kvs_config;
     shandle->cmp_info.kvs = handle->kvs;
 
     avl_init(shandle->key_tree, (void *)&shandle->cmp_info);
     shandle->seq_tree = (struct avl_tree *) malloc(sizeof(struct avl_tree));
-    if (!shandle->seq_tree) {
+    if (!shandle->seq_tree) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
     avl_init(shandle->seq_tree, NULL);
     spin_init(&shandle->lock);
     shandle->ref_cnt = 1;

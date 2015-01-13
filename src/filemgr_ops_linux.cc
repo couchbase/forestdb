@@ -97,6 +97,7 @@ cs_off_t _filemgr_linux_goto_eof(int fd)
     return rv;
 }
 
+// LCOV_EXCL_START
 cs_off_t _filemgr_linux_file_size(const char *filename)
 {
     struct stat st;
@@ -105,6 +106,7 @@ cs_off_t _filemgr_linux_file_size(const char *filename)
     }
     return st.st_size;
 }
+// LCOV_EXCL_STOP
 
 int _filemgr_linux_fsync(int fd)
 {
@@ -120,6 +122,7 @@ int _filemgr_linux_fsync(int fd)
     return FDB_RESULT_SUCCESS;
 }
 
+// LCOV_EXCL_START
 int _filemgr_linux_fdatasync(int fd)
 {
 #if defined(__linux__) && !defined(__ANDROID__)
@@ -137,6 +140,7 @@ int _filemgr_linux_fdatasync(int fd)
     return _filemgr_linux_fsync(fd);
 #endif // __linux__ && not __ANDROID__
 }
+// LCOV_EXCL_STOP
 
 void _filemgr_linux_get_errno_str(char *buf, size_t size) {
     if (!buf) {

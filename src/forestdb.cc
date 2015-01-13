@@ -648,15 +648,15 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     }
 
     fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
-    if (!fhandle) {
+    if (!fhandle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) {
+    if (!handle) { // LCOV_EXCL_START
         free(fhandle);
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
@@ -710,15 +710,15 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     }
 
     fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
-    if (!fhandle) {
+    if (!fhandle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) {
+    if (!handle) { // LCOV_EXCL_START
         free(fhandle);
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
@@ -756,15 +756,15 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     fdb_kvs_handle *handle;
 
     fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
-    if (!fhandle) {
+    if (!fhandle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) {
+    if (!handle) { // LCOV_EXCL_START
         free(fhandle);
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
     handle->shandle = NULL;
 
     fdb_file_handle_init(fhandle, handle);
@@ -827,9 +827,9 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
     }
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) {
+    if (!handle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     handle->log_callback = handle_in->log_callback;
     handle->max_seqnum = seqnum;
@@ -851,10 +851,10 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
 
     if (!handle->shandle) {
         handle->shandle = (struct snap_handle *) calloc(1, sizeof(snap_handle));
-        if (!handle->shandle) {
+        if (!handle->shandle) { // LCOV_EXCL_START
             free(handle);
             return FDB_RESULT_ALLOC_FAIL;
-        }
+        } // LCOV_EXCL_STOP
         snap_init(handle->shandle, handle_in);
     }
 
@@ -934,9 +934,9 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     }
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) {
+    if (!handle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     filemgr_mutex_lock(handle_in->file);
     filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
@@ -1496,17 +1496,17 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
     }
 
     *doc = (fdb_doc*)calloc(1, sizeof(fdb_doc));
-    if (*doc == NULL) {
+    if (*doc == NULL) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
-    }
+    } // LCOV_EXCL_STOP
 
     (*doc)->seqnum = 0;
 
     if (key && keylen > 0) {
         (*doc)->key = (void *)malloc(keylen);
-        if ((*doc)->key == NULL) {
+        if ((*doc)->key == NULL) { // LCOV_EXCL_START
             return FDB_RESULT_ALLOC_FAIL;
-        }
+        } // LCOV_EXCL_STOP
         memcpy((*doc)->key, key, keylen);
         (*doc)->keylen = keylen;
     } else {
@@ -1516,9 +1516,9 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
 
     if (meta && metalen > 0) {
         (*doc)->meta = (void *)malloc(metalen);
-        if ((*doc)->meta == NULL) {
+        if ((*doc)->meta == NULL) { // LCOV_EXCL_START
             return FDB_RESULT_ALLOC_FAIL;
-        }
+        } // LCOV_EXCL_STOP
         memcpy((*doc)->meta, meta, metalen);
         (*doc)->metalen = metalen;
     } else {
@@ -1528,9 +1528,9 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
 
     if (body && bodylen > 0) {
         (*doc)->body = (void *)malloc(bodylen);
-        if ((*doc)->body == NULL) {
+        if ((*doc)->body == NULL) { // LCOV_EXCL_START
             return FDB_RESULT_ALLOC_FAIL;
-        }
+        } // LCOV_EXCL_STOP
         memcpy((*doc)->body, body, bodylen);
         (*doc)->bodylen = bodylen;
     } else {
@@ -1562,9 +1562,9 @@ fdb_status fdb_doc_update(fdb_doc **doc,
         free((*doc)->meta);
         // allocate new metadata
         (*doc)->meta = (void *)malloc(metalen);
-        if ((*doc)->meta == NULL) {
+        if ((*doc)->meta == NULL) { // LCOV_EXCL_START
             return FDB_RESULT_ALLOC_FAIL;
-        }
+        } // LCOV_EXCL_STOP
         memcpy((*doc)->meta, meta, metalen);
         (*doc)->metalen = metalen;
     }
@@ -1574,9 +1574,9 @@ fdb_status fdb_doc_update(fdb_doc **doc,
         free((*doc)->body);
         // allocate new body
         (*doc)->body = (void *)malloc(bodylen);
-        if ((*doc)->body == NULL) {
+        if ((*doc)->body == NULL) { // LCOV_EXCL_START
             return FDB_RESULT_ALLOC_FAIL;
-        }
+        } // LCOV_EXCL_STOP
         memcpy((*doc)->body, body, bodylen);
         (*doc)->bodylen = bodylen;
     }
@@ -1738,6 +1738,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
     } else {
         // Immediate remove
+        // LCOV_EXCL_START
         hr = hbtrie_remove(handle->trie, item->header->key,
                            item->header->keylen);
         fs = btreeblk_end(handle->bhandle);
@@ -1759,6 +1760,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             delta = -(int)item->doc_size;
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
         }
+        // LCOV_EXCL_STOP
     }
     return FDB_RESULT_SUCCESS;
 }

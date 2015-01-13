@@ -368,6 +368,7 @@ void btree_str_kv_set_key(void *key, void *str, size_t len)
 }
 
 // create an infinite key that is larger than any other keys
+// LCOV_EXCL_START
 void btree_str_kv_set_inf_key(void *key)
 {
     void *key_ptr;
@@ -381,8 +382,10 @@ void btree_str_kv_set_inf_key(void *key)
     memcpy(key_ptr, &_keylen, sizeof(key_len_t));
     memcpy(key, &key_ptr, sizeof(void *));
 }
+// LCOV_EXCL_STOP
 
 // return true if KEY is infinite key
+// LCOV_EXCL_START
 int btree_str_kv_is_inf_key(void *key)
 {
     void *key_ptr;
@@ -400,6 +403,7 @@ int btree_str_kv_is_inf_key(void *key)
     }
     return 0;
 }
+// LCOV_EXCL_STOP
 
 void btree_str_kv_get_key(void *key, void *strbuf, size_t *len)
 {
