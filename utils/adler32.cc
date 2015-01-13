@@ -128,6 +128,7 @@ uint32_t adler32(uint32_t adler, uint8_t *buf, size_t len)
 }
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
+// LCOV_EXCL_START
 uint32_t adler32_last8(uint32_t adler, uint8_t *buf, size_t len)
 {
     size_t min = MIN(len, 8);
@@ -139,4 +140,5 @@ uint32_t adler32_last8(uint32_t adler, uint8_t *buf, size_t len)
 #endif
     return adler32(adler, src, min);
 }
+// LCOV_EXCL_STOP
 

@@ -108,6 +108,7 @@ static struct avl_tree tree_index;
 static uint8_t start_sw = 0;
 static spin_t lock;
 
+// LCOV_EXCL_START
 int memleak_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct memleak_item *aa, *bb;
@@ -117,6 +118,7 @@ int memleak_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     else if (aa->addr > bb->addr) return 1;
     else return 0;
 }
+// LCOV_EXCL_STOP
 
 LIBMEMLEAK_API
 void memleak_start()
@@ -197,6 +199,7 @@ void memleak_end()
     spin_unlock(&lock);
 }
 
+// LCOV_EXCL_START
 void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uint8_t init_val)
 {
     DBG("malloc at %s:%ld, size %ld\n", file, line, size);
@@ -219,7 +222,9 @@ void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uin
 #endif
     avl_insert(&tree_index, &item->avl, memleak_cmp);
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START
 LIBMEMLEAK_API
 void * memleak_alloc(size_t size, char *file, size_t line)
 {
@@ -232,7 +237,9 @@ void * memleak_alloc(size_t size, char *file, size_t line)
 
     return addr;
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START
 LIBMEMLEAK_API
 void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
 {
@@ -245,11 +252,13 @@ void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
 
     return addr;
 }
+// LCOV_EXCL_STOP
 
 #if !defined(WIN32)
 
 #if !defined(__ANDROID__)
 // posix only
+// LCOV_EXCL_START
 LIBMEMLEAK_API
 int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
 {
@@ -264,6 +273,7 @@ int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *f
 
     return ret;
 }
+// LCOV_EXCL_STOP
 #else // not __ANDROID__
 LIBMEMLEAK_API
 void * memleak_memalign(size_t size, size_t alignment, char *file, size_t line)
@@ -332,6 +342,7 @@ void memleak_aligned_free(void *addr, char *file, size_t line)
 
 #endif // not WIN32
 
+// LCOV_EXCL_START
 LIBMEMLEAK_API
 void *memleak_realloc(void *ptr, size_t size)
 {
@@ -360,7 +371,9 @@ void *memleak_realloc(void *ptr, size_t size)
 
     return addr;
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START
 LIBMEMLEAK_API
 void memleak_free(void *addr, char *file, size_t line)
 {
@@ -404,4 +417,5 @@ void memleak_free(void *addr, char *file, size_t line)
     free(addr);
 #endif
 }
+// LCOV_EXCL_STOP
 
