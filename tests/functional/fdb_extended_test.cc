@@ -28,6 +28,7 @@
 #include "test.h"
 #include "arch.h"
 #include "time_utils.h"
+#include "functional_util.h"
 
 #define KSIZE (32)
 #define MSIZE (32)
@@ -38,28 +39,6 @@ static size_t num_readers(2);
 static mutex_t rollback_mutex;
 static volatile bool rollback_done(false);
 
-static void _set_random_string(char *str, int len)
-{
-    str[len--] = 0;
-    do {
-        str[len] = '!' + random('~'-'!');
-    } while(len--);
-}
-
-static void _set_random_string_smallabt(char *str, int len)
-{
-    str[len--] = 0;
-    do {
-        str[len] = 'a' + random('z'-'a');
-    } while(len--);
-}
-
-static void logCallbackFunc(int err_code,
-                            const char *err_msg,
-                            void *pCtxData) {
-    fprintf(stderr, "%s - error code: %d, error message: %s\n",
-            (char *) pCtxData, err_code, err_msg);
-}
 
 typedef enum {
     REGULAR_WRITER,

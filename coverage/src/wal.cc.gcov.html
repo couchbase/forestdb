@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-13 18:21:49</td>
+            <td class="headerValue">2015-01-13 21:35:15</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">36</td>
@@ -112,59 +112,59 @@
 <span class="lineNum">      41 </span>                :            : #endif
 <a name="42"><span class="lineNum">      42 </span>                :            : #endif</a>
 <span class="lineNum">      43 </span>                :            : 
-<span class="lineNum">      44 </span>                :<span class="lineCov">   13652774 : INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)</span>
+<span class="lineNum">      44 </span>                :<span class="lineCov">   13584207 : INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)</span>
 <span class="lineNum">      45 </span>                :            : {
-<span class="lineNum">      46 </span>                :<span class="lineCov">   13652774 :     struct wal_item_header *item = _get_entry(e, struct wal_item_header, he_key);</span>
-<span class="lineNum">      47 </span>                :<span class="lineCov">   13652774 :     return chksum((uint8_t*)item-&gt;key, item-&gt;keylen) &amp; ((uint64_t)hash-&gt;nbuckets - 1);</span>
+<span class="lineNum">      46 </span>                :<span class="lineCov">   13584207 :     struct wal_item_header *item = _get_entry(e, struct wal_item_header, he_key);</span>
+<span class="lineNum">      47 </span>                :<span class="lineCov">   13584207 :     return chksum((uint8_t*)item-&gt;key, item-&gt;keylen) &amp; ((uint64_t)hash-&gt;nbuckets - 1);</span>
 <a name="48"><span class="lineNum">      48 </span>                :            : }</a>
 <span class="lineNum">      49 </span>                :            : 
-<span class="lineNum">      50 </span>                :<span class="lineCov">   22530615 : INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)</span>
+<span class="lineNum">      50 </span>                :<span class="lineCov">   22453980 : INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)</span>
 <span class="lineNum">      51 </span>                :            : {
 <span class="lineNum">      52 </span>                :            :     struct wal_item_header *aa, *bb;
-<span class="lineNum">      53 </span>                :<span class="lineCov">   22530615 :     aa = _get_entry(a, struct wal_item_header, he_key);</span>
-<span class="lineNum">      54 </span>                :<span class="lineCov">   22530615 :     bb = _get_entry(b, struct wal_item_header, he_key);</span>
+<span class="lineNum">      53 </span>                :<span class="lineCov">   22453980 :     aa = _get_entry(a, struct wal_item_header, he_key);</span>
+<span class="lineNum">      54 </span>                :<span class="lineCov">   22453980 :     bb = _get_entry(b, struct wal_item_header, he_key);</span>
 <span class="lineNum">      55 </span>                :            : 
-<span class="lineNum">      56 </span>        [<span class="branchCov" title="Branch 0 was taken 22526771 times"> + </span><span class="branchCov" title="Branch 1 was taken 3844 times"> + </span>]:<span class="lineCov">   22530615 :     if (aa-&gt;keylen == bb-&gt;keylen) return memcmp(aa-&gt;key, bb-&gt;key, aa-&gt;keylen);</span>
+<span class="lineNum">      56 </span>        [<span class="branchCov" title="Branch 0 was taken 22447958 times"> + </span><span class="branchCov" title="Branch 1 was taken 6022 times"> + </span>]:<span class="lineCov">   22453980 :     if (aa-&gt;keylen == bb-&gt;keylen) return memcmp(aa-&gt;key, bb-&gt;key, aa-&gt;keylen);</span>
 <span class="lineNum">      57 </span>                :            :     else {
-<span class="lineNum">      58 </span>        [<span class="branchCov" title="Branch 0 was taken 2634 times"> + </span><span class="branchCov" title="Branch 1 was taken 1210 times"> + </span>]:<span class="lineCov">       3844 :         size_t len = MIN(aa-&gt;keylen , bb-&gt;keylen);</span>
-<span class="lineNum">      59 </span>                :<span class="lineCov">       3844 :         int cmp = memcmp(aa-&gt;key, bb-&gt;key, len);</span>
-<span class="lineNum">      60 </span>        [<span class="branchCov" title="Branch 0 was taken 3844 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       3844 :         if (cmp != 0) return cmp;</span>
+<span class="lineNum">      58 </span>        [<span class="branchCov" title="Branch 0 was taken 4078 times"> + </span><span class="branchCov" title="Branch 1 was taken 1944 times"> + </span>]:<span class="lineCov">       6022 :         size_t len = MIN(aa-&gt;keylen , bb-&gt;keylen);</span>
+<span class="lineNum">      59 </span>                :<span class="lineCov">       6022 :         int cmp = memcmp(aa-&gt;key, bb-&gt;key, len);</span>
+<span class="lineNum">      60 </span>        [<span class="branchCov" title="Branch 0 was taken 6022 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       6022 :         if (cmp != 0) return cmp;</span>
 <span class="lineNum">      61 </span>                :            :         else {
-<span class="lineNum">      62 </span>                :<span class="lineCov">   22530615 :             return (int)((int)aa-&gt;keylen - (int)bb-&gt;keylen);</span>
+<span class="lineNum">      62 </span>                :<span class="lineCov">   22453980 :             return (int)((int)aa-&gt;keylen - (int)bb-&gt;keylen);</span>
 <span class="lineNum">      63 </span>                :            :         }
 <span class="lineNum">      64 </span>                :            :     }
 <a name="65"><span class="lineNum">      65 </span>                :            : }</a>
 <span class="lineNum">      66 </span>                :            : 
-<span class="lineNum">      67 </span>                :<span class="lineCov">    8362956 : INLINE uint32_t _wal_hash_byseq(struct hash *hash, struct hash_elem *e)</span>
+<span class="lineNum">      67 </span>                :<span class="lineCov">    8359549 : INLINE uint32_t _wal_hash_byseq(struct hash *hash, struct hash_elem *e)</span>
 <span class="lineNum">      68 </span>                :            : {
-<span class="lineNum">      69 </span>                :<span class="lineCov">    8362956 :     struct wal_item *item = _get_entry(e, struct wal_item, he_seq);</span>
-<span class="lineNum">      70 </span>                :<span class="lineCov">    8362956 :     return (item-&gt;seqnum) &amp; ((uint64_t)hash-&gt;nbuckets - 1);</span>
+<span class="lineNum">      69 </span>                :<span class="lineCov">    8359549 :     struct wal_item *item = _get_entry(e, struct wal_item, he_seq);</span>
+<span class="lineNum">      70 </span>                :<span class="lineCov">    8359549 :     return (item-&gt;seqnum) &amp; ((uint64_t)hash-&gt;nbuckets - 1);</span>
 <a name="71"><span class="lineNum">      71 </span>                :            : }</a>
 <span class="lineNum">      72 </span>                :            : 
-<span class="lineNum">      73 </span>                :<span class="lineCov">   13654058 : INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)</span>
+<span class="lineNum">      73 </span>                :<span class="lineCov">   13650155 : INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)</span>
 <span class="lineNum">      74 </span>                :            : {
 <span class="lineNum">      75 </span>                :            :     struct wal_item *aa, *bb;
-<span class="lineNum">      76 </span>                :<span class="lineCov">   13654058 :     aa = _get_entry(a, struct wal_item, he_seq);</span>
-<span class="lineNum">      77 </span>                :<span class="lineCov">   13654058 :     bb = _get_entry(b, struct wal_item, he_seq);</span>
+<span class="lineNum">      76 </span>                :<span class="lineCov">   13650155 :     aa = _get_entry(a, struct wal_item, he_seq);</span>
+<span class="lineNum">      77 </span>                :<span class="lineCov">   13650155 :     bb = _get_entry(b, struct wal_item, he_seq);</span>
 <span class="lineNum">      78 </span>                :            : 
-<span class="lineNum">      79 </span>        [<span class="branchCov" title="Branch 0 was taken 13653032 times"> + </span><span class="branchCov" title="Branch 1 was taken 1026 times"> + </span>]:<span class="lineCov">   13654058 :     if (aa-&gt;flag &amp; WAL_ITEM_MULTI_KV_INS_MODE) {</span>
+<span class="lineNum">      79 </span>        [<span class="branchCov" title="Branch 0 was taken 13649129 times"> + </span><span class="branchCov" title="Branch 1 was taken 1026 times"> + </span>]:<span class="lineCov">   13650155 :     if (aa-&gt;flag &amp; WAL_ITEM_MULTI_KV_INS_MODE) {</span>
 <span class="lineNum">      80 </span>                :            :         // multi KV instance mode
 <span class="lineNum">      81 </span>                :            :         fdb_kvs_id_t *id_a, *id_b;
 <span class="lineNum">      82 </span>                :            :         fdb_kvs_id_t id_aa, id_bb;
 <span class="lineNum">      83 </span>                :            :         // KV ID is stored at the first 8 bytes in the key
-<span class="lineNum">      84 </span>                :<span class="lineCov">   13653032 :         id_a = (fdb_kvs_id_t *)aa-&gt;header-&gt;key;</span>
-<span class="lineNum">      85 </span>                :<span class="lineCov">   13653032 :         id_b = (fdb_kvs_id_t *)bb-&gt;header-&gt;key;</span>
-<span class="lineNum">      86 </span>                :<span class="lineCov">   13653032 :         id_aa = _endian_decode(*id_a);</span>
-<span class="lineNum">      87 </span>                :<span class="lineCov">   13653032 :         id_bb = _endian_decode(*id_b);</span>
-<span class="lineNum">      88 </span>        [<span class="branchCov" title="Branch 0 was taken 27075 times"> + </span><span class="branchCov" title="Branch 1 was taken 13625957 times"> + </span>]:<span class="lineCov">   13653032 :         if (id_aa &lt; id_bb) {</span>
-<span class="lineNum">      89 </span>                :<span class="lineCov">      27075 :             return -1;</span>
-<span class="lineNum">      90 </span>        [<span class="branchCov" title="Branch 0 was taken 11925 times"> + </span><span class="branchCov" title="Branch 1 was taken 13614032 times"> + </span>]:<span class="lineCov">   13625957 :         } else if (id_aa &gt; id_bb) {</span>
-<span class="lineNum">      91 </span>                :<span class="lineCov">      11925 :             return 1;</span>
+<span class="lineNum">      84 </span>                :<span class="lineCov">   13649129 :         id_a = (fdb_kvs_id_t *)aa-&gt;header-&gt;key;</span>
+<span class="lineNum">      85 </span>                :<span class="lineCov">   13649129 :         id_b = (fdb_kvs_id_t *)bb-&gt;header-&gt;key;</span>
+<span class="lineNum">      86 </span>                :<span class="lineCov">   13649129 :         id_aa = _endian_decode(*id_a);</span>
+<span class="lineNum">      87 </span>                :<span class="lineCov">   13649129 :         id_bb = _endian_decode(*id_b);</span>
+<span class="lineNum">      88 </span>        [<span class="branchCov" title="Branch 0 was taken 26956 times"> + </span><span class="branchCov" title="Branch 1 was taken 13622173 times"> + </span>]:<span class="lineCov">   13649129 :         if (id_aa &lt; id_bb) {</span>
+<span class="lineNum">      89 </span>                :<span class="lineCov">      26956 :             return -1;</span>
+<span class="lineNum">      90 </span>        [<span class="branchCov" title="Branch 0 was taken 11991 times"> + </span><span class="branchCov" title="Branch 1 was taken 13610182 times"> + </span>]:<span class="lineCov">   13622173 :         } else if (id_aa &gt; id_bb) {</span>
+<span class="lineNum">      91 </span>                :<span class="lineCov">      11991 :             return 1;</span>
 <span class="lineNum">      92 </span>                :            :         } else {
-<span class="lineNum">      93 </span>                :<span class="lineCov">   13614032 :             return _CMP_U64(aa-&gt;seqnum, bb-&gt;seqnum);</span>
+<span class="lineNum">      93 </span>                :<span class="lineCov">   13610182 :             return _CMP_U64(aa-&gt;seqnum, bb-&gt;seqnum);</span>
 <span class="lineNum">      94 </span>                :            :         }
 <span class="lineNum">      95 </span>                :            :     } else {
-<span class="lineNum">      96 </span>                :<span class="lineCov">   13654058 :         return _CMP_U64(aa-&gt;seqnum, bb-&gt;seqnum);</span>
+<span class="lineNum">      96 </span>                :<span class="lineCov">   13650155 :         return _CMP_U64(aa-&gt;seqnum, bb-&gt;seqnum);</span>
 <span class="lineNum">      97 </span>                :            :     }
 <a name="98"><span class="lineNum">      98 </span>                :            : }</a>
 <span class="lineNum">      99 </span>                :            : 
@@ -190,7 +190,7 @@
 <span class="lineNum">     119 </span>                :<span class="lineCov">        742 :     return file-&gt;wal-&gt;flag &amp; WAL_FLAG_INITIALIZED;</span>
 <a name="120"><span class="lineNum">     120 </span>                :            : }</a>
 <span class="lineNum">     121 </span>                :            : 
-<span class="lineNum">     122 </span>                :<span class="lineCov">    4181344 : static fdb_status _wal_insert(fdb_txn *txn,</span>
+<span class="lineNum">     122 </span>                :<span class="lineCov">    4179418 : static fdb_status _wal_insert(fdb_txn *txn,</span>
 <span class="lineNum">     123 </span>                :            :                               struct filemgr *file,
 <span class="lineNum">     124 </span>                :            :                               fdb_doc *doc,
 <span class="lineNum">     125 </span>                :            :                               uint64_t offset,
@@ -200,26 +200,26 @@
 <span class="lineNum">     129 </span>                :            :     struct wal_item_header query, *header;
 <span class="lineNum">     130 </span>                :            :     struct list_elem *le;
 <span class="lineNum">     131 </span>                :            :     struct hash_elem *he;
-<span class="lineNum">     132 </span>                :<span class="lineCov">    4181344 :     void *key = doc-&gt;key;</span>
-<span class="lineNum">     133 </span>                :<span class="lineCov">    4181344 :     size_t keylen = doc-&gt;keylen;</span>
+<span class="lineNum">     132 </span>                :<span class="lineCov">    4179418 :     void *key = doc-&gt;key;</span>
+<span class="lineNum">     133 </span>                :<span class="lineCov">    4179418 :     size_t keylen = doc-&gt;keylen;</span>
 <span class="lineNum">     134 </span>                :            :     fdb_kvs_id_t kv_id, *_kv_id;
 <span class="lineNum">     135 </span>                :            : 
-<span class="lineNum">     136 </span>        [<span class="branchCov" title="Branch 0 was taken 4180318 times"> + </span><span class="branchCov" title="Branch 1 was taken 1026 times"> + </span>]:<span class="lineCov">    4181344 :     if (file-&gt;kv_header) { // multi KV instance mode</span>
-<span class="lineNum">     137 </span>                :<span class="lineCov">    4180318 :         _kv_id = (fdb_kvs_id_t*)doc-&gt;key;</span>
-<span class="lineNum">     138 </span>                :<span class="lineCov">    4180318 :         kv_id = _endian_decode(*_kv_id);</span>
+<span class="lineNum">     136 </span>        [<span class="branchCov" title="Branch 0 was taken 4178392 times"> + </span><span class="branchCov" title="Branch 1 was taken 1026 times"> + </span>]:<span class="lineCov">    4179418 :     if (file-&gt;kv_header) { // multi KV instance mode</span>
+<span class="lineNum">     137 </span>                :<span class="lineCov">    4178392 :         _kv_id = (fdb_kvs_id_t*)doc-&gt;key;</span>
+<span class="lineNum">     138 </span>                :<span class="lineCov">    4178392 :         kv_id = _endian_decode(*_kv_id);</span>
 <span class="lineNum">     139 </span>                :            :     } else {
 <span class="lineNum">     140 </span>                :<span class="lineCov">       1026 :         kv_id = 0;</span>
 <span class="lineNum">     141 </span>                :            :     }
-<span class="lineNum">     142 </span>                :<span class="lineCov">    4181344 :     query.key = key;</span>
-<span class="lineNum">     143 </span>                :<span class="lineCov">    4181344 :     query.keylen = keylen;</span>
+<span class="lineNum">     142 </span>                :<span class="lineCov">    4179418 :     query.key = key;</span>
+<span class="lineNum">     143 </span>                :<span class="lineCov">    4179418 :     query.keylen = keylen;</span>
 <span class="lineNum">     144 </span>                :            : 
-<span class="lineNum">     145 </span>                :<span class="lineCov">    4181344 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     145 </span>                :<span class="lineCov">    4179418 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     146 </span>                :            : 
-<span class="lineNum">     147 </span>                :<span class="lineCov">    4181344 :     he = hash_find(&amp;file-&gt;wal-&gt;hash_bykey, &amp;query.he_key);</span>
+<span class="lineNum">     147 </span>                :<span class="lineCov">    4179418 :     he = hash_find(&amp;file-&gt;wal-&gt;hash_bykey, &amp;query.he_key);</span>
 <span class="lineNum">     148 </span>                :            : 
-<span class="lineNum">     149 </span>        [<span class="branchCov" title="Branch 0 was taken 10130 times"> + </span><span class="branchCov" title="Branch 1 was taken 4171206 times"> + </span>]:<span class="lineCov">    4181336 :     if (he) {</span>
+<span class="lineNum">     149 </span>        [<span class="branchCov" title="Branch 0 was taken 9852 times"> + </span><span class="branchCov" title="Branch 1 was taken 4169562 times"> + </span>]:<span class="lineCov">    4179414 :     if (he) {</span>
 <span class="lineNum">     150 </span>                :            :         // already exist .. retrieve header
-<span class="lineNum">     151 </span>                :<span class="lineCov">      10130 :         header = _get_entry(he, struct wal_item_header, he_key);</span>
+<span class="lineNum">     151 </span>                :<span class="lineCov">       9852 :         header = _get_entry(he, struct wal_item_header, he_key);</span>
 <span class="lineNum">     152 </span>                :            : 
 <span class="lineNum">     153 </span>                :            :         // if this entry is inserted by compactor, AND
 <span class="lineNum">     154 </span>                :            :         // any other COMMITTED entry for the same key already exists,
@@ -229,196 +229,196 @@
 <span class="lineNum">     158 </span>                :            :         // the entry inserted by compactor.
 <span class="lineNum">     159 </span>                :            :         // Thus, we ignore the entry by compactor if and only if
 <span class="lineNum">     160 </span>                :            :         // there is a committed entry for the same key.
-<span class="lineNum">     161 </span>        [<span class="branchCov" title="Branch 0 was taken 9378 times"> + </span><span class="branchCov" title="Branch 1 was taken 752 times"> + </span>]:<span class="lineCov">      10130 :         if (!is_compactor) {</span>
+<span class="lineNum">     161 </span>        [<span class="branchCov" title="Branch 0 was taken 9330 times"> + </span><span class="branchCov" title="Branch 1 was taken 522 times"> + </span>]:<span class="lineCov">       9852 :         if (!is_compactor) {</span>
 <span class="lineNum">     162 </span>                :            :             // normal insert .. find uncommitted item belonging to the same txn
-<span class="lineNum">     163 </span>                :<span class="lineCov">       9378 :             le = list_begin(&amp;header-&gt;items);</span>
-<span class="lineNum">     164 </span>        [<span class="branchCov" title="Branch 0 was taken 9398 times"> + </span><span class="branchCov" title="Branch 1 was taken 9147 times"> + </span>]:<span class="lineCov">      18776 :             while (le) {</span>
-<span class="lineNum">     165 </span>                :<span class="lineCov">       9398 :                 item = _get_entry(le, struct wal_item, list_elem);</span>
+<span class="lineNum">     163 </span>                :<span class="lineCov">       9330 :             le = list_begin(&amp;header-&gt;items);</span>
+<span class="lineNum">     164 </span>        [<span class="branchCov" title="Branch 0 was taken 9351 times"> + </span><span class="branchCov" title="Branch 1 was taken 9106 times"> + </span>]:<span class="lineCov">      18681 :             while (le) {</span>
+<span class="lineNum">     165 </span>                :<span class="lineCov">       9351 :                 item = _get_entry(le, struct wal_item, list_elem);</span>
 <span class="lineNum">     166 </span>                :            : 
-<span class="lineNum">     167 </span>[<span class="branchCov" title="Branch 0 was taken 8730 times"> + </span><span class="branchCov" title="Branch 1 was taken 668 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 231 times"> + </span><span class="branchCov" title="Branch 3 was taken 8499 times"> + </span>]:<span class="lineCov">       9398 :                 if (item-&gt;txn == txn &amp;&amp; !(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
-<span class="lineNum">     168 </span>                :<span class="lineCov">        231 :                     item-&gt;flag &amp;= ~WAL_ITEM_FLUSH_READY;</span>
+<span class="lineNum">     167 </span>[<span class="branchCov" title="Branch 0 was taken 8683 times"> + </span><span class="branchCov" title="Branch 1 was taken 668 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 224 times"> + </span><span class="branchCov" title="Branch 3 was taken 8459 times"> + </span>]:<span class="lineCov">       9351 :                 if (item-&gt;txn == txn &amp;&amp; !(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
+<span class="lineNum">     168 </span>                :<span class="lineCov">        224 :                     item-&gt;flag &amp;= ~WAL_ITEM_FLUSH_READY;</span>
 <span class="lineNum">     169 </span>                :            : 
-<span class="lineNum">     170 </span>                :<span class="lineCov">        231 :                     hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
-<span class="lineNum">     171 </span>                :<span class="lineCov">        231 :                     item-&gt;seqnum = doc-&gt;seqnum;</span>
-<span class="lineNum">     172 </span>                :<span class="lineCov">        231 :                     hash_insert(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
+<span class="lineNum">     170 </span>                :<span class="lineCov">        224 :                     hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
+<span class="lineNum">     171 </span>                :<span class="lineCov">        224 :                     item-&gt;seqnum = doc-&gt;seqnum;</span>
+<span class="lineNum">     172 </span>                :<span class="lineCov">        224 :                     hash_insert(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
 <span class="lineNum">     173 </span>                :            : 
-<span class="lineNum">     174 </span>                :<span class="lineCov">        231 :                     file-&gt;wal-&gt;datasize -= item-&gt;doc_size;</span>
-<span class="lineNum">     175 </span>                :<span class="lineCov">        231 :                     file-&gt;wal-&gt;datasize += doc-&gt;size_ondisk;</span>
-<span class="lineNum">     176 </span>                :<span class="lineCov">        231 :                     item-&gt;doc_size = doc-&gt;size_ondisk;</span>
-<span class="lineNum">     177 </span>                :<span class="lineCov">        231 :                     item-&gt;offset = offset;</span>
-<span class="lineNum">     178 </span>        [<span class="branchCov" title="Branch 0 was taken 22 times"> + </span><span class="branchCov" title="Branch 1 was taken 209 times"> + </span>]:<span class="lineCov">        231 :                     item-&gt;action = doc-&gt;deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;</span>
+<span class="lineNum">     174 </span>                :<span class="lineCov">        224 :                     file-&gt;wal-&gt;datasize -= item-&gt;doc_size;</span>
+<span class="lineNum">     175 </span>                :<span class="lineCov">        224 :                     file-&gt;wal-&gt;datasize += doc-&gt;size_ondisk;</span>
+<span class="lineNum">     176 </span>                :<span class="lineCov">        224 :                     item-&gt;doc_size = doc-&gt;size_ondisk;</span>
+<span class="lineNum">     177 </span>                :<span class="lineCov">        224 :                     item-&gt;offset = offset;</span>
+<span class="lineNum">     178 </span>        [<span class="branchCov" title="Branch 0 was taken 22 times"> + </span><span class="branchCov" title="Branch 1 was taken 202 times"> + </span>]:<span class="lineCov">        224 :                     item-&gt;action = doc-&gt;deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;</span>
 <span class="lineNum">     179 </span>                :            : 
 <span class="lineNum">     180 </span>                :            :                     // move the item to the front of the list (header)
-<span class="lineNum">     181 </span>                :<span class="lineCov">        231 :                     list_remove(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
-<span class="lineNum">     182 </span>                :<span class="lineCov">        231 :                     list_push_front(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
-<span class="lineNum">     183 </span>                :<span class="lineCov">        231 :                     break;</span>
+<span class="lineNum">     181 </span>                :<span class="lineCov">        224 :                     list_remove(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     182 </span>                :<span class="lineCov">        224 :                     list_push_front(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     183 </span>                :<span class="lineCov">        224 :                     break;</span>
 <span class="lineNum">     184 </span>                :            :                 }
-<span class="lineNum">     185 </span>                :<span class="lineCov">       9167 :                 le = list_next(le);</span>
+<span class="lineNum">     185 </span>                :<span class="lineCov">       9127 :                 le = list_next(le);</span>
 <span class="lineNum">     186 </span>                :            :             }
 <span class="lineNum">     187 </span>                :            :         } else {
 <span class="lineNum">     188 </span>                :            :             // insertion by compactor
 <span class="lineNum">     189 </span>                :            :             // check whether there is a committed entry
-<span class="lineNum">     190 </span>                :<span class="lineCov">        752 :             le = list_end(&amp;header-&gt;items);</span>
-<span class="lineNum">     191 </span>        [<span class="branchCov" title="Branch 0 was taken 752 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">        752 :             if (le) {</span>
-<span class="lineNum">     192 </span>                :<span class="lineCov">        752 :                 item = _get_entry(le, struct wal_item, list_elem);</span>
-<span class="lineNum">     193 </span>        [<span class="branchCov" title="Branch 0 was taken 28 times"> + </span><span class="branchCov" title="Branch 1 was taken 724 times"> + </span>]:<span class="lineCov">        752 :                 if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
+<span class="lineNum">     190 </span>                :<span class="lineCov">        522 :             le = list_end(&amp;header-&gt;items);</span>
+<span class="lineNum">     191 </span>        [<span class="branchCov" title="Branch 0 was taken 522 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">        522 :             if (le) {</span>
+<span class="lineNum">     192 </span>                :<span class="lineCov">        522 :                 item = _get_entry(le, struct wal_item, list_elem);</span>
+<span class="lineNum">     193 </span>        [<span class="branchCov" title="Branch 0 was taken 24 times"> + </span><span class="branchCov" title="Branch 1 was taken 498 times"> + </span>]:<span class="lineCov">        522 :                 if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
 <span class="lineNum">     194 </span>                :            :                     // there is no committed entry .. insert the entry from compactor
-<span class="lineNum">     195 </span>                :<span class="lineCov">         28 :                     le = NULL;</span>
+<span class="lineNum">     195 </span>                :<span class="lineCov">         24 :                     le = NULL;</span>
 <span class="lineNum">     196 </span>                :            :                     // increase num_docs
 <span class="lineNum">     197 </span>                :            :                     // (if committed entry already exists,
 <span class="lineNum">     198 </span>                :            :                     //  num_docs doesn't need to be increased)
-<span class="lineNum">     199 </span>                :<span class="lineCov">         28 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);</span>
+<span class="lineNum">     199 </span>                :<span class="lineCov">         24 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);</span>
 <span class="lineNum">     200 </span>                :            :                 }
 <span class="lineNum">     201 </span>                :            :             }
 <span class="lineNum">     202 </span>                :            :         }
 <span class="lineNum">     203 </span>                :            : 
-<span class="lineNum">     204 </span>        [<span class="branchCov" title="Branch 0 was taken 9175 times"> + </span><span class="branchCov" title="Branch 1 was taken 955 times"> + </span>]:<span class="lineCov">      10130 :         if (le == NULL) {</span>
+<span class="lineNum">     204 </span>        [<span class="branchCov" title="Branch 0 was taken 9130 times"> + </span><span class="branchCov" title="Branch 1 was taken 722 times"> + </span>]:<span class="lineCov">       9852 :         if (le == NULL) {</span>
 <span class="lineNum">     205 </span>                :            :             // not exist
 <span class="lineNum">     206 </span>                :            :             // create new item
-<span class="lineNum">     207 </span>                :<span class="lineCov">       9175 :             item = (struct wal_item *)malloc(sizeof(struct wal_item));</span>
-<span class="lineNum">     208 </span>        [<span class="branchCov" title="Branch 0 was taken 28 times"> + </span><span class="branchCov" title="Branch 1 was taken 9147 times"> + </span>]:<span class="lineCov">       9175 :             if (is_compactor) {</span>
-<span class="lineNum">     209 </span>                :<span class="lineCov">         28 :                 item-&gt;flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;</span>
+<span class="lineNum">     207 </span>                :<span class="lineCov">       9130 :             item = (struct wal_item *)malloc(sizeof(struct wal_item));</span>
+<span class="lineNum">     208 </span>        [<span class="branchCov" title="Branch 0 was taken 24 times"> + </span><span class="branchCov" title="Branch 1 was taken 9106 times"> + </span>]:<span class="lineCov">       9130 :             if (is_compactor) {</span>
+<span class="lineNum">     209 </span>                :<span class="lineCov">         24 :                 item-&gt;flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;</span>
 <span class="lineNum">     210 </span>                :            :             } else {
-<span class="lineNum">     211 </span>                :<span class="lineCov">       9147 :                 item-&gt;flag = 0x0;</span>
+<span class="lineNum">     211 </span>                :<span class="lineCov">       9106 :                 item-&gt;flag = 0x0;</span>
 <span class="lineNum">     212 </span>                :            :             }
-<span class="lineNum">     213 </span>        [<span class="branchCov" title="Branch 0 was taken 9175 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       9175 :             if (file-&gt;kv_header) { // multi KV instance mode</span>
-<span class="lineNum">     214 </span>                :<span class="lineCov">       9175 :                 item-&gt;flag |= WAL_ITEM_MULTI_KV_INS_MODE;</span>
+<span class="lineNum">     213 </span>        [<span class="branchCov" title="Branch 0 was taken 9130 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       9130 :             if (file-&gt;kv_header) { // multi KV instance mode</span>
+<span class="lineNum">     214 </span>                :<span class="lineCov">       9130 :                 item-&gt;flag |= WAL_ITEM_MULTI_KV_INS_MODE;</span>
 <span class="lineNum">     215 </span>                :            :             }
-<span class="lineNum">     216 </span>                :<span class="lineCov">       9175 :             item-&gt;txn = txn;</span>
-<span class="lineNum">     217 </span>        [<span class="branchCov" title="Branch 0 was taken 6335 times"> + </span><span class="branchCov" title="Branch 1 was taken 2840 times"> + </span>]:<span class="lineCov">       9175 :             if (txn == &amp;file-&gt;global_txn) {</span>
-<span class="lineNum">     218 </span>                :<span class="lineCov">       6335 :                 file-&gt;wal-&gt;num_flushable++;</span>
+<span class="lineNum">     216 </span>                :<span class="lineCov">       9130 :             item-&gt;txn = txn;</span>
+<span class="lineNum">     217 </span>        [<span class="branchCov" title="Branch 0 was taken 6285 times"> + </span><span class="branchCov" title="Branch 1 was taken 2845 times"> + </span>]:<span class="lineCov">       9130 :             if (txn == &amp;file-&gt;global_txn) {</span>
+<span class="lineNum">     218 </span>                :<span class="lineCov">       6285 :                 file-&gt;wal-&gt;num_flushable++;</span>
 <span class="lineNum">     219 </span>                :            :             }
-<span class="lineNum">     220 </span>                :<span class="lineCov">       9175 :             item-&gt;header = header;</span>
+<span class="lineNum">     220 </span>                :<span class="lineCov">       9130 :             item-&gt;header = header;</span>
 <span class="lineNum">     221 </span>                :            : 
-<span class="lineNum">     222 </span>                :<span class="lineCov">       9175 :             item-&gt;seqnum = doc-&gt;seqnum;</span>
-<span class="lineNum">     223 </span>        [<span class="branchCov" title="Branch 0 was taken 179 times"> + </span><span class="branchCov" title="Branch 1 was taken 8996 times"> + </span>]:<span class="lineCov">       9175 :             item-&gt;action = doc-&gt;deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;</span>
-<span class="lineNum">     224 </span>                :<span class="lineCov">       9175 :             item-&gt;offset = offset;</span>
-<span class="lineNum">     225 </span>                :<span class="lineCov">       9175 :             item-&gt;doc_size = doc-&gt;size_ondisk;</span>
-<span class="lineNum">     226 </span>                :<span class="lineCov">       9175 :             file-&gt;wal-&gt;datasize += doc-&gt;size_ondisk;</span>
+<span class="lineNum">     222 </span>                :<span class="lineCov">       9130 :             item-&gt;seqnum = doc-&gt;seqnum;</span>
+<span class="lineNum">     223 </span>        [<span class="branchCov" title="Branch 0 was taken 183 times"> + </span><span class="branchCov" title="Branch 1 was taken 8947 times"> + </span>]:<span class="lineCov">       9130 :             item-&gt;action = doc-&gt;deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;</span>
+<span class="lineNum">     224 </span>                :<span class="lineCov">       9130 :             item-&gt;offset = offset;</span>
+<span class="lineNum">     225 </span>                :<span class="lineCov">       9130 :             item-&gt;doc_size = doc-&gt;size_ondisk;</span>
+<span class="lineNum">     226 </span>                :<span class="lineCov">       9130 :             file-&gt;wal-&gt;datasize += doc-&gt;size_ondisk;</span>
 <span class="lineNum">     227 </span>                :            : 
-<span class="lineNum">     228 </span>                :<span class="lineCov">       9175 :             hash_insert(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
-<span class="lineNum">     229 </span>        [<span class="branchCov" title="Branch 0 was taken 9147 times"> + </span><span class="branchCov" title="Branch 1 was taken 28 times"> + </span>]:<span class="lineCov">       9175 :             if (!is_compactor) {</span>
+<span class="lineNum">     228 </span>                :<span class="lineCov">       9130 :             hash_insert(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
+<span class="lineNum">     229 </span>        [<span class="branchCov" title="Branch 0 was taken 9106 times"> + </span><span class="branchCov" title="Branch 1 was taken 24 times"> + </span>]:<span class="lineCov">       9130 :             if (!is_compactor) {</span>
 <span class="lineNum">     230 </span>                :            :                 // insert into header's list
-<span class="lineNum">     231 </span>                :<span class="lineCov">       9147 :                 list_push_front(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     231 </span>                :<span class="lineCov">       9106 :                 list_push_front(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
 <span class="lineNum">     232 </span>                :            :                 // also insert into transaction's list
-<span class="lineNum">     233 </span>                :<span class="lineCov">       9147 :                 list_push_back(txn-&gt;items, &amp;item-&gt;list_elem_txn);</span>
+<span class="lineNum">     233 </span>                :<span class="lineCov">       9106 :                 list_push_back(txn-&gt;items, &amp;item-&gt;list_elem_txn);</span>
 <span class="lineNum">     234 </span>                :            :             } else {
 <span class="lineNum">     235 </span>                :            :                 // compactor
 <span class="lineNum">     236 </span>                :            :                 // always push back because it is already committed
-<span class="lineNum">     237 </span>                :<span class="lineCov">         28 :                 list_push_back(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     237 </span>                :<span class="lineCov">         24 :                 list_push_back(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
 <span class="lineNum">     238 </span>                :            :             }
-<span class="lineNum">     239 </span>                :<span class="lineCov">       9175 :             file-&gt;wal-&gt;size++;</span>
+<span class="lineNum">     239 </span>                :<span class="lineCov">       9130 :             file-&gt;wal-&gt;size++;</span>
 <span class="lineNum">     240 </span>                :            :         }
 <span class="lineNum">     241 </span>                :            :     } else {
 <span class="lineNum">     242 </span>                :            :         // not exist .. create new one
 <span class="lineNum">     243 </span>                :            :         // create new header and new item
-<span class="lineNum">     244 </span>                :<span class="lineCov">    4171206 :         header = (struct wal_item_header*)malloc(sizeof(struct wal_item_header));</span>
-<span class="lineNum">     245 </span>                :<span class="lineCov">    4171206 :         list_init(&amp;header-&gt;items);</span>
-<span class="lineNum">     246 </span>                :<span class="lineCov">    4171215 :         header-&gt;keylen = keylen;</span>
-<span class="lineNum">     247 </span>                :<span class="lineCov">    4171215 :         header-&gt;key = (void *)malloc(header-&gt;keylen);</span>
-<span class="lineNum">     248 </span>                :<span class="lineCov">    4171215 :         memcpy(header-&gt;key, key, header-&gt;keylen);</span>
-<span class="lineNum">     249 </span>                :<span class="lineCov">    4171215 :         hash_insert(&amp;file-&gt;wal-&gt;hash_bykey, &amp;header-&gt;he_key);</span>
+<span class="lineNum">     244 </span>                :<span class="lineCov">    4169562 :         header = (struct wal_item_header*)malloc(sizeof(struct wal_item_header));</span>
+<span class="lineNum">     245 </span>                :<span class="lineCov">    4169562 :         list_init(&amp;header-&gt;items);</span>
+<span class="lineNum">     246 </span>                :<span class="lineCov">    4169568 :         header-&gt;keylen = keylen;</span>
+<span class="lineNum">     247 </span>                :<span class="lineCov">    4169568 :         header-&gt;key = (void *)malloc(header-&gt;keylen);</span>
+<span class="lineNum">     248 </span>                :<span class="lineCov">    4169568 :         memcpy(header-&gt;key, key, header-&gt;keylen);</span>
+<span class="lineNum">     249 </span>                :<span class="lineCov">    4169568 :         hash_insert(&amp;file-&gt;wal-&gt;hash_bykey, &amp;header-&gt;he_key);</span>
 <span class="lineNum">     250 </span>                :            : 
-<span class="lineNum">     251 </span>                :<span class="lineCov">    4171208 :         item = (struct wal_item *)malloc(sizeof(struct wal_item));</span>
+<span class="lineNum">     251 </span>                :<span class="lineCov">    4169561 :         item = (struct wal_item *)malloc(sizeof(struct wal_item));</span>
 <span class="lineNum">     252 </span>                :            :         // entries inserted by compactor is already committed
-<span class="lineNum">     253 </span>        [<span class="branchCov" title="Branch 0 was taken 1529156 times"> + </span><span class="branchCov" title="Branch 1 was taken 2642052 times"> + </span>]:<span class="lineCov">    4171208 :         if (is_compactor) {</span>
-<span class="lineNum">     254 </span>                :<span class="lineCov">    1529156 :             item-&gt;flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;</span>
+<span class="lineNum">     253 </span>        [<span class="branchCov" title="Branch 0 was taken 1529740 times"> + </span><span class="branchCov" title="Branch 1 was taken 2639821 times"> + </span>]:<span class="lineCov">    4169561 :         if (is_compactor) {</span>
+<span class="lineNum">     254 </span>                :<span class="lineCov">    1529740 :             item-&gt;flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;</span>
 <span class="lineNum">     255 </span>                :            :         } else {
-<span class="lineNum">     256 </span>                :<span class="lineCov">    2642052 :             item-&gt;flag = 0x0;</span>
+<span class="lineNum">     256 </span>                :<span class="lineCov">    2639821 :             item-&gt;flag = 0x0;</span>
 <span class="lineNum">     257 </span>                :            :         }
-<span class="lineNum">     258 </span>        [<span class="branchCov" title="Branch 0 was taken 4170187 times"> + </span><span class="branchCov" title="Branch 1 was taken 1021 times"> + </span>]:<span class="lineCov">    4171208 :         if (file-&gt;kv_header) { // multi KV instance mode</span>
-<span class="lineNum">     259 </span>                :<span class="lineCov">    4170187 :             item-&gt;flag |= WAL_ITEM_MULTI_KV_INS_MODE;</span>
+<span class="lineNum">     258 </span>        [<span class="branchCov" title="Branch 0 was taken 4168538 times"> + </span><span class="branchCov" title="Branch 1 was taken 1023 times"> + </span>]:<span class="lineCov">    4169561 :         if (file-&gt;kv_header) { // multi KV instance mode</span>
+<span class="lineNum">     259 </span>                :<span class="lineCov">    4168538 :             item-&gt;flag |= WAL_ITEM_MULTI_KV_INS_MODE;</span>
 <span class="lineNum">     260 </span>                :            :         }
-<span class="lineNum">     261 </span>                :<span class="lineCov">    4171208 :         item-&gt;txn = txn;</span>
-<span class="lineNum">     262 </span>        [<span class="branchCov" title="Branch 0 was taken 4052797 times"> + </span><span class="branchCov" title="Branch 1 was taken 118411 times"> + </span>]:<span class="lineCov">    4171208 :         if (txn == &amp;file-&gt;global_txn) {</span>
-<span class="lineNum">     263 </span>                :<span class="lineCov">    4052797 :             file-&gt;wal-&gt;num_flushable++;</span>
+<span class="lineNum">     261 </span>                :<span class="lineCov">    4169561 :         item-&gt;txn = txn;</span>
+<span class="lineNum">     262 </span>        [<span class="branchCov" title="Branch 0 was taken 4051151 times"> + </span><span class="branchCov" title="Branch 1 was taken 118410 times"> + </span>]:<span class="lineCov">    4169561 :         if (txn == &amp;file-&gt;global_txn) {</span>
+<span class="lineNum">     263 </span>                :<span class="lineCov">    4051151 :             file-&gt;wal-&gt;num_flushable++;</span>
 <span class="lineNum">     264 </span>                :            :         }
-<span class="lineNum">     265 </span>                :<span class="lineCov">    4171208 :         item-&gt;header = header;</span>
+<span class="lineNum">     265 </span>                :<span class="lineCov">    4169561 :         item-&gt;header = header;</span>
 <span class="lineNum">     266 </span>                :            : 
-<span class="lineNum">     267 </span>                :<span class="lineCov">    4171208 :         item-&gt;seqnum = doc-&gt;seqnum;</span>
-<span class="lineNum">     268 </span>        [<span class="branchCov" title="Branch 0 was taken 532 times"> + </span><span class="branchCov" title="Branch 1 was taken 4170676 times"> + </span>]:<span class="lineCov">    4171208 :         item-&gt;action = doc-&gt;deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;</span>
-<span class="lineNum">     269 </span>                :<span class="lineCov">    4171208 :         item-&gt;offset = offset;</span>
-<span class="lineNum">     270 </span>                :<span class="lineCov">    4171208 :         item-&gt;doc_size = doc-&gt;size_ondisk;</span>
-<span class="lineNum">     271 </span>                :<span class="lineCov">    4171208 :         file-&gt;wal-&gt;datasize += doc-&gt;size_ondisk;</span>
-<span class="lineNum">     272 </span>                :<span class="lineCov">    4171208 :         hash_insert(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
+<span class="lineNum">     267 </span>                :<span class="lineCov">    4169561 :         item-&gt;seqnum = doc-&gt;seqnum;</span>
+<span class="lineNum">     268 </span>        [<span class="branchCov" title="Branch 0 was taken 528 times"> + </span><span class="branchCov" title="Branch 1 was taken 4169033 times"> + </span>]:<span class="lineCov">    4169561 :         item-&gt;action = doc-&gt;deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;</span>
+<span class="lineNum">     269 </span>                :<span class="lineCov">    4169561 :         item-&gt;offset = offset;</span>
+<span class="lineNum">     270 </span>                :<span class="lineCov">    4169561 :         item-&gt;doc_size = doc-&gt;size_ondisk;</span>
+<span class="lineNum">     271 </span>                :<span class="lineCov">    4169561 :         file-&gt;wal-&gt;datasize += doc-&gt;size_ondisk;</span>
+<span class="lineNum">     272 </span>                :<span class="lineCov">    4169561 :         hash_insert(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
 <span class="lineNum">     273 </span>                :            :         // insert into header's list
 <span class="lineNum">     274 </span>                :            :         // (pushing front is ok for compactor because no other item already exists)
-<span class="lineNum">     275 </span>                :<span class="lineCov">    4171207 :         list_push_front(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
-<span class="lineNum">     276 </span>        [<span class="branchCov" title="Branch 0 was taken 2642052 times"> + </span><span class="branchCov" title="Branch 1 was taken 1529164 times"> + </span>]:<span class="lineCov">    4171216 :         if (!is_compactor) {</span>
+<span class="lineNum">     275 </span>                :<span class="lineCov">    4169556 :         list_push_front(&amp;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     276 </span>        [<span class="branchCov" title="Branch 0 was taken 2639821 times"> + </span><span class="branchCov" title="Branch 1 was taken 1529747 times"> + </span>]:<span class="lineCov">    4169568 :         if (!is_compactor) {</span>
 <span class="lineNum">     277 </span>                :            :             // also insert into transaction's list
-<span class="lineNum">     278 </span>                :<span class="lineCov">    2642052 :             list_push_back(txn-&gt;items, &amp;item-&gt;list_elem_txn);</span>
+<span class="lineNum">     278 </span>                :<span class="lineCov">    2639821 :             list_push_back(txn-&gt;items, &amp;item-&gt;list_elem_txn);</span>
 <span class="lineNum">     279 </span>                :            :         } else {
 <span class="lineNum">     280 </span>                :            :             // increase num_docs
-<span class="lineNum">     281 </span>                :<span class="lineCov">    1529164 :             _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);</span>
+<span class="lineNum">     281 </span>                :<span class="lineCov">    1529747 :             _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);</span>
 <span class="lineNum">     282 </span>                :            :         }
 <span class="lineNum">     283 </span>                :            : 
 <span class="lineNum">     284 </span>                :            :         // insert header into wal global list
-<span class="lineNum">     285 </span>                :<span class="lineCov">    4171216 :         list_push_back(&amp;file-&gt;wal-&gt;list, &amp;header-&gt;list_elem);</span>
-<span class="lineNum">     286 </span>                :<span class="lineCov">    4171205 :         ++file-&gt;wal-&gt;size;</span>
+<span class="lineNum">     285 </span>                :<span class="lineCov">    4169568 :         list_push_back(&amp;file-&gt;wal-&gt;list, &amp;header-&gt;list_elem);</span>
+<span class="lineNum">     286 </span>                :<span class="lineCov">    4169561 :         ++file-&gt;wal-&gt;size;</span>
 <span class="lineNum">     287 </span>                :            :     }
 <span class="lineNum">     288 </span>                :            : 
-<span class="lineNum">     289 </span>                :<span class="lineCov">    4181335 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     289 </span>                :<span class="lineCov">    4179413 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     290 </span>                :            : 
-<span class="lineNum">     291 </span>                :<span class="lineCov">    4181335 :     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     291 </span>                :<span class="lineCov">    4179412 :     return FDB_RESULT_SUCCESS;</span>
 <a name="292"><span class="lineNum">     292 </span>                :            : }</a>
 <span class="lineNum">     293 </span>                :            : 
-<span class="lineNum">     294 </span>                :<span class="lineCov">    2651418 : fdb_status wal_insert(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t offset)</span>
+<span class="lineNum">     294 </span>                :<span class="lineCov">    2649139 : fdb_status wal_insert(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t offset)</span>
 <span class="lineNum">     295 </span>                :            : {
-<span class="lineNum">     296 </span>                :<span class="lineCov">    2651418 :     return _wal_insert(txn, file, doc, offset, 0);</span>
+<span class="lineNum">     296 </span>                :<span class="lineCov">    2649139 :     return _wal_insert(txn, file, doc, offset, 0);</span>
 <a name="297"><span class="lineNum">     297 </span>                :            : }</a>
 <span class="lineNum">     298 </span>                :            : 
-<span class="lineNum">     299 </span>                :<span class="lineCov">    1529916 : fdb_status wal_insert_by_compactor(fdb_txn *txn,</span>
+<span class="lineNum">     299 </span>                :<span class="lineCov">    1530269 : fdb_status wal_insert_by_compactor(fdb_txn *txn,</span>
 <span class="lineNum">     300 </span>                :            :                                    struct filemgr *file,
 <span class="lineNum">     301 </span>                :            :                                    fdb_doc *doc,
 <span class="lineNum">     302 </span>                :            :                                    uint64_t offset)
 <span class="lineNum">     303 </span>                :            : {
-<span class="lineNum">     304 </span>                :<span class="lineCov">    1529916 :     return _wal_insert(txn, file, doc, offset, 1);</span>
+<span class="lineNum">     304 </span>                :<span class="lineCov">    1530269 :     return _wal_insert(txn, file, doc, offset, 1);</span>
 <a name="305"><span class="lineNum">     305 </span>                :            : }</a>
 <span class="lineNum">     306 </span>                :            : 
-<span class="lineNum">     307 </span>                :<span class="lineCov">    1125152 : static fdb_status _wal_find(fdb_txn *txn,</span>
+<span class="lineNum">     307 </span>                :<span class="lineCov">    1061905 : static fdb_status _wal_find(fdb_txn *txn,</span>
 <span class="lineNum">     308 </span>                :            :                             struct filemgr *file,
 <span class="lineNum">     309 </span>                :            :                             fdb_kvs_id_t kv_id,
 <span class="lineNum">     310 </span>                :            :                             fdb_doc *doc,
 <span class="lineNum">     311 </span>                :            :                             uint64_t *offset)
 <span class="lineNum">     312 </span>                :            : {
-<span class="lineNum">     313 </span>                :<span class="lineCov">    1125152 :     struct wal_item item_query, *item = NULL;</span>
-<span class="lineNum">     314 </span>                :<span class="lineCov">    1125152 :     struct wal_item_header query, *header = NULL;</span>
-<span class="lineNum">     315 </span>                :<span class="lineCov">    1125152 :     struct list_elem *le = NULL;</span>
-<span class="lineNum">     316 </span>                :<span class="lineCov">    1125152 :     struct hash_elem *he = NULL;</span>
-<span class="lineNum">     317 </span>                :<span class="lineCov">    1125152 :     void *key = doc-&gt;key;</span>
-<span class="lineNum">     318 </span>                :<span class="lineCov">    1125152 :     size_t keylen = doc-&gt;keylen;</span>
+<span class="lineNum">     313 </span>                :<span class="lineCov">    1061905 :     struct wal_item item_query, *item = NULL;</span>
+<span class="lineNum">     314 </span>                :<span class="lineCov">    1061905 :     struct wal_item_header query, *header = NULL;</span>
+<span class="lineNum">     315 </span>                :<span class="lineCov">    1061905 :     struct list_elem *le = NULL;</span>
+<span class="lineNum">     316 </span>                :<span class="lineCov">    1061905 :     struct hash_elem *he = NULL;</span>
+<span class="lineNum">     317 </span>                :<span class="lineCov">    1061905 :     void *key = doc-&gt;key;</span>
+<span class="lineNum">     318 </span>                :<span class="lineCov">    1061905 :     size_t keylen = doc-&gt;keylen;</span>
 <span class="lineNum">     319 </span>                :            : 
-<span class="lineNum">     320 </span>                :<span class="lineCov">    1125152 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     320 </span>                :<span class="lineCov">    1061905 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     321 </span>                :            : 
-<span class="lineNum">     322 </span>[<span class="branchCov" title="Branch 0 was taken 1130727 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 1129104 times"> + </span><span class="branchCov" title="Branch 3 was taken 1623 times"> + </span>]:<span class="lineCov">    1130727 :     if (doc-&gt;seqnum == SEQNUM_NOT_USED || (key &amp;&amp; keylen&gt;0)) {</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 1129004 times"> + </span><span class="branchCov" title="Branch 5 was taken 100 times"> + </span>]
+<span class="lineNum">     322 </span>[<span class="branchCov" title="Branch 0 was taken 1067433 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 1065810 times"> + </span><span class="branchCov" title="Branch 3 was taken 1623 times"> + </span>]:<span class="lineCov">    1067433 :     if (doc-&gt;seqnum == SEQNUM_NOT_USED || (key &amp;&amp; keylen&gt;0)) {</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 1065710 times"> + </span><span class="branchCov" title="Branch 5 was taken 100 times"> + </span>]
 <span class="lineNum">     323 </span>                :            :         // search by key
-<span class="lineNum">     324 </span>                :<span class="lineCov">    1129004 :         query.key = key;</span>
-<span class="lineNum">     325 </span>                :<span class="lineCov">    1129004 :         query.keylen = keylen;</span>
-<span class="lineNum">     326 </span>                :<span class="lineCov">    1129004 :         he = hash_find(&amp;file-&gt;wal-&gt;hash_bykey, &amp;query.he_key);</span>
-<span class="lineNum">     327 </span>        [<span class="branchCov" title="Branch 0 was taken 346742 times"> + </span><span class="branchCov" title="Branch 1 was taken 782262 times"> + </span>]:<span class="lineCov">    1129619 :         if (he) {</span>
+<span class="lineNum">     324 </span>                :<span class="lineCov">    1065710 :         query.key = key;</span>
+<span class="lineNum">     325 </span>                :<span class="lineCov">    1065710 :         query.keylen = keylen;</span>
+<span class="lineNum">     326 </span>                :<span class="lineCov">    1065710 :         he = hash_find(&amp;file-&gt;wal-&gt;hash_bykey, &amp;query.he_key);</span>
+<span class="lineNum">     327 </span>        [<span class="branchCov" title="Branch 0 was taken 337825 times"> + </span><span class="branchCov" title="Branch 1 was taken 727885 times"> + </span>]:<span class="lineCov">    1066329 :         if (he) {</span>
 <span class="lineNum">     328 </span>                :            :             // retrieve header
-<span class="lineNum">     329 </span>                :<span class="lineCov">     346742 :             header = _get_entry(he, struct wal_item_header, he_key);</span>
-<span class="lineNum">     330 </span>                :<span class="lineCov">     346742 :             le = list_begin(&amp;header-&gt;items);</span>
-<span class="lineNum">     331 </span>        [<span class="branchCov" title="Branch 0 was taken 346822 times"> + </span><span class="branchCov" title="Branch 1 was taken 615 times"> + </span>]:<span class="lineCov">     347437 :             while(le) {</span>
-<span class="lineNum">     332 </span>                :<span class="lineCov">     346822 :                 item = _get_entry(le, struct wal_item, list_elem);</span>
+<span class="lineNum">     329 </span>                :<span class="lineCov">     337825 :             header = _get_entry(he, struct wal_item_header, he_key);</span>
+<span class="lineNum">     330 </span>                :<span class="lineCov">     337825 :             le = list_begin(&amp;header-&gt;items);</span>
+<span class="lineNum">     331 </span>        [<span class="branchCov" title="Branch 0 was taken 337905 times"> + </span><span class="branchCov" title="Branch 1 was taken 619 times"> + </span>]:<span class="lineCov">     338524 :             while(le) {</span>
+<span class="lineNum">     332 </span>                :<span class="lineCov">     337905 :                 item = _get_entry(le, struct wal_item, list_elem);</span>
 <span class="lineNum">     333 </span>                :            :                 // only committed items can be seen by the other handles, OR
 <span class="lineNum">     334 </span>                :            :                 // items belonging to the same txn can be found, OR
 <span class="lineNum">     335 </span>                :            :                 // a transaction's isolation level is read uncommitted.
-<span class="lineNum">     336 </span>[<span class="branchCov" title="Branch 0 was taken 3690 times"> + </span><span class="branchCov" title="Branch 1 was taken 343132 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 705 times"> + </span><span class="branchCov" title="Branch 3 was taken 2985 times"> + </span>]:<span class="lineCov">     346822 :                 if ((item-&gt;flag &amp; WAL_ITEM_COMMITTED) ||</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 10 times"> + </span><span class="branchCov" title="Branch 5 was taken 695 times"> + </span>]
+<span class="lineNum">     336 </span>[<span class="branchCov" title="Branch 0 was taken 3693 times"> + </span><span class="branchCov" title="Branch 1 was taken 334212 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 709 times"> + </span><span class="branchCov" title="Branch 3 was taken 2984 times"> + </span>]:<span class="lineCov">     337905 :                 if ((item-&gt;flag &amp; WAL_ITEM_COMMITTED) ||</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 10 times"> + </span><span class="branchCov" title="Branch 5 was taken 699 times"> + </span>]
 <span class="lineNum">     337 </span>                :            :                     (item-&gt;txn == txn) ||
 <span class="lineNum">     338 </span>                :            :                     (txn-&gt;isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
-<span class="lineNum">     339 </span>                :<span class="lineCov">     346127 :                     *offset = item-&gt;offset;</span>
-<span class="lineNum">     340 </span>        [<span class="branchCov" title="Branch 0 was taken 346123 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">     346127 :                     if (item-&gt;action == WAL_ACT_INSERT) {</span>
-<span class="lineNum">     341 </span>                :<span class="lineCov">     346123 :                         doc-&gt;deleted = false;</span>
+<span class="lineNum">     339 </span>                :<span class="lineCov">     337206 :                     *offset = item-&gt;offset;</span>
+<span class="lineNum">     340 </span>        [<span class="branchCov" title="Branch 0 was taken 337202 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">     337206 :                     if (item-&gt;action == WAL_ACT_INSERT) {</span>
+<span class="lineNum">     341 </span>                :<span class="lineCov">     337202 :                         doc-&gt;deleted = false;</span>
 <span class="lineNum">     342 </span>                :            :                     } else {
 <span class="lineNum">     343 </span>                :<span class="lineCov">          4 :                         doc-&gt;deleted = true;</span>
 <span class="lineNum">     344 </span>                :            :                     }
-<span class="lineNum">     345 </span>                :<span class="lineCov">     346127 :                     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     346 </span>                :<span class="lineCov">     346127 :                     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     345 </span>                :<span class="lineCov">     337206 :                     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     346 </span>                :<span class="lineCov">     337206 :                     return FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">     347 </span>                :            :                 }
-<span class="lineNum">     348 </span>                :<span class="lineCov">        695 :                 le = list_next(le);</span>
+<span class="lineNum">     348 </span>                :<span class="lineCov">        699 :                 le = list_next(le);</span>
 <span class="lineNum">     349 </span>                :            :             }
 <span class="lineNum">     350 </span>                :            :         }
 <span class="lineNum">     351 </span>                :            :     } else {
@@ -451,13 +451,13 @@
 <span class="lineNum">     377 </span>                :            :         }
 <span class="lineNum">     378 </span>                :            :     }
 <span class="lineNum">     379 </span>                :            : 
-<span class="lineNum">     380 </span>                :<span class="lineCov">     784098 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     381 </span>                :<span class="lineCov">    1130726 :     return FDB_RESULT_KEY_NOT_FOUND;</span>
+<span class="lineNum">     380 </span>                :<span class="lineCov">     729725 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     381 </span>                :<span class="lineCov">    1067420 :     return FDB_RESULT_KEY_NOT_FOUND;</span>
 <a name="382"><span class="lineNum">     382 </span>                :            : }</a>
 <span class="lineNum">     383 </span>                :            : 
-<span class="lineNum">     384 </span>                :<span class="lineCov">    1124131 : fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset)</span>
+<span class="lineNum">     384 </span>                :<span class="lineCov">    1061539 : fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset)</span>
 <span class="lineNum">     385 </span>                :            : {
-<span class="lineNum">     386 </span>                :<span class="lineCov">    1124131 :     return _wal_find(txn, file, 0, doc, offset);</span>
+<span class="lineNum">     386 </span>                :<span class="lineCov">    1061539 :     return _wal_find(txn, file, 0, doc, offset);</span>
 <a name="387"><span class="lineNum">     387 </span>                :            : }</a>
 <span class="lineNum">     388 </span>                :            : 
 <span class="lineNum">     389 </span>                :<span class="lineCov">       1723 : fdb_status wal_find_kv_id(fdb_txn *txn,</span>
@@ -487,13 +487,13 @@
 <span class="lineNum">     413 </span>                :<span class="lineCov">         51 :     spin_lock(&amp;old_file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     414 </span>                :            : 
 <span class="lineNum">     415 </span>                :<span class="lineCov">         51 :     e1 = list_begin(&amp;old_file-&gt;wal-&gt;list);</span>
-<span class="lineNum">     416 </span>        [<span class="branchCov" title="Branch 0 was taken 23773 times"> + </span><span class="branchCov" title="Branch 1 was taken 51 times"> + </span>]:<span class="lineCov">      23824 :     while(e1) {</span>
-<span class="lineNum">     417 </span>                :<span class="lineCov">      23773 :         header = _get_entry(e1, struct wal_item_header, list_elem);</span>
+<span class="lineNum">     416 </span>        [<span class="branchCov" title="Branch 0 was taken 24789 times"> + </span><span class="branchCov" title="Branch 1 was taken 51 times"> + </span>]:<span class="lineCov">      24840 :     while(e1) {</span>
+<span class="lineNum">     417 </span>                :<span class="lineCov">      24789 :         header = _get_entry(e1, struct wal_item_header, list_elem);</span>
 <span class="lineNum">     418 </span>                :            : 
-<span class="lineNum">     419 </span>                :<span class="lineCov">      23773 :         e2 = list_end(&amp;header-&gt;items);</span>
-<span class="lineNum">     420 </span>        [<span class="branchCov" title="Branch 0 was taken 23774 times"> + </span><span class="branchCov" title="Branch 1 was taken 23773 times"> + </span>]:<span class="lineCov">      47547 :         while(e2) {</span>
-<span class="lineNum">     421 </span>                :<span class="lineCov">      23774 :             item = _get_entry(e2, struct wal_item, list_elem);</span>
-<span class="lineNum">     422 </span>        [<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchCov" title="Branch 1 was taken 23762 times"> + </span>]:<span class="lineCov">      23774 :             if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
+<span class="lineNum">     419 </span>                :<span class="lineCov">      24789 :         e2 = list_end(&amp;header-&gt;items);</span>
+<span class="lineNum">     420 </span>        [<span class="branchCov" title="Branch 0 was taken 24790 times"> + </span><span class="branchCov" title="Branch 1 was taken 24789 times"> + </span>]:<span class="lineCov">      49579 :         while(e2) {</span>
+<span class="lineNum">     421 </span>                :<span class="lineCov">      24790 :             item = _get_entry(e2, struct wal_item, list_elem);</span>
+<span class="lineNum">     422 </span>        [<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchCov" title="Branch 1 was taken 24778 times"> + </span>]:<span class="lineCov">      24790 :             if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
 <span class="lineNum">     423 </span>                :            :                 // not committed yet
 <span class="lineNum">     424 </span>                :            :                 // move doc
 <span class="lineNum">     425 </span>                :<span class="lineCov">         12 :                 offset = move_doc(dbhandle, new_dhandle, item, &amp;doc);</span>
@@ -520,11 +520,11 @@
 <span class="lineNum">     446 </span>                :<span class="lineCov">         12 :                 free(doc.body);</span>
 <span class="lineNum">     447 </span>                :<span class="lineCov">         12 :                 old_file-&gt;wal-&gt;size--;</span>
 <span class="lineNum">     448 </span>                :            :             } else {
-<span class="lineNum">     449 </span>                :<span class="lineCov">      23762 :                 e2= list_prev(e2);</span>
+<span class="lineNum">     449 </span>                :<span class="lineCov">      24778 :                 e2= list_prev(e2);</span>
 <span class="lineNum">     450 </span>                :            :             }
 <span class="lineNum">     451 </span>                :            :         }
 <span class="lineNum">     452 </span>                :            : 
-<span class="lineNum">     453 </span>        [<span class="branchCov" title="Branch 1 was taken 11 times"> + </span><span class="branchCov" title="Branch 2 was taken 23762 times"> + </span>]:<span class="lineCov">      23773 :         if (list_begin(&amp;header-&gt;items) == NULL) {</span>
+<span class="lineNum">     453 </span>        [<span class="branchCov" title="Branch 1 was taken 11 times"> + </span><span class="branchCov" title="Branch 2 was taken 24778 times"> + </span>]:<span class="lineCov">      24789 :         if (list_begin(&amp;header-&gt;items) == NULL) {</span>
 <span class="lineNum">     454 </span>                :            :             // header's list becomes empty
 <span class="lineNum">     455 </span>                :            :             // remove from key hash table
 <span class="lineNum">     456 </span>                :<span class="lineCov">         11 :             hash_remove(&amp;old_file-&gt;wal-&gt;hash_bykey, &amp;header-&gt;he_key);</span>
@@ -534,7 +534,7 @@
 <span class="lineNum">     460 </span>                :<span class="lineCov">         11 :             free(header-&gt;key);</span>
 <span class="lineNum">     461 </span>                :<span class="lineCov">         11 :             free(header);</span>
 <span class="lineNum">     462 </span>                :            :         } else {
-<span class="lineNum">     463 </span>                :<span class="lineCov">      23762 :             e1 = list_next(e1);</span>
+<span class="lineNum">     463 </span>                :<span class="lineCov">      24778 :             e1 = list_next(e1);</span>
 <span class="lineNum">     464 </span>                :            :         }
 <span class="lineNum">     465 </span>                :            :     }
 <span class="lineNum">     466 </span>                :            : 
@@ -559,7 +559,7 @@
 <span class="lineNum">     485 </span>                :<span class="lineCov">         51 :     return FDB_RESULT_SUCCESS;</span>
 <a name="486"><span class="lineNum">     486 </span>                :            : }</a>
 <span class="lineNum">     487 </span>                :            : 
-<span class="lineNum">     488 </span>                :<span class="lineCov">      17364 : fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,</span>
+<span class="lineNum">     488 </span>                :<span class="lineCov">      18084 : fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,</span>
 <span class="lineNum">     489 </span>                :            :                       wal_commit_mark_func *func)
 <span class="lineNum">     490 </span>                :            : {
 <span class="lineNum">     491 </span>                :            :     int prev_commit;
@@ -570,234 +570,234 @@
 <span class="lineNum">     496 </span>                :            :     fdb_kvs_id_t kv_id, *_kv_id;
 <span class="lineNum">     497 </span>                :            :     fdb_status status;
 <span class="lineNum">     498 </span>                :            : 
-<span class="lineNum">     499 </span>                :<span class="lineCov">      17364 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     499 </span>                :<span class="lineCov">      18084 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     500 </span>                :            : 
-<span class="lineNum">     501 </span>                :<span class="lineCov">      17364 :     e1 = list_begin(txn-&gt;items);</span>
-<span class="lineNum">     502 </span>        [<span class="branchCov" title="Branch 0 was taken 2650553 times"> + </span><span class="branchCov" title="Branch 1 was taken 17364 times"> + </span>]:<span class="lineCov">    2667917 :     while(e1) {</span>
-<span class="lineNum">     503 </span>                :<span class="lineCov">    2650553 :         item = _get_entry(e1, struct wal_item, list_elem_txn);</span>
-<span class="lineNum">     504 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 2650553 times"> + </span>]:<span class="lineCov">    2650553 :         assert(item-&gt;txn == txn);</span>
+<span class="lineNum">     501 </span>                :<span class="lineCov">      18084 :     e1 = list_begin(txn-&gt;items);</span>
+<span class="lineNum">     502 </span>        [<span class="branchCov" title="Branch 0 was taken 2648281 times"> + </span><span class="branchCov" title="Branch 1 was taken 18084 times"> + </span>]:<span class="lineCov">    2666365 :     while(e1) {</span>
+<span class="lineNum">     503 </span>                :<span class="lineCov">    2648281 :         item = _get_entry(e1, struct wal_item, list_elem_txn);</span>
+<span class="lineNum">     504 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 2648281 times"> + </span>]:<span class="lineCov">    2648281 :         assert(item-&gt;txn == txn);</span>
 <span class="lineNum">     505 </span>                :            : 
-<span class="lineNum">     506 </span>        [<span class="branchCov" title="Branch 0 was taken 2650553 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    2650553 :         if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
+<span class="lineNum">     506 </span>        [<span class="branchCov" title="Branch 0 was taken 2648281 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    2648281 :         if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
 <span class="lineNum">     507 </span>                :            :             // get KVS ID
-<span class="lineNum">     508 </span>        [<span class="branchCov" title="Branch 0 was taken 2649527 times"> + </span><span class="branchCov" title="Branch 1 was taken 1026 times"> + </span>]:<span class="lineCov">    2650553 :             if (item-&gt;flag &amp; WAL_ITEM_MULTI_KV_INS_MODE) {</span>
-<span class="lineNum">     509 </span>                :<span class="lineCov">    2649527 :                 _kv_id = (fdb_kvs_id_t*)item-&gt;header-&gt;key;</span>
-<span class="lineNum">     510 </span>                :<span class="lineCov">    2649527 :                 kv_id = _endian_decode(*_kv_id);</span>
+<span class="lineNum">     508 </span>        [<span class="branchCov" title="Branch 0 was taken 2647255 times"> + </span><span class="branchCov" title="Branch 1 was taken 1026 times"> + </span>]:<span class="lineCov">    2648281 :             if (item-&gt;flag &amp; WAL_ITEM_MULTI_KV_INS_MODE) {</span>
+<span class="lineNum">     509 </span>                :<span class="lineCov">    2647255 :                 _kv_id = (fdb_kvs_id_t*)item-&gt;header-&gt;key;</span>
+<span class="lineNum">     510 </span>                :<span class="lineCov">    2647255 :                 kv_id = _endian_decode(*_kv_id);</span>
 <span class="lineNum">     511 </span>                :            :             } else {
 <span class="lineNum">     512 </span>                :<span class="lineCov">       1026 :                 kv_id = 0;</span>
 <span class="lineNum">     513 </span>                :            :             }
 <span class="lineNum">     514 </span>                :            : 
-<span class="lineNum">     515 </span>                :<span class="lineCov">    2650553 :             item-&gt;flag |= WAL_ITEM_COMMITTED;</span>
+<span class="lineNum">     515 </span>                :<span class="lineCov">    2648281 :             item-&gt;flag |= WAL_ITEM_COMMITTED;</span>
 <span class="lineNum">     516 </span>                :            :             // append commit mark if necessary
-<span class="lineNum">     517 </span>        [<span class="branchCov" title="Branch 0 was taken 120634 times"> + </span><span class="branchCov" title="Branch 1 was taken 2529919 times"> + </span>]:<span class="lineCov">    2650553 :             if (func) {</span>
-<span class="lineNum">     518 </span>                :<span class="lineCov">     120634 :                 status = func(txn-&gt;handle, item-&gt;offset);</span>
-<span class="lineNum">     519 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 120634 times"> + </span>]:<span class="lineCov">     120634 :                 if (status != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     517 </span>        [<span class="branchCov" title="Branch 0 was taken 120636 times"> + </span><span class="branchCov" title="Branch 1 was taken 2527645 times"> + </span>]:<span class="lineCov">    2648281 :             if (func) {</span>
+<span class="lineNum">     518 </span>                :<span class="lineCov">     120636 :                 status = func(txn-&gt;handle, item-&gt;offset);</span>
+<span class="lineNum">     519 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 120636 times"> + </span>]:<span class="lineCov">     120636 :                 if (status != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :                     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     521 </span>                :<span class="lineNoCov">          0 :                     return status;</span>
 <span class="lineNum">     522 </span>                :            :                 }
 <span class="lineNum">     523 </span>                :            :             }
 <span class="lineNum">     524 </span>                :            :             // remove previously committed item
-<span class="lineNum">     525 </span>                :<span class="lineCov">    2650553 :             prev_commit = 0;</span>
+<span class="lineNum">     525 </span>                :<span class="lineCov">    2648281 :             prev_commit = 0;</span>
 <span class="lineNum">     526 </span>                :            :             // next item on the wal_item_header's items
-<span class="lineNum">     527 </span>                :<span class="lineCov">    2650553 :             e2 = list_next(&amp;item-&gt;list_elem);</span>
-<span class="lineNum">     528 </span>        [<span class="branchCov" title="Branch 0 was taken 8539 times"> + </span><span class="branchCov" title="Branch 1 was taken 2650553 times"> + </span>]:<span class="lineCov">    2659092 :             while(e2) {</span>
-<span class="lineNum">     529 </span>                :<span class="lineCov">       8539 :                 _item = _get_entry(e2, struct wal_item, list_elem);</span>
-<span class="lineNum">     530 </span>                :<span class="lineCov">       8539 :                 e2 = list_next(e2);</span>
+<span class="lineNum">     527 </span>                :<span class="lineCov">    2648281 :             e2 = list_next(&amp;item-&gt;list_elem);</span>
+<span class="lineNum">     528 </span>        [<span class="branchCov" title="Branch 0 was taken 8497 times"> + </span><span class="branchCov" title="Branch 1 was taken 2648281 times"> + </span>]:<span class="lineCov">    2656778 :             while(e2) {</span>
+<span class="lineNum">     529 </span>                :<span class="lineCov">       8497 :                 _item = _get_entry(e2, struct wal_item, list_elem);</span>
+<span class="lineNum">     530 </span>                :<span class="lineCov">       8497 :                 e2 = list_next(e2);</span>
 <span class="lineNum">     531 </span>                :            :                 // committed but not flush-ready
 <span class="lineNum">     532 </span>                :            :                 // (flush-readied item will be removed by flushing)
-<span class="lineNum">     533 </span>[<span class="branchCov" title="Branch 0 was taken 8525 times"> + </span><span class="branchCov" title="Branch 1 was taken 14 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 6481 times"> + </span><span class="branchCov" title="Branch 3 was taken 2044 times"> + </span>]:<span class="lineCov">       8539 :                 if ((_item-&gt;flag &amp; WAL_ITEM_COMMITTED) &amp;&amp;</span>
-<span class="lineNum">     534 </span>                :<span class="lineCov">       8525 :                     !(_item-&gt;flag &amp; WAL_ITEM_FLUSH_READY)) {</span>
-<span class="lineNum">     535 </span>                :<span class="lineCov">       6481 :                     list_remove(&amp;item-&gt;header-&gt;items, &amp;_item-&gt;list_elem);</span>
-<span class="lineNum">     536 </span>                :<span class="lineCov">       6481 :                     hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;_item-&gt;he_seq);</span>
-<span class="lineNum">     537 </span>                :<span class="lineCov">       6481 :                     prev_action = _item-&gt;action;</span>
-<span class="lineNum">     538 </span>                :<span class="lineCov">       6481 :                     prev_commit = 1;</span>
-<span class="lineNum">     539 </span>                :<span class="lineCov">       6481 :                     file-&gt;wal-&gt;size--;</span>
-<span class="lineNum">     540 </span>                :<span class="lineCov">       6481 :                     file-&gt;wal-&gt;num_flushable--;</span>
-<span class="lineNum">     541 </span>        [<span class="branchCov" title="Branch 0 was taken 6481 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       6481 :                     if (item-&gt;action != WAL_ACT_REMOVE) {</span>
-<span class="lineNum">     542 </span>                :<span class="lineCov">       6481 :                         file-&gt;wal-&gt;datasize -= _item-&gt;doc_size;</span>
+<span class="lineNum">     533 </span>[<span class="branchCov" title="Branch 0 was taken 8483 times"> + </span><span class="branchCov" title="Branch 1 was taken 14 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 6478 times"> + </span><span class="branchCov" title="Branch 3 was taken 2005 times"> + </span>]:<span class="lineCov">       8497 :                 if ((_item-&gt;flag &amp; WAL_ITEM_COMMITTED) &amp;&amp;</span>
+<span class="lineNum">     534 </span>                :<span class="lineCov">       8483 :                     !(_item-&gt;flag &amp; WAL_ITEM_FLUSH_READY)) {</span>
+<span class="lineNum">     535 </span>                :<span class="lineCov">       6478 :                     list_remove(&amp;item-&gt;header-&gt;items, &amp;_item-&gt;list_elem);</span>
+<span class="lineNum">     536 </span>                :<span class="lineCov">       6478 :                     hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;_item-&gt;he_seq);</span>
+<span class="lineNum">     537 </span>                :<span class="lineCov">       6478 :                     prev_action = _item-&gt;action;</span>
+<span class="lineNum">     538 </span>                :<span class="lineCov">       6478 :                     prev_commit = 1;</span>
+<span class="lineNum">     539 </span>                :<span class="lineCov">       6478 :                     file-&gt;wal-&gt;size--;</span>
+<span class="lineNum">     540 </span>                :<span class="lineCov">       6478 :                     file-&gt;wal-&gt;num_flushable--;</span>
+<span class="lineNum">     541 </span>        [<span class="branchCov" title="Branch 0 was taken 6478 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       6478 :                     if (item-&gt;action != WAL_ACT_REMOVE) {</span>
+<span class="lineNum">     542 </span>                :<span class="lineCov">       6478 :                         file-&gt;wal-&gt;datasize -= _item-&gt;doc_size;</span>
 <span class="lineNum">     543 </span>                :            :                     }
-<span class="lineNum">     544 </span>                :<span class="lineCov">       6481 :                     free(_item);</span>
+<span class="lineNum">     544 </span>                :<span class="lineCov">       6478 :                     free(_item);</span>
 <span class="lineNum">     545 </span>                :            :                 }
 <span class="lineNum">     546 </span>                :            :             }
-<span class="lineNum">     547 </span>        [<span class="branchCov" title="Branch 0 was taken 2644072 times"> + </span><span class="branchCov" title="Branch 1 was taken 6481 times"> + </span>]:<span class="lineCov">    2650553 :             if (!prev_commit) {</span>
+<span class="lineNum">     547 </span>        [<span class="branchCov" title="Branch 0 was taken 2641803 times"> + </span><span class="branchCov" title="Branch 1 was taken 6478 times"> + </span>]:<span class="lineCov">    2648281 :             if (!prev_commit) {</span>
 <span class="lineNum">     548 </span>                :            :                 // there was no previous commit .. increase num_docs
-<span class="lineNum">     549 </span>                :<span class="lineCov">    2644072 :                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);</span>
-<span class="lineNum">     550 </span>        [<span class="branchCov" title="Branch 0 was taken 570 times"> + </span><span class="branchCov" title="Branch 1 was taken 2643502 times"> + </span>]:<span class="lineCov">    2644072 :                 if (item-&gt;action == WAL_ACT_LOGICAL_REMOVE) {</span>
-<span class="lineNum">     551 </span>                :<span class="lineCov">        570 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);</span>
+<span class="lineNum">     549 </span>                :<span class="lineCov">    2641803 :                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);</span>
+<span class="lineNum">     550 </span>        [<span class="branchCov" title="Branch 0 was taken 569 times"> + </span><span class="branchCov" title="Branch 1 was taken 2641234 times"> + </span>]:<span class="lineCov">    2641803 :                 if (item-&gt;action == WAL_ACT_LOGICAL_REMOVE) {</span>
+<span class="lineNum">     551 </span>                :<span class="lineCov">        569 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);</span>
 <span class="lineNum">     552 </span>                :            :                 }
 <span class="lineNum">     553 </span>                :            :             } else {
-<span class="lineNum">     554 </span>[<span class="branchCov" title="Branch 0 was taken 6381 times"> + </span><span class="branchCov" title="Branch 1 was taken 100 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 160 times"> + </span><span class="branchCov" title="Branch 3 was taken 6221 times"> + </span>]:<span class="lineCov">       6481 :                 if (prev_action == WAL_ACT_INSERT &amp;&amp;</span>
+<span class="lineNum">     554 </span>[<span class="branchCov" title="Branch 0 was taken 6378 times"> + </span><span class="branchCov" title="Branch 1 was taken 100 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 161 times"> + </span><span class="branchCov" title="Branch 3 was taken 6217 times"> + </span>]:<span class="lineCov">       6478 :                 if (prev_action == WAL_ACT_INSERT &amp;&amp;</span>
 <span class="lineNum">     555 </span>                :            :                     item-&gt;action == WAL_ACT_LOGICAL_REMOVE) {
-<span class="lineNum">     556 </span>                :<span class="lineCov">        160 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);</span>
-<span class="lineNum">     557 </span>[<span class="branchCov" title="Branch 0 was taken 100 times"> + </span><span class="branchCov" title="Branch 1 was taken 6221 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 100 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       6321 :                 } else if (prev_action == WAL_ACT_LOGICAL_REMOVE &amp;&amp;</span>
+<span class="lineNum">     556 </span>                :<span class="lineCov">        161 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);</span>
+<span class="lineNum">     557 </span>[<span class="branchCov" title="Branch 0 was taken 100 times"> + </span><span class="branchCov" title="Branch 1 was taken 6217 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 100 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       6317 :                 } else if (prev_action == WAL_ACT_LOGICAL_REMOVE &amp;&amp;</span>
 <span class="lineNum">     558 </span>                :            :                            item-&gt;action == WAL_ACT_INSERT) {
 <span class="lineNum">     559 </span>                :<span class="lineCov">        100 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);</span>
 <span class="lineNum">     560 </span>                :            :                 }
 <span class="lineNum">     561 </span>                :            :             }
 <span class="lineNum">     562 </span>                :            :             // increase num_flushable if it is transactional update
-<span class="lineNum">     563 </span>        [<span class="branchCov" title="Branch 0 was taken 120634 times"> + </span><span class="branchCov" title="Branch 1 was taken 2529919 times"> + </span>]:<span class="lineCov">    2650553 :             if (item-&gt;txn != &amp;file-&gt;global_txn) {</span>
-<span class="lineNum">     564 </span>                :<span class="lineCov">     120634 :                 file-&gt;wal-&gt;num_flushable++;</span>
+<span class="lineNum">     563 </span>        [<span class="branchCov" title="Branch 0 was taken 120636 times"> + </span><span class="branchCov" title="Branch 1 was taken 2527645 times"> + </span>]:<span class="lineCov">    2648281 :             if (item-&gt;txn != &amp;file-&gt;global_txn) {</span>
+<span class="lineNum">     564 </span>                :<span class="lineCov">     120636 :                 file-&gt;wal-&gt;num_flushable++;</span>
 <span class="lineNum">     565 </span>                :            :             }
 <span class="lineNum">     566 </span>                :            :             // move the committed item to the end of the wal_item_header's list
-<span class="lineNum">     567 </span>                :<span class="lineCov">    2650553 :             list_remove(&amp;item-&gt;header-&gt;items, &amp;item-&gt;list_elem);</span>
-<span class="lineNum">     568 </span>                :<span class="lineCov">    2650553 :             list_push_back(&amp;item-&gt;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     567 </span>                :<span class="lineCov">    2648281 :             list_remove(&amp;item-&gt;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     568 </span>                :<span class="lineCov">    2648281 :             list_push_back(&amp;item-&gt;header-&gt;items, &amp;item-&gt;list_elem);</span>
 <span class="lineNum">     569 </span>                :            :         }
 <span class="lineNum">     570 </span>                :            : 
 <span class="lineNum">     571 </span>                :            :         // remove from transaction's list
-<span class="lineNum">     572 </span>                :<span class="lineCov">    2650553 :         e1 = list_remove(txn-&gt;items, e1);</span>
+<span class="lineNum">     572 </span>                :<span class="lineCov">    2648281 :         e1 = list_remove(txn-&gt;items, e1);</span>
 <span class="lineNum">     573 </span>                :            :     }
 <span class="lineNum">     574 </span>                :            : 
-<span class="lineNum">     575 </span>                :<span class="lineCov">      17364 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     576 </span>                :<span class="lineCov">      17364 :     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     575 </span>                :<span class="lineCov">      18084 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     576 </span>                :<span class="lineCov">      18084 :     return FDB_RESULT_SUCCESS;</span>
 <a name="577"><span class="lineNum">     577 </span>                :            : }</a>
 <span class="lineNum">     578 </span>                :            : 
-<span class="lineNum">     579 </span>                :<span class="lineCov">   56021506 : int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)</span>
+<span class="lineNum">     579 </span>                :<span class="lineCov">   56004819 : int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)</span>
 <span class="lineNum">     580 </span>                :            : {
 <span class="lineNum">     581 </span>                :            :     struct wal_item *aa, *bb;
-<span class="lineNum">     582 </span>                :<span class="lineCov">   56021506 :     aa = _get_entry(a, struct wal_item, avl);</span>
-<span class="lineNum">     583 </span>                :<span class="lineCov">   56021506 :     bb = _get_entry(b, struct wal_item, avl);</span>
+<span class="lineNum">     582 </span>                :<span class="lineCov">   56004819 :     aa = _get_entry(a, struct wal_item, avl);</span>
+<span class="lineNum">     583 </span>                :<span class="lineCov">   56004819 :     bb = _get_entry(b, struct wal_item, avl);</span>
 <span class="lineNum">     584 </span>                :            : 
-<span class="lineNum">     585 </span>        [<span class="branchCov" title="Branch 0 was taken 6128750 times"> + </span><span class="branchCov" title="Branch 1 was taken 49892756 times"> + </span>]:<span class="lineCov">   56021506 :     if (aa-&gt;old_offset &lt; bb-&gt;old_offset) {</span>
-<span class="lineNum">     586 </span>                :<span class="lineCov">    6128750 :         return -1;</span>
-<span class="lineNum">     587 </span>        [<span class="branchCov" title="Branch 0 was taken 1268014 times"> + </span><span class="branchCov" title="Branch 1 was taken 48624742 times"> + </span>]:<span class="lineCov">   49892756 :     } else if (aa-&gt;old_offset &gt; bb-&gt;old_offset) {</span>
-<span class="lineNum">     588 </span>                :<span class="lineCov">    1268014 :         return 1;</span>
+<span class="lineNum">     585 </span>        [<span class="branchCov" title="Branch 0 was taken 6123740 times"> + </span><span class="branchCov" title="Branch 1 was taken 49881079 times"> + </span>]:<span class="lineCov">   56004819 :     if (aa-&gt;old_offset &lt; bb-&gt;old_offset) {</span>
+<span class="lineNum">     586 </span>                :<span class="lineCov">    6123740 :         return -1;</span>
+<span class="lineNum">     587 </span>        [<span class="branchCov" title="Branch 0 was taken 1281960 times"> + </span><span class="branchCov" title="Branch 1 was taken 48599119 times"> + </span>]:<span class="lineCov">   49881079 :     } else if (aa-&gt;old_offset &gt; bb-&gt;old_offset) {</span>
+<span class="lineNum">     588 </span>                :<span class="lineCov">    1281960 :         return 1;</span>
 <span class="lineNum">     589 </span>                :            :     } else {
 <span class="lineNum">     590 </span>                :            :         // old_offset can be 0 if the document was newly inserted
-<span class="lineNum">     591 </span>        [<span class="branchCov" title="Branch 0 was taken 48619696 times"> + </span><span class="branchCov" title="Branch 1 was taken 5046 times"> + </span>]:<span class="lineCov">   48624742 :         if (aa-&gt;offset &lt; bb-&gt;offset) {</span>
-<span class="lineNum">     592 </span>                :<span class="lineCov">   48619696 :             return -1;</span>
-<span class="lineNum">     593 </span>        [<span class="branchCov" title="Branch 0 was taken 5046 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       5046 :         } else if (aa-&gt;offset &gt; bb-&gt;offset) {</span>
-<span class="lineNum">     594 </span>                :<span class="lineCov">       5046 :             return 1;</span>
+<span class="lineNum">     591 </span>        [<span class="branchCov" title="Branch 0 was taken 48594369 times"> + </span><span class="branchCov" title="Branch 1 was taken 4750 times"> + </span>]:<span class="lineCov">   48599119 :         if (aa-&gt;offset &lt; bb-&gt;offset) {</span>
+<span class="lineNum">     592 </span>                :<span class="lineCov">   48594369 :             return -1;</span>
+<span class="lineNum">     593 </span>        [<span class="branchCov" title="Branch 0 was taken 4750 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       4750 :         } else if (aa-&gt;offset &gt; bb-&gt;offset) {</span>
+<span class="lineNum">     594 </span>                :<span class="lineCov">       4750 :             return 1;</span>
 <span class="lineNum">     595 </span>                :            :         } else {
-<span class="lineNum">     596 </span>                :<span class="lineCov">   56021506 :             return 0;</span>
+<span class="lineNum">     596 </span>                :<span class="lineCov">   56004819 :             return 0;</span>
 <span class="lineNum">     597 </span>                :            :         }
 <span class="lineNum">     598 </span>                :            :     }
 <a name="599"><span class="lineNum">     599 </span>                :            : }</a>
 <span class="lineNum">     600 </span>                :            : 
-<span class="lineNum">     601 </span>                :<span class="lineCov">       1020 : fdb_status wal_release_flushed_items(struct filemgr *file,</span>
+<span class="lineNum">     601 </span>                :<span class="lineCov">       1019 : fdb_status wal_release_flushed_items(struct filemgr *file,</span>
 <span class="lineNum">     602 </span>                :            :                                      struct avl_tree *flush_items)
 <span class="lineNum">     603 </span>                :            : {
-<span class="lineNum">     604 </span>                :<span class="lineCov">       1020 :     struct avl_tree *tree = flush_items;</span>
+<span class="lineNum">     604 </span>                :<span class="lineCov">       1019 :     struct avl_tree *tree = flush_items;</span>
 <span class="lineNum">     605 </span>                :            :     struct avl_node *a;
 <span class="lineNum">     606 </span>                :            :     struct wal_item *item;
 <span class="lineNum">     607 </span>                :            :     fdb_kvs_id_t kv_id, *_kv_id;
 <span class="lineNum">     608 </span>                :            : 
 <span class="lineNum">     609 </span>                :            :     // scan and remove entries in the avl-tree
-<span class="lineNum">     610 </span>                :<span class="lineCov">       1020 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     611 </span>                :<span class="lineCov">    4143346 :     while (1) {</span>
-<span class="lineNum">     612 </span>        [<span class="branchCov" title="Branch 1 was taken 1020 times"> + </span><span class="branchCov" title="Branch 2 was taken 4143346 times"> + </span>]:<span class="lineCov">    4144366 :         if ((a = avl_first(tree)) == NULL) {</span>
-<span class="lineNum">     613 </span>                :<span class="lineCov">       1020 :             break;</span>
+<span class="lineNum">     610 </span>                :<span class="lineCov">       1019 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     611 </span>                :<span class="lineCov">    4141755 :     while (1) {</span>
+<span class="lineNum">     612 </span>        [<span class="branchCov" title="Branch 1 was taken 1019 times"> + </span><span class="branchCov" title="Branch 2 was taken 4141755 times"> + </span>]:<span class="lineCov">    4142774 :         if ((a = avl_first(tree)) == NULL) {</span>
+<span class="lineNum">     613 </span>                :<span class="lineCov">       1019 :             break;</span>
 <span class="lineNum">     614 </span>                :            :         }
-<span class="lineNum">     615 </span>                :<span class="lineCov">    4143346 :         item = _get_entry(a, struct wal_item, avl);</span>
-<span class="lineNum">     616 </span>                :<span class="lineCov">    4143346 :         avl_remove(tree, &amp;item-&gt;avl);</span>
+<span class="lineNum">     615 </span>                :<span class="lineCov">    4141755 :         item = _get_entry(a, struct wal_item, avl);</span>
+<span class="lineNum">     616 </span>                :<span class="lineCov">    4141755 :         avl_remove(tree, &amp;item-&gt;avl);</span>
 <span class="lineNum">     617 </span>                :            : 
 <span class="lineNum">     618 </span>                :            :         // get KVS ID
-<span class="lineNum">     619 </span>        [<span class="branchCov" title="Branch 0 was taken 4142331 times"> + </span><span class="branchCov" title="Branch 1 was taken 1015 times"> + </span>]:<span class="lineCov">    4143346 :         if (item-&gt;flag &amp; WAL_ITEM_MULTI_KV_INS_MODE) {</span>
-<span class="lineNum">     620 </span>                :<span class="lineCov">    4142331 :             _kv_id = (fdb_kvs_id_t*)item-&gt;header-&gt;key;</span>
-<span class="lineNum">     621 </span>                :<span class="lineCov">    4142331 :             kv_id = _endian_decode(*_kv_id);</span>
+<span class="lineNum">     619 </span>        [<span class="branchCov" title="Branch 0 was taken 4140740 times"> + </span><span class="branchCov" title="Branch 1 was taken 1015 times"> + </span>]:<span class="lineCov">    4141755 :         if (item-&gt;flag &amp; WAL_ITEM_MULTI_KV_INS_MODE) {</span>
+<span class="lineNum">     620 </span>                :<span class="lineCov">    4140740 :             _kv_id = (fdb_kvs_id_t*)item-&gt;header-&gt;key;</span>
+<span class="lineNum">     621 </span>                :<span class="lineCov">    4140740 :             kv_id = _endian_decode(*_kv_id);</span>
 <span class="lineNum">     622 </span>                :            :         } else {
 <span class="lineNum">     623 </span>                :<span class="lineCov">       1015 :             kv_id = 0;</span>
 <span class="lineNum">     624 </span>                :            :         }
 <span class="lineNum">     625 </span>                :            : 
-<span class="lineNum">     626 </span>                :<span class="lineCov">    4143346 :         list_remove(&amp;item-&gt;header-&gt;items, &amp;item-&gt;list_elem);</span>
-<span class="lineNum">     627 </span>                :<span class="lineCov">    4143346 :         hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
-<span class="lineNum">     628 </span>        [<span class="branchCov" title="Branch 1 was taken 4141254 times"> + </span><span class="branchCov" title="Branch 2 was taken 2092 times"> + </span>]:<span class="lineCov">    4143346 :         if (list_begin(&amp;item-&gt;header-&gt;items) == NULL) {</span>
+<span class="lineNum">     626 </span>                :<span class="lineCov">    4141755 :         list_remove(&amp;item-&gt;header-&gt;items, &amp;item-&gt;list_elem);</span>
+<span class="lineNum">     627 </span>                :<span class="lineCov">    4141755 :         hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
+<span class="lineNum">     628 </span>        [<span class="branchCov" title="Branch 1 was taken 4139705 times"> + </span><span class="branchCov" title="Branch 2 was taken 2050 times"> + </span>]:<span class="lineCov">    4141755 :         if (list_begin(&amp;item-&gt;header-&gt;items) == NULL) {</span>
 <span class="lineNum">     629 </span>                :            :             // wal_item_header becomes empty
 <span class="lineNum">     630 </span>                :            :             // free header and remove from hash table &amp; wal list
-<span class="lineNum">     631 </span>                :<span class="lineCov">    4141254 :             list_remove(&amp;file-&gt;wal-&gt;list, &amp;item-&gt;header-&gt;list_elem);</span>
-<span class="lineNum">     632 </span>                :<span class="lineCov">    4141254 :             hash_remove(&amp;file-&gt;wal-&gt;hash_bykey, &amp;item-&gt;header-&gt;he_key);</span>
-<span class="lineNum">     633 </span>                :<span class="lineCov">    4141254 :             free(item-&gt;header-&gt;key);</span>
-<span class="lineNum">     634 </span>                :<span class="lineCov">    4141254 :             free(item-&gt;header);</span>
+<span class="lineNum">     631 </span>                :<span class="lineCov">    4139705 :             list_remove(&amp;file-&gt;wal-&gt;list, &amp;item-&gt;header-&gt;list_elem);</span>
+<span class="lineNum">     632 </span>                :<span class="lineCov">    4139705 :             hash_remove(&amp;file-&gt;wal-&gt;hash_bykey, &amp;item-&gt;header-&gt;he_key);</span>
+<span class="lineNum">     633 </span>                :<span class="lineCov">    4139705 :             free(item-&gt;header-&gt;key);</span>
+<span class="lineNum">     634 </span>                :<span class="lineCov">    4139705 :             free(item-&gt;header);</span>
 <span class="lineNum">     635 </span>                :            :         }
 <span class="lineNum">     636 </span>                :            : 
-<span class="lineNum">     637 </span>[<span class="branchCov" title="Branch 0 was taken 4142734 times"> + </span><span class="branchCov" title="Branch 1 was taken 612 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 4142734 times"> + </span>]:<span class="lineCov">    4143346 :         if (item-&gt;action == WAL_ACT_LOGICAL_REMOVE ||</span>
+<span class="lineNum">     637 </span>[<span class="branchCov" title="Branch 0 was taken 4141143 times"> + </span><span class="branchCov" title="Branch 1 was taken 612 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 4141143 times"> + </span>]:<span class="lineCov">    4141755 :         if (item-&gt;action == WAL_ACT_LOGICAL_REMOVE ||</span>
 <span class="lineNum">     638 </span>                :            :             item-&gt;action == WAL_ACT_REMOVE) {
 <span class="lineNum">     639 </span>                :<span class="lineCov">        612 :             _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);</span>
 <span class="lineNum">     640 </span>                :            :         }
-<span class="lineNum">     641 </span>                :<span class="lineCov">    4143346 :         _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);</span>
-<span class="lineNum">     642 </span>                :<span class="lineCov">    4143346 :         file-&gt;wal-&gt;size--;</span>
-<span class="lineNum">     643 </span>                :<span class="lineCov">    4143346 :         file-&gt;wal-&gt;num_flushable--;</span>
-<span class="lineNum">     644 </span>        [<span class="branchCov" title="Branch 0 was taken 4143346 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    4143346 :         if (item-&gt;action != WAL_ACT_REMOVE) {</span>
-<span class="lineNum">     645 </span>                :<span class="lineCov">    4143346 :             file-&gt;wal-&gt;datasize -= item-&gt;doc_size;</span>
+<span class="lineNum">     641 </span>                :<span class="lineCov">    4141755 :         _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);</span>
+<span class="lineNum">     642 </span>                :<span class="lineCov">    4141755 :         file-&gt;wal-&gt;size--;</span>
+<span class="lineNum">     643 </span>                :<span class="lineCov">    4141755 :         file-&gt;wal-&gt;num_flushable--;</span>
+<span class="lineNum">     644 </span>        [<span class="branchCov" title="Branch 0 was taken 4141755 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    4141755 :         if (item-&gt;action != WAL_ACT_REMOVE) {</span>
+<span class="lineNum">     645 </span>                :<span class="lineCov">    4141755 :             file-&gt;wal-&gt;datasize -= item-&gt;doc_size;</span>
 <span class="lineNum">     646 </span>                :            :         }
-<span class="lineNum">     647 </span>                :<span class="lineCov">    4143346 :         free(item);</span>
+<span class="lineNum">     647 </span>                :<span class="lineCov">    4141755 :         free(item);</span>
 <span class="lineNum">     648 </span>                :            :     }
-<span class="lineNum">     649 </span>                :<span class="lineCov">       1020 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     649 </span>                :<span class="lineCov">       1019 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     650 </span>                :            : 
-<span class="lineNum">     651 </span>                :<span class="lineCov">       1020 :     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     651 </span>                :<span class="lineCov">       1019 :     return FDB_RESULT_SUCCESS;</span>
 <a name="652"><span class="lineNum">     652 </span>                :            : }</a>
 <span class="lineNum">     653 </span>                :            : 
-<span class="lineNum">     654 </span>                :<span class="lineCov">       1021 : fdb_status _wal_flush(struct filemgr *file,</span>
+<span class="lineNum">     654 </span>                :<span class="lineCov">       1020 : fdb_status _wal_flush(struct filemgr *file,</span>
 <span class="lineNum">     655 </span>                :            :                      void *dbhandle,
 <span class="lineNum">     656 </span>                :            :                      wal_flush_func *flush_func,
 <span class="lineNum">     657 </span>                :            :                      wal_get_old_offset_func *get_old_offset,
 <span class="lineNum">     658 </span>                :            :                      struct avl_tree *flush_items,
 <span class="lineNum">     659 </span>                :            :                      bool by_compactor)
 <span class="lineNum">     660 </span>                :            : {
-<span class="lineNum">     661 </span>                :<span class="lineCov">       1021 :     struct avl_tree *tree = flush_items;</span>
+<span class="lineNum">     661 </span>                :<span class="lineCov">       1020 :     struct avl_tree *tree = flush_items;</span>
 <span class="lineNum">     662 </span>                :            :     struct avl_node *a;
 <span class="lineNum">     663 </span>                :            :     struct list_elem *e, *ee;
 <span class="lineNum">     664 </span>                :            :     struct wal_item *item;
 <span class="lineNum">     665 </span>                :            :     struct wal_item_header *header;
 <span class="lineNum">     666 </span>                :            : 
 <span class="lineNum">     667 </span>                :            :     // sort by old byte-offset of the document (for sequential access)
-<span class="lineNum">     668 </span>                :<span class="lineCov">       1021 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     669 </span>                :<span class="lineCov">       1021 :     avl_init(tree, NULL);</span>
-<span class="lineNum">     670 </span>                :<span class="lineCov">       1021 :     e = list_begin(&amp;file-&gt;wal-&gt;list);</span>
-<span class="lineNum">     671 </span>        [<span class="branchCov" title="Branch 0 was taken 4146700 times"> + </span><span class="branchCov" title="Branch 1 was taken 1021 times"> + </span>]:<span class="lineCov">    4147721 :     while(e){</span>
-<span class="lineNum">     672 </span>                :<span class="lineCov">    4146700 :         header = _get_entry(e, struct wal_item_header, list_elem);</span>
-<span class="lineNum">     673 </span>                :<span class="lineCov">    4146700 :         ee = list_end(&amp;header-&gt;items);</span>
-<span class="lineNum">     674 </span>        [<span class="branchCov" title="Branch 0 was taken 4146729 times"> + </span><span class="branchCov" title="Branch 1 was taken 4145399 times"> + </span>]:<span class="lineCov">    8292128 :         while(ee) {</span>
-<span class="lineNum">     675 </span>                :<span class="lineCov">    4146729 :             item = _get_entry(ee, struct wal_item, list_elem);</span>
+<span class="lineNum">     668 </span>                :<span class="lineCov">       1020 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     669 </span>                :<span class="lineCov">       1020 :     avl_init(tree, NULL);</span>
+<span class="lineNum">     670 </span>                :<span class="lineCov">       1020 :     e = list_begin(&amp;file-&gt;wal-&gt;list);</span>
+<span class="lineNum">     671 </span>        [<span class="branchCov" title="Branch 0 was taken 4144848 times"> + </span><span class="branchCov" title="Branch 1 was taken 1020 times"> + </span>]:<span class="lineCov">    4145868 :     while(e){</span>
+<span class="lineNum">     672 </span>                :<span class="lineCov">    4144848 :         header = _get_entry(e, struct wal_item_header, list_elem);</span>
+<span class="lineNum">     673 </span>                :<span class="lineCov">    4144848 :         ee = list_end(&amp;header-&gt;items);</span>
+<span class="lineNum">     674 </span>        [<span class="branchCov" title="Branch 0 was taken 4144873 times"> + </span><span class="branchCov" title="Branch 1 was taken 4143812 times"> + </span>]:<span class="lineCov">    8288685 :         while(ee) {</span>
+<span class="lineNum">     675 </span>                :<span class="lineCov">    4144873 :             item = _get_entry(ee, struct wal_item, list_elem);</span>
 <span class="lineNum">     676 </span>                :            :             // committed but not flushed items
-<span class="lineNum">     677 </span>        [<span class="branchCov" title="Branch 0 was taken 70 times"> + </span><span class="branchCov" title="Branch 1 was taken 4146659 times"> + </span>]:<span class="lineCov">    4146729 :             if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
-<span class="lineNum">     678 </span>                :<span class="lineCov">         70 :                 break;</span>
+<span class="lineNum">     677 </span>        [<span class="branchCov" title="Branch 0 was taken 66 times"> + </span><span class="branchCov" title="Branch 1 was taken 4144807 times"> + </span>]:<span class="lineCov">    4144873 :             if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
+<span class="lineNum">     678 </span>                :<span class="lineCov">         66 :                 break;</span>
 <span class="lineNum">     679 </span>                :            :             }
-<span class="lineNum">     680 </span>[<span class="branchCov" title="Branch 0 was taken 1529916 times"> + </span><span class="branchCov" title="Branch 1 was taken 2616743 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 1231 times"> + </span><span class="branchCov" title="Branch 3 was taken 1528685 times"> + </span>]:<span class="lineCov">    4146659 :             if (by_compactor &amp;&amp;</span>
-<span class="lineNum">     681 </span>                :<span class="lineCov">    1529916 :                 !(item-&gt;flag &amp; WAL_ITEM_BY_COMPACTOR)) {</span>
+<span class="lineNum">     680 </span>[<span class="branchCov" title="Branch 0 was taken 1530269 times"> + </span><span class="branchCov" title="Branch 1 was taken 2614538 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 970 times"> + </span><span class="branchCov" title="Branch 3 was taken 1529299 times"> + </span>]:<span class="lineCov">    4144807 :             if (by_compactor &amp;&amp;</span>
+<span class="lineNum">     681 </span>                :<span class="lineCov">    1530269 :                 !(item-&gt;flag &amp; WAL_ITEM_BY_COMPACTOR)) {</span>
 <span class="lineNum">     682 </span>                :            :                 // during compaction, do not flush normally committed item
-<span class="lineNum">     683 </span>                :<span class="lineCov">       1231 :                 break;</span>
+<span class="lineNum">     683 </span>                :<span class="lineCov">        970 :                 break;</span>
 <span class="lineNum">     684 </span>                :            :             }
-<span class="lineNum">     685 </span>        [<span class="branchCov" title="Branch 0 was taken 4145428 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    4145428 :             if (!(item-&gt;flag &amp; WAL_ITEM_FLUSH_READY)) {</span>
-<span class="lineNum">     686 </span>                :<span class="lineCov">    4145428 :                 item-&gt;flag |= WAL_ITEM_FLUSH_READY;</span>
+<span class="lineNum">     685 </span>        [<span class="branchCov" title="Branch 0 was taken 4143837 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    4143837 :             if (!(item-&gt;flag &amp; WAL_ITEM_FLUSH_READY)) {</span>
+<span class="lineNum">     686 </span>                :<span class="lineCov">    4143837 :                 item-&gt;flag |= WAL_ITEM_FLUSH_READY;</span>
 <span class="lineNum">     687 </span>                :            :                 // if WAL_ITEM_FLUSH_READY flag is set,
 <span class="lineNum">     688 </span>                :            :                 // this item becomes immutable, so that
 <span class="lineNum">     689 </span>                :            :                 // no other concurrent thread modifies it.
-<span class="lineNum">     690 </span>                :<span class="lineCov">    4145428 :                 spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     691 </span>                :<span class="lineCov">    4145428 :                 item-&gt;old_offset = get_old_offset(dbhandle, item);</span>
-<span class="lineNum">     692 </span>                :<span class="lineCov">    4145428 :                 avl_insert(tree, &amp;item-&gt;avl, _wal_flush_cmp);</span>
-<span class="lineNum">     693 </span>                :<span class="lineCov">    4145428 :                 spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     690 </span>                :<span class="lineCov">    4143837 :                 spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     691 </span>                :<span class="lineCov">    4143837 :                 item-&gt;old_offset = get_old_offset(dbhandle, item);</span>
+<span class="lineNum">     692 </span>                :<span class="lineCov">    4143837 :                 avl_insert(tree, &amp;item-&gt;avl, _wal_flush_cmp);</span>
+<span class="lineNum">     693 </span>                :<span class="lineCov">    4143837 :                 spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     694 </span>                :            :             }
-<span class="lineNum">     695 </span>                :<span class="lineCov">    4145428 :             ee = list_prev(ee);</span>
+<span class="lineNum">     695 </span>                :<span class="lineCov">    4143837 :             ee = list_prev(ee);</span>
 <span class="lineNum">     696 </span>                :            :         }
-<span class="lineNum">     697 </span>                :<span class="lineCov">    4146700 :         e = list_next(e);</span>
+<span class="lineNum">     697 </span>                :<span class="lineCov">    4144848 :         e = list_next(e);</span>
 <span class="lineNum">     698 </span>                :            :     }
-<span class="lineNum">     699 </span>                :<span class="lineCov">       1021 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     699 </span>                :<span class="lineCov">       1020 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     700 </span>                :            : 
 <span class="lineNum">     701 </span>                :            :     // scan and flush entries in the avl-tree
-<span class="lineNum">     702 </span>                :<span class="lineCov">       1021 :     a = avl_first(tree);</span>
-<span class="lineNum">     703 </span>        [<span class="branchCov" title="Branch 0 was taken 4143329 times"> + </span><span class="branchCov" title="Branch 1 was taken 1020 times"> + </span>]:<span class="lineCov">    4144349 :     while (a) {</span>
-<span class="lineNum">     704 </span>                :<span class="lineCov">    4143329 :         item = _get_entry(a, struct wal_item, avl);</span>
-<span class="lineNum">     705 </span>                :<span class="lineCov">    4143329 :         a = avl_next(a);</span>
+<span class="lineNum">     702 </span>                :<span class="lineCov">       1020 :     a = avl_first(tree);</span>
+<span class="lineNum">     703 </span>        [<span class="branchCov" title="Branch 0 was taken 4141755 times"> + </span><span class="branchCov" title="Branch 1 was taken 1019 times"> + </span>]:<span class="lineCov">    4142774 :     while (a) {</span>
+<span class="lineNum">     704 </span>                :<span class="lineCov">    4141755 :         item = _get_entry(a, struct wal_item, avl);</span>
+<span class="lineNum">     705 </span>                :<span class="lineCov">    4141755 :         a = avl_next(a);</span>
 <span class="lineNum">     706 </span>                :            : 
 <span class="lineNum">     707 </span>                :            :         // check weather this item is updated after insertion into tree
-<span class="lineNum">     708 </span>        [<span class="branchCov" title="Branch 0 was taken 4143343 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    4143341 :         if (item-&gt;flag &amp; WAL_ITEM_FLUSH_READY) {</span>
-<span class="lineNum">     709 </span>                :<span class="lineCov">    4143343 :             fdb_status fs = flush_func(dbhandle, item);</span>
-<span class="lineNum">     710 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 4143325 times"> + </span>]:<span class="lineCov">    4143326 :             if (fs != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     708 </span>        [<span class="branchCov" title="Branch 0 was taken 4141754 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    4141754 :         if (item-&gt;flag &amp; WAL_ITEM_FLUSH_READY) {</span>
+<span class="lineNum">     709 </span>                :<span class="lineCov">    4141754 :             fdb_status fs = flush_func(dbhandle, item);</span>
+<span class="lineNum">     710 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 4141754 times"> + </span>]:<span class="lineCov">    4141755 :             if (fs != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     711 </span>                :<span class="lineCov">          1 :                 return fs;</span>
 <span class="lineNum">     712 </span>                :            :             }
 <span class="lineNum">     713 </span>                :            :         }
 <span class="lineNum">     714 </span>                :            :     }
 <span class="lineNum">     715 </span>                :            : 
-<span class="lineNum">     716 </span>                :<span class="lineCov">       1021 :     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     716 </span>                :<span class="lineCov">       1020 :     return FDB_RESULT_SUCCESS;</span>
 <a name="717"><span class="lineNum">     717 </span>                :            : }</a>
 <span class="lineNum">     718 </span>                :            : 
-<span class="lineNum">     719 </span>                :<span class="lineCov">        970 : fdb_status wal_flush(struct filemgr *file,</span>
+<span class="lineNum">     719 </span>                :<span class="lineCov">        969 : fdb_status wal_flush(struct filemgr *file,</span>
 <span class="lineNum">     720 </span>                :            :                      void *dbhandle,
 <span class="lineNum">     721 </span>                :            :                      wal_flush_func *flush_func,
 <span class="lineNum">     722 </span>                :            :                      wal_get_old_offset_func *get_old_offset,
 <span class="lineNum">     723 </span>                :            :                      struct avl_tree *flush_items)
 <span class="lineNum">     724 </span>                :            : {
 <span class="lineNum">     725 </span>                :            :     return _wal_flush(file, dbhandle, flush_func, get_old_offset,
-<span class="lineNum">     726 </span>                :<span class="lineCov">        970 :                       flush_items, false);</span>
+<span class="lineNum">     726 </span>                :<span class="lineCov">        969 :                       flush_items, false);</span>
 <a name="727"><span class="lineNum">     727 </span>                :            : }</a>
 <span class="lineNum">     728 </span>                :            : 
 <span class="lineNum">     729 </span>                :<span class="lineCov">         51 : fdb_status wal_flush_by_compactor(struct filemgr *file,</span>
@@ -921,72 +921,72 @@
 <span class="lineNum">     846 </span>                :<span class="lineCov">        520 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     847 </span>                :            : 
 <span class="lineNum">     848 </span>                :<span class="lineCov">        520 :     e1 = list_begin(&amp;file-&gt;wal-&gt;list);</span>
-<span class="lineNum">     849 </span>        [<span class="branchCov" title="Branch 0 was taken 59447 times"> + </span><span class="branchCov" title="Branch 1 was taken 520 times"> + </span>]:<span class="lineCov">      59967 :     while(e1){</span>
-<span class="lineNum">     850 </span>                :<span class="lineCov">      59447 :         header = _get_entry(e1, struct wal_item_header, list_elem);</span>
+<span class="lineNum">     849 </span>        [<span class="branchCov" title="Branch 0 was taken 59249 times"> + </span><span class="branchCov" title="Branch 1 was taken 520 times"> + </span>]:<span class="lineCov">      59769 :     while(e1){</span>
+<span class="lineNum">     850 </span>                :<span class="lineCov">      59249 :         header = _get_entry(e1, struct wal_item_header, list_elem);</span>
 <span class="lineNum">     851 </span>                :            : 
-<span class="lineNum">     852 </span>        [<span class="branchCov" title="Branch 0 was taken 1808 times"> + </span><span class="branchCov" title="Branch 1 was taken 57639 times"> + </span>]:<span class="lineCov">      59447 :         if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode</span>
+<span class="lineNum">     852 </span>        [<span class="branchCov" title="Branch 0 was taken 1808 times"> + </span><span class="branchCov" title="Branch 1 was taken 57441 times"> + </span>]:<span class="lineCov">      59249 :         if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode</span>
 <span class="lineNum">     853 </span>                :<span class="lineCov">       1808 :             _kv_id = (fdb_kvs_id_t *)header-&gt;key;</span>
 <span class="lineNum">     854 </span>                :<span class="lineCov">       1808 :             kv_id = _endian_decode(*_kv_id);</span>
 <span class="lineNum">     855 </span>                :            :             // begin while loop only on matching KV ID
 <span class="lineNum">     856 </span>        [<span class="branchCov" title="Branch 0 was taken 1108 times"> + </span><span class="branchCov" title="Branch 1 was taken 700 times"> + </span>]:<span class="lineCov">       1808 :             e2 = (kv_id == kv_id_req)?(list_begin(&amp;header-&gt;items)):(NULL);</span>
 <span class="lineNum">     857 </span>                :            :         } else {
-<span class="lineNum">     858 </span>                :<span class="lineCov">      57639 :             kv_id = 0;</span>
-<span class="lineNum">     859 </span>                :<span class="lineCov">      57639 :             e2 = list_begin(&amp;header-&gt;items);</span>
+<span class="lineNum">     858 </span>                :<span class="lineCov">      57441 :             kv_id = 0;</span>
+<span class="lineNum">     859 </span>                :<span class="lineCov">      57441 :             e2 = list_begin(&amp;header-&gt;items);</span>
 <span class="lineNum">     860 </span>                :            :         }
 <span class="lineNum">     861 </span>                :            : 
-<span class="lineNum">     862 </span>                :<span class="lineCov">      59447 :         committed = false;</span>
-<span class="lineNum">     863 </span>        [<span class="branchCov" title="Branch 0 was taken 58748 times"> + </span><span class="branchCov" title="Branch 1 was taken 59447 times"> + </span>]:<span class="lineCov">     118195 :         while(e2) {</span>
-<span class="lineNum">     864 </span>                :<span class="lineCov">      58748 :             item = _get_entry(e2, struct wal_item, list_elem);</span>
+<span class="lineNum">     862 </span>                :<span class="lineCov">      59249 :         committed = false;</span>
+<span class="lineNum">     863 </span>        [<span class="branchCov" title="Branch 0 was taken 58550 times"> + </span><span class="branchCov" title="Branch 1 was taken 59249 times"> + </span>]:<span class="lineCov">     117799 :         while(e2) {</span>
+<span class="lineNum">     864 </span>                :<span class="lineCov">      58550 :             item = _get_entry(e2, struct wal_item, list_elem);</span>
 <span class="lineNum">     865 </span>                :            : 
-<span class="lineNum">     866 </span>[<span class="branchCov" title="Branch 0 was taken 29938 times"> + </span><span class="branchCov" title="Branch 1 was taken 28810 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 28830 times"> + </span><span class="branchCov" title="Branch 3 was taken 1108 times"> + </span>]:<span class="lineCov">      58748 :             if ( type == WAL_DISCARD_ALL ||</span>
-<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 28805 times"> + </span><span class="branchCov" title="Branch 5 was taken 25 times"> + </span>][<span class="branchCov" title="Branch 6 was taken 1108 times"> + </span><span class="branchCov" title="Branch 7 was taken 28805 times"> + </span>]
+<span class="lineNum">     866 </span>[<span class="branchCov" title="Branch 0 was taken 29839 times"> + </span><span class="branchCov" title="Branch 1 was taken 28711 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 28731 times"> + </span><span class="branchCov" title="Branch 3 was taken 1108 times"> + </span>]:<span class="lineCov">      58550 :             if ( type == WAL_DISCARD_ALL ||</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 28706 times"> + </span><span class="branchCov" title="Branch 5 was taken 25 times"> + </span>][<span class="branchCov" title="Branch 6 was taken 1108 times"> + </span><span class="branchCov" title="Branch 7 was taken 28706 times"> + </span>]
 <span class="lineNum">     867 </span>                :            :                 (type == WAL_DISCARD_UNCOMMITTED_ONLY &amp;&amp;
-<span class="lineNum">     868 </span>                :<span class="lineCov">      28830 :                     !(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) ||</span>
+<span class="lineNum">     868 </span>                :<span class="lineCov">      28731 :                     !(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) ||</span>
 <span class="lineNum">     869 </span>                :            :                  type == WAL_DISCARD_KV_INS) {
 <span class="lineNum">     870 </span>                :            :                 // remove from header's list
-<span class="lineNum">     871 </span>                :<span class="lineCov">      29943 :                 e2 = list_remove(&amp;header-&gt;items, e2);</span>
-<span class="lineNum">     872 </span>        [<span class="branchCov" title="Branch 0 was taken 25 times"> + </span><span class="branchCov" title="Branch 1 was taken 29918 times"> + </span>]:<span class="lineCov">      29943 :                 if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
+<span class="lineNum">     871 </span>                :<span class="lineCov">      29844 :                 e2 = list_remove(&amp;header-&gt;items, e2);</span>
+<span class="lineNum">     872 </span>        [<span class="branchCov" title="Branch 0 was taken 25 times"> + </span><span class="branchCov" title="Branch 1 was taken 29819 times"> + </span>]:<span class="lineCov">      29844 :                 if (!(item-&gt;flag &amp; WAL_ITEM_COMMITTED)) {</span>
 <span class="lineNum">     873 </span>                :            :                     // and also remove from transaction's list
 <span class="lineNum">     874 </span>                :<span class="lineCov">         25 :                     list_remove(item-&gt;txn-&gt;items, &amp;item-&gt;list_elem_txn);</span>
 <span class="lineNum">     875 </span>                :            :                 } else {
 <span class="lineNum">     876 </span>                :            :                     // committed item exists and will be removed
-<span class="lineNum">     877 </span>                :<span class="lineCov">      29918 :                     committed = true;</span>
-<span class="lineNum">     878 </span>                :<span class="lineCov">      29918 :                     committed_item_action = item-&gt;action;</span>
+<span class="lineNum">     877 </span>                :<span class="lineCov">      29819 :                     committed = true;</span>
+<span class="lineNum">     878 </span>                :<span class="lineCov">      29819 :                     committed_item_action = item-&gt;action;</span>
 <span class="lineNum">     879 </span>                :            :                 }
 <span class="lineNum">     880 </span>                :            :                 // remove from seq hash table
-<span class="lineNum">     881 </span>                :<span class="lineCov">      29943 :                 hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
+<span class="lineNum">     881 </span>                :<span class="lineCov">      29844 :                 hash_remove(&amp;file-&gt;wal-&gt;hash_byseq, &amp;item-&gt;he_seq);</span>
 <span class="lineNum">     882 </span>                :            : 
-<span class="lineNum">     883 </span>        [<span class="branchCov" title="Branch 0 was taken 29943 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      29943 :                 if (item-&gt;action != WAL_ACT_REMOVE) {</span>
-<span class="lineNum">     884 </span>                :<span class="lineCov">      29943 :                     file-&gt;wal-&gt;datasize -= item-&gt;doc_size;</span>
+<span class="lineNum">     883 </span>        [<span class="branchCov" title="Branch 0 was taken 29844 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      29844 :                 if (item-&gt;action != WAL_ACT_REMOVE) {</span>
+<span class="lineNum">     884 </span>                :<span class="lineCov">      29844 :                     file-&gt;wal-&gt;datasize -= item-&gt;doc_size;</span>
 <span class="lineNum">     885 </span>                :            :                 }
-<span class="lineNum">     886 </span>        [<span class="branchCov" title="Branch 0 was taken 19879 times"> + </span><span class="branchCov" title="Branch 1 was taken 10064 times"> + </span>]:<span class="lineCov">      29943 :                 if (item-&gt;txn == &amp;file-&gt;global_txn) {</span>
-<span class="lineNum">     887 </span>                :<span class="lineCov">      19879 :                     file-&gt;wal-&gt;num_flushable--;</span>
+<span class="lineNum">     886 </span>        [<span class="branchCov" title="Branch 0 was taken 19880 times"> + </span><span class="branchCov" title="Branch 1 was taken 9964 times"> + </span>]:<span class="lineCov">      29844 :                 if (item-&gt;txn == &amp;file-&gt;global_txn) {</span>
+<span class="lineNum">     887 </span>                :<span class="lineCov">      19880 :                     file-&gt;wal-&gt;num_flushable--;</span>
 <span class="lineNum">     888 </span>                :            :                 }
 <span class="lineNum">     889 </span>                :            : 
-<span class="lineNum">     890 </span>                :<span class="lineCov">      29943 :                 free(item);</span>
-<span class="lineNum">     891 </span>                :<span class="lineCov">      29943 :                 file-&gt;wal-&gt;size--;</span>
+<span class="lineNum">     890 </span>                :<span class="lineCov">      29844 :                 free(item);</span>
+<span class="lineNum">     891 </span>                :<span class="lineCov">      29844 :                 file-&gt;wal-&gt;size--;</span>
 <span class="lineNum">     892 </span>                :            :             } else {
-<span class="lineNum">     893 </span>                :<span class="lineCov">      28805 :                 e2 = list_next(e2);</span>
+<span class="lineNum">     893 </span>                :<span class="lineCov">      28706 :                 e2 = list_next(e2);</span>
 <span class="lineNum">     894 </span>                :            :             }
 <span class="lineNum">     895 </span>                :            :         }
-<span class="lineNum">     896 </span>                :<span class="lineCov">      59447 :         e1 = list_next(e1);</span>
+<span class="lineNum">     896 </span>                :<span class="lineCov">      59249 :         e1 = list_next(e1);</span>
 <span class="lineNum">     897 </span>                :            : 
-<span class="lineNum">     898 </span>        [<span class="branchCov" title="Branch 1 was taken 29942 times"> + </span><span class="branchCov" title="Branch 2 was taken 29505 times"> + </span>]:<span class="lineCov">      59447 :         if (list_begin(&amp;header-&gt;items) == NULL) {</span>
+<span class="lineNum">     898 </span>        [<span class="branchCov" title="Branch 1 was taken 29843 times"> + </span><span class="branchCov" title="Branch 2 was taken 29406 times"> + </span>]:<span class="lineCov">      59249 :         if (list_begin(&amp;header-&gt;items) == NULL) {</span>
 <span class="lineNum">     899 </span>                :            :             // wal_item_header becomes empty
 <span class="lineNum">     900 </span>                :            :             // free header and remove from hash table &amp; wal list
-<span class="lineNum">     901 </span>                :<span class="lineCov">      29942 :             list_remove(&amp;file-&gt;wal-&gt;list, &amp;header-&gt;list_elem);</span>
-<span class="lineNum">     902 </span>                :<span class="lineCov">      29942 :             hash_remove(&amp;file-&gt;wal-&gt;hash_bykey, &amp;header-&gt;he_key);</span>
-<span class="lineNum">     903 </span>                :<span class="lineCov">      29942 :             free(header-&gt;key);</span>
-<span class="lineNum">     904 </span>                :<span class="lineCov">      29942 :             free(header);</span>
+<span class="lineNum">     901 </span>                :<span class="lineCov">      29843 :             list_remove(&amp;file-&gt;wal-&gt;list, &amp;header-&gt;list_elem);</span>
+<span class="lineNum">     902 </span>                :<span class="lineCov">      29843 :             hash_remove(&amp;file-&gt;wal-&gt;hash_bykey, &amp;header-&gt;he_key);</span>
+<span class="lineNum">     903 </span>                :<span class="lineCov">      29843 :             free(header-&gt;key);</span>
+<span class="lineNum">     904 </span>                :<span class="lineCov">      29843 :             free(header);</span>
 <span class="lineNum">     905 </span>                :            : 
-<span class="lineNum">     906 </span>        [<span class="branchCov" title="Branch 0 was taken 29918 times"> + </span><span class="branchCov" title="Branch 1 was taken 24 times"> + </span>]:<span class="lineCov">      29942 :             if (committed) {</span>
+<span class="lineNum">     906 </span>        [<span class="branchCov" title="Branch 0 was taken 29819 times"> + </span><span class="branchCov" title="Branch 1 was taken 24 times"> + </span>]:<span class="lineCov">      29843 :             if (committed) {</span>
 <span class="lineNum">     907 </span>                :            :                 // this document was committed
 <span class="lineNum">     908 </span>                :            :                 // num_docs and num_deletes should be updated
-<span class="lineNum">     909 </span>[<span class="branchCov" title="Branch 0 was taken 29898 times"> + </span><span class="branchCov" title="Branch 1 was taken 20 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 29898 times"> + </span>]:<span class="lineCov">      29918 :                 if (committed_item_action == WAL_ACT_LOGICAL_REMOVE ||</span>
+<span class="lineNum">     909 </span>[<span class="branchCov" title="Branch 0 was taken 29799 times"> + </span><span class="branchCov" title="Branch 1 was taken 20 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 29799 times"> + </span>]:<span class="lineCov">      29819 :                 if (committed_item_action == WAL_ACT_LOGICAL_REMOVE ||</span>
 <span class="lineNum">     910 </span>                :            :                     committed_item_action == WAL_ACT_REMOVE) {
 <span class="lineNum">     911 </span>                :<span class="lineCov">         20 :                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);</span>
 <span class="lineNum">     912 </span>                :            :                 }
-<span class="lineNum">     913 </span>                :<span class="lineCov">      29918 :                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);</span>
+<span class="lineNum">     913 </span>                :<span class="lineCov">      29819 :                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);</span>
 <span class="lineNum">     914 </span>                :            :             }
 <span class="lineNum">     915 </span>                :            :         }
 <span class="lineNum">     916 </span>                :            :     }
@@ -1016,32 +1016,32 @@
 <span class="lineNum">     940 </span>                :<span class="lineCov">         23 :     return _wal_close(file, WAL_DISCARD_KV_INS, &amp;kv_id);</span>
 <a name="941"><span class="lineNum">     941 </span>                :            : }</a>
 <span class="lineNum">     942 </span>                :            : 
-<span class="lineNum">     943 </span>                :<span class="lineCov">        238 : size_t wal_get_size(struct filemgr *file)</span>
+<span class="lineNum">     943 </span>                :<span class="lineCov">        228 : size_t wal_get_size(struct filemgr *file)</span>
 <span class="lineNum">     944 </span>                :            : {
-<span class="lineNum">     945 </span>                :<span class="lineCov">        238 :     return file-&gt;wal-&gt;size;</span>
+<span class="lineNum">     945 </span>                :<span class="lineCov">        228 :     return file-&gt;wal-&gt;size;</span>
 <a name="946"><span class="lineNum">     946 </span>                :            : }</a>
 <span class="lineNum">     947 </span>                :            : 
-<span class="lineNum">     948 </span>                :<span class="lineCov">    2648769 : size_t wal_get_num_flushable(struct filemgr *file)</span>
+<span class="lineNum">     948 </span>                :<span class="lineCov">    2647821 : size_t wal_get_num_flushable(struct filemgr *file)</span>
 <span class="lineNum">     949 </span>                :            : {
-<span class="lineNum">     950 </span>                :<span class="lineCov">    2648769 :     return file-&gt;wal-&gt;num_flushable;</span>
+<span class="lineNum">     950 </span>                :<span class="lineCov">    2647821 :     return file-&gt;wal-&gt;num_flushable;</span>
 <a name="951"><span class="lineNum">     951 </span>                :            : }</a>
 <span class="lineNum">     952 </span>                :            : 
-<span class="lineNum">     953 </span>                :<span class="lineCov">       1831 : size_t wal_get_num_docs(struct filemgr *file) {</span>
-<span class="lineNum">     954 </span>                :<span class="lineCov">       1831 :     return _kvs_stat_get_sum(file, KVS_STAT_WAL_NDOCS);</span>
+<span class="lineNum">     953 </span>                :<span class="lineCov">       2200 : size_t wal_get_num_docs(struct filemgr *file) {</span>
+<span class="lineNum">     954 </span>                :<span class="lineCov">       2200 :     return _kvs_stat_get_sum(file, KVS_STAT_WAL_NDOCS);</span>
 <a name="955"><span class="lineNum">     955 </span>                :            : }</a>
 <span class="lineNum">     956 </span>                :            : 
-<span class="lineNum">     957 </span>                :<span class="lineCov">       1831 : size_t wal_get_num_deletes(struct filemgr *file) {</span>
-<span class="lineNum">     958 </span>                :<span class="lineCov">       1831 :     return _kvs_stat_get_sum(file, KVS_STAT_WAL_NDELETES);</span>
+<span class="lineNum">     957 </span>                :<span class="lineCov">       2200 : size_t wal_get_num_deletes(struct filemgr *file) {</span>
+<span class="lineNum">     958 </span>                :<span class="lineCov">       2200 :     return _kvs_stat_get_sum(file, KVS_STAT_WAL_NDELETES);</span>
 <a name="959"><span class="lineNum">     959 </span>                :            : }</a>
 <span class="lineNum">     960 </span>                :            : 
-<span class="lineNum">     961 </span>                :<span class="lineCov">       1856 : size_t wal_get_datasize(struct filemgr *file)</span>
+<span class="lineNum">     961 </span>                :<span class="lineCov">       2225 : size_t wal_get_datasize(struct filemgr *file)</span>
 <span class="lineNum">     962 </span>                :            : {
-<span class="lineNum">     963 </span>                :<span class="lineCov">       1856 :     size_t datasize = 0;</span>
-<span class="lineNum">     964 </span>                :<span class="lineCov">       1856 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     965 </span>                :<span class="lineCov">       1856 :     datasize = file-&gt;wal-&gt;datasize;</span>
-<span class="lineNum">     966 </span>                :<span class="lineCov">       1856 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     963 </span>                :<span class="lineCov">       2225 :     size_t datasize = 0;</span>
+<span class="lineNum">     964 </span>                :<span class="lineCov">       2225 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     965 </span>                :<span class="lineCov">       2225 :     datasize = file-&gt;wal-&gt;datasize;</span>
+<span class="lineNum">     966 </span>                :<span class="lineCov">       2225 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
 <span class="lineNum">     967 </span>                :            : 
-<span class="lineNum">     968 </span>                :<span class="lineCov">       1856 :     return datasize;</span>
+<span class="lineNum">     968 </span>                :<span class="lineCov">       2225 :     return datasize;</span>
 <a name="969"><span class="lineNum">     969 </span>                :            : }</a>
 <span class="lineNum">     970 </span>                :            : 
 <span class="lineNum">     971 </span>                :<span class="lineCov">       1419 : void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status)</span>
@@ -1051,13 +1051,13 @@
 <span class="lineNum">     975 </span>                :<span class="lineCov">       1419 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
 <a name="976"><span class="lineNum">     976 </span>                :<span class="lineCov">       1419 : }</span></a>
 <span class="lineNum">     977 </span>                :            : 
-<span class="lineNum">     978 </span>                :<span class="lineCov">    2675419 : wal_dirty_t wal_get_dirty_status(struct filemgr *file)</span>
+<span class="lineNum">     978 </span>                :<span class="lineCov">    2675194 : wal_dirty_t wal_get_dirty_status(struct filemgr *file)</span>
 <span class="lineNum">     979 </span>                :            : {
 <span class="lineNum">     980 </span>                :            :     wal_dirty_t ret;
-<span class="lineNum">     981 </span>                :<span class="lineCov">    2675419 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     982 </span>                :<span class="lineCov">    2675419 :     ret = file-&gt;wal-&gt;wal_dirty;</span>
-<span class="lineNum">     983 </span>                :<span class="lineCov">    2675419 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
-<span class="lineNum">     984 </span>                :<span class="lineCov">    2675419 :     return ret;</span>
+<span class="lineNum">     981 </span>                :<span class="lineCov">    2675194 :     spin_lock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     982 </span>                :<span class="lineCov">    2675194 :     ret = file-&gt;wal-&gt;wal_dirty;</span>
+<span class="lineNum">     983 </span>                :<span class="lineCov">    2675194 :     spin_unlock(&amp;file-&gt;wal-&gt;lock);</span>
+<span class="lineNum">     984 </span>                :<span class="lineCov">    2675194 :     return ret;</span>
 <a name="985"><span class="lineNum">     985 </span>                :            : }</a>
 <span class="lineNum">     986 </span>                :            : 
 <span class="lineNum">     987 </span>                :<span class="lineCov">       1473 : void wal_add_transaction(struct filemgr *file, fdb_txn *txn)</span>

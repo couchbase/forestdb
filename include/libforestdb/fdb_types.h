@@ -33,10 +33,8 @@
 
 /**
  * Maximum key length supported.
- * Note that we plan to support a longer key that is greater than
- * the current max size 3840 bytes
  */
-#define FDB_MAX_KEYLEN (3840)
+#define FDB_MAX_KEYLEN (65512) // 2^16 - 24
 /**
  * Maximum metadata length supported.
  */

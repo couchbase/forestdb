@@ -167,9 +167,10 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 
     if (handle == NULL ||
         start_keylen > FDB_MAX_KEYLEN ||
-        start_keylen > handle->config.blocksize - 256 ||
-        end_keylen > FDB_MAX_KEYLEN ||
-        end_keylen > handle->config.blocksize - 256) {
+        (handle->kvs_config.custom_cmp &&
+           (start_keylen > handle->config.blocksize - HBTRIE_HEADROOM ||
+            end_keylen > handle->config.blocksize - HBTRIE_HEADROOM) ) ||
+        end_keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -189,7 +190,9 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     iterator->handle = *handle;
     iterator->opt = opt;
 
-    iterator->_key = (void*)calloc(1, FDB_MAX_KEYLEN_INTERNAL);
+    iterator->_key = (void*)malloc(FDB_MAX_KEYLEN_INTERNAL);
+    // set to zero the first <chunksize> bytes
+    memset(iterator->_key, 0x0, iterator->handle.config.chunksize);
     iterator->_keylen = 0;
     iterator->_offset = BLK_NOT_FOUND;
     iterator->hbtrie_iterator = NULL;
@@ -871,7 +874,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
 
     if (!iterator || !seek_key || !iterator->_key ||
         seek_keylen > FDB_MAX_KEYLEN ||
-        seek_keylen > iterator->handle.config.blocksize - 256) {
+        (iterator->handle.kvs_config.custom_cmp &&
+            seek_keylen > iterator->handle.config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 

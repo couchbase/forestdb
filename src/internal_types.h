@@ -36,7 +36,8 @@ struct btree_blk_ops;
 struct snap_handle;
 
 #define OFFSET_SIZE (sizeof(uint64_t))
-#define FDB_MAX_KEYLEN_INTERNAL (3848)
+
+#define FDB_MAX_KEYLEN_INTERNAL (65520)
 
 /**
  * Error logging callback struct definition.

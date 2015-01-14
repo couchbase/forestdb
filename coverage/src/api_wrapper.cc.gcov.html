@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-13 18:21:49</td>
+            <td class="headerValue">2015-01-13 21:35:15</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">3</td>
@@ -49,9 +49,9 @@
             <td></td>
             <td></td>
             <td class="headerItem">Branches:</td>
-            <td class="headerCovTableEntry">29</td>
-            <td class="headerCovTableEntry">48</td>
-            <td class="headerCovTableEntryLo">60.4 %</td>
+            <td class="headerCovTableEntry">33</td>
+            <td class="headerCovTableEntry">54</td>
+            <td class="headerCovTableEntryLo">61.1 %</td>
           </tr>
           <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
         </table>
@@ -95,126 +95,133 @@
 <span class="lineNum">      24 </span>                :            : #include &quot;common.h&quot;
 <span class="lineNum">      25 </span>                :            : #include &quot;internal_types.h&quot;
 <span class="lineNum">      26 </span>                :            : #include &quot;btree_var_kv_ops.h&quot;
-<span class="lineNum">      27 </span>                :            : 
-<span class="lineNum">      28 </span>                :            : #include &quot;memleak.h&quot;
-<span class="lineNum">      29 </span>                :            : 
-<span class="lineNum">      30 </span>                :            : #ifdef __DEBUG
-<span class="lineNum">      31 </span>                :            : #ifndef __DEBUG_FDB
-<span class="lineNum">      32 </span>                :            :     #undef DBG
-<span class="lineNum">      33 </span>                :            :     #undef DBGCMD
-<span class="lineNum">      34 </span>                :            :     #undef DBGSW
-<span class="lineNum">      35 </span>                :            :     #define DBG(...)
-<span class="lineNum">      36 </span>                :            :     #define DBGCMD(...)
-<span class="lineNum">      37 </span>                :            :     #define DBGSW(n, ...)
-<span class="lineNum">      38 </span>                :            : #endif
+<span class="lineNum">      27 </span>                :            : #include &quot;hbtrie.h&quot;
+<span class="lineNum">      28 </span>                :            : 
+<span class="lineNum">      29 </span>                :            : #include &quot;memleak.h&quot;
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : #ifdef __DEBUG
+<span class="lineNum">      32 </span>                :            : #ifndef __DEBUG_FDB
+<span class="lineNum">      33 </span>                :            :     #undef DBG
+<span class="lineNum">      34 </span>                :            :     #undef DBGCMD
+<span class="lineNum">      35 </span>                :            :     #undef DBGSW
+<span class="lineNum">      36 </span>                :            :     #define DBG(...)
+<span class="lineNum">      37 </span>                :            :     #define DBGCMD(...)
+<span class="lineNum">      38 </span>                :            :     #define DBGSW(n, ...)
 <span class="lineNum">      39 </span>                :            : #endif
-<a name="40"><span class="lineNum">      40 </span>                :            : </a>
-<span class="lineNum">      41 </span>                :            : LIBFDB_API
-<span class="lineNum">      42 </span>                :<span class="lineCov">      13474 : fdb_status fdb_get_kv(fdb_kvs_handle *handle,</span>
-<span class="lineNum">      43 </span>                :            :                       void *key, size_t keylen,
-<span class="lineNum">      44 </span>                :            :                       void **value_out, size_t *valuelen_out)
-<span class="lineNum">      45 </span>                :            : {
-<span class="lineNum">      46 </span>                :<span class="lineCov">      13474 :     fdb_doc *doc = NULL;</span>
-<span class="lineNum">      47 </span>                :            :     fdb_status fs;
-<span class="lineNum">      48 </span>                :            : 
-<span class="lineNum">      49 </span>[<span class="branchCov" title="Branch 0 was taken 13473 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>][<span class="branchCov" title="Branch 2 was taken 13473 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">      13474 :     if (key == NULL || keylen == 0 || keylen &gt; FDB_MAX_KEYLEN ||</span>
-<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 13473 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchCov" title="Branch 6 was taken 13473 times"> + </span><span class="branchNoCov" title="Branch 7 was not taken"> - </span>]
-<span class="lineNum">         </span>[<span class="branchCov" title="Branch 8 was taken 13472 times"> + </span><span class="branchCov" title="Branch 9 was taken 1 time"> + </span>][<span class="branchNoCov" title="Branch 10 was not taken"> - </span><span class="branchCov" title="Branch 11 was taken 13472 times"> + </span>]
-<span class="lineNum">      50 </span>                :            :         keylen &gt; handle-&gt;config.blocksize - 256 ||
-<span class="lineNum">      51 </span>                :            :         value_out == NULL || valuelen_out == NULL) {
-<span class="lineNum">      52 </span>                :<span class="lineCov">          2 :         return FDB_RESULT_INVALID_ARGS;</span>
-<span class="lineNum">      53 </span>                :            :     }
-<span class="lineNum">      54 </span>                :            : 
-<span class="lineNum">      55 </span>                :<span class="lineCov">      13472 :     fs = fdb_doc_create(&amp;doc, key, keylen, NULL, 0, NULL, 0);</span>
-<span class="lineNum">      56 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 13472 times"> + </span>]:<span class="lineCov">      13472 :     if (fs != FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">      57 </span>                :            :         if (doc) { // LCOV_EXCL_START
-<span class="lineNum">      58 </span>                :            :             fdb_doc_free(doc);
-<span class="lineNum">      59 </span>                :            :         }
-<span class="lineNum">      60 </span>                :            :         return fs;
-<span class="lineNum">      61 </span>                :            :     } // LCOV_EXCL_STOP
-<span class="lineNum">      62 </span>                :            : 
-<span class="lineNum">      63 </span>                :<span class="lineCov">      13472 :     fs = fdb_get(handle, doc);</span>
-<span class="lineNum">      64 </span>        [<span class="branchCov" title="Branch 0 was taken 403 times"> + </span><span class="branchCov" title="Branch 1 was taken 13069 times"> + </span>]:<span class="lineCov">      13472 :     if (fs != FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">      65 </span>        [<span class="branchCov" title="Branch 0 was taken 403 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">        403 :         if (doc) {</span>
-<span class="lineNum">      66 </span>                :<span class="lineCov">        403 :             fdb_doc_free(doc);</span>
-<span class="lineNum">      67 </span>                :            :         }
-<span class="lineNum">      68 </span>                :<span class="lineCov">        403 :         return fs;</span>
-<span class="lineNum">      69 </span>                :            :     }
-<span class="lineNum">      70 </span>                :            : 
-<span class="lineNum">      71 </span>                :<span class="lineCov">      13069 :     *value_out = doc-&gt;body;</span>
-<span class="lineNum">      72 </span>                :<span class="lineCov">      13069 :     *valuelen_out = doc-&gt;bodylen;</span>
-<span class="lineNum">      73 </span>        [<span class="branchCov" title="Branch 0 was taken 13069 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      13069 :     if (doc-&gt;key) free(doc-&gt;key);</span>
-<span class="lineNum">      74 </span>        [<span class="branchCov" title="Branch 0 was taken 2000 times"> + </span><span class="branchCov" title="Branch 1 was taken 11069 times"> + </span>]:<span class="lineCov">      13069 :     if (doc-&gt;meta) free(doc-&gt;meta);</span>
-<span class="lineNum">      75 </span>                :<span class="lineCov">      13069 :     free(doc);</span>
-<span class="lineNum">      76 </span>                :            : 
-<span class="lineNum">      77 </span>                :<span class="lineCov">      13474 :     return fs;</span>
-<span class="lineNum">      78 </span>                :            : }
-<a name="79"><span class="lineNum">      79 </span>                :            : </a>
-<span class="lineNum">      80 </span>                :            : LIBFDB_API
-<span class="lineNum">      81 </span>                :<span class="lineCov">       9358 : fdb_status fdb_set_kv(fdb_kvs_handle *handle,</span>
-<span class="lineNum">      82 </span>                :            :                       void *key, size_t keylen,
-<span class="lineNum">      83 </span>                :            :                       void *value, size_t valuelen)
-<span class="lineNum">      84 </span>                :            : {
-<span class="lineNum">      85 </span>                :            :     fdb_doc *doc;
-<span class="lineNum">      86 </span>                :            :     fdb_status fs;
-<span class="lineNum">      87 </span>                :            : 
-<span class="lineNum">      88 </span>[<span class="branchCov" title="Branch 0 was taken 9357 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>][<span class="branchCov" title="Branch 2 was taken 9357 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       9358 :     if (key == NULL || keylen == 0 || keylen &gt; FDB_MAX_KEYLEN ||</span>
-<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 9357 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchNoCov" title="Branch 6 was not taken"> - </span><span class="branchCov" title="Branch 7 was taken 9357 times"> + </span>]
-<span class="lineNum">      89 </span>                :            :         keylen &gt; handle-&gt;config.blocksize - 256) {
-<span class="lineNum">      90 </span>                :<span class="lineCov">          1 :         return FDB_RESULT_INVALID_ARGS;</span>
-<span class="lineNum">      91 </span>                :            :     }
-<span class="lineNum">      92 </span>                :            : 
-<span class="lineNum">      93 </span>                :<span class="lineCov">       9357 :     fs = fdb_doc_create(&amp;doc, key, keylen, NULL, 0, value, valuelen);</span>
-<span class="lineNum">      94 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 9357 times"> + </span>]:<span class="lineCov">       9357 :     if (fs != FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">      95 </span>                :            :         if (doc) { // LCOV_EXCL_START
-<span class="lineNum">      96 </span>                :            :             fdb_doc_free(doc);
-<span class="lineNum">      97 </span>                :            :         }
-<span class="lineNum">      98 </span>                :            :         return fs;
-<span class="lineNum">      99 </span>                :            :     } // LCOV_EXCL_STOP
-<span class="lineNum">     100 </span>                :            : 
-<span class="lineNum">     101 </span>                :<span class="lineCov">       9357 :     fs = fdb_set(handle, doc);</span>
-<span class="lineNum">     102 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 9357 times"> + </span>]:<span class="lineCov">       9357 :     if (fs != FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">     103 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (doc) {</span>
-<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :             fdb_doc_free(doc);</span>
-<span class="lineNum">     105 </span>                :            :         }
-<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         return fs;</span>
-<span class="lineNum">     107 </span>                :            :     }
-<span class="lineNum">     108 </span>                :<span class="lineCov">       9357 :     fdb_doc_free(doc);</span>
-<span class="lineNum">     109 </span>                :            : 
-<span class="lineNum">     110 </span>                :<span class="lineCov">       9358 :     return fs;</span>
-<span class="lineNum">     111 </span>                :            : }
-<a name="112"><span class="lineNum">     112 </span>                :            : </a>
-<span class="lineNum">     113 </span>                :            : LIBFDB_API
-<span class="lineNum">     114 </span>                :<span class="lineCov">         19 : fdb_status fdb_del_kv(fdb_kvs_handle *handle,</span>
-<span class="lineNum">     115 </span>                :            :                       void *key, size_t keylen)
-<span class="lineNum">     116 </span>                :            : {
-<span class="lineNum">     117 </span>                :            :     fdb_doc *doc;
-<span class="lineNum">     118 </span>                :            :     fdb_status fs;
-<span class="lineNum">     119 </span>                :            : 
-<span class="lineNum">     120 </span>[<span class="branchCov" title="Branch 0 was taken 18 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>][<span class="branchCov" title="Branch 2 was taken 18 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         19 :     if (key == NULL || keylen == 0 || keylen &gt; FDB_MAX_KEYLEN ||</span>
+<span class="lineNum">      40 </span>                :            : #endif
+<a name="41"><span class="lineNum">      41 </span>                :            : </a>
+<span class="lineNum">      42 </span>                :            : LIBFDB_API
+<span class="lineNum">      43 </span>                :<span class="lineCov">      13474 : fdb_status fdb_get_kv(fdb_kvs_handle *handle,</span>
+<span class="lineNum">      44 </span>                :            :                       void *key, size_t keylen,
+<span class="lineNum">      45 </span>                :            :                       void **value_out, size_t *valuelen_out)
+<span class="lineNum">      46 </span>                :            : {
+<span class="lineNum">      47 </span>                :<span class="lineCov">      13474 :     fdb_doc *doc = NULL;</span>
+<span class="lineNum">      48 </span>                :            :     fdb_status fs;
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>[<span class="branchCov" title="Branch 0 was taken 13473 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>][<span class="branchCov" title="Branch 2 was taken 13473 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">      13474 :     if (key == NULL || keylen == 0 || keylen &gt; FDB_MAX_KEYLEN ||</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 13473 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchCov" title="Branch 6 was taken 13472 times"> + </span><span class="branchCov" title="Branch 7 was taken 1 time"> + </span>]
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 8 was taken 13472 times"> + </span><span class="branchNoCov" title="Branch 9 was not taken"> - </span>][<span class="branchCov" title="Branch 10 was taken 1200 times"> + </span><span class="branchCov" title="Branch 11 was taken 12272 times"> + </span>]
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 12 was not taken"> - </span><span class="branchCov" title="Branch 13 was taken 1200 times"> + </span>]
+<span class="lineNum">      51 </span>                :            :         value_out == NULL || valuelen_out == NULL ||
+<span class="lineNum">      52 </span>                :            :         (handle-&gt;kvs_config.custom_cmp &amp;&amp;
+<span class="lineNum">      53 </span>                :            :             keylen &gt; handle-&gt;config.blocksize - HBTRIE_HEADROOM)) {
+<span class="lineNum">      54 </span>                :<span class="lineCov">          2 :         return FDB_RESULT_INVALID_ARGS;</span>
+<span class="lineNum">      55 </span>                :            :     }
+<span class="lineNum">      56 </span>                :            : 
+<span class="lineNum">      57 </span>                :<span class="lineCov">      13472 :     fs = fdb_doc_create(&amp;doc, key, keylen, NULL, 0, NULL, 0);</span>
+<span class="lineNum">      58 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 13472 times"> + </span>]:<span class="lineCov">      13472 :     if (fs != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">      59 </span>                :            :         if (doc) { // LCOV_EXCL_START
+<span class="lineNum">      60 </span>                :            :             fdb_doc_free(doc);
+<span class="lineNum">      61 </span>                :            :         }
+<span class="lineNum">      62 </span>                :            :         return fs;
+<span class="lineNum">      63 </span>                :            :     } // LCOV_EXCL_STOP
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :<span class="lineCov">      13472 :     fs = fdb_get(handle, doc);</span>
+<span class="lineNum">      66 </span>        [<span class="branchCov" title="Branch 0 was taken 403 times"> + </span><span class="branchCov" title="Branch 1 was taken 13069 times"> + </span>]:<span class="lineCov">      13472 :     if (fs != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">      67 </span>        [<span class="branchCov" title="Branch 0 was taken 403 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">        403 :         if (doc) {</span>
+<span class="lineNum">      68 </span>                :<span class="lineCov">        403 :             fdb_doc_free(doc);</span>
+<span class="lineNum">      69 </span>                :            :         }
+<span class="lineNum">      70 </span>                :<span class="lineCov">        403 :         return fs;</span>
+<span class="lineNum">      71 </span>                :            :     }
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :<span class="lineCov">      13069 :     *value_out = doc-&gt;body;</span>
+<span class="lineNum">      74 </span>                :<span class="lineCov">      13069 :     *valuelen_out = doc-&gt;bodylen;</span>
+<span class="lineNum">      75 </span>        [<span class="branchCov" title="Branch 0 was taken 13069 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      13069 :     if (doc-&gt;key) free(doc-&gt;key);</span>
+<span class="lineNum">      76 </span>        [<span class="branchCov" title="Branch 0 was taken 2000 times"> + </span><span class="branchCov" title="Branch 1 was taken 11069 times"> + </span>]:<span class="lineCov">      13069 :     if (doc-&gt;meta) free(doc-&gt;meta);</span>
+<span class="lineNum">      77 </span>                :<span class="lineCov">      13069 :     free(doc);</span>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :<span class="lineCov">      13474 :     return fs;</span>
+<span class="lineNum">      80 </span>                :            : }
+<a name="81"><span class="lineNum">      81 </span>                :            : </a>
+<span class="lineNum">      82 </span>                :            : LIBFDB_API
+<span class="lineNum">      83 </span>                :<span class="lineCov">       9358 : fdb_status fdb_set_kv(fdb_kvs_handle *handle,</span>
+<span class="lineNum">      84 </span>                :            :                       void *key, size_t keylen,
+<span class="lineNum">      85 </span>                :            :                       void *value, size_t valuelen)
+<span class="lineNum">      86 </span>                :            : {
+<span class="lineNum">      87 </span>                :            :     fdb_doc *doc;
+<span class="lineNum">      88 </span>                :            :     fdb_status fs;
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>[<span class="branchCov" title="Branch 0 was taken 9357 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>][<span class="branchCov" title="Branch 2 was taken 9357 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       9358 :     if (key == NULL || keylen == 0 || keylen &gt; FDB_MAX_KEYLEN ||</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 9357 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchCov" title="Branch 6 was taken 300 times"> + </span><span class="branchCov" title="Branch 7 was taken 9057 times"> + </span>]
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 8 was not taken"> - </span><span class="branchCov" title="Branch 9 was taken 300 times"> + </span>]
+<span class="lineNum">      91 </span>                :            :         (handle-&gt;kvs_config.custom_cmp &amp;&amp;
+<span class="lineNum">      92 </span>                :            :             keylen &gt; handle-&gt;config.blocksize - HBTRIE_HEADROOM)) {
+<span class="lineNum">      93 </span>                :<span class="lineCov">          1 :         return FDB_RESULT_INVALID_ARGS;</span>
+<span class="lineNum">      94 </span>                :            :     }
+<span class="lineNum">      95 </span>                :            : 
+<span class="lineNum">      96 </span>                :<span class="lineCov">       9357 :     fs = fdb_doc_create(&amp;doc, key, keylen, NULL, 0, value, valuelen);</span>
+<span class="lineNum">      97 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 9357 times"> + </span>]:<span class="lineCov">       9357 :     if (fs != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">      98 </span>                :            :         if (doc) { // LCOV_EXCL_START
+<span class="lineNum">      99 </span>                :            :             fdb_doc_free(doc);
+<span class="lineNum">     100 </span>                :            :         }
+<span class="lineNum">     101 </span>                :            :         return fs;
+<span class="lineNum">     102 </span>                :            :     } // LCOV_EXCL_STOP
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :<span class="lineCov">       9357 :     fs = fdb_set(handle, doc);</span>
+<span class="lineNum">     105 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 9357 times"> + </span>]:<span class="lineCov">       9357 :     if (fs != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (doc) {</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :             fdb_doc_free(doc);</span>
+<span class="lineNum">     108 </span>                :            :         }
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :         return fs;</span>
+<span class="lineNum">     110 </span>                :            :     }
+<span class="lineNum">     111 </span>                :<span class="lineCov">       9357 :     fdb_doc_free(doc);</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :<span class="lineCov">       9358 :     return fs;</span>
+<span class="lineNum">     114 </span>                :            : }
+<a name="115"><span class="lineNum">     115 </span>                :            : </a>
+<span class="lineNum">     116 </span>                :            : LIBFDB_API
+<span class="lineNum">     117 </span>                :<span class="lineCov">         19 : fdb_status fdb_del_kv(fdb_kvs_handle *handle,</span>
+<span class="lineNum">     118 </span>                :            :                       void *key, size_t keylen)
+<span class="lineNum">     119 </span>                :            : {
+<span class="lineNum">     120 </span>                :            :     fdb_doc *doc;
+<span class="lineNum">     121 </span>                :            :     fdb_status fs;
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>[<span class="branchCov" title="Branch 0 was taken 18 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>][<span class="branchCov" title="Branch 2 was taken 18 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         19 :     if (key == NULL || keylen == 0 || keylen &gt; FDB_MAX_KEYLEN ||</span>
 <span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 18 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchNoCov" title="Branch 6 was not taken"> - </span><span class="branchCov" title="Branch 7 was taken 18 times"> + </span>]
-<span class="lineNum">     121 </span>                :            :         keylen &gt; handle-&gt;config.blocksize - 256) {
-<span class="lineNum">     122 </span>                :<span class="lineCov">          1 :         return FDB_RESULT_INVALID_ARGS;</span>
-<span class="lineNum">     123 </span>                :            :     }
-<span class="lineNum">     124 </span>                :            : 
-<span class="lineNum">     125 </span>                :<span class="lineCov">         18 :     fs = fdb_doc_create(&amp;doc, key, keylen, NULL, 0, NULL, 0);</span>
-<span class="lineNum">     126 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 18 times"> + </span>]:<span class="lineCov">         18 :     if (fs != FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">     127 </span>                :            :         if (doc) { // LCOV_EXCL_START
-<span class="lineNum">     128 </span>                :            :             fdb_doc_free(doc);
-<span class="lineNum">     129 </span>                :            :         }
-<span class="lineNum">     130 </span>                :            :         return fs;
-<span class="lineNum">     131 </span>                :            :     } // LCOV_EXCL_STOP
-<span class="lineNum">     132 </span>                :            : 
-<span class="lineNum">     133 </span>                :<span class="lineCov">         18 :     fs = fdb_del(handle, doc);</span>
-<span class="lineNum">     134 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 18 times"> + </span>]:<span class="lineCov">         18 :     if (fs != FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :         fdb_doc_free(doc);</span>
-<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         return fs;</span>
-<span class="lineNum">     137 </span>                :            :     }
-<span class="lineNum">     138 </span>                :<span class="lineCov">         18 :     fdb_doc_free(doc);</span>
-<span class="lineNum">     139 </span>                :            : 
-<span class="lineNum">     140 </span>                :<span class="lineCov">         19 :     return fs;</span>
-<span class="lineNum">     141 </span>                :            : }
-<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     124 </span>                :            :         (handle-&gt;kvs_config.custom_cmp &amp;&amp;
+<span class="lineNum">     125 </span>                :            :             keylen &gt; handle-&gt;config.blocksize - HBTRIE_HEADROOM)) {
+<span class="lineNum">     126 </span>                :<span class="lineCov">          1 :         return FDB_RESULT_INVALID_ARGS;</span>
+<span class="lineNum">     127 </span>                :            :     }
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :<span class="lineCov">         18 :     fs = fdb_doc_create(&amp;doc, key, keylen, NULL, 0, NULL, 0);</span>
+<span class="lineNum">     130 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 18 times"> + </span>]:<span class="lineCov">         18 :     if (fs != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     131 </span>                :            :         if (doc) { // LCOV_EXCL_START
+<span class="lineNum">     132 </span>                :            :             fdb_doc_free(doc);
+<span class="lineNum">     133 </span>                :            :         }
+<span class="lineNum">     134 </span>                :            :         return fs;
+<span class="lineNum">     135 </span>                :            :     } // LCOV_EXCL_STOP
+<span class="lineNum">     136 </span>                :            : 
+<span class="lineNum">     137 </span>                :<span class="lineCov">         18 :     fs = fdb_del(handle, doc);</span>
+<span class="lineNum">     138 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 18 times"> + </span>]:<span class="lineCov">         18 :     if (fs != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :         fdb_doc_free(doc);</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :         return fs;</span>
+<span class="lineNum">     141 </span>                :            :     }
+<span class="lineNum">     142 </span>                :<span class="lineCov">         18 :     fdb_doc_free(doc);</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>                :<span class="lineCov">         19 :     return fs;</span>
+<span class="lineNum">     145 </span>                :            : }
+<span class="lineNum">     146 </span>                :            : 
 </pre>
       </td>
     </tr>

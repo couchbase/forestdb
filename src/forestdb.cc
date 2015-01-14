@@ -1963,8 +1963,10 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn;
     fdb_doc doc_kv = *doc;
 
-    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
-        doc->keylen > handle->config.blocksize - 256) {
+    if (doc->key == NULL || doc->keylen == 0 ||
+        doc->keylen > FDB_MAX_KEYLEN ||
+        (handle->kvs_config.custom_cmp &&
+            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2105,7 +2107,8 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (handle == NULL || doc == NULL || doc->key == NULL ||
         doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
-        doc->keylen > handle->config.blocksize - 256) {
+        (handle->kvs_config.custom_cmp &&
+            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2658,10 +2661,12 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
                        handle->file->filename);
     }
 
-    if ( doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
-         doc->keylen > handle->config.blocksize - 256 ||
+    if ( doc->key == NULL || doc->keylen == 0 ||
+        doc->keylen > FDB_MAX_KEYLEN ||
         (doc->metalen > 0 && doc->meta == NULL) ||
-        (doc->bodylen > 0 && doc->body == NULL)) {
+        (doc->bodylen > 0 && doc->body == NULL) ||
+        (handle->kvs_config.custom_cmp &&
+            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2856,8 +2861,10 @@ fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
                        handle->file->filename);
     }
 
-    if (doc->key == NULL || doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
-        doc->keylen > handle->config.blocksize - 256) {
+    if (doc->key == NULL || doc->keylen == 0 ||
+        doc->keylen > FDB_MAX_KEYLEN ||
+        (handle->kvs_config.custom_cmp &&
+            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 

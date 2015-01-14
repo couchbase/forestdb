@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-13 18:21:49</td>
+            <td class="headerValue">2015-01-13 21:35:15</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">9</td>
@@ -244,23 +244,23 @@
 <span class="lineNum">     173 </span>                :<span class="lineCov">        227 :     return FDB_RESULT_SUCCESS;</span>
 <a name="174"><span class="lineNum">     174 </span>                :            : }</a>
 <span class="lineNum">     175 </span>                :            : 
-<span class="lineNum">     176 </span>                :<span class="lineCov">     360318 : fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,</span>
+<span class="lineNum">     176 </span>                :<span class="lineCov">     360331 : fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,</span>
 <span class="lineNum">     177 </span>                :            :                       uint64_t *offset)
 <span class="lineNum">     178 </span>                :            : {
 <span class="lineNum">     179 </span>                :            :     struct snap_wal_entry query;
 <span class="lineNum">     180 </span>                :            :     struct avl_node *node;
-<span class="lineNum">     181 </span>                :<span class="lineCov">     360318 :     memset(&amp;query, 0, sizeof(snap_wal_entry));</span>
-<span class="lineNum">     182 </span>[<span class="branchCov" title="Branch 0 was taken 360286 times"> + </span><span class="branchCov" title="Branch 1 was taken 32 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 360319 times"> + </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">     360318 :     if (doc-&gt;seqnum == SEQNUM_NOT_USED || (doc-&gt;key &amp;&amp; doc-&gt;keylen &gt; 0)) {</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 360285 times"> + </span><span class="branchCov" title="Branch 5 was taken 34 times"> + </span>]
-<span class="lineNum">     183 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 360317 times"> + </span>]:<span class="lineCov">     360317 :         if (!shandle-&gt;key_tree) {</span>
+<span class="lineNum">     181 </span>                :<span class="lineCov">     360331 :     memset(&amp;query, 0, sizeof(snap_wal_entry));</span>
+<span class="lineNum">     182 </span>[<span class="branchCov" title="Branch 0 was taken 360289 times"> + </span><span class="branchCov" title="Branch 1 was taken 42 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 360331 times"> + </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">     360331 :     if (doc-&gt;seqnum == SEQNUM_NOT_USED || (doc-&gt;key &amp;&amp; doc-&gt;keylen &gt; 0)) {</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 360288 times"> + </span><span class="branchCov" title="Branch 5 was taken 43 times"> + </span>]
+<span class="lineNum">     183 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 360330 times"> + </span>]:<span class="lineCov">     360330 :         if (!shandle-&gt;key_tree) {</span>
 <span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :             return FDB_RESULT_KEY_NOT_FOUND;</span>
 <span class="lineNum">     185 </span>                :            :         }
 <span class="lineNum">     186 </span>                :            :         // search by key
-<span class="lineNum">     187 </span>                :<span class="lineCov">     360317 :         query.key = doc-&gt;key;</span>
-<span class="lineNum">     188 </span>                :<span class="lineCov">     360317 :         query.keylen = doc-&gt;keylen;</span>
-<span class="lineNum">     189 </span>                :<span class="lineCov">     360317 :         node = avl_search(shandle-&gt;key_tree, &amp;query.avl, _snp_wal_cmp);</span>
-<span class="lineNum">     190 </span>        [<span class="branchCov" title="Branch 0 was taken 359731 times"> + </span><span class="branchCov" title="Branch 1 was taken 201 times"> + </span>]:<span class="lineCov">     359932 :         if (!node) {</span>
-<span class="lineNum">     191 </span>                :<span class="lineCov">     359731 :             return FDB_RESULT_KEY_NOT_FOUND;</span>
+<span class="lineNum">     187 </span>                :<span class="lineCov">     360330 :         query.key = doc-&gt;key;</span>
+<span class="lineNum">     188 </span>                :<span class="lineCov">     360330 :         query.keylen = doc-&gt;keylen;</span>
+<span class="lineNum">     189 </span>                :<span class="lineCov">     360330 :         node = avl_search(shandle-&gt;key_tree, &amp;query.avl, _snp_wal_cmp);</span>
+<span class="lineNum">     190 </span>        [<span class="branchCov" title="Branch 0 was taken 359671 times"> + </span><span class="branchCov" title="Branch 1 was taken 201 times"> + </span>]:<span class="lineCov">     359872 :         if (!node) {</span>
+<span class="lineNum">     191 </span>                :<span class="lineCov">     359671 :             return FDB_RESULT_KEY_NOT_FOUND;</span>
 <span class="lineNum">     192 </span>                :            :         } else {
 <span class="lineNum">     193 </span>                :            :             struct snap_wal_entry *item;
 <span class="lineNum">     194 </span>                :<span class="lineCov">        201 :             item = _get_entry(node, struct snap_wal_entry, avl);</span>
@@ -290,7 +290,7 @@
 <span class="lineNum">     218 </span>                :            :             } else {
 <span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :                 doc-&gt;deleted = true;</span>
 <span class="lineNum">     220 </span>                :            :             }
-<span class="lineNum">     221 </span>                :<span class="lineCov">     359933 :             return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     221 </span>                :<span class="lineCov">     359873 :             return FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">     222 </span>                :            :         }
 <span class="lineNum">     223 </span>                :            :     }
 <span class="lineNum">     224 </span>                :            :     return FDB_RESULT_KEY_NOT_FOUND;

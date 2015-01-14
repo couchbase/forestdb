@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-13 18:21:49</td>
+            <td class="headerValue">2015-01-13 21:35:15</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">39</td>
@@ -130,30 +130,30 @@
 <span class="lineNum">      59 </span>                :<span class="lineCov">        940 :     return strcmp(aa-&gt;kvs_name, bb-&gt;kvs_name);</span>
 <a name="60"><span class="lineNum">      60 </span>                :            : }</a>
 <span class="lineNum">      61 </span>                :            : 
-<span class="lineNum">      62 </span>                :<span class="lineCov">      79823 : static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)</span>
+<span class="lineNum">      62 </span>                :<span class="lineCov">      79815 : static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)</span>
 <span class="lineNum">      63 </span>                :            : {
 <span class="lineNum">      64 </span>                :            :     struct kvs_node *aa, *bb;
-<span class="lineNum">      65 </span>                :<span class="lineCov">      79823 :     aa = _get_entry(a, struct kvs_node, avl_id);</span>
-<span class="lineNum">      66 </span>                :<span class="lineCov">      79823 :     bb = _get_entry(b, struct kvs_node, avl_id);</span>
+<span class="lineNum">      65 </span>                :<span class="lineCov">      79815 :     aa = _get_entry(a, struct kvs_node, avl_id);</span>
+<span class="lineNum">      66 </span>                :<span class="lineCov">      79815 :     bb = _get_entry(b, struct kvs_node, avl_id);</span>
 <span class="lineNum">      67 </span>                :            : 
-<span class="lineNum">      68 </span>        [<span class="branchCov" title="Branch 0 was taken 25709 times"> + </span><span class="branchCov" title="Branch 1 was taken 54114 times"> + </span>]:<span class="lineCov">      79823 :     if (aa-&gt;id &lt; bb-&gt;id) {</span>
-<span class="lineNum">      69 </span>                :<span class="lineCov">      25709 :         return -1;</span>
-<span class="lineNum">      70 </span>        [<span class="branchCov" title="Branch 0 was taken 2673 times"> + </span><span class="branchCov" title="Branch 1 was taken 51441 times"> + </span>]:<span class="lineCov">      54114 :     } else if (aa-&gt;id &gt; bb-&gt;id) {</span>
-<span class="lineNum">      71 </span>                :<span class="lineCov">       2673 :         return 1;</span>
+<span class="lineNum">      68 </span>        [<span class="branchCov" title="Branch 0 was taken 25707 times"> + </span><span class="branchCov" title="Branch 1 was taken 54108 times"> + </span>]:<span class="lineCov">      79815 :     if (aa-&gt;id &lt; bb-&gt;id) {</span>
+<span class="lineNum">      69 </span>                :<span class="lineCov">      25707 :         return -1;</span>
+<span class="lineNum">      70 </span>        [<span class="branchCov" title="Branch 0 was taken 2669 times"> + </span><span class="branchCov" title="Branch 1 was taken 51439 times"> + </span>]:<span class="lineCov">      54108 :     } else if (aa-&gt;id &gt; bb-&gt;id) {</span>
+<span class="lineNum">      71 </span>                :<span class="lineCov">       2669 :         return 1;</span>
 <span class="lineNum">      72 </span>                :            :     } else {
-<span class="lineNum">      73 </span>                :<span class="lineCov">      79823 :         return 0;</span>
+<span class="lineNum">      73 </span>                :<span class="lineCov">      79815 :         return 0;</span>
 <span class="lineNum">      74 </span>                :            :     }
 <a name="75"><span class="lineNum">      75 </span>                :            : }</a>
 <span class="lineNum">      76 </span>                :            : 
-<span class="lineNum">      77 </span>                :<span class="lineCov">        288 : void fdb_file_handle_init(fdb_file_handle *fhandle,</span>
+<span class="lineNum">      77 </span>                :<span class="lineCov">        287 : void fdb_file_handle_init(fdb_file_handle *fhandle,</span>
 <span class="lineNum">      78 </span>                :            :                            fdb_kvs_handle *root)
 <span class="lineNum">      79 </span>                :            : {
-<span class="lineNum">      80 </span>                :<span class="lineCov">        288 :     fhandle-&gt;root = root;</span>
-<span class="lineNum">      81 </span>                :<span class="lineCov">        288 :     fhandle-&gt;flags = 0x0;</span>
-<span class="lineNum">      82 </span>                :<span class="lineCov">        288 :     root-&gt;fhandle = fhandle;</span>
-<span class="lineNum">      83 </span>                :<span class="lineCov">        288 :     fhandle-&gt;handles = (struct list*)calloc(1, sizeof(struct list));</span>
-<span class="lineNum">      84 </span>                :<span class="lineCov">        288 :     fhandle-&gt;cmp_func_list = NULL;</span>
-<span class="lineNum">      85 </span>                :<span class="lineCov">        288 :     spin_init(&amp;fhandle-&gt;lock);</span>
+<span class="lineNum">      80 </span>                :<span class="lineCov">        287 :     fhandle-&gt;root = root;</span>
+<span class="lineNum">      81 </span>                :<span class="lineCov">        287 :     fhandle-&gt;flags = 0x0;</span>
+<span class="lineNum">      82 </span>                :<span class="lineCov">        287 :     root-&gt;fhandle = fhandle;</span>
+<span class="lineNum">      83 </span>                :<span class="lineCov">        287 :     fhandle-&gt;handles = (struct list*)calloc(1, sizeof(struct list));</span>
+<span class="lineNum">      84 </span>                :<span class="lineCov">        287 :     fhandle-&gt;cmp_func_list = NULL;</span>
+<span class="lineNum">      85 </span>                :<span class="lineCov">        287 :     spin_init(&amp;fhandle-&gt;lock);</span>
 <a name="86"><span class="lineNum">      86 </span>                :<span class="lineCov">        287 : }</span></a>
 <span class="lineNum">      87 </span>                :            : 
 <span class="lineNum">      88 </span>                :<span class="lineCov">        272 : void fdb_file_handle_close_all(fdb_file_handle *fhandle)</span>
@@ -358,20 +358,20 @@
 <span class="lineNum">     286 </span>                :<span class="lineCov">        321 :     return NULL;</span>
 <a name="287"><span class="lineNum">     287 </span>                :            : }</a>
 <span class="lineNum">     288 </span>                :            : 
-<span class="lineNum">     289 </span>                :<span class="lineCov">    9576701 : void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux)</span>
+<span class="lineNum">     289 </span>                :<span class="lineCov">    9519480 : void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux)</span>
 <span class="lineNum">     290 </span>                :            : {
 <span class="lineNum">     291 </span>                :            :     fdb_kvs_id_t kv_id, _kv_id;
-<span class="lineNum">     292 </span>                :<span class="lineCov">    9576701 :     struct hbtrie *trie = (struct hbtrie *)aux;</span>
+<span class="lineNum">     292 </span>                :<span class="lineCov">    9519480 :     struct hbtrie *trie = (struct hbtrie *)aux;</span>
 <span class="lineNum">     293 </span>                :            :     struct btreeblk_handle *bhandle;
 <span class="lineNum">     294 </span>                :            :     struct filemgr *file;
 <span class="lineNum">     295 </span>                :            :     struct avl_node *a;
 <span class="lineNum">     296 </span>                :            :     struct kvs_node query, *node;
 <span class="lineNum">     297 </span>                :            : 
-<span class="lineNum">     298 </span>                :<span class="lineCov">    9576701 :     bhandle = (struct btreeblk_handle*)trie-&gt;btreeblk_handle;</span>
-<span class="lineNum">     299 </span>                :<span class="lineCov">    9576701 :     file = bhandle-&gt;file;</span>
+<span class="lineNum">     298 </span>                :<span class="lineCov">    9519480 :     bhandle = (struct btreeblk_handle*)trie-&gt;btreeblk_handle;</span>
+<span class="lineNum">     299 </span>                :<span class="lineCov">    9519480 :     file = bhandle-&gt;file;</span>
 <span class="lineNum">     300 </span>                :            : 
-<span class="lineNum">     301 </span>        [<span class="branchCov" title="Branch 0 was taken 9553348 times"> + </span><span class="branchCov" title="Branch 1 was taken 23353 times"> + </span>]:<span class="lineCov">    9576701 :     if (!file-&gt;kv_header-&gt;custom_cmp_enabled) {</span>
-<span class="lineNum">     302 </span>                :<span class="lineCov">    9553348 :         return NULL;</span>
+<span class="lineNum">     301 </span>        [<span class="branchCov" title="Branch 0 was taken 9496127 times"> + </span><span class="branchCov" title="Branch 1 was taken 23353 times"> + </span>]:<span class="lineCov">    9519480 :     if (!file-&gt;kv_header-&gt;custom_cmp_enabled) {</span>
+<span class="lineNum">     302 </span>                :<span class="lineCov">    9496127 :         return NULL;</span>
 <span class="lineNum">     303 </span>                :            :     }
 <span class="lineNum">     304 </span>                :            : 
 <span class="lineNum">     305 </span>                :<span class="lineCov">      23353 :     _kv_id = *((fdb_kvs_id_t *)chunk);</span>
@@ -392,7 +392,7 @@
 <span class="lineNum">     320 </span>                :            :         // root handle
 <span class="lineNum">     321 </span>                :<span class="lineCov">       9693 :         return (void *)file-&gt;kv_header-&gt;default_kvs_cmp;</span>
 <span class="lineNum">     322 </span>                :            :     }
-<span class="lineNum">     323 </span>                :<span class="lineCov">    9576701 :     return NULL;</span>
+<span class="lineNum">     323 </span>                :<span class="lineCov">    9519480 :     return NULL;</span>
 <a name="324"><span class="lineNum">     324 </span>                :            : }</a>
 <span class="lineNum">     325 </span>                :            : 
 <span class="lineNum">     326 </span>                :<span class="lineCov">        609 : void fdb_kvs_info_create(fdb_kvs_handle *root_handle,</span>
@@ -533,7 +533,7 @@
 <span class="lineNum">     461 </span>                :<span class="lineCov">         51 : }</span>
 <a name="462"><span class="lineNum">     462 </span>                :            : </a>
 <span class="lineNum">     463 </span>                :            : // export KV header info to raw data
-<span class="lineNum">     464 </span>                :<span class="lineCov">      13501 : void _fdb_kvs_header_export(struct kvs_header *kv_header,</span>
+<span class="lineNum">     464 </span>                :<span class="lineCov">      14527 : void _fdb_kvs_header_export(struct kvs_header *kv_header,</span>
 <span class="lineNum">     465 </span>                :            :                                void **data, size_t *len)
 <span class="lineNum">     466 </span>                :            : {
 <span class="lineNum">     467 </span>                :            :     /* &lt;&lt; raw data structure &gt;&gt;
@@ -551,10 +551,10 @@
 <span class="lineNum">     479 </span>                :            :      * ...
 <span class="lineNum">     480 </span>                :            :      */
 <span class="lineNum">     481 </span>                :            : 
-<span class="lineNum">     482 </span>                :<span class="lineCov">      13501 :     int size = 0;</span>
-<span class="lineNum">     483 </span>                :<span class="lineCov">      13501 :     int offset = 0;</span>
+<span class="lineNum">     482 </span>                :<span class="lineCov">      14527 :     int size = 0;</span>
+<span class="lineNum">     483 </span>                :<span class="lineCov">      14527 :     int offset = 0;</span>
 <span class="lineNum">     484 </span>                :            :     uint16_t name_len, _name_len;
-<span class="lineNum">     485 </span>                :<span class="lineCov">      13501 :     uint64_t c = 0;</span>
+<span class="lineNum">     485 </span>                :<span class="lineCov">      14527 :     uint64_t c = 0;</span>
 <span class="lineNum">     486 </span>                :            :     uint64_t _n_kv, _kv_id, _flags;
 <span class="lineNum">     487 </span>                :            :     uint64_t _nlivenodes, _ndocs, _datasize;
 <span class="lineNum">     488 </span>                :            :     fdb_kvs_id_t _id_counter;
@@ -562,19 +562,19 @@
 <span class="lineNum">     490 </span>                :            :     struct kvs_node *node;
 <span class="lineNum">     491 </span>                :            :     struct avl_node *a;
 <span class="lineNum">     492 </span>                :            : 
-<span class="lineNum">     493 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 13501 times"> + </span>]:<span class="lineCov">      13501 :     if (kv_header == NULL) {</span>
+<span class="lineNum">     493 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 14527 times"> + </span>]:<span class="lineCov">      14527 :     if (kv_header == NULL) {</span>
 <span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :         *data = NULL;</span>
 <span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :         *len = 0;</span>
-<span class="lineNum">     496 </span>                :<span class="lineCov">      13501 :         return ;</span>
+<span class="lineNum">     496 </span>                :<span class="lineCov">      14527 :         return ;</span>
 <span class="lineNum">     497 </span>                :            :     }
 <span class="lineNum">     498 </span>                :            : 
-<span class="lineNum">     499 </span>                :<span class="lineCov">      13501 :     spin_lock(&amp;kv_header-&gt;lock);</span>
+<span class="lineNum">     499 </span>                :<span class="lineCov">      14527 :     spin_lock(&amp;kv_header-&gt;lock);</span>
 <span class="lineNum">     500 </span>                :            : 
 <span class="lineNum">     501 </span>                :            :     // pre-scan to estimate the size of data
-<span class="lineNum">     502 </span>                :<span class="lineCov">      13501 :     size += sizeof(uint64_t);</span>
-<span class="lineNum">     503 </span>                :<span class="lineCov">      13501 :     size += sizeof(fdb_kvs_id_t);</span>
-<span class="lineNum">     504 </span>                :<span class="lineCov">      13501 :     a = avl_first(kv_header-&gt;idx_name);</span>
-<span class="lineNum">     505 </span>        [<span class="branchCov" title="Branch 0 was taken 1089 times"> + </span><span class="branchCov" title="Branch 1 was taken 13501 times"> + </span>]:<span class="lineCov">      14590 :     while(a) {</span>
+<span class="lineNum">     502 </span>                :<span class="lineCov">      14527 :     size += sizeof(uint64_t);</span>
+<span class="lineNum">     503 </span>                :<span class="lineCov">      14527 :     size += sizeof(fdb_kvs_id_t);</span>
+<span class="lineNum">     504 </span>                :<span class="lineCov">      14527 :     a = avl_first(kv_header-&gt;idx_name);</span>
+<span class="lineNum">     505 </span>        [<span class="branchCov" title="Branch 0 was taken 1089 times"> + </span><span class="branchCov" title="Branch 1 was taken 14527 times"> + </span>]:<span class="lineCov">      15616 :     while(a) {</span>
 <span class="lineNum">     506 </span>                :<span class="lineCov">       1089 :         node = _get_entry(a, struct kvs_node, avl_name);</span>
 <span class="lineNum">     507 </span>                :<span class="lineCov">       1089 :         c++;</span>
 <span class="lineNum">     508 </span>                :<span class="lineCov">       1089 :         size += sizeof(uint16_t); // length</span>
@@ -588,20 +588,20 @@
 <span class="lineNum">     516 </span>                :<span class="lineCov">       1089 :         a = avl_next(a);</span>
 <span class="lineNum">     517 </span>                :            :     }
 <span class="lineNum">     518 </span>                :            : 
-<span class="lineNum">     519 </span>                :<span class="lineCov">      13501 :     *data = (void *)malloc(size);</span>
+<span class="lineNum">     519 </span>                :<span class="lineCov">      14527 :     *data = (void *)malloc(size);</span>
 <span class="lineNum">     520 </span>                :            : 
 <span class="lineNum">     521 </span>                :            :     // # KV instances
-<span class="lineNum">     522 </span>                :<span class="lineCov">      13501 :     _n_kv = _endian_encode(c);</span>
-<span class="lineNum">     523 </span>                :<span class="lineCov">      13501 :     memcpy((uint8_t*)*data + offset, &amp;_n_kv, sizeof(_n_kv));</span>
-<span class="lineNum">     524 </span>                :<span class="lineCov">      13501 :     offset += sizeof(_n_kv);</span>
+<span class="lineNum">     522 </span>                :<span class="lineCov">      14527 :     _n_kv = _endian_encode(c);</span>
+<span class="lineNum">     523 </span>                :<span class="lineCov">      14527 :     memcpy((uint8_t*)*data + offset, &amp;_n_kv, sizeof(_n_kv));</span>
+<span class="lineNum">     524 </span>                :<span class="lineCov">      14527 :     offset += sizeof(_n_kv);</span>
 <span class="lineNum">     525 </span>                :            : 
 <span class="lineNum">     526 </span>                :            :     // ID counter
-<span class="lineNum">     527 </span>                :<span class="lineCov">      13501 :     _id_counter = _endian_encode(kv_header-&gt;id_counter);</span>
-<span class="lineNum">     528 </span>                :<span class="lineCov">      13501 :     memcpy((uint8_t*)*data + offset, &amp;_id_counter, sizeof(_id_counter));</span>
-<span class="lineNum">     529 </span>                :<span class="lineCov">      13501 :     offset += sizeof(_id_counter);</span>
+<span class="lineNum">     527 </span>                :<span class="lineCov">      14527 :     _id_counter = _endian_encode(kv_header-&gt;id_counter);</span>
+<span class="lineNum">     528 </span>                :<span class="lineCov">      14527 :     memcpy((uint8_t*)*data + offset, &amp;_id_counter, sizeof(_id_counter));</span>
+<span class="lineNum">     529 </span>                :<span class="lineCov">      14527 :     offset += sizeof(_id_counter);</span>
 <span class="lineNum">     530 </span>                :            : 
-<span class="lineNum">     531 </span>                :<span class="lineCov">      13501 :     a = avl_first(kv_header-&gt;idx_name);</span>
-<span class="lineNum">     532 </span>        [<span class="branchCov" title="Branch 0 was taken 1089 times"> + </span><span class="branchCov" title="Branch 1 was taken 13501 times"> + </span>]:<span class="lineCov">      14590 :     while(a) {</span>
+<span class="lineNum">     531 </span>                :<span class="lineCov">      14527 :     a = avl_first(kv_header-&gt;idx_name);</span>
+<span class="lineNum">     532 </span>        [<span class="branchCov" title="Branch 0 was taken 1089 times"> + </span><span class="branchCov" title="Branch 1 was taken 14527 times"> + </span>]:<span class="lineCov">      15616 :     while(a) {</span>
 <span class="lineNum">     533 </span>                :<span class="lineCov">       1089 :         node = _get_entry(a, struct kvs_node, avl_name);</span>
 <span class="lineNum">     534 </span>                :            : 
 <span class="lineNum">     535 </span>                :            :         // name length
@@ -647,9 +647,9 @@
 <span class="lineNum">     575 </span>                :<span class="lineCov">       1089 :         a = avl_next(a);</span>
 <span class="lineNum">     576 </span>                :            :     }
 <span class="lineNum">     577 </span>                :            : 
-<span class="lineNum">     578 </span>                :<span class="lineCov">      13501 :     *len = size;</span>
+<span class="lineNum">     578 </span>                :<span class="lineCov">      14527 :     *len = size;</span>
 <span class="lineNum">     579 </span>                :            : 
-<span class="lineNum">     580 </span>                :<span class="lineCov">      13501 :     spin_unlock(&amp;kv_header-&gt;lock);</span>
+<span class="lineNum">     580 </span>                :<span class="lineCov">      14527 :     spin_unlock(&amp;kv_header-&gt;lock);</span>
 <a name="581"><span class="lineNum">     581 </span>                :            : }</a>
 <span class="lineNum">     582 </span>                :            : 
 <span class="lineNum">     583 </span>                :<span class="lineCov">        221 : void _fdb_kvs_header_import(struct kvs_header *kv_header,</span>
@@ -731,30 +731,30 @@
 <span class="lineNum">     659 </span>                :<span class="lineCov">        221 :     spin_unlock(&amp;kv_header-&gt;lock);</span>
 <a name="660"><span class="lineNum">     660 </span>                :<span class="lineCov">        221 : }</span></a>
 <span class="lineNum">     661 </span>                :            : 
-<span class="lineNum">     662 </span>                :<span class="lineCov">      13501 : uint64_t fdb_kvs_header_append(struct filemgr *file,</span>
+<span class="lineNum">     662 </span>                :<span class="lineCov">      14527 : uint64_t fdb_kvs_header_append(struct filemgr *file,</span>
 <span class="lineNum">     663 </span>                :            :                                   struct docio_handle *dhandle)
 <span class="lineNum">     664 </span>                :            : {
-<span class="lineNum">     665 </span>                :<span class="lineCov">      13501 :     char *doc_key = alca(char, 32);</span>
+<span class="lineNum">     665 </span>                :<span class="lineCov">      14527 :     char *doc_key = alca(char, 32);</span>
 <span class="lineNum">     666 </span>                :            :     void *data;
 <span class="lineNum">     667 </span>                :            :     size_t len;
 <span class="lineNum">     668 </span>                :            :     uint64_t kv_info_offset;
 <span class="lineNum">     669 </span>                :            :     struct docio_object doc;
 <span class="lineNum">     670 </span>                :            : 
-<span class="lineNum">     671 </span>                :<span class="lineCov">      13501 :     _fdb_kvs_header_export(file-&gt;kv_header, &amp;data, &amp;len);</span>
+<span class="lineNum">     671 </span>                :<span class="lineCov">      14527 :     _fdb_kvs_header_export(file-&gt;kv_header, &amp;data, &amp;len);</span>
 <span class="lineNum">     672 </span>                :            : 
-<span class="lineNum">     673 </span>                :<span class="lineCov">      13501 :     memset(&amp;doc, 0, sizeof(struct docio_object));</span>
-<span class="lineNum">     674 </span>                :<span class="lineCov">      13501 :     sprintf(doc_key, &quot;KV_header&quot;);</span>
-<span class="lineNum">     675 </span>                :<span class="lineCov">      13501 :     doc.key = (void *)doc_key;</span>
-<span class="lineNum">     676 </span>                :<span class="lineCov">      13501 :     doc.meta = NULL;</span>
-<span class="lineNum">     677 </span>                :<span class="lineCov">      13501 :     doc.body = data;</span>
-<span class="lineNum">     678 </span>                :<span class="lineCov">      13501 :     doc.length.keylen = strlen(doc_key) + 1;</span>
-<span class="lineNum">     679 </span>                :<span class="lineCov">      13501 :     doc.length.metalen = 0;</span>
-<span class="lineNum">     680 </span>                :<span class="lineCov">      13501 :     doc.length.bodylen = len;</span>
-<span class="lineNum">     681 </span>                :<span class="lineCov">      13501 :     doc.seqnum = 0;</span>
-<span class="lineNum">     682 </span>                :<span class="lineCov">      13501 :     kv_info_offset = docio_append_doc_system(dhandle, &amp;doc);</span>
-<span class="lineNum">     683 </span>                :<span class="lineCov">      13501 :     free(data);</span>
+<span class="lineNum">     673 </span>                :<span class="lineCov">      14527 :     memset(&amp;doc, 0, sizeof(struct docio_object));</span>
+<span class="lineNum">     674 </span>                :<span class="lineCov">      14527 :     sprintf(doc_key, &quot;KV_header&quot;);</span>
+<span class="lineNum">     675 </span>                :<span class="lineCov">      14527 :     doc.key = (void *)doc_key;</span>
+<span class="lineNum">     676 </span>                :<span class="lineCov">      14527 :     doc.meta = NULL;</span>
+<span class="lineNum">     677 </span>                :<span class="lineCov">      14527 :     doc.body = data;</span>
+<span class="lineNum">     678 </span>                :<span class="lineCov">      14527 :     doc.length.keylen = strlen(doc_key) + 1;</span>
+<span class="lineNum">     679 </span>                :<span class="lineCov">      14527 :     doc.length.metalen = 0;</span>
+<span class="lineNum">     680 </span>                :<span class="lineCov">      14527 :     doc.length.bodylen = len;</span>
+<span class="lineNum">     681 </span>                :<span class="lineCov">      14527 :     doc.seqnum = 0;</span>
+<span class="lineNum">     682 </span>                :<span class="lineCov">      14527 :     kv_info_offset = docio_append_doc_system(dhandle, &amp;doc);</span>
+<span class="lineNum">     683 </span>                :<span class="lineCov">      14527 :     free(data);</span>
 <span class="lineNum">     684 </span>                :            : 
-<span class="lineNum">     685 </span>                :<span class="lineCov">      13501 :     return kv_info_offset;</span>
+<span class="lineNum">     685 </span>                :<span class="lineCov">      14527 :     return kv_info_offset;</span>
 <a name="686"><span class="lineNum">     686 </span>                :            : }</a>
 <span class="lineNum">     687 </span>                :            : 
 <span class="lineNum">     688 </span>                :<span class="lineCov">        111 : void fdb_kvs_header_read(struct filemgr *file,</span>
@@ -775,39 +775,39 @@
 <span class="lineNum">     703 </span>                :<span class="lineCov">        111 :     free_docio_object(&amp;doc, 1, 1, 1);</span>
 <a name="704"><span class="lineNum">     704 </span>                :            : }</a>
 <span class="lineNum">     705 </span>                :            : 
-<span class="lineNum">     706 </span>                :<span class="lineCov">      20376 : fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,</span>
+<span class="lineNum">     706 </span>                :<span class="lineCov">      20374 : fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,</span>
 <span class="lineNum">     707 </span>                :            :                                  fdb_kvs_id_t id)
 <span class="lineNum">     708 </span>                :            : {
 <span class="lineNum">     709 </span>                :            :     fdb_seqnum_t seqnum;
 <span class="lineNum">     710 </span>                :            :     struct kvs_node query, *node;
 <span class="lineNum">     711 </span>                :            :     struct avl_node *a;
 <span class="lineNum">     712 </span>                :            : 
-<span class="lineNum">     713 </span>                :<span class="lineCov">      20376 :     spin_lock(&amp;kv_header-&gt;lock);</span>
-<span class="lineNum">     714 </span>                :<span class="lineCov">      20376 :     query.id = id;</span>
-<span class="lineNum">     715 </span>                :<span class="lineCov">      20376 :     a = avl_search(kv_header-&gt;idx_id, &amp;query.avl_id, _kvs_cmp_id);</span>
-<span class="lineNum">     716 </span>        [<span class="branchCov" title="Branch 0 was taken 20376 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      20376 :     if (a) {</span>
-<span class="lineNum">     717 </span>                :<span class="lineCov">      20376 :         node = _get_entry(a, struct kvs_node, avl_id);</span>
-<span class="lineNum">     718 </span>                :<span class="lineCov">      20376 :         seqnum = node-&gt;seqnum;</span>
+<span class="lineNum">     713 </span>                :<span class="lineCov">      20374 :     spin_lock(&amp;kv_header-&gt;lock);</span>
+<span class="lineNum">     714 </span>                :<span class="lineCov">      20374 :     query.id = id;</span>
+<span class="lineNum">     715 </span>                :<span class="lineCov">      20374 :     a = avl_search(kv_header-&gt;idx_id, &amp;query.avl_id, _kvs_cmp_id);</span>
+<span class="lineNum">     716 </span>        [<span class="branchCov" title="Branch 0 was taken 20374 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      20374 :     if (a) {</span>
+<span class="lineNum">     717 </span>                :<span class="lineCov">      20374 :         node = _get_entry(a, struct kvs_node, avl_id);</span>
+<span class="lineNum">     718 </span>                :<span class="lineCov">      20374 :         seqnum = node-&gt;seqnum;</span>
 <span class="lineNum">     719 </span>                :            :     } else {
 <span class="lineNum">     720 </span>                :            :         // not existing KV ID.
 <span class="lineNum">     721 </span>                :            :         // this is necessary for _fdb_restore_wal()
 <span class="lineNum">     722 </span>                :            :         // not to restore documents in deleted KV store.
 <span class="lineNum">     723 </span>                :<span class="lineNoCov">          0 :         seqnum = 0;</span>
 <span class="lineNum">     724 </span>                :            :     }
-<span class="lineNum">     725 </span>                :<span class="lineCov">      20376 :     spin_unlock(&amp;kv_header-&gt;lock);</span>
+<span class="lineNum">     725 </span>                :<span class="lineCov">      20374 :     spin_unlock(&amp;kv_header-&gt;lock);</span>
 <span class="lineNum">     726 </span>                :            : 
-<span class="lineNum">     727 </span>                :<span class="lineCov">      20376 :     return seqnum;</span>
+<span class="lineNum">     727 </span>                :<span class="lineCov">      20374 :     return seqnum;</span>
 <a name="728"><span class="lineNum">     728 </span>                :            : }</a>
 <span class="lineNum">     729 </span>                :            : 
-<span class="lineNum">     730 </span>                :<span class="lineCov">      23019 : fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,</span>
+<span class="lineNum">     730 </span>                :<span class="lineCov">      23017 : fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,</span>
 <span class="lineNum">     731 </span>                :            :                                 fdb_kvs_id_t id)
 <span class="lineNum">     732 </span>                :            : {
-<span class="lineNum">     733 </span>        [<span class="branchCov" title="Branch 0 was taken 2949 times"> + </span><span class="branchCov" title="Branch 1 was taken 20070 times"> + </span>]:<span class="lineCov">      23019 :     if (id == 0) {</span>
+<span class="lineNum">     733 </span>        [<span class="branchCov" title="Branch 0 was taken 2949 times"> + </span><span class="branchCov" title="Branch 1 was taken 20068 times"> + </span>]:<span class="lineCov">      23017 :     if (id == 0) {</span>
 <span class="lineNum">     734 </span>                :            :         // default KV instance
 <span class="lineNum">     735 </span>                :<span class="lineCov">       2949 :         return filemgr_get_seqnum(file);</span>
 <span class="lineNum">     736 </span>                :            :     }
 <span class="lineNum">     737 </span>                :            : 
-<span class="lineNum">     738 </span>                :<span class="lineCov">      23019 :     return _fdb_kvs_get_seqnum(file-&gt;kv_header, id);</span>
+<span class="lineNum">     738 </span>                :<span class="lineCov">      23017 :     return _fdb_kvs_get_seqnum(file-&gt;kv_header, id);</span>
 <span class="lineNum">     739 </span>                :            : }
 <a name="740"><span class="lineNum">     740 </span>                :            : </a>
 <span class="lineNum">     741 </span>                :            : LIBFDB_API
