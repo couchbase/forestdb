@@ -8,6 +8,7 @@ static uint8_t _global_dbg_switch[N_DBG_SWITCH];
 static void* _global_dbg_addr[N_DBG_SWITCH];
 static uint64_t _global_dbg_uint64_t[N_DBG_SWITCH];
 
+// LCOV_EXCL_START
 void _dbg_sw_set(int n)
 {
     _global_dbg_switch[n] = 1;
@@ -42,4 +43,5 @@ int _dbg_is_sw_set(int n)
 {
     return _global_dbg_switch[n];
 }
+// LCOV_EXCL_STOP
 

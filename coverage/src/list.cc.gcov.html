@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-13 13:00:22</td>
+            <td class="headerValue">2015-01-13 18:21:49</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">12</td>
@@ -86,44 +86,44 @@
 <span class="lineNum">      15 </span>                :            : #endif
 <a name="16"><span class="lineNum">      16 </span>                :            : </a>
 <span class="lineNum">      17 </span>                :            : 
-<span class="lineNum">      18 </span>                :<span class="lineCov">   33836307 : void list_init(struct list *list)</span>
+<span class="lineNum">      18 </span>                :<span class="lineCov">   34248288 : void list_init(struct list *list)</span>
 <span class="lineNum">      19 </span>                :            : {
-<span class="lineNum">      20 </span>                :<span class="lineCov">   33836307 :     list-&gt;head = NULL;</span>
-<span class="lineNum">      21 </span>                :<span class="lineCov">   33836307 :     list-&gt;tail = NULL;</span>
+<span class="lineNum">      20 </span>                :<span class="lineCov">   34248288 :     list-&gt;head = NULL;</span>
+<span class="lineNum">      21 </span>                :<span class="lineCov">   34248288 :     list-&gt;tail = NULL;</span>
 <span class="lineNum">      22 </span>                :            :     IFDEF_LOCK( spin_init(&amp;list-&gt;lock); );
-<a name="23"><span class="lineNum">      23 </span>                :<span class="lineCov">   33836307 : }</span></a>
+<a name="23"><span class="lineNum">      23 </span>                :<span class="lineCov">   34248288 : }</span></a>
 <span class="lineNum">      24 </span>                :            : 
-<span class="lineNum">      25 </span>                :<span class="lineCov">   67765640 : void list_push_front(struct list *list, struct list_elem *e)</span>
+<span class="lineNum">      25 </span>                :<span class="lineCov">   69722608 : void list_push_front(struct list *list, struct list_elem *e)</span>
 <span class="lineNum">      26 </span>                :            : {
 <span class="lineNum">      27 </span>                :            :     IFDEF_LOCK( spin_lock(&amp;list-&gt;lock); );
-<span class="lineNum">      28 </span>        [<span class="branchCov" title="Branch 0 was taken 35861228 times"> + </span><span class="branchCov" title="Branch 1 was taken 31904412 times"> + </span>]:<span class="lineCov">   67765640 :     if (list-&gt;head == NULL) {</span>
-<span class="lineNum">      29 </span>                :<span class="lineCov">   35861228 :         list-&gt;head = e;</span>
-<span class="lineNum">      30 </span>                :<span class="lineCov">   35861228 :         list-&gt;tail = e;</span>
-<span class="lineNum">      31 </span>                :<span class="lineCov">   35861228 :         e-&gt;next = e-&gt;prev = NULL;</span>
+<span class="lineNum">      28 </span>        [<span class="branchCov" title="Branch 0 was taken 35720173 times"> + </span><span class="branchCov" title="Branch 1 was taken 34002435 times"> + </span>]:<span class="lineCov">   69722608 :     if (list-&gt;head == NULL) {</span>
+<span class="lineNum">      29 </span>                :<span class="lineCov">   35720173 :         list-&gt;head = e;</span>
+<span class="lineNum">      30 </span>                :<span class="lineCov">   35720173 :         list-&gt;tail = e;</span>
+<span class="lineNum">      31 </span>                :<span class="lineCov">   35720173 :         e-&gt;next = e-&gt;prev = NULL;</span>
 <span class="lineNum">      32 </span>                :            :     }else{
-<span class="lineNum">      33 </span>                :<span class="lineCov">   31904412 :         list-&gt;head-&gt;prev = e;</span>
-<span class="lineNum">      34 </span>                :<span class="lineCov">   31904412 :         e-&gt;prev = NULL;</span>
-<span class="lineNum">      35 </span>                :<span class="lineCov">   31904412 :         e-&gt;next = list-&gt;head;</span>
-<span class="lineNum">      36 </span>                :<span class="lineCov">   31904412 :         list-&gt;head = e;</span>
+<span class="lineNum">      33 </span>                :<span class="lineCov">   34002435 :         list-&gt;head-&gt;prev = e;</span>
+<span class="lineNum">      34 </span>                :<span class="lineCov">   34002435 :         e-&gt;prev = NULL;</span>
+<span class="lineNum">      35 </span>                :<span class="lineCov">   34002435 :         e-&gt;next = list-&gt;head;</span>
+<span class="lineNum">      36 </span>                :<span class="lineCov">   34002435 :         list-&gt;head = e;</span>
 <span class="lineNum">      37 </span>                :            :     }
 <span class="lineNum">      38 </span>                :            :     IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<a name="39"><span class="lineNum">      39 </span>                :<span class="lineCov">   67765640 : }</span></a>
+<a name="39"><span class="lineNum">      39 </span>                :<span class="lineCov">   69722608 : }</span></a>
 <span class="lineNum">      40 </span>                :            : 
-<span class="lineNum">      41 </span>                :<span class="lineCov">   42153716 : void list_push_back(struct list *list, struct list_elem *e)</span>
+<span class="lineNum">      41 </span>                :<span class="lineCov">   43393380 : void list_push_back(struct list *list, struct list_elem *e)</span>
 <span class="lineNum">      42 </span>                :            : {
 <span class="lineNum">      43 </span>                :            :     IFDEF_LOCK( spin_lock(&amp;list-&gt;lock); );
-<span class="lineNum">      44 </span>        [<span class="branchCov" title="Branch 0 was taken 25445640 times"> + </span><span class="branchCov" title="Branch 1 was taken 16708076 times"> + </span>]:<span class="lineCov">   42153716 :     if (list-&gt;tail == NULL) {</span>
-<span class="lineNum">      45 </span>                :<span class="lineCov">   25445640 :         list-&gt;head = e;</span>
-<span class="lineNum">      46 </span>                :<span class="lineCov">   25445640 :         list-&gt;tail = e;</span>
-<span class="lineNum">      47 </span>                :<span class="lineCov">   25445640 :         e-&gt;next = e-&gt;prev = NULL;</span>
+<span class="lineNum">      44 </span>        [<span class="branchCov" title="Branch 0 was taken 25744486 times"> + </span><span class="branchCov" title="Branch 1 was taken 17648894 times"> + </span>]:<span class="lineCov">   43393380 :     if (list-&gt;tail == NULL) {</span>
+<span class="lineNum">      45 </span>                :<span class="lineCov">   25744486 :         list-&gt;head = e;</span>
+<span class="lineNum">      46 </span>                :<span class="lineCov">   25744486 :         list-&gt;tail = e;</span>
+<span class="lineNum">      47 </span>                :<span class="lineCov">   25744486 :         e-&gt;next = e-&gt;prev = NULL;</span>
 <span class="lineNum">      48 </span>                :            :     }else{
-<span class="lineNum">      49 </span>                :<span class="lineCov">   16708076 :         list-&gt;tail-&gt;next = e;</span>
-<span class="lineNum">      50 </span>                :<span class="lineCov">   16708076 :         e-&gt;prev = list-&gt;tail;</span>
-<span class="lineNum">      51 </span>                :<span class="lineCov">   16708076 :         e-&gt;next = NULL;</span>
-<span class="lineNum">      52 </span>                :<span class="lineCov">   16708076 :         list-&gt;tail = e;</span>
+<span class="lineNum">      49 </span>                :<span class="lineCov">   17648894 :         list-&gt;tail-&gt;next = e;</span>
+<span class="lineNum">      50 </span>                :<span class="lineCov">   17648894 :         e-&gt;prev = list-&gt;tail;</span>
+<span class="lineNum">      51 </span>                :<span class="lineCov">   17648894 :         e-&gt;next = NULL;</span>
+<span class="lineNum">      52 </span>                :<span class="lineCov">   17648894 :         list-&gt;tail = e;</span>
 <span class="lineNum">      53 </span>                :            :     }
 <span class="lineNum">      54 </span>                :            :     IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">      55 </span>                :<span class="lineCov">   42153716 : }</span>
+<span class="lineNum">      55 </span>                :<span class="lineCov">   43393380 : }</span>
 <a name="56"><span class="lineNum">      56 </span>                :            : </a>
 <span class="lineNum">      57 </span>                :            : // insert E just before BEFORE
 <span class="lineNum">      58 </span>                :<span class="lineCov">         44 : void list_insert_before(struct list *list, struct list_elem *before, struct list_elem *e)</span>
@@ -151,25 +151,25 @@
 <span class="lineNum">      80 </span>                :            : }
 <a name="81"><span class="lineNum">      81 </span>                :            : // LCOV_EXCL_STOP</a>
 <span class="lineNum">      82 </span>                :            : 
-<span class="lineNum">      83 </span>                :<span class="lineCov">   91976477 : struct list_elem *list_remove(struct list *list, struct list_elem *e)</span>
+<span class="lineNum">      83 </span>                :<span class="lineCov">   94469782 : struct list_elem *list_remove(struct list *list, struct list_elem *e)</span>
 <span class="lineNum">      84 </span>                :            : {
 <span class="lineNum">      85 </span>                :            :     IFDEF_LOCK( spin_lock(&amp;list-&gt;lock); );
-<span class="lineNum">      86 </span>        [<span class="branchCov" title="Branch 0 was taken 91976477 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">   91976477 :     if (e) {</span>
+<span class="lineNum">      86 </span>        [<span class="branchCov" title="Branch 0 was taken 94469782 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">   94469782 :     if (e) {</span>
 <span class="lineNum">      87 </span>                :            :         // if not NULL
-<span class="lineNum">      88 </span>        [<span class="branchCov" title="Branch 0 was taken 38855891 times"> + </span><span class="branchCov" title="Branch 1 was taken 53120586 times"> + </span>]:<span class="lineCov">   91976477 :         if (e-&gt;next) e-&gt;next-&gt;prev = e-&gt;prev;</span>
-<span class="lineNum">      89 </span>        [<span class="branchCov" title="Branch 0 was taken 14146200 times"> + </span><span class="branchCov" title="Branch 1 was taken 77830277 times"> + </span>]:<span class="lineCov">   91976477 :         if (e-&gt;prev) e-&gt;prev-&gt;next = e-&gt;next;</span>
+<span class="lineNum">      88 </span>        [<span class="branchCov" title="Branch 0 was taken 40955582 times"> + </span><span class="branchCov" title="Branch 1 was taken 53514200 times"> + </span>]:<span class="lineCov">   94469782 :         if (e-&gt;next) e-&gt;next-&gt;prev = e-&gt;prev;</span>
+<span class="lineNum">      89 </span>        [<span class="branchCov" title="Branch 0 was taken 15364956 times"> + </span><span class="branchCov" title="Branch 1 was taken 79104826 times"> + </span>]:<span class="lineCov">   94469782 :         if (e-&gt;prev) e-&gt;prev-&gt;next = e-&gt;next;</span>
 <span class="lineNum">      90 </span>                :            : 
-<span class="lineNum">      91 </span>        [<span class="branchCov" title="Branch 0 was taken 78044782 times"> + </span><span class="branchCov" title="Branch 1 was taken 13931695 times"> + </span>]:<span class="lineCov">   91976477 :         if (list-&gt;head == e) list-&gt;head = e-&gt;next;</span>
-<span class="lineNum">      92 </span>        [<span class="branchCov" title="Branch 0 was taken 53191532 times"> + </span><span class="branchCov" title="Branch 1 was taken 38784945 times"> + </span>]:<span class="lineCov">   91976477 :         if (list-&gt;tail == e) list-&gt;tail = e-&gt;prev;</span>
+<span class="lineNum">      91 </span>        [<span class="branchCov" title="Branch 0 was taken 79432720 times"> + </span><span class="branchCov" title="Branch 1 was taken 15037062 times"> + </span>]:<span class="lineCov">   94469782 :         if (list-&gt;head == e) list-&gt;head = e-&gt;next;</span>
+<span class="lineNum">      92 </span>        [<span class="branchCov" title="Branch 0 was taken 53583731 times"> + </span><span class="branchCov" title="Branch 1 was taken 40886051 times"> + </span>]:<span class="lineCov">   94469782 :         if (list-&gt;tail == e) list-&gt;tail = e-&gt;prev;</span>
 <span class="lineNum">      93 </span>                :            : 
-<span class="lineNum">      94 </span>                :<span class="lineCov">   91976477 :         struct list_elem *next = e-&gt;next;</span>
+<span class="lineNum">      94 </span>                :<span class="lineCov">   94469782 :         struct list_elem *next = e-&gt;next;</span>
 <span class="lineNum">      95 </span>                :            : 
 <span class="lineNum">      96 </span>                :            :         IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">      97 </span>                :<span class="lineCov">   91976477 :         return next;</span>
+<span class="lineNum">      97 </span>                :<span class="lineCov">   94469782 :         return next;</span>
 <span class="lineNum">      98 </span>                :            :     }
 <span class="lineNum">      99 </span>                :            :     // NULL .. do nothing
 <span class="lineNum">     100 </span>                :            :     IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">     101 </span>                :<span class="lineCov">   91976477 :     return NULL;</span>
+<span class="lineNum">     101 </span>                :<span class="lineCov">   94469782 :     return NULL;</span>
 <a name="102"><span class="lineNum">     102 </span>                :            : }</a>
 <span class="lineNum">     103 </span>                :            : 
 <span class="lineNum">     104 </span>                :<span class="lineCov">         12 : struct list_elem *list_remove_reverse(struct list *list, struct list_elem *e)</span>
@@ -191,70 +191,70 @@
 <span class="lineNum">     120 </span>                :<span class="lineCov">         12 :     return NULL;</span>
 <a name="121"><span class="lineNum">     121 </span>                :            : }</a>
 <span class="lineNum">     122 </span>                :            : 
-<span class="lineNum">     123 </span>                :<span class="lineCov">   17960754 : struct list_elem *list_pop_front(struct list *list)</span>
+<span class="lineNum">     123 </span>                :<span class="lineCov">   18704854 : struct list_elem *list_pop_front(struct list *list)</span>
 <span class="lineNum">     124 </span>                :            : {
 <span class="lineNum">     125 </span>                :            :     IFDEF_LOCK( spin_lock(&amp;list-&gt;lock); );
-<span class="lineNum">     126 </span>                :<span class="lineCov">   17960754 :     struct list_elem *e = list-&gt;head;</span>
-<span class="lineNum">     127 </span>        [<span class="branchCov" title="Branch 0 was taken 16998252 times"> + </span><span class="branchCov" title="Branch 1 was taken 962502 times"> + </span>]:<span class="lineCov">   17960754 :     if (e) {</span>
+<span class="lineNum">     126 </span>                :<span class="lineCov">   18704854 :     struct list_elem *e = list-&gt;head;</span>
+<span class="lineNum">     127 </span>        [<span class="branchCov" title="Branch 0 was taken 17765866 times"> + </span><span class="branchCov" title="Branch 1 was taken 938988 times"> + </span>]:<span class="lineCov">   18704854 :     if (e) {</span>
 <span class="lineNum">     128 </span>                :            :         // if not NULL
-<span class="lineNum">     129 </span>        [<span class="branchCov" title="Branch 0 was taken 8975930 times"> + </span><span class="branchCov" title="Branch 1 was taken 8022322 times"> + </span>]:<span class="lineCov">   16998252 :         if (e-&gt;next) e-&gt;next-&gt;prev = e-&gt;prev;</span>
-<span class="lineNum">     130 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 16998252 times"> + </span>]:<span class="lineCov">   16998252 :         if (e-&gt;prev) e-&gt;prev-&gt;next = e-&gt;next;</span>
+<span class="lineNum">     129 </span>        [<span class="branchCov" title="Branch 0 was taken 9811351 times"> + </span><span class="branchCov" title="Branch 1 was taken 7954515 times"> + </span>]:<span class="lineCov">   17765866 :         if (e-&gt;next) e-&gt;next-&gt;prev = e-&gt;prev;</span>
+<span class="lineNum">     130 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 17765866 times"> + </span>]:<span class="lineCov">   17765866 :         if (e-&gt;prev) e-&gt;prev-&gt;next = e-&gt;next;</span>
 <span class="lineNum">     131 </span>                :            : 
-<span class="lineNum">     132 </span>        [<span class="branchCov" title="Branch 0 was taken 16997183 times"> + </span><span class="branchCov" title="Branch 1 was taken 1069 times"> + </span>]:<span class="lineCov">   16998252 :         if (list-&gt;head == e) list-&gt;head = e-&gt;next;</span>
-<span class="lineNum">     133 </span>        [<span class="branchCov" title="Branch 0 was taken 8022374 times"> + </span><span class="branchCov" title="Branch 1 was taken 8975878 times"> + </span>]:<span class="lineCov">   16998252 :         if (list-&gt;tail == e) list-&gt;tail = e-&gt;prev;</span>
+<span class="lineNum">     132 </span>        [<span class="branchCov" title="Branch 0 was taken 17764853 times"> + </span><span class="branchCov" title="Branch 1 was taken 1013 times"> + </span>]:<span class="lineCov">   17765866 :         if (list-&gt;head == e) list-&gt;head = e-&gt;next;</span>
+<span class="lineNum">     133 </span>        [<span class="branchCov" title="Branch 0 was taken 7954560 times"> + </span><span class="branchCov" title="Branch 1 was taken 9811306 times"> + </span>]:<span class="lineCov">   17765866 :         if (list-&gt;tail == e) list-&gt;tail = e-&gt;prev;</span>
 <span class="lineNum">     134 </span>                :            : 
 <span class="lineNum">     135 </span>                :            :         IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">     136 </span>                :<span class="lineCov">   16998252 :         return e;</span>
+<span class="lineNum">     136 </span>                :<span class="lineCov">   17765866 :         return e;</span>
 <span class="lineNum">     137 </span>                :            :     }
 <span class="lineNum">     138 </span>                :            :     // NULL .. do nothing
 <span class="lineNum">     139 </span>                :            :     IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">     140 </span>                :<span class="lineCov">   17960754 :     return NULL;</span>
+<span class="lineNum">     140 </span>                :<span class="lineCov">   18704854 :     return NULL;</span>
 <a name="141"><span class="lineNum">     141 </span>                :            : }</a>
 <span class="lineNum">     142 </span>                :            : 
-<span class="lineNum">     143 </span>                :<span class="lineCov">    1075126 : struct list_elem *list_pop_back(struct list *list)</span>
+<span class="lineNum">     143 </span>                :<span class="lineCov">    1059517 : struct list_elem *list_pop_back(struct list *list)</span>
 <span class="lineNum">     144 </span>                :            : {
 <span class="lineNum">     145 </span>                :            :     IFDEF_LOCK( spin_lock(&amp;list-&gt;lock); );
-<span class="lineNum">     146 </span>                :<span class="lineCov">    1075126 :     struct list_elem *e = list-&gt;tail;</span>
-<span class="lineNum">     147 </span>        [<span class="branchCov" title="Branch 0 was taken 965711 times"> + </span><span class="branchCov" title="Branch 1 was taken 109415 times"> + </span>]:<span class="lineCov">    1075126 :     if (e) {</span>
+<span class="lineNum">     146 </span>                :<span class="lineCov">    1059517 :     struct list_elem *e = list-&gt;tail;</span>
+<span class="lineNum">     147 </span>        [<span class="branchCov" title="Branch 0 was taken 939188 times"> + </span><span class="branchCov" title="Branch 1 was taken 120329 times"> + </span>]:<span class="lineCov">    1059517 :     if (e) {</span>
 <span class="lineNum">     148 </span>                :            :         // if not NULL
-<span class="lineNum">     149 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 965711 times"> + </span>]:<span class="lineCov">     965711 :         if (e-&gt;next) e-&gt;next-&gt;prev = e-&gt;prev;</span>
-<span class="lineNum">     150 </span>        [<span class="branchCov" title="Branch 0 was taken 46483 times"> + </span><span class="branchCov" title="Branch 1 was taken 919228 times"> + </span>]:<span class="lineCov">     965711 :         if (e-&gt;prev) e-&gt;prev-&gt;next = e-&gt;next;</span>
+<span class="lineNum">     149 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 939188 times"> + </span>]:<span class="lineCov">     939188 :         if (e-&gt;next) e-&gt;next-&gt;prev = e-&gt;prev;</span>
+<span class="lineNum">     150 </span>        [<span class="branchCov" title="Branch 0 was taken 25590 times"> + </span><span class="branchCov" title="Branch 1 was taken 913598 times"> + </span>]:<span class="lineCov">     939188 :         if (e-&gt;prev) e-&gt;prev-&gt;next = e-&gt;next;</span>
 <span class="lineNum">     151 </span>                :            : 
-<span class="lineNum">     152 </span>        [<span class="branchCov" title="Branch 0 was taken 919228 times"> + </span><span class="branchCov" title="Branch 1 was taken 46483 times"> + </span>]:<span class="lineCov">     965711 :         if (list-&gt;head == e) list-&gt;head = e-&gt;next;</span>
-<span class="lineNum">     153 </span>        [<span class="branchCov" title="Branch 0 was taken 965711 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">     965711 :         if (list-&gt;tail == e) list-&gt;tail = e-&gt;prev;</span>
+<span class="lineNum">     152 </span>        [<span class="branchCov" title="Branch 0 was taken 913598 times"> + </span><span class="branchCov" title="Branch 1 was taken 25590 times"> + </span>]:<span class="lineCov">     939188 :         if (list-&gt;head == e) list-&gt;head = e-&gt;next;</span>
+<span class="lineNum">     153 </span>        [<span class="branchCov" title="Branch 0 was taken 939188 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">     939188 :         if (list-&gt;tail == e) list-&gt;tail = e-&gt;prev;</span>
 <span class="lineNum">     154 </span>                :            : 
 <span class="lineNum">     155 </span>                :            :         IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">     156 </span>                :<span class="lineCov">     965711 :         return e;</span>
+<span class="lineNum">     156 </span>                :<span class="lineCov">     939188 :         return e;</span>
 <span class="lineNum">     157 </span>                :            :     }
 <span class="lineNum">     158 </span>                :            :     // NULL .. do nothing
 <span class="lineNum">     159 </span>                :            :     IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">     160 </span>                :<span class="lineCov">    1075126 :     return NULL;</span>
+<span class="lineNum">     160 </span>                :<span class="lineCov">    1059517 :     return NULL;</span>
 <a name="161"><span class="lineNum">     161 </span>                :            : }</a>
 <span class="lineNum">     162 </span>                :            : 
-<span class="lineNum">     163 </span>                :<span class="lineCov">  293349618 : struct list_elem *list_begin(struct list *list)</span>
+<span class="lineNum">     163 </span>                :<span class="lineCov">  311386096 : struct list_elem *list_begin(struct list *list)</span>
 <span class="lineNum">     164 </span>                :            : {
 <span class="lineNum">     165 </span>                :            :     IFDEF_LOCK( spin_lock(&amp;list-&gt;lock); );
-<span class="lineNum">     166 </span>                :<span class="lineCov">  293349618 :     struct list_elem *e = list-&gt;head;</span>
+<span class="lineNum">     166 </span>                :<span class="lineCov">  311386096 :     struct list_elem *e = list-&gt;head;</span>
 <span class="lineNum">     167 </span>                :            :     IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">     168 </span>                :<span class="lineCov">  293349618 :     return e;</span>
+<span class="lineNum">     168 </span>                :<span class="lineCov">  311386096 :     return e;</span>
 <a name="169"><span class="lineNum">     169 </span>                :            : }</a>
 <span class="lineNum">     170 </span>                :            : 
-<span class="lineNum">     171 </span>                :<span class="lineCov">   53886383 : struct list_elem *list_end(struct list *list)</span>
+<span class="lineNum">     171 </span>                :<span class="lineCov">   68952456 : struct list_elem *list_end(struct list *list)</span>
 <span class="lineNum">     172 </span>                :            : {
 <span class="lineNum">     173 </span>                :            :     IFDEF_LOCK( spin_lock(&amp;list-&gt;lock); );
-<span class="lineNum">     174 </span>                :<span class="lineCov">   53886383 :     struct list_elem *e = list-&gt;tail;</span>
+<span class="lineNum">     174 </span>                :<span class="lineCov">   68952456 :     struct list_elem *e = list-&gt;tail;</span>
 <span class="lineNum">     175 </span>                :            :     IFDEF_LOCK( spin_unlock(&amp;list-&gt;lock); );
-<span class="lineNum">     176 </span>                :<span class="lineCov">   53886383 :     return e;</span>
+<span class="lineNum">     176 </span>                :<span class="lineCov">   68952456 :     return e;</span>
 <a name="177"><span class="lineNum">     177 </span>                :            : }</a>
 <span class="lineNum">     178 </span>                :            : 
-<span class="lineNum">     179 </span>                :<span class="lineCov"> 1273511538 : struct list_elem *list_next(struct list_elem *e)</span>
+<span class="lineNum">     179 </span>                :<span class="lineCov"> 1290398428 : struct list_elem *list_next(struct list_elem *e)</span>
 <span class="lineNum">     180 </span>                :            : {
-<span class="lineNum">     181 </span>                :<span class="lineCov"> 1273511538 :     return e-&gt;next;</span>
+<span class="lineNum">     181 </span>                :<span class="lineCov"> 1290398428 :     return e-&gt;next;</span>
 <a name="182"><span class="lineNum">     182 </span>                :            : }</a>
 <span class="lineNum">     183 </span>                :            : 
-<span class="lineNum">     184 </span>                :<span class="lineCov">   20461409 : struct list_elem *list_prev(struct list_elem *e)</span>
+<span class="lineNum">     184 </span>                :<span class="lineCov">   20758231 : struct list_elem *list_prev(struct list_elem *e)</span>
 <span class="lineNum">     185 </span>                :            : {
-<span class="lineNum">     186 </span>                :<span class="lineCov">   20461409 :     return e-&gt;prev;</span>
+<span class="lineNum">     186 </span>                :<span class="lineCov">   20758231 :     return e-&gt;prev;</span>
 <span class="lineNum">     187 </span>                :            : }
 <span class="lineNum">     188 </span>                :            : 
 </pre>

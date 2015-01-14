@@ -31,13 +31,13 @@
             <td class="headerValue">coverage.info.cleaned</td>
             <td></td>
             <td class="headerItem">Lines:</td>
-            <td class="headerCovTableEntry">358</td>
+            <td class="headerCovTableEntry">359</td>
             <td class="headerCovTableEntry">429</td>
-            <td class="headerCovTableEntryMed">83.4 %</td>
+            <td class="headerCovTableEntryMed">83.7 %</td>
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-13 13:00:22</td>
+            <td class="headerValue">2015-01-13 18:21:49</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">21</td>
@@ -49,9 +49,9 @@
             <td></td>
             <td></td>
             <td class="headerItem">Branches:</td>
-            <td class="headerCovTableEntry">141</td>
+            <td class="headerCovTableEntry">144</td>
             <td class="headerCovTableEntry">198</td>
-            <td class="headerCovTableEntryLo">71.2 %</td>
+            <td class="headerCovTableEntryLo">72.7 %</td>
           </tr>
           <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
         </table>
@@ -99,22 +99,22 @@
 <span class="lineNum">      28 </span>                :            : 
 <a name="29"><span class="lineNum">      29 </span>                :            : #include &quot;memleak.h&quot;</a>
 <span class="lineNum">      30 </span>                :            : 
-<span class="lineNum">      31 </span>                :<span class="lineCov">        595 : void docio_init(struct docio_handle *handle,</span>
+<span class="lineNum">      31 </span>                :<span class="lineCov">        608 : void docio_init(struct docio_handle *handle,</span>
 <span class="lineNum">      32 </span>                :            :                 struct filemgr *file,
 <span class="lineNum">      33 </span>                :            :                 bool compress_document_body)
 <span class="lineNum">      34 </span>                :            : {
-<span class="lineNum">      35 </span>                :<span class="lineCov">        595 :     handle-&gt;file = file;</span>
-<span class="lineNum">      36 </span>                :<span class="lineCov">        595 :     handle-&gt;curblock = BLK_NOT_FOUND;</span>
-<span class="lineNum">      37 </span>                :<span class="lineCov">        595 :     handle-&gt;curpos = 0;</span>
-<span class="lineNum">      38 </span>                :<span class="lineCov">        595 :     handle-&gt;lastbid = BLK_NOT_FOUND;</span>
-<span class="lineNum">      39 </span>                :<span class="lineCov">        595 :     handle-&gt;compress_document_body = compress_document_body;</span>
-<span class="lineNum">      40 </span>                :<span class="lineCov">        595 :     malloc_align(handle-&gt;readbuffer, FDB_SECTOR_SIZE, file-&gt;blocksize);</span>
-<a name="41"><span class="lineNum">      41 </span>                :<span class="lineCov">        594 : }</span></a>
+<span class="lineNum">      35 </span>                :<span class="lineCov">        608 :     handle-&gt;file = file;</span>
+<span class="lineNum">      36 </span>                :<span class="lineCov">        608 :     handle-&gt;curblock = BLK_NOT_FOUND;</span>
+<span class="lineNum">      37 </span>                :<span class="lineCov">        608 :     handle-&gt;curpos = 0;</span>
+<span class="lineNum">      38 </span>                :<span class="lineCov">        608 :     handle-&gt;lastbid = BLK_NOT_FOUND;</span>
+<span class="lineNum">      39 </span>                :<span class="lineCov">        608 :     handle-&gt;compress_document_body = compress_document_body;</span>
+<span class="lineNum">      40 </span>                :<span class="lineCov">        608 :     malloc_align(handle-&gt;readbuffer, FDB_SECTOR_SIZE, file-&gt;blocksize);</span>
+<a name="41"><span class="lineNum">      41 </span>                :<span class="lineCov">        608 : }</span></a>
 <span class="lineNum">      42 </span>                :            : 
-<span class="lineNum">      43 </span>                :<span class="lineCov">        592 : void docio_free(struct docio_handle *handle)</span>
+<span class="lineNum">      43 </span>                :<span class="lineCov">        605 : void docio_free(struct docio_handle *handle)</span>
 <span class="lineNum">      44 </span>                :            : {
-<span class="lineNum">      45 </span>                :<span class="lineCov">        592 :     free_align(handle-&gt;readbuffer);</span>
-<span class="lineNum">      46 </span>                :<span class="lineCov">        592 : }</span>
+<span class="lineNum">      45 </span>                :<span class="lineCov">        605 :     free_align(handle-&gt;readbuffer);</span>
+<span class="lineNum">      46 </span>                :<span class="lineCov">        605 : }</span>
 <span class="lineNum">      47 </span>                :            : 
 <span class="lineNum">      48 </span>                :            : #ifdef __CRC32
 <span class="lineNum">      49 </span>                :            : #define _add_blk_marker(file, bid, blocksize, marker, log_callback) \
@@ -124,50 +124,50 @@
 <span class="lineNum">      53 </span>                :            :     FDB_RESULT_SUCCESS
 <a name="54"><span class="lineNum">      54 </span>                :            : #endif</a>
 <span class="lineNum">      55 </span>                :            : 
-<span class="lineNum">      56 </span>                :<span class="lineCov">    4248357 : bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)</span>
+<span class="lineNum">      56 </span>                :<span class="lineCov">    4315832 : bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)</span>
 <span class="lineNum">      57 </span>                :            : {
 <span class="lineNum">      58 </span>                :            :     uint32_t offset;
 <span class="lineNum">      59 </span>                :            :     uint8_t marker[BLK_MARKER_SIZE];
-<span class="lineNum">      60 </span>                :<span class="lineCov">    4248357 :     size_t blocksize = handle-&gt;file-&gt;blocksize;</span>
-<span class="lineNum">      61 </span>                :<span class="lineCov">    4248357 :     size_t real_blocksize = blocksize;</span>
-<span class="lineNum">      62 </span>                :<span class="lineCov">    4248357 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
+<span class="lineNum">      60 </span>                :<span class="lineCov">    4315832 :     size_t blocksize = handle-&gt;file-&gt;blocksize;</span>
+<span class="lineNum">      61 </span>                :<span class="lineCov">    4315832 :     size_t real_blocksize = blocksize;</span>
+<span class="lineNum">      62 </span>                :<span class="lineCov">    4315832 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
 <span class="lineNum">      63 </span>                :            : #ifdef __CRC32
-<span class="lineNum">      64 </span>                :<span class="lineCov">    4248357 :     blocksize -= BLK_MARKER_SIZE;</span>
-<span class="lineNum">      65 </span>                :<span class="lineCov">    4248357 :     memset(marker, BLK_MARKER_DOC, BLK_MARKER_SIZE);</span>
+<span class="lineNum">      64 </span>                :<span class="lineCov">    4315832 :     blocksize -= BLK_MARKER_SIZE;</span>
+<span class="lineNum">      65 </span>                :<span class="lineCov">    4315832 :     memset(marker, BLK_MARKER_DOC, BLK_MARKER_SIZE);</span>
 <span class="lineNum">      66 </span>                :            : #endif
 <span class="lineNum">      67 </span>                :            : 
-<span class="lineNum">      68 </span>        [<span class="branchCov" title="Branch 0 was taken 359 times"> + </span><span class="branchCov" title="Branch 1 was taken 4247998 times"> + </span>]:<span class="lineCov">    4248357 :     if (handle-&gt;curblock == BLK_NOT_FOUND) {</span>
+<span class="lineNum">      68 </span>        [<span class="branchCov" title="Branch 0 was taken 369 times"> + </span><span class="branchCov" title="Branch 1 was taken 4315463 times"> + </span>]:<span class="lineCov">    4315832 :     if (handle-&gt;curblock == BLK_NOT_FOUND) {</span>
 <span class="lineNum">      69 </span>                :            :         // allocate new block
-<span class="lineNum">      70 </span>                :<span class="lineCov">        359 :         handle-&gt;curblock = filemgr_alloc(handle-&gt;file, log_callback);</span>
-<span class="lineNum">      71 </span>                :<span class="lineCov">        359 :         handle-&gt;curpos = 0;</span>
+<span class="lineNum">      70 </span>                :<span class="lineCov">        369 :         handle-&gt;curblock = filemgr_alloc(handle-&gt;file, log_callback);</span>
+<span class="lineNum">      71 </span>                :<span class="lineCov">        369 :         handle-&gt;curpos = 0;</span>
 <span class="lineNum">      72 </span>                :            :     }
-<span class="lineNum">      73 </span>        [<span class="branchCov" title="Branch 1 was taken 5483 times"> + </span><span class="branchCov" title="Branch 2 was taken 4242877 times"> + </span>]:<span class="lineCov">    4248357 :     if (!filemgr_is_writable(handle-&gt;file, handle-&gt;curblock)) {</span>
+<span class="lineNum">      73 </span>        [<span class="branchCov" title="Branch 1 was taken 13250 times"> + </span><span class="branchCov" title="Branch 2 was taken 4302585 times"> + </span>]:<span class="lineCov">    4315832 :     if (!filemgr_is_writable(handle-&gt;file, handle-&gt;curblock)) {</span>
 <span class="lineNum">      74 </span>                :            :         // allocate new block
-<span class="lineNum">      75 </span>                :<span class="lineCov">       5483 :         handle-&gt;curblock = filemgr_alloc(handle-&gt;file, log_callback);</span>
-<span class="lineNum">      76 </span>                :<span class="lineCov">       5483 :         handle-&gt;curpos = 0;</span>
+<span class="lineNum">      75 </span>                :<span class="lineCov">      13250 :         handle-&gt;curblock = filemgr_alloc(handle-&gt;file, log_callback);</span>
+<span class="lineNum">      76 </span>                :<span class="lineCov">      13250 :         handle-&gt;curpos = 0;</span>
 <span class="lineNum">      77 </span>                :            :     }
 <span class="lineNum">      78 </span>                :            : 
-<span class="lineNum">      79 </span>        [<span class="branchCov" title="Branch 0 was taken 4035103 times"> + </span><span class="branchCov" title="Branch 1 was taken 213257 times"> + </span>]:<span class="lineCov">    4248360 :     if (size &lt;= blocksize - handle-&gt;curpos) {</span>
+<span class="lineNum">      79 </span>        [<span class="branchCov" title="Branch 0 was taken 4101717 times"> + </span><span class="branchCov" title="Branch 1 was taken 214118 times"> + </span>]:<span class="lineCov">    4315835 :     if (size &lt;= blocksize - handle-&gt;curpos) {</span>
 <span class="lineNum">      80 </span>                :            :         // simply append to current block
-<span class="lineNum">      81 </span>                :<span class="lineCov">    4035103 :         offset = handle-&gt;curpos;</span>
-<span class="lineNum">      82 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 4035102 times"> + </span>]:<span class="lineCov">    4035103 :         if (_add_blk_marker(handle-&gt;file, handle-&gt;curblock, blocksize, marker,</span>
+<span class="lineNum">      81 </span>                :<span class="lineCov">    4101717 :         offset = handle-&gt;curpos;</span>
+<span class="lineNum">      82 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 4101717 times"> + </span>]:<span class="lineCov">    4101717 :         if (_add_blk_marker(handle-&gt;file, handle-&gt;curblock, blocksize, marker,</span>
 <span class="lineNum">      83 </span>                :            :                             log_callback) != FDB_RESULT_SUCCESS) {
 <span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :             return BLK_NOT_FOUND;</span>
 <span class="lineNum">      85 </span>                :            :         }
-<span class="lineNum">      86 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 4035104 times"> + </span>]:<span class="lineCov">    4035104 :         if (filemgr_write_offset(handle-&gt;file, handle-&gt;curblock, offset, size,</span>
-<span class="lineNum">      87 </span>                :<span class="lineCov">    4035102 :                                  buf, log_callback) != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">      86 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 4101719 times"> + </span>]:<span class="lineCov">    4101719 :         if (filemgr_write_offset(handle-&gt;file, handle-&gt;curblock, offset, size,</span>
+<span class="lineNum">      87 </span>                :<span class="lineCov">    4101717 :                                  buf, log_callback) != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :             return BLK_NOT_FOUND;</span>
 <span class="lineNum">      89 </span>                :            :         }
-<span class="lineNum">      90 </span>                :<span class="lineCov">    4035104 :         handle-&gt;curpos += size;</span>
+<span class="lineNum">      90 </span>                :<span class="lineCov">    4101719 :         handle-&gt;curpos += size;</span>
 <span class="lineNum">      91 </span>                :            : 
-<span class="lineNum">      92 </span>                :<span class="lineCov">    4035104 :         return handle-&gt;curblock * real_blocksize + offset;</span>
+<span class="lineNum">      92 </span>                :<span class="lineCov">    4101719 :         return handle-&gt;curblock * real_blocksize + offset;</span>
 <span class="lineNum">      93 </span>                :            : 
 <span class="lineNum">      94 </span>                :            :     }else{
 <span class="lineNum">      95 </span>                :            :         // not simply fitted into current block
 <span class="lineNum">      96 </span>                :            :         bid_t begin, end, i, startpos;
-<span class="lineNum">      97 </span>                :<span class="lineCov">     213257 :         uint32_t nblock = size / blocksize;</span>
-<span class="lineNum">      98 </span>                :<span class="lineCov">     213257 :         uint32_t remain = size % blocksize;</span>
-<span class="lineNum">      99 </span>                :<span class="lineCov">     213257 :         uint64_t remainsize = size;</span>
+<span class="lineNum">      97 </span>                :<span class="lineCov">     214118 :         uint32_t nblock = size / blocksize;</span>
+<span class="lineNum">      98 </span>                :<span class="lineCov">     214118 :         uint32_t remain = size % blocksize;</span>
+<span class="lineNum">      99 </span>                :<span class="lineCov">     214118 :         uint64_t remainsize = size;</span>
 <span class="lineNum">     100 </span>                :            : 
 <span class="lineNum">     101 </span>                :            :     #ifdef DOCIO_BLOCK_ALIGN
 <span class="lineNum">     102 </span>                :            :         offset = blocksize - handle-&gt;curpos;
@@ -204,41 +204,41 @@
 <span class="lineNum">     133 </span>                :            : 
 <span class="lineNum">     134 </span>                :            :     #else
 <span class="lineNum">     135 </span>                :            :         // simple append mode .. always append at the end of file
-<span class="lineNum">     136 </span>                :<span class="lineCov">     213257 :         offset = blocksize - handle-&gt;curpos;</span>
-<span class="lineNum">     137 </span>        [<span class="branchCov" title="Branch 0 was taken 210435 times"> + </span><span class="branchCov" title="Branch 1 was taken 2822 times"> + </span>]:<span class="lineCov">     213257 :         if (filemgr_alloc_multiple_cond(handle-&gt;file, handle-&gt;curblock+1,</span>
+<span class="lineNum">     136 </span>                :<span class="lineCov">     214118 :         offset = blocksize - handle-&gt;curpos;</span>
+<span class="lineNum">     137 </span>        [<span class="branchCov" title="Branch 0 was taken 211225 times"> + </span><span class="branchCov" title="Branch 1 was taken 2893 times"> + </span>]:<span class="lineCov">     214118 :         if (filemgr_alloc_multiple_cond(handle-&gt;file, handle-&gt;curblock+1,</span>
 <span class="lineNum">     138 </span>                :            :                                         nblock + ((remain&gt;offset)?1:0), &amp;begin, &amp;end,
-<span class="lineNum">     139 </span>        [<span class="branchCov" title="Branch 0 was taken 213257 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">     213257 :                                         log_callback) == handle-&gt;curblock+1) {</span>
+<span class="lineNum">     139 </span>        [<span class="branchCov" title="Branch 0 was taken 214118 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">     214118 :                                         log_callback) == handle-&gt;curblock+1) {</span>
 <span class="lineNum">     140 </span>                :            :             // start from current block
-<span class="lineNum">     141 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 210435 times"> + </span>]:<span class="lineCov">     210435 :             assert(begin == handle-&gt;curblock + 1);</span>
+<span class="lineNum">     141 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 211225 times"> + </span>]:<span class="lineCov">     211225 :             assert(begin == handle-&gt;curblock + 1);</span>
 <span class="lineNum">     142 </span>                :            : 
-<span class="lineNum">     143 </span>        [<span class="branchCov" title="Branch 1 was taken 1958 times"> + </span><span class="branchCov" title="Branch 2 was taken 208477 times"> + </span>]:<span class="lineCov">     210435 :             if (_add_blk_marker(handle-&gt;file, handle-&gt;curblock, blocksize,</span>
+<span class="lineNum">     143 </span>        [<span class="branchCov" title="Branch 1 was taken 1958 times"> + </span><span class="branchCov" title="Branch 2 was taken 209267 times"> + </span>]:<span class="lineCov">     211225 :             if (_add_blk_marker(handle-&gt;file, handle-&gt;curblock, blocksize,</span>
 <span class="lineNum">     144 </span>                :            :                                 marker, log_callback) != FDB_RESULT_SUCCESS) {
 <span class="lineNum">     145 </span>                :<span class="lineCov">       1958 :                 return BLK_NOT_FOUND;</span>
 <span class="lineNum">     146 </span>                :            :             }
-<span class="lineNum">     147 </span>        [<span class="branchCov" title="Branch 0 was taken 207264 times"> + </span><span class="branchCov" title="Branch 1 was taken 1213 times"> + </span>]:<span class="lineCov">     208477 :             if (offset &gt; 0) {</span>
-<span class="lineNum">     148 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 207263 times"> + </span>]:<span class="lineCov">     207264 :                 if (filemgr_write_offset(handle-&gt;file, handle-&gt;curblock,</span>
+<span class="lineNum">     147 </span>        [<span class="branchCov" title="Branch 0 was taken 208035 times"> + </span><span class="branchCov" title="Branch 1 was taken 1232 times"> + </span>]:<span class="lineCov">     209267 :             if (offset &gt; 0) {</span>
+<span class="lineNum">     148 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 208034 times"> + </span>]:<span class="lineCov">     208035 :                 if (filemgr_write_offset(handle-&gt;file, handle-&gt;curblock,</span>
 <span class="lineNum">     149 </span>                :            :                                          handle-&gt;curpos, offset, buf,
-<span class="lineNum">     150 </span>                :<span class="lineCov">     207264 :                                          log_callback) != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     150 </span>                :<span class="lineCov">     208035 :                                          log_callback) != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     151 </span>                :<span class="lineCov">          1 :                     return BLK_NOT_FOUND;</span>
 <span class="lineNum">     152 </span>                :            :                 }
 <span class="lineNum">     153 </span>                :            :             }
-<span class="lineNum">     154 </span>                :<span class="lineCov">     208476 :             remainsize -= offset;</span>
+<span class="lineNum">     154 </span>                :<span class="lineCov">     209266 :             remainsize -= offset;</span>
 <span class="lineNum">     155 </span>                :            : 
-<span class="lineNum">     156 </span>                :<span class="lineCov">     208476 :             startpos = handle-&gt;curblock * real_blocksize + handle-&gt;curpos;</span>
+<span class="lineNum">     156 </span>                :<span class="lineCov">     209266 :             startpos = handle-&gt;curblock * real_blocksize + handle-&gt;curpos;</span>
 <span class="lineNum">     157 </span>                :            :         } else {
 <span class="lineNum">     158 </span>                :            :             // next block to be allocated is not continuous .. allocate new multiple blocks
 <span class="lineNum">     159 </span>                :            :             filemgr_alloc_multiple(handle-&gt;file, nblock+((remain&gt;0)?1:0),
-<span class="lineNum">     160 </span>        [<span class="branchCov" title="Branch 0 was taken 2822 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       2822 :                                    &amp;begin, &amp;end, log_callback);</span>
-<span class="lineNum">     161 </span>                :<span class="lineCov">       2822 :             offset = 0;</span>
+<span class="lineNum">     160 </span>        [<span class="branchCov" title="Branch 0 was taken 2893 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       2893 :                                    &amp;begin, &amp;end, log_callback);</span>
+<span class="lineNum">     161 </span>                :<span class="lineCov">       2893 :             offset = 0;</span>
 <span class="lineNum">     162 </span>                :            : 
-<span class="lineNum">     163 </span>                :<span class="lineCov">       2822 :             startpos = begin * real_blocksize;</span>
+<span class="lineNum">     163 </span>                :<span class="lineCov">       2893 :             startpos = begin * real_blocksize;</span>
 <span class="lineNum">     164 </span>                :            :         }
 <span class="lineNum">     165 </span>                :            : 
 <span class="lineNum">     166 </span>                :            :     #endif
 <span class="lineNum">     167 </span>                :            : 
-<span class="lineNum">     168 </span>        [<span class="branchCov" title="Branch 0 was taken 211299 times"> + </span><span class="branchCov" title="Branch 1 was taken 209339 times"> + </span>]:<span class="lineCov">     420638 :         for (i=begin; i&lt;=end; ++i) {</span>
-<span class="lineNum">     169 </span>                :<span class="lineCov">     211299 :             handle-&gt;curblock = i;</span>
-<span class="lineNum">     170 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 211298 times"> + </span>]:<span class="lineCov">     211299 :             if (remainsize &gt;= blocksize) {</span>
+<span class="lineNum">     168 </span>        [<span class="branchCov" title="Branch 0 was taken 212160 times"> + </span><span class="branchCov" title="Branch 1 was taken 210200 times"> + </span>]:<span class="lineCov">     422360 :         for (i=begin; i&lt;=end; ++i) {</span>
+<span class="lineNum">     169 </span>                :<span class="lineCov">     212160 :             handle-&gt;curblock = i;</span>
+<span class="lineNum">     170 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 212159 times"> + </span>]:<span class="lineCov">     212160 :             if (remainsize &gt;= blocksize) {</span>
 <span class="lineNum">     171 </span>                :            :                 // write entire block
 <span class="lineNum">     172 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 1 time"> + </span>]:<span class="lineCov">          1 :                 if (_add_blk_marker(handle-&gt;file, i, blocksize, marker,</span>
 <span class="lineNum">     173 </span>                :            :                                     log_callback) != FDB_RESULT_SUCCESS) {
@@ -255,65 +255,65 @@
 <span class="lineNum">     184 </span>                :            : 
 <span class="lineNum">     185 </span>                :            :             } else {
 <span class="lineNum">     186 </span>                :            :                 // write rest of document
-<span class="lineNum">     187 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 211298 times"> + </span>]:<span class="lineCov">     211298 :                 assert(i==end);</span>
-<span class="lineNum">     188 </span>        [<span class="branchCov" title="Branch 1 was taken 1959 times"> + </span><span class="branchCov" title="Branch 2 was taken 209339 times"> + </span>]:<span class="lineCov">     211298 :                 if (_add_blk_marker(handle-&gt;file, i, blocksize, marker,</span>
+<span class="lineNum">     187 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 212159 times"> + </span>]:<span class="lineCov">     212159 :                 assert(i==end);</span>
+<span class="lineNum">     188 </span>        [<span class="branchCov" title="Branch 1 was taken 1959 times"> + </span><span class="branchCov" title="Branch 2 was taken 210200 times"> + </span>]:<span class="lineCov">     212159 :                 if (_add_blk_marker(handle-&gt;file, i, blocksize, marker,</span>
 <span class="lineNum">     189 </span>                :            :                                     log_callback) != FDB_RESULT_SUCCESS) {
 <span class="lineNum">     190 </span>                :<span class="lineCov">       1959 :                     return BLK_NOT_FOUND;</span>
 <span class="lineNum">     191 </span>                :            :                 }
-<span class="lineNum">     192 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 209339 times"> + </span>]:<span class="lineCov">     209339 :                 if (filemgr_write_offset(handle-&gt;file, i, 0, remainsize,</span>
-<span class="lineNum">     193 </span>                :<span class="lineCov">     209339 :                                      (uint8_t *)buf + offset,</span>
-<span class="lineNum">     194 </span>                :<span class="lineCov">     209339 :                                      log_callback) != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     192 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 210200 times"> + </span>]:<span class="lineCov">     210200 :                 if (filemgr_write_offset(handle-&gt;file, i, 0, remainsize,</span>
+<span class="lineNum">     193 </span>                :<span class="lineCov">     210200 :                                      (uint8_t *)buf + offset,</span>
+<span class="lineNum">     194 </span>                :<span class="lineCov">     210200 :                                      log_callback) != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                     return BLK_NOT_FOUND;</span>
 <span class="lineNum">     196 </span>                :            :                 }
-<span class="lineNum">     197 </span>                :<span class="lineCov">     209339 :                 offset += remainsize;</span>
-<span class="lineNum">     198 </span>                :<span class="lineCov">     209339 :                 handle-&gt;curpos = remainsize;</span>
+<span class="lineNum">     197 </span>                :<span class="lineCov">     210200 :                 offset += remainsize;</span>
+<span class="lineNum">     198 </span>                :<span class="lineCov">     210200 :                 handle-&gt;curpos = remainsize;</span>
 <span class="lineNum">     199 </span>                :            :             }
 <span class="lineNum">     200 </span>                :            :         }
 <span class="lineNum">     201 </span>                :            : 
-<span class="lineNum">     202 </span>                :<span class="lineCov">    4248361 :         return startpos;</span>
+<span class="lineNum">     202 </span>                :<span class="lineCov">    4315837 :         return startpos;</span>
 <span class="lineNum">     203 </span>                :            :     }
 <span class="lineNum">     204 </span>                :            : 
 <span class="lineNum">     205 </span>                :            :     return 0;
 <span class="lineNum">     206 </span>                :            : }
 <a name="207"><span class="lineNum">     207 </span>                :            : </a>
 <span class="lineNum">     208 </span>                :            : #ifdef __ENDIAN_SAFE
-<span class="lineNum">     209 </span>                :<span class="lineCov">    4248361 : INLINE struct docio_length _docio_length_encode(struct docio_length length)</span>
+<span class="lineNum">     209 </span>                :<span class="lineCov">    4315833 : INLINE struct docio_length _docio_length_encode(struct docio_length length)</span>
 <span class="lineNum">     210 </span>                :            : {
 <span class="lineNum">     211 </span>                :            :     struct docio_length ret;
-<span class="lineNum">     212 </span>                :<span class="lineCov">    4248361 :     ret = length;</span>
-<span class="lineNum">     213 </span>                :<span class="lineCov">    4248361 :     ret.keylen = _endian_encode(length.keylen);</span>
-<span class="lineNum">     214 </span>                :<span class="lineCov">    4248361 :     ret.metalen = _endian_encode(length.metalen);</span>
-<span class="lineNum">     215 </span>                :<span class="lineCov">    4248361 :     ret.bodylen = _endian_encode(length.bodylen);</span>
-<span class="lineNum">     216 </span>                :<span class="lineCov">    4248361 :     ret.bodylen_ondisk = _endian_encode(length.bodylen_ondisk);</span>
-<a name="217"><span class="lineNum">     217 </span>                :<span class="lineCov">    4248361 :     return ret;</span></a>
+<span class="lineNum">     212 </span>                :<span class="lineCov">    4315833 :     ret = length;</span>
+<span class="lineNum">     213 </span>                :<span class="lineCov">    4315833 :     ret.keylen = _endian_encode(length.keylen);</span>
+<span class="lineNum">     214 </span>                :<span class="lineCov">    4315833 :     ret.metalen = _endian_encode(length.metalen);</span>
+<span class="lineNum">     215 </span>                :<span class="lineCov">    4315833 :     ret.bodylen = _endian_encode(length.bodylen);</span>
+<span class="lineNum">     216 </span>                :<span class="lineCov">    4315833 :     ret.bodylen_ondisk = _endian_encode(length.bodylen_ondisk);</span>
+<a name="217"><span class="lineNum">     217 </span>                :<span class="lineCov">    4315833 :     return ret;</span></a>
 <span class="lineNum">     218 </span>                :            : }
-<span class="lineNum">     219 </span>                :<span class="lineCov">    6385046 : INLINE struct docio_length _docio_length_decode(struct docio_length length)</span>
+<span class="lineNum">     219 </span>                :<span class="lineCov">    6451908 : INLINE struct docio_length _docio_length_decode(struct docio_length length)</span>
 <span class="lineNum">     220 </span>                :            : {
 <span class="lineNum">     221 </span>                :            :     struct docio_length ret;
-<span class="lineNum">     222 </span>                :<span class="lineCov">    6385046 :     ret = length;</span>
-<span class="lineNum">     223 </span>                :<span class="lineCov">    6385046 :     ret.keylen = _endian_decode(length.keylen);</span>
-<span class="lineNum">     224 </span>                :<span class="lineCov">    6385046 :     ret.metalen = _endian_decode(length.metalen);</span>
-<span class="lineNum">     225 </span>                :<span class="lineCov">    6385046 :     ret.bodylen = _endian_decode(length.bodylen);</span>
-<span class="lineNum">     226 </span>                :<span class="lineCov">    6385046 :     ret.bodylen_ondisk = _endian_decode(length.bodylen_ondisk);</span>
-<span class="lineNum">     227 </span>                :<span class="lineCov">    6385046 :     return ret;</span>
+<span class="lineNum">     222 </span>                :<span class="lineCov">    6451908 :     ret = length;</span>
+<span class="lineNum">     223 </span>                :<span class="lineCov">    6451908 :     ret.keylen = _endian_decode(length.keylen);</span>
+<span class="lineNum">     224 </span>                :<span class="lineCov">    6451908 :     ret.metalen = _endian_decode(length.metalen);</span>
+<span class="lineNum">     225 </span>                :<span class="lineCov">    6451908 :     ret.bodylen = _endian_decode(length.bodylen);</span>
+<span class="lineNum">     226 </span>                :<span class="lineCov">    6451908 :     ret.bodylen_ondisk = _endian_decode(length.bodylen_ondisk);</span>
+<span class="lineNum">     227 </span>                :<span class="lineCov">    6451908 :     return ret;</span>
 <span class="lineNum">     228 </span>                :            : }
 <span class="lineNum">     229 </span>                :            : #else
 <span class="lineNum">     230 </span>                :            : #define _docio_length_encode(a)
 <span class="lineNum">     231 </span>                :            : #define _docio_length_decode(a)
 <a name="232"><span class="lineNum">     232 </span>                :            : #endif</a>
 <span class="lineNum">     233 </span>                :            : 
-<span class="lineNum">     234 </span>                :<span class="lineCov">   10640010 : INLINE uint8_t _docio_length_checksum(struct docio_length length)</span>
+<span class="lineNum">     234 </span>                :<span class="lineCov">   10771221 : INLINE uint8_t _docio_length_checksum(struct docio_length length)</span>
 <span class="lineNum">     235 </span>                :            : {
 <span class="lineNum">     236 </span>                :            :     return (uint8_t)(
-<span class="lineNum">     237 </span>                :<span class="lineCov">   10640010 :         chksum(&amp;length,</span>
+<span class="lineNum">     237 </span>                :<span class="lineCov">   10771221 :         chksum(&amp;length,</span>
 <span class="lineNum">     238 </span>                :            :                sizeof(keylen_t) + sizeof(uint16_t) + sizeof(uint32_t)*2)
-<span class="lineNum">     239 </span>                :<span class="lineCov">   10632662 :         &amp; 0xff);</span>
+<span class="lineNum">     239 </span>                :<span class="lineCov">   10765518 :         &amp; 0xff);</span>
 <a name="240"><span class="lineNum">     240 </span>                :            : }</a>
 <span class="lineNum">     241 </span>                :            : 
-<span class="lineNum">     242 </span>                :<span class="lineCov">    4127742 : INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object *doc)</span>
+<span class="lineNum">     242 </span>                :<span class="lineCov">    4195203 : INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object *doc)</span>
 <span class="lineNum">     243 </span>                :            : {
 <span class="lineNum">     244 </span>                :            :     size_t _len;
-<span class="lineNum">     245 </span>                :<span class="lineCov">    4127742 :     uint32_t offset = 0;</span>
+<span class="lineNum">     245 </span>                :<span class="lineCov">    4195203 :     uint32_t offset = 0;</span>
 <span class="lineNum">     246 </span>                :            :     uint32_t crc;
 <span class="lineNum">     247 </span>                :            :     uint64_t docsize;
 <span class="lineNum">     248 </span>                :            :     void *buf;
@@ -321,16 +321,16 @@
 <span class="lineNum">     250 </span>                :            :     fdb_seqnum_t _seqnum;
 <span class="lineNum">     251 </span>                :            :     timestamp_t _timestamp;
 <span class="lineNum">     252 </span>                :            :     struct docio_length length, _length;
-<span class="lineNum">     253 </span>                :<span class="lineCov">    4127742 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
+<span class="lineNum">     253 </span>                :<span class="lineCov">    4195203 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
 <span class="lineNum">     254 </span>                :            : 
-<span class="lineNum">     255 </span>                :<span class="lineCov">    4127742 :     length = doc-&gt;length;</span>
-<span class="lineNum">     256 </span>                :<span class="lineCov">    4127742 :     length.bodylen_ondisk = length.bodylen;</span>
+<span class="lineNum">     255 </span>                :<span class="lineCov">    4195203 :     length = doc-&gt;length;</span>
+<span class="lineNum">     256 </span>                :<span class="lineCov">    4195203 :     length.bodylen_ondisk = length.bodylen;</span>
 <span class="lineNum">     257 </span>                :            : 
 <span class="lineNum">     258 </span>                :            : #ifdef _DOC_COMP
 <span class="lineNum">     259 </span>                :            :     int ret;
 <span class="lineNum">     260 </span>                :            :     void *compbuf;
 <span class="lineNum">     261 </span>                :            :     uint32_t compbuf_len;
-<span class="lineNum">     262 </span>[<span class="branchCov" title="Branch 0 was taken 4124809 times"> + </span><span class="branchCov" title="Branch 1 was taken 2933 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 26 times"> + </span><span class="branchCov" title="Branch 3 was taken 4124783 times"> + </span>]:<span class="lineCov">    4127742 :     if (doc-&gt;length.bodylen &gt; 0 &amp;&amp; handle-&gt;compress_document_body) {</span>
+<span class="lineNum">     262 </span>[<span class="branchCov" title="Branch 0 was taken 4192270 times"> + </span><span class="branchCov" title="Branch 1 was taken 2933 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 26 times"> + </span><span class="branchCov" title="Branch 3 was taken 4192244 times"> + </span>]:<span class="lineCov">    4195203 :     if (doc-&gt;length.bodylen &gt; 0 &amp;&amp; handle-&gt;compress_document_body) {</span>
 <span class="lineNum">     263 </span>                :<span class="lineCov">         26 :         compbuf_len = snappy_max_compressed_length(length.bodylen);</span>
 <span class="lineNum">     264 </span>                :<span class="lineCov">         26 :         compbuf = (void *)malloc(compbuf_len);</span>
 <span class="lineNum">     265 </span>                :            : 
@@ -351,61 +351,61 @@
 <span class="lineNum">     280 </span>                :<span class="lineCov">         26 :         docsize = sizeof(struct docio_length) + length.keylen + length.metalen;</span>
 <span class="lineNum">     281 </span>                :<span class="lineCov">         26 :         docsize += compbuf_len;</span>
 <span class="lineNum">     282 </span>                :            :     } else {
-<span class="lineNum">     283 </span>                :<span class="lineCov">    4127716 :         docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;</span>
+<span class="lineNum">     283 </span>                :<span class="lineCov">    4195177 :         docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;</span>
 <span class="lineNum">     284 </span>                :            :     }
 <span class="lineNum">     285 </span>                :            : #else
 <span class="lineNum">     286 </span>                :            :     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
 <span class="lineNum">     287 </span>                :            : #endif
-<span class="lineNum">     288 </span>                :<span class="lineCov">    4127742 :     docsize += sizeof(timestamp_t);</span>
+<span class="lineNum">     288 </span>                :<span class="lineCov">    4195203 :     docsize += sizeof(timestamp_t);</span>
 <span class="lineNum">     289 </span>                :            : 
-<span class="lineNum">     290 </span>                :<span class="lineCov">    4127742 :     docsize += sizeof(fdb_seqnum_t);</span>
+<span class="lineNum">     290 </span>                :<span class="lineCov">    4195203 :     docsize += sizeof(fdb_seqnum_t);</span>
 <span class="lineNum">     291 </span>                :            : 
 <span class="lineNum">     292 </span>                :            : #ifdef __CRC32
-<span class="lineNum">     293 </span>                :<span class="lineCov">    4127742 :     docsize += sizeof(crc);</span>
+<span class="lineNum">     293 </span>                :<span class="lineCov">    4195203 :     docsize += sizeof(crc);</span>
 <span class="lineNum">     294 </span>                :            : #endif
 <span class="lineNum">     295 </span>                :            : 
-<span class="lineNum">     296 </span>                :<span class="lineCov">    4127742 :     doc-&gt;length = length;</span>
-<span class="lineNum">     297 </span>                :<span class="lineCov">    4127742 :     buf = (void *)malloc(docsize);</span>
+<span class="lineNum">     296 </span>                :<span class="lineCov">    4195203 :     doc-&gt;length = length;</span>
+<span class="lineNum">     297 </span>                :<span class="lineCov">    4195203 :     buf = (void *)malloc(docsize);</span>
 <span class="lineNum">     298 </span>                :            : 
-<span class="lineNum">     299 </span>                :<span class="lineCov">    4127742 :     _length = _docio_length_encode(length);</span>
+<span class="lineNum">     299 </span>                :<span class="lineCov">    4195203 :     _length = _docio_length_encode(length);</span>
 <span class="lineNum">     300 </span>                :            : 
 <span class="lineNum">     301 </span>                :            :     // calculate checksum of LENGTH using crc
-<span class="lineNum">     302 </span>                :<span class="lineCov">    4127742 :     _length.checksum = _docio_length_checksum(_length);</span>
+<span class="lineNum">     302 </span>                :<span class="lineCov">    4195200 :     _length.checksum = _docio_length_checksum(_length);</span>
 <span class="lineNum">     303 </span>                :            : 
-<span class="lineNum">     304 </span>                :<span class="lineCov">    4127738 :     memcpy((uint8_t *)buf + offset, &amp;_length, sizeof(struct docio_length));</span>
-<span class="lineNum">     305 </span>                :<span class="lineCov">    4127738 :     offset += sizeof(struct docio_length);</span>
+<span class="lineNum">     304 </span>                :<span class="lineCov">    4195194 :     memcpy((uint8_t *)buf + offset, &amp;_length, sizeof(struct docio_length));</span>
+<span class="lineNum">     305 </span>                :<span class="lineCov">    4195194 :     offset += sizeof(struct docio_length);</span>
 <span class="lineNum">     306 </span>                :            : 
 <span class="lineNum">     307 </span>                :            :     // copy key
-<span class="lineNum">     308 </span>                :<span class="lineCov">    4127738 :     memcpy((uint8_t *)buf + offset, doc-&gt;key, length.keylen);</span>
-<span class="lineNum">     309 </span>                :<span class="lineCov">    4127738 :     offset += length.keylen;</span>
+<span class="lineNum">     308 </span>                :<span class="lineCov">    4195194 :     memcpy((uint8_t *)buf + offset, doc-&gt;key, length.keylen);</span>
+<span class="lineNum">     309 </span>                :<span class="lineCov">    4195194 :     offset += length.keylen;</span>
 <span class="lineNum">     310 </span>                :            : 
 <span class="lineNum">     311 </span>                :            :     // copy timestamp
-<span class="lineNum">     312 </span>                :<span class="lineCov">    4127738 :     _timestamp = _endian_encode(doc-&gt;timestamp);</span>
-<span class="lineNum">     313 </span>                :<span class="lineCov">    4127738 :     memcpy((uint8_t*)buf + offset, &amp;_timestamp, sizeof(_timestamp));</span>
-<span class="lineNum">     314 </span>                :<span class="lineCov">    4127738 :     offset += sizeof(_timestamp);</span>
+<span class="lineNum">     312 </span>                :<span class="lineCov">    4195194 :     _timestamp = _endian_encode(doc-&gt;timestamp);</span>
+<span class="lineNum">     313 </span>                :<span class="lineCov">    4195194 :     memcpy((uint8_t*)buf + offset, &amp;_timestamp, sizeof(_timestamp));</span>
+<span class="lineNum">     314 </span>                :<span class="lineCov">    4195194 :     offset += sizeof(_timestamp);</span>
 <span class="lineNum">     315 </span>                :            : 
 <span class="lineNum">     316 </span>                :            :     // copy seqeunce number (optional)
-<span class="lineNum">     317 </span>                :<span class="lineCov">    4127738 :     _seqnum = _endian_encode(doc-&gt;seqnum);</span>
-<span class="lineNum">     318 </span>                :<span class="lineCov">    4127738 :     memcpy((uint8_t *)buf + offset, &amp;_seqnum, sizeof(fdb_seqnum_t));</span>
-<span class="lineNum">     319 </span>                :<span class="lineCov">    4127738 :     offset += sizeof(fdb_seqnum_t);</span>
+<span class="lineNum">     317 </span>                :<span class="lineCov">    4195194 :     _seqnum = _endian_encode(doc-&gt;seqnum);</span>
+<span class="lineNum">     318 </span>                :<span class="lineCov">    4195194 :     memcpy((uint8_t *)buf + offset, &amp;_seqnum, sizeof(fdb_seqnum_t));</span>
+<span class="lineNum">     319 </span>                :<span class="lineCov">    4195194 :     offset += sizeof(fdb_seqnum_t);</span>
 <span class="lineNum">     320 </span>                :            : 
 <span class="lineNum">     321 </span>                :            :     // copy metadata (optional)
-<span class="lineNum">     322 </span>        [<span class="branchCov" title="Branch 0 was taken 4088742 times"> + </span><span class="branchCov" title="Branch 1 was taken 38996 times"> + </span>]:<span class="lineCov">    4127738 :     if (length.metalen &gt; 0) {</span>
-<span class="lineNum">     323 </span>                :<span class="lineCov">    4088742 :         memcpy((uint8_t *)buf + offset, doc-&gt;meta, length.metalen);</span>
-<span class="lineNum">     324 </span>                :<span class="lineCov">    4088742 :         offset += length.metalen;</span>
+<span class="lineNum">     322 </span>        [<span class="branchCov" title="Branch 0 was taken 4148399 times"> + </span><span class="branchCov" title="Branch 1 was taken 46795 times"> + </span>]:<span class="lineCov">    4195194 :     if (length.metalen &gt; 0) {</span>
+<span class="lineNum">     323 </span>                :<span class="lineCov">    4148399 :         memcpy((uint8_t *)buf + offset, doc-&gt;meta, length.metalen);</span>
+<span class="lineNum">     324 </span>                :<span class="lineCov">    4148399 :         offset += length.metalen;</span>
 <span class="lineNum">     325 </span>                :            :     }
 <span class="lineNum">     326 </span>                :            : 
 <span class="lineNum">     327 </span>                :            :     // copy body (optional)
-<span class="lineNum">     328 </span>        [<span class="branchCov" title="Branch 0 was taken 4124809 times"> + </span><span class="branchCov" title="Branch 1 was taken 2929 times"> + </span>]:<span class="lineCov">    4127738 :     if (length.bodylen &gt; 0) {</span>
+<span class="lineNum">     328 </span>        [<span class="branchCov" title="Branch 0 was taken 4192269 times"> + </span><span class="branchCov" title="Branch 1 was taken 2925 times"> + </span>]:<span class="lineCov">    4195194 :     if (length.bodylen &gt; 0) {</span>
 <span class="lineNum">     329 </span>                :            : #ifdef _DOC_COMP
-<span class="lineNum">     330 </span>        [<span class="branchCov" title="Branch 0 was taken 26 times"> + </span><span class="branchCov" title="Branch 1 was taken 4124783 times"> + </span>]:<span class="lineCov">    4124809 :         if (length.flag &amp; DOCIO_COMPRESSED) {</span>
+<span class="lineNum">     330 </span>        [<span class="branchCov" title="Branch 0 was taken 26 times"> + </span><span class="branchCov" title="Branch 1 was taken 4192243 times"> + </span>]:<span class="lineCov">    4192269 :         if (length.flag &amp; DOCIO_COMPRESSED) {</span>
 <span class="lineNum">     331 </span>                :            :             // compressed body
 <span class="lineNum">     332 </span>                :<span class="lineCov">         26 :             memcpy((uint8_t*)buf + offset, compbuf, compbuf_len);</span>
 <span class="lineNum">     333 </span>                :<span class="lineCov">         26 :             offset += compbuf_len;</span>
 <span class="lineNum">     334 </span>                :<span class="lineCov">         26 :             free(compbuf);</span>
 <span class="lineNum">     335 </span>                :            :         } else {
-<span class="lineNum">     336 </span>                :<span class="lineCov">    4124783 :             memcpy((uint8_t *)buf + offset, doc-&gt;body, length.bodylen);</span>
-<span class="lineNum">     337 </span>                :<span class="lineCov">    4124783 :             offset += length.bodylen;</span>
+<span class="lineNum">     336 </span>                :<span class="lineCov">    4192243 :             memcpy((uint8_t *)buf + offset, doc-&gt;body, length.bodylen);</span>
+<span class="lineNum">     337 </span>                :<span class="lineCov">    4192243 :             offset += length.bodylen;</span>
 <span class="lineNum">     338 </span>                :            :         }
 <span class="lineNum">     339 </span>                :            : #else
 <span class="lineNum">     340 </span>                :            :         memcpy((uint8_t *)buf + offset, doc-&gt;body, length.bodylen);
@@ -414,184 +414,184 @@
 <span class="lineNum">     343 </span>                :            :     }
 <span class="lineNum">     344 </span>                :            : 
 <span class="lineNum">     345 </span>                :            : #ifdef __CRC32
-<span class="lineNum">     346 </span>                :<span class="lineCov">    4127738 :     crc = chksum(buf, docsize - sizeof(crc));</span>
-<span class="lineNum">     347 </span>                :<span class="lineCov">    4127740 :     memcpy((uint8_t *)buf + offset, &amp;crc, sizeof(crc));</span>
+<span class="lineNum">     346 </span>                :<span class="lineCov">    4195194 :     crc = chksum(buf, docsize - sizeof(crc));</span>
+<span class="lineNum">     347 </span>                :<span class="lineCov">    4195199 :     memcpy((uint8_t *)buf + offset, &amp;crc, sizeof(crc));</span>
 <span class="lineNum">     348 </span>                :            : #endif
 <span class="lineNum">     349 </span>                :            : 
-<span class="lineNum">     350 </span>                :<span class="lineCov">    4127740 :     ret_offset = docio_append_doc_raw(handle, docsize, buf);</span>
-<span class="lineNum">     351 </span>                :<span class="lineCov">    4127742 :     free(buf);</span>
+<span class="lineNum">     350 </span>                :<span class="lineCov">    4195199 :     ret_offset = docio_append_doc_raw(handle, docsize, buf);</span>
+<span class="lineNum">     351 </span>                :<span class="lineCov">    4195203 :     free(buf);</span>
 <span class="lineNum">     352 </span>                :            : 
-<span class="lineNum">     353 </span>                :<span class="lineCov">    4127742 :     return ret_offset;</span>
+<span class="lineNum">     353 </span>                :<span class="lineCov">    4195203 :     return ret_offset;</span>
 <a name="354"><span class="lineNum">     354 </span>                :            : }</a>
 <span class="lineNum">     355 </span>                :            : 
-<span class="lineNum">     356 </span>                :<span class="lineCov">     120619 : bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset)</span>
+<span class="lineNum">     356 </span>                :<span class="lineCov">     120634 : bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset)</span>
 <span class="lineNum">     357 </span>                :            : {
-<span class="lineNum">     358 </span>                :<span class="lineCov">     120619 :     uint32_t offset = 0;</span>
+<span class="lineNum">     358 </span>                :<span class="lineCov">     120634 :     uint32_t offset = 0;</span>
 <span class="lineNum">     359 </span>                :            :     uint64_t docsize;
 <span class="lineNum">     360 </span>                :            :     uint64_t _doc_offset;
 <span class="lineNum">     361 </span>                :            :     void *buf;
 <span class="lineNum">     362 </span>                :            :     bid_t ret_offset;
 <span class="lineNum">     363 </span>                :            :     struct docio_length length, _length;
 <span class="lineNum">     364 </span>                :            : 
-<span class="lineNum">     365 </span>                :<span class="lineCov">     120619 :     memset(&amp;length, 0, sizeof(struct docio_length));</span>
-<span class="lineNum">     366 </span>                :<span class="lineCov">     120619 :     length.flag = DOCIO_TXN_COMMITTED;</span>
+<span class="lineNum">     365 </span>                :<span class="lineCov">     120634 :     memset(&amp;length, 0, sizeof(struct docio_length));</span>
+<span class="lineNum">     366 </span>                :<span class="lineCov">     120634 :     length.flag = DOCIO_TXN_COMMITTED;</span>
 <span class="lineNum">     367 </span>                :            : 
-<span class="lineNum">     368 </span>                :<span class="lineCov">     120619 :     docsize = sizeof(struct docio_length) + sizeof(doc_offset);</span>
-<span class="lineNum">     369 </span>                :<span class="lineCov">     120619 :     buf = (void *)malloc(docsize);</span>
+<span class="lineNum">     368 </span>                :<span class="lineCov">     120634 :     docsize = sizeof(struct docio_length) + sizeof(doc_offset);</span>
+<span class="lineNum">     369 </span>                :<span class="lineCov">     120634 :     buf = (void *)malloc(docsize);</span>
 <span class="lineNum">     370 </span>                :            : 
-<span class="lineNum">     371 </span>                :<span class="lineCov">     120619 :     _length = _docio_length_encode(length);</span>
+<span class="lineNum">     371 </span>                :<span class="lineCov">     120634 :     _length = _docio_length_encode(length);</span>
 <span class="lineNum">     372 </span>                :            : 
 <span class="lineNum">     373 </span>                :            :     // calculate checksum of LENGTH using crc
-<span class="lineNum">     374 </span>                :<span class="lineCov">     120619 :     _length.checksum = _docio_length_checksum(_length);</span>
+<span class="lineNum">     374 </span>                :<span class="lineCov">     120634 :     _length.checksum = _docio_length_checksum(_length);</span>
 <span class="lineNum">     375 </span>                :            : 
-<span class="lineNum">     376 </span>                :<span class="lineCov">     120619 :     memcpy((uint8_t *)buf + offset, &amp;_length, sizeof(struct docio_length));</span>
-<span class="lineNum">     377 </span>                :<span class="lineCov">     120619 :     offset += sizeof(struct docio_length);</span>
+<span class="lineNum">     376 </span>                :<span class="lineCov">     120634 :     memcpy((uint8_t *)buf + offset, &amp;_length, sizeof(struct docio_length));</span>
+<span class="lineNum">     377 </span>                :<span class="lineCov">     120634 :     offset += sizeof(struct docio_length);</span>
 <span class="lineNum">     378 </span>                :            : 
 <span class="lineNum">     379 </span>                :            :     // copy doc_offset
-<span class="lineNum">     380 </span>                :<span class="lineCov">     120619 :     _doc_offset = _endian_encode(doc_offset);</span>
-<span class="lineNum">     381 </span>                :<span class="lineCov">     120619 :     memcpy((uint8_t *)buf + offset, &amp;_doc_offset, sizeof(_doc_offset));</span>
+<span class="lineNum">     380 </span>                :<span class="lineCov">     120634 :     _doc_offset = _endian_encode(doc_offset);</span>
+<span class="lineNum">     381 </span>                :<span class="lineCov">     120634 :     memcpy((uint8_t *)buf + offset, &amp;_doc_offset, sizeof(_doc_offset));</span>
 <span class="lineNum">     382 </span>                :            : 
-<span class="lineNum">     383 </span>                :<span class="lineCov">     120619 :     ret_offset = docio_append_doc_raw(handle, docsize, buf);</span>
-<span class="lineNum">     384 </span>                :<span class="lineCov">     120619 :     free(buf);</span>
+<span class="lineNum">     383 </span>                :<span class="lineCov">     120634 :     ret_offset = docio_append_doc_raw(handle, docsize, buf);</span>
+<span class="lineNum">     384 </span>                :<span class="lineCov">     120634 :     free(buf);</span>
 <span class="lineNum">     385 </span>                :            : 
-<span class="lineNum">     386 </span>                :<span class="lineCov">     120619 :     return ret_offset;</span>
+<span class="lineNum">     386 </span>                :<span class="lineCov">     120634 :     return ret_offset;</span>
 <a name="387"><span class="lineNum">     387 </span>                :            : }</a>
 <span class="lineNum">     388 </span>                :            : 
-<span class="lineNum">     389 </span>                :<span class="lineCov">        935 : bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object *doc,</span>
+<span class="lineNum">     389 </span>                :<span class="lineCov">       3345 : bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object *doc,</span>
 <span class="lineNum">     390 </span>                :            :                                uint8_t deleted, uint8_t txn_enabled)
 <span class="lineNum">     391 </span>                :            : {
-<span class="lineNum">     392 </span>                :<span class="lineCov">        935 :     doc-&gt;length.flag = DOCIO_COMPACT;</span>
-<span class="lineNum">     393 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 935 times"> + </span>]:<span class="lineCov">        935 :     if (deleted) {</span>
-<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         doc-&gt;length.flag |= DOCIO_DELETED;</span>
+<span class="lineNum">     392 </span>                :<span class="lineCov">       3345 :     doc-&gt;length.flag = DOCIO_COMPACT;</span>
+<span class="lineNum">     393 </span>        [<span class="branchCov" title="Branch 0 was taken 44 times"> + </span><span class="branchCov" title="Branch 1 was taken 3301 times"> + </span>]:<span class="lineCov">       3345 :     if (deleted) {</span>
+<span class="lineNum">     394 </span>                :<span class="lineCov">         44 :         doc-&gt;length.flag |= DOCIO_DELETED;</span>
 <span class="lineNum">     395 </span>                :            :     }
-<span class="lineNum">     396 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 935 times"> + </span>]:<span class="lineCov">        935 :     if (txn_enabled) {</span>
+<span class="lineNum">     396 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3345 times"> + </span>]:<span class="lineCov">       3345 :     if (txn_enabled) {</span>
 <span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :         doc-&gt;length.flag |= DOCIO_TXN_DIRTY;</span>
 <span class="lineNum">     398 </span>                :            :     }
-<span class="lineNum">     399 </span>                :<span class="lineCov">        935 :     return _docio_append_doc(handle, doc);</span>
+<span class="lineNum">     399 </span>                :<span class="lineCov">       3345 :     return _docio_append_doc(handle, doc);</span>
 <a name="400"><span class="lineNum">     400 </span>                :            : }</a>
 <span class="lineNum">     401 </span>                :            : 
-<span class="lineNum">     402 </span>                :<span class="lineCov">    4121111 : bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,</span>
+<span class="lineNum">     402 </span>                :<span class="lineCov">    4178358 : bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,</span>
 <span class="lineNum">     403 </span>                :            :                        uint8_t deleted, uint8_t txn_enabled)
 <span class="lineNum">     404 </span>                :            : {
-<span class="lineNum">     405 </span>                :<span class="lineCov">    4121111 :     doc-&gt;length.flag = DOCIO_NORMAL;</span>
-<span class="lineNum">     406 </span>        [<span class="branchCov" title="Branch 0 was taken 731 times"> + </span><span class="branchCov" title="Branch 1 was taken 4120380 times"> + </span>]:<span class="lineCov">    4121111 :     if (deleted) {</span>
-<span class="lineNum">     407 </span>                :<span class="lineCov">        731 :         doc-&gt;length.flag |= DOCIO_DELETED;</span>
+<span class="lineNum">     405 </span>                :<span class="lineCov">    4178358 :     doc-&gt;length.flag = DOCIO_NORMAL;</span>
+<span class="lineNum">     406 </span>        [<span class="branchCov" title="Branch 0 was taken 687 times"> + </span><span class="branchCov" title="Branch 1 was taken 4177671 times"> + </span>]:<span class="lineCov">    4178358 :     if (deleted) {</span>
+<span class="lineNum">     407 </span>                :<span class="lineCov">        687 :         doc-&gt;length.flag |= DOCIO_DELETED;</span>
 <span class="lineNum">     408 </span>                :            :     }
-<span class="lineNum">     409 </span>        [<span class="branchCov" title="Branch 0 was taken 121299 times"> + </span><span class="branchCov" title="Branch 1 was taken 3999812 times"> + </span>]:<span class="lineCov">    4121111 :     if (txn_enabled) {</span>
+<span class="lineNum">     409 </span>        [<span class="branchCov" title="Branch 0 was taken 121299 times"> + </span><span class="branchCov" title="Branch 1 was taken 4057059 times"> + </span>]:<span class="lineCov">    4178358 :     if (txn_enabled) {</span>
 <span class="lineNum">     410 </span>                :<span class="lineCov">     121299 :         doc-&gt;length.flag |= DOCIO_TXN_DIRTY;</span>
 <span class="lineNum">     411 </span>                :            :     }
-<span class="lineNum">     412 </span>                :<span class="lineCov">    4121111 :     return _docio_append_doc(handle, doc);</span>
+<span class="lineNum">     412 </span>                :<span class="lineCov">    4178358 :     return _docio_append_doc(handle, doc);</span>
 <a name="413"><span class="lineNum">     413 </span>                :            : }</a>
 <span class="lineNum">     414 </span>                :            : 
-<span class="lineNum">     415 </span>                :<span class="lineCov">       5696 : bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *doc)</span>
+<span class="lineNum">     415 </span>                :<span class="lineCov">      13501 : bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *doc)</span>
 <span class="lineNum">     416 </span>                :            : {
-<span class="lineNum">     417 </span>                :<span class="lineCov">       5696 :     doc-&gt;length.flag = DOCIO_NORMAL | DOCIO_SYSTEM;</span>
-<span class="lineNum">     418 </span>                :<span class="lineCov">       5696 :     return _docio_append_doc(handle, doc);</span>
+<span class="lineNum">     417 </span>                :<span class="lineCov">      13501 :     doc-&gt;length.flag = DOCIO_NORMAL | DOCIO_SYSTEM;</span>
+<span class="lineNum">     418 </span>                :<span class="lineCov">      13501 :     return _docio_append_doc(handle, doc);</span>
 <a name="419"><span class="lineNum">     419 </span>                :            : }</a>
 <span class="lineNum">     420 </span>                :            : 
-<span class="lineNum">     421 </span>                :<span class="lineCov">   29581493 : INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,</span>
+<span class="lineNum">     421 </span>                :<span class="lineCov">   30253319 : INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,</span>
 <span class="lineNum">     422 </span>                :            :                                              bid_t bid,
 <span class="lineNum">     423 </span>                :            :                                              err_log_callback *log_callback)
 <span class="lineNum">     424 </span>                :            : {
-<span class="lineNum">     425 </span>                :<span class="lineCov">   29581493 :     fdb_status status = FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     425 </span>                :<span class="lineCov">   30253319 :     fdb_status status = FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">     426 </span>                :            :     // to reduce the overhead from memcpy the same block
-<span class="lineNum">     427 </span>        [<span class="branchCov" title="Branch 0 was taken 3144315 times"> + </span><span class="branchCov" title="Branch 1 was taken 26437178 times"> + </span>]:<span class="lineCov">   29581493 :     if (handle-&gt;lastbid != bid) {</span>
+<span class="lineNum">     427 </span>        [<span class="branchCov" title="Branch 0 was taken 3911359 times"> + </span><span class="branchCov" title="Branch 1 was taken 26341960 times"> + </span>]:<span class="lineCov">   30253319 :     if (handle-&gt;lastbid != bid) {</span>
 <span class="lineNum">     428 </span>                :            :         status = filemgr_read(handle-&gt;file, bid, handle-&gt;readbuffer,
-<span class="lineNum">     429 </span>                :<span class="lineCov">    3144315 :                               log_callback);</span>
-<span class="lineNum">     430 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 3156907 times"> + </span>]:<span class="lineCov">    3156908 :         if (status != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     429 </span>                :<span class="lineCov">    3911359 :                               log_callback);</span>
+<span class="lineNum">     430 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 3933651 times"> + </span>]:<span class="lineCov">    3933652 :         if (status != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     431 </span>                :<span class="lineCov">          1 :             return status;</span>
 <span class="lineNum">     432 </span>                :            :         }
 <span class="lineNum">     433 </span>                :            : 
-<span class="lineNum">     434 </span>        [<span class="branchCov" title="Branch 1 was taken 1528705 times"> + </span><span class="branchCov" title="Branch 2 was taken 1631093 times"> + </span>]:<span class="lineCov">    3156907 :         if (filemgr_is_writable(handle-&gt;file, bid)) {</span>
+<span class="lineNum">     434 </span>        [<span class="branchCov" title="Branch 1 was taken 2362561 times"> + </span><span class="branchCov" title="Branch 2 was taken 1580418 times"> + </span>]:<span class="lineCov">    3933651 :         if (filemgr_is_writable(handle-&gt;file, bid)) {</span>
 <span class="lineNum">     435 </span>                :            :             // this block can be modified later .. must be re-read
-<span class="lineNum">     436 </span>                :<span class="lineCov">    1528705 :             handle-&gt;lastbid = BLK_NOT_FOUND;</span>
+<span class="lineNum">     436 </span>                :<span class="lineCov">    2362561 :             handle-&gt;lastbid = BLK_NOT_FOUND;</span>
 <span class="lineNum">     437 </span>                :            :         }else{
-<span class="lineNum">     438 </span>                :<span class="lineCov">    1631093 :             handle-&gt;lastbid = bid;</span>
+<span class="lineNum">     438 </span>                :<span class="lineCov">    1580418 :             handle-&gt;lastbid = bid;</span>
 <span class="lineNum">     439 </span>                :            :         }
 <span class="lineNum">     440 </span>                :            :     }
 <span class="lineNum">     441 </span>                :            : 
-<span class="lineNum">     442 </span>                :<span class="lineCov">   29596977 :     return status;</span>
+<span class="lineNum">     442 </span>                :<span class="lineCov">   30284940 :     return status;</span>
 <a name="443"><span class="lineNum">     443 </span>                :            : }</a>
 <span class="lineNum">     444 </span>                :            : 
-<span class="lineNum">     445 </span>                :<span class="lineCov">    6377591 : uint64_t _docio_read_length(struct docio_handle *handle,</span>
+<span class="lineNum">     445 </span>                :<span class="lineCov">    6442146 : uint64_t _docio_read_length(struct docio_handle *handle,</span>
 <span class="lineNum">     446 </span>                :            :                             uint64_t offset,
 <span class="lineNum">     447 </span>                :            :                             struct docio_length *length,
 <span class="lineNum">     448 </span>                :            :                             err_log_callback *log_callback)
 <span class="lineNum">     449 </span>                :            : {
-<span class="lineNum">     450 </span>                :<span class="lineCov">    6377591 :     size_t blocksize = handle-&gt;file-&gt;blocksize;</span>
-<span class="lineNum">     451 </span>                :<span class="lineCov">    6377591 :     size_t real_blocksize = blocksize;</span>
+<span class="lineNum">     450 </span>                :<span class="lineCov">    6442146 :     size_t blocksize = handle-&gt;file-&gt;blocksize;</span>
+<span class="lineNum">     451 </span>                :<span class="lineCov">    6442146 :     size_t real_blocksize = blocksize;</span>
 <span class="lineNum">     452 </span>                :            : #ifdef __CRC32
-<span class="lineNum">     453 </span>                :<span class="lineCov">    6377591 :     blocksize -= BLK_MARKER_SIZE;</span>
+<span class="lineNum">     453 </span>                :<span class="lineCov">    6442146 :     blocksize -= BLK_MARKER_SIZE;</span>
 <span class="lineNum">     454 </span>                :            : #endif
 <span class="lineNum">     455 </span>                :            : 
-<span class="lineNum">     456 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 6400525 times"> + </span>]:<span class="lineCov">    6377591 :     if (filemgr_get_pos(handle-&gt;file) &lt; (offset + sizeof(struct docio_length))) {</span>
+<span class="lineNum">     456 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 6467233 times"> + </span>]:<span class="lineCov">    6442146 :     if (filemgr_get_pos(handle-&gt;file) &lt; (offset + sizeof(struct docio_length))) {</span>
 <span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     458 </span>                :            :     }
 <span class="lineNum">     459 </span>                :            : 
-<span class="lineNum">     460 </span>                :<span class="lineCov">    6400525 :     bid_t bid = offset / real_blocksize;</span>
-<span class="lineNum">     461 </span>                :<span class="lineCov">    6400525 :     uint32_t pos = offset % real_blocksize;</span>
-<span class="lineNum">     462 </span>                :<span class="lineCov">    6400525 :     void *buf = handle-&gt;readbuffer;</span>
+<span class="lineNum">     460 </span>                :<span class="lineCov">    6467233 :     bid_t bid = offset / real_blocksize;</span>
+<span class="lineNum">     461 </span>                :<span class="lineCov">    6467233 :     uint32_t pos = offset % real_blocksize;</span>
+<span class="lineNum">     462 </span>                :<span class="lineCov">    6467233 :     void *buf = handle-&gt;readbuffer;</span>
 <span class="lineNum">     463 </span>                :            :     uint32_t restsize;
 <span class="lineNum">     464 </span>                :            : 
-<span class="lineNum">     465 </span>                :<span class="lineCov">    6400525 :     restsize = blocksize - pos;</span>
+<span class="lineNum">     465 </span>                :<span class="lineCov">    6467233 :     restsize = blocksize - pos;</span>
 <span class="lineNum">     466 </span>                :            :     // read length structure
-<span class="lineNum">     467 </span>                :<span class="lineCov">    6400525 :     _docio_read_through_buffer(handle, bid, log_callback);</span>
+<span class="lineNum">     467 </span>                :<span class="lineCov">    6467233 :     _docio_read_through_buffer(handle, bid, log_callback);</span>
 <span class="lineNum">     468 </span>                :            : 
-<span class="lineNum">     469 </span>        [<span class="branchCov" title="Branch 0 was taken 6373335 times"> + </span><span class="branchCov" title="Branch 1 was taken 26394 times"> + </span>]:<span class="lineCov">    6399729 :     if (restsize &gt;= sizeof(struct docio_length)) {</span>
-<span class="lineNum">     470 </span>                :<span class="lineCov">    6373335 :         memcpy(length, (uint8_t *)buf + pos, sizeof(struct docio_length));</span>
-<span class="lineNum">     471 </span>                :<span class="lineCov">    6373335 :         pos += sizeof(struct docio_length);</span>
+<span class="lineNum">     469 </span>        [<span class="branchCov" title="Branch 0 was taken 6440456 times"> + </span><span class="branchCov" title="Branch 1 was taken 26675 times"> + </span>]:<span class="lineCov">    6467131 :     if (restsize &gt;= sizeof(struct docio_length)) {</span>
+<span class="lineNum">     470 </span>                :<span class="lineCov">    6440456 :         memcpy(length, (uint8_t *)buf + pos, sizeof(struct docio_length));</span>
+<span class="lineNum">     471 </span>                :<span class="lineCov">    6440456 :         pos += sizeof(struct docio_length);</span>
 <span class="lineNum">     472 </span>                :            : 
 <span class="lineNum">     473 </span>                :            :     }else{
-<span class="lineNum">     474 </span>                :<span class="lineCov">      26394 :         memcpy(length, (uint8_t *)buf + pos, restsize);</span>
+<span class="lineNum">     474 </span>                :<span class="lineCov">      26675 :         memcpy(length, (uint8_t *)buf + pos, restsize);</span>
 <span class="lineNum">     475 </span>                :            :         // read additional block
-<span class="lineNum">     476 </span>                :<span class="lineCov">      26394 :         bid++;</span>
-<span class="lineNum">     477 </span>                :<span class="lineCov">      26394 :         _docio_read_through_buffer(handle, bid, log_callback);</span>
+<span class="lineNum">     476 </span>                :<span class="lineCov">      26675 :         bid++;</span>
+<span class="lineNum">     477 </span>                :<span class="lineCov">      26675 :         _docio_read_through_buffer(handle, bid, log_callback);</span>
 <span class="lineNum">     478 </span>                :            :         // memcpy rest of data
-<span class="lineNum">     479 </span>                :<span class="lineCov">      26394 :         memcpy((uint8_t *)length + restsize, buf, sizeof(struct docio_length) - restsize);</span>
-<span class="lineNum">     480 </span>                :<span class="lineCov">      26394 :         pos = sizeof(struct docio_length) - restsize;</span>
+<span class="lineNum">     479 </span>                :<span class="lineCov">      26675 :         memcpy((uint8_t *)length + restsize, buf, sizeof(struct docio_length) - restsize);</span>
+<span class="lineNum">     480 </span>                :<span class="lineCov">      26675 :         pos = sizeof(struct docio_length) - restsize;</span>
 <span class="lineNum">     481 </span>                :            :     }
 <span class="lineNum">     482 </span>                :            : 
-<span class="lineNum">     483 </span>                :<span class="lineCov">    6399729 :     return bid * real_blocksize + pos;</span>
+<span class="lineNum">     483 </span>                :<span class="lineCov">    6467131 :     return bid * real_blocksize + pos;</span>
 <a name="484"><span class="lineNum">     484 </span>                :            : }</a>
 <span class="lineNum">     485 </span>                :            : 
-<span class="lineNum">     486 </span>                :<span class="lineCov">   23171522 : uint64_t _docio_read_doc_component(struct docio_handle *handle,</span>
+<span class="lineNum">     486 </span>                :<span class="lineCov">   23782222 : uint64_t _docio_read_doc_component(struct docio_handle *handle,</span>
 <span class="lineNum">     487 </span>                :            :                                    uint64_t offset,
 <span class="lineNum">     488 </span>                :            :                                    uint32_t len,
 <span class="lineNum">     489 </span>                :            :                                    void *buf_out,
 <span class="lineNum">     490 </span>                :            :                                    err_log_callback *log_callback)
 <span class="lineNum">     491 </span>                :            : {
 <span class="lineNum">     492 </span>                :            :     uint32_t rest_len;
-<span class="lineNum">     493 </span>                :<span class="lineCov">   23171522 :     size_t blocksize = handle-&gt;file-&gt;blocksize;</span>
-<span class="lineNum">     494 </span>                :<span class="lineCov">   23171522 :     size_t real_blocksize = blocksize;</span>
+<span class="lineNum">     493 </span>                :<span class="lineCov">   23782222 :     size_t blocksize = handle-&gt;file-&gt;blocksize;</span>
+<span class="lineNum">     494 </span>                :<span class="lineCov">   23782222 :     size_t real_blocksize = blocksize;</span>
 <span class="lineNum">     495 </span>                :            : #ifdef __CRC32
-<span class="lineNum">     496 </span>                :<span class="lineCov">   23171522 :     blocksize -= BLK_MARKER_SIZE;</span>
+<span class="lineNum">     496 </span>                :<span class="lineCov">   23782222 :     blocksize -= BLK_MARKER_SIZE;</span>
 <span class="lineNum">     497 </span>                :            : #endif
 <span class="lineNum">     498 </span>                :            : 
-<span class="lineNum">     499 </span>                :<span class="lineCov">   23171522 :     bid_t bid = offset / real_blocksize;</span>
-<span class="lineNum">     500 </span>                :<span class="lineCov">   23171522 :     uint32_t pos = offset % real_blocksize;</span>
+<span class="lineNum">     499 </span>                :<span class="lineCov">   23782222 :     bid_t bid = offset / real_blocksize;</span>
+<span class="lineNum">     500 </span>                :<span class="lineCov">   23782222 :     uint32_t pos = offset % real_blocksize;</span>
 <span class="lineNum">     501 </span>                :            :     //uint8_t buf[handle-&gt;file-&gt;blocksize];
-<span class="lineNum">     502 </span>                :<span class="lineCov">   23171522 :     void *buf = handle-&gt;readbuffer;</span>
+<span class="lineNum">     502 </span>                :<span class="lineCov">   23782222 :     void *buf = handle-&gt;readbuffer;</span>
 <span class="lineNum">     503 </span>                :            :     uint32_t restsize;
 <span class="lineNum">     504 </span>                :            : 
-<span class="lineNum">     505 </span>                :<span class="lineCov">   23171522 :     rest_len = len;</span>
+<span class="lineNum">     505 </span>                :<span class="lineCov">   23782222 :     rest_len = len;</span>
 <span class="lineNum">     506 </span>                :            : 
-<span class="lineNum">     507 </span>        [<span class="branchCov" title="Branch 0 was taken 23211263 times"> + </span><span class="branchCov" title="Branch 1 was taken 23146400 times"> + </span>]:<span class="lineCov">   46357663 :     while(rest_len &gt; 0) {</span>
-<span class="lineNum">     508 </span>                :<span class="lineCov">   23211263 :         _docio_read_through_buffer(handle, bid, log_callback);</span>
-<span class="lineNum">     509 </span>                :<span class="lineCov">   23186129 :         restsize = blocksize - pos;</span>
+<span class="lineNum">     507 </span>        [<span class="branchCov" title="Branch 0 was taken 23842488 times"> + </span><span class="branchCov" title="Branch 1 was taken 23761717 times"> + </span>]:<span class="lineCov">   47604205 :     while(rest_len &gt; 0) {</span>
+<span class="lineNum">     508 </span>                :<span class="lineCov">   23842488 :         _docio_read_through_buffer(handle, bid, log_callback);</span>
+<span class="lineNum">     509 </span>                :<span class="lineCov">   23821973 :         restsize = blocksize - pos;</span>
 <span class="lineNum">     510 </span>                :            : 
-<span class="lineNum">     511 </span>        [<span class="branchCov" title="Branch 0 was taken 22994523 times"> + </span><span class="branchCov" title="Branch 1 was taken 191606 times"> + </span>]:<span class="lineCov">   23186129 :         if (restsize &gt;= rest_len) {</span>
-<span class="lineNum">     512 </span>                :<span class="lineCov">   22994523 :             memcpy((uint8_t *)buf_out + (len - rest_len), (uint8_t *)buf + pos, rest_len);</span>
-<span class="lineNum">     513 </span>                :<span class="lineCov">   22994523 :             pos += rest_len;</span>
-<span class="lineNum">     514 </span>                :<span class="lineCov">   22994523 :             rest_len = 0;</span>
+<span class="lineNum">     511 </span>        [<span class="branchCov" title="Branch 0 was taken 23628044 times"> + </span><span class="branchCov" title="Branch 1 was taken 193929 times"> + </span>]:<span class="lineCov">   23821973 :         if (restsize &gt;= rest_len) {</span>
+<span class="lineNum">     512 </span>                :<span class="lineCov">   23628044 :             memcpy((uint8_t *)buf_out + (len - rest_len), (uint8_t *)buf + pos, rest_len);</span>
+<span class="lineNum">     513 </span>                :<span class="lineCov">   23628044 :             pos += rest_len;</span>
+<span class="lineNum">     514 </span>                :<span class="lineCov">   23628044 :             rest_len = 0;</span>
 <span class="lineNum">     515 </span>                :            :         }else{
-<span class="lineNum">     516 </span>                :<span class="lineCov">     191606 :             memcpy((uint8_t *)buf_out + (len - rest_len), (uint8_t *)buf + pos, restsize);</span>
-<span class="lineNum">     517 </span>                :<span class="lineCov">     191606 :             bid++;</span>
-<span class="lineNum">     518 </span>                :<span class="lineCov">     191606 :             pos = 0;</span>
-<span class="lineNum">     519 </span>                :<span class="lineCov">     191606 :             rest_len -= restsize;</span>
+<span class="lineNum">     516 </span>                :<span class="lineCov">     193929 :             memcpy((uint8_t *)buf_out + (len - rest_len), (uint8_t *)buf + pos, restsize);</span>
+<span class="lineNum">     517 </span>                :<span class="lineCov">     193929 :             bid++;</span>
+<span class="lineNum">     518 </span>                :<span class="lineCov">     193929 :             pos = 0;</span>
+<span class="lineNum">     519 </span>                :<span class="lineCov">     193929 :             rest_len -= restsize;</span>
 <span class="lineNum">     520 </span>                :            : 
-<span class="lineNum">     521 </span>  [<span class="branchCov" title="Branch 0 was taken 191604 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 191616 times"> + </span>]:<span class="lineCov">     383222 :             if (rest_len &gt; 0 &amp;&amp;</span>
-<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 191618 times"> + </span>]
-<span class="lineNum">     522 </span>                :<span class="lineCov">     191604 :                 bid &gt;= filemgr_get_pos(handle-&gt;file) / handle-&gt;file-&gt;blocksize) {</span>
+<span class="lineNum">     521 </span>  [<span class="branchCov" title="Branch 0 was taken 193928 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 193938 times"> + </span>]:<span class="lineCov">     387867 :             if (rest_len &gt; 0 &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 193939 times"> + </span>]
+<span class="lineNum">     522 </span>                :<span class="lineCov">     193928 :                 bid &gt;= filemgr_get_pos(handle-&gt;file) / handle-&gt;file-&gt;blocksize) {</span>
 <span class="lineNum">     523 </span>                :            :                 // no more data in the file .. the file is corrupted
 <span class="lineNum">     524 </span>                :            :                 fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
 <span class="lineNum">     525 </span>                :            :                         &quot;Fatal error!!! Database file '%s' is corrupted.&quot;,
@@ -602,7 +602,7 @@
 <span class="lineNum">     530 </span>                :            :         }
 <span class="lineNum">     531 </span>                :            :     }
 <span class="lineNum">     532 </span>                :            : 
-<span class="lineNum">     533 </span>                :<span class="lineCov">   23146400 :     return bid * real_blocksize + pos;</span>
+<span class="lineNum">     533 </span>                :<span class="lineCov">   23761717 :     return bid * real_blocksize + pos;</span>
 <span class="lineNum">     534 </span>                :            : }
 <span class="lineNum">     535 </span>                :            : 
 <a name="536"><span class="lineNum">     536 </span>                :            : #ifdef _DOC_COMP</a>
@@ -637,22 +637,22 @@
 <span class="lineNum">     565 </span>                :            : #endif
 <a name="566"><span class="lineNum">     566 </span>                :            : </a>
 <span class="lineNum">     567 </span>                :            : // return length.keylen = 0 if failure
-<span class="lineNum">     568 </span>                :<span class="lineCov">     623134 : struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t offset)</span>
+<span class="lineNum">     568 </span>                :<span class="lineCov">     626158 : struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t offset)</span>
 <span class="lineNum">     569 </span>                :            : {
 <span class="lineNum">     570 </span>                :            :     uint8_t checksum;
 <span class="lineNum">     571 </span>                :            :     uint64_t _offset;
 <span class="lineNum">     572 </span>                :            :     struct docio_length length, _length;
-<span class="lineNum">     573 </span>                :<span class="lineCov">     623134 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
+<span class="lineNum">     573 </span>                :<span class="lineCov">     626158 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
 <span class="lineNum">     574 </span>                :            : 
-<span class="lineNum">     575 </span>                :<span class="lineCov">     623134 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
-<span class="lineNum">     576 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 623134 times"> + </span>]:<span class="lineCov">     623134 :     if (_offset == offset) {</span>
+<span class="lineNum">     575 </span>                :<span class="lineCov">     626158 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
+<span class="lineNum">     576 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 626158 times"> + </span>]:<span class="lineCov">     626158 :     if (_offset == offset) {</span>
 <span class="lineNum">     577 </span>                :<span class="lineNoCov">          0 :         length.keylen = 0;</span>
 <span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         return length;</span>
 <span class="lineNum">     579 </span>                :            :     }
 <span class="lineNum">     580 </span>                :            : 
 <span class="lineNum">     581 </span>                :            :     // checksum check
-<span class="lineNum">     582 </span>                :<span class="lineCov">     623134 :     checksum = _docio_length_checksum(_length);</span>
-<span class="lineNum">     583 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 623134 times"> + </span>]:<span class="lineCov">     623134 :     if (checksum != _length.checksum) {</span>
+<span class="lineNum">     582 </span>                :<span class="lineCov">     626158 :     checksum = _docio_length_checksum(_length);</span>
+<span class="lineNum">     583 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 626158 times"> + </span>]:<span class="lineCov">     626158 :     if (checksum != _length.checksum) {</span>
 <span class="lineNum">     584 </span>                :            :         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
 <span class="lineNum">     585 </span>                :            :                 &quot;doc_length checksum mismatch error in a database file '%s'&quot;,
 <span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                 handle-&gt;file-&gt;filename);</span>
@@ -660,16 +660,16 @@
 <span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :         return length;</span>
 <span class="lineNum">     589 </span>                :            :     }
 <span class="lineNum">     590 </span>                :            : 
-<span class="lineNum">     591 </span>                :<span class="lineCov">     623134 :     length = _docio_length_decode(_length);</span>
-<span class="lineNum">     592 </span>[<span class="branchCov" title="Branch 0 was taken 623134 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 623134 times"> + </span>]:<span class="lineCov">     623134 :     if (length.keylen == 0 || length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
+<span class="lineNum">     591 </span>                :<span class="lineCov">     626158 :     length = _docio_length_decode(_length);</span>
+<span class="lineNum">     592 </span>[<span class="branchCov" title="Branch 0 was taken 626158 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 626158 times"> + </span>]:<span class="lineCov">     626158 :     if (length.keylen == 0 || length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
 <span class="lineNum">     593 </span>                :<span class="lineNoCov">          0 :         length.keylen = 0;</span>
 <span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         return length;</span>
 <span class="lineNum">     595 </span>                :            :     }
 <span class="lineNum">     596 </span>                :            : 
 <span class="lineNum">     597 </span>                :            :     // document size check
-<span class="lineNum">     598 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 623134 times"> + </span>]:<span class="lineCov">     623134 :     if (offset + sizeof(struct docio_length) +</span>
+<span class="lineNum">     598 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 626158 times"> + </span>]:<span class="lineCov">     626158 :     if (offset + sizeof(struct docio_length) +</span>
 <span class="lineNum">     599 </span>                :            :         length.keylen + length.metalen + length.bodylen_ondisk &gt;
-<span class="lineNum">     600 </span>                :<span class="lineCov">     623134 :         filemgr_get_pos(handle-&gt;file)) {</span>
+<span class="lineNum">     600 </span>                :<span class="lineCov">     626158 :         filemgr_get_pos(handle-&gt;file)) {</span>
 <span class="lineNum">     601 </span>                :            :         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
 <span class="lineNum">     602 </span>                :            :                 &quot;Fatal error!!! Database file '%s' is corrupted.&quot;,
 <span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                 handle-&gt;file-&gt;filename);</span>
@@ -677,27 +677,27 @@
 <span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :         return length;</span>
 <span class="lineNum">     606 </span>                :            :     }
 <span class="lineNum">     607 </span>                :            : 
-<span class="lineNum">     608 </span>                :<span class="lineCov">     623134 :     return length;</span>
+<span class="lineNum">     608 </span>                :<span class="lineCov">     626158 :     return length;</span>
 <span class="lineNum">     609 </span>                :            : }
 <a name="610"><span class="lineNum">     610 </span>                :            : </a>
 <span class="lineNum">     611 </span>                :            : // return length.keylen = 0 if failure
-<span class="lineNum">     612 </span>                :<span class="lineCov">    2039076 : void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,</span>
+<span class="lineNum">     612 </span>                :<span class="lineCov">    1987784 : void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,</span>
 <span class="lineNum">     613 </span>                :            :                         keylen_t *keylen, void *keybuf)
 <span class="lineNum">     614 </span>                :            : {
 <span class="lineNum">     615 </span>                :            :     uint8_t checksum;
 <span class="lineNum">     616 </span>                :            :     uint64_t _offset;
 <span class="lineNum">     617 </span>                :            :     struct docio_length length, _length;
-<span class="lineNum">     618 </span>                :<span class="lineCov">    2039076 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
+<span class="lineNum">     618 </span>                :<span class="lineCov">    1987784 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
 <span class="lineNum">     619 </span>                :            : 
-<span class="lineNum">     620 </span>                :<span class="lineCov">    2039076 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
-<span class="lineNum">     621 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 2048364 times"> + </span>]:<span class="lineCov">    2048364 :     if (_offset == offset) {</span>
+<span class="lineNum">     620 </span>                :<span class="lineCov">    1987784 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
+<span class="lineNum">     621 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1998593 times"> + </span>]:<span class="lineCov">    1998593 :     if (_offset == offset) {</span>
 <span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :         *keylen = 0;</span>
 <span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :         return;</span>
 <span class="lineNum">     624 </span>                :            :     }
 <span class="lineNum">     625 </span>                :            : 
 <span class="lineNum">     626 </span>                :            :     // checksum check
-<span class="lineNum">     627 </span>                :<span class="lineCov">    2048364 :     checksum = _docio_length_checksum(_length);</span>
-<span class="lineNum">     628 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 2045398 times"> + </span>]:<span class="lineCov">    2045399 :     if (checksum != _length.checksum) {</span>
+<span class="lineNum">     627 </span>                :<span class="lineCov">    1998593 :     checksum = _docio_length_checksum(_length);</span>
+<span class="lineNum">     628 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 1994572 times"> + </span>]:<span class="lineCov">    1994573 :     if (checksum != _length.checksum) {</span>
 <span class="lineNum">     629 </span>                :            :         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
 <span class="lineNum">     630 </span>                :            :                 &quot;doc_length checksum mismatch error in a database file '%s'&quot;,
 <span class="lineNum">     631 </span>                :<span class="lineCov">          1 :                 handle-&gt;file-&gt;filename);</span>
@@ -705,16 +705,16 @@
 <span class="lineNum">     633 </span>                :<span class="lineCov">          1 :         return;</span>
 <span class="lineNum">     634 </span>                :            :     }
 <span class="lineNum">     635 </span>                :            : 
-<span class="lineNum">     636 </span>                :<span class="lineCov">    2045398 :     length = _docio_length_decode(_length);</span>
-<span class="lineNum">     637 </span>[<span class="branchCov" title="Branch 0 was taken 2047812 times"> + </span><span class="branchCov" title="Branch 1 was taken 219 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2048031 times"> + </span>]:<span class="lineCov">    2048031 :     if (length.keylen == 0 || length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
+<span class="lineNum">     636 </span>                :<span class="lineCov">    1994572 :     length = _docio_length_decode(_length);</span>
+<span class="lineNum">     637 </span>[<span class="branchCov" title="Branch 0 was taken 1998064 times"> + </span><span class="branchCov" title="Branch 1 was taken 365 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1998429 times"> + </span>]:<span class="lineCov">    1998429 :     if (length.keylen == 0 || length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
 <span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :         *keylen = 0;</span>
 <span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :         return;</span>
 <span class="lineNum">     640 </span>                :            :     }
 <span class="lineNum">     641 </span>                :            : 
 <span class="lineNum">     642 </span>                :            :     // document size check
-<span class="lineNum">     643 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 2048418 times"> + </span>]:<span class="lineCov">    2048418 :     if (offset + sizeof(struct docio_length) +</span>
+<span class="lineNum">     643 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1998789 times"> + </span>]:<span class="lineCov">    1998789 :     if (offset + sizeof(struct docio_length) +</span>
 <span class="lineNum">     644 </span>                :            :         length.keylen + length.metalen + length.bodylen_ondisk &gt;
-<span class="lineNum">     645 </span>                :<span class="lineCov">    2048031 :         filemgr_get_pos(handle-&gt;file)) {</span>
+<span class="lineNum">     645 </span>                :<span class="lineCov">    1998429 :         filemgr_get_pos(handle-&gt;file)) {</span>
 <span class="lineNum">     646 </span>                :            :         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
 <span class="lineNum">     647 </span>                :            :                 &quot;Fatal error!!! Database file '%s' is corrupted.&quot;,
 <span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :                 handle-&gt;file-&gt;filename);</span>
@@ -722,85 +722,85 @@
 <span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :         return;</span>
 <span class="lineNum">     651 </span>                :            :     }
 <span class="lineNum">     652 </span>                :            : 
-<span class="lineNum">     653 </span>                :<span class="lineCov">    2048418 :     _docio_read_doc_component(handle, _offset, length.keylen, keybuf, log_callback);</span>
-<span class="lineNum">     654 </span>                :<span class="lineCov">    2045508 :     *keylen = length.keylen;</span>
+<span class="lineNum">     653 </span>                :<span class="lineCov">    1998789 :     _docio_read_doc_component(handle, _offset, length.keylen, keybuf, log_callback);</span>
+<span class="lineNum">     654 </span>                :<span class="lineCov">    1994385 :     *keylen = length.keylen;</span>
 <a name="655"><span class="lineNum">     655 </span>                :            : }</a>
 <span class="lineNum">     656 </span>                :            : 
-<span class="lineNum">     657 </span>                :<span class="lineCov">    3148196 : void free_docio_object(struct docio_object *doc, uint8_t key_alloc,</span>
+<span class="lineNum">     657 </span>                :<span class="lineCov">    3256658 : void free_docio_object(struct docio_object *doc, uint8_t key_alloc,</span>
 <span class="lineNum">     658 </span>                :            :                        uint8_t meta_alloc, uint8_t body_alloc) {
-<span class="lineNum">     659 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3148196 times"> + </span>]:<span class="lineCov">    3148196 :     if (!doc) {</span>
-<span class="lineNum">     660 </span>                :<span class="lineCov">    3148196 :         return;</span>
+<span class="lineNum">     659 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3256658 times"> + </span>]:<span class="lineCov">    3256658 :     if (!doc) {</span>
+<span class="lineNum">     660 </span>                :<span class="lineCov">    3256658 :         return;</span>
 <span class="lineNum">     661 </span>                :            :     }
 <span class="lineNum">     662 </span>                :            : 
-<span class="lineNum">     663 </span>        [<span class="branchCov" title="Branch 0 was taken 217 times"> + </span><span class="branchCov" title="Branch 1 was taken 3147979 times"> + </span>]:<span class="lineCov">    3148196 :     if (key_alloc) {</span>
-<span class="lineNum">     664 </span>                :<span class="lineCov">        217 :         free(doc-&gt;key);</span>
-<span class="lineNum">     665 </span>                :<span class="lineCov">        217 :         doc-&gt;key = NULL;</span>
+<span class="lineNum">     663 </span>        [<span class="branchCov" title="Branch 0 was taken 221 times"> + </span><span class="branchCov" title="Branch 1 was taken 3256437 times"> + </span>]:<span class="lineCov">    3256658 :     if (key_alloc) {</span>
+<span class="lineNum">     664 </span>                :<span class="lineCov">        221 :         free(doc-&gt;key);</span>
+<span class="lineNum">     665 </span>                :<span class="lineCov">        221 :         doc-&gt;key = NULL;</span>
 <span class="lineNum">     666 </span>                :            :     }
-<span class="lineNum">     667 </span>        [<span class="branchCov" title="Branch 0 was taken 110159 times"> + </span><span class="branchCov" title="Branch 1 was taken 3038037 times"> + </span>]:<span class="lineCov">    3148196 :     if (meta_alloc) {</span>
-<span class="lineNum">     668 </span>                :<span class="lineCov">     110159 :         free(doc-&gt;meta);</span>
-<span class="lineNum">     669 </span>                :<span class="lineCov">     110159 :         doc-&gt;meta = NULL;</span>
+<span class="lineNum">     667 </span>        [<span class="branchCov" title="Branch 0 was taken 110188 times"> + </span><span class="branchCov" title="Branch 1 was taken 3146470 times"> + </span>]:<span class="lineCov">    3256658 :     if (meta_alloc) {</span>
+<span class="lineNum">     668 </span>                :<span class="lineCov">     110188 :         free(doc-&gt;meta);</span>
+<span class="lineNum">     669 </span>                :<span class="lineCov">     110188 :         doc-&gt;meta = NULL;</span>
 <span class="lineNum">     670 </span>                :            :     }
-<span class="lineNum">     671 </span>        [<span class="branchCov" title="Branch 0 was taken 1438 times"> + </span><span class="branchCov" title="Branch 1 was taken 3146758 times"> + </span>]:<span class="lineCov">    3148196 :     if (body_alloc) {</span>
-<span class="lineNum">     672 </span>                :<span class="lineCov">       1438 :         free(doc-&gt;body);</span>
-<span class="lineNum">     673 </span>                :<span class="lineCov">       1438 :         doc-&gt;body = NULL;</span>
+<span class="lineNum">     671 </span>        [<span class="branchCov" title="Branch 0 was taken 1398 times"> + </span><span class="branchCov" title="Branch 1 was taken 3255260 times"> + </span>]:<span class="lineCov">    3256658 :     if (body_alloc) {</span>
+<span class="lineNum">     672 </span>                :<span class="lineCov">       1398 :         free(doc-&gt;body);</span>
+<span class="lineNum">     673 </span>                :<span class="lineCov">       1398 :         doc-&gt;body = NULL;</span>
 <span class="lineNum">     674 </span>                :            :     }
 <a name="675"><span class="lineNum">     675 </span>                :            : }</a>
 <span class="lineNum">     676 </span>                :            : 
-<span class="lineNum">     677 </span>                :<span class="lineCov">     572532 : uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,</span>
+<span class="lineNum">     677 </span>                :<span class="lineCov">     572710 : uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,</span>
 <span class="lineNum">     678 </span>                :            :                                  struct docio_object *doc)
 <span class="lineNum">     679 </span>                :            : {
 <span class="lineNum">     680 </span>                :            :     uint8_t checksum;
 <span class="lineNum">     681 </span>                :            :     uint64_t _offset;
-<span class="lineNum">     682 </span>                :<span class="lineCov">     572532 :     int key_alloc = 0;</span>
-<span class="lineNum">     683 </span>                :<span class="lineCov">     572532 :     int meta_alloc = 0;</span>
+<span class="lineNum">     682 </span>                :<span class="lineCov">     572710 :     int key_alloc = 0;</span>
+<span class="lineNum">     683 </span>                :<span class="lineCov">     572710 :     int meta_alloc = 0;</span>
 <span class="lineNum">     684 </span>                :            :     fdb_seqnum_t _seqnum;
 <span class="lineNum">     685 </span>                :            :     timestamp_t _timestamp;
 <span class="lineNum">     686 </span>                :            :     struct docio_length _length;
-<span class="lineNum">     687 </span>                :<span class="lineCov">     572532 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
+<span class="lineNum">     687 </span>                :<span class="lineCov">     572710 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
 <span class="lineNum">     688 </span>                :            : 
-<span class="lineNum">     689 </span>                :<span class="lineCov">     572532 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
-<span class="lineNum">     690 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 575402 times"> + </span>]:<span class="lineCov">     575402 :     if (_offset == offset) {</span>
+<span class="lineNum">     689 </span>                :<span class="lineCov">     572710 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
+<span class="lineNum">     690 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 575237 times"> + </span>]:<span class="lineCov">     575237 :     if (_offset == offset) {</span>
 <span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     692 </span>                :            :     }
 <span class="lineNum">     693 </span>                :            : 
 <span class="lineNum">     694 </span>                :            :     // checksum check
-<span class="lineNum">     695 </span>                :<span class="lineCov">     575402 :     checksum = _docio_length_checksum(_length);</span>
-<span class="lineNum">     696 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 574898 times"> + </span>]:<span class="lineCov">     574898 :     if (checksum != _length.checksum) {</span>
+<span class="lineNum">     695 </span>                :<span class="lineCov">     575237 :     checksum = _docio_length_checksum(_length);</span>
+<span class="lineNum">     696 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 574043 times"> + </span>]:<span class="lineCov">     574043 :     if (checksum != _length.checksum) {</span>
 <span class="lineNum">     697 </span>                :            :         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
 <span class="lineNum">     698 </span>                :            :                 &quot;doc_length checksum mismatch error in a database file '%s'&quot;,
 <span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                 handle-&gt;file-&gt;filename);</span>
 <span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     701 </span>                :            :     }
 <span class="lineNum">     702 </span>                :            : 
-<span class="lineNum">     703 </span>                :<span class="lineCov">     574898 :     doc-&gt;length = _docio_length_decode(_length);</span>
-<span class="lineNum">     704 </span>[<span class="branchCov" title="Branch 0 was taken 574955 times"> + </span><span class="branchCov" title="Branch 1 was taken 96 times"> + </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchCov" title="Branch 3 was taken 575051 times"> + </span>]:<span class="lineCov">     575051 :     if (doc-&gt;length.keylen == 0 || doc-&gt;length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
+<span class="lineNum">     703 </span>                :<span class="lineCov">     574043 :     doc-&gt;length = _docio_length_decode(_length);</span>
+<span class="lineNum">     704 </span>[<span class="branchCov" title="Branch 0 was taken 574484 times"> + </span><span class="branchCov" title="Branch 1 was taken 265 times"> + </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchCov" title="Branch 3 was taken 574749 times"> + </span>]:<span class="lineCov">     574749 :     if (doc-&gt;length.keylen == 0 || doc-&gt;length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
 <span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     706 </span>                :            :     }
 <span class="lineNum">     707 </span>                :            : 
 <span class="lineNum">     708 </span>                :            :     // document size check
-<span class="lineNum">     709 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 575306 times"> + </span>]:<span class="lineCov">     575306 :     if (offset + sizeof(struct docio_length) +</span>
+<span class="lineNum">     709 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 575238 times"> + </span>]:<span class="lineCov">     575238 :     if (offset + sizeof(struct docio_length) +</span>
 <span class="lineNum">     710 </span>                :            :         doc-&gt;length.keylen + doc-&gt;length.metalen + doc-&gt;length.bodylen_ondisk &gt;
-<span class="lineNum">     711 </span>                :<span class="lineCov">     575051 :         filemgr_get_pos(handle-&gt;file)) {</span>
+<span class="lineNum">     711 </span>                :<span class="lineCov">     574749 :         filemgr_get_pos(handle-&gt;file)) {</span>
 <span class="lineNum">     712 </span>                :            :         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
 <span class="lineNum">     713 </span>                :            :                 &quot;Fatal error!!! Database file '%s' is corrupted.&quot;,
 <span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 :                 handle-&gt;file-&gt;filename);</span>
 <span class="lineNum">     715 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     716 </span>                :            :     }
 <span class="lineNum">     717 </span>                :            : 
-<span class="lineNum">     718 </span>        [<span class="branchCov" title="Branch 0 was taken 391557 times"> + </span><span class="branchCov" title="Branch 1 was taken 183749 times"> + </span>]:<span class="lineCov">     575306 :     if (doc-&gt;key == NULL) {</span>
-<span class="lineNum">     719 </span>                :<span class="lineCov">     391557 :         doc-&gt;key = (void *)malloc(doc-&gt;length.keylen);</span>
-<span class="lineNum">     720 </span>                :<span class="lineCov">     391557 :         key_alloc = 1;</span>
+<span class="lineNum">     718 </span>        [<span class="branchCov" title="Branch 0 was taken 391439 times"> + </span><span class="branchCov" title="Branch 1 was taken 183799 times"> + </span>]:<span class="lineCov">     575238 :     if (doc-&gt;key == NULL) {</span>
+<span class="lineNum">     719 </span>                :<span class="lineCov">     391439 :         doc-&gt;key = (void *)malloc(doc-&gt;length.keylen);</span>
+<span class="lineNum">     720 </span>                :<span class="lineCov">     391439 :         key_alloc = 1;</span>
 <span class="lineNum">     721 </span>                :            :     }
-<span class="lineNum">     722 </span>        [<span class="branchCov" title="Branch 0 was taken 575377 times"> + </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineCov">     575306 :     if (doc-&gt;meta == NULL) {</span>
-<span class="lineNum">     723 </span>                :<span class="lineCov">     575377 :         doc-&gt;meta = (void *)malloc(doc-&gt;length.metalen);</span>
-<span class="lineNum">     724 </span>                :<span class="lineCov">     575377 :         meta_alloc = 1;</span>
+<span class="lineNum">     722 </span>        [<span class="branchCov" title="Branch 0 was taken 575162 times"> + </span><span class="branchCov" title="Branch 1 was taken 76 times"> + </span>]:<span class="lineCov">     575238 :     if (doc-&gt;meta == NULL) {</span>
+<span class="lineNum">     723 </span>                :<span class="lineCov">     575162 :         doc-&gt;meta = (void *)malloc(doc-&gt;length.metalen);</span>
+<span class="lineNum">     724 </span>                :<span class="lineCov">     575162 :         meta_alloc = 1;</span>
 <span class="lineNum">     725 </span>                :            :     }
 <span class="lineNum">     726 </span>                :            : 
-<span class="lineNum">     727 </span>[<span class="branchCov" title="Branch 0 was taken 575391 times"> + </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchCov" title="Branch 3 was taken 575393 times"> + </span>]:<span class="lineCov">     575306 :     assert(doc-&gt;key &amp;&amp; doc-&gt;meta);</span>
+<span class="lineNum">     727 </span>[<span class="branchCov" title="Branch 0 was taken 575181 times"> + </span><span class="branchCov" title="Branch 1 was taken 57 times"> + </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchCov" title="Branch 3 was taken 575189 times"> + </span>]:<span class="lineCov">     575238 :     assert(doc-&gt;key &amp;&amp; doc-&gt;meta);</span>
 <span class="lineNum">     728 </span>                :            : 
 <span class="lineNum">     729 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset, doc-&gt;length.keylen,
-<span class="lineNum">     730 </span>                :<span class="lineCov">     575393 :                                         doc-&gt;key, log_callback);</span>
-<span class="lineNum">     731 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 574579 times"> + </span>]:<span class="lineCov">     574579 :     if (_offset == 0) {</span>
+<span class="lineNum">     730 </span>                :<span class="lineCov">     575189 :                                         doc-&gt;key, log_callback);</span>
+<span class="lineNum">     731 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 574202 times"> + </span>]:<span class="lineCov">     574202 :     if (_offset == 0) {</span>
 <span class="lineNum">     732 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, 0);</span>
 <span class="lineNum">     733 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     734 </span>                :            :     }
@@ -808,62 +808,62 @@
 <span class="lineNum">     736 </span>                :            :     // read timestamp
 <span class="lineNum">     737 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset,
 <span class="lineNum">     738 </span>                :            :                                         sizeof(timestamp_t),
-<span class="lineNum">     739 </span>                :<span class="lineCov">     574579 :                                         &amp;_timestamp, log_callback);</span>
-<span class="lineNum">     740 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 574106 times"> + </span>]:<span class="lineCov">     574106 :     if (_offset == 0) {</span>
+<span class="lineNum">     739 </span>                :<span class="lineCov">     574202 :                                         &amp;_timestamp, log_callback);</span>
+<span class="lineNum">     740 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 573752 times"> + </span>]:<span class="lineCov">     573752 :     if (_offset == 0) {</span>
 <span class="lineNum">     741 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, 0);</span>
 <span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     743 </span>                :            :     }
-<span class="lineNum">     744 </span>                :<span class="lineCov">     574106 :     doc-&gt;timestamp = _endian_decode(_timestamp);</span>
+<span class="lineNum">     744 </span>                :<span class="lineCov">     573752 :     doc-&gt;timestamp = _endian_decode(_timestamp);</span>
 <span class="lineNum">     745 </span>                :            : 
 <span class="lineNum">     746 </span>                :            :     // copy sequence number (optional)
 <span class="lineNum">     747 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset, sizeof(fdb_seqnum_t),
-<span class="lineNum">     748 </span>                :<span class="lineCov">     574106 :                                         (void *)&amp;_seqnum, log_callback);</span>
-<span class="lineNum">     749 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 573860 times"> + </span>]:<span class="lineCov">     573860 :     if (_offset == 0) {</span>
+<span class="lineNum">     748 </span>                :<span class="lineCov">     573752 :                                         (void *)&amp;_seqnum, log_callback);</span>
+<span class="lineNum">     749 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 573538 times"> + </span>]:<span class="lineCov">     573538 :     if (_offset == 0) {</span>
 <span class="lineNum">     750 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, 0);</span>
 <span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     752 </span>                :            :     }
-<span class="lineNum">     753 </span>                :<span class="lineCov">     573860 :     doc-&gt;seqnum = _endian_decode(_seqnum);</span>
+<span class="lineNum">     753 </span>                :<span class="lineCov">     573538 :     doc-&gt;seqnum = _endian_decode(_seqnum);</span>
 <span class="lineNum">     754 </span>                :            : 
 <span class="lineNum">     755 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset, doc-&gt;length.metalen,
-<span class="lineNum">     756 </span>                :<span class="lineCov">     573860 :                                         doc-&gt;meta, log_callback);</span>
-<span class="lineNum">     757 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 573709 times"> + </span>]:<span class="lineCov">     573709 :     if (_offset == 0) {</span>
+<span class="lineNum">     756 </span>                :<span class="lineCov">     573538 :                                         doc-&gt;meta, log_callback);</span>
+<span class="lineNum">     757 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 573296 times"> + </span>]:<span class="lineCov">     573296 :     if (_offset == 0) {</span>
 <span class="lineNum">     758 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, 0);</span>
 <span class="lineNum">     759 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     760 </span>                :            :     }
 <span class="lineNum">     761 </span>                :            : 
-<span class="lineNum">     762 </span>                :<span class="lineCov">     573709 :     return _offset;</span>
+<span class="lineNum">     762 </span>                :<span class="lineCov">     573296 :     return _offset;</span>
 <a name="763"><span class="lineNum">     763 </span>                :            : }</a>
 <span class="lineNum">     764 </span>                :            : 
-<span class="lineNum">     765 </span>                :<span class="lineCov">    3146273 : uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,</span>
+<span class="lineNum">     765 </span>                :<span class="lineCov">    3259223 : uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,</span>
 <span class="lineNum">     766 </span>                :            :                         struct docio_object *doc)
 <span class="lineNum">     767 </span>                :            : {
 <span class="lineNum">     768 </span>                :            :     uint8_t checksum;
 <span class="lineNum">     769 </span>                :            :     uint64_t _offset;
-<span class="lineNum">     770 </span>                :<span class="lineCov">    3146273 :     int key_alloc = 0;</span>
-<span class="lineNum">     771 </span>                :<span class="lineCov">    3146273 :     int meta_alloc = 0;</span>
-<span class="lineNum">     772 </span>                :<span class="lineCov">    3146273 :     int body_alloc = 0;</span>
+<span class="lineNum">     770 </span>                :<span class="lineCov">    3259223 :     int key_alloc = 0;</span>
+<span class="lineNum">     771 </span>                :<span class="lineCov">    3259223 :     int meta_alloc = 0;</span>
+<span class="lineNum">     772 </span>                :<span class="lineCov">    3259223 :     int body_alloc = 0;</span>
 <span class="lineNum">     773 </span>                :            :     fdb_seqnum_t _seqnum;
 <span class="lineNum">     774 </span>                :            :     timestamp_t _timestamp;
-<span class="lineNum">     775 </span>                :<span class="lineCov">    3146273 :     void *comp_body = NULL;</span>
+<span class="lineNum">     775 </span>                :<span class="lineCov">    3259223 :     void *comp_body = NULL;</span>
 <span class="lineNum">     776 </span>                :            :     struct docio_length _length;
-<span class="lineNum">     777 </span>                :<span class="lineCov">    3146273 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
+<span class="lineNum">     777 </span>                :<span class="lineCov">    3259223 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
 <span class="lineNum">     778 </span>                :            : 
-<span class="lineNum">     779 </span>                :<span class="lineCov">    3146273 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
-<span class="lineNum">     780 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3154072 times"> + </span>]:<span class="lineCov">    3154072 :     if (_offset == offset) {</span>
+<span class="lineNum">     779 </span>                :<span class="lineCov">    3259223 :     _offset = _docio_read_length(handle, offset, &amp;_length, log_callback);</span>
+<span class="lineNum">     780 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3267905 times"> + </span>]:<span class="lineCov">    3267905 :     if (_offset == offset) {</span>
 <span class="lineNum">     781 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     782 </span>                :            :     }
 <span class="lineNum">     783 </span>                :            : 
 <span class="lineNum">     784 </span>                :            :     // checksum check
-<span class="lineNum">     785 </span>                :<span class="lineCov">    3154072 :     checksum = _docio_length_checksum(_length);</span>
-<span class="lineNum">     786 </span>        [<span class="branchCov" title="Branch 0 was taken 594 times"> + </span><span class="branchCov" title="Branch 1 was taken 3147040 times"> + </span>]:<span class="lineCov">    3147634 :     if (checksum != _length.checksum) {</span>
+<span class="lineNum">     785 </span>                :<span class="lineCov">    3267905 :     checksum = _docio_length_checksum(_length);</span>
+<span class="lineNum">     786 </span>        [<span class="branchCov" title="Branch 0 was taken 610 times"> + </span><span class="branchCov" title="Branch 1 was taken 3251397 times"> + </span>]:<span class="lineCov">    3252007 :     if (checksum != _length.checksum) {</span>
 <span class="lineNum">     787 </span>                :            :         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
 <span class="lineNum">     788 </span>                :            :                 &quot;doc_length checksum mismatch error in a database file '%s'&quot;,
-<span class="lineNum">     789 </span>                :<span class="lineCov">        594 :                 handle-&gt;file-&gt;filename);</span>
-<span class="lineNum">     790 </span>                :<span class="lineCov">        594 :         return offset;</span>
+<span class="lineNum">     789 </span>                :<span class="lineCov">        610 :                 handle-&gt;file-&gt;filename);</span>
+<span class="lineNum">     790 </span>                :<span class="lineCov">        610 :         return offset;</span>
 <span class="lineNum">     791 </span>                :            :     }
 <span class="lineNum">     792 </span>                :            : 
-<span class="lineNum">     793 </span>                :<span class="lineCov">    3147040 :     doc-&gt;length = _docio_length_decode(_length);</span>
-<span class="lineNum">     794 </span>        [<span class="branchCov" title="Branch 0 was taken 1210 times"> + </span><span class="branchCov" title="Branch 1 was taken 3152419 times"> + </span>]:<span class="lineCov">    3153629 :     if (doc-&gt;length.flag &amp; DOCIO_TXN_COMMITTED) {</span>
+<span class="lineNum">     793 </span>                :<span class="lineCov">    3251397 :     doc-&gt;length = _docio_length_decode(_length);</span>
+<span class="lineNum">     794 </span>        [<span class="branchCov" title="Branch 0 was taken 1210 times"> + </span><span class="branchCov" title="Branch 1 was taken 3266399 times"> + </span>]:<span class="lineCov">    3267609 :     if (doc-&gt;length.flag &amp; DOCIO_TXN_COMMITTED) {</span>
 <span class="lineNum">     795 </span>                :            :         // transaction commit mark
 <span class="lineNum">     796 </span>                :            :         // read the corresponding doc offset
 <span class="lineNum">     797 </span>                :            :         uint64_t doc_offset;
@@ -878,41 +878,41 @@
 <span class="lineNum">     806 </span>                :<span class="lineCov">       1210 :         return _offset;</span>
 <span class="lineNum">     807 </span>                :            :     }
 <span class="lineNum">     808 </span>                :            : 
-<span class="lineNum">     809 </span>[<span class="branchCov" title="Branch 0 was taken 3151552 times"> + </span><span class="branchCov" title="Branch 1 was taken 867 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 3152418 times"> + </span>]:<span class="lineCov">    3152419 :     if (doc-&gt;length.keylen == 0 || doc-&gt;length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
+<span class="lineNum">     809 </span>[<span class="branchCov" title="Branch 0 was taken 3265066 times"> + </span><span class="branchCov" title="Branch 1 was taken 1333 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 3266398 times"> + </span>]:<span class="lineCov">    3266399 :     if (doc-&gt;length.keylen == 0 || doc-&gt;length.keylen &gt; FDB_MAX_KEYLEN_INTERNAL) {</span>
 <span class="lineNum">     810 </span>                :<span class="lineCov">          1 :         return offset;</span>
 <span class="lineNum">     811 </span>                :            :     }
 <span class="lineNum">     812 </span>                :            : 
 <span class="lineNum">     813 </span>                :            :     // document size check
-<span class="lineNum">     814 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3150637 times"> + </span>]:<span class="lineCov">    3150637 :     if (offset + sizeof(struct docio_length) +</span>
+<span class="lineNum">     814 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3261249 times"> + </span>]:<span class="lineCov">    3261249 :     if (offset + sizeof(struct docio_length) +</span>
 <span class="lineNum">     815 </span>                :            :         doc-&gt;length.keylen + doc-&gt;length.metalen + doc-&gt;length.bodylen_ondisk &gt;
-<span class="lineNum">     816 </span>                :<span class="lineCov">    3152418 :         filemgr_get_pos(handle-&gt;file)) {</span>
+<span class="lineNum">     816 </span>                :<span class="lineCov">    3266398 :         filemgr_get_pos(handle-&gt;file)) {</span>
 <span class="lineNum">     817 </span>                :            :         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
 <span class="lineNum">     818 </span>                :            :                 &quot;Fatal error!!! Database file '%s' is corrupted.&quot;,
 <span class="lineNum">     819 </span>                :<span class="lineNoCov">          0 :                 handle-&gt;file-&gt;filename);</span>
 <span class="lineNum">     820 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     821 </span>                :            :     }
 <span class="lineNum">     822 </span>                :            : 
-<span class="lineNum">     823 </span>        [<span class="branchCov" title="Branch 0 was taken 1730799 times"> + </span><span class="branchCov" title="Branch 1 was taken 1419838 times"> + </span>]:<span class="lineCov">    3150637 :     if (doc-&gt;key == NULL) {</span>
-<span class="lineNum">     824 </span>                :<span class="lineCov">    1730799 :         doc-&gt;key = (void *)malloc(doc-&gt;length.keylen);</span>
-<span class="lineNum">     825 </span>                :<span class="lineCov">    1730799 :         key_alloc = 1;</span>
+<span class="lineNum">     823 </span>        [<span class="branchCov" title="Branch 0 was taken 1780152 times"> + </span><span class="branchCov" title="Branch 1 was taken 1481097 times"> + </span>]:<span class="lineCov">    3261249 :     if (doc-&gt;key == NULL) {</span>
+<span class="lineNum">     824 </span>                :<span class="lineCov">    1780152 :         doc-&gt;key = (void *)malloc(doc-&gt;length.keylen);</span>
+<span class="lineNum">     825 </span>                :<span class="lineCov">    1780152 :         key_alloc = 1;</span>
 <span class="lineNum">     826 </span>                :            :     }
-<span class="lineNum">     827 </span>        [<span class="branchCov" title="Branch 0 was taken 3153425 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">    3150637 :     if (doc-&gt;meta == NULL) {</span>
-<span class="lineNum">     828 </span>                :<span class="lineCov">    3153425 :         doc-&gt;meta = (void *)malloc(doc-&gt;length.metalen);</span>
-<span class="lineNum">     829 </span>                :<span class="lineCov">    3153425 :         meta_alloc = 1;</span>
+<span class="lineNum">     827 </span>        [<span class="branchCov" title="Branch 0 was taken 3267693 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">    3261249 :     if (doc-&gt;meta == NULL) {</span>
+<span class="lineNum">     828 </span>                :<span class="lineCov">    3267693 :         doc-&gt;meta = (void *)malloc(doc-&gt;length.metalen);</span>
+<span class="lineNum">     829 </span>                :<span class="lineCov">    3267693 :         meta_alloc = 1;</span>
 <span class="lineNum">     830 </span>                :            :     }
-<span class="lineNum">     831 </span>        [<span class="branchCov" title="Branch 0 was taken 3153641 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">    3150637 :     if (doc-&gt;body == NULL) {</span>
-<span class="lineNum">     832 </span>                :<span class="lineCov">    3153641 :         doc-&gt;body = (void *)malloc(doc-&gt;length.bodylen);</span>
-<span class="lineNum">     833 </span>                :<span class="lineCov">    3153641 :         body_alloc = 1;</span>
+<span class="lineNum">     831 </span>        [<span class="branchCov" title="Branch 0 was taken 3267914 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">    3261249 :     if (doc-&gt;body == NULL) {</span>
+<span class="lineNum">     832 </span>                :<span class="lineCov">    3267914 :         doc-&gt;body = (void *)malloc(doc-&gt;length.bodylen);</span>
+<span class="lineNum">     833 </span>                :<span class="lineCov">    3267914 :         body_alloc = 1;</span>
 <span class="lineNum">     834 </span>                :            :     }
 <span class="lineNum">     835 </span>                :            : 
-<span class="lineNum">     836 </span>[<span class="branchCov" title="Branch 0 was taken 3153685 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 3148601 times"> + </span><span class="branchCov" title="Branch 3 was taken 5084 times"> + </span>]:<span class="lineCov">    3150637 :     assert(doc-&gt;key &amp;&amp; doc-&gt;meta &amp;&amp; doc-&gt;body);</span>
-<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 3149900 times"> + </span>]
+<span class="lineNum">     836 </span>[<span class="branchCov" title="Branch 0 was taken 3267960 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 3255784 times"> + </span><span class="branchCov" title="Branch 3 was taken 12176 times"> + </span>]:<span class="lineCov">    3261249 :     assert(doc-&gt;key &amp;&amp; doc-&gt;meta &amp;&amp; doc-&gt;body);</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 3260849 times"> + </span>]
 <span class="lineNum">     837 </span>                :            : 
 <span class="lineNum">     838 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset,
 <span class="lineNum">     839 </span>                :            :                                         doc-&gt;length.keylen,
 <span class="lineNum">     840 </span>                :            :                                         doc-&gt;key,
-<span class="lineNum">     841 </span>                :<span class="lineCov">    3149900 :                                         log_callback);</span>
-<span class="lineNum">     842 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3148851 times"> + </span>]:<span class="lineCov">    3148851 :     if (_offset == 0) {</span>
+<span class="lineNum">     841 </span>                :<span class="lineCov">    3260849 :                                         log_callback);</span>
+<span class="lineNum">     842 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3261861 times"> + </span>]:<span class="lineCov">    3261861 :     if (_offset == 0) {</span>
 <span class="lineNum">     843 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);</span>
 <span class="lineNum">     844 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     845 </span>                :            :     }
@@ -921,33 +921,33 @@
 <span class="lineNum">     848 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset,
 <span class="lineNum">     849 </span>                :            :                                         sizeof(timestamp_t),
 <span class="lineNum">     850 </span>                :            :                                         &amp;_timestamp,
-<span class="lineNum">     851 </span>                :<span class="lineCov">    3148851 :                                         log_callback);</span>
-<span class="lineNum">     852 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3147740 times"> + </span>]:<span class="lineCov">    3147740 :     if (_offset == 0) {</span>
+<span class="lineNum">     851 </span>                :<span class="lineCov">    3261861 :                                         log_callback);</span>
+<span class="lineNum">     852 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3262970 times"> + </span>]:<span class="lineCov">    3262970 :     if (_offset == 0) {</span>
 <span class="lineNum">     853 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);</span>
 <span class="lineNum">     854 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     855 </span>                :            :     }
-<span class="lineNum">     856 </span>                :<span class="lineCov">    3147740 :     doc-&gt;timestamp = _endian_decode(_timestamp);</span>
+<span class="lineNum">     856 </span>                :<span class="lineCov">    3262970 :     doc-&gt;timestamp = _endian_decode(_timestamp);</span>
 <span class="lineNum">     857 </span>                :            : 
 <span class="lineNum">     858 </span>                :            :     // copy seqeunce number (optional)
 <span class="lineNum">     859 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset,
 <span class="lineNum">     860 </span>                :            :                                         sizeof(fdb_seqnum_t),
 <span class="lineNum">     861 </span>                :            :                                         (void *)&amp;_seqnum,
-<span class="lineNum">     862 </span>                :<span class="lineCov">    3147740 :                                         log_callback);</span>
-<span class="lineNum">     863 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3145587 times"> + </span>]:<span class="lineCov">    3145587 :     if (_offset == 0) {</span>
+<span class="lineNum">     862 </span>                :<span class="lineCov">    3262970 :                                         log_callback);</span>
+<span class="lineNum">     863 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3261260 times"> + </span>]:<span class="lineCov">    3261260 :     if (_offset == 0) {</span>
 <span class="lineNum">     864 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);</span>
 <span class="lineNum">     865 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     866 </span>                :            :     }
-<span class="lineNum">     867 </span>                :<span class="lineCov">    3145587 :     doc-&gt;seqnum = _endian_decode(_seqnum);</span>
+<span class="lineNum">     867 </span>                :<span class="lineCov">    3261260 :     doc-&gt;seqnum = _endian_decode(_seqnum);</span>
 <span class="lineNum">     868 </span>                :            : 
 <span class="lineNum">     869 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset, doc-&gt;length.metalen,
-<span class="lineNum">     870 </span>                :<span class="lineCov">    3145587 :                                         doc-&gt;meta, log_callback);</span>
-<span class="lineNum">     871 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3147335 times"> + </span>]:<span class="lineCov">    3147335 :     if (_offset == 0) {</span>
+<span class="lineNum">     870 </span>                :<span class="lineCov">    3261260 :                                         doc-&gt;meta, log_callback);</span>
+<span class="lineNum">     871 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3261500 times"> + </span>]:<span class="lineCov">    3261500 :     if (_offset == 0) {</span>
 <span class="lineNum">     872 </span>                :<span class="lineNoCov">          0 :         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);</span>
 <span class="lineNum">     873 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     874 </span>                :            :     }
 <span class="lineNum">     875 </span>                :            : 
 <span class="lineNum">     876 </span>                :            : #ifdef _DOC_COMP
-<span class="lineNum">     877 </span>        [<span class="branchCov" title="Branch 0 was taken 41 times"> + </span><span class="branchCov" title="Branch 1 was taken 3147294 times"> + </span>]:<span class="lineCov">    3147335 :     if (doc-&gt;length.flag &amp; DOCIO_COMPRESSED) {</span>
+<span class="lineNum">     877 </span>        [<span class="branchCov" title="Branch 0 was taken 41 times"> + </span><span class="branchCov" title="Branch 1 was taken 3261459 times"> + </span>]:<span class="lineCov">    3261500 :     if (doc-&gt;length.flag &amp; DOCIO_COMPRESSED) {</span>
 <span class="lineNum">     878 </span>                :<span class="lineCov">         41 :         comp_body = (void*)malloc(doc-&gt;length.bodylen_ondisk);</span>
 <span class="lineNum">     879 </span>                :            :         _offset = _docio_read_doc_component_comp(handle, _offset, doc-&gt;length.bodylen,
 <span class="lineNum">     880 </span>                :            :                                                  doc-&gt;length.bodylen_ondisk, doc-&gt;body,
@@ -961,8 +961,8 @@
 <span class="lineNum">     888 </span>                :            :         }
 <span class="lineNum">     889 </span>                :            :     } else {
 <span class="lineNum">     890 </span>                :            :         _offset = _docio_read_doc_component(handle, _offset, doc-&gt;length.bodylen,
-<span class="lineNum">     891 </span>                :<span class="lineCov">    3147294 :                                             doc-&gt;body, log_callback);</span>
-<span class="lineNum">     892 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3144197 times"> + </span>]:<span class="lineCov">    3144197 :         if (_offset == 0) {</span>
+<span class="lineNum">     891 </span>                :<span class="lineCov">    3261459 :                                             doc-&gt;body, log_callback);</span>
+<span class="lineNum">     892 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3254315 times"> + </span>]:<span class="lineCov">    3254315 :         if (_offset == 0) {</span>
 <span class="lineNum">     893 </span>                :<span class="lineNoCov">          0 :             free_docio_object(doc, key_alloc, meta_alloc, body_alloc);</span>
 <span class="lineNum">     894 </span>                :<span class="lineNoCov">          0 :             return offset;</span>
 <span class="lineNum">     895 </span>                :            :         }
@@ -982,8 +982,8 @@
 <span class="lineNum">     909 </span>                :            : #ifdef __CRC32
 <span class="lineNum">     910 </span>                :            :     uint32_t crc_file, crc;
 <span class="lineNum">     911 </span>                :            :     _offset = _docio_read_doc_component(handle, _offset, sizeof(crc_file),
-<span class="lineNum">     912 </span>                :<span class="lineCov">    3144238 :                                         (void *)&amp;crc_file, log_callback);</span>
-<span class="lineNum">     913 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3148758 times"> + </span>]:<span class="lineCov">    3148758 :     if (_offset == 0) {</span>
+<span class="lineNum">     912 </span>                :<span class="lineCov">    3254356 :                                         (void *)&amp;crc_file, log_callback);</span>
+<span class="lineNum">     913 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3262989 times"> + </span>]:<span class="lineCov">    3262989 :     if (_offset == 0) {</span>
 <span class="lineNum">     914 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (comp_body) {</span>
 <span class="lineNum">     915 </span>                :<span class="lineNoCov">          0 :             free(comp_body);</span>
 <span class="lineNum">     916 </span>                :            :         }
@@ -991,20 +991,20 @@
 <span class="lineNum">     918 </span>                :<span class="lineNoCov">          0 :         return offset;</span>
 <span class="lineNum">     919 </span>                :            :     }
 <span class="lineNum">     920 </span>                :            : 
-<span class="lineNum">     921 </span>                :<span class="lineCov">    3148758 :     crc = chksum((void *)&amp;_length, sizeof(_length));</span>
-<span class="lineNum">     922 </span>                :<span class="lineCov">    3145552 :     crc = chksum_scd(doc-&gt;key, doc-&gt;length.keylen, crc);</span>
-<span class="lineNum">     923 </span>                :<span class="lineCov">    3150421 :     crc = chksum_scd((void *)&amp;_timestamp, sizeof(timestamp_t), crc);</span>
-<span class="lineNum">     924 </span>                :<span class="lineCov">    3149949 :     crc = chksum_scd((void *)&amp;_seqnum, sizeof(fdb_seqnum_t), crc);</span>
-<span class="lineNum">     925 </span>                :<span class="lineCov">    3149568 :     crc = chksum_scd(doc-&gt;meta, doc-&gt;length.metalen, crc);</span>
-<span class="lineNum">     926 </span>        [<span class="branchCov" title="Branch 0 was taken 41 times"> + </span><span class="branchCov" title="Branch 1 was taken 3148991 times"> + </span>]:<span class="lineCov">    3149032 :     if (doc-&gt;length.flag &amp; DOCIO_COMPRESSED) {</span>
+<span class="lineNum">     921 </span>                :<span class="lineCov">    3262989 :     crc = chksum((void *)&amp;_length, sizeof(_length));</span>
+<span class="lineNum">     922 </span>                :<span class="lineCov">    3255237 :     crc = chksum_scd(doc-&gt;key, doc-&gt;length.keylen, crc);</span>
+<span class="lineNum">     923 </span>                :<span class="lineCov">    3264662 :     crc = chksum_scd((void *)&amp;_timestamp, sizeof(timestamp_t), crc);</span>
+<span class="lineNum">     924 </span>                :<span class="lineCov">    3263883 :     crc = chksum_scd((void *)&amp;_seqnum, sizeof(fdb_seqnum_t), crc);</span>
+<span class="lineNum">     925 </span>                :<span class="lineCov">    3263403 :     crc = chksum_scd(doc-&gt;meta, doc-&gt;length.metalen, crc);</span>
+<span class="lineNum">     926 </span>        [<span class="branchCov" title="Branch 0 was taken 41 times"> + </span><span class="branchCov" title="Branch 1 was taken 3262588 times"> + </span>]:<span class="lineCov">    3262629 :     if (doc-&gt;length.flag &amp; DOCIO_COMPRESSED) {</span>
 <span class="lineNum">     927 </span>                :<span class="lineCov">         41 :         crc = chksum_scd(comp_body, doc-&gt;length.bodylen_ondisk, crc);</span>
-<span class="lineNum">     928 </span>        [<span class="branchCov" title="Branch 0 was taken 41 times"> + </span><span class="branchCov" title="Branch 1 was taken 2927 times"> + </span>]:<span class="lineCov">       2968 :         if (comp_body) {</span>
+<span class="lineNum">     928 </span>        [<span class="branchCov" title="Branch 0 was taken 41 times"> + </span><span class="branchCov" title="Branch 1 was taken 4164 times"> + </span>]:<span class="lineCov">       4205 :         if (comp_body) {</span>
 <span class="lineNum">     929 </span>                :<span class="lineCov">         41 :             free(comp_body);</span>
 <span class="lineNum">     930 </span>                :            :         }
 <span class="lineNum">     931 </span>                :            :     } else {
-<span class="lineNum">     932 </span>                :<span class="lineCov">    3148991 :         crc = chksum_scd(doc-&gt;body, doc-&gt;length.bodylen, crc);</span>
+<span class="lineNum">     932 </span>                :<span class="lineCov">    3262588 :         crc = chksum_scd(doc-&gt;body, doc-&gt;length.bodylen, crc);</span>
 <span class="lineNum">     933 </span>                :            :     }
-<span class="lineNum">     934 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3149254 times"> + </span>]:<span class="lineCov">    3149254 :     if (crc != crc_file) {</span>
+<span class="lineNum">     934 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 3261661 times"> + </span>]:<span class="lineCov">    3261661 :     if (crc != crc_file) {</span>
 <span class="lineNum">     935 </span>                :            :         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
 <span class="lineNum">     936 </span>                :            :                 &quot;doc_body checksum mismatch error in a database file '%s'&quot;,
 <span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 :                 handle-&gt;file-&gt;filename);</span>
@@ -1013,21 +1013,21 @@
 <span class="lineNum">     940 </span>                :            :     }
 <span class="lineNum">     941 </span>                :            : #endif
 <span class="lineNum">     942 </span>                :            : 
-<span class="lineNum">     943 </span>[<span class="branchCov" title="Branch 0 was taken 3148783 times"> + </span><span class="branchCov" title="Branch 1 was taken 471 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 108831 times"> + </span><span class="branchCov" title="Branch 3 was taken 3039952 times"> + </span>]:<span class="lineCov">    3149254 :     uint8_t free_meta = meta_alloc &amp;&amp; !doc-&gt;length.metalen;</span>
-<span class="lineNum">     944 </span>[<span class="branchCov" title="Branch 0 was taken 3149784 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 1221 times"> + </span><span class="branchCov" title="Branch 3 was taken 3148563 times"> + </span>]:<span class="lineCov">    3149254 :     uint8_t free_body = body_alloc &amp;&amp; !doc-&gt;length.bodylen;</span>
-<span class="lineNum">     945 </span>                :<span class="lineCov">    3149254 :     free_docio_object(doc, 0, free_meta, free_body);</span>
+<span class="lineNum">     943 </span>[<span class="branchCov" title="Branch 0 was taken 3259427 times"> + </span><span class="branchCov" title="Branch 1 was taken 2234 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 109065 times"> + </span><span class="branchCov" title="Branch 3 was taken 3150362 times"> + </span>]:<span class="lineCov">    3261661 :     uint8_t free_meta = meta_alloc &amp;&amp; !doc-&gt;length.metalen;</span>
+<span class="lineNum">     944 </span>[<span class="branchCov" title="Branch 0 was taken 3262371 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 1177 times"> + </span><span class="branchCov" title="Branch 3 was taken 3261194 times"> + </span>]:<span class="lineCov">    3261661 :     uint8_t free_body = body_alloc &amp;&amp; !doc-&gt;length.bodylen;</span>
+<span class="lineNum">     945 </span>                :<span class="lineCov">    3261661 :     free_docio_object(doc, 0, free_meta, free_body);</span>
 <span class="lineNum">     946 </span>                :            : 
-<span class="lineNum">     947 </span>                :<span class="lineCov">    3150410 :     return _offset;</span>
+<span class="lineNum">     947 </span>                :<span class="lineCov">    3263558 :     return _offset;</span>
 <a name="948"><span class="lineNum">     948 </span>                :            : }</a>
 <span class="lineNum">     949 </span>                :            : 
-<span class="lineNum">     950 </span>                :<span class="lineCov">        954 : int docio_check_buffer(struct docio_handle *handle, bid_t bid)</span>
+<span class="lineNum">     950 </span>                :<span class="lineCov">        988 : int docio_check_buffer(struct docio_handle *handle, bid_t bid)</span>
 <span class="lineNum">     951 </span>                :            : {
 <span class="lineNum">     952 </span>                :            :     uint8_t marker[BLK_MARKER_SIZE];
-<span class="lineNum">     953 </span>                :<span class="lineCov">        954 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
-<span class="lineNum">     954 </span>                :<span class="lineCov">        954 :     _docio_read_through_buffer(handle, bid, log_callback);</span>
+<span class="lineNum">     953 </span>                :<span class="lineCov">        988 :     err_log_callback *log_callback = handle-&gt;log_callback;</span>
+<span class="lineNum">     954 </span>                :<span class="lineCov">        988 :     _docio_read_through_buffer(handle, bid, log_callback);</span>
 <span class="lineNum">     955 </span>                :            :     marker[0] = *(((uint8_t *)handle-&gt;readbuffer)
-<span class="lineNum">     956 </span>                :<span class="lineCov">        954 :                  + handle-&gt;file-&gt;blocksize - BLK_MARKER_SIZE);</span>
-<span class="lineNum">     957 </span>                :<span class="lineCov">        954 :     return (marker[0] == BLK_MARKER_DOC);</span>
+<span class="lineNum">     956 </span>                :<span class="lineCov">        988 :                  + handle-&gt;file-&gt;blocksize - BLK_MARKER_SIZE);</span>
+<span class="lineNum">     957 </span>                :<span class="lineCov">        988 :     return (marker[0] == BLK_MARKER_DOC);</span>
 <a name="958"><span class="lineNum">     958 </span>                :            : }</a>
 <span class="lineNum">     959 </span>                :            : 
 <span class="lineNum">     960 </span>                :<span class="lineNoCov">          0 : int docio_check_compact_doc(struct docio_handle *handle,</span>
