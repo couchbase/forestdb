@@ -2614,6 +2614,74 @@ void iterator_seek_wal_only_test()
     TEST_RESULT("iterator seek wal only test");
 }
 
+void iterator_after_wal_threshold()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 600;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *db2;
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *it;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
+    fdb_kvs_open(dbfile, &db2, "db2", &kvs_config);
+
+    // write 600 docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+    }
+
+    // copy keys into another kv
+    status = fdb_iterator_sequence_init(db, &it, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    do {
+            status = fdb_iterator_get(it, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_set_kv(db2, rdoc->key, rdoc->keylen, NULL, 0);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            fdb_doc_free(rdoc);
+    } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(it);
+
+
+    // verify read docs
+    status = fdb_iterator_sequence_init(db, &it, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+     do {
+            status = fdb_iterator_get(it, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_get(db, rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            fdb_doc_free(rdoc);
+    } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(it);
+
+    fdb_kvs_close(db);
+    fdb_kvs_close(db2);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("iterator after wal threshold");
+}
+
 int main(){
     int i, j;
 
@@ -2634,6 +2702,7 @@ int main(){
     reverse_sequence_iterator_kvs_test();
     reverse_iterator_test();
     iterator_seek_wal_only_test();
+    iterator_after_wal_threshold();
 
     return 0;
 }
