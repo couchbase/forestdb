@@ -1500,7 +1500,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    (*doc)->seqnum = 0;
+    (*doc)->seqnum = SEQNUM_NOT_USED;
 
     if (key && keylen > 0) {
         (*doc)->key = (void *)malloc(keylen);
