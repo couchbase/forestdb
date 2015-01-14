@@ -1538,6 +1538,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         (*doc)->bodylen = 0;
     }
 
+    (*doc)->seqnum = SEQNUM_NOT_USED;
     (*doc)->size_ondisk = 0;
     (*doc)->deleted = false;
 
