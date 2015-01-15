@@ -51,6 +51,11 @@ struct kvs_node {
     struct avl_node avl_id;
 };
 
+typedef enum {
+    FDB_VFILENAME = 0,
+    FDB_AFILENAME = 1,
+} fdb_filename_mode_t;
+
 #define FDB_FLAG_SEQTREE_USE (0x1)
 #define FDB_FLAG_ROOT_INITIALIZED (0x2)
 #define FDB_FLAG_ROOT_CUSTOM_CMP (0x4)
@@ -64,6 +69,7 @@ fdb_status fdb_log(err_log_callback *callback,
                    const char *format, ...);
 fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const char *filename,
+                     fdb_filename_mode_t filename_mode,
                      const fdb_config *config);
 fdb_status _fdb_close_root(fdb_kvs_handle *handle);
 fdb_status _fdb_close(fdb_kvs_handle *handle);

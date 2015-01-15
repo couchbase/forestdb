@@ -998,7 +998,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
             return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
         }
     }
-    fs = _fdb_open(handle, file->filename, config);
+    fs = _fdb_open(handle, file->filename, FDB_AFILENAME, config);
     if (fs != FDB_RESULT_SUCCESS) {
         if (handle->node) {
             spin_lock(&root_handle->fhandle->lock);
@@ -1101,7 +1101,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             }
 
             handle->fhandle = fhandle;
-            fs = _fdb_open(handle, file->filename, &config);
+            fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 free(handle);
                 *ptr_handle = NULL;
@@ -1350,7 +1350,8 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                                              handle_in->file),
                            handle);
     } else {
-        fs = _fdb_open(handle, handle_in->file->filename, &config);
+        fs = _fdb_open(handle, handle_in->file->filename,
+                       FDB_AFILENAME, &config);
     }
     filemgr_set_rollback(handle_in->file, 0); // allow mutations
 

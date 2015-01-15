@@ -399,7 +399,8 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     new_db.fhandle = handle->fhandle;
     new_db.kvs_config = handle->kvs_config;
-    fdb_status status = _fdb_open(&new_db, new_filename, &config);
+    fdb_status status = _fdb_open(&new_db, new_filename,
+                                  FDB_AFILENAME, &config);
     if (status != FDB_RESULT_SUCCESS) {
         return fdb_log(&handle->log_callback, status,
                        "Error in opening a partially compacted file '%s' for recovery.",
@@ -664,7 +665,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     fdb_init(fconfig);
     fdb_file_handle_init(fhandle, handle);
 
-    fdb_status fs = _fdb_open(handle, filename, &config);
+    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -730,7 +731,7 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     fdb_file_handle_parse_cmp_func(fhandle, num_functions,
                                    kvs_names, functions);
 
-    fdb_status fs = _fdb_open(handle, filename, &config);
+    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -768,7 +769,7 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
 
     fdb_file_handle_init(fhandle, handle);
-    fdb_status fs = _fdb_open(handle, filename, fconfig);
+    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, fconfig);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -866,7 +867,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
                                                    file),
                               handle);
     } else {
-        fs = _fdb_open(handle, file->filename, &config);
+        fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
     }
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -969,7 +970,7 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     handle->max_seqnum = seqnum;
     handle->fhandle = handle_in->fhandle;
 
-    fs = _fdb_open(handle, handle_in->file->filename, &config);
+    fs = _fdb_open(handle, handle_in->file->filename, FDB_AFILENAME, &config);
     filemgr_set_rollback(handle_in->file, 0); // allow mutations
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -1030,6 +1031,7 @@ static void _fdb_init_file_config(const fdb_config *config,
 
 fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const char *filename,
+                     fdb_filename_mode_t filename_mode,
                      const fdb_config *config)
 {
     struct filemgr_config fconfig;
@@ -1063,14 +1065,20 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         return FDB_RESULT_TOO_LONG_FILENAME;
     }
 
-    if (!compactor_is_valid_mode(filename, (fdb_config *)config)) {
+    if (filename_mode == FDB_VFILENAME &&
+        !compactor_is_valid_mode(filename, (fdb_config *)config)) {
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
 
     _fdb_init_file_config(config, &fconfig);
 
-    compactor_get_actual_filename(filename, actual_filename,
-                                  config->compaction_mode);
+    if (filename_mode == FDB_VFILENAME) {
+        compactor_get_actual_filename(filename, actual_filename,
+                                      config->compaction_mode);
+    } else {
+        strcpy(actual_filename, filename);
+    }
+
     if (handle->filename) {
         handle->filename = (char *)realloc(handle->filename, strlen(filename)+1);
     } else {
@@ -1913,7 +1921,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
                 char filename[FDB_MAX_FILENAME_LEN];
                 strcpy(filename, handle->filename);
                 _fdb_close(handle);
-                _fdb_open(handle, filename, &config);
+                _fdb_open(handle, filename, FDB_VFILENAME, &config);
 
             } else {
                 filemgr_get_header(handle->file, buf, &header_len);
@@ -1923,7 +1931,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
                                  &kv_info_offset, &header_flags,
                                  &new_filename, NULL);
                 _fdb_close(handle);
-                _fdb_open(handle, new_filename, &config);
+                _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
             }
         }
     }
@@ -3859,7 +3867,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
                 return FDB_RESULT_FILE_RENAME_FAIL;
             }
             config.compaction_mode = FDB_COMPACTION_MANUAL;
-            fs = _fdb_open(handle, vfilename, &config);
+            fs = _fdb_open(handle, vfilename, FDB_VFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
@@ -3876,7 +3884,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
             }
             config.compaction_mode = FDB_COMPACTION_AUTO;
             config.compaction_threshold = new_threshold;
-            fs = _fdb_open(handle, vfilename, &config);
+            fs = _fdb_open(handle, vfilename, FDB_VFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
