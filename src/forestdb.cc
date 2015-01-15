@@ -3208,7 +3208,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         if (very_old_file) {
             filemgr_redirect_old_file(very_old_file, new_file,
                                       _fdb_redirect_header);
-            status = filemgr_commit(very_old_file, &handle->log_callback);
+            filemgr_commit(very_old_file, &handle->log_callback);
+            // I/O errors here are not propogated since this is best-effort
             // Since filemgr_search_stale_links() will have opened the file
             // we must close it here to ensure decrement of ref counter
             filemgr_close(very_old_file, 1, very_old_file->filename,

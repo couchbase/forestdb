@@ -1309,12 +1309,14 @@ void *multi_thread_kvs_client(void *args)
     // open fhandle
     fconfig = fdb_get_default_config();
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // get kvs ID from args
     memcpy(&i, args, sizeof(int));
     sprintf(dbstr, "db%d", i);
     kvs_config = fdb_get_default_kvs_config();
     status = fdb_kvs_open(dbfile, &tdb, dbstr, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // insert documents
     for (i=0;i<n;++i){
