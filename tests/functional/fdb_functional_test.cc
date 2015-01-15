@@ -263,6 +263,69 @@ void basic_test()
     TEST_RESULT("basic test");
 }
 
+void set_get_meta_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    char keybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
+
+    sprintf(keybuf, "key%d", 0);
+    fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+    fdb_set(db, rdoc);
+    status = fdb_get(db, rdoc);
+    assert(status == FDB_RESULT_SUCCESS);
+    status = fdb_get_byoffset(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_get_metaonly(db, rdoc);
+    assert(status == FDB_RESULT_SUCCESS);
+    status = fdb_get_metaonly_byseq(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_del(db, rdoc);
+    status = fdb_get(db, rdoc);
+    assert(status == FDB_RESULT_KEY_NOT_FOUND);
+    assert(rdoc->deleted == true);
+
+    status = fdb_get_metaonly(db, rdoc);
+    assert(status == FDB_RESULT_SUCCESS);
+    assert(rdoc->deleted == true);
+
+    status = fdb_get_metaonly_byseq(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    assert(rdoc->deleted == true);
+
+    status = fdb_get_byoffset(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    assert(rdoc->deleted == true);
+
+
+    fdb_doc_free(rdoc);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("set get meta test");
+}
+
 void long_filename_test()
 {
     TEST_INIT();
@@ -2913,6 +2976,7 @@ void long_key_test()
 int main(){
 
     basic_test();
+    set_get_meta_test();
     long_filename_test();
     error_to_str_test();
     seq_tree_exception_test();
