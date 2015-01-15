@@ -1951,6 +1951,37 @@ void fdb_link_new_file(fdb_kvs_handle *handle)
     }
 }
 
+static bool _fdb_sync_dirty_root(fdb_kvs_handle *handle)
+{
+    bool locked = false;
+    bid_t dirty_idtree_root, dirty_seqtree_root;
+
+    if ( ( handle->dirty_updates ||
+           filemgr_dirty_root_exist(handle->file) )  &&
+         filemgr_get_header_bid(handle->file) == handle->last_hdr_bid ) {
+        // 1) { a) dirty WAL flush by this handle exists OR
+        //      b) dirty WAL flush by other handle exists } AND
+        // 2) no commit was performed yet.
+        // grab lock for writer
+        filemgr_mutex_lock(handle->file);
+        locked = true;
+
+        // get dirty root nodes
+        filemgr_get_dirty_root(handle->file,
+                               &dirty_idtree_root, &dirty_seqtree_root);
+        if (dirty_idtree_root != BLK_NOT_FOUND) {
+            handle->trie->root_bid = dirty_idtree_root;
+        }
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (dirty_seqtree_root != BLK_NOT_FOUND) {
+                handle->seqtree->root_bid = dirty_seqtree_root;
+            }
+        }
+        btreeblk_discard_blocks(handle->bhandle);
+    }
+    return locked;
+}
+
 LIBFDB_API
 fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
 {
@@ -2011,26 +2042,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
@@ -2154,27 +2166,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
-                                   &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
@@ -2281,26 +2273,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         _seqnum = _endian_encode(doc->seqnum);
         if (handle->kvs) {
@@ -2427,26 +2400,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         _seqnum = _endian_encode(doc->seqnum);
         if (handle->kvs) {

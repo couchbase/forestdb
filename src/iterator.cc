@@ -150,6 +150,53 @@ int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
     return cmp;
 }
 
+static void _fdb_itr_sync_dirty_root(fdb_iterator *iterator,
+                                     fdb_kvs_handle *handle)
+{
+    if ( ( handle->dirty_updates ||
+           filemgr_dirty_root_exist(handle->file) )  &&
+         filemgr_get_header_bid(handle->file) == handle->last_hdr_bid ) {
+
+        bid_t dirty_idtree_root, dirty_seqtree_root;
+
+        // dirty WAL flush exists
+        iterator->need_to_be_locked = true;
+
+        // get dirty root nodes
+        filemgr_get_dirty_root(handle->file,
+                               &dirty_idtree_root, &dirty_seqtree_root);
+        if (dirty_idtree_root != BLK_NOT_FOUND) {
+            handle->trie->root_bid = dirty_idtree_root;
+        }
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (dirty_seqtree_root != BLK_NOT_FOUND) {
+                handle->seqtree->root_bid = dirty_seqtree_root;
+            }
+        }
+        btreeblk_discard_blocks(handle->bhandle);
+
+    } else {
+        iterator->need_to_be_locked = false;
+    }
+}
+
+static bool _fdb_itr_chk_lock(fdb_iterator *iterator)
+{
+    bool locked = false;
+    if (iterator->need_to_be_locked) {
+        if (iterator->handle.last_hdr_bid !=
+                filemgr_get_header_bid(iterator->handle.file)) {
+            // commit was performed
+            iterator->need_to_be_locked = false;
+        } else {
+            // yet dirty .. grab lock
+            filemgr_mutex_lock(iterator->handle.file);
+            locked = true;
+        }
+    }
+    return locked;
+}
+
 fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              fdb_iterator **ptr_iterator,
                              const void *start_key,
@@ -198,6 +245,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     iterator->hbtrie_iterator = NULL;
     iterator->seqtree_iterator = NULL;
     iterator->seqtrie_iterator = NULL;
+    _fdb_itr_sync_dirty_root(iterator, handle);
 
     if (handle->kvs) {
         // multi KV instance mode .. prepend KV ID
@@ -434,6 +482,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     iterator->opt = opt;
     iterator->_offset = BLK_NOT_FOUND;
     iterator->_seqnum = start_seq;
+    _fdb_itr_sync_dirty_root(iterator, handle);
 
     // For easy API call, treat zero seq as 0xffff...
     // (because zero seq number is not used)
@@ -864,6 +913,7 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     uint64_t _offset;
     size_t seek_keylen_kv;
     bool skip_wal = false, fetch_next = true, fetch_wal = true;
+    bool locked = false;
     fdb_kvs_id_t _kv_id;
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
     struct snap_wal_entry *snap_item = NULL, query;
@@ -922,6 +972,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     }
 
     iterator->direction = FDB_ITR_FORWARD;
+
+    locked = _fdb_itr_chk_lock(iterator);
 
     // reset HB+trie's iterator
     hbtrie_iterator_free(iterator->hbtrie_iterator);
@@ -1250,6 +1302,10 @@ fetch_hbtrie:
         }
     }
 
+    if (locked) {
+        filemgr_mutex_unlock(iterator->handle.file);
+    }
+
     if (!iterator->_dhandle) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
@@ -1265,6 +1321,7 @@ fetch_hbtrie:
 
 fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
     size_t size_id = sizeof(fdb_kvs_id_t);
+    bool locked = false;
 
     if (!iterator || !iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1291,6 +1348,8 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
         return status;
     }
 
+    locked = _fdb_itr_chk_lock(iterator);
+
     // reset HB+trie iterator using start key
     hbtrie_iterator_free(iterator->hbtrie_iterator);
     hbtrie_iterator_init(iterator->handle.trie, iterator->hbtrie_iterator,
@@ -1300,12 +1359,17 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
     iterator->tree_cursor_prev = iterator->tree_cursor =
                                  iterator->tree_cursor_start;
 
+    if (locked) {
+        filemgr_mutex_unlock(iterator->handle.file);
+    }
+
     return fdb_iterator_next(iterator);
 }
 
 fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
     int cmp;
     size_t size_id = sizeof(fdb_kvs_id_t);
+    bool locked = false;
 
     if (!iterator || !iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1333,6 +1397,8 @@ fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
         return status;
     }
     iterator->direction = FDB_ITR_REVERSE; // only reverse iteration possible
+
+    locked = _fdb_itr_chk_lock(iterator);
 
     if (iterator->end_key && iterator->end_keylen == size_id) {
         // end_key exists but end_keylen == size_id
@@ -1362,6 +1428,10 @@ fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
     // also move WAL tree's cursor to the last entry
     iterator->tree_cursor = avl_last(iterator->wal_tree);
     iterator->tree_cursor_prev = iterator->tree_cursor;
+
+    if (locked) {
+        filemgr_mutex_unlock(iterator->handle.file);
+    }
 
     return fdb_iterator_prev(iterator);
 }
@@ -1740,6 +1810,8 @@ start_seq:
 fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
+    bool locked = _fdb_itr_chk_lock(iterator);
+
     if (iterator->hbtrie_iterator) {
         while ((result = _fdb_iterator_prev(iterator)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
@@ -1768,12 +1840,19 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
             }
         }
     }
+
+    if (locked) {
+        filemgr_mutex_unlock(iterator->handle.file);
+    }
+
     return result;
 }
 
 fdb_status fdb_iterator_next(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
+    bool locked = _fdb_itr_chk_lock(iterator);
+
     if (iterator->hbtrie_iterator) {
         while ((result = _fdb_iterator_next(iterator)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
@@ -1803,6 +1882,11 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
             }
         }
     }
+
+    if (locked) {
+        filemgr_mutex_unlock(iterator->handle.file);
+    }
+
     return result;
 }
 

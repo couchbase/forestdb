@@ -232,6 +232,7 @@ void filemgr_set_dirty_root(struct filemgr *file,
 void filemgr_get_dirty_root(struct filemgr *file,
                             bid_t *dirty_idtree_root,
                             bid_t *dirty_seqtree_root);
+bool filemgr_dirty_root_exist(struct filemgr *file);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

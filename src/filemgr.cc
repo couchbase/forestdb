@@ -769,11 +769,13 @@ char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *
 
 bid_t filemgr_get_header_bid(struct filemgr *file)
 {
+    bid_t ret = BLK_NOT_FOUND;
+    spin_lock(&file->lock);
     if (file->header.size > 0) {
-        return file->header.bid;
-    } else {
-        return BLK_NOT_FOUND;
+        ret = file->header.bid;
     }
+    spin_unlock(&file->lock);
+    return ret;
 }
 
 void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len)
@@ -1835,6 +1837,18 @@ void filemgr_get_dirty_root(struct filemgr *file,
     *dirty_idtree_root = file->header.dirty_idtree_root;
     *dirty_seqtree_root= file->header.dirty_seqtree_root;
     spin_unlock(&file->lock);
+}
+
+bool filemgr_dirty_root_exist(struct filemgr *file)
+{
+    bool ret = false;
+    spin_lock(&file->lock);
+    if (file->header.dirty_idtree_root != BLK_NOT_FOUND ||
+        file->header.dirty_seqtree_root != BLK_NOT_FOUND) {
+        ret = true;
+    }
+    spin_unlock(&file->lock);
+    return ret;
 }
 
 static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
