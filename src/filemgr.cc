@@ -1538,6 +1538,65 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
     spin_unlock(&old_file->lock);
 }
 
+// Check if there is a file that still points to the old_file that is being
+// compacted away. If so open the file and return its pointer.
+static
+void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
+    struct filemgr *cur_file = (struct filemgr *)ctx;
+    struct filemgr *file = _get_entry(h, struct filemgr, e);
+    spin_lock(&file->lock);
+    if (file->status == FILE_REMOVED_PENDING && file->new_file == cur_file) {
+        // Incrementing reference counter below is the same as filemgr_open()
+        // We need to do this to ensure that the pointer returned does not
+        // get freed outside the filemgr_open lock
+        file->ref_count++;
+        spin_unlock(&file->lock);
+        return (void *)file;
+    }
+    spin_unlock(&file->lock);
+    return (void *)NULL;
+}
+
+struct filemgr *filemgr_search_stale_links(struct filemgr *cur_file) {
+    struct filemgr *very_old_file;
+    spin_lock(&filemgr_openlock);
+    very_old_file = (struct filemgr *)hash_scan(&hash,
+                                         _filemgr_check_stale_link, cur_file);
+    spin_unlock(&filemgr_openlock);
+    return very_old_file;
+}
+
+char *filemgr_redirect_old_file(struct filemgr *very_old_file,
+                                     struct filemgr *new_file,
+                                     filemgr_redirect_hdr_func
+                                     redirect_header_func) {
+    size_t old_header_len, new_header_len;
+    uint16_t new_filename_len;
+    char *past_filename;
+    spin_lock(&very_old_file->lock);
+    assert(very_old_file->header.size);
+    assert(very_old_file->new_file);
+    old_header_len = very_old_file->header.size;
+    new_filename_len = strlen(new_file->filename);
+    // Find out the new DB header length with new_file's filename
+    new_header_len = old_header_len - strlen(very_old_file->new_file->filename)
+        + new_filename_len;
+    // As we are going to change the new_filename field in the DB header of the
+    // very_old_file, maybe reallocate DB header buf to accomodate bigger value
+    if (new_header_len > old_header_len) {
+        very_old_file->header.data = realloc(very_old_file->header.data,
+                new_header_len);
+    }
+    very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
+    past_filename = redirect_header_func((uint8_t *)very_old_file->header.data,
+            new_file->filename, new_filename_len + 1);//Update in-memory header
+    very_old_file->header.size = new_header_len;
+    ++(very_old_file->header.revnum);
+
+    spin_unlock(&very_old_file->lock);
+    return past_filename;
+}
+
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
 {
     assert(new_file);

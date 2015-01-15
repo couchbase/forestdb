@@ -1886,7 +1886,7 @@ void read_doc_by_offset_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc, *rdoc1;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -1953,7 +1953,18 @@ void read_doc_by_offset_test()
     TEST_CHK(rdoc->deleted == false);
     TEST_CMP(rdoc->meta, doc[5]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[5]->body, rdoc->bodylen);
+
+    // MB-13095
+    fdb_doc_create(&rdoc1, NULL, 0, NULL, 0, NULL, 0);
+    rdoc1->offset = rdoc->offset;
+    status = fdb_get_byoffset(db, rdoc1);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc1->key, doc[5]->key, rdoc1->keylen);
+    TEST_CMP(rdoc1->meta, doc[5]->meta, rdoc1->metalen);
+    TEST_CMP(rdoc1->body, doc[5]->body, rdoc1->bodylen);
+
     fdb_doc_free(rdoc);
+    fdb_doc_free(rdoc1);
 
     // do compaction
     fdb_compact(dbfile, (char *) "./dummy2");

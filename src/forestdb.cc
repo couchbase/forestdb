@@ -1500,7 +1500,7 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    (*doc)->seqnum = 0;
+    (*doc)->seqnum = SEQNUM_NOT_USED;
 
     if (key && keylen > 0) {
         (*doc)->key = (void *)malloc(keylen);
@@ -2917,6 +2917,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     Note: the list of functions that need to be modified
           if the header structure is changed:
 
+        _fdb_redirect_header() in forestdb.cc
         filemgr_destory_file() in filemgr.cc
     */
     uint8_t *buf = alca(uint8_t, handle->config.blocksize);
@@ -3002,6 +3003,47 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     seq_memcpy(buf + offset, &crc, sizeof(crc), offset);
 
     return filemgr_update_header(handle->file, buf, offset);
+}
+
+static
+char *_fdb_redirect_header(uint8_t *buf, char *new_filename,
+                                 uint16_t new_filename_len) {
+    uint16_t old_compact_filename_len; // size of existing old_filename in buf
+    uint16_t new_compact_filename_len; // size of existing new_filename in buf
+    uint16_t new_filename_len_enc = _endian_encode(new_filename_len);
+    uint32_t crc;
+    size_t crc_offset;
+    size_t offset = 64;
+    char *old_filename;
+    // Read existing DB header's size of newly compacted filename
+    seq_memcpy(&new_compact_filename_len, buf + offset, sizeof(uint16_t),
+               offset);
+    new_compact_filename_len = _endian_decode(new_compact_filename_len);
+
+    // Read existing DB header's size of filename before its compaction
+    seq_memcpy(&old_compact_filename_len, buf + offset, sizeof(uint16_t),
+               offset);
+    old_compact_filename_len = _endian_decode(old_compact_filename_len);
+
+    // Update DB header's size of newly compacted filename to redirected one
+    memcpy(buf + 64, &new_filename_len_enc, sizeof(uint16_t));
+
+    // Copy over existing DB header's old_filename to its new location
+    old_filename = (char*)buf + offset + new_filename_len;
+    if (new_compact_filename_len != new_filename_len) {
+        memmove(old_filename, buf + offset + new_compact_filename_len,
+                old_compact_filename_len);
+    }
+    // Update the DB header's new_filename to the redirected one
+    memcpy(buf + 68, new_filename, new_filename_len);
+    // Compute the DB header's new crc32 value
+    crc_offset = 68 + new_filename_len + old_compact_filename_len;
+    crc = chksum(buf, crc_offset);
+    crc = _endian_encode(crc);
+    // Update the DB header's new crc32 value
+    memcpy(buf + crc_offset, &crc, sizeof(crc));
+    // If the DB header indicated an old_filename, return it
+    return old_compact_filename_len ? old_filename : NULL;
 }
 
 static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
@@ -3197,6 +3239,20 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     bid_t dirty_idtree_root, dirty_seqtree_root;
     struct avl_tree flush_items;
     fdb_status status = FDB_RESULT_SUCCESS;
+    struct filemgr *very_old_file;
+
+    do { // Find all files pointing to old_file and redirect them to new file..
+        very_old_file = filemgr_search_stale_links(old_file);
+        if (very_old_file) {
+            filemgr_redirect_old_file(very_old_file, new_file,
+                                      _fdb_redirect_header);
+            status = filemgr_commit(very_old_file, &handle->log_callback);
+            // Since filemgr_search_stale_links() will have opened the file
+            // we must close it here to ensure decrement of ref counter
+            filemgr_close(very_old_file, 1, very_old_file->filename,
+                          &handle->log_callback);
+        }
+    } while (very_old_file);
 
     filemgr_mutex_lock(handle->file);
 
