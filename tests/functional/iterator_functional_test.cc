@@ -191,6 +191,26 @@ void iterator_test()
     TEST_CHK(i==9);
     fdb_iterator_close(iterator);
 
+    // create another iterator for the range of doc[5] ~ doc[7]
+    fdb_iterator_init(db, &iterator, (void*)keybuf, strlen(keybuf),
+        (void*)temp, strlen(temp), FDB_ITR_SKIP_MIN_KEY | FDB_ITR_SKIP_MAX_KEY);
+
+    // repeat until fail
+    i=5;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        i++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(i==8);
+    fdb_iterator_close(iterator);
+
     // remove document #8 and #9
     fdb_doc_create(&rdoc, doc[8]->key, doc[8]->keylen, doc[8]->meta,
                    doc[8]->metalen, NULL, 0);

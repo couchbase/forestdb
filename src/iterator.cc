@@ -746,10 +746,21 @@ start:
         cmp = _fdb_key_cmp(iterator, iterator->start_key,
                            iterator->start_keylen, key, keylen);
 
-        if (cmp > 0) {
-            // current key (KEY) is lexicographically less than
-            // START key terminate the iteration
+        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
+            // current key (KEY) is lexicographically less than START_KEY
+            // OR it is the start key and user wishes to skip it..
+            // terminate the iteration
             return FDB_RESULT_ITERATOR_FAIL;
+        }
+    }
+
+    if (iterator->end_key) {
+        cmp = _fdb_key_cmp(iterator, iterator->end_key,
+                           iterator->end_keylen, key, keylen);
+
+        if (cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) {
+            // key is the end_key but users wishes to skip it, redo..
+            goto start;
         }
     }
 
@@ -885,12 +896,22 @@ start:
         iterator->_offset = BLK_NOT_FOUND;
     }
 
+    if (iterator->start_key) {
+        cmp = _fdb_key_cmp(iterator, iterator->start_key,
+                           iterator->start_keylen, key, keylen);
+
+        if (cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) {
+            // If user wishes to skip start key, redo first step
+            goto start;
+        }
+    }
+
     if (iterator->end_key) {
         cmp = _fdb_key_cmp(iterator, iterator->end_key, iterator->end_keylen,
                            key, keylen);
-
-        if (cmp < 0) {
+        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
             // current key (KEY) is lexicographically greater than END_KEY
+            // OR it is the end_key and user wishes to skip it
             // terminate the iteration
             return FDB_RESULT_ITERATOR_FAIL;
         }
