@@ -96,6 +96,47 @@ struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
     return NULL;
 }
 
+void *hash_scan(struct hash *hash, hash_check_func *check_func, void *ctx)
+{
+    int i;
+    void *ret = NULL;
+
+#ifdef _HASH_TREE
+    struct avl_node *node;
+#else
+    struct list_elem *e;
+#endif
+
+    struct hash_elem *h;
+
+    for (i=0;i<hash->nbuckets;++i){
+#ifdef _HASH_TREE
+        node = avl_first(hash->buckets + i);
+        while(node){
+            h = _get_entry(node, struct hash_elem, avl);
+            node = avl_next(node);
+            ret = check_func(h, ctx);
+            if (ret) {
+                return ret;
+            }
+        }
+
+#else
+        e = list_begin(hash->buckets + i);
+        while(e) {
+            h = _get_entry(e, struct hash_elem, list_elem);
+            ret = check_func(h, ctx);
+            if (ret) {
+                return ret;
+            }
+            e = list_next(e);
+        }
+
+#endif
+    }
+    return ret;
+}
+
 struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e)
 {
     int bucket = hash->hash_func(hash, e);

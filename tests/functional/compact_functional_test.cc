@@ -240,8 +240,17 @@ void compact_with_reopen_test()
     status = fdb_set_log_callback(second_dbh, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    // In-place compaction
-    fdb_compact(dbfile, NULL);
+    // In-place compactions with a handle still open on the first old file
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // MB-12977: retest compaction again..
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     fdb_kvs_close(db);
     fdb_close(dbfile);
 
@@ -266,7 +275,7 @@ void compact_with_reopen_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_get_file_info(dbfile, &info);
     // The actual file name should be a compacted one.
-    TEST_CHK(!strcmp("./dummy1.1", info.filename));
+    TEST_CHK(!strcmp("./dummy1.3", info.filename));
 
     fdb_kvs_close(second_dbh);
     fdb_close(second_dbfile);

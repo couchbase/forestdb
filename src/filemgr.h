@@ -206,6 +206,12 @@ fdb_status filemgr_destroy_file(char *filename,
                                 struct filemgr_config *config,
                                 struct hash *destroy_set);
 
+struct filemgr *filemgr_search_stale_links(struct filemgr *cur_file);
+typedef char *filemgr_redirect_hdr_func(uint8_t *buf, char *new_filename,
+                                       uint16_t new_filename_len);
+char *filemgr_redirect_old_file(struct filemgr *very_old_file,
+                                struct filemgr *new_file,
+                                filemgr_redirect_hdr_func redirect_func);
 file_status_t filemgr_get_file_status(struct filemgr *file);
 uint64_t filemgr_get_pos(struct filemgr *file);
 
