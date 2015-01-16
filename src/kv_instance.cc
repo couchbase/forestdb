@@ -1516,6 +1516,12 @@ fdb_kvs_remove_start:
             }
             e = list_next(e);
         }
+        // reset KVS stats (excepting for WAL stats)
+        file->header.stat.ndocs = 0;
+        file->header.stat.nlivenodes = 0;
+        file->header.stat.datasize = 0;
+        // reset seqnum
+        filemgr_set_seqnum(file, 0);
         spin_unlock(&root_handle->fhandle->lock);
 
     } else {
@@ -1558,6 +1564,9 @@ fdb_kvs_remove_start:
         free(node->kvs_name);
         free(node);
     }
+
+    // discard all WAL entries
+    wal_close_kv_ins(file, kv_id);
 
     // sync dirty root nodes
     bid_t dirty_idtree_root, dirty_seqtree_root;
