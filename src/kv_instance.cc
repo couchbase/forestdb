@@ -441,6 +441,9 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle)
 {
+    struct avl_node *a, *aa;
+    struct kvs_node *node_old, *node_new;
+
     // copy KV header data in 'handle' to new file
     fdb_kvs_header_create(new_file);
     // read from 'handle->dhandle', and import into 'new_file'
@@ -452,10 +455,21 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
     fdb_kvs_header_reset_all_stats(new_file);
     spin_lock(&handle->file->kv_header->lock);
     spin_lock(&new_file->kv_header->lock);
+    // copy all in-memory custom cmp function pointers
     new_file->kv_header->default_kvs_cmp =
         handle->file->kv_header->default_kvs_cmp;
     new_file->kv_header->custom_cmp_enabled =
         handle->file->kv_header->custom_cmp_enabled;
+    a = avl_first(handle->file->kv_header->idx_id);
+    while (a) {
+        node_old = _get_entry(a, struct kvs_node, avl_id);
+        aa = avl_search(new_file->kv_header->idx_id,
+                        &node_old->avl_id, _kvs_cmp_id);
+        assert(aa); // MUST exist
+        node_new = _get_entry(aa, struct kvs_node, avl_id);
+        node_new->custom_cmp = node_old->custom_cmp;
+        a = avl_next(a);
+    }
     spin_unlock(&new_file->kv_header->lock);
     spin_unlock(&handle->file->kv_header->lock);
 }
