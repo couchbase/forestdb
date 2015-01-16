@@ -366,7 +366,7 @@ void compact_reopen_named_kvs()
     fdb_kvs_open(dbfile, &db, "db",  &kvs_config);
 
     status = fdb_set_log_callback(db, logCallbackFunc,
-                                  (void *) "compact_with_reopen_test");
+                                  (void *) "compact_reopen_named_kvs");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     for (i=0;i<n;++i){
@@ -411,7 +411,7 @@ void compact_reopen_named_kvs()
 
     memleak_end();
 
-    TEST_RESULT("compaction with reopen test");
+    TEST_RESULT("compact reopen named kvs");
 }
 
 void auto_recover_compact_ok_test()

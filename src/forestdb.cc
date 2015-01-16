@@ -399,7 +399,8 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     new_db.fhandle = handle->fhandle;
     new_db.kvs_config = handle->kvs_config;
-    fdb_status status = _fdb_open(&new_db, new_filename, &config);
+    fdb_status status = _fdb_open(&new_db, new_filename,
+                                  FDB_AFILENAME, &config);
     if (status != FDB_RESULT_SUCCESS) {
         return fdb_log(&handle->log_callback, status,
                        "Error in opening a partially compacted file '%s' for recovery.",
@@ -664,7 +665,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     fdb_init(fconfig);
     fdb_file_handle_init(fhandle, handle);
 
-    fdb_status fs = _fdb_open(handle, filename, &config);
+    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -730,7 +731,7 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     fdb_file_handle_parse_cmp_func(fhandle, num_functions,
                                    kvs_names, functions);
 
-    fdb_status fs = _fdb_open(handle, filename, &config);
+    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -768,7 +769,7 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
 
     fdb_file_handle_init(fhandle, handle);
-    fdb_status fs = _fdb_open(handle, filename, fconfig);
+    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, fconfig);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -866,7 +867,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
                                                    file),
                               handle);
     } else {
-        fs = _fdb_open(handle, file->filename, &config);
+        fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
     }
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -969,7 +970,7 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     handle->max_seqnum = seqnum;
     handle->fhandle = handle_in->fhandle;
 
-    fs = _fdb_open(handle, handle_in->file->filename, &config);
+    fs = _fdb_open(handle, handle_in->file->filename, FDB_AFILENAME, &config);
     filemgr_set_rollback(handle_in->file, 0); // allow mutations
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -1030,6 +1031,7 @@ static void _fdb_init_file_config(const fdb_config *config,
 
 fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const char *filename,
+                     fdb_filename_mode_t filename_mode,
                      const fdb_config *config)
 {
     struct filemgr_config fconfig;
@@ -1063,14 +1065,20 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         return FDB_RESULT_TOO_LONG_FILENAME;
     }
 
-    if (!compactor_is_valid_mode(filename, (fdb_config *)config)) {
+    if (filename_mode == FDB_VFILENAME &&
+        !compactor_is_valid_mode(filename, (fdb_config *)config)) {
         return FDB_RESULT_INVALID_COMPACTION_MODE;
     }
 
     _fdb_init_file_config(config, &fconfig);
 
-    compactor_get_actual_filename(filename, actual_filename,
-                                  config->compaction_mode);
+    if (filename_mode == FDB_VFILENAME) {
+        compactor_get_actual_filename(filename, actual_filename,
+                                      config->compaction_mode);
+    } else {
+        strcpy(actual_filename, filename);
+    }
+
     if (handle->filename) {
         handle->filename = (char *)realloc(handle->filename, strlen(filename)+1);
     } else {
@@ -1913,7 +1921,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
                 char filename[FDB_MAX_FILENAME_LEN];
                 strcpy(filename, handle->filename);
                 _fdb_close(handle);
-                _fdb_open(handle, filename, &config);
+                _fdb_open(handle, filename, FDB_VFILENAME, &config);
 
             } else {
                 filemgr_get_header(handle->file, buf, &header_len);
@@ -1923,7 +1931,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle)
                                  &kv_info_offset, &header_flags,
                                  &new_filename, NULL);
                 _fdb_close(handle);
-                _fdb_open(handle, new_filename, &config);
+                _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
             }
         }
     }
@@ -1949,6 +1957,37 @@ void fdb_link_new_file(fdb_kvs_handle *handle)
                    handle->new_file,
                    handle->config.compress_document_body);
     }
+}
+
+static bool _fdb_sync_dirty_root(fdb_kvs_handle *handle)
+{
+    bool locked = false;
+    bid_t dirty_idtree_root, dirty_seqtree_root;
+
+    if ( ( handle->dirty_updates ||
+           filemgr_dirty_root_exist(handle->file) )  &&
+         filemgr_get_header_bid(handle->file) == handle->last_hdr_bid ) {
+        // 1) { a) dirty WAL flush by this handle exists OR
+        //      b) dirty WAL flush by other handle exists } AND
+        // 2) no commit was performed yet.
+        // grab lock for writer
+        filemgr_mutex_lock(handle->file);
+        locked = true;
+
+        // get dirty root nodes
+        filemgr_get_dirty_root(handle->file,
+                               &dirty_idtree_root, &dirty_seqtree_root);
+        if (dirty_idtree_root != BLK_NOT_FOUND) {
+            handle->trie->root_bid = dirty_idtree_root;
+        }
+        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            if (dirty_seqtree_root != BLK_NOT_FOUND) {
+                handle->seqtree->root_bid = dirty_seqtree_root;
+            }
+        }
+        btreeblk_discard_blocks(handle->bhandle);
+    }
+    return locked;
 }
 
 LIBFDB_API
@@ -2011,26 +2050,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
@@ -2154,27 +2174,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
-                                   &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
@@ -2281,26 +2281,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         _seqnum = _endian_encode(doc->seqnum);
         if (handle->kvs) {
@@ -2427,26 +2408,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = false;
-        bid_t dirty_idtree_root, dirty_seqtree_root;
-
-        if (handle->dirty_updates) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-
-            // get dirty root nodes
-            filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-            if (dirty_idtree_root != BLK_NOT_FOUND) {
-                handle->trie->root_bid = dirty_idtree_root;
-            }
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
-                }
-            }
-            btreeblk_discard_blocks(handle->bhandle);
-        }
+        bool locked = _fdb_sync_dirty_root(handle);
 
         _seqnum = _endian_encode(doc->seqnum);
         if (handle->kvs) {
@@ -3246,7 +3208,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         if (very_old_file) {
             filemgr_redirect_old_file(very_old_file, new_file,
                                       _fdb_redirect_header);
-            status = filemgr_commit(very_old_file, &handle->log_callback);
+            filemgr_commit(very_old_file, &handle->log_callback);
+            // I/O errors here are not propogated since this is best-effort
             // Since filemgr_search_stale_links() will have opened the file
             // we must close it here to ensure decrement of ref counter
             filemgr_close(very_old_file, 1, very_old_file->filename,
@@ -3905,7 +3868,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
                 return FDB_RESULT_FILE_RENAME_FAIL;
             }
             config.compaction_mode = FDB_COMPACTION_MANUAL;
-            fs = _fdb_open(handle, vfilename, &config);
+            fs = _fdb_open(handle, vfilename, FDB_VFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
@@ -3922,7 +3885,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
             }
             config.compaction_mode = FDB_COMPACTION_AUTO;
             config.compaction_threshold = new_threshold;
-            fs = _fdb_open(handle, vfilename, &config);
+            fs = _fdb_open(handle, vfilename, FDB_VFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }

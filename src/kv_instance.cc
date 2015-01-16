@@ -998,7 +998,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
             return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
         }
     }
-    fs = _fdb_open(handle, file->filename, config);
+    fs = _fdb_open(handle, file->filename, FDB_AFILENAME, config);
     if (fs != FDB_RESULT_SUCCESS) {
         if (handle->node) {
             spin_lock(&root_handle->fhandle->lock);
@@ -1101,7 +1101,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             }
 
             handle->fhandle = fhandle;
-            fs = _fdb_open(handle, file->filename, &config);
+            fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 free(handle);
                 *ptr_handle = NULL;
@@ -1350,7 +1350,8 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                                              handle_in->file),
                            handle);
     } else {
-        fs = _fdb_open(handle, handle_in->file->filename, &config);
+        fs = _fdb_open(handle, handle_in->file->filename,
+                       FDB_AFILENAME, &config);
     }
     filemgr_set_rollback(handle_in->file, 0); // allow mutations
 
@@ -1373,9 +1374,9 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                                  sizeof(fdb_kvs_id_t), &id_root);
         btreeblk_end(handle->bhandle);
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            hr = hbtrie_insert_partial(super_handle->trie,
-                                       &_kv_id, sizeof(fdb_kvs_id_t),
-                                       &id_root, &dummy);
+            hbtrie_insert_partial(super_handle->trie,
+                                  &_kv_id, sizeof(fdb_kvs_id_t),
+                                  &id_root, &dummy);
             btreeblk_end(super_handle->bhandle);
         }
 
@@ -1384,9 +1385,9 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                                  sizeof(fdb_kvs_id_t), &seq_root);
         btreeblk_end(handle->bhandle);
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            hr = hbtrie_insert_partial(super_handle->seqtrie,
-                                       &_kv_id, sizeof(fdb_kvs_id_t),
-                                       &seq_root, &dummy);
+            hbtrie_insert_partial(super_handle->seqtrie,
+                                  &_kv_id, sizeof(fdb_kvs_id_t),
+                                  &seq_root, &dummy);
             btreeblk_end(super_handle->bhandle);
         }
 

@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-15 08:47:07</td>
+            <td class="headerValue">2015-01-16 07:39:57</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">25</td>
@@ -149,36 +149,36 @@
 <span class="lineNum">      78 </span>                :            : }
 <a name="79"><span class="lineNum">      79 </span>                :            : #endif</a>
 <span class="lineNum">      80 </span>                :            : 
-<span class="lineNum">      81 </span>                :<span class="lineCov">    7815488 : INLINE void _btreeblk_get_aligned_block(struct btreeblk_handle *handle,</span>
+<span class="lineNum">      81 </span>                :<span class="lineCov">    7839424 : INLINE void _btreeblk_get_aligned_block(struct btreeblk_handle *handle,</span>
 <span class="lineNum">      82 </span>                :            :                                         struct btreeblk_block *block)
 <span class="lineNum">      83 </span>                :            : {
 <span class="lineNum">      84 </span>                :            : #ifdef __BTREEBLK_BLOCKPOOL
 <span class="lineNum">      85 </span>                :            :     struct list_elem *e;
 <span class="lineNum">      86 </span>                :            : 
-<span class="lineNum">      87 </span>                :<span class="lineCov">    7815488 :     e = list_pop_front(&amp;handle-&gt;blockpool);</span>
-<span class="lineNum">      88 </span>        [<span class="branchCov" title="Branch 0 was taken 7813809 times"> + </span><span class="branchCov" title="Branch 1 was taken 3394 times"> + </span>]:<span class="lineCov">    7817203 :     if (e) {</span>
-<span class="lineNum">      89 </span>                :<span class="lineCov">    7813809 :         block-&gt;addr_item = _get_entry(e, struct btreeblk_addr, le);</span>
-<span class="lineNum">      90 </span>                :<span class="lineCov">    7813809 :         block-&gt;addr = block-&gt;addr_item-&gt;addr;</span>
-<span class="lineNum">      91 </span>                :<span class="lineCov">    7817203 :         return;</span>
+<span class="lineNum">      87 </span>                :<span class="lineCov">    7839424 :     e = list_pop_front(&amp;handle-&gt;blockpool);</span>
+<span class="lineNum">      88 </span>        [<span class="branchCov" title="Branch 0 was taken 7836765 times"> + </span><span class="branchCov" title="Branch 1 was taken 3382 times"> + </span>]:<span class="lineCov">    7840147 :     if (e) {</span>
+<span class="lineNum">      89 </span>                :<span class="lineCov">    7836765 :         block-&gt;addr_item = _get_entry(e, struct btreeblk_addr, le);</span>
+<span class="lineNum">      90 </span>                :<span class="lineCov">    7836765 :         block-&gt;addr = block-&gt;addr_item-&gt;addr;</span>
+<span class="lineNum">      91 </span>                :<span class="lineCov">    7840146 :         return;</span>
 <span class="lineNum">      92 </span>                :            :     }
 <span class="lineNum">      93 </span>                :            :     // no free addr .. create
 <span class="lineNum">      94 </span>                :            :     block-&gt;addr_item = (struct btreeblk_addr *)
-<span class="lineNum">      95 </span>                :<span class="lineCov">       3394 :                        mempool_alloc(sizeof(struct btreeblk_addr));</span>
+<span class="lineNum">      95 </span>                :<span class="lineCov">       3382 :                        mempool_alloc(sizeof(struct btreeblk_addr));</span>
 <span class="lineNum">      96 </span>                :            : #endif
 <span class="lineNum">      97 </span>                :            : 
-<span class="lineNum">      98 </span>                :<span class="lineCov">       3394 :     malloc_align(block-&gt;addr, FDB_SECTOR_SIZE, handle-&gt;file-&gt;blocksize);</span>
+<span class="lineNum">      98 </span>                :<span class="lineCov">       3382 :     malloc_align(block-&gt;addr, FDB_SECTOR_SIZE, handle-&gt;file-&gt;blocksize);</span>
 <a name="99"><span class="lineNum">      99 </span>                :            : }</a>
 <span class="lineNum">     100 </span>                :            : 
-<span class="lineNum">     101 </span>                :<span class="lineCov">    7813752 : INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,</span>
+<span class="lineNum">     101 </span>                :<span class="lineCov">    7837109 : INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,</span>
 <span class="lineNum">     102 </span>                :            :                                          struct btreeblk_block *block)
 <span class="lineNum">     103 </span>                :            : {
 <span class="lineNum">     104 </span>                :            : #ifdef __BTREEBLK_BLOCKPOOL
-<span class="lineNum">     105 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 7813752 times"> + </span>]:<span class="lineCov">    7813752 :     assert(block-&gt;addr_item);</span>
+<span class="lineNum">     105 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 7837109 times"> + </span>]:<span class="lineCov">    7837109 :     assert(block-&gt;addr_item);</span>
 <span class="lineNum">     106 </span>                :            :     // sync addr &amp; insert into pool
-<span class="lineNum">     107 </span>                :<span class="lineCov">    7813752 :     block-&gt;addr_item-&gt;addr = block-&gt;addr;</span>
-<span class="lineNum">     108 </span>                :<span class="lineCov">    7813752 :     list_push_front(&amp;handle-&gt;blockpool, &amp;block-&gt;addr_item-&gt;le);</span>
-<span class="lineNum">     109 </span>                :<span class="lineCov">    7814960 :     block-&gt;addr_item = NULL;</span>
-<span class="lineNum">     110 </span>                :<span class="lineCov">    7814960 :     return;</span>
+<span class="lineNum">     107 </span>                :<span class="lineCov">    7837109 :     block-&gt;addr_item-&gt;addr = block-&gt;addr;</span>
+<span class="lineNum">     108 </span>                :<span class="lineCov">    7837109 :     list_push_front(&amp;handle-&gt;blockpool, &amp;block-&gt;addr_item-&gt;le);</span>
+<span class="lineNum">     109 </span>                :<span class="lineCov">    7838844 :     block-&gt;addr_item = NULL;</span>
+<span class="lineNum">     110 </span>                :<span class="lineCov">    7838844 :     return;</span>
 <span class="lineNum">     111 </span>                :            : 
 <span class="lineNum">     112 </span>                :            : #endif
 <span class="lineNum">     113 </span>                :            : 
@@ -194,35 +194,35 @@
 <span class="lineNum">     123 </span>                :            : }
 <a name="124"><span class="lineNum">     124 </span>                :            : // LCOV_EXCL_STOP</a>
 <span class="lineNum">     125 </span>                :            : 
-<span class="lineNum">     126 </span>                :<span class="lineCov">       7840 : INLINE void bid2subbid(bid_t bid, size_t subblock_no, size_t idx, bid_t *subbid)</span>
+<span class="lineNum">     126 </span>                :<span class="lineCov">       7877 : INLINE void bid2subbid(bid_t bid, size_t subblock_no, size_t idx, bid_t *subbid)</span>
 <span class="lineNum">     127 </span>                :            : {
 <span class="lineNum">     128 </span>                :            :     bid_t flag;
 <span class="lineNum">     129 </span>                :            :     // to distinguish subblock_no==0 to non-subblock
-<span class="lineNum">     130 </span>                :<span class="lineCov">       7840 :     subblock_no++;</span>
-<span class="lineNum">     131 </span>                :<span class="lineCov">       7840 :     flag = (subblock_no &lt;&lt; 5) | idx;</span>
-<a name="132"><span class="lineNum">     132 </span>                :<span class="lineCov">       7840 :     *subbid = bid | (flag &lt;&lt; (8 * (sizeof(bid_t)-2)));</span></a>
-<span class="lineNum">     133 </span>                :<span class="lineCov">       7840 : }</span>
-<span class="lineNum">     134 </span>                :<span class="lineCov">  131523736 : INLINE void subbid2bid(bid_t subbid, size_t *subblock_no, size_t *idx, bid_t *bid)</span>
+<span class="lineNum">     130 </span>                :<span class="lineCov">       7877 :     subblock_no++;</span>
+<span class="lineNum">     131 </span>                :<span class="lineCov">       7877 :     flag = (subblock_no &lt;&lt; 5) | idx;</span>
+<a name="132"><span class="lineNum">     132 </span>                :<span class="lineCov">       7877 :     *subbid = bid | (flag &lt;&lt; (8 * (sizeof(bid_t)-2)));</span></a>
+<span class="lineNum">     133 </span>                :<span class="lineCov">       7877 : }</span>
+<span class="lineNum">     134 </span>                :<span class="lineCov">  131646665 : INLINE void subbid2bid(bid_t subbid, size_t *subblock_no, size_t *idx, bid_t *bid)</span>
 <span class="lineNum">     135 </span>                :            : {
 <span class="lineNum">     136 </span>                :            :     uint8_t flag;
-<span class="lineNum">     137 </span>                :<span class="lineCov">  131523736 :     flag = (subbid &gt;&gt; (8 * (sizeof(bid_t)-2))) &amp; 0x00ff;</span>
-<span class="lineNum">     138 </span>                :<span class="lineCov">  131523736 :     *subblock_no = flag &gt;&gt; 5;</span>
+<span class="lineNum">     137 </span>                :<span class="lineCov">  131646665 :     flag = (subbid &gt;&gt; (8 * (sizeof(bid_t)-2))) &amp; 0x00ff;</span>
+<span class="lineNum">     138 </span>                :<span class="lineCov">  131646665 :     *subblock_no = flag &gt;&gt; 5;</span>
 <span class="lineNum">     139 </span>                :            :     // to distinguish subblock_no==0 to non-subblock
-<span class="lineNum">     140 </span>                :<span class="lineCov">  131523736 :     *subblock_no -= 1;</span>
-<span class="lineNum">     141 </span>                :<span class="lineCov">  131523736 :     *idx = flag &amp; (0x20 - 0x01);</span>
-<span class="lineNum">     142 </span>                :<span class="lineCov">  131523736 :     *bid = ((bid_t)(subbid &lt;&lt; 16)) &gt;&gt; 16;</span>
-<a name="143"><span class="lineNum">     143 </span>                :<span class="lineCov">  131523736 : }</span></a>
+<span class="lineNum">     140 </span>                :<span class="lineCov">  131646665 :     *subblock_no -= 1;</span>
+<span class="lineNum">     141 </span>                :<span class="lineCov">  131646665 :     *idx = flag &amp; (0x20 - 0x01);</span>
+<span class="lineNum">     142 </span>                :<span class="lineCov">  131646665 :     *bid = ((bid_t)(subbid &lt;&lt; 16)) &gt;&gt; 16;</span>
+<a name="143"><span class="lineNum">     143 </span>                :<span class="lineCov">  131646665 : }</span></a>
 <span class="lineNum">     144 </span>                :            : 
-<span class="lineNum">     145 </span>                :<span class="lineCov">      94565 : INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)</span>
+<span class="lineNum">     145 </span>                :<span class="lineCov">      94592 : INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)</span>
 <span class="lineNum">     146 </span>                :            : {
-<span class="lineNum">     147 </span>                :<span class="lineCov">      94565 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
-<span class="lineNum">     148 </span>                :<span class="lineCov">      94565 :     struct list_elem *e = list_end(&amp;handle-&gt;alc_list);</span>
+<span class="lineNum">     147 </span>                :<span class="lineCov">      94592 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     148 </span>                :<span class="lineCov">      94592 :     struct list_elem *e = list_end(&amp;handle-&gt;alc_list);</span>
 <span class="lineNum">     149 </span>                :            :     struct btreeblk_block *block;
 <span class="lineNum">     150 </span>                :            :     uint32_t curpos;
 <span class="lineNum">     151 </span>                :            : 
-<span class="lineNum">     152 </span>        [<span class="branchCov" title="Branch 0 was taken 3187 times"> + </span><span class="branchCov" title="Branch 1 was taken 91378 times"> + </span>]:<span class="lineCov">      94565 :     if (e) {</span>
-<span class="lineNum">     153 </span>                :<span class="lineCov">       3187 :         block = _get_entry(e, struct btreeblk_block, le);</span>
-<span class="lineNum">     154 </span>        [<span class="branchCov" title="Branch 0 was taken 27 times"> + </span><span class="branchCov" title="Branch 1 was taken 3160 times"> + </span>]:<span class="lineCov">       3187 :         if (block-&gt;pos &lt;= (handle-&gt;file-&gt;blocksize) - (handle-&gt;nodesize)) {</span>
+<span class="lineNum">     152 </span>        [<span class="branchCov" title="Branch 0 was taken 3195 times"> + </span><span class="branchCov" title="Branch 1 was taken 91397 times"> + </span>]:<span class="lineCov">      94592 :     if (e) {</span>
+<span class="lineNum">     153 </span>                :<span class="lineCov">       3195 :         block = _get_entry(e, struct btreeblk_block, le);</span>
+<span class="lineNum">     154 </span>        [<span class="branchCov" title="Branch 0 was taken 27 times"> + </span><span class="branchCov" title="Branch 1 was taken 3168 times"> + </span>]:<span class="lineCov">       3195 :         if (block-&gt;pos &lt;= (handle-&gt;file-&gt;blocksize) - (handle-&gt;nodesize)) {</span>
 <span class="lineNum">     155 </span>        [<span class="branchCov" title="Branch 1 was taken 27 times"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span>]:<span class="lineCov">         27 :             if (filemgr_is_writable(handle-&gt;file, block-&gt;bid)) {</span>
 <span class="lineNum">     156 </span>                :<span class="lineCov">         27 :                 curpos = block-&gt;pos;</span>
 <span class="lineNum">     157 </span>                :<span class="lineCov">         27 :                 block-&gt;pos += (handle-&gt;nodesize);</span>
@@ -234,34 +234,34 @@
 <span class="lineNum">     163 </span>                :            :     }
 <span class="lineNum">     164 </span>                :            : 
 <span class="lineNum">     165 </span>                :            :     // allocate new block from file manager
-<span class="lineNum">     166 </span>                :<span class="lineCov">      94538 :     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));</span>
-<span class="lineNum">     167 </span>                :<span class="lineCov">      94538 :     _btreeblk_get_aligned_block(handle, block);</span>
-<span class="lineNum">     168 </span>                :<span class="lineCov">      94538 :     block-&gt;sb_no = sb_no;</span>
-<span class="lineNum">     169 </span>                :<span class="lineCov">      94538 :     block-&gt;pos = handle-&gt;nodesize;</span>
-<span class="lineNum">     170 </span>                :<span class="lineCov">      94538 :     block-&gt;bid = filemgr_alloc(handle-&gt;file, handle-&gt;log_callback);</span>
-<span class="lineNum">     171 </span>                :<span class="lineCov">      94538 :     block-&gt;dirty = 1;</span>
-<span class="lineNum">     172 </span>                :<span class="lineCov">      94538 :     block-&gt;age = 0;</span>
+<span class="lineNum">     166 </span>                :<span class="lineCov">      94565 :     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));</span>
+<span class="lineNum">     167 </span>                :<span class="lineCov">      94565 :     _btreeblk_get_aligned_block(handle, block);</span>
+<span class="lineNum">     168 </span>                :<span class="lineCov">      94565 :     block-&gt;sb_no = sb_no;</span>
+<span class="lineNum">     169 </span>                :<span class="lineCov">      94565 :     block-&gt;pos = handle-&gt;nodesize;</span>
+<span class="lineNum">     170 </span>                :<span class="lineCov">      94565 :     block-&gt;bid = filemgr_alloc(handle-&gt;file, handle-&gt;log_callback);</span>
+<span class="lineNum">     171 </span>                :<span class="lineCov">      94565 :     block-&gt;dirty = 1;</span>
+<span class="lineNum">     172 </span>                :<span class="lineCov">      94565 :     block-&gt;age = 0;</span>
 <span class="lineNum">     173 </span>                :            : 
 <span class="lineNum">     174 </span>                :            : #ifdef __CRC32
-<span class="lineNum">     175 </span>                :<span class="lineCov">      94538 :     memset((uint8_t *)block-&gt;addr + handle-&gt;nodesize - BLK_MARKER_SIZE,</span>
-<span class="lineNum">     176 </span>                :<span class="lineCov">     189076 :            BLK_MARKER_BNODE, BLK_MARKER_SIZE);</span>
+<span class="lineNum">     175 </span>                :<span class="lineCov">      94565 :     memset((uint8_t *)block-&gt;addr + handle-&gt;nodesize - BLK_MARKER_SIZE,</span>
+<span class="lineNum">     176 </span>                :<span class="lineCov">     189130 :            BLK_MARKER_BNODE, BLK_MARKER_SIZE);</span>
 <span class="lineNum">     177 </span>                :            : #endif
 <span class="lineNum">     178 </span>                :            : 
 <span class="lineNum">     179 </span>                :            :     // btree bid differs to filemgr bid
-<span class="lineNum">     180 </span>                :<span class="lineCov">      94538 :     *bid = block-&gt;bid * handle-&gt;nnodeperblock;</span>
-<span class="lineNum">     181 </span>                :<span class="lineCov">      94538 :     list_push_back(&amp;handle-&gt;alc_list, &amp;block-&gt;le);</span>
+<span class="lineNum">     180 </span>                :<span class="lineCov">      94565 :     *bid = block-&gt;bid * handle-&gt;nnodeperblock;</span>
+<span class="lineNum">     181 </span>                :<span class="lineCov">      94565 :     list_push_back(&amp;handle-&gt;alc_list, &amp;block-&gt;le);</span>
 <span class="lineNum">     182 </span>                :            : 
-<span class="lineNum">     183 </span>                :<span class="lineCov">      94538 :     handle-&gt;nlivenodes++;</span>
+<span class="lineNum">     183 </span>                :<span class="lineCov">      94565 :     handle-&gt;nlivenodes++;</span>
 <span class="lineNum">     184 </span>                :            : 
-<a name="185"><span class="lineNum">     185 </span>                :<span class="lineCov">      94565 :     return block-&gt;addr;</span></a>
+<a name="185"><span class="lineNum">     185 </span>                :<span class="lineCov">      94592 :     return block-&gt;addr;</span></a>
 <span class="lineNum">     186 </span>                :            : }
-<span class="lineNum">     187 </span>                :<span class="lineCov">      92651 : void * btreeblk_alloc(void *voidhandle, bid_t *bid) {</span>
-<span class="lineNum">     188 </span>                :<span class="lineCov">      92651 :     return _btreeblk_alloc(voidhandle, bid, -1);</span>
+<span class="lineNum">     187 </span>                :<span class="lineCov">      92677 : void * btreeblk_alloc(void *voidhandle, bid_t *bid) {</span>
+<span class="lineNum">     188 </span>                :<span class="lineCov">      92677 :     return _btreeblk_alloc(voidhandle, bid, -1);</span>
 <span class="lineNum">     189 </span>                :            : }
 <span class="lineNum">     190 </span>                :            : 
 <a name="191"><span class="lineNum">     191 </span>                :            : </a>
 <span class="lineNum">     192 </span>                :            : #ifdef __ENDIAN_SAFE
-<span class="lineNum">     193 </span>                :<span class="lineCov">    8433608 : INLINE void _btreeblk_encode(struct btreeblk_handle *handle,</span>
+<span class="lineNum">     193 </span>                :<span class="lineCov">    8434188 : INLINE void _btreeblk_encode(struct btreeblk_handle *handle,</span>
 <span class="lineNum">     194 </span>                :            :                              struct btreeblk_block *block)
 <span class="lineNum">     195 </span>                :            : {
 <span class="lineNum">     196 </span>                :            :     size_t i, j, n, nsb, sb_size, offset;
@@ -269,31 +269,31 @@
 <span class="lineNum">     198 </span>                :            :     struct bnode *node;
 <span class="lineNum">     199 </span>                :            :     struct bnode **node_arr;
 <span class="lineNum">     200 </span>                :            : 
-<span class="lineNum">     201 </span>        [<span class="branchCov" title="Branch 0 was taken 8433623 times"> + </span><span class="branchCov" title="Branch 1 was taken 8433628 times"> + </span>]:<span class="lineCov">   16867251 :     for (offset=0; offset&lt;handle-&gt;nnodeperblock; ++offset) {</span>
-<span class="lineNum">     202 </span>        [<span class="branchCov" title="Branch 0 was taken 48399 times"> + </span><span class="branchCov" title="Branch 1 was taken 8385224 times"> + </span>]:<span class="lineCov">    8433623 :         if (block-&gt;sb_no &gt; -1) {</span>
-<span class="lineNum">     203 </span>                :<span class="lineCov">      48399 :             nsb = handle-&gt;sb[block-&gt;sb_no].nblocks;</span>
-<span class="lineNum">     204 </span>                :<span class="lineCov">      48399 :             sb_size = handle-&gt;sb[block-&gt;sb_no].sb_size;</span>
+<span class="lineNum">     201 </span>        [<span class="branchCov" title="Branch 0 was taken 8434203 times"> + </span><span class="branchCov" title="Branch 1 was taken 8434245 times"> + </span>]:<span class="lineCov">   16868448 :     for (offset=0; offset&lt;handle-&gt;nnodeperblock; ++offset) {</span>
+<span class="lineNum">     202 </span>        [<span class="branchCov" title="Branch 0 was taken 48809 times"> + </span><span class="branchCov" title="Branch 1 was taken 8385394 times"> + </span>]:<span class="lineCov">    8434203 :         if (block-&gt;sb_no &gt; -1) {</span>
+<span class="lineNum">     203 </span>                :<span class="lineCov">      48809 :             nsb = handle-&gt;sb[block-&gt;sb_no].nblocks;</span>
+<span class="lineNum">     204 </span>                :<span class="lineCov">      48809 :             sb_size = handle-&gt;sb[block-&gt;sb_no].sb_size;</span>
 <span class="lineNum">     205 </span>                :            :         } else {
-<span class="lineNum">     206 </span>                :<span class="lineCov">    8385224 :             nsb = 1;</span>
-<span class="lineNum">     207 </span>                :<span class="lineCov">    8385224 :             sb_size = 0;</span>
+<span class="lineNum">     206 </span>                :<span class="lineCov">    8385394 :             nsb = 1;</span>
+<span class="lineNum">     207 </span>                :<span class="lineCov">    8385394 :             sb_size = 0;</span>
 <span class="lineNum">     208 </span>                :            :         }
 <span class="lineNum">     209 </span>                :            : 
-<span class="lineNum">     210 </span>        [<span class="branchCov" title="Branch 0 was taken 8940972 times"> + </span><span class="branchCov" title="Branch 1 was taken 8433643 times"> + </span>]:<span class="lineCov">   17374615 :         for (i=0;i&lt;nsb;++i) {</span>
+<span class="lineNum">     210 </span>        [<span class="branchCov" title="Branch 0 was taken 8942964 times"> + </span><span class="branchCov" title="Branch 1 was taken 8434260 times"> + </span>]:<span class="lineCov">   17377224 :         for (i=0;i&lt;nsb;++i) {</span>
 <span class="lineNum">     211 </span>                :            :             addr = (uint8_t*)block-&gt;addr +
 <span class="lineNum">     212 </span>                :            :                    (handle-&gt;nodesize) * offset +
-<span class="lineNum">     213 </span>                :<span class="lineCov">    8940972 :                    sb_size * i;</span>
-<span class="lineNum">     214 </span>                :<span class="lineCov">    8940972 :             node_arr = btree_get_bnode_array(addr, &amp;n);</span>
-<span class="lineNum">     215 </span>        [<span class="branchCov" title="Branch 0 was taken 8940991 times"> + </span><span class="branchCov" title="Branch 1 was taken 8940992 times"> + </span>]:<span class="lineCov">   17881983 :             for (j=0;j&lt;n;++j){</span>
-<span class="lineNum">     216 </span>                :<span class="lineCov">    8940991 :                 node = node_arr[j];</span>
-<span class="lineNum">     217 </span>                :<span class="lineCov">    8940991 :                 node-&gt;flag = _endian_encode(node-&gt;flag);</span>
-<span class="lineNum">     218 </span>                :<span class="lineCov">    8940991 :                 node-&gt;level = _endian_encode(node-&gt;level);</span>
-<span class="lineNum">     219 </span>                :<span class="lineCov">    8940991 :                 node-&gt;nentry = _endian_encode(node-&gt;nentry);</span>
+<span class="lineNum">     213 </span>                :<span class="lineCov">    8942964 :                    sb_size * i;</span>
+<span class="lineNum">     214 </span>                :<span class="lineCov">    8942964 :             node_arr = btree_get_bnode_array(addr, &amp;n);</span>
+<span class="lineNum">     215 </span>        [<span class="branchCov" title="Branch 0 was taken 8943047 times"> + </span><span class="branchCov" title="Branch 1 was taken 8943021 times"> + </span>]:<span class="lineCov">   17886068 :             for (j=0;j&lt;n;++j){</span>
+<span class="lineNum">     216 </span>                :<span class="lineCov">    8943047 :                 node = node_arr[j];</span>
+<span class="lineNum">     217 </span>                :<span class="lineCov">    8943047 :                 node-&gt;flag = _endian_encode(node-&gt;flag);</span>
+<span class="lineNum">     218 </span>                :<span class="lineCov">    8943047 :                 node-&gt;level = _endian_encode(node-&gt;level);</span>
+<span class="lineNum">     219 </span>                :<span class="lineCov">    8943047 :                 node-&gt;nentry = _endian_encode(node-&gt;nentry);</span>
 <span class="lineNum">     220 </span>                :            :             }
-<span class="lineNum">     221 </span>                :<span class="lineCov">    8940992 :             free(node_arr);</span>
+<span class="lineNum">     221 </span>                :<span class="lineCov">    8943021 :             free(node_arr);</span>
 <span class="lineNum">     222 </span>                :            :         }
 <a name="223"><span class="lineNum">     223 </span>                :            :     }</a>
-<span class="lineNum">     224 </span>                :<span class="lineCov">    8433628 : }</span>
-<span class="lineNum">     225 </span>                :<span class="lineCov">   16160001 : INLINE void _btreeblk_decode(struct btreeblk_handle *handle,</span>
+<span class="lineNum">     224 </span>                :<span class="lineCov">    8434245 : }</span>
+<span class="lineNum">     225 </span>                :<span class="lineCov">   16183936 : INLINE void _btreeblk_decode(struct btreeblk_handle *handle,</span>
 <span class="lineNum">     226 </span>                :            :                              struct btreeblk_block *block)
 <span class="lineNum">     227 </span>                :            : {
 <span class="lineNum">     228 </span>                :            :     size_t i, j, n, nsb, sb_size, offset;
@@ -301,30 +301,30 @@
 <span class="lineNum">     230 </span>                :            :     struct bnode *node;
 <span class="lineNum">     231 </span>                :            :     struct bnode **node_arr;
 <span class="lineNum">     232 </span>                :            : 
-<span class="lineNum">     233 </span>        [<span class="branchCov" title="Branch 0 was taken 16159933 times"> + </span><span class="branchCov" title="Branch 1 was taken 16162218 times"> + </span>]:<span class="lineCov">   32322151 :     for (offset=0; offset&lt;handle-&gt;nnodeperblock; ++offset) {</span>
-<span class="lineNum">     234 </span>        [<span class="branchCov" title="Branch 0 was taken 61649 times"> + </span><span class="branchCov" title="Branch 1 was taken 16098284 times"> + </span>]:<span class="lineCov">   16159933 :         if (block-&gt;sb_no &gt; -1) {</span>
-<span class="lineNum">     235 </span>                :<span class="lineCov">      61649 :             nsb = handle-&gt;sb[block-&gt;sb_no].nblocks;</span>
-<span class="lineNum">     236 </span>                :<span class="lineCov">      61649 :             sb_size = handle-&gt;sb[block-&gt;sb_no].sb_size;</span>
+<span class="lineNum">     233 </span>        [<span class="branchCov" title="Branch 0 was taken 16183957 times"> + </span><span class="branchCov" title="Branch 1 was taken 16184988 times"> + </span>]:<span class="lineCov">   32368945 :     for (offset=0; offset&lt;handle-&gt;nnodeperblock; ++offset) {</span>
+<span class="lineNum">     234 </span>        [<span class="branchCov" title="Branch 0 was taken 65297 times"> + </span><span class="branchCov" title="Branch 1 was taken 16118660 times"> + </span>]:<span class="lineCov">   16183957 :         if (block-&gt;sb_no &gt; -1) {</span>
+<span class="lineNum">     235 </span>                :<span class="lineCov">      65297 :             nsb = handle-&gt;sb[block-&gt;sb_no].nblocks;</span>
+<span class="lineNum">     236 </span>                :<span class="lineCov">      65297 :             sb_size = handle-&gt;sb[block-&gt;sb_no].sb_size;</span>
 <span class="lineNum">     237 </span>                :            :         } else {
-<span class="lineNum">     238 </span>                :<span class="lineCov">   16098284 :             nsb = 1;</span>
-<span class="lineNum">     239 </span>                :<span class="lineCov">   16098284 :             sb_size = 0;</span>
+<span class="lineNum">     238 </span>                :<span class="lineCov">   16118660 :             nsb = 1;</span>
+<span class="lineNum">     239 </span>                :<span class="lineCov">   16118660 :             sb_size = 0;</span>
 <span class="lineNum">     240 </span>                :            :         }
 <span class="lineNum">     241 </span>                :            : 
-<span class="lineNum">     242 </span>        [<span class="branchCov" title="Branch 0 was taken 17004595 times"> + </span><span class="branchCov" title="Branch 1 was taken 16162150 times"> + </span>]:<span class="lineCov">   33166745 :         for (i=0;i&lt;nsb;++i) {</span>
+<span class="lineNum">     242 </span>        [<span class="branchCov" title="Branch 0 was taken 17111370 times"> + </span><span class="branchCov" title="Branch 1 was taken 16185009 times"> + </span>]:<span class="lineCov">   33296379 :         for (i=0;i&lt;nsb;++i) {</span>
 <span class="lineNum">     243 </span>                :            :             addr = (uint8_t*)block-&gt;addr +
 <span class="lineNum">     244 </span>                :            :                    (handle-&gt;nodesize) * offset +
-<span class="lineNum">     245 </span>                :<span class="lineCov">   17004595 :                    sb_size * i;</span>
-<span class="lineNum">     246 </span>                :<span class="lineCov">   17004595 :             node_arr = btree_get_bnode_array(addr, &amp;n);</span>
-<span class="lineNum">     247 </span>        [<span class="branchCov" title="Branch 0 was taken 17005995 times"> + </span><span class="branchCov" title="Branch 1 was taken 17006812 times"> + </span>]:<span class="lineCov">   34012807 :             for (j=0;j&lt;n;++j){</span>
-<span class="lineNum">     248 </span>                :<span class="lineCov">   17005995 :                 node = node_arr[j];</span>
-<span class="lineNum">     249 </span>                :<span class="lineCov">   17005995 :                 node-&gt;flag = _endian_decode(node-&gt;flag);</span>
-<span class="lineNum">     250 </span>                :<span class="lineCov">   17005995 :                 node-&gt;level = _endian_decode(node-&gt;level);</span>
-<span class="lineNum">     251 </span>                :<span class="lineCov">   17005995 :                 node-&gt;nentry = _endian_decode(node-&gt;nentry);</span>
+<span class="lineNum">     245 </span>                :<span class="lineCov">   17111370 :                    sb_size * i;</span>
+<span class="lineNum">     246 </span>                :<span class="lineCov">   17111370 :             node_arr = btree_get_bnode_array(addr, &amp;n);</span>
+<span class="lineNum">     247 </span>        [<span class="branchCov" title="Branch 0 was taken 17112359 times"> + </span><span class="branchCov" title="Branch 1 was taken 17112422 times"> + </span>]:<span class="lineCov">   34224781 :             for (j=0;j&lt;n;++j){</span>
+<span class="lineNum">     248 </span>                :<span class="lineCov">   17112359 :                 node = node_arr[j];</span>
+<span class="lineNum">     249 </span>                :<span class="lineCov">   17112359 :                 node-&gt;flag = _endian_decode(node-&gt;flag);</span>
+<span class="lineNum">     250 </span>                :<span class="lineCov">   17112359 :                 node-&gt;level = _endian_decode(node-&gt;level);</span>
+<span class="lineNum">     251 </span>                :<span class="lineCov">   17112359 :                 node-&gt;nentry = _endian_decode(node-&gt;nentry);</span>
 <span class="lineNum">     252 </span>                :            :             }
-<span class="lineNum">     253 </span>                :<span class="lineCov">   17006812 :             free(node_arr);</span>
+<span class="lineNum">     253 </span>                :<span class="lineCov">   17112422 :             free(node_arr);</span>
 <span class="lineNum">     254 </span>                :            :         }
 <span class="lineNum">     255 </span>                :            :     }
-<span class="lineNum">     256 </span>                :<span class="lineCov">   16162218 : }</span>
+<span class="lineNum">     256 </span>                :<span class="lineCov">   16184988 : }</span>
 <span class="lineNum">     257 </span>                :            : #else
 <span class="lineNum">     258 </span>                :            : #define _btreeblk_encode(a,b)
 <span class="lineNum">     259 </span>                :            : #define _btreeblk_decode(a,b)
@@ -333,21 +333,21 @@
 <span class="lineNum">     262 </span>                :            : INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle,
 <a name="263"><span class="lineNum">     263 </span>                :            :                                        struct btreeblk_block *block);</a>
 <span class="lineNum">     264 </span>                :            : 
-<span class="lineNum">     265 </span>                :<span class="lineCov">  114895919 : INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)</span>
+<span class="lineNum">     265 </span>                :<span class="lineCov">  115032914 : INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)</span>
 <span class="lineNum">     266 </span>                :            : {
-<span class="lineNum">     267 </span>                :<span class="lineCov">  114895919 :     struct list_elem *elm = NULL;</span>
-<span class="lineNum">     268 </span>                :<span class="lineCov">  114895919 :     struct btreeblk_block *block = NULL;</span>
-<span class="lineNum">     269 </span>                :<span class="lineCov">  114895919 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     267 </span>                :<span class="lineCov">  115032914 :     struct list_elem *elm = NULL;</span>
+<span class="lineNum">     268 </span>                :<span class="lineCov">  115032914 :     struct btreeblk_block *block = NULL;</span>
+<span class="lineNum">     269 </span>                :<span class="lineCov">  115032914 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     270 </span>                :            :     bid_t _bid, filebid;
 <span class="lineNum">     271 </span>                :            :     int subblock;
 <span class="lineNum">     272 </span>                :            :     int offset;
 <span class="lineNum">     273 </span>                :            :     size_t sb, idx;
 <span class="lineNum">     274 </span>                :            : 
-<span class="lineNum">     275 </span>                :<span class="lineCov">  114895919 :     sb = idx = 0;</span>
-<span class="lineNum">     276 </span>                :<span class="lineCov">  114895919 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
-<span class="lineNum">     277 </span>                :<span class="lineCov">  114879640 :     subblock = is_subblock(bid);</span>
-<span class="lineNum">     278 </span>                :<span class="lineCov">  114827747 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
-<span class="lineNum">     279 </span>                :<span class="lineCov">  114827747 :     offset = _bid % handle-&gt;nnodeperblock;</span>
+<span class="lineNum">     275 </span>                :<span class="lineCov">  115032914 :     sb = idx = 0;</span>
+<span class="lineNum">     276 </span>                :<span class="lineCov">  115032914 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
+<span class="lineNum">     277 </span>                :<span class="lineCov">  114988739 :     subblock = is_subblock(bid);</span>
+<span class="lineNum">     278 </span>                :<span class="lineCov">  114942604 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
+<span class="lineNum">     279 </span>                :<span class="lineCov">  114942604 :     offset = _bid % handle-&gt;nnodeperblock;</span>
 <span class="lineNum">     280 </span>                :            : 
 <span class="lineNum">     281 </span>                :            :     // check whether the block is in current lists
 <span class="lineNum">     282 </span>                :            :     // read list (clean or dirty)
@@ -397,104 +397,104 @@
 <span class="lineNum">     326 </span>                :            :     }
 <span class="lineNum">     327 </span>                :            : #else
 <span class="lineNum">     328 </span>                :            :     // list
-<span class="lineNum">     329 </span>        [<span class="branchCov" title="Branch 2 was taken 1143593693 times"> + </span><span class="branchCov" title="Branch 3 was taken 7721551 times"> + </span>]:<span class="lineCov"> 1151214005 :     for (elm = list_begin(&amp;handle-&gt;read_list); elm; elm = list_next(elm)) {</span>
-<span class="lineNum">     330 </span>                :<span class="lineCov"> 1143593693 :         block = _get_entry(elm, struct btreeblk_block, le);</span>
-<span class="lineNum">     331 </span>        [<span class="branchCov" title="Branch 0 was taken 107207435 times"> + </span><span class="branchCov" title="Branch 1 was taken 1036386258 times"> + </span>]:<span class="lineCov"> 1143593693 :         if (block-&gt;bid == filebid) {</span>
-<span class="lineNum">     332 </span>                :<span class="lineCov">  107207435 :             block-&gt;age = 0;</span>
-<span class="lineNum">     333 </span>        [<span class="branchCov" title="Branch 0 was taken 36688734 times"> + </span><span class="branchCov" title="Branch 1 was taken 70518701 times"> + </span>]:<span class="lineCov">  107207435 :             if (subblock) {</span>
+<span class="lineNum">     329 </span>        [<span class="branchCov" title="Branch 2 was taken 1145221029 times"> + </span><span class="branchCov" title="Branch 3 was taken 7745009 times"> + </span>]:<span class="lineCov"> 1152861293 :     for (elm = list_begin(&amp;handle-&gt;read_list); elm; elm = list_next(elm)) {</span>
+<span class="lineNum">     330 </span>                :<span class="lineCov"> 1145221029 :         block = _get_entry(elm, struct btreeblk_block, le);</span>
+<span class="lineNum">     331 </span>        [<span class="branchCov" title="Branch 0 was taken 107302340 times"> + </span><span class="branchCov" title="Branch 1 was taken 1037918689 times"> + </span>]:<span class="lineCov"> 1145221029 :         if (block-&gt;bid == filebid) {</span>
+<span class="lineNum">     332 </span>                :<span class="lineCov">  107302340 :             block-&gt;age = 0;</span>
+<span class="lineNum">     333 </span>        [<span class="branchCov" title="Branch 0 was taken 36726777 times"> + </span><span class="branchCov" title="Branch 1 was taken 70575563 times"> + </span>]:<span class="lineCov">  107302340 :             if (subblock) {</span>
 <span class="lineNum">     334 </span>                :            :                 return (uint8_t *)block-&gt;addr +
 <span class="lineNum">     335 </span>                :            :                        (handle-&gt;nodesize) * offset +
-<span class="lineNum">     336 </span>                :<span class="lineCov">   36688734 :                        handle-&gt;sb[sb].sb_size * idx;</span>
+<span class="lineNum">     336 </span>                :<span class="lineCov">   36726777 :                        handle-&gt;sb[sb].sb_size * idx;</span>
 <span class="lineNum">     337 </span>                :            :             } else {
 <span class="lineNum">     338 </span>                :            :                 return (uint8_t *)block-&gt;addr +
-<span class="lineNum">     339 </span>                :<span class="lineCov">   70518701 :                        (handle-&gt;nodesize) * offset;</span>
+<span class="lineNum">     339 </span>                :<span class="lineCov">   70575563 :                        (handle-&gt;nodesize) * offset;</span>
 <span class="lineNum">     340 </span>                :            :             }
 <span class="lineNum">     341 </span>                :            :         }
 <span class="lineNum">     342 </span>                :            :     }
 <span class="lineNum">     343 </span>                :            : #endif
 <span class="lineNum">     344 </span>                :            : 
 <span class="lineNum">     345 </span>                :            :     // allocation list (dirty)
-<span class="lineNum">     346 </span>        [<span class="branchCov" title="Branch 2 was taken 12265 times"> + </span><span class="branchCov" title="Branch 3 was taken 7727849 times"> + </span>]:<span class="lineCov">    7730779 :     for (elm = list_begin(&amp;handle-&gt;alc_list); elm; elm = list_next(elm)) {</span>
-<span class="lineNum">     347 </span>                :<span class="lineCov">      12265 :         block = _get_entry(elm, struct btreeblk_block, le);</span>
-<span class="lineNum">     348 </span>[<span class="branchCov" title="Branch 0 was taken 3037 times"> + </span><span class="branchCov" title="Branch 1 was taken 9228 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 3037 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">      12265 :         if (block-&gt;bid == filebid &amp;&amp;</span>
+<span class="lineNum">     346 </span>        [<span class="branchCov" title="Branch 2 was taken 12260 times"> + </span><span class="branchCov" title="Branch 3 was taken 7750295 times"> + </span>]:<span class="lineCov">    7754237 :     for (elm = list_begin(&amp;handle-&gt;alc_list); elm; elm = list_next(elm)) {</span>
+<span class="lineNum">     347 </span>                :<span class="lineCov">      12260 :         block = _get_entry(elm, struct btreeblk_block, le);</span>
+<span class="lineNum">     348 </span>[<span class="branchCov" title="Branch 0 was taken 3032 times"> + </span><span class="branchCov" title="Branch 1 was taken 9228 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 3032 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">      12260 :         if (block-&gt;bid == filebid &amp;&amp;</span>
 <span class="lineNum">     349 </span>                :            :             block-&gt;pos &gt;= (handle-&gt;nodesize) * offset) {
-<span class="lineNum">     350 </span>                :<span class="lineCov">       3037 :             block-&gt;age = 0;</span>
-<span class="lineNum">     351 </span>        [<span class="branchCov" title="Branch 0 was taken 596 times"> + </span><span class="branchCov" title="Branch 1 was taken 2441 times"> + </span>]:<span class="lineCov">       3037 :             if (subblock) {</span>
+<span class="lineNum">     350 </span>                :<span class="lineCov">       3032 :             block-&gt;age = 0;</span>
+<span class="lineNum">     351 </span>        [<span class="branchCov" title="Branch 0 was taken 588 times"> + </span><span class="branchCov" title="Branch 1 was taken 2444 times"> + </span>]:<span class="lineCov">       3032 :             if (subblock) {</span>
 <span class="lineNum">     352 </span>                :            :                 return (uint8_t *)block-&gt;addr +
 <span class="lineNum">     353 </span>                :            :                        (handle-&gt;nodesize) * offset +
-<span class="lineNum">     354 </span>                :<span class="lineCov">        596 :                        handle-&gt;sb[sb].sb_size * idx;</span>
+<span class="lineNum">     354 </span>                :<span class="lineCov">        588 :                        handle-&gt;sb[sb].sb_size * idx;</span>
 <span class="lineNum">     355 </span>                :            :             } else {
 <span class="lineNum">     356 </span>                :            :                 return (uint8_t *)block-&gt;addr +
-<span class="lineNum">     357 </span>                :<span class="lineCov">       2441 :                        (handle-&gt;nodesize) * offset;</span>
+<span class="lineNum">     357 </span>                :<span class="lineCov">       2444 :                        (handle-&gt;nodesize) * offset;</span>
 <span class="lineNum">     358 </span>                :            :             }
 <span class="lineNum">     359 </span>                :            :         }
 <span class="lineNum">     360 </span>                :            :     }
 <span class="lineNum">     361 </span>                :            : 
 <span class="lineNum">     362 </span>                :            :     // there is no block in lists
 <span class="lineNum">     363 </span>                :            :     // if miss, read from file and add item into read list
-<span class="lineNum">     364 </span>                :<span class="lineCov">    7727849 :     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));</span>
-<span class="lineNum">     365 </span>        [<span class="branchCov" title="Branch 0 was taken 12760 times"> + </span><span class="branchCov" title="Branch 1 was taken 7715089 times"> + </span>]:<span class="lineCov">    7727849 :     block-&gt;sb_no = (subblock)?(sb):(sb_no);</span>
-<span class="lineNum">     366 </span>                :<span class="lineCov">    7727849 :     block-&gt;pos = (handle-&gt;file-&gt;blocksize);</span>
-<span class="lineNum">     367 </span>                :<span class="lineCov">    7727849 :     block-&gt;bid = filebid;</span>
-<span class="lineNum">     368 </span>                :<span class="lineCov">    7727849 :     block-&gt;dirty = 0;</span>
-<span class="lineNum">     369 </span>                :<span class="lineCov">    7727849 :     block-&gt;age = 0;</span>
+<span class="lineNum">     364 </span>                :<span class="lineCov">    7750295 :     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));</span>
+<span class="lineNum">     365 </span>        [<span class="branchCov" title="Branch 0 was taken 15416 times"> + </span><span class="branchCov" title="Branch 1 was taken 7734879 times"> + </span>]:<span class="lineCov">    7750295 :     block-&gt;sb_no = (subblock)?(sb):(sb_no);</span>
+<span class="lineNum">     366 </span>                :<span class="lineCov">    7750295 :     block-&gt;pos = (handle-&gt;file-&gt;blocksize);</span>
+<span class="lineNum">     367 </span>                :<span class="lineCov">    7750295 :     block-&gt;bid = filebid;</span>
+<span class="lineNum">     368 </span>                :<span class="lineCov">    7750295 :     block-&gt;dirty = 0;</span>
+<span class="lineNum">     369 </span>                :<span class="lineCov">    7750295 :     block-&gt;age = 0;</span>
 <span class="lineNum">     370 </span>                :            : 
-<span class="lineNum">     371 </span>                :<span class="lineCov">    7727849 :     _btreeblk_get_aligned_block(handle, block);</span>
-<span class="lineNum">     372 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 7727266 times"> + </span>]:<span class="lineCov">    7727266 :     if (filemgr_read(handle-&gt;file, block-&gt;bid, block-&gt;addr,</span>
-<span class="lineNum">     373 </span>                :<span class="lineCov">    7719917 :                      handle-&gt;log_callback) != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     371 </span>                :<span class="lineCov">    7750295 :     _btreeblk_get_aligned_block(handle, block);</span>
+<span class="lineNum">     372 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 7750262 times"> + </span>]:<span class="lineCov">    7750262 :     if (filemgr_read(handle-&gt;file, block-&gt;bid, block-&gt;addr,</span>
+<span class="lineNum">     373 </span>                :<span class="lineCov">    7743308 :                      handle-&gt;log_callback) != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         _btreeblk_free_aligned_block(handle, block);</span>
 <span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :         mempool_free(block);</span>
 <span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         return NULL;</span>
 <span class="lineNum">     377 </span>                :            :     }
-<span class="lineNum">     378 </span>                :<span class="lineCov">    7727266 :     _btreeblk_decode(handle, block);</span>
+<span class="lineNum">     378 </span>                :<span class="lineCov">    7750262 :     _btreeblk_decode(handle, block);</span>
 <span class="lineNum">     379 </span>                :            : 
-<span class="lineNum">     380 </span>                :<span class="lineCov">    7728548 :     list_push_front(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
+<span class="lineNum">     380 </span>                :<span class="lineCov">    7750778 :     list_push_front(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
 <span class="lineNum">     381 </span>                :            : #ifdef __BTREEBLK_READ_TREE
 <span class="lineNum">     382 </span>                :            :     avl_insert(&amp;handle-&gt;read_tree, &amp;block-&gt;avl, _btreeblk_bid_cmp);
 <span class="lineNum">     383 </span>                :            : #endif
 <span class="lineNum">     384 </span>                :            : 
-<span class="lineNum">     385 </span>        [<span class="branchCov" title="Branch 0 was taken 12760 times"> + </span><span class="branchCov" title="Branch 1 was taken 7714972 times"> + </span>]:<span class="lineCov">    7727732 :     if (subblock) {</span>
+<span class="lineNum">     385 </span>        [<span class="branchCov" title="Branch 0 was taken 15416 times"> + </span><span class="branchCov" title="Branch 1 was taken 7734494 times"> + </span>]:<span class="lineCov">    7749910 :     if (subblock) {</span>
 <span class="lineNum">     386 </span>                :            :         return (uint8_t *)block-&gt;addr +
 <span class="lineNum">     387 </span>                :            :                (handle-&gt;nodesize) * offset +
-<span class="lineNum">     388 </span>                :<span class="lineCov">      12760 :                handle-&gt;sb[sb].sb_size * idx;</span>
+<span class="lineNum">     388 </span>                :<span class="lineCov">      15416 :                handle-&gt;sb[sb].sb_size * idx;</span>
 <span class="lineNum">     389 </span>                :            :     } else {
-<span class="lineNum">     390 </span>                :<span class="lineCov">  114938204 :         return (uint8_t *)block-&gt;addr + (handle-&gt;nodesize) * offset;</span>
+<span class="lineNum">     390 </span>                :<span class="lineCov">  115055282 :         return (uint8_t *)block-&gt;addr + (handle-&gt;nodesize) * offset;</span>
 <span class="lineNum">     391 </span>                :            :     }
 <a name="392"><span class="lineNum">     392 </span>                :            : }</a>
 <span class="lineNum">     393 </span>                :            : 
-<span class="lineNum">     394 </span>                :<span class="lineCov">  114896718 : void * btreeblk_read(void *voidhandle, bid_t bid)</span>
+<span class="lineNum">     394 </span>                :<span class="lineCov">  115031915 : void * btreeblk_read(void *voidhandle, bid_t bid)</span>
 <span class="lineNum">     395 </span>                :            : {
-<span class="lineNum">     396 </span>                :<span class="lineCov">  114896718 :     return _btreeblk_read(voidhandle, bid, -1);</span>
+<span class="lineNum">     396 </span>                :<span class="lineCov">  115031915 :     return _btreeblk_read(voidhandle, bid, -1);</span>
 <span class="lineNum">     397 </span>                :            : }
 <a name="398"><span class="lineNum">     398 </span>                :            : </a>
 <span class="lineNum">     399 </span>                :            : void btreeblk_set_dirty(void *voidhandle, bid_t bid);
-<span class="lineNum">     400 </span>                :<span class="lineCov">      40346 : void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)</span>
+<span class="lineNum">     400 </span>                :<span class="lineCov">      40392 : void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)</span>
 <span class="lineNum">     401 </span>                :            : {
-<span class="lineNum">     402 </span>                :<span class="lineCov">      40346 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     402 </span>                :<span class="lineCov">      40392 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     403 </span>                :            :     void *old_addr, *new_addr;
 <span class="lineNum">     404 </span>                :            :     bid_t _bid, _new_bid;
 <span class="lineNum">     405 </span>                :            :     int i, subblock;
 <span class="lineNum">     406 </span>                :            :     size_t sb, idx, new_idx;
 <span class="lineNum">     407 </span>                :            : 
-<span class="lineNum">     408 </span>                :<span class="lineCov">      40346 :     old_addr = new_addr = NULL;</span>
-<span class="lineNum">     409 </span>                :<span class="lineCov">      40346 :     sb = idx = 0;</span>
-<span class="lineNum">     410 </span>                :<span class="lineCov">      40346 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
-<span class="lineNum">     411 </span>                :<span class="lineCov">      40346 :     subblock = is_subblock(bid);</span>
+<span class="lineNum">     408 </span>                :<span class="lineCov">      40392 :     old_addr = new_addr = NULL;</span>
+<span class="lineNum">     409 </span>                :<span class="lineCov">      40392 :     sb = idx = 0;</span>
+<span class="lineNum">     410 </span>                :<span class="lineCov">      40392 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
+<span class="lineNum">     411 </span>                :<span class="lineCov">      40392 :     subblock = is_subblock(bid);</span>
 <span class="lineNum">     412 </span>                :            : 
-<span class="lineNum">     413 </span>        [<span class="branchCov" title="Branch 0 was taken 38654 times"> + </span><span class="branchCov" title="Branch 1 was taken 1692 times"> + </span>]:<span class="lineCov">      40346 :     if (!subblock) {</span>
+<span class="lineNum">     413 </span>        [<span class="branchCov" title="Branch 0 was taken 38674 times"> + </span><span class="branchCov" title="Branch 1 was taken 1718 times"> + </span>]:<span class="lineCov">      40392 :     if (!subblock) {</span>
 <span class="lineNum">     414 </span>                :            :         // normal block
-<span class="lineNum">     415 </span>                :<span class="lineCov">      38654 :         old_addr = btreeblk_read(voidhandle, bid);</span>
-<span class="lineNum">     416 </span>                :<span class="lineCov">      38654 :         new_addr = btreeblk_alloc(voidhandle, new_bid);</span>
-<span class="lineNum">     417 </span>                :<span class="lineCov">      38654 :         handle-&gt;nlivenodes--;</span>
+<span class="lineNum">     415 </span>                :<span class="lineCov">      38674 :         old_addr = btreeblk_read(voidhandle, bid);</span>
+<span class="lineNum">     416 </span>                :<span class="lineCov">      38674 :         new_addr = btreeblk_alloc(voidhandle, new_bid);</span>
+<span class="lineNum">     417 </span>                :<span class="lineCov">      38674 :         handle-&gt;nlivenodes--;</span>
 <span class="lineNum">     418 </span>                :            : 
 <span class="lineNum">     419 </span>                :            :         // move
-<span class="lineNum">     420 </span>                :<span class="lineCov">      38654 :         memcpy(new_addr, old_addr, (handle-&gt;nodesize));</span>
+<span class="lineNum">     420 </span>                :<span class="lineCov">      38674 :         memcpy(new_addr, old_addr, (handle-&gt;nodesize));</span>
 <span class="lineNum">     421 </span>                :            : 
-<span class="lineNum">     422 </span>                :<span class="lineCov">      38654 :         filemgr_invalidate_block(handle-&gt;file, bid);</span>
-<span class="lineNum">     423 </span>                :<span class="lineCov">      38654 :         return new_addr;</span>
+<span class="lineNum">     422 </span>                :<span class="lineCov">      38674 :         filemgr_invalidate_block(handle-&gt;file, bid);</span>
+<span class="lineNum">     423 </span>                :<span class="lineCov">      38674 :         return new_addr;</span>
 <span class="lineNum">     424 </span>                :            :     } else {
 <span class="lineNum">     425 </span>                :            :         // subblock
-<span class="lineNum">     426 </span>        [<span class="branchCov" title="Branch 0 was taken 845 times"> + </span><span class="branchCov" title="Branch 1 was taken 847 times"> + </span>]:<span class="lineCov">       1692 :         if (handle-&gt;sb[sb].bid == _bid) {</span>
+<span class="lineNum">     426 </span>        [<span class="branchCov" title="Branch 0 was taken 845 times"> + </span><span class="branchCov" title="Branch 1 was taken 873 times"> + </span>]:<span class="lineCov">       1718 :         if (handle-&gt;sb[sb].bid == _bid) {</span>
 <span class="lineNum">     427 </span>                :            :             //2 case 1
 <span class="lineNum">     428 </span>                :            :             // current subblock set is not writable
 <span class="lineNum">     429 </span>                :            :             // move all of them
@@ -513,42 +513,42 @@
 <span class="lineNum">     442 </span>                :            :             //2 case 2
 <span class="lineNum">     443 </span>                :            :             // move only the target subblock
 <span class="lineNum">     444 </span>                :            :             // into current subblock set (no allocation is required)
-<span class="lineNum">     445 </span>                :<span class="lineCov">        847 :             old_addr = _btreeblk_read(voidhandle, _bid, sb);</span>
+<span class="lineNum">     445 </span>                :<span class="lineCov">        873 :             old_addr = _btreeblk_read(voidhandle, _bid, sb);</span>
 <span class="lineNum">     446 </span>                :            : 
-<span class="lineNum">     447 </span>                :<span class="lineCov">        847 :             new_idx = handle-&gt;sb[sb].nblocks;</span>
-<span class="lineNum">     448 </span>        [<span class="branchCov" title="Branch 0 was taken 4632 times"> + </span><span class="branchCov" title="Branch 1 was taken 79 times"> + </span>]:<span class="lineCov">       4711 :             for (i=0;i&lt;handle-&gt;sb[sb].nblocks;++i){</span>
-<span class="lineNum">     449 </span>        [<span class="branchCov" title="Branch 0 was taken 768 times"> + </span><span class="branchCov" title="Branch 1 was taken 3864 times"> + </span>]:<span class="lineCov">       4632 :                 if (handle-&gt;sb[sb].bitmap[i] == 0) {</span>
-<span class="lineNum">     450 </span>                :<span class="lineCov">        768 :                     new_idx = i;</span>
-<span class="lineNum">     451 </span>                :<span class="lineCov">        768 :                     break;</span>
+<span class="lineNum">     447 </span>                :<span class="lineCov">        873 :             new_idx = handle-&gt;sb[sb].nblocks;</span>
+<span class="lineNum">     448 </span>        [<span class="branchCov" title="Branch 0 was taken 4723 times"> + </span><span class="branchCov" title="Branch 1 was taken 80 times"> + </span>]:<span class="lineCov">       4803 :             for (i=0;i&lt;handle-&gt;sb[sb].nblocks;++i){</span>
+<span class="lineNum">     449 </span>        [<span class="branchCov" title="Branch 0 was taken 793 times"> + </span><span class="branchCov" title="Branch 1 was taken 3930 times"> + </span>]:<span class="lineCov">       4723 :                 if (handle-&gt;sb[sb].bitmap[i] == 0) {</span>
+<span class="lineNum">     450 </span>                :<span class="lineCov">        793 :                     new_idx = i;</span>
+<span class="lineNum">     451 </span>                :<span class="lineCov">        793 :                     break;</span>
 <span class="lineNum">     452 </span>                :            :                 }
 <span class="lineNum">     453 </span>                :            :             }
-<span class="lineNum">     454 </span>  [<span class="branchCov" title="Branch 0 was taken 768 times"> + </span><span class="branchCov" title="Branch 1 was taken 79 times"> + </span><span class="branchCov" title="Branch 2 was taken 145 times"> + </span><span class="branchCov" title="Branch 3 was taken 623 times"> + </span>]:<span class="lineCov">       1615 :             if (new_idx == handle-&gt;sb[sb].nblocks ||</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 224 times"> + </span><span class="branchCov" title="Branch 5 was taken 623 times"> + </span>]
-<span class="lineNum">     455 </span>                :<span class="lineCov">        768 :                 !filemgr_is_writable(handle-&gt;file, handle-&gt;sb[sb].bid)) {</span>
+<span class="lineNum">     454 </span>  [<span class="branchCov" title="Branch 0 was taken 793 times"> + </span><span class="branchCov" title="Branch 1 was taken 80 times"> + </span><span class="branchCov" title="Branch 2 was taken 146 times"> + </span><span class="branchCov" title="Branch 3 was taken 647 times"> + </span>]:<span class="lineCov">       1666 :             if (new_idx == handle-&gt;sb[sb].nblocks ||</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 226 times"> + </span><span class="branchCov" title="Branch 5 was taken 647 times"> + </span>]
+<span class="lineNum">     455 </span>                :<span class="lineCov">        793 :                 !filemgr_is_writable(handle-&gt;file, handle-&gt;sb[sb].bid)) {</span>
 <span class="lineNum">     456 </span>                :            :                 // case 2-1
 <span class="lineNum">     457 </span>                :            :                 // no free slot OR not writable
 <span class="lineNum">     458 </span>                :            :                 // allocate new block
-<span class="lineNum">     459 </span>                :<span class="lineCov">        224 :                 new_addr = _btreeblk_alloc(voidhandle, &amp;_new_bid, sb);</span>
-<span class="lineNum">     460 </span>                :<span class="lineCov">        224 :                 handle-&gt;nlivenodes--;</span>
-<span class="lineNum">     461 </span>                :<span class="lineCov">        224 :                 handle-&gt;sb[sb].bid = _new_bid;</span>
-<span class="lineNum">     462 </span>                :<span class="lineCov">        224 :                 memset(handle-&gt;sb[sb].bitmap, 0, handle-&gt;sb[sb].nblocks);</span>
-<span class="lineNum">     463 </span>                :<span class="lineCov">        224 :                 new_idx = 0;</span>
+<span class="lineNum">     459 </span>                :<span class="lineCov">        226 :                 new_addr = _btreeblk_alloc(voidhandle, &amp;_new_bid, sb);</span>
+<span class="lineNum">     460 </span>                :<span class="lineCov">        226 :                 handle-&gt;nlivenodes--;</span>
+<span class="lineNum">     461 </span>                :<span class="lineCov">        226 :                 handle-&gt;sb[sb].bid = _new_bid;</span>
+<span class="lineNum">     462 </span>                :<span class="lineCov">        226 :                 memset(handle-&gt;sb[sb].bitmap, 0, handle-&gt;sb[sb].nblocks);</span>
+<span class="lineNum">     463 </span>                :<span class="lineCov">        226 :                 new_idx = 0;</span>
 <span class="lineNum">     464 </span>                :            :             } else {
 <span class="lineNum">     465 </span>                :            :                 // case 2-2
 <span class="lineNum">     466 </span>                :            :                 // append to the current block
-<span class="lineNum">     467 </span>                :<span class="lineCov">        623 :                 new_addr = _btreeblk_read(voidhandle, handle-&gt;sb[sb].bid, sb);</span>
-<span class="lineNum">     468 </span>                :<span class="lineCov">        623 :                 btreeblk_set_dirty(voidhandle, handle-&gt;sb[sb].bid);</span>
+<span class="lineNum">     467 </span>                :<span class="lineCov">        647 :                 new_addr = _btreeblk_read(voidhandle, handle-&gt;sb[sb].bid, sb);</span>
+<span class="lineNum">     468 </span>                :<span class="lineCov">        647 :                 btreeblk_set_dirty(voidhandle, handle-&gt;sb[sb].bid);</span>
 <span class="lineNum">     469 </span>                :            :             }
 <span class="lineNum">     470 </span>                :            : 
-<span class="lineNum">     471 </span>                :<span class="lineCov">        847 :             handle-&gt;sb[sb].bitmap[new_idx] = 1;</span>
-<span class="lineNum">     472 </span>                :<span class="lineCov">        847 :             bid2subbid(handle-&gt;sb[sb].bid, sb, new_idx, new_bid);</span>
+<span class="lineNum">     471 </span>                :<span class="lineCov">        873 :             handle-&gt;sb[sb].bitmap[new_idx] = 1;</span>
+<span class="lineNum">     472 </span>                :<span class="lineCov">        873 :             bid2subbid(handle-&gt;sb[sb].bid, sb, new_idx, new_bid);</span>
 <span class="lineNum">     473 </span>                :            : 
 <span class="lineNum">     474 </span>                :            :             // move
-<span class="lineNum">     475 </span>                :<span class="lineCov">       1694 :             memcpy((uint8_t*)new_addr + handle-&gt;sb[sb].sb_size * new_idx,</span>
-<span class="lineNum">     476 </span>                :<span class="lineCov">        847 :                    (uint8_t*)old_addr + handle-&gt;sb[sb].sb_size * idx,</span>
-<span class="lineNum">     477 </span>                :<span class="lineCov">       3388 :                    handle-&gt;sb[sb].sb_size);</span>
+<span class="lineNum">     475 </span>                :<span class="lineCov">       1746 :             memcpy((uint8_t*)new_addr + handle-&gt;sb[sb].sb_size * new_idx,</span>
+<span class="lineNum">     476 </span>                :<span class="lineCov">        873 :                    (uint8_t*)old_addr + handle-&gt;sb[sb].sb_size * idx,</span>
+<span class="lineNum">     477 </span>                :<span class="lineCov">       3492 :                    handle-&gt;sb[sb].sb_size);</span>
 <span class="lineNum">     478 </span>                :            : 
-<span class="lineNum">     479 </span>                :<span class="lineCov">      40346 :             return (uint8_t*)new_addr + handle-&gt;sb[sb].sb_size * new_idx;</span>
+<span class="lineNum">     479 </span>                :<span class="lineCov">      40392 :             return (uint8_t*)new_addr + handle-&gt;sb[sb].sb_size * new_idx;</span>
 <span class="lineNum">     480 </span>                :            :         }
 <span class="lineNum">     481 </span>                :            :     }
 <span class="lineNum">     482 </span>                :            : }
@@ -591,32 +591,32 @@
 <span class="lineNum">     519 </span>                :            : }
 <a name="520"><span class="lineNum">     520 </span>                :            : // LCOV_EXCL_STOP</a>
 <span class="lineNum">     521 </span>                :            : 
-<span class="lineNum">     522 </span>                :<span class="lineCov">    8384200 : int btreeblk_is_writable(void *voidhandle, bid_t bid)</span>
+<span class="lineNum">     522 </span>                :<span class="lineCov">    8384825 : int btreeblk_is_writable(void *voidhandle, bid_t bid)</span>
 <span class="lineNum">     523 </span>                :            : {
-<span class="lineNum">     524 </span>                :<span class="lineCov">    8384200 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     524 </span>                :<span class="lineCov">    8384825 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     525 </span>                :            :     bid_t _bid;
 <span class="lineNum">     526 </span>                :            :     bid_t filebid;
 <span class="lineNum">     527 </span>                :            :     size_t sb, idx;
 <span class="lineNum">     528 </span>                :            : 
-<span class="lineNum">     529 </span>                :<span class="lineCov">    8384200 :     sb = idx = 0;</span>
-<span class="lineNum">     530 </span>                :<span class="lineCov">    8384200 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
-<span class="lineNum">     531 </span>                :<span class="lineCov">    8384200 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
+<span class="lineNum">     529 </span>                :<span class="lineCov">    8384825 :     sb = idx = 0;</span>
+<span class="lineNum">     530 </span>                :<span class="lineCov">    8384825 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
+<span class="lineNum">     531 </span>                :<span class="lineCov">    8384829 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
 <span class="lineNum">     532 </span>                :            : 
-<span class="lineNum">     533 </span>                :<span class="lineCov">    8384200 :     return filemgr_is_writable(handle-&gt;file, filebid);</span>
+<span class="lineNum">     533 </span>                :<span class="lineCov">    8384829 :     return filemgr_is_writable(handle-&gt;file, filebid);</span>
 <a name="534"><span class="lineNum">     534 </span>                :            : }</a>
 <span class="lineNum">     535 </span>                :            : 
-<span class="lineNum">     536 </span>                :<span class="lineCov">    8348263 : void btreeblk_set_dirty(void *voidhandle, bid_t bid)</span>
+<span class="lineNum">     536 </span>                :<span class="lineCov">    8348878 : void btreeblk_set_dirty(void *voidhandle, bid_t bid)</span>
 <span class="lineNum">     537 </span>                :            : {
-<span class="lineNum">     538 </span>                :<span class="lineCov">    8348263 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     538 </span>                :<span class="lineCov">    8348878 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     539 </span>                :            :     struct list_elem *e;
 <span class="lineNum">     540 </span>                :            :     struct btreeblk_block *block;
 <span class="lineNum">     541 </span>                :            :     bid_t _bid;
 <span class="lineNum">     542 </span>                :            :     bid_t filebid;
 <span class="lineNum">     543 </span>                :            :     size_t sb, idx;
 <span class="lineNum">     544 </span>                :            : 
-<span class="lineNum">     545 </span>                :<span class="lineCov">    8348263 :     sb = idx = 0;</span>
-<span class="lineNum">     546 </span>                :<span class="lineCov">    8348263 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
-<span class="lineNum">     547 </span>                :<span class="lineCov">    8348261 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
+<span class="lineNum">     545 </span>                :<span class="lineCov">    8348878 :     sb = idx = 0;</span>
+<span class="lineNum">     546 </span>                :<span class="lineCov">    8348878 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
+<span class="lineNum">     547 </span>                :<span class="lineCov">    8348884 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
 <span class="lineNum">     548 </span>                :            : 
 <span class="lineNum">     549 </span>                :            : #ifdef __BTREEBLK_READ_TREE
 <span class="lineNum">     550 </span>                :            :     // AVL-tree
@@ -630,33 +630,33 @@
 <span class="lineNum">     558 </span>                :            :     }
 <span class="lineNum">     559 </span>                :            : #else
 <span class="lineNum">     560 </span>                :            :     // list
-<span class="lineNum">     561 </span>                :<span class="lineCov">    8348261 :     e = list_begin(&amp;handle-&gt;read_list);</span>
-<span class="lineNum">     562 </span>        [<span class="branchCov" title="Branch 0 was taken 31829731 times"> + </span><span class="branchCov" title="Branch 1 was taken 3310 times"> + </span>]:<span class="lineCov">   31833041 :     while(e){</span>
-<span class="lineNum">     563 </span>                :<span class="lineCov">   31829731 :         block = _get_entry(e, struct btreeblk_block, le);</span>
-<span class="lineNum">     564 </span>        [<span class="branchCov" title="Branch 0 was taken 8344956 times"> + </span><span class="branchCov" title="Branch 1 was taken 23484775 times"> + </span>]:<span class="lineCov">   31829731 :         if (block-&gt;bid == filebid) {</span>
-<span class="lineNum">     565 </span>                :<span class="lineCov">    8344956 :             block-&gt;dirty = 1;</span>
-<span class="lineNum">     566 </span>                :<span class="lineCov">    8344956 :             break;</span>
+<span class="lineNum">     561 </span>                :<span class="lineCov">    8348884 :     e = list_begin(&amp;handle-&gt;read_list);</span>
+<span class="lineNum">     562 </span>        [<span class="branchCov" title="Branch 0 was taken 31848078 times"> + </span><span class="branchCov" title="Branch 1 was taken 3309 times"> + </span>]:<span class="lineCov">   31851387 :     while(e){</span>
+<span class="lineNum">     563 </span>                :<span class="lineCov">   31848078 :         block = _get_entry(e, struct btreeblk_block, le);</span>
+<span class="lineNum">     564 </span>        [<span class="branchCov" title="Branch 0 was taken 8345574 times"> + </span><span class="branchCov" title="Branch 1 was taken 23502504 times"> + </span>]:<span class="lineCov">   31848078 :         if (block-&gt;bid == filebid) {</span>
+<span class="lineNum">     565 </span>                :<span class="lineCov">    8345574 :             block-&gt;dirty = 1;</span>
+<span class="lineNum">     566 </span>                :<span class="lineCov">    8345574 :             break;</span>
 <span class="lineNum">     567 </span>                :            :         }
-<span class="lineNum">     568 </span>                :<span class="lineCov">   23484775 :         e = list_next(e);</span>
+<span class="lineNum">     568 </span>                :<span class="lineCov">   23502504 :         e = list_next(e);</span>
 <span class="lineNum">     569 </span>                :            :     }
 <span class="lineNum">     570 </span>                :            : #endif
-<a name="571"><span class="lineNum">     571 </span>                :<span class="lineCov">    8348266 : }</span></a>
+<a name="571"><span class="lineNum">     571 </span>                :<span class="lineCov">    8348883 : }</span></a>
 <span class="lineNum">     572 </span>                :            : 
-<span class="lineNum">     573 </span>                :<span class="lineCov">        158 : void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)</span>
+<span class="lineNum">     573 </span>                :<span class="lineCov">        160 : void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)</span>
 <span class="lineNum">     574 </span>                :            : {
-<span class="lineNum">     575 </span>                :<span class="lineCov">        158 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     575 </span>                :<span class="lineCov">        160 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     576 </span>                :            :     struct list_elem *e;
 <span class="lineNum">     577 </span>                :            :     struct btreeblk_block *block;
 <span class="lineNum">     578 </span>                :            :     bid_t _bid;
 <span class="lineNum">     579 </span>                :            :     bid_t filebid;
 <span class="lineNum">     580 </span>                :            :     size_t sb, idx;
 <span class="lineNum">     581 </span>                :            : 
-<span class="lineNum">     582 </span>                :<span class="lineCov">        158 :     sb = idx = 0;</span>
-<span class="lineNum">     583 </span>                :<span class="lineCov">        158 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
-<span class="lineNum">     584 </span>                :<span class="lineCov">        158 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
+<span class="lineNum">     582 </span>                :<span class="lineCov">        160 :     sb = idx = 0;</span>
+<span class="lineNum">     583 </span>                :<span class="lineCov">        160 :     subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
+<span class="lineNum">     584 </span>                :<span class="lineCov">        160 :     filebid = _bid / handle-&gt;nnodeperblock;</span>
 <span class="lineNum">     585 </span>                :            : 
-<span class="lineNum">     586 </span>                :<span class="lineCov">        158 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
-<span class="lineNum">     587 </span>        [<span class="branchCov" title="Branch 0 was taken 5 times"> + </span><span class="branchCov" title="Branch 1 was taken 153 times"> + </span>]:<span class="lineCov">        158 :     while(e){</span>
+<span class="lineNum">     586 </span>                :<span class="lineCov">        160 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
+<span class="lineNum">     587 </span>        [<span class="branchCov" title="Branch 0 was taken 5 times"> + </span><span class="branchCov" title="Branch 1 was taken 155 times"> + </span>]:<span class="lineCov">        160 :     while(e){</span>
 <span class="lineNum">     588 </span>                :<span class="lineCov">          5 :         block = _get_entry(e, struct btreeblk_block, le);</span>
 <span class="lineNum">     589 </span>        [<span class="branchCov" title="Branch 0 was taken 5 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          5 :         if (block-&gt;bid == filebid) {</span>
 <span class="lineNum">     590 </span>                :<span class="lineCov">          5 :             block-&gt;sb_no = sb_no;</span>
@@ -677,72 +677,72 @@
 <span class="lineNum">     605 </span>                :            :     }
 <span class="lineNum">     606 </span>                :            : #else
 <span class="lineNum">     607 </span>                :            :     // list
-<span class="lineNum">     608 </span>                :<span class="lineCov">        153 :     e = list_begin(&amp;handle-&gt;read_list);</span>
-<span class="lineNum">     609 </span>        [<span class="branchCov" title="Branch 0 was taken 354 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">        512 :     while(e){</span>
-<span class="lineNum">     610 </span>                :<span class="lineCov">        354 :         block = _get_entry(e, struct btreeblk_block, le);</span>
-<span class="lineNum">     611 </span>        [<span class="branchCov" title="Branch 0 was taken 153 times"> + </span><span class="branchCov" title="Branch 1 was taken 201 times"> + </span>]:<span class="lineCov">        354 :         if (block-&gt;bid == filebid) {</span>
-<span class="lineNum">     612 </span>                :<span class="lineCov">        153 :             block-&gt;sb_no = sb_no;</span>
-<span class="lineNum">     613 </span>                :<span class="lineCov">        153 :             return;</span>
+<span class="lineNum">     608 </span>                :<span class="lineCov">        155 :     e = list_begin(&amp;handle-&gt;read_list);</span>
+<span class="lineNum">     609 </span>        [<span class="branchCov" title="Branch 0 was taken 358 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">        518 :     while(e){</span>
+<span class="lineNum">     610 </span>                :<span class="lineCov">        358 :         block = _get_entry(e, struct btreeblk_block, le);</span>
+<span class="lineNum">     611 </span>        [<span class="branchCov" title="Branch 0 was taken 155 times"> + </span><span class="branchCov" title="Branch 1 was taken 203 times"> + </span>]:<span class="lineCov">        358 :         if (block-&gt;bid == filebid) {</span>
+<span class="lineNum">     612 </span>                :<span class="lineCov">        155 :             block-&gt;sb_no = sb_no;</span>
+<span class="lineNum">     613 </span>                :<span class="lineCov">        155 :             return;</span>
 <span class="lineNum">     614 </span>                :            :         }
-<span class="lineNum">     615 </span>                :<span class="lineCov">        201 :         e = list_next(e);</span>
+<span class="lineNum">     615 </span>                :<span class="lineCov">        203 :         e = list_next(e);</span>
 <span class="lineNum">     616 </span>                :            :     }
 <span class="lineNum">     617 </span>                :            : #endif
 <a name="618"><span class="lineNum">     618 </span>                :            : }</a>
 <span class="lineNum">     619 </span>                :            : 
-<span class="lineNum">     620 </span>                :<span class="lineCov">    8430328 : size_t btreeblk_get_size(void *voidhandle, bid_t bid)</span>
+<span class="lineNum">     620 </span>                :<span class="lineCov">    8430943 : size_t btreeblk_get_size(void *voidhandle, bid_t bid)</span>
 <span class="lineNum">     621 </span>                :            : {
 <span class="lineNum">     622 </span>                :            :     bid_t _bid;
 <span class="lineNum">     623 </span>                :            :     size_t sb, idx;
-<span class="lineNum">     624 </span>                :<span class="lineCov">    8430328 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     624 </span>                :<span class="lineCov">    8430943 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     625 </span>                :            : 
-<span class="lineNum">     626 </span>[<span class="branchCov" title="Branch 1 was taken 123963 times"> + </span><span class="branchCov" title="Branch 2 was taken 8306367 times"> + </span>][<span class="branchCov" title="Branch 3 was taken 72175 times"> + </span><span class="branchCov" title="Branch 4 was taken 51788 times"> + </span>]:<span class="lineCov">    8430328 :     if (is_subblock(bid) &amp;&amp; bid != BLK_NOT_FOUND) {</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 5 was taken 72176 times"> + </span><span class="branchCov" title="Branch 6 was taken 8358154 times"> + </span>]
-<span class="lineNum">     627 </span>                :<span class="lineCov">      72176 :         subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
-<span class="lineNum">     628 </span>                :<span class="lineCov">      72176 :         return handle-&gt;sb[sb].sb_size;</span>
+<span class="lineNum">     626 </span>[<span class="branchCov" title="Branch 1 was taken 124404 times"> + </span><span class="branchCov" title="Branch 2 was taken 8306543 times"> + </span>][<span class="branchCov" title="Branch 3 was taken 72613 times"> + </span><span class="branchCov" title="Branch 4 was taken 51791 times"> + </span>]:<span class="lineCov">    8430943 :     if (is_subblock(bid) &amp;&amp; bid != BLK_NOT_FOUND) {</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 5 was taken 72617 times"> + </span><span class="branchCov" title="Branch 6 was taken 8358330 times"> + </span>]
+<span class="lineNum">     627 </span>                :<span class="lineCov">      72617 :         subbid2bid(bid, &amp;sb, &amp;idx, &amp;_bid);</span>
+<span class="lineNum">     628 </span>                :<span class="lineCov">      72617 :         return handle-&gt;sb[sb].sb_size;</span>
 <span class="lineNum">     629 </span>                :            :     } else {
-<span class="lineNum">     630 </span>                :<span class="lineCov">    8430330 :         return handle-&gt;nodesize;</span>
+<span class="lineNum">     630 </span>                :<span class="lineCov">    8430947 :         return handle-&gt;nodesize;</span>
 <span class="lineNum">     631 </span>                :            :     }
 <a name="632"><span class="lineNum">     632 </span>                :            : }</a>
 <span class="lineNum">     633 </span>                :            : 
-<span class="lineNum">     634 </span>                :<span class="lineCov">       3813 : void * btreeblk_alloc_sub(void *voidhandle, bid_t *bid)</span>
+<span class="lineNum">     634 </span>                :<span class="lineCov">       3815 : void * btreeblk_alloc_sub(void *voidhandle, bid_t *bid)</span>
 <span class="lineNum">     635 </span>                :            : {
 <span class="lineNum">     636 </span>                :            :     int i;
 <span class="lineNum">     637 </span>                :            :     void *addr;
-<span class="lineNum">     638 </span>                :<span class="lineCov">       3813 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     638 </span>                :<span class="lineCov">       3815 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     639 </span>                :            : 
-<span class="lineNum">     640 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 3809 times"> + </span>]:<span class="lineCov">       3813 :     if (handle-&gt;nsb == 0) {</span>
+<span class="lineNum">     640 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 3811 times"> + </span>]:<span class="lineCov">       3815 :     if (handle-&gt;nsb == 0) {</span>
 <span class="lineNum">     641 </span>                :<span class="lineCov">          4 :         return btreeblk_alloc(voidhandle, bid);</span>
 <span class="lineNum">     642 </span>                :            :     }
 <span class="lineNum">     643 </span>                :            : 
 <span class="lineNum">     644 </span>                :            :     // check current block is available
-<span class="lineNum">     645 </span>        [<span class="branchCov" title="Branch 0 was taken 3634 times"> + </span><span class="branchCov" title="Branch 1 was taken 175 times"> + </span>]:<span class="lineCov">       3809 :     if (handle-&gt;sb[0].bid != BLK_NOT_FOUND) {</span>
-<span class="lineNum">     646 </span>        [<span class="branchCov" title="Branch 1 was taken 3632 times"> + </span><span class="branchCov" title="Branch 2 was taken 2 times"> + </span>]:<span class="lineCov">       3634 :         if (filemgr_is_writable(handle-&gt;file, handle-&gt;sb[0].bid)) {</span>
+<span class="lineNum">     645 </span>        [<span class="branchCov" title="Branch 0 was taken 3640 times"> + </span><span class="branchCov" title="Branch 1 was taken 171 times"> + </span>]:<span class="lineCov">       3811 :     if (handle-&gt;sb[0].bid != BLK_NOT_FOUND) {</span>
+<span class="lineNum">     646 </span>        [<span class="branchCov" title="Branch 1 was taken 3638 times"> + </span><span class="branchCov" title="Branch 2 was taken 2 times"> + </span>]:<span class="lineCov">       3640 :         if (filemgr_is_writable(handle-&gt;file, handle-&gt;sb[0].bid)) {</span>
 <span class="lineNum">     647 </span>                :            :             // check if there is an empty slot
-<span class="lineNum">     648 </span>        [<span class="branchCov" title="Branch 0 was taken 11804 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">      11814 :             for (i=0;i&lt;handle-&gt;sb[0].nblocks;++i){</span>
-<span class="lineNum">     649 </span>        [<span class="branchCov" title="Branch 0 was taken 3622 times"> + </span><span class="branchCov" title="Branch 1 was taken 8182 times"> + </span>]:<span class="lineCov">      11804 :                 if (handle-&gt;sb[0].bitmap[i] == 0) {</span>
+<span class="lineNum">     648 </span>        [<span class="branchCov" title="Branch 0 was taken 11828 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">      11838 :             for (i=0;i&lt;handle-&gt;sb[0].nblocks;++i){</span>
+<span class="lineNum">     649 </span>        [<span class="branchCov" title="Branch 0 was taken 3628 times"> + </span><span class="branchCov" title="Branch 1 was taken 8200 times"> + </span>]:<span class="lineCov">      11828 :                 if (handle-&gt;sb[0].bitmap[i] == 0) {</span>
 <span class="lineNum">     650 </span>                :            :                     // return subblock
-<span class="lineNum">     651 </span>                :<span class="lineCov">       3622 :                     handle-&gt;sb[0].bitmap[i] = 1;</span>
-<span class="lineNum">     652 </span>                :<span class="lineCov">       3622 :                     bid2subbid(handle-&gt;sb[0].bid, 0, i, bid);</span>
-<span class="lineNum">     653 </span>                :<span class="lineCov">       3622 :                     addr = _btreeblk_read(voidhandle, handle-&gt;sb[0].bid, 0);</span>
-<span class="lineNum">     654 </span>                :<span class="lineCov">       3622 :                     btreeblk_set_dirty(voidhandle, handle-&gt;sb[0].bid);</span>
+<span class="lineNum">     651 </span>                :<span class="lineCov">       3628 :                     handle-&gt;sb[0].bitmap[i] = 1;</span>
+<span class="lineNum">     652 </span>                :<span class="lineCov">       3628 :                     bid2subbid(handle-&gt;sb[0].bid, 0, i, bid);</span>
+<span class="lineNum">     653 </span>                :<span class="lineCov">       3628 :                     addr = _btreeblk_read(voidhandle, handle-&gt;sb[0].bid, 0);</span>
+<span class="lineNum">     654 </span>                :<span class="lineCov">       3628 :                     btreeblk_set_dirty(voidhandle, handle-&gt;sb[0].bid);</span>
 <span class="lineNum">     655 </span>                :            :                     return (void*)
 <span class="lineNum">     656 </span>                :            :                            ((uint8_t*)addr +
-<span class="lineNum">     657 </span>                :<span class="lineCov">       3622 :                             handle-&gt;sb[0].sb_size * i);</span>
+<span class="lineNum">     657 </span>                :<span class="lineCov">       3628 :                             handle-&gt;sb[0].sb_size * i);</span>
 <span class="lineNum">     658 </span>                :            :                 }
 <span class="lineNum">     659 </span>                :            :             }
 <span class="lineNum">     660 </span>                :            :         }
 <span class="lineNum">     661 </span>                :            :     }
 <span class="lineNum">     662 </span>                :            : 
 <span class="lineNum">     663 </span>                :            :     // existing subblock cannot be used .. give it up &amp; allocate new one
-<span class="lineNum">     664 </span>                :<span class="lineCov">        187 :     addr = _btreeblk_alloc(voidhandle, &amp;handle-&gt;sb[0].bid, 0);</span>
-<span class="lineNum">     665 </span>                :<span class="lineCov">        187 :     memset(handle-&gt;sb[0].bitmap, 0, handle-&gt;sb[0].nblocks);</span>
-<span class="lineNum">     666 </span>                :<span class="lineCov">        187 :     i = 0;</span>
-<span class="lineNum">     667 </span>                :<span class="lineCov">        187 :     handle-&gt;sb[0].bitmap[i] = 1;</span>
-<span class="lineNum">     668 </span>                :<span class="lineCov">        187 :     bid2subbid(handle-&gt;sb[0].bid, 0, i, bid);</span>
-<span class="lineNum">     669 </span>                :<span class="lineCov">       3813 :     return (void*)((uint8_t*)addr + handle-&gt;sb[0].sb_size * i);</span>
+<span class="lineNum">     664 </span>                :<span class="lineCov">        183 :     addr = _btreeblk_alloc(voidhandle, &amp;handle-&gt;sb[0].bid, 0);</span>
+<span class="lineNum">     665 </span>                :<span class="lineCov">        183 :     memset(handle-&gt;sb[0].bitmap, 0, handle-&gt;sb[0].nblocks);</span>
+<span class="lineNum">     666 </span>                :<span class="lineCov">        183 :     i = 0;</span>
+<span class="lineNum">     667 </span>                :<span class="lineCov">        183 :     handle-&gt;sb[0].bitmap[i] = 1;</span>
+<span class="lineNum">     668 </span>                :<span class="lineCov">        183 :     bid2subbid(handle-&gt;sb[0].bid, 0, i, bid);</span>
+<span class="lineNum">     669 </span>                :<span class="lineCov">       3815 :     return (void*)((uint8_t*)addr + handle-&gt;sb[0].sb_size * i);</span>
 <a name="670"><span class="lineNum">     670 </span>                :            : }</a>
 <span class="lineNum">     671 </span>                :            : 
-<span class="lineNum">     672 </span>                :<span class="lineCov">       4406 : void * btreeblk_enlarge_node(void *voidhandle,</span>
+<span class="lineNum">     672 </span>                :<span class="lineCov">       4419 : void * btreeblk_enlarge_node(void *voidhandle,</span>
 <span class="lineNum">     673 </span>                :            :                              bid_t old_bid,
 <span class="lineNum">     674 </span>                :            :                              size_t req_size,
 <span class="lineNum">     675 </span>                :            :                              bid_t *new_bid)
@@ -752,65 +752,65 @@
 <span class="lineNum">     679 </span>                :            :     size_t src_sb, src_idx, src_nitems;
 <span class="lineNum">     680 </span>                :            :     size_t dst_sb, dst_idx, dst_nitems;
 <span class="lineNum">     681 </span>                :            :     void *src_addr, *dst_addr;
-<span class="lineNum">     682 </span>                :<span class="lineCov">       4406 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     682 </span>                :<span class="lineCov">       4419 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     683 </span>                :            : 
-<span class="lineNum">     684 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 4406 times"> + </span>]:<span class="lineCov">       4406 :     if (!is_subblock(old_bid)) {</span>
+<span class="lineNum">     684 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 4419 times"> + </span>]:<span class="lineCov">       4419 :     if (!is_subblock(old_bid)) {</span>
 <span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :         return NULL;</span>
 <span class="lineNum">     686 </span>                :            :     }
-<span class="lineNum">     687 </span>                :<span class="lineCov">       4406 :     src_addr = dst_addr = NULL;</span>
-<span class="lineNum">     688 </span>                :<span class="lineCov">       4406 :     subbid2bid(old_bid, &amp;src_sb, &amp;src_idx, &amp;bid);</span>
+<span class="lineNum">     687 </span>                :<span class="lineCov">       4419 :     src_addr = dst_addr = NULL;</span>
+<span class="lineNum">     688 </span>                :<span class="lineCov">       4419 :     subbid2bid(old_bid, &amp;src_sb, &amp;src_idx, &amp;bid);</span>
 <span class="lineNum">     689 </span>                :            : 
-<span class="lineNum">     690 </span>                :<span class="lineCov">       4406 :     dst_sb = 0;</span>
+<span class="lineNum">     690 </span>                :<span class="lineCov">       4419 :     dst_sb = 0;</span>
 <span class="lineNum">     691 </span>                :            :     // find sublock that can accommodate req_size
-<span class="lineNum">     692 </span>        [<span class="branchCov" title="Branch 0 was taken 10149 times"> + </span><span class="branchCov" title="Branch 1 was taken 2067 times"> + </span>]:<span class="lineCov">      12216 :     for (i=src_sb+1; i&lt;handle-&gt;nsb; ++i){</span>
-<span class="lineNum">     693 </span>        [<span class="branchCov" title="Branch 0 was taken 2339 times"> + </span><span class="branchCov" title="Branch 1 was taken 7810 times"> + </span>]:<span class="lineCov">      10149 :         if (handle-&gt;sb[i].sb_size &gt; req_size) {</span>
-<span class="lineNum">     694 </span>                :<span class="lineCov">       2339 :             dst_sb = i;</span>
-<span class="lineNum">     695 </span>                :<span class="lineCov">       2339 :             break;</span>
+<span class="lineNum">     692 </span>        [<span class="branchCov" title="Branch 0 was taken 10158 times"> + </span><span class="branchCov" title="Branch 1 was taken 2071 times"> + </span>]:<span class="lineCov">      12229 :     for (i=src_sb+1; i&lt;handle-&gt;nsb; ++i){</span>
+<span class="lineNum">     693 </span>        [<span class="branchCov" title="Branch 0 was taken 2348 times"> + </span><span class="branchCov" title="Branch 1 was taken 7810 times"> + </span>]:<span class="lineCov">      10158 :         if (handle-&gt;sb[i].sb_size &gt; req_size) {</span>
+<span class="lineNum">     694 </span>                :<span class="lineCov">       2348 :             dst_sb = i;</span>
+<span class="lineNum">     695 </span>                :<span class="lineCov">       2348 :             break;</span>
 <span class="lineNum">     696 </span>                :            :         }
 <span class="lineNum">     697 </span>                :            :     }
 <span class="lineNum">     698 </span>                :            : 
-<span class="lineNum">     699 </span>                :<span class="lineCov">       4406 :     src_nitems = 0;</span>
-<span class="lineNum">     700 </span>        [<span class="branchCov" title="Branch 0 was taken 117252 times"> + </span><span class="branchCov" title="Branch 1 was taken 4406 times"> + </span>]:<span class="lineCov">     121658 :     for (i=0;i&lt;handle-&gt;sb[src_sb].nblocks;++i){</span>
-<span class="lineNum">     701 </span>        [<span class="branchCov" title="Branch 0 was taken 12503 times"> + </span><span class="branchCov" title="Branch 1 was taken 104749 times"> + </span>]:<span class="lineCov">     117252 :         if (handle-&gt;sb[src_sb].bitmap[i]) {</span>
-<span class="lineNum">     702 </span>                :<span class="lineCov">      12503 :             src_nitems++;</span>
+<span class="lineNum">     699 </span>                :<span class="lineCov">       4419 :     src_nitems = 0;</span>
+<span class="lineNum">     700 </span>        [<span class="branchCov" title="Branch 0 was taken 117384 times"> + </span><span class="branchCov" title="Branch 1 was taken 4419 times"> + </span>]:<span class="lineCov">     121803 :     for (i=0;i&lt;handle-&gt;sb[src_sb].nblocks;++i){</span>
+<span class="lineNum">     701 </span>        [<span class="branchCov" title="Branch 0 was taken 12583 times"> + </span><span class="branchCov" title="Branch 1 was taken 104801 times"> + </span>]:<span class="lineCov">     117384 :         if (handle-&gt;sb[src_sb].bitmap[i]) {</span>
+<span class="lineNum">     702 </span>                :<span class="lineCov">      12583 :             src_nitems++;</span>
 <span class="lineNum">     703 </span>                :            :         }
 <span class="lineNum">     704 </span>                :            :     }
 <span class="lineNum">     705 </span>                :            : 
-<span class="lineNum">     706 </span>                :<span class="lineCov">       4406 :     dst_nitems = 0;</span>
-<span class="lineNum">     707 </span>        [<span class="branchCov" title="Branch 0 was taken 2339 times"> + </span><span class="branchCov" title="Branch 1 was taken 2067 times"> + </span>]:<span class="lineCov">       4406 :     if (dst_sb &gt; 0) {</span>
-<span class="lineNum">     708 </span>                :<span class="lineCov">       2339 :         dst_idx = handle-&gt;sb[dst_sb].nblocks;</span>
-<span class="lineNum">     709 </span>        [<span class="branchCov" title="Branch 0 was taken 26810 times"> + </span><span class="branchCov" title="Branch 1 was taken 2339 times"> + </span>]:<span class="lineCov">      29149 :         for (i=0;i&lt;handle-&gt;sb[dst_sb].nblocks;++i){</span>
-<span class="lineNum">     710 </span>        [<span class="branchCov" title="Branch 0 was taken 9269 times"> + </span><span class="branchCov" title="Branch 1 was taken 17541 times"> + </span>]:<span class="lineCov">      26810 :             if (handle-&gt;sb[dst_sb].bitmap[i]) {</span>
-<span class="lineNum">     711 </span>                :<span class="lineCov">       9269 :                 dst_nitems++;</span>
-<span class="lineNum">     712 </span>        [<span class="branchCov" title="Branch 0 was taken 2237 times"> + </span><span class="branchCov" title="Branch 1 was taken 15304 times"> + </span>]:<span class="lineCov">      17541 :             } else if (dst_idx == handle-&gt;sb[dst_sb].nblocks) {</span>
-<span class="lineNum">     713 </span>                :<span class="lineCov">       2237 :                 dst_idx = i;</span>
+<span class="lineNum">     706 </span>                :<span class="lineCov">       4419 :     dst_nitems = 0;</span>
+<span class="lineNum">     707 </span>        [<span class="branchCov" title="Branch 0 was taken 2348 times"> + </span><span class="branchCov" title="Branch 1 was taken 2071 times"> + </span>]:<span class="lineCov">       4419 :     if (dst_sb &gt; 0) {</span>
+<span class="lineNum">     708 </span>                :<span class="lineCov">       2348 :         dst_idx = handle-&gt;sb[dst_sb].nblocks;</span>
+<span class="lineNum">     709 </span>        [<span class="branchCov" title="Branch 0 was taken 26872 times"> + </span><span class="branchCov" title="Branch 1 was taken 2348 times"> + </span>]:<span class="lineCov">      29220 :         for (i=0;i&lt;handle-&gt;sb[dst_sb].nblocks;++i){</span>
+<span class="lineNum">     710 </span>        [<span class="branchCov" title="Branch 0 was taken 9290 times"> + </span><span class="branchCov" title="Branch 1 was taken 17582 times"> + </span>]:<span class="lineCov">      26872 :             if (handle-&gt;sb[dst_sb].bitmap[i]) {</span>
+<span class="lineNum">     711 </span>                :<span class="lineCov">       9290 :                 dst_nitems++;</span>
+<span class="lineNum">     712 </span>        [<span class="branchCov" title="Branch 0 was taken 2245 times"> + </span><span class="branchCov" title="Branch 1 was taken 15337 times"> + </span>]:<span class="lineCov">      17582 :             } else if (dst_idx == handle-&gt;sb[dst_sb].nblocks) {</span>
+<span class="lineNum">     713 </span>                :<span class="lineCov">       2245 :                 dst_idx = i;</span>
 <span class="lineNum">     714 </span>                :            :             }
 <span class="lineNum">     715 </span>                :            :         }
 <span class="lineNum">     716 </span>                :            :     }
 <span class="lineNum">     717 </span>                :            : 
-<span class="lineNum">     718 </span>        [<span class="branchCov" title="Branch 0 was taken 2684 times"> + </span><span class="branchCov" title="Branch 1 was taken 1722 times"> + </span>]:<span class="lineCov">       4406 :     if (dst_nitems == 0) {</span>
+<span class="lineNum">     718 </span>        [<span class="branchCov" title="Branch 0 was taken 2690 times"> + </span><span class="branchCov" title="Branch 1 was taken 1729 times"> + </span>]:<span class="lineCov">       4419 :     if (dst_nitems == 0) {</span>
 <span class="lineNum">     719 </span>                :            :         // destination block is empty
-<span class="lineNum">     720 </span>                :<span class="lineCov">       2684 :         dst_idx = 0;</span>
-<span class="lineNum">     721 </span>        [<span class="branchCov" title="Branch 0 was taken 191 times"> + </span><span class="branchCov" title="Branch 1 was taken 2493 times"> + </span>]:<span class="lineCov">       2684 :         if (src_nitems == 1) {</span>
+<span class="lineNum">     720 </span>                :<span class="lineCov">       2690 :         dst_idx = 0;</span>
+<span class="lineNum">     721 </span>        [<span class="branchCov" title="Branch 0 was taken 193 times"> + </span><span class="branchCov" title="Branch 1 was taken 2497 times"> + </span>]:<span class="lineCov">       2690 :         if (src_nitems == 1) {</span>
 <span class="lineNum">     722 </span>                :            :             //2 case 1
 <span class="lineNum">     723 </span>                :            :             // if there's only one subblock in the source block,
 <span class="lineNum">     724 </span>                :            :             // then switch source block to destination block
-<span class="lineNum">     725 </span>                :<span class="lineCov">        191 :             src_addr = _btreeblk_read(voidhandle, bid, src_sb);</span>
-<span class="lineNum">     726 </span>[<span class="branchCov" title="Branch 1 was taken 161 times"> + </span><span class="branchCov" title="Branch 2 was taken 30 times"> + </span>][<span class="branchCov" title="Branch 3 was taken 158 times"> + </span><span class="branchCov" title="Branch 4 was taken 3 times"> + </span>]:<span class="lineCov">        191 :             if (filemgr_is_writable(handle-&gt;file, bid) &amp;&amp;</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 5 was taken 158 times"> + </span><span class="branchCov" title="Branch 6 was taken 33 times"> + </span>]
-<span class="lineNum">     727 </span>                :<span class="lineCov">        161 :                 bid == handle-&gt;sb[src_sb].bid) {</span>
+<span class="lineNum">     725 </span>                :<span class="lineCov">        193 :             src_addr = _btreeblk_read(voidhandle, bid, src_sb);</span>
+<span class="lineNum">     726 </span>[<span class="branchCov" title="Branch 1 was taken 163 times"> + </span><span class="branchCov" title="Branch 2 was taken 30 times"> + </span>][<span class="branchCov" title="Branch 3 was taken 160 times"> + </span><span class="branchCov" title="Branch 4 was taken 3 times"> + </span>]:<span class="lineCov">        193 :             if (filemgr_is_writable(handle-&gt;file, bid) &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 5 was taken 160 times"> + </span><span class="branchCov" title="Branch 6 was taken 33 times"> + </span>]
+<span class="lineNum">     727 </span>                :<span class="lineCov">        163 :                 bid == handle-&gt;sb[src_sb].bid) {</span>
 <span class="lineNum">     728 </span>                :            :                 // case 1-1
-<span class="lineNum">     729 </span>                :<span class="lineCov">        158 :                 dst_addr = src_addr;</span>
-<span class="lineNum">     730 </span>        [<span class="branchCov" title="Branch 0 was taken 74 times"> + </span><span class="branchCov" title="Branch 1 was taken 84 times"> + </span>]:<span class="lineCov">        158 :                 if (dst_sb &gt; 0) {</span>
+<span class="lineNum">     729 </span>                :<span class="lineCov">        160 :                 dst_addr = src_addr;</span>
+<span class="lineNum">     730 </span>        [<span class="branchCov" title="Branch 0 was taken 74 times"> + </span><span class="branchCov" title="Branch 1 was taken 86 times"> + </span>]:<span class="lineCov">        160 :                 if (dst_sb &gt; 0) {</span>
 <span class="lineNum">     731 </span>                :<span class="lineCov">         74 :                     handle-&gt;sb[dst_sb].bid = handle-&gt;sb[src_sb].bid;</span>
 <span class="lineNum">     732 </span>                :            :                 } else {
-<span class="lineNum">     733 </span>                :<span class="lineCov">         84 :                     *new_bid = handle-&gt;sb[src_sb].bid;</span>
+<span class="lineNum">     733 </span>                :<span class="lineCov">         86 :                     *new_bid = handle-&gt;sb[src_sb].bid;</span>
 <span class="lineNum">     734 </span>                :            :                 }
-<span class="lineNum">     735 </span>                :<span class="lineCov">        158 :                 btreeblk_set_dirty(voidhandle, handle-&gt;sb[src_sb].bid);</span>
+<span class="lineNum">     735 </span>                :<span class="lineCov">        160 :                 btreeblk_set_dirty(voidhandle, handle-&gt;sb[src_sb].bid);</span>
 <span class="lineNum">     736 </span>                :            :                 // we MUST change block-&gt;sb_no value since subblock is switched.
 <span class="lineNum">     737 </span>                :            :                 // dst_sb == 0: regular block, otherwise: sub-block
-<span class="lineNum">     738 </span>                :<span class="lineCov">        158 :                 _btreeblk_set_sb_no(voidhandle, handle-&gt;sb[src_sb].bid,</span>
-<span class="lineNum">     739 </span>        [<span class="branchCov" title="Branch 0 was taken 74 times"> + </span><span class="branchCov" title="Branch 1 was taken 84 times"> + </span>]:<span class="lineCov">        158 :                                     ((dst_sb)?(dst_sb):(-1)));</span>
+<span class="lineNum">     738 </span>                :<span class="lineCov">        160 :                 _btreeblk_set_sb_no(voidhandle, handle-&gt;sb[src_sb].bid,</span>
+<span class="lineNum">     739 </span>        [<span class="branchCov" title="Branch 0 was taken 74 times"> + </span><span class="branchCov" title="Branch 1 was taken 86 times"> + </span>]:<span class="lineCov">        160 :                                     ((dst_sb)?(dst_sb):(-1)));</span>
 <span class="lineNum">     740 </span>                :            :             } else {
 <span class="lineNum">     741 </span>                :            :                 // case 1-2
 <span class="lineNum">     742 </span>                :            :                 // if the source block is not writable, allocate new one
@@ -823,129 +823,129 @@
 <span class="lineNum">     749 </span>                :            :                 }
 <span class="lineNum">     750 </span>                :            :             }
 <span class="lineNum">     751 </span>                :            : 
-<span class="lineNum">     752 </span>[<span class="branchCov" title="Branch 0 was taken 129 times"> + </span><span class="branchCov" title="Branch 1 was taken 62 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 31 times"> + </span><span class="branchCov" title="Branch 3 was taken 98 times"> + </span>]:<span class="lineCov">        191 :             if (src_idx &gt; 0 || dst_addr != src_addr) {</span>
+<span class="lineNum">     752 </span>[<span class="branchCov" title="Branch 0 was taken 129 times"> + </span><span class="branchCov" title="Branch 1 was taken 64 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 31 times"> + </span><span class="branchCov" title="Branch 3 was taken 98 times"> + </span>]:<span class="lineCov">        193 :             if (src_idx &gt; 0 || dst_addr != src_addr) {</span>
 <span class="lineNum">     753 </span>                :            :                 // move node to the beginning of the block
 <span class="lineNum">     754 </span>                :            :                 memmove(dst_addr,
-<span class="lineNum">     755 </span>                :<span class="lineCov">         93 :                         (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
-<span class="lineNum">     756 </span>                :<span class="lineCov">         93 :                         handle-&gt;sb[src_sb].sb_size);</span>
+<span class="lineNum">     755 </span>                :<span class="lineCov">         95 :                         (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
+<span class="lineNum">     756 </span>                :<span class="lineCov">         95 :                         handle-&gt;sb[src_sb].sb_size);</span>
 <span class="lineNum">     757 </span>                :            :             }
-<span class="lineNum">     758 </span>        [<span class="branchCov" title="Branch 0 was taken 97 times"> + </span><span class="branchCov" title="Branch 1 was taken 94 times"> + </span>]:<span class="lineCov">        191 :             if (dst_sb &gt; 0) {</span>
+<span class="lineNum">     758 </span>        [<span class="branchCov" title="Branch 0 was taken 97 times"> + </span><span class="branchCov" title="Branch 1 was taken 96 times"> + </span>]:<span class="lineCov">        193 :             if (dst_sb &gt; 0) {</span>
 <span class="lineNum">     759 </span>                :<span class="lineCov">         97 :                 handle-&gt;sb[dst_sb].bitmap[dst_idx] = 1;</span>
 <span class="lineNum">     760 </span>                :            :             }
-<span class="lineNum">     761 </span>        [<span class="branchCov" title="Branch 0 was taken 184 times"> + </span><span class="branchCov" title="Branch 1 was taken 7 times"> + </span>]:<span class="lineCov">        191 :             if (bid == handle-&gt;sb[src_sb].bid) {</span>
+<span class="lineNum">     761 </span>        [<span class="branchCov" title="Branch 0 was taken 186 times"> + </span><span class="branchCov" title="Branch 1 was taken 7 times"> + </span>]:<span class="lineCov">        193 :             if (bid == handle-&gt;sb[src_sb].bid) {</span>
 <span class="lineNum">     762 </span>                :            :                 // remove existing source block info
-<span class="lineNum">     763 </span>                :<span class="lineCov">        184 :                 handle-&gt;sb[src_sb].bid = BLK_NOT_FOUND;</span>
-<span class="lineNum">     764 </span>                :<span class="lineCov">        184 :                 memset(handle-&gt;sb[src_sb].bitmap, 0,</span>
-<span class="lineNum">     765 </span>                :<span class="lineCov">        184 :                        handle-&gt;sb[src_sb].nblocks);</span>
+<span class="lineNum">     763 </span>                :<span class="lineCov">        186 :                 handle-&gt;sb[src_sb].bid = BLK_NOT_FOUND;</span>
+<span class="lineNum">     764 </span>                :<span class="lineCov">        186 :                 memset(handle-&gt;sb[src_sb].bitmap, 0,</span>
+<span class="lineNum">     765 </span>                :<span class="lineCov">        186 :                        handle-&gt;sb[src_sb].nblocks);</span>
 <span class="lineNum">     766 </span>                :            :             }
 <span class="lineNum">     767 </span>                :            : 
 <span class="lineNum">     768 </span>                :            :         } else {
 <span class="lineNum">     769 </span>                :            :             //2 case 2
 <span class="lineNum">     770 </span>                :            :             // if there are more than one slubblocks in the source block,
 <span class="lineNum">     771 </span>                :            :             // then allocate destination block and move the target subblock
-<span class="lineNum">     772 </span>                :<span class="lineCov">       2493 :             src_addr = _btreeblk_read(voidhandle, bid, src_sb);</span>
+<span class="lineNum">     772 </span>                :<span class="lineCov">       2497 :             src_addr = _btreeblk_read(voidhandle, bid, src_sb);</span>
 <span class="lineNum">     773 </span>                :            : 
-<span class="lineNum">     774 </span>        [<span class="branchCov" title="Branch 0 was taken 520 times"> + </span><span class="branchCov" title="Branch 1 was taken 1973 times"> + </span>]:<span class="lineCov">       2493 :             if (dst_sb &gt; 0) {</span>
+<span class="lineNum">     774 </span>        [<span class="branchCov" title="Branch 0 was taken 522 times"> + </span><span class="branchCov" title="Branch 1 was taken 1975 times"> + </span>]:<span class="lineCov">       2497 :             if (dst_sb &gt; 0) {</span>
 <span class="lineNum">     775 </span>                :            :                 // case 2-1
-<span class="lineNum">     776 </span>                :<span class="lineCov">        520 :                 dst_addr = _btreeblk_alloc(voidhandle, &amp;handle-&gt;sb[dst_sb].bid, dst_sb);</span>
-<span class="lineNum">     777 </span>                :<span class="lineCov">       1040 :                 memcpy((uint8_t*)dst_addr + handle-&gt;sb[dst_sb].sb_size * dst_idx,</span>
-<span class="lineNum">     778 </span>                :<span class="lineCov">        520 :                        (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
-<span class="lineNum">     779 </span>                :<span class="lineCov">       2080 :                        handle-&gt;sb[src_sb].sb_size);</span>
-<span class="lineNum">     780 </span>                :<span class="lineCov">        520 :                 handle-&gt;sb[dst_sb].bitmap[dst_idx] = 1;</span>
+<span class="lineNum">     776 </span>                :<span class="lineCov">        522 :                 dst_addr = _btreeblk_alloc(voidhandle, &amp;handle-&gt;sb[dst_sb].bid, dst_sb);</span>
+<span class="lineNum">     777 </span>                :<span class="lineCov">       1044 :                 memcpy((uint8_t*)dst_addr + handle-&gt;sb[dst_sb].sb_size * dst_idx,</span>
+<span class="lineNum">     778 </span>                :<span class="lineCov">        522 :                        (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
+<span class="lineNum">     779 </span>                :<span class="lineCov">       2088 :                        handle-&gt;sb[src_sb].sb_size);</span>
+<span class="lineNum">     780 </span>                :<span class="lineCov">        522 :                 handle-&gt;sb[dst_sb].bitmap[dst_idx] = 1;</span>
 <span class="lineNum">     781 </span>                :            :             } else {
 <span class="lineNum">     782 </span>                :            :                 // case 2-2: normal (whole) block
-<span class="lineNum">     783 </span>                :<span class="lineCov">       1973 :                 dst_addr = btreeblk_alloc(voidhandle, new_bid);</span>
+<span class="lineNum">     783 </span>                :<span class="lineCov">       1975 :                 dst_addr = btreeblk_alloc(voidhandle, new_bid);</span>
 <span class="lineNum">     784 </span>                :            :                 memcpy((uint8_t*)dst_addr,
-<span class="lineNum">     785 </span>                :<span class="lineCov">       1973 :                        (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
-<span class="lineNum">     786 </span>                :<span class="lineCov">       1973 :                        handle-&gt;sb[src_sb].sb_size);</span>
+<span class="lineNum">     785 </span>                :<span class="lineCov">       1975 :                        (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
+<span class="lineNum">     786 </span>                :<span class="lineCov">       1975 :                        handle-&gt;sb[src_sb].sb_size);</span>
 <span class="lineNum">     787 </span>                :            :             }
-<span class="lineNum">     788 </span>        [<span class="branchCov" title="Branch 0 was taken 2482 times"> + </span><span class="branchCov" title="Branch 1 was taken 11 times"> + </span>]:<span class="lineCov">       2493 :             if (bid == handle-&gt;sb[src_sb].bid) {</span>
-<span class="lineNum">     789 </span>                :<span class="lineCov">       2482 :                 handle-&gt;sb[src_sb].bitmap[src_idx] = 0;</span>
+<span class="lineNum">     788 </span>        [<span class="branchCov" title="Branch 0 was taken 2489 times"> + </span><span class="branchCov" title="Branch 1 was taken 8 times"> + </span>]:<span class="lineCov">       2497 :             if (bid == handle-&gt;sb[src_sb].bid) {</span>
+<span class="lineNum">     789 </span>                :<span class="lineCov">       2489 :                 handle-&gt;sb[src_sb].bitmap[src_idx] = 0;</span>
 <span class="lineNum">     790 </span>                :            :             }
 <span class="lineNum">     791 </span>                :            :         }
 <span class="lineNum">     792 </span>                :            :     } else {
 <span class="lineNum">     793 </span>                :            :         //2 case 3
 <span class="lineNum">     794 </span>                :            :         // destination block exists (always happens when subblock)
-<span class="lineNum">     795 </span>                :<span class="lineCov">       1722 :         src_addr = _btreeblk_read(voidhandle, bid, src_sb);</span>
-<span class="lineNum">     796 </span>[<span class="branchCov" title="Branch 1 was taken 1708 times"> + </span><span class="branchCov" title="Branch 2 was taken 14 times"> + </span>][<span class="branchCov" title="Branch 3 was taken 1607 times"> + </span><span class="branchCov" title="Branch 4 was taken 101 times"> + </span>]:<span class="lineCov">       1722 :         if (filemgr_is_writable(handle-&gt;file, handle-&gt;sb[dst_sb].bid) &amp;&amp;</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 5 was taken 1607 times"> + </span><span class="branchCov" title="Branch 6 was taken 115 times"> + </span>]
-<span class="lineNum">     797 </span>                :<span class="lineCov">       1708 :             dst_idx != handle-&gt;sb[dst_sb].nblocks) {</span>
+<span class="lineNum">     795 </span>                :<span class="lineCov">       1729 :         src_addr = _btreeblk_read(voidhandle, bid, src_sb);</span>
+<span class="lineNum">     796 </span>[<span class="branchCov" title="Branch 1 was taken 1715 times"> + </span><span class="branchCov" title="Branch 2 was taken 14 times"> + </span>][<span class="branchCov" title="Branch 3 was taken 1613 times"> + </span><span class="branchCov" title="Branch 4 was taken 102 times"> + </span>]:<span class="lineCov">       1729 :         if (filemgr_is_writable(handle-&gt;file, handle-&gt;sb[dst_sb].bid) &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 5 was taken 1613 times"> + </span><span class="branchCov" title="Branch 6 was taken 116 times"> + </span>]
+<span class="lineNum">     797 </span>                :<span class="lineCov">       1715 :             dst_idx != handle-&gt;sb[dst_sb].nblocks) {</span>
 <span class="lineNum">     798 </span>                :            :             // case 3-1
-<span class="lineNum">     799 </span>                :<span class="lineCov">       1607 :             dst_addr = _btreeblk_read(voidhandle, handle-&gt;sb[dst_sb].bid, dst_sb);</span>
+<span class="lineNum">     799 </span>                :<span class="lineCov">       1613 :             dst_addr = _btreeblk_read(voidhandle, handle-&gt;sb[dst_sb].bid, dst_sb);</span>
 <span class="lineNum">     800 </span>                :            :         } else {
 <span class="lineNum">     801 </span>                :            :             // case 3-2: allocate new destination block
-<span class="lineNum">     802 </span>                :<span class="lineCov">        115 :             dst_addr = _btreeblk_alloc(voidhandle, &amp;handle-&gt;sb[dst_sb].bid, dst_sb);</span>
-<span class="lineNum">     803 </span>                :<span class="lineCov">        115 :             memset(handle-&gt;sb[dst_sb].bitmap, 0, handle-&gt;sb[dst_sb].nblocks);</span>
-<span class="lineNum">     804 </span>                :<span class="lineCov">        115 :             dst_idx = 0;</span>
+<span class="lineNum">     802 </span>                :<span class="lineCov">        116 :             dst_addr = _btreeblk_alloc(voidhandle, &amp;handle-&gt;sb[dst_sb].bid, dst_sb);</span>
+<span class="lineNum">     803 </span>                :<span class="lineCov">        116 :             memset(handle-&gt;sb[dst_sb].bitmap, 0, handle-&gt;sb[dst_sb].nblocks);</span>
+<span class="lineNum">     804 </span>                :<span class="lineCov">        116 :             dst_idx = 0;</span>
 <span class="lineNum">     805 </span>                :            :         }
 <span class="lineNum">     806 </span>                :            : 
-<span class="lineNum">     807 </span>                :<span class="lineCov">       3444 :         memcpy((uint8_t*)dst_addr + handle-&gt;sb[dst_sb].sb_size * dst_idx,</span>
-<span class="lineNum">     808 </span>                :<span class="lineCov">       1722 :                (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
-<span class="lineNum">     809 </span>                :<span class="lineCov">       6888 :                handle-&gt;sb[src_sb].sb_size);</span>
-<span class="lineNum">     810 </span>                :<span class="lineCov">       1722 :         handle-&gt;sb[dst_sb].bitmap[dst_idx] = 1;</span>
-<span class="lineNum">     811 </span>        [<span class="branchCov" title="Branch 0 was taken 1694 times"> + </span><span class="branchCov" title="Branch 1 was taken 28 times"> + </span>]:<span class="lineCov">       1722 :         if (bid == handle-&gt;sb[src_sb].bid) {</span>
-<span class="lineNum">     812 </span>                :<span class="lineCov">       1694 :             handle-&gt;sb[src_sb].bitmap[src_idx] = 0;</span>
+<span class="lineNum">     807 </span>                :<span class="lineCov">       3458 :         memcpy((uint8_t*)dst_addr + handle-&gt;sb[dst_sb].sb_size * dst_idx,</span>
+<span class="lineNum">     808 </span>                :<span class="lineCov">       1729 :                (uint8_t*)src_addr + handle-&gt;sb[src_sb].sb_size * src_idx,</span>
+<span class="lineNum">     809 </span>                :<span class="lineCov">       6916 :                handle-&gt;sb[src_sb].sb_size);</span>
+<span class="lineNum">     810 </span>                :<span class="lineCov">       1729 :         handle-&gt;sb[dst_sb].bitmap[dst_idx] = 1;</span>
+<span class="lineNum">     811 </span>        [<span class="branchCov" title="Branch 0 was taken 1702 times"> + </span><span class="branchCov" title="Branch 1 was taken 27 times"> + </span>]:<span class="lineCov">       1729 :         if (bid == handle-&gt;sb[src_sb].bid) {</span>
+<span class="lineNum">     812 </span>                :<span class="lineCov">       1702 :             handle-&gt;sb[src_sb].bitmap[src_idx] = 0;</span>
 <span class="lineNum">     813 </span>                :            :         }
 <span class="lineNum">     814 </span>                :            :     }
 <span class="lineNum">     815 </span>                :            : 
-<span class="lineNum">     816 </span>        [<span class="branchCov" title="Branch 0 was taken 2339 times"> + </span><span class="branchCov" title="Branch 1 was taken 2067 times"> + </span>]:<span class="lineCov">       4406 :     if (dst_sb &gt; 0) {</span>
+<span class="lineNum">     816 </span>        [<span class="branchCov" title="Branch 0 was taken 2348 times"> + </span><span class="branchCov" title="Branch 1 was taken 2071 times"> + </span>]:<span class="lineCov">       4419 :     if (dst_sb &gt; 0) {</span>
 <span class="lineNum">     817 </span>                :            :         // sub block
-<span class="lineNum">     818 </span>                :<span class="lineCov">       2339 :         bid2subbid(handle-&gt;sb[dst_sb].bid, dst_sb, dst_idx, new_bid);</span>
-<span class="lineNum">     819 </span>                :<span class="lineCov">       2339 :         return (uint8_t*)dst_addr + handle-&gt;sb[dst_sb].sb_size * dst_idx;</span>
+<span class="lineNum">     818 </span>                :<span class="lineCov">       2348 :         bid2subbid(handle-&gt;sb[dst_sb].bid, dst_sb, dst_idx, new_bid);</span>
+<span class="lineNum">     819 </span>                :<span class="lineCov">       2348 :         return (uint8_t*)dst_addr + handle-&gt;sb[dst_sb].sb_size * dst_idx;</span>
 <span class="lineNum">     820 </span>                :            :     } else {
 <span class="lineNum">     821 </span>                :            :         // whole block
-<span class="lineNum">     822 </span>                :<span class="lineCov">       4406 :         return dst_addr;</span>
+<span class="lineNum">     822 </span>                :<span class="lineCov">       4419 :         return dst_addr;</span>
 <span class="lineNum">     823 </span>                :            :     }
 <a name="824"><span class="lineNum">     824 </span>                :            : }</a>
 <span class="lineNum">     825 </span>                :            : 
-<span class="lineNum">     826 </span>                :<span class="lineCov">    7818029 : INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle,</span>
+<span class="lineNum">     826 </span>                :<span class="lineCov">    7840470 : INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle,</span>
 <span class="lineNum">     827 </span>                :            :                                        struct btreeblk_block *block)
 <span class="lineNum">     828 </span>                :            : {
-<span class="lineNum">     829 </span>                :<span class="lineCov">    7818029 :     _btreeblk_free_aligned_block(handle, block);</span>
-<span class="lineNum">     830 </span>                :<span class="lineCov">    7814888 :     mempool_free(block);</span>
-<a name="831"><span class="lineNum">     831 </span>                :<span class="lineCov">    7814888 : }</span></a>
+<span class="lineNum">     829 </span>                :<span class="lineCov">    7840470 :     _btreeblk_free_aligned_block(handle, block);</span>
+<span class="lineNum">     830 </span>                :<span class="lineCov">    7838869 :     mempool_free(block);</span>
+<a name="831"><span class="lineNum">     831 </span>                :<span class="lineCov">    7838869 : }</span></a>
 <span class="lineNum">     832 </span>                :            : 
-<span class="lineNum">     833 </span>                :<span class="lineCov">    8433613 : INLINE fdb_status _btreeblk_write_dirty_block(struct btreeblk_handle *handle,</span>
+<span class="lineNum">     833 </span>                :<span class="lineCov">    8434209 : INLINE fdb_status _btreeblk_write_dirty_block(struct btreeblk_handle *handle,</span>
 <span class="lineNum">     834 </span>                :            :                                         struct btreeblk_block *block)
 <span class="lineNum">     835 </span>                :            : {
 <span class="lineNum">     836 </span>                :            :     fdb_status status;
 <span class="lineNum">     837 </span>                :            :     //2 MUST BE modified to support multiple nodes in a block
 <span class="lineNum">     838 </span>                :            : 
-<span class="lineNum">     839 </span>                :<span class="lineCov">    8433613 :     _btreeblk_encode(handle, block);</span>
+<span class="lineNum">     839 </span>                :<span class="lineCov">    8434209 :     _btreeblk_encode(handle, block);</span>
 <span class="lineNum">     840 </span>                :            :     status = filemgr_write(handle-&gt;file, block-&gt;bid, block-&gt;addr,
-<span class="lineNum">     841 </span>                :<span class="lineCov">    8433629 :                            handle-&gt;log_callback);</span>
-<span class="lineNum">     842 </span>                :<span class="lineCov">    8433637 :     _btreeblk_decode(handle, block);</span>
-<span class="lineNum">     843 </span>                :<span class="lineCov">    8433639 :     return status;</span>
+<span class="lineNum">     841 </span>                :<span class="lineCov">    8434243 :                            handle-&gt;log_callback);</span>
+<span class="lineNum">     842 </span>                :<span class="lineCov">    8434247 :     _btreeblk_decode(handle, block);</span>
+<span class="lineNum">     843 </span>                :<span class="lineCov">    8434258 :     return status;</span>
 <a name="844"><span class="lineNum">     844 </span>                :            : }</a>
 <span class="lineNum">     845 </span>                :            : 
-<span class="lineNum">     846 </span>                :<span class="lineCov">   15707671 : fdb_status btreeblk_operation_end(void *voidhandle)</span>
+<span class="lineNum">     846 </span>                :<span class="lineCov">   15722588 : fdb_status btreeblk_operation_end(void *voidhandle)</span>
 <span class="lineNum">     847 </span>                :            : {
 <span class="lineNum">     848 </span>                :            :     // flush and write all items in allocation list
-<span class="lineNum">     849 </span>                :<span class="lineCov">   15707671 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
+<span class="lineNum">     849 </span>                :<span class="lineCov">   15722588 :     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;</span>
 <span class="lineNum">     850 </span>                :            :     struct list_elem *e;
 <span class="lineNum">     851 </span>                :            :     struct btreeblk_block *block;
 <span class="lineNum">     852 </span>                :            :     int writable;
-<span class="lineNum">     853 </span>                :<span class="lineCov">   15707671 :     fdb_status status = FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     853 </span>                :<span class="lineCov">   15722588 :     fdb_status status = FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">     854 </span>                :            : 
 <span class="lineNum">     855 </span>                :            :     // write and free items in allocation list
-<span class="lineNum">     856 </span>                :<span class="lineCov">   15707671 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
-<span class="lineNum">     857 </span>        [<span class="branchCov" title="Branch 0 was taken 94530 times"> + </span><span class="branchCov" title="Branch 1 was taken 15708314 times"> + </span>]:<span class="lineCov">   15802844 :     while(e){</span>
-<span class="lineNum">     858 </span>                :<span class="lineCov">      94530 :         block = _get_entry(e, struct btreeblk_block, le);</span>
-<span class="lineNum">     859 </span>                :<span class="lineCov">      94530 :         writable = filemgr_is_writable(handle-&gt;file, block-&gt;bid);</span>
-<span class="lineNum">     860 </span>        [<span class="branchCov" title="Branch 0 was taken 94530 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      94530 :         if (writable) {</span>
-<span class="lineNum">     861 </span>                :<span class="lineCov">      94530 :             status = _btreeblk_write_dirty_block(handle, block);</span>
-<span class="lineNum">     862 </span>        [<span class="branchCov" title="Branch 0 was taken 3 times"> + </span><span class="branchCov" title="Branch 1 was taken 94527 times"> + </span>]:<span class="lineCov">      94530 :             if (status != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     856 </span>                :<span class="lineCov">   15722588 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
+<span class="lineNum">     857 </span>        [<span class="branchCov" title="Branch 0 was taken 94557 times"> + </span><span class="branchCov" title="Branch 1 was taken 15723266 times"> + </span>]:<span class="lineCov">   15817823 :     while(e){</span>
+<span class="lineNum">     858 </span>                :<span class="lineCov">      94557 :         block = _get_entry(e, struct btreeblk_block, le);</span>
+<span class="lineNum">     859 </span>                :<span class="lineCov">      94557 :         writable = filemgr_is_writable(handle-&gt;file, block-&gt;bid);</span>
+<span class="lineNum">     860 </span>        [<span class="branchCov" title="Branch 0 was taken 94557 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">      94557 :         if (writable) {</span>
+<span class="lineNum">     861 </span>                :<span class="lineCov">      94557 :             status = _btreeblk_write_dirty_block(handle, block);</span>
+<span class="lineNum">     862 </span>        [<span class="branchCov" title="Branch 0 was taken 3 times"> + </span><span class="branchCov" title="Branch 1 was taken 94554 times"> + </span>]:<span class="lineCov">      94557 :             if (status != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     863 </span>                :<span class="lineCov">          3 :                 return status;</span>
 <span class="lineNum">     864 </span>                :            :             }
 <span class="lineNum">     865 </span>                :            :         }else{
 <span class="lineNum">     866 </span>                :<span class="lineNoCov">          0 :             assert(0);</span>
 <span class="lineNum">     867 </span>                :            :         }
 <span class="lineNum">     868 </span>                :            : 
-<span class="lineNum">     869 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 94525 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">      94527 :         if (block-&gt;pos + (handle-&gt;nodesize) &gt; (handle-&gt;file-&gt;blocksize) || !writable) {</span>
+<span class="lineNum">     869 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 94552 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">      94554 :         if (block-&gt;pos + (handle-&gt;nodesize) &gt; (handle-&gt;file-&gt;blocksize) || !writable) {</span>
 <span class="lineNum">     870 </span>                :            :             // remove from alc_list and insert into read list
-<span class="lineNum">     871 </span>                :<span class="lineCov">      94525 :             e = list_remove(&amp;handle-&gt;alc_list, &amp;block-&gt;le);</span>
-<span class="lineNum">     872 </span>                :<span class="lineCov">      94525 :             block-&gt;dirty = 0;</span>
-<span class="lineNum">     873 </span>                :<span class="lineCov">      94525 :             list_push_front(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
+<span class="lineNum">     871 </span>                :<span class="lineCov">      94552 :             e = list_remove(&amp;handle-&gt;alc_list, &amp;block-&gt;le);</span>
+<span class="lineNum">     872 </span>                :<span class="lineCov">      94552 :             block-&gt;dirty = 0;</span>
+<span class="lineNum">     873 </span>                :<span class="lineCov">      94552 :             list_push_front(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
 <span class="lineNum">     874 </span>                :            : #ifdef __BTREEBLK_READ_TREE
 <span class="lineNum">     875 </span>                :            :             avl_insert(&amp;handle-&gt;read_tree, &amp;block-&gt;avl, _btreeblk_bid_cmp);
 <span class="lineNum">     876 </span>                :            : #endif
@@ -983,32 +983,32 @@
 <span class="lineNum">     908 </span>                :            :     }
 <span class="lineNum">     909 </span>                :            : #else
 <span class="lineNum">     910 </span>                :            :     // list
-<span class="lineNum">     911 </span>                :<span class="lineCov">   15708314 :     e = list_begin(&amp;handle-&gt;read_list);</span>
-<span class="lineNum">     912 </span>        [<span class="branchCov" title="Branch 0 was taken 151591652 times"> + </span><span class="branchCov" title="Branch 1 was taken 15710027 times"> + </span>]:<span class="lineCov">  167301679 :     while(e){</span>
-<span class="lineNum">     913 </span>                :<span class="lineCov">  151591652 :         block = _get_entry(e, struct btreeblk_block, le);</span>
+<span class="lineNum">     911 </span>                :<span class="lineCov">   15723266 :     e = list_begin(&amp;handle-&gt;read_list);</span>
+<span class="lineNum">     912 </span>        [<span class="branchCov" title="Branch 0 was taken 151808962 times"> + </span><span class="branchCov" title="Branch 1 was taken 15724054 times"> + </span>]:<span class="lineCov">  167533016 :     while(e){</span>
+<span class="lineNum">     913 </span>                :<span class="lineCov">  151808962 :         block = _get_entry(e, struct btreeblk_block, le);</span>
 <span class="lineNum">     914 </span>                :            : 
-<span class="lineNum">     915 </span>        [<span class="branchCov" title="Branch 0 was taken 8336336 times"> + </span><span class="branchCov" title="Branch 1 was taken 143255316 times"> + </span>]:<span class="lineCov">  151591652 :         if (block-&gt;dirty) {</span>
+<span class="lineNum">     915 </span>        [<span class="branchCov" title="Branch 0 was taken 8328104 times"> + </span><span class="branchCov" title="Branch 1 was taken 143480858 times"> + </span>]:<span class="lineCov">  151808962 :         if (block-&gt;dirty) {</span>
 <span class="lineNum">     916 </span>                :            :             // write back only when the block is modified
-<span class="lineNum">     917 </span>                :<span class="lineCov">    8336336 :             status = _btreeblk_write_dirty_block(handle, block);</span>
-<span class="lineNum">     918 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 8339107 times"> + </span>]:<span class="lineCov">    8339107 :             if (status != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     917 </span>                :<span class="lineCov">    8328104 :             status = _btreeblk_write_dirty_block(handle, block);</span>
+<span class="lineNum">     918 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 8339696 times"> + </span>]:<span class="lineCov">    8339696 :             if (status != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">     919 </span>                :<span class="lineNoCov">          0 :                 return status;</span>
 <span class="lineNum">     920 </span>                :            :             }
-<span class="lineNum">     921 </span>                :<span class="lineCov">    8339107 :             block-&gt;dirty = 0;</span>
+<span class="lineNum">     921 </span>                :<span class="lineCov">    8339696 :             block-&gt;dirty = 0;</span>
 <span class="lineNum">     922 </span>                :            :         }
 <span class="lineNum">     923 </span>                :            : 
-<span class="lineNum">     924 </span>        [<span class="branchCov" title="Branch 0 was taken 7792724 times"> + </span><span class="branchCov" title="Branch 1 was taken 143801699 times"> + </span>]:<span class="lineCov">  151594423 :         if (block-&gt;age &gt;= BTREEBLK_AGE_LIMIT) {</span>
-<span class="lineNum">     925 </span>                :<span class="lineCov">    7792724 :             e = list_remove(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
-<span class="lineNum">     926 </span>                :<span class="lineCov">    7792998 :             _btreeblk_free_dirty_block(handle, block);</span>
+<span class="lineNum">     924 </span>        [<span class="branchCov" title="Branch 0 was taken 7804898 times"> + </span><span class="branchCov" title="Branch 1 was taken 144015656 times"> + </span>]:<span class="lineCov">  151820554 :         if (block-&gt;age &gt;= BTREEBLK_AGE_LIMIT) {</span>
+<span class="lineNum">     925 </span>                :<span class="lineCov">    7804898 :             e = list_remove(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
+<span class="lineNum">     926 </span>                :<span class="lineCov">    7805368 :             _btreeblk_free_dirty_block(handle, block);</span>
 <span class="lineNum">     927 </span>                :            :         } else {
-<span class="lineNum">     928 </span>                :<span class="lineCov">  143801699 :             block-&gt;age++;</span>
-<span class="lineNum">     929 </span>                :<span class="lineCov">  143801699 :             e = list_next(e);</span>
+<span class="lineNum">     928 </span>                :<span class="lineCov">  144015656 :             block-&gt;age++;</span>
+<span class="lineNum">     929 </span>                :<span class="lineCov">  144015656 :             e = list_next(e);</span>
 <span class="lineNum">     930 </span>                :            :         }
 <span class="lineNum">     931 </span>                :            :     }
 <span class="lineNum">     932 </span>                :            : #endif
-<span class="lineNum">     933 </span>                :<span class="lineCov">   15710030 :     return status;</span>
+<span class="lineNum">     933 </span>                :<span class="lineCov">   15724057 :     return status;</span>
 <a name="934"><span class="lineNum">     934 </span>                :            : }</a>
 <span class="lineNum">     935 </span>                :            : 
-<span class="lineNum">     936 </span>                :<span class="lineCov">      17618 : void btreeblk_discard_blocks(struct btreeblk_handle *handle)</span>
+<span class="lineNum">     936 </span>                :<span class="lineCov">      20101 : void btreeblk_discard_blocks(struct btreeblk_handle *handle)</span>
 <span class="lineNum">     937 </span>                :            : {
 <span class="lineNum">     938 </span>                :            :     // discard all writable blocks in the read list
 <span class="lineNum">     939 </span>                :            :     struct list_elem *e;
@@ -1029,16 +1029,16 @@
 <span class="lineNum">     954 </span>                :            :     }
 <span class="lineNum">     955 </span>                :            : #else
 <span class="lineNum">     956 </span>                :            :     // list
-<span class="lineNum">     957 </span>                :<span class="lineCov">      17618 :     e = list_begin(&amp;handle-&gt;read_list);</span>
-<span class="lineNum">     958 </span>        [<span class="branchCov" title="Branch 0 was taken 23818 times"> + </span><span class="branchCov" title="Branch 1 was taken 17618 times"> + </span>]:<span class="lineCov">      41436 :     while(e){</span>
-<span class="lineNum">     959 </span>                :<span class="lineCov">      23818 :         block = _get_entry(e, struct btreeblk_block, le);</span>
-<span class="lineNum">     960 </span>                :<span class="lineCov">      23818 :         e = list_next(&amp;block-&gt;le);</span>
+<span class="lineNum">     957 </span>                :<span class="lineCov">      20101 :     e = list_begin(&amp;handle-&gt;read_list);</span>
+<span class="lineNum">     958 </span>        [<span class="branchCov" title="Branch 0 was taken 33804 times"> + </span><span class="branchCov" title="Branch 1 was taken 20101 times"> + </span>]:<span class="lineCov">      53905 :     while(e){</span>
+<span class="lineNum">     959 </span>                :<span class="lineCov">      33804 :         block = _get_entry(e, struct btreeblk_block, le);</span>
+<span class="lineNum">     960 </span>                :<span class="lineCov">      33804 :         e = list_next(&amp;block-&gt;le);</span>
 <span class="lineNum">     961 </span>                :            : 
-<span class="lineNum">     962 </span>                :<span class="lineCov">      23818 :         list_remove(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
-<span class="lineNum">     963 </span>                :<span class="lineCov">      23818 :         _btreeblk_free_dirty_block(handle, block);</span>
+<span class="lineNum">     962 </span>                :<span class="lineCov">      33804 :         list_remove(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
+<span class="lineNum">     963 </span>                :<span class="lineCov">      33804 :         _btreeblk_free_dirty_block(handle, block);</span>
 <span class="lineNum">     964 </span>                :            :     }
 <span class="lineNum">     965 </span>                :            : #endif
-<span class="lineNum">     966 </span>                :<span class="lineCov">      17618 : }</span>
+<span class="lineNum">     966 </span>                :<span class="lineCov">      20101 : }</span>
 <span class="lineNum">     967 </span>                :            : 
 <span class="lineNum">     968 </span>                :            : #ifdef __BTREEBLK_SUBBLOCK
 <span class="lineNum">     969 </span>                :            : struct btree_blk_ops btreeblk_ops = {
@@ -1068,67 +1068,67 @@
 <span class="lineNum">     993 </span>                :            : };
 <a name="994"><span class="lineNum">     994 </span>                :            : #endif</a>
 <span class="lineNum">     995 </span>                :            : 
-<span class="lineNum">     996 </span>                :<span class="lineCov">        566 : struct btree_blk_ops *btreeblk_get_ops()</span>
+<span class="lineNum">     996 </span>                :<span class="lineCov">        569 : struct btree_blk_ops *btreeblk_get_ops()</span>
 <span class="lineNum">     997 </span>                :            : {
-<span class="lineNum">     998 </span>                :<span class="lineCov">        566 :     return &amp;btreeblk_ops;</span>
+<span class="lineNum">     998 </span>                :<span class="lineCov">        569 :     return &amp;btreeblk_ops;</span>
 <a name="999"><span class="lineNum">     999 </span>                :            : }</a>
 <span class="lineNum">    1000 </span>                :            : 
-<span class="lineNum">    1001 </span>                :<span class="lineCov">        625 : void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nodesize)</span>
+<span class="lineNum">    1001 </span>                :<span class="lineCov">        628 : void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nodesize)</span>
 <span class="lineNum">    1002 </span>                :            : {
 <span class="lineNum">    1003 </span>                :            :     int i;
 <span class="lineNum">    1004 </span>                :            :     uint32_t _nodesize;
 <span class="lineNum">    1005 </span>                :            : 
-<span class="lineNum">    1006 </span>                :<span class="lineCov">        625 :     handle-&gt;file = file;</span>
-<span class="lineNum">    1007 </span>                :<span class="lineCov">        625 :     handle-&gt;nodesize = nodesize;</span>
-<span class="lineNum">    1008 </span>                :<span class="lineCov">        625 :     handle-&gt;nnodeperblock = handle-&gt;file-&gt;blocksize / handle-&gt;nodesize;</span>
-<span class="lineNum">    1009 </span>                :<span class="lineCov">        625 :     handle-&gt;nlivenodes = 0;</span>
+<span class="lineNum">    1006 </span>                :<span class="lineCov">        628 :     handle-&gt;file = file;</span>
+<span class="lineNum">    1007 </span>                :<span class="lineCov">        628 :     handle-&gt;nodesize = nodesize;</span>
+<span class="lineNum">    1008 </span>                :<span class="lineCov">        628 :     handle-&gt;nnodeperblock = handle-&gt;file-&gt;blocksize / handle-&gt;nodesize;</span>
+<span class="lineNum">    1009 </span>                :<span class="lineCov">        628 :     handle-&gt;nlivenodes = 0;</span>
 <span class="lineNum">    1010 </span>                :            : 
-<span class="lineNum">    1011 </span>                :<span class="lineCov">        625 :     list_init(&amp;handle-&gt;alc_list);</span>
-<span class="lineNum">    1012 </span>                :<span class="lineCov">        625 :     list_init(&amp;handle-&gt;read_list);</span>
+<span class="lineNum">    1011 </span>                :<span class="lineCov">        628 :     list_init(&amp;handle-&gt;alc_list);</span>
+<span class="lineNum">    1012 </span>                :<span class="lineCov">        628 :     list_init(&amp;handle-&gt;read_list);</span>
 <span class="lineNum">    1013 </span>                :            : #ifdef __BTREEBLK_READ_TREE
 <span class="lineNum">    1014 </span>                :            :     avl_init(&amp;handle-&gt;read_tree, NULL);
 <span class="lineNum">    1015 </span>                :            : #endif
 <span class="lineNum">    1016 </span>                :            : 
 <span class="lineNum">    1017 </span>                :            : #ifdef __BTREEBLK_BLOCKPOOL
-<span class="lineNum">    1018 </span>                :<span class="lineCov">        625 :     list_init(&amp;handle-&gt;blockpool);</span>
+<span class="lineNum">    1018 </span>                :<span class="lineCov">        628 :     list_init(&amp;handle-&gt;blockpool);</span>
 <span class="lineNum">    1019 </span>                :            : #endif
 <span class="lineNum">    1020 </span>                :            : 
 <span class="lineNum">    1021 </span>                :            : #ifdef __BTREEBLK_SUBBLOCK
 <span class="lineNum">    1022 </span>                :            :     // compute # subblock sets
-<span class="lineNum">    1023 </span>                :<span class="lineCov">        625 :     _nodesize = BTREEBLK_MIN_SUBBLOCK;</span>
-<span class="lineNum">    1024 </span>[<span class="branchCov" title="Branch 0 was taken 3087 times"> + </span><span class="branchCov" title="Branch 1 was taken 625 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 3087 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       3712 :     for (i=0; (_nodesize &lt; nodesize &amp;&amp; i&lt;5); ++i){</span>
-<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 3087 times"> + </span><span class="branchCov" title="Branch 5 was taken 625 times"> + </span>]
-<span class="lineNum">    1025 </span>                :<span class="lineCov">       3087 :         _nodesize = _nodesize &lt;&lt; 1;</span>
+<span class="lineNum">    1023 </span>                :<span class="lineCov">        628 :     _nodesize = BTREEBLK_MIN_SUBBLOCK;</span>
+<span class="lineNum">    1024 </span>[<span class="branchCov" title="Branch 0 was taken 3102 times"> + </span><span class="branchCov" title="Branch 1 was taken 628 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 3102 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       3730 :     for (i=0; (_nodesize &lt; nodesize &amp;&amp; i&lt;5); ++i){</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 3102 times"> + </span><span class="branchCov" title="Branch 5 was taken 628 times"> + </span>]
+<span class="lineNum">    1025 </span>                :<span class="lineCov">       3102 :         _nodesize = _nodesize &lt;&lt; 1;</span>
 <span class="lineNum">    1026 </span>                :            :     }
-<span class="lineNum">    1027 </span>                :<span class="lineCov">        625 :     handle-&gt;nsb = i;</span>
-<span class="lineNum">    1028 </span>        [<span class="branchCov" title="Branch 0 was taken 622 times"> + </span><span class="branchCov" title="Branch 1 was taken 3 times"> + </span>]:<span class="lineCov">        625 :     if (i) {</span>
+<span class="lineNum">    1027 </span>                :<span class="lineCov">        628 :     handle-&gt;nsb = i;</span>
+<span class="lineNum">    1028 </span>        [<span class="branchCov" title="Branch 0 was taken 625 times"> + </span><span class="branchCov" title="Branch 1 was taken 3 times"> + </span>]:<span class="lineCov">        628 :     if (i) {</span>
 <span class="lineNum">    1029 </span>                :            :         handle-&gt;sb = (struct btreeblk_subblocks*)
-<span class="lineNum">    1030 </span>                :<span class="lineCov">        622 :                      malloc(sizeof(struct btreeblk_subblocks) * handle-&gt;nsb);</span>
+<span class="lineNum">    1030 </span>                :<span class="lineCov">        625 :                      malloc(sizeof(struct btreeblk_subblocks) * handle-&gt;nsb);</span>
 <span class="lineNum">    1031 </span>                :            :         // initialize each subblock set
-<span class="lineNum">    1032 </span>                :<span class="lineCov">        622 :         _nodesize = BTREEBLK_MIN_SUBBLOCK;</span>
-<span class="lineNum">    1033 </span>        [<span class="branchCov" title="Branch 0 was taken 3087 times"> + </span><span class="branchCov" title="Branch 1 was taken 622 times"> + </span>]:<span class="lineCov">       3709 :         for (i=0;i&lt;handle-&gt;nsb;++i){</span>
-<span class="lineNum">    1034 </span>                :<span class="lineCov">       3087 :             handle-&gt;sb[i].bid = BLK_NOT_FOUND;</span>
-<span class="lineNum">    1035 </span>                :<span class="lineCov">       3087 :             handle-&gt;sb[i].sb_size = _nodesize;</span>
-<span class="lineNum">    1036 </span>                :<span class="lineCov">       3087 :             handle-&gt;sb[i].nblocks = nodesize / _nodesize;</span>
-<span class="lineNum">    1037 </span>                :<span class="lineCov">       3087 :             handle-&gt;sb[i].bitmap = (uint8_t*)malloc(handle-&gt;sb[i].nblocks);</span>
-<span class="lineNum">    1038 </span>                :<span class="lineCov">       3087 :             memset(handle-&gt;sb[i].bitmap, 0, handle-&gt;sb[i].nblocks);</span>
-<span class="lineNum">    1039 </span>                :<span class="lineCov">       3087 :             _nodesize = _nodesize &lt;&lt; 1;</span>
+<span class="lineNum">    1032 </span>                :<span class="lineCov">        625 :         _nodesize = BTREEBLK_MIN_SUBBLOCK;</span>
+<span class="lineNum">    1033 </span>        [<span class="branchCov" title="Branch 0 was taken 3102 times"> + </span><span class="branchCov" title="Branch 1 was taken 625 times"> + </span>]:<span class="lineCov">       3727 :         for (i=0;i&lt;handle-&gt;nsb;++i){</span>
+<span class="lineNum">    1034 </span>                :<span class="lineCov">       3102 :             handle-&gt;sb[i].bid = BLK_NOT_FOUND;</span>
+<span class="lineNum">    1035 </span>                :<span class="lineCov">       3102 :             handle-&gt;sb[i].sb_size = _nodesize;</span>
+<span class="lineNum">    1036 </span>                :<span class="lineCov">       3102 :             handle-&gt;sb[i].nblocks = nodesize / _nodesize;</span>
+<span class="lineNum">    1037 </span>                :<span class="lineCov">       3102 :             handle-&gt;sb[i].bitmap = (uint8_t*)malloc(handle-&gt;sb[i].nblocks);</span>
+<span class="lineNum">    1038 </span>                :<span class="lineCov">       3102 :             memset(handle-&gt;sb[i].bitmap, 0, handle-&gt;sb[i].nblocks);</span>
+<span class="lineNum">    1039 </span>                :<span class="lineCov">       3102 :             _nodesize = _nodesize &lt;&lt; 1;</span>
 <span class="lineNum">    1040 </span>                :            :         }
 <span class="lineNum">    1041 </span>                :            :     } else {
 <span class="lineNum">    1042 </span>                :<span class="lineCov">          3 :         handle-&gt;sb = NULL;</span>
 <span class="lineNum">    1043 </span>                :            :     }
 <span class="lineNum">    1044 </span>                :            : #endif
-<span class="lineNum">    1045 </span>                :<span class="lineCov">        625 : }</span>
+<span class="lineNum">    1045 </span>                :<span class="lineCov">        628 : }</span>
 <a name="1046"><span class="lineNum">    1046 </span>                :            : </a>
 <span class="lineNum">    1047 </span>                :            : // shutdown
-<span class="lineNum">    1048 </span>                :<span class="lineCov">        621 : void btreeblk_free(struct btreeblk_handle *handle)</span>
+<span class="lineNum">    1048 </span>                :<span class="lineCov">        624 : void btreeblk_free(struct btreeblk_handle *handle)</span>
 <span class="lineNum">    1049 </span>                :            : {
 <span class="lineNum">    1050 </span>                :            :     struct list_elem *e;
 <span class="lineNum">    1051 </span>                :            :     struct btreeblk_block *block;
 <span class="lineNum">    1052 </span>                :            : 
 <span class="lineNum">    1053 </span>                :            :     // free all blocks in alc list
-<span class="lineNum">    1054 </span>                :<span class="lineCov">        621 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
-<span class="lineNum">    1055 </span>        [<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchCov" title="Branch 1 was taken 621 times"> + </span>]:<span class="lineCov">        627 :     while(e) {</span>
+<span class="lineNum">    1054 </span>                :<span class="lineCov">        624 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
+<span class="lineNum">    1055 </span>        [<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchCov" title="Branch 1 was taken 624 times"> + </span>]:<span class="lineCov">        630 :     while(e) {</span>
 <span class="lineNum">    1056 </span>                :<span class="lineCov">          6 :         block = _get_entry(e, struct btreeblk_block, le);</span>
 <span class="lineNum">    1057 </span>                :<span class="lineCov">          6 :         e = list_remove(&amp;handle-&gt;alc_list, &amp;block-&gt;le);</span>
 <span class="lineNum">    1058 </span>                :<span class="lineCov">          6 :         _btreeblk_free_dirty_block(handle, block);</span>
@@ -1147,11 +1147,11 @@
 <span class="lineNum">    1071 </span>                :            :     }
 <span class="lineNum">    1072 </span>                :            : #else
 <span class="lineNum">    1073 </span>                :            :     // linked list
-<span class="lineNum">    1074 </span>                :<span class="lineCov">        621 :     e = list_begin(&amp;handle-&gt;read_list);</span>
-<span class="lineNum">    1075 </span>        [<span class="branchCov" title="Branch 0 was taken 1596 times"> + </span><span class="branchCov" title="Branch 1 was taken 621 times"> + </span>]:<span class="lineCov">       2217 :     while(e) {</span>
-<span class="lineNum">    1076 </span>                :<span class="lineCov">       1596 :         block = _get_entry(e, struct btreeblk_block, le);</span>
-<span class="lineNum">    1077 </span>                :<span class="lineCov">       1596 :         e = list_remove(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
-<span class="lineNum">    1078 </span>                :<span class="lineCov">       1594 :         _btreeblk_free_dirty_block(handle, block);</span>
+<span class="lineNum">    1074 </span>                :<span class="lineCov">        624 :     e = list_begin(&amp;handle-&gt;read_list);</span>
+<span class="lineNum">    1075 </span>        [<span class="branchCov" title="Branch 0 was taken 1600 times"> + </span><span class="branchCov" title="Branch 1 was taken 624 times"> + </span>]:<span class="lineCov">       2224 :     while(e) {</span>
+<span class="lineNum">    1076 </span>                :<span class="lineCov">       1600 :         block = _get_entry(e, struct btreeblk_block, le);</span>
+<span class="lineNum">    1077 </span>                :<span class="lineCov">       1600 :         e = list_remove(&amp;handle-&gt;read_list, &amp;block-&gt;le);</span>
+<span class="lineNum">    1078 </span>                :<span class="lineCov">       1599 :         _btreeblk_free_dirty_block(handle, block);</span>
 <span class="lineNum">    1079 </span>                :            :     }
 <span class="lineNum">    1080 </span>                :            : #endif
 <span class="lineNum">    1081 </span>                :            : 
@@ -1159,40 +1159,40 @@
 <span class="lineNum">    1083 </span>                :            :     // free all blocks in the block pool
 <span class="lineNum">    1084 </span>                :            :     struct btreeblk_addr *item;
 <span class="lineNum">    1085 </span>                :            : 
-<span class="lineNum">    1086 </span>                :<span class="lineCov">        621 :     e = list_begin(&amp;handle-&gt;blockpool);</span>
-<span class="lineNum">    1087 </span>        [<span class="branchCov" title="Branch 0 was taken 3375 times"> + </span><span class="branchCov" title="Branch 1 was taken 621 times"> + </span>]:<span class="lineCov">       3996 :     while(e){</span>
-<span class="lineNum">    1088 </span>                :<span class="lineCov">       3375 :         item = _get_entry(e, struct btreeblk_addr, le);</span>
-<span class="lineNum">    1089 </span>                :<span class="lineCov">       3375 :         e = list_next(e);</span>
+<span class="lineNum">    1086 </span>                :<span class="lineCov">        624 :     e = list_begin(&amp;handle-&gt;blockpool);</span>
+<span class="lineNum">    1087 </span>        [<span class="branchCov" title="Branch 0 was taken 3364 times"> + </span><span class="branchCov" title="Branch 1 was taken 624 times"> + </span>]:<span class="lineCov">       3988 :     while(e){</span>
+<span class="lineNum">    1088 </span>                :<span class="lineCov">       3364 :         item = _get_entry(e, struct btreeblk_addr, le);</span>
+<span class="lineNum">    1089 </span>                :<span class="lineCov">       3364 :         e = list_next(e);</span>
 <span class="lineNum">    1090 </span>                :            : 
-<span class="lineNum">    1091 </span>                :<span class="lineCov">       3375 :         free_align(item-&gt;addr);</span>
-<span class="lineNum">    1092 </span>                :<span class="lineCov">       3375 :         mempool_free(item);</span>
+<span class="lineNum">    1091 </span>                :<span class="lineCov">       3364 :         free_align(item-&gt;addr);</span>
+<span class="lineNum">    1092 </span>                :<span class="lineCov">       3364 :         mempool_free(item);</span>
 <span class="lineNum">    1093 </span>                :            :     }
 <span class="lineNum">    1094 </span>                :            : #endif
 <span class="lineNum">    1095 </span>                :            : 
 <span class="lineNum">    1096 </span>                :            : #ifdef __BTREEBLK_SUBBLOCK
 <span class="lineNum">    1097 </span>                :            :     int i;
-<span class="lineNum">    1098 </span>        [<span class="branchCov" title="Branch 0 was taken 3081 times"> + </span><span class="branchCov" title="Branch 1 was taken 621 times"> + </span>]:<span class="lineCov">       3702 :     for (i=0;i&lt;handle-&gt;nsb;++i){</span>
-<span class="lineNum">    1099 </span>                :<span class="lineCov">       3081 :         free(handle-&gt;sb[i].bitmap);</span>
+<span class="lineNum">    1098 </span>        [<span class="branchCov" title="Branch 0 was taken 3096 times"> + </span><span class="branchCov" title="Branch 1 was taken 624 times"> + </span>]:<span class="lineCov">       3720 :     for (i=0;i&lt;handle-&gt;nsb;++i){</span>
+<span class="lineNum">    1099 </span>                :<span class="lineCov">       3096 :         free(handle-&gt;sb[i].bitmap);</span>
 <span class="lineNum">    1100 </span>                :            :     }
-<span class="lineNum">    1101 </span>                :<span class="lineCov">        621 :     free(handle-&gt;sb);</span>
+<span class="lineNum">    1101 </span>                :<span class="lineCov">        624 :     free(handle-&gt;sb);</span>
 <span class="lineNum">    1102 </span>                :            : #endif
-<a name="1103"><span class="lineNum">    1103 </span>                :<span class="lineCov">        621 : }</span></a>
+<a name="1103"><span class="lineNum">    1103 </span>                :<span class="lineCov">        624 : }</span></a>
 <span class="lineNum">    1104 </span>                :            : 
-<span class="lineNum">    1105 </span>                :<span class="lineCov">   15708475 : fdb_status btreeblk_end(struct btreeblk_handle *handle)</span>
+<span class="lineNum">    1105 </span>                :<span class="lineCov">   15723551 : fdb_status btreeblk_end(struct btreeblk_handle *handle)</span>
 <span class="lineNum">    1106 </span>                :            : {
 <span class="lineNum">    1107 </span>                :            :     struct list_elem *e;
 <span class="lineNum">    1108 </span>                :            :     struct btreeblk_block *block;
-<span class="lineNum">    1109 </span>                :<span class="lineCov">   15708475 :     fdb_status status = FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">    1109 </span>                :<span class="lineCov">   15723551 :     fdb_status status = FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">    1110 </span>                :            : 
 <span class="lineNum">    1111 </span>                :            :     // flush all dirty items
-<span class="lineNum">    1112 </span>                :<span class="lineCov">   15708475 :     status = btreeblk_operation_end((void *)handle);</span>
-<span class="lineNum">    1113 </span>        [<span class="branchCov" title="Branch 0 was taken 3 times"> + </span><span class="branchCov" title="Branch 1 was taken 15709861 times"> + </span>]:<span class="lineCov">   15709864 :     if (status != FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">    1112 </span>                :<span class="lineCov">   15723551 :     status = btreeblk_operation_end((void *)handle);</span>
+<span class="lineNum">    1113 </span>        [<span class="branchCov" title="Branch 0 was taken 3 times"> + </span><span class="branchCov" title="Branch 1 was taken 15723968 times"> + </span>]:<span class="lineCov">   15723971 :     if (status != FDB_RESULT_SUCCESS) {</span>
 <span class="lineNum">    1114 </span>                :<span class="lineCov">          3 :         return status;</span>
 <span class="lineNum">    1115 </span>                :            :     }
 <span class="lineNum">    1116 </span>                :            : 
 <span class="lineNum">    1117 </span>                :            :     // remove all items in lists
-<span class="lineNum">    1118 </span>                :<span class="lineCov">   15709861 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
-<span class="lineNum">    1119 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 15705821 times"> + </span>]:<span class="lineCov">   15705823 :     while(e) {</span>
+<span class="lineNum">    1118 </span>                :<span class="lineCov">   15723968 :     e = list_begin(&amp;handle-&gt;alc_list);</span>
+<span class="lineNum">    1119 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 15721041 times"> + </span>]:<span class="lineCov">   15721043 :     while(e) {</span>
 <span class="lineNum">    1120 </span>                :<span class="lineCov">          2 :         block = _get_entry(e, struct btreeblk_block, le);</span>
 <span class="lineNum">    1121 </span>                :<span class="lineCov">          2 :         e = list_remove(&amp;handle-&gt;alc_list, &amp;block-&gt;le);</span>
 <span class="lineNum">    1122 </span>                :            : 
@@ -1202,7 +1202,7 @@
 <span class="lineNum">    1126 </span>                :            :         avl_insert(&amp;handle-&gt;read_tree, &amp;block-&gt;avl, _btreeblk_bid_cmp);
 <span class="lineNum">    1127 </span>                :            : #endif
 <span class="lineNum">    1128 </span>                :            :     }
-<span class="lineNum">    1129 </span>                :<span class="lineCov">   15705824 :     return status;</span>
+<span class="lineNum">    1129 </span>                :<span class="lineCov">   15721044 :     return status;</span>
 <span class="lineNum">    1130 </span>                :            : }
 </pre>
       </td>
