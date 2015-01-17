@@ -1114,6 +1114,67 @@ void compaction_daemon_test(size_t time_sec)
     TEST_RESULT("compaction daemon test");
 }
 
+// MB-13117
+void auto_compaction_with_concurrent_insert_test(size_t t_limit)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    fdb_file_handle *file;
+    fdb_kvs_handle *kvs;
+    fdb_status status;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    struct timeval ts_begin, ts_cur, ts_gap;
+
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // Open Database File
+    config = fdb_get_default_config();
+    config.compaction_mode=FDB_COMPACTION_AUTO;
+    config.compactor_sleep_duration = 1;
+    status = fdb_open(&file, "dummy", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Open KV Store
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    gettimeofday(&ts_begin, NULL);
+    printf("wait for %d seconds..\n", (int)t_limit);
+
+    // Several kv pairs
+    for(i=0;i<100000;i++) {
+        char str[15];
+        sprintf(str, "%d", i);
+        status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Commit
+        status = fdb_commit(file, FDB_COMMIT_NORMAL);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        gettimeofday(&ts_cur, NULL);
+        ts_gap = _utime_gap(ts_begin, ts_cur);
+        if (ts_gap.tv_sec >= t_limit) {
+            break;
+        }
+    }
+
+    status = fdb_close(file);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+
+    TEST_RESULT("auto compaction with concurrent insert test");
+}
+
 int main(){
     compact_wo_reopen_test();
     compact_with_reopen_test();
@@ -1122,6 +1183,7 @@ int main(){
     db_compact_overwrite();
     db_compact_during_doc_delete(NULL);
     compaction_daemon_test(20);
+    auto_compaction_with_concurrent_insert_test(20);
 
     return 0;
 }

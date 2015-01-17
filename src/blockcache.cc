@@ -907,7 +907,7 @@ int bcache_write_partial(struct filemgr *file,
         ditem->item = item;
 
         // insert into tree
-        marker = *((uint8_t*)buf + bcache_blocksize-1);
+        marker = *((uint8_t*)item->addr + bcache_blocksize-1);
         if (marker == BLK_MARKER_BNODE ) {
             // b-tree node
             avl_insert(&item->fname->tree_idx, &ditem->avl, _dirty_cmp);
