@@ -1911,7 +1911,8 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
     return result;
 }
 
-// DOC returned by this function must be freed using 'fdb_doc_free'
+// DOC returned by this function must be freed by fdb_doc_free
+// if it was allocated because the incoming doc was pointing to NULL
 fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 {
     struct docio_object _doc;
@@ -1919,6 +1920,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     uint64_t offset;
     struct docio_handle *dhandle;
     size_t size_id = sizeof(fdb_kvs_id_t);
+    bool alloced_key, alloced_meta, alloced_body;
 
     if (!iterator || !doc) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1930,10 +1932,27 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     }
 
     offset = iterator->_get_offset;
-    _doc.key = NULL;
-    _doc.length.keylen = 0;
-    _doc.meta = NULL;
-    _doc.body = NULL;
+
+    if (*doc == NULL) {
+        ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
+        if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+            return ret;
+        } // LCOV_EXCL_STOP
+        _doc.key = NULL;
+        _doc.length.keylen = 0;
+        _doc.meta = NULL;
+        _doc.body = NULL;
+        alloced_key = true;
+        alloced_meta = true;
+        alloced_body = true;
+    } else {
+        _doc.key = (*doc)->key;
+        _doc.meta = (*doc)->meta;
+        _doc.body = (*doc)->body;
+        alloced_key = _doc.key ? false : true;
+        alloced_meta = _doc.meta ? false : true;
+        alloced_body = _doc.body ? false : true;
+    }
 
     uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
     if (_offset == offset) {
@@ -1941,18 +1960,16 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     }
     if (_doc.length.flag & DOCIO_DELETED &&
         (iterator->opt & FDB_ITR_NO_DELETES)) {
-        free(_doc.key);
-        free(_doc.meta);
-        free(_doc.body);
+        if (alloced_key) {
+            free(_doc.key);
+        }
+        if (alloced_meta) {
+            free(_doc.meta);
+        }
+        if (alloced_body) {
+            free(_doc.body);
+        }
         return FDB_RESULT_KEY_NOT_FOUND;
-    }
-
-    ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
-    if (ret != FDB_RESULT_SUCCESS) {
-        free(_doc.key);
-        free(_doc.meta);
-        free(_doc.body);
-        return ret;
     }
 
     if (iterator->handle.kvs) {
@@ -1960,11 +1977,18 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
         _doc.length.keylen -= size_id;
         memmove(_doc.key, (uint8_t*)_doc.key + size_id, _doc.length.keylen);
     }
-    (*doc)->key = _doc.key;
+
+    if (alloced_key) {
+        (*doc)->key = _doc.key;
+    }
+    if (alloced_meta) {
+        (*doc)->meta = _doc.meta;
+    }
+    if (alloced_body) {
+        (*doc)->body = _doc.body;
+    }
     (*doc)->keylen = _doc.length.keylen;
-    (*doc)->meta = _doc.meta;
     (*doc)->metalen = _doc.length.metalen;
-    (*doc)->body = _doc.body;
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
@@ -1981,6 +2005,7 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
     uint64_t offset, _offset;
     struct docio_handle *dhandle;
     size_t size_id = sizeof(fdb_kvs_id_t);
+    bool alloced_key, alloced_meta;
 
     if (!iterator || !doc) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1993,27 +2018,38 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 
     offset = iterator->_get_offset;
 
-    _doc.key = NULL;
-    _doc.length.keylen = 0;
-    _doc.meta = NULL;
-    _doc.body = NULL;
+    if (*doc == NULL) {
+        ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
+        if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+            return ret;
+        } // LCOV_EXCL_STOP
+        _doc.key = NULL;
+        _doc.length.keylen = 0;
+        _doc.meta = NULL;
+        _doc.body = NULL;
+        alloced_key = true;
+        alloced_meta = true;
+    } else {
+        _doc.key = (*doc)->key;
+        _doc.meta = (*doc)->meta;
+        _doc.body = NULL;
+        alloced_key = _doc.key ? false : true;
+        alloced_meta = _doc.meta ? false : true;
+    }
+
     _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
     if (_offset == offset) {
         return FDB_RESULT_KEY_NOT_FOUND;
     }
     if (_doc.length.flag & DOCIO_DELETED &&
             (iterator->opt & FDB_ITR_NO_DELETES)) {
-        free(_doc.key);
-        free(_doc.meta);
+        if (alloced_key) {
+            free(_doc.key);
+        }
+        if (alloced_meta) {
+            free(_doc.meta);
+        }
         return FDB_RESULT_KEY_NOT_FOUND;
-    }
-
-    ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
-    if (ret != FDB_RESULT_SUCCESS) {
-        free(_doc.key);
-        free(_doc.meta);
-        free(_doc.body);
-        return ret;
     }
 
     if (iterator->handle.kvs) {
@@ -2021,9 +2057,13 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
         _doc.length.keylen -= size_id;
         memmove(_doc.key, (uint8_t*)_doc.key + size_id, _doc.length.keylen);
     }
-    (*doc)->key = _doc.key;
+    if (alloced_key) {
+        (*doc)->key = _doc.key;
+    }
+    if (alloced_meta) {
+        (*doc)->meta = _doc.meta;
+    }
     (*doc)->keylen = _doc.length.keylen;
-    (*doc)->meta = _doc.meta;
     (*doc)->metalen = _doc.length.metalen;
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;

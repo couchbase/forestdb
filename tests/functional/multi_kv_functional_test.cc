@@ -476,7 +476,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
     fdb_kvs_handle *db, *kv1, *kv2;
     fdb_config config;
     fdb_kvs_config kvs_config;
-    fdb_doc *doc;
+    fdb_doc *doc = NULL;
     fdb_iterator *it;
     fdb_status s;
 
@@ -546,6 +546,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
         TEST_CHK(doc->seqnum == r);
         fdb_doc_free(doc);
+        doc = NULL;
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
@@ -565,6 +566,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
         TEST_CHK(doc->seqnum == r);
         fdb_doc_free(doc);
+        doc = NULL;
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
@@ -581,6 +583,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
         TEST_CHK(doc->seqnum == r);
         fdb_doc_free(doc);
+        doc = NULL;
     } while (fdb_iterator_prev(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 0);
     fdb_iterator_close(it);
@@ -597,6 +600,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
+        doc = NULL;
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
@@ -618,6 +622,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
+        doc = NULL;
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 60);
@@ -649,6 +654,7 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     int n = 100;
     int i, r;
     char key[256], value[256];
+    char keyBuf[256], valueBuf[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
     fdb_file_handle *dbfile;
@@ -760,6 +766,12 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     TEST_CHK(i == n);
     fdb_iterator_close(it);
 
+    // pre-allocate memory and re-use it for the iterator return document
+    s = fdb_doc_create(&doc, NULL, 0, NULL, 0, NULL, 0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    doc->key = &keyBuf[0];
+    doc->body = &valueBuf[0];
+
     // iterate in KV1
     i = 0;
     s = fdb_iterator_sequence_init(kv1, &it, 0, 0, FDB_ITR_NONE);
@@ -780,7 +792,6 @@ void multi_kv_iterator_seq_test(uint8_t opt)
         TEST_CMP(key, doc->key, doc->keylen);
         TEST_CMP(value, doc->body, doc->bodylen);
         TEST_CHK(doc->seqnum == seqnum);
-        fdb_doc_free(doc);
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
@@ -803,7 +814,6 @@ void multi_kv_iterator_seq_test(uint8_t opt)
         TEST_CMP(key, doc->key, doc->keylen);
         TEST_CMP(value, doc->body, doc->bodylen);
         TEST_CHK(doc->seqnum == seqnum);
-        fdb_doc_free(doc);
     } while (fdb_iterator_prev(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 0);
     fdb_iterator_close(it);
@@ -826,7 +836,6 @@ void multi_kv_iterator_seq_test(uint8_t opt)
         }
         (void)seqnum;
         sprintf(key, keystr, r);
-        fdb_doc_free(doc);
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
@@ -850,7 +859,6 @@ void multi_kv_iterator_seq_test(uint8_t opt)
             sprintf(value, valuestr, r, "kv1_third");
         }
         (void)seqnum;
-        fdb_doc_free(doc);
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == 46);
@@ -863,6 +871,12 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // free up the pre-allocated buffer for iterator return document
+    doc->key = NULL;
+    doc->body = NULL;
+    s = fdb_doc_free(doc);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     memleak_end();
@@ -1733,6 +1747,7 @@ void multi_kv_custom_cmp_test()
     int n = 1000;
     int i, r;
     char key[256], value[256];
+    char keyBuf[256], valueBuf[256];
     char keystr[] = "key%06d";
     char valuestr[] = "value%08d(%s)";
     fdb_file_handle *dbfile;
@@ -1977,6 +1992,12 @@ void multi_kv_custom_cmp_test()
         fdb_doc_free(doc);
     }
 
+    // pre-allocate memory and re-use it for the iterator return document
+    s = fdb_doc_create(&doc, NULL, 0, NULL, 0, NULL, 0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    doc->key = &keyBuf[0];
+    doc->body = &valueBuf[0];
+
     // create full iterator for 'kv1'
     i = 0;
     s = fdb_iterator_init(kv1, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
@@ -1988,7 +2009,6 @@ void multi_kv_custom_cmp_test()
         sprintf(value, valuestr, i, "kv1_custom_cmp(updated)");
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
-        fdb_doc_free(doc);
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
     TEST_CHK(i == n);
@@ -1998,6 +2018,11 @@ void multi_kv_custom_cmp_test()
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // release the pre-allocated memory for the iterator return document
+    doc->key = NULL;
+    doc->body = NULL;
+    s = fdb_doc_free(doc);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     memleak_end();
 

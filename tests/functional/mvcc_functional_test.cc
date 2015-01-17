@@ -295,7 +295,7 @@ void snapshot_test()
     fdb_kvs_handle *snap_db;
     fdb_seqnum_t snap_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_kvs_info kvs_info;
     fdb_status status;
     fdb_iterator *iterator;
@@ -442,6 +442,7 @@ void snapshot_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i ++;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -465,6 +466,7 @@ void snapshot_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i ++;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -731,6 +733,7 @@ void in_memory_snapshot_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -948,6 +951,7 @@ void snapshot_clone_test()
     TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // create an iterator on the snapshot for full range
     fdb_iterator_init(snap_db2, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
@@ -963,6 +967,7 @@ void snapshot_clone_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i ++;
         count++;
     } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
@@ -985,6 +990,7 @@ void snapshot_clone_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i ++;
         count++;
     } while(fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
@@ -1035,7 +1041,7 @@ void rollback_forward_seqnum()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
@@ -1101,6 +1107,7 @@ void rollback_forward_seqnum()
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(rdoc->deleted == false);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     } while(fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
 
     for (i=0;i<n;++i){
@@ -1128,7 +1135,7 @@ void rollback_test(bool multi_kv)
     fdb_kvs_handle *db, *db_txn;
     fdb_seqnum_t rollback_seq;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_kvs_info kvs_info;
     fdb_status status;
     fdb_iterator *iterator;
@@ -1268,6 +1275,7 @@ void rollback_test(bool multi_kv)
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i ++;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -1945,7 +1953,7 @@ void rollback_prior_to_ops(bool walflush)
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc, *vdoc;
+    fdb_doc *rdoc = NULL, *vdoc;
     fdb_status status;
 
     r = system(SHELL_DEL" dummy* > errorlog.txt");
@@ -2042,6 +2050,7 @@ void rollback_prior_to_ops(bool walflush)
             TEST_CHK(status == FDB_RESULT_SUCCESS);
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         fdb_doc_free(vdoc);
     } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
 

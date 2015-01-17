@@ -42,7 +42,7 @@ void iterator_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1;;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -122,6 +122,7 @@ void iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -143,6 +144,7 @@ void iterator_test()
         TEST_CHK(rdoc->body == NULL);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -164,6 +166,7 @@ void iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -186,6 +189,7 @@ void iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==9);
@@ -206,6 +210,7 @@ void iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==8);
@@ -217,11 +222,13 @@ void iterator_test()
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     fdb_doc_create(&rdoc, doc[9]->key, doc[9]->keylen, doc[9]->meta,
                    doc[9]->metalen, NULL, 0);
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
@@ -242,6 +249,7 @@ void iterator_test()
         }
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -260,6 +268,7 @@ void iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==8);
@@ -281,6 +290,7 @@ void iterator_test()
         TEST_CHK(rdoc->deleted == false);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==8);
@@ -319,7 +329,7 @@ void iterator_with_concurrent_updates_test()
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     char keybuf[256], bodybuf[256];
 
@@ -367,6 +377,7 @@ void iterator_with_concurrent_updates_test()
         TEST_CMP(rdoc->body, doc[r]->body, rdoc->bodylen);
         r++;
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     } while (fdb_iterator_next(itr) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(itr);
     TEST_CHK(r == n);
@@ -380,6 +391,7 @@ void iterator_with_concurrent_updates_test()
         r++;
         TEST_CHK(rdoc->seqnum == r);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     } while (fdb_iterator_next(itr) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(itr);
     TEST_CHK(r == n);
@@ -408,7 +420,7 @@ void iterator_seek_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -485,6 +497,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[0]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[0]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek forward to 2nd key ..
     i=2;
@@ -497,6 +510,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // iterator should be able to proceed forward
     status = fdb_iterator_next(iterator);
@@ -509,6 +523,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek forward to the last key.
     status = fdb_iterator_seek(iterator, doc[n-1]->key, strlen(keybuf), 0);
@@ -520,6 +535,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[n-1]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[n-1]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek backward to start key ..
     i = 0;
@@ -532,6 +548,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek forward to key2 ..
     status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf), 0);
@@ -547,6 +564,7 @@ void iterator_seek_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -565,6 +583,7 @@ void iterator_seek_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -589,6 +608,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // test fdb_iterator_seek_to_min
     i = 4;
@@ -601,6 +621,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     status = fdb_iterator_close(iterator);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -619,6 +640,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // test fdb_iterator_seek_to_min
     i = 0;
@@ -631,6 +653,7 @@ void iterator_seek_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek to max using a non-existent FFFF key
     if (status == FDB_RESULT_SUCCESS) {
@@ -647,6 +670,7 @@ void iterator_seek_test()
         TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     status = fdb_iterator_close(iterator);
@@ -688,7 +712,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
     fdb_kvs_handle *db, *db_prev, *db_next;
     fdb_config config;
     fdb_kvs_config kvs_config;
-    fdb_doc *doc;
+    fdb_doc *doc = NULL;
     fdb_iterator *fit;
     fdb_iterator_opt_t itr_opt;
     fdb_status s;
@@ -949,6 +973,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
             sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
             TEST_CMP(doc->body, value, doc->bodylen);
             fdb_doc_free(doc);
+            doc = NULL;
             c++;
         } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
         TEST_CHK(c == n);
@@ -966,6 +991,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
             sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
             TEST_CMP(doc->body, value, doc->bodylen);
             fdb_doc_free(doc);
+            doc = NULL;
         }
         TEST_CHK(c == 0);
     }
@@ -987,6 +1013,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c++;
             } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
             TEST_CHK(c == n);
@@ -1010,6 +1037,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c--;
             } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
             TEST_CHK(c == -1);
@@ -1033,6 +1061,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c++;
             } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
             TEST_CHK(c == n);
@@ -1056,6 +1085,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c--;
             } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
             TEST_CHK(c == -1);
@@ -1079,6 +1109,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c++;
             } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
             TEST_CHK(c == n);
@@ -1102,6 +1133,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c--;
             } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
             if (i == n-1) {
@@ -1129,6 +1161,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c++;
             } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
             TEST_CHK(c == n);
@@ -1152,6 +1185,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
                 sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
                 TEST_CMP(doc->body, value, doc->bodylen);
                 fdb_doc_free(doc);
+                doc = NULL;
                 c--;
             } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
             TEST_CHK(c == -1);
@@ -1170,6 +1204,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
             sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
             TEST_CMP(doc->body, value, doc->bodylen);
             fdb_doc_free(doc);
+            doc = NULL;
             c++;
         } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
         TEST_CHK(c == n);
@@ -1185,6 +1220,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
             sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
             TEST_CMP(doc->body, value, doc->bodylen);
             fdb_doc_free(doc);
+            doc = NULL;
             c--;
         } while (fdb_iterator_prev(fit) != FDB_RESULT_ITERATOR_FAIL);
         TEST_CHK(c == -1);
@@ -1206,6 +1242,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
         sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
         TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
+        doc = NULL;
         s = fdb_iterator_close(fit);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -1222,6 +1259,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
         sprintf(value, (doc_status[c]==0)?(valuestr):(valuestr2), c);
         TEST_CMP(doc->body, value, doc->bodylen);
         fdb_doc_free(doc);
+        doc = NULL;
         s = fdb_iterator_close(fit);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -1264,11 +1302,12 @@ void iterator_extreme_key_test()
     int i, r, c;
     char cmd[256];
     char key[256], value[256];
+    char keyBuf[256], valueBuf[256];
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_config config;
     fdb_kvs_config kvs_config;
-    fdb_doc *doc;
+    fdb_doc *doc = NULL;
     fdb_iterator *fit;
     fdb_status s;
 
@@ -1292,6 +1331,13 @@ void iterator_extreme_key_test()
     }
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
+    // Pre-allocate iterator return document memory and re-use the same
+    s = fdb_doc_create(&doc, NULL, 0, NULL, 0, NULL, 0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    doc->key = &keyBuf[0];
+    doc->meta = NULL;
+    doc->body = &valueBuf[0];
+
     s = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, 0x0);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_iterator_seek_to_max(fit);
@@ -1304,7 +1350,6 @@ void iterator_extreme_key_test()
         }
         sprintf(value, "0xff length %d", (int)c);
         TEST_CMP(doc->body, value, doc->bodylen);
-        fdb_doc_free(doc);
         s = fdb_iterator_prev(fit);
         c--;
     }
@@ -1319,7 +1364,6 @@ void iterator_extreme_key_test()
         }
         sprintf(value, "0xff length %d", (int)c);
         TEST_CMP(doc->body, value, doc->bodylen);
-        fdb_doc_free(doc);
         s = fdb_iterator_prev(fit);
         c--;
     }
@@ -1334,7 +1378,6 @@ void iterator_extreme_key_test()
         }
         sprintf(value, "0xff length %d", (int)c);
         TEST_CMP(doc->body, value, doc->bodylen);
-        fdb_doc_free(doc);
         s = fdb_iterator_next(fit);
         c++;
     }
@@ -1356,7 +1399,6 @@ void iterator_extreme_key_test()
         }
         sprintf(value, "0xff length %d", (int)c);
         TEST_CMP(doc->body, value, doc->bodylen);
-        fdb_doc_free(doc);
         s = fdb_iterator_prev(fit);
         c--;
     }
@@ -1364,6 +1406,12 @@ void iterator_extreme_key_test()
     s = fdb_iterator_close(fit);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // Release pre-allocated iterator return document buffer space
+    doc->key = NULL;
+    doc->body = NULL;
+    s = fdb_doc_free(doc);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_shutdown();
@@ -1382,7 +1430,7 @@ void iterator_no_deletes_test()
     fdb_kvs_handle  *kv;
     char keybuf[256], bodybuf[256];
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_iterator *it;
     fdb_status status;
 
@@ -1428,13 +1476,14 @@ void iterator_no_deletes_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(rdoc->deleted == false);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // iterate over all docs to retrieve undeleted key
     status = fdb_iterator_init(kv, &it, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_iterator_get(it, &rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    if(status == FDB_RESULT_SUCCESS){
+    if (status == FDB_RESULT_SUCCESS){
         fdb_doc_free(rdoc);
     }
     fdb_iterator_close(it);
@@ -1545,7 +1594,7 @@ void sequence_iterator_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -1610,6 +1659,7 @@ void sequence_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -1631,6 +1681,7 @@ void sequence_iterator_test()
         TEST_CHK(rdoc->body == NULL);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -1652,6 +1703,7 @@ void sequence_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i = (i + 2 >= n) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -1662,10 +1714,12 @@ void sequence_iterator_test()
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     fdb_doc_create(&rdoc, doc[9]->key, doc[9]->keylen, doc[9]->meta, doc[9]->metalen, NULL, 0);
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
@@ -1687,6 +1741,7 @@ void sequence_iterator_test()
         }
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         // Turn around when we hit 8 as the last items, key8 and key9 are gone
         i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
@@ -1710,6 +1765,7 @@ void sequence_iterator_test()
         }
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -1736,6 +1792,7 @@ void sequence_iterator_test()
         }
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i = (i + 2 >= 8) ? 1: i + 2; // by-seq, first come even docs, then odd
         if (count == 6) i = 0; // go back to test for i=0 at the end
         count++;
@@ -1773,7 +1830,7 @@ void sequence_iterator_duplicate_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
     fdb_seqnum_t seqnum;
@@ -1854,6 +1911,7 @@ void sequence_iterator_duplicate_test()
 
         count++;
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count==70);
     fdb_iterator_close(iterator);
@@ -1884,7 +1942,7 @@ void reverse_sequence_iterator_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -1950,6 +2008,7 @@ void reverse_sequence_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         count++;
         if (i + 2 >= n) break;
         i = i + 2; // by-seq, first come even docs, then odd
@@ -1969,6 +2028,7 @@ void reverse_sequence_iterator_test()
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     count++;
 
     // change direction to forward again...
@@ -1983,6 +2043,7 @@ void reverse_sequence_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i = (i + 2 >= n) ? 1 : i + 2;// by-seq, first come even docs, then odd
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -2003,6 +2064,7 @@ void reverse_sequence_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i = (i - 2 < 0) ? n - 2 : i - 2;
         if (count) count--;
     } while (fdb_iterator_prev(iterator) != FDB_RESULT_ITERATOR_FAIL);
@@ -2039,7 +2101,7 @@ void reverse_sequence_iterator_kvs_test()
     fdb_kvs_handle *kv1, *kv2;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc **doc2 = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
     fdb_iterator *iterator2;
@@ -2114,6 +2176,7 @@ void reverse_sequence_iterator_kvs_test()
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         count++;
         if (i + 2 >= n) {
             break;
@@ -2131,6 +2194,7 @@ void reverse_sequence_iterator_kvs_test()
         status = fdb_iterator_get(iterator2, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         status = fdb_iterator_next(iterator2);
         if (status == FDB_RESULT_ITERATOR_FAIL) {
             break;
@@ -2155,6 +2219,7 @@ void reverse_sequence_iterator_kvs_test()
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i-=2;
         count++;
     }
@@ -2176,6 +2241,7 @@ void reverse_sequence_iterator_kvs_test()
         TEST_CHK(!memcmp(rdoc->meta, doc2[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc2[i]->body, rdoc->bodylen));
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i--;
         count++;
     }
@@ -2193,6 +2259,7 @@ void reverse_sequence_iterator_kvs_test()
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         if (i == 8) {
             i=1; // switch to odds
         } else {
@@ -2234,7 +2301,7 @@ void reverse_iterator_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -2299,6 +2366,7 @@ void reverse_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -2313,6 +2381,7 @@ void reverse_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         if (i == 5) break; // Change direction at half point
     }
     TEST_CHK(i == 5);
@@ -2329,6 +2398,7 @@ void reverse_iterator_test()
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // Mid-way reverse direction, again test forward iterator...
     i++;
@@ -2342,6 +2412,7 @@ void reverse_iterator_test()
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // Again change direction and test reverse iterator..
     for (--i; fdb_iterator_prev(iterator) != FDB_RESULT_ITERATOR_FAIL; --i) {
@@ -2353,6 +2424,7 @@ void reverse_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
     TEST_CHK(i == -1);
 
@@ -2368,6 +2440,7 @@ void reverse_iterator_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -2402,7 +2475,7 @@ void iterator_seek_wal_only_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *kv1;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -2465,6 +2538,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[0]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[0]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek forward to 2nd key ..
     i=2;
@@ -2477,6 +2551,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // iterator should be able to proceed forward
     status = fdb_iterator_next(iterator);
@@ -2489,6 +2564,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek forward to the last key.
     status = fdb_iterator_seek(iterator, doc[n-1]->key, strlen(keybuf), 0);
@@ -2500,6 +2576,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[n-1]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[n-1]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek backward to start key ..
     i = 0;
@@ -2512,6 +2589,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // seek forward to key2 ..
     status = fdb_iterator_seek(iterator, doc[2]->key, strlen(keybuf), 0);
@@ -2527,6 +2605,7 @@ void iterator_seek_wal_only_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -2545,6 +2624,7 @@ void iterator_seek_wal_only_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         i++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(i==10);
@@ -2569,6 +2649,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // test fdb_iterator_seek_to_min
     i = 4;
@@ -2581,6 +2662,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     status = fdb_iterator_close(iterator);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2599,6 +2681,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // test fdb_iterator_seek_to_min
     i = 0;
@@ -2611,6 +2694,7 @@ void iterator_seek_wal_only_test()
     TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     status = fdb_iterator_close(iterator);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2644,7 +2728,7 @@ void iterator_after_wal_threshold()
     char keybuf[256], bodybuf[256];
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *db2;
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *it;
     fdb_config fconfig = fdb_get_default_config();
@@ -2677,6 +2761,7 @@ void iterator_after_wal_threshold()
             status = fdb_set_kv(db2, rdoc->key, rdoc->keylen, NULL, 0);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             fdb_doc_free(rdoc);
+            rdoc = NULL;
     } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(it);
 
@@ -2690,6 +2775,7 @@ void iterator_after_wal_threshold()
             status = fdb_get(db, rdoc);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             fdb_doc_free(rdoc);
+            rdoc = NULL;
     } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(it);
 
