@@ -48,7 +48,7 @@ static int _multi_kv_test_keycmp(void *key1, size_t keylen1, void *key2, size_t 
 
 
 #define MULTI_KV_VAR_CMP (0x1)
-void multi_kv_test(uint8_t opt)
+void multi_kv_test(uint8_t opt, size_t chunksize)
 {
     TEST_INIT();
 
@@ -83,6 +83,7 @@ void multi_kv_test(uint8_t opt)
     memleak_start();
 
     config = fdb_get_default_config();
+    config.chunksize = chunksize;
     kvs_config = fdb_get_default_kvs_config();
     config.multi_kv_instances = true;
     config.wal_threshold = 50;
@@ -463,7 +464,7 @@ void multi_kv_test(uint8_t opt)
     }
 }
 
-void multi_kv_iterator_key_test(uint8_t opt)
+void multi_kv_iterator_key_test(uint8_t opt, size_t chunksize)
 {
     TEST_INIT();
 
@@ -487,6 +488,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
     memleak_start();
 
     config = fdb_get_default_config();
+    config.chunksize = chunksize;
     kvs_config = fdb_get_default_kvs_config();
     config.multi_kv_instances = true;
     config.wal_threshold = 1000;
@@ -647,7 +649,7 @@ void multi_kv_iterator_key_test(uint8_t opt)
     }
 }
 
-void multi_kv_iterator_seq_test(uint8_t opt)
+void multi_kv_iterator_seq_test(uint8_t opt, size_t chunksize)
 {
     TEST_INIT();
 
@@ -673,6 +675,7 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     memleak_start();
 
     config = fdb_get_default_config();
+    config.chunksize = chunksize;
     kvs_config = fdb_get_default_kvs_config();
     config.multi_kv_instances = true;
     config.wal_threshold = 1000;
@@ -889,7 +892,7 @@ void multi_kv_iterator_seq_test(uint8_t opt)
     }
 }
 
-void multi_kv_txn_test(uint8_t opt)
+void multi_kv_txn_test(uint8_t opt, size_t chunksize)
 {
     TEST_INIT();
 
@@ -918,6 +921,7 @@ void multi_kv_txn_test(uint8_t opt)
     memleak_start();
 
     config = fdb_get_default_config();
+    config.chunksize = chunksize;
     kvs_config = fdb_get_default_kvs_config();
     config.multi_kv_instances = true;
     config.wal_threshold = 1000;
@@ -1265,7 +1269,7 @@ void multi_kv_txn_test(uint8_t opt)
     }
 }
 
-void multi_kv_snapshot_test(uint8_t opt)
+void multi_kv_snapshot_test(uint8_t opt, size_t chunksize)
 {
     TEST_INIT();
 
@@ -1290,6 +1294,7 @@ void multi_kv_snapshot_test(uint8_t opt)
     memleak_start();
 
     config = fdb_get_default_config();
+    config.chunksize = chunksize;
     kvs_config = fdb_get_default_kvs_config();
     config.multi_kv_instances = true;
     config.wal_threshold = 1000;
@@ -1440,7 +1445,7 @@ void multi_kv_snapshot_test(uint8_t opt)
     }
 }
 
-void multi_kv_rollback_test(uint8_t opt)
+void multi_kv_rollback_test(uint8_t opt, size_t chunksize)
 {
     TEST_INIT();
 
@@ -1469,6 +1474,7 @@ void multi_kv_rollback_test(uint8_t opt)
     memleak_start();
 
     config = fdb_get_default_config();
+    config.chunksize = chunksize;
     kvs_config = fdb_get_default_kvs_config();
     config.multi_kv_instances = true;
     config.wal_threshold = 1000;
@@ -2388,17 +2394,28 @@ void multi_kv_close_test()
 }
 
 int main(){
-    int i;
+    int i, j;
     uint8_t opt;
+    size_t chunksize;
 
-    for (i=0;i<2;++i){
-        opt = (i==0)?(0x0):(MULTI_KV_VAR_CMP);
-        multi_kv_test(opt);
-        multi_kv_iterator_key_test(opt);
-        multi_kv_iterator_seq_test(opt);
-        multi_kv_txn_test(opt);
-        multi_kv_snapshot_test(opt);
-        multi_kv_rollback_test(opt);
+    for (j=0;j<3;++j) {
+        if (j==0) {
+            chunksize = 8;
+        } else if (j==1) {
+            chunksize = 16;
+        } else {
+            chunksize = 32;
+        }
+        printf("Chunk size: %d bytes\n", (int)chunksize);
+        for (i=0;i<2;++i){
+            opt = (i==0)?(0x0):(MULTI_KV_VAR_CMP);
+            multi_kv_test(opt, chunksize);
+            multi_kv_iterator_key_test(opt, chunksize);
+            multi_kv_iterator_seq_test(opt, chunksize);
+            multi_kv_txn_test(opt, chunksize);
+            multi_kv_snapshot_test(opt, chunksize);
+            multi_kv_rollback_test(opt, chunksize);
+        }
     }
     multi_kv_custom_cmp_test();
     multi_kv_fdb_open_custom_cmp_test();

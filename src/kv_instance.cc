@@ -288,7 +288,7 @@ fdb_custom_cmp_variable fdb_kvs_find_cmp_name(fdb_kvs_handle *handle,
 
 void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 {
-    fdb_kvs_id_t kv_id, _kv_id;
+    fdb_kvs_id_t kv_id;
     struct hbtrie *trie = (struct hbtrie *)aux;
     struct btreeblk_handle *bhandle;
     struct filemgr *file;
@@ -302,8 +302,7 @@ void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
         return NULL;
     }
 
-    _kv_id = *((fdb_kvs_id_t *)chunk);
-    kv_id = _endian_decode(_kv_id);
+    buf2kvid(trie->chunksize, chunk, &kv_id);
 
     // search by id
     if (kv_id > 0) {
@@ -1374,33 +1373,39 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         // from both ID-tree and Seq-tree, AND
         // replace current handle's sub B+trees' root node BIDs
         // by old BIDs
+        size_t size_chunk, size_id;
         bid_t id_root, seq_root, dummy;
-        fdb_kvs_id_t _kv_id;
+        uint8_t *_kv_id;
         hbtrie_result hr;
+
+        size_chunk = handle->trie->chunksize;
+        size_id = sizeof(fdb_kvs_id_t);
 
         filemgr_mutex_lock(handle_in->file);
 
-        _kv_id = _endian_encode(handle->kvs->id);
-
         // read root BID of the KV instance from the old handle
         // and overwrite into the current handle
-        hr = hbtrie_find_partial(handle->trie, &_kv_id,
-                                 sizeof(fdb_kvs_id_t), &id_root);
+        _kv_id = alca(uint8_t, size_chunk);
+        kvid2buf(size_chunk, handle->kvs->id, _kv_id);
+        hr = hbtrie_find_partial(handle->trie, _kv_id,
+                                 size_chunk, &id_root);
         btreeblk_end(handle->bhandle);
         if (hr == HBTRIE_RESULT_SUCCESS) {
             hbtrie_insert_partial(super_handle->trie,
-                                  &_kv_id, sizeof(fdb_kvs_id_t),
+                                  _kv_id, size_chunk,
                                   &id_root, &dummy);
             btreeblk_end(super_handle->bhandle);
         }
 
         // same as above for seq-trie
-        hr = hbtrie_find_partial(handle->seqtrie, &_kv_id,
-                                 sizeof(fdb_kvs_id_t), &seq_root);
+        _kv_id = alca(uint8_t, size_id);
+        kvid2buf(size_id, handle->kvs->id, _kv_id);
+        hr = hbtrie_find_partial(handle->seqtrie, _kv_id,
+                                 size_id, &seq_root);
         btreeblk_end(handle->bhandle);
         if (hr == HBTRIE_RESULT_SUCCESS) {
             hbtrie_insert_partial(super_handle->seqtrie,
-                                  &_kv_id, sizeof(fdb_kvs_id_t),
+                                  _kv_id, size_id,
                                   &seq_root, &dummy);
             btreeblk_end(super_handle->bhandle);
         }
@@ -1439,8 +1444,10 @@ LIBFDB_API
 fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
                           const char *kvs_name)
 {
+    size_t size_chunk, size_id;
+    uint8_t *_kv_id;
     fdb_status fs = FDB_RESULT_SUCCESS;
-    fdb_kvs_id_t kv_id, _kv_id;
+    fdb_kvs_id_t kv_id;
     fdb_kvs_handle *root_handle;
     struct avl_node *a = NULL;
     struct list_elem *e;
@@ -1501,7 +1508,7 @@ fdb_kvs_remove_start:
 
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
         // default KV store .. KV ID = 0
-        kv_id = _kv_id = 0;
+        kv_id = 0;
         e = list_begin(root_handle->fhandle->handles);
         while (e) {
             opened_node = _get_entry(e, struct kvs_opened_node, le);
@@ -1558,7 +1565,6 @@ fdb_kvs_remove_start:
         spin_unlock(&root_handle->fhandle->lock);
 
         kv_id = node->id;
-        _kv_id = _endian_encode(kv_id);
 
         // free node
         free(node->kvs_name);
@@ -1579,11 +1585,19 @@ fdb_kvs_remove_start:
         root_handle->seqtree->root_bid = dirty_seqtree_root;
     }
 
+    size_id = sizeof(fdb_kvs_id_t);
+    size_chunk = root_handle->trie->chunksize;
+
     // remove from super handle's HB+trie
-    hbtrie_remove_partial(root_handle->trie, &_kv_id, sizeof(_kv_id));
+    _kv_id = alca(uint8_t, size_chunk);
+    kvid2buf(size_chunk, kv_id, _kv_id);
+    hbtrie_remove_partial(root_handle->trie, _kv_id, size_chunk);
     btreeblk_end(root_handle->bhandle);
+
     if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        hbtrie_remove_partial(root_handle->seqtrie, &_kv_id, sizeof(_kv_id));
+        _kv_id = alca(uint8_t, size_id);
+        kvid2buf(size_id, kv_id, _kv_id);
+        hbtrie_remove_partial(root_handle->seqtrie, _kv_id, size_id);
         btreeblk_end(root_handle->bhandle);
     }
 

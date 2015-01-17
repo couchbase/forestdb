@@ -214,6 +214,7 @@ INLINE void _btreeblk_encode(struct btreeblk_handle *handle,
             node_arr = btree_get_bnode_array(addr, &n);
             for (j=0;j<n;++j){
                 node = node_arr[j];
+                node->kvsize = _endian_encode(node->kvsize);
                 node->flag = _endian_encode(node->flag);
                 node->level = _endian_encode(node->level);
                 node->nentry = _endian_encode(node->nentry);
@@ -246,6 +247,7 @@ INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
             node_arr = btree_get_bnode_array(addr, &n);
             for (j=0;j<n;++j){
                 node = node_arr[j];
+                node->kvsize = _endian_decode(node->kvsize);
                 node->flag = _endian_decode(node->flag);
                 node->level = _endian_decode(node->level);
                 node->nentry = _endian_decode(node->nentry);

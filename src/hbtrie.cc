@@ -140,20 +140,25 @@ void hbtrie_init(struct hbtrie *trie, int chunksize, int valuelen,
     trie->root_bid = root_bid;
     trie->flag = 0x0;
     trie->leaf_height_limit = 0;
+    trie->cmp_args.chunksize = chunksize;
+    trie->cmp_args.aux = NULL;
+    trie->aux = &trie->cmp_args;
 
     // assign key-value operations
     btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
     btree_leaf_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
 
-    assert(chunksize == 4 || chunksize == 8);
     assert(valuelen == 8);
     assert(chunksize >= sizeof(void *));
 
     if (chunksize == 8 && valuelen == 8){
         btree_kv_ops = btree_kv_get_kb64_vb64(btree_kv_ops);
         btree_leaf_kv_ops = _get_leaf_kv_ops(btree_leaf_kv_ops);
-    }else if (chunksize == 4 && valuelen == 8) {
+    } else if (chunksize == 4 && valuelen == 8) {
         btree_kv_ops = btree_kv_get_kb32_vb64(btree_kv_ops);
+        btree_leaf_kv_ops = _get_leaf_kv_ops(btree_leaf_kv_ops);
+    } else {
+        btree_kv_ops = btree_kv_get_kbn_vb64(btree_kv_ops);
         btree_leaf_kv_ops = _get_leaf_kv_ops(btree_leaf_kv_ops);
     }
 
@@ -528,7 +533,9 @@ hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                         void_cmp = trie->map(it->curkey, (void *)trie);
                         if (void_cmp) {
                             memcpy(trie->last_map_chunk, it->curkey, trie->chunksize);
-                            trie->aux = void_cmp; // set aux for _fdb_custom_cmp_wrap()
+                            // set aux for _fdb_custom_cmp_wrap()
+                            trie->cmp_args.aux = void_cmp;
+                            trie->aux = &trie->cmp_args;
                         }
                     }
                 }
@@ -771,7 +778,9 @@ hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                         void_cmp = trie->map(it->curkey, (void *)trie);
                         if (void_cmp) {
                             memcpy(trie->last_map_chunk, it->curkey, trie->chunksize);
-                            trie->aux = void_cmp; // set aux for _fdb_custom_cmp_wrap()
+                            // set aux for _fdb_custom_cmp_wrap()
+                            trie->cmp_args.aux = void_cmp;
+                            trie->aux = &trie->cmp_args;
                         }
                     }
                 }
@@ -998,7 +1007,9 @@ hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
             void_cmp = trie->map(key, (void *)trie);
             if (void_cmp) { // custom cmp function matches .. turn on leaf b+tree mode
                 memcpy(trie->last_map_chunk, key, trie->chunksize);
-                trie->aux = void_cmp; // set aux for _fdb_custom_cmp_wrap()
+                // set aux for _fdb_custom_cmp_wrap()
+                trie->cmp_args.aux = void_cmp;
+                trie->aux = &trie->cmp_args;
             }
         }
     }
@@ -1488,7 +1499,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 // custom cmp function matches .. turn on leaf b+tree mode
                 leaf_cond = 1;
                 memcpy(trie->last_map_chunk, key, trie->chunksize);
-                trie->aux = void_cmp; // set aux for _fdb_custom_cmp_wrap()
+                // set aux for _fdb_custom_cmp_wrap()
+                trie->cmp_args.aux = void_cmp;
+                trie->aux = &trie->cmp_args;
             }
         }
     }

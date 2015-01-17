@@ -88,17 +88,19 @@ size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 
 size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
 {
-    int size_id, size_seq;
+    int size_id, size_seq, size_chunk;
     fdb_seqnum_t _seqnum;
     struct docio_object doc;
+    struct docio_handle *dhandle = (struct docio_handle *)handle;
 
     size_id = sizeof(fdb_kvs_id_t);
     size_seq = sizeof(fdb_seqnum_t);
+    size_chunk = dhandle->file->config->chunksize;
     memset(&doc, 0, sizeof(struct docio_object));
 
     offset = _endian_decode(offset);
     docio_read_doc_key_meta((struct docio_handle *)handle, offset, &doc);
-    memcpy((uint8_t*)buf, doc.key, size_id);
+    buf2buf(size_chunk, doc.key, size_id, buf);
     _seqnum = _endian_encode(doc.seqnum);
     memcpy((uint8_t*)buf + size_id, &_seqnum, size_seq);
 
@@ -114,7 +116,8 @@ int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux)
     uint8_t *keystr1 = alca(uint8_t, FDB_MAX_KEYLEN_INTERNAL);
     uint8_t *keystr2 = alca(uint8_t, FDB_MAX_KEYLEN_INTERNAL);
     size_t keylen1, keylen2;
-    fdb_custom_cmp_variable cmp = (fdb_custom_cmp_variable)aux;
+    btree_cmp_args *args = (btree_cmp_args *)aux;
+    fdb_custom_cmp_variable cmp = (fdb_custom_cmp_variable)args->aux;
 
     is_key1_inf = _is_inf_key(key1);
     is_key2_inf = _is_inf_key(key2);
@@ -307,10 +310,10 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
 
                             if (handle->kvs) {
                                 // check seqnum before insert
-                                fdb_kvs_id_t *_kv_id, kv_id;
+                                fdb_kvs_id_t kv_id;
                                 fdb_seqnum_t kv_seqnum;
-                                _kv_id = (fdb_kvs_id_t*)wal_doc.key;
-                                kv_id = _endian_decode(*_kv_id);
+                                buf2kvid(handle->config.chunksize,
+                                         wal_doc.key, &kv_id);
 
                                 if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                                     kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
@@ -334,9 +337,9 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                         } else {
                             // snapshot
                             if (handle->kvs) {
-                                fdb_kvs_id_t *_kv_id, kv_id;
-                                _kv_id = (fdb_kvs_id_t*)wal_doc.key;
-                                kv_id = _endian_decode(*_kv_id);
+                                fdb_kvs_id_t kv_id;
+                                buf2kvid(handle->config.chunksize,
+                                         wal_doc.key, &kv_id);
                                 if (kv_id == handle->kvs->id) {
                                     // snapshot: insert ID matched documents only
                                     snap_insert(handle->shandle,
@@ -1009,6 +1012,7 @@ static void _fdb_init_file_config(const fdb_config *config,
                                   struct filemgr_config *fconfig) {
     fconfig->blocksize = config->blocksize;
     fconfig->ncacheblock = config->buffercache_size / config->blocksize;
+    fconfig->chunksize = config->chunksize;
 
     fconfig->options = 0x0;
     if (config->flags & FDB_OPEN_FLAG_CREATE) {
@@ -1388,7 +1392,6 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 (void *)handle->bhandle, handle->btreeblkops,
                 (void *)handle->dhandle, _fdb_readkey_wrap);
     // set aux for cmp wrapping function
-    handle->trie->aux = NULL;
     hbtrie_set_leaf_height_limit(handle->trie, 0xff);
     hbtrie_set_leaf_cmp(handle->trie, _fdb_custom_cmp_wrap);
 
@@ -1406,7 +1409,6 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                         handle->file->blocksize, seq_root_bid,
                         (void *)handle->bhandle, handle->btreeblkops,
                         (void *)handle->dhandle, _fdb_readseq_wrap);
-            handle->seqtrie->aux = NULL;
 
         } else {
             // single KV instance mode .. normal B+tree
@@ -1651,7 +1653,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     hbtrie_result hr;
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     fdb_seqnum_t _seqnum;
-    fdb_kvs_id_t kv_id, *_kv_id;
+    fdb_kvs_id_t kv_id;
     fdb_status fs = FDB_RESULT_SUCCESS;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
     uint64_t old_offset, _offset;
@@ -1661,8 +1663,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
     memset(var_key, 0, handle->config.chunksize);
     if (handle->kvs) {
-        _kv_id = (fdb_kvs_id_t*)item->header->key;
-        kv_id = _endian_decode(*_kv_id);
+        buf2kvid(handle->config.chunksize, item->header->key, &kv_id);
     } else {
         kv_id = 0;
     }
@@ -1702,7 +1703,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
                 size_id = sizeof(fdb_kvs_id_t);
                 size_seq = sizeof(fdb_seqnum_t);
                 kvid_seqnum = alca(uint8_t, size_id + size_seq);
-                memcpy(kvid_seqnum, item->header->key, size_id);
+                kvid2buf(size_id, kv_id, kvid_seqnum);
                 memcpy(kvid_seqnum + size_id, &_seqnum, size_seq);
                 hbtrie_insert(handle->seqtrie, kvid_seqnum, size_id + size_seq,
                               (void *)&_offset, (void *)&old_offset_local);
@@ -2011,12 +2012,11 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (handle->kvs) {
         // multi KV instance mode
-        fdb_kvs_id_t id;
-        doc_kv.keylen = doc->keylen + sizeof(fdb_kvs_id_t);
+        int size_chunk = handle->config.chunksize;
+        doc_kv.keylen = doc->keylen + size_chunk;
         doc_kv.key = alca(uint8_t, doc_kv.keylen);
-        id = _endian_encode(handle->kvs->id);
-        memcpy(doc_kv.key, &id, sizeof(id));
-        memcpy((uint8_t*)doc_kv.key + sizeof(id), doc->key, doc->keylen);
+        kvid2buf(size_chunk, handle->kvs->id, doc_kv.key);
+        memcpy((uint8_t*)doc_kv.key + size_chunk, doc->key, doc->keylen);
     }
 
     if (!handle->shandle) {
@@ -2135,12 +2135,11 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (handle->kvs) {
         // multi KV instance mode
-        fdb_kvs_id_t id;
-        doc_kv.keylen = doc->keylen + sizeof(fdb_kvs_id_t);
+        int size_chunk = handle->config.chunksize;
+        doc_kv.keylen = doc->keylen + size_chunk;
         doc_kv.key = alca(uint8_t, doc_kv.keylen);
-        id = _endian_encode(handle->kvs->id);
-        memcpy(doc_kv.key, &id, sizeof(id));
-        memcpy((uint8_t*)doc_kv.key + sizeof(id), doc->key, doc->keylen);
+        kvid2buf(size_chunk, handle->kvs->id, doc_kv.key);
+        memcpy((uint8_t*)doc_kv.key + size_chunk, doc->key, doc->keylen);
     }
 
     if (!handle->shandle) {
@@ -2330,10 +2329,10 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 
         doc->seqnum = _doc.seqnum;
         if (handle->kvs) {
-            int size_id = sizeof(fdb_kvs_id_t);
-            doc->keylen = _doc.length.keylen - size_id;
+            int size_chunk = handle->config.chunksize;
+            doc->keylen = _doc.length.keylen - size_chunk;
             doc->key = _doc.key;
-            memmove(doc->key, (uint8_t*)doc->key + size_id, doc->keylen);
+            memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
         } else {
             doc->keylen = _doc.length.keylen;
             doc->key = _doc.key;
@@ -2452,10 +2451,10 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
 
         if (handle->kvs) {
-            int size_id = sizeof(fdb_kvs_id_t);
-            doc->keylen = _doc.length.keylen - size_id;
+            int size_chunk = handle->config.chunksize;
+            doc->keylen = _doc.length.keylen - size_chunk;
             doc->key = _doc.key;
-            memmove(doc->key, (uint8_t*)doc->key + size_id, doc->keylen);
+            memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
         } else {
             doc->keylen = _doc.length.keylen;
             doc->key = _doc.key;
@@ -2500,11 +2499,11 @@ static uint8_t equal_docs(fdb_doc *doc, struct docio_object *_doc) {
     return rv;
 }
 
-INLINE void _remove_kv_id(struct docio_object *doc)
+INLINE void _remove_kv_id(fdb_kvs_handle *handle, struct docio_object *doc)
 {
-    size_t size_id = sizeof(fdb_kvs_id_t);
-    doc->length.keylen -= size_id;
-    memmove(doc->key, (uint8_t*)doc->key + size_id, doc->length.keylen);
+    size_t size_chunk = handle->config.chunksize;
+    doc->length.keylen -= size_chunk;
+    memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->length.keylen);
 }
 
 // Retrieve a doc's metadata and body with a given doc offset in the database file.
@@ -2529,7 +2528,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             if (handle->kvs) {
-                _remove_kv_id(&_doc);
+                _remove_kv_id(handle, &_doc);
             }
             if (!equal_docs(doc, &_doc)) {
                 free_docio_object(&_doc, 1, 1, 1);
@@ -2540,7 +2539,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     } else {
         if (handle->kvs) {
-            _remove_kv_id(&_doc);
+            _remove_kv_id(handle, &_doc);
         }
         if (!equal_docs(doc, &_doc)) {
             free_docio_object(&_doc, 1, 1, 1);
@@ -2551,7 +2550,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
                     return FDB_RESULT_KEY_NOT_FOUND;
                 }
                 if (handle->kvs) {
-                    _remove_kv_id(&_doc);
+                    _remove_kv_id(handle, &_doc);
                 }
                 if (!equal_docs(doc, &_doc)) {
                     free_docio_object(&_doc, 1, 1, 1);
@@ -2642,14 +2641,13 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
     if (handle->kvs) {
         // multi KV instance mode
         // allocate more (temporary) space for key, to store ID number
-        fdb_kvs_id_t id;
-        _doc.length.keylen = doc->keylen + sizeof(fdb_kvs_id_t);
+        int size_chunk = handle->config.chunksize;
+        _doc.length.keylen = doc->keylen + size_chunk;
         _doc.key = alca(uint8_t, _doc.length.keylen);
         // copy ID
-        id = _endian_encode(handle->kvs->id);
-        memcpy(_doc.key, &id, sizeof(id));
+        kvid2buf(size_chunk, handle->kvs->id, _doc.key);
         // copy key
-        memcpy((uint8_t*)_doc.key + sizeof(id), doc->key, doc->keylen);
+        memcpy((uint8_t*)_doc.key + size_chunk, doc->key, doc->keylen);
 
         if (handle->kvs->type == KVS_SUB) {
             sub_handle = true;
@@ -3559,6 +3557,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     // set filemgr configuration
     fconfig.blocksize = handle->config.blocksize;
     fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
+    fconfig.chunksize = handle->config.chunksize;
     fconfig.options = FILEMGR_CREATE;
     fconfig.flag = 0x0;
     if (handle->config.durability_opt & FDB_DRB_ODIRECT) {
@@ -3613,7 +3612,6 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
 
     hbtrie_set_leaf_cmp(new_trie, _fdb_custom_cmp_wrap);
     // set aux
-    new_trie->aux = handle->trie->aux;
     new_trie->flag = handle->trie->flag;
     new_trie->leaf_height_limit = handle->trie->leaf_height_limit;
     new_trie->map = handle->trie->map;

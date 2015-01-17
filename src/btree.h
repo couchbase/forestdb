@@ -15,11 +15,10 @@ extern "C" {
 #endif
 
 #define _get_kvsize(kvsize, ksize, vsize) \
-    (ksize) = ((kvsize) & 0xf0) >> 4;    \
-    (vsize) = ((kvsize) & 0x0f)
-#define __ksize(kvsize) (((kvsize) & 0xf0) >> 4)
-#define __vsize(kvsize) (((kvsize) & 0x0f))
-
+    (ksize) = ((kvsize) & 0xff00) >> 8;    \
+    (vsize) = ((kvsize) & 0x00ff)
+#define __ksize(kvsize) (((kvsize) & 0xff00) >> 8)
+#define __vsize(kvsize) (((kvsize) & 0x00ff))
 
 #define BTREE_BLK_NOT_FOUND BLK_NOT_FOUND
 
@@ -38,10 +37,10 @@ typedef enum {
     #define BTREE_IDX_NOT_FOUND 0xffff
 #endif
 
-typedef uint8_t bnode_flag_t;
+typedef uint16_t bnode_flag_t;
 
 struct bnode{
-    uint8_t kvsize;
+    uint16_t kvsize;
     bnode_flag_t flag;
     uint16_t level;
     idx_t nentry;
@@ -99,6 +98,11 @@ struct btree {
     uint16_t leafsize;
 #endif
 };
+
+typedef struct {
+    void *aux;
+    uint8_t chunksize;
+} btree_cmp_args ;
 
 struct btree_kv_ops {
     void (*get_kv)(struct bnode *node, idx_t idx, void *key, void *value);

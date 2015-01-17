@@ -23,6 +23,7 @@
 #include "common.h"
 #include "avltree.h"
 #include "snapshot.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -72,12 +73,10 @@ int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
         if (info->kvs) {
             // multi KV instance mode
             // KV ID should be compared separately
-            size_t size_id = sizeof(fdb_kvs_id_t);
-            fdb_kvs_id_t a_id, b_id, _a_id, _b_id;
-            _a_id = *(fdb_kvs_id_t*)aa->key;
-            _b_id = *(fdb_kvs_id_t*)bb->key;
-            a_id = _endian_decode(_a_id);
-            b_id = _endian_decode(_b_id);
+            size_t size_chunk = info->kvs->root->config.chunksize;
+            fdb_kvs_id_t a_id, b_id;
+            buf2kvid(size_chunk, aa->key, &a_id);
+            buf2kvid(size_chunk, bb->key, &b_id);
 
             if (a_id < b_id) {
                 return -1;
@@ -85,8 +84,10 @@ int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
                 return 1;
             } else {
                 return info->kvs_config.custom_cmp(
-                            (uint8_t*)aa->key + size_id, aa->keylen - size_id,
-                            (uint8_t*)bb->key + size_id, bb->keylen - size_id);
+                            (uint8_t*)aa->key + size_chunk,
+                            aa->keylen - size_chunk,
+                            (uint8_t*)bb->key + size_chunk,
+                            bb->keylen - size_chunk);
             }
         } else {
             return info->kvs_config.custom_cmp(aa->key, aa->keylen,

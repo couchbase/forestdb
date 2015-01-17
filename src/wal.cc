@@ -78,13 +78,11 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
     if (aa->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
         // multi KV instance mode
-        fdb_kvs_id_t *id_a, *id_b;
+        int size_chunk = aa->header->chunksize;
         fdb_kvs_id_t id_aa, id_bb;
         // KV ID is stored at the first 8 bytes in the key
-        id_a = (fdb_kvs_id_t *)aa->header->key;
-        id_b = (fdb_kvs_id_t *)bb->header->key;
-        id_aa = _endian_decode(*id_a);
-        id_bb = _endian_decode(*id_b);
+        buf2kvid(size_chunk, aa->header->key, &id_aa);
+        buf2kvid(size_chunk, bb->header->key, &id_bb);
         if (id_aa < id_bb) {
             return -1;
         } else if (id_aa > id_bb) {
@@ -131,11 +129,10 @@ static fdb_status _wal_insert(fdb_txn *txn,
     struct hash_elem *he;
     void *key = doc->key;
     size_t keylen = doc->keylen;
-    fdb_kvs_id_t kv_id, *_kv_id;
+    fdb_kvs_id_t kv_id;
 
     if (file->kv_header) { // multi KV instance mode
-        _kv_id = (fdb_kvs_id_t*)doc->key;
-        kv_id = _endian_decode(*_kv_id);
+        buf2kvid(file->config->chunksize, doc->key, &kv_id);
     } else {
         kv_id = 0;
     }
@@ -243,6 +240,7 @@ static fdb_status _wal_insert(fdb_txn *txn,
         // create new header and new item
         header = (struct wal_item_header*)malloc(sizeof(struct wal_item_header));
         list_init(&header->items);
+        header->chunksize = file->config->chunksize;
         header->keylen = keylen;
         header->key = (void *)malloc(header->keylen);
         memcpy(header->key, key, header->keylen);
@@ -350,12 +348,11 @@ static fdb_status _wal_find(fdb_txn *txn,
         }
     } else {
         // search by seqnum
-        fdb_kvs_id_t _kv_id;
         struct wal_item_header temp_header;
 
         if (file->kv_header) { // multi KV instance mode
-            _kv_id = _endian_encode(kv_id);
-            temp_header.key = (void *)&_kv_id;
+            temp_header.key = (void*)alca(uint8_t, file->config->chunksize);
+            kvid2buf(file->config->chunksize, kv_id, temp_header.key);
             item_query.header = &temp_header;
         }
         item_query.seqnum = doc->seqnum;
@@ -493,7 +490,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
     struct wal_item *item;
     struct wal_item *_item;
     struct list_elem *e1, *e2;
-    fdb_kvs_id_t kv_id, *_kv_id;
+    fdb_kvs_id_t kv_id;
     fdb_status status;
 
     spin_lock(&file->wal->lock);
@@ -506,8 +503,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
         if (!(item->flag & WAL_ITEM_COMMITTED)) {
             // get KVS ID
             if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
-                _kv_id = (fdb_kvs_id_t*)item->header->key;
-                kv_id = _endian_decode(*_kv_id);
+                buf2kvid(item->header->chunksize, item->header->key, &kv_id);
             } else {
                 kv_id = 0;
             }
@@ -604,7 +600,7 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
     struct avl_tree *tree = flush_items;
     struct avl_node *a;
     struct wal_item *item;
-    fdb_kvs_id_t kv_id, *_kv_id;
+    fdb_kvs_id_t kv_id;
 
     // scan and remove entries in the avl-tree
     spin_lock(&file->wal->lock);
@@ -617,8 +613,7 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
 
         // get KVS ID
         if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
-            _kv_id = (fdb_kvs_id_t*)item->header->key;
-            kv_id = _endian_decode(*_kv_id);
+            buf2kvid(item->header->chunksize, item->header->key, &kv_id);
         } else {
             kv_id = 0;
         }
@@ -832,7 +827,7 @@ fdb_status _wal_close(struct filemgr *file,
     struct wal_item *item;
     struct wal_item_header *header;
     struct list_elem *e1, *e2;
-    fdb_kvs_id_t *_kv_id, kv_id, kv_id_req;
+    fdb_kvs_id_t kv_id, kv_id_req;
     bool committed;
     wal_item_action committed_item_action;
 
@@ -850,8 +845,7 @@ fdb_status _wal_close(struct filemgr *file,
         header = _get_entry(e1, struct wal_item_header, list_elem);
 
         if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
-            _kv_id = (fdb_kvs_id_t *)header->key;
-            kv_id = _endian_decode(*_kv_id);
+            buf2kvid(header->chunksize, header->key, &kv_id);
             // begin while loop only on matching KV ID
             e2 = (kv_id == kv_id_req)?(list_begin(&header->items)):(NULL);
         } else {
