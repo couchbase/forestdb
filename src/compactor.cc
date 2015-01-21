@@ -209,6 +209,50 @@ INLINE int _compactor_prefix_len(char *filename)
     return prefix_len;
 }
 
+// return the the location of '/' or '\'
+INLINE int _compactor_dir_len(char *filename)
+{
+    int i;
+    int file_len = strlen(filename);
+    int dir_len = 0;
+    // find the first '/' or '\'
+    for (i=file_len-1; i>=0; --i){
+        if (filename[i] == '/' || filename[i] == '\\') {
+            dir_len = i+1;
+            break;
+        }
+    }
+    return dir_len;
+}
+
+// copy from 'foo/bar.baz' to 'bar.baz'
+static void _strcpy_fname(char *dst, char *src)
+{
+    int dir_len = _compactor_dir_len(src);
+    strcpy(dst, src + dir_len);
+}
+
+// copy from 'foo/bar.baz' to 'foo/' (including '/')
+static void _strcpy_dirname(char *dst, char *src)
+{
+    int dir_len = _compactor_dir_len(src);
+    if (dir_len) {
+        strncpy(dst, src, dir_len);
+    }
+    // set NULL char
+    dst[dir_len] = 0;
+}
+
+// <example>
+// fname: 'foo.bar'
+// path: 'tmp/dir/other.file'
+// returned dst: 'tmp/dir/foo.bar'
+static void _reconstruct_path(char *dst, char *path, char *fname)
+{
+    _strcpy_dirname(dst, path);
+    strcat(dst + strlen(dst), fname);
+}
+
 static void _compactor_get_vfilename(char *filename, char *vfilename)
 {
     int prefix_len = _compactor_prefix_len(filename);
@@ -487,7 +531,7 @@ fdb_status compactor_register_file(struct filemgr *file, fdb_config *config)
 
         // store in metafile
         _compactor_convert_dbfile_to_metafile(file->filename, path);
-        strcpy(meta.filename, file->filename);
+        _strcpy_fname(meta.filename, file->filename);
         fs = _compactor_store_metafile(path, &meta);
     } else {
         // already exists
@@ -639,7 +683,7 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file)
 
         if (elem->config.compaction_mode == FDB_COMPACTION_AUTO) {
             _compactor_convert_dbfile_to_metafile(new_file->filename, metafile);
-            strcpy(meta.filename, new_file->filename);
+            _strcpy_fname(meta.filename, new_file->filename);
             _compactor_store_metafile(metafile, &meta);
         }
         spin_unlock(&cpt_lock);
@@ -659,6 +703,7 @@ fdb_status compactor_get_actual_filename(const char *filename,
     int compaction_no, max_compaction_no = -1;
     char path[MAX_FNAMELEN];
     char dirname[MAX_FNAMELEN], prefix[MAX_FNAMELEN];
+    char ret_name[MAX_FNAMELEN];
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct compactor_meta meta, *meta_ptr;
 
@@ -759,8 +804,8 @@ fdb_status compactor_get_actual_filename(const char *filename,
         if (max_compaction_no < 0) {
             if (comp_mode == FDB_COMPACTION_AUTO) {
                 // DB files with a revision number are not found.
-                // update metadata's filename to '[filename].0'
-                sprintf(meta.filename, "%s.0", filename);
+                // initialize filename to '[filename].0'
+                sprintf(ret_name, "%s.0", filename);
             } else { // Manual compaction mode.
                 // Simply use the file name passed to this function.
                 strcpy(actual_filename, filename);
@@ -768,17 +813,18 @@ fdb_status compactor_get_actual_filename(const char *filename,
             }
         } else {
             // return the file that has the largest compaction number
-            sprintf(meta.filename, "%s.%d", filename, max_compaction_no);
+            sprintf(ret_name, "%s.%d", filename, max_compaction_no);
             fs = FDB_RESULT_SUCCESS;
         }
         if (fs == FDB_RESULT_SUCCESS) {
-            strcpy(actual_filename, meta.filename);
+            strcpy(actual_filename, ret_name);
         }
         return fs;
 
     } else {
         // metadata is successfully read from the metafile .. just return the filename
-        strcpy(actual_filename, meta.filename);
+        _reconstruct_path(ret_name, (char*)filename, meta.filename);
+        strcpy(actual_filename, ret_name);
         return FDB_RESULT_SUCCESS;
     }
 }

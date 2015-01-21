@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-16 07:39:57</td>
+            <td class="headerValue">2015-01-21 07:52:10</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">4</td>
@@ -101,36 +101,36 @@
 <span class="lineNum">      30 </span>                :            : #include &quot;memleak.h&quot;
 <a name="31"><span class="lineNum">      31 </span>                :            : </a>
 <span class="lineNum">      32 </span>                :            : LIBFDB_API
-<span class="lineNum">      33 </span>                :<span class="lineCov">       1226 : fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,</span>
+<span class="lineNum">      33 </span>                :<span class="lineCov">       1234 : fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,</span>
 <span class="lineNum">      34 </span>                :            :                                  fdb_isolation_level_t isolation_level)
 <span class="lineNum">      35 </span>                :            : {
-<span class="lineNum">      36 </span>                :<span class="lineCov">       1226 :     fdb_kvs_handle *handle = fhandle-&gt;root;</span>
+<span class="lineNum">      36 </span>                :<span class="lineCov">       1234 :     fdb_kvs_handle *handle = fhandle-&gt;root;</span>
 <span class="lineNum">      37 </span>                :            :     struct filemgr *file;
 <span class="lineNum">      38 </span>                :            : 
-<span class="lineNum">      39 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1226 times"> + </span>]:<span class="lineCov">       1226 :     if (handle-&gt;txn) {</span>
+<span class="lineNum">      39 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1234 times"> + </span>]:<span class="lineCov">       1234 :     if (handle-&gt;txn) {</span>
 <span class="lineNum">      40 </span>                :            :         // transaction already exists
 <span class="lineNum">      41 </span>                :<span class="lineNoCov">          0 :         return FDB_RESULT_TRANSACTION_FAIL;</span>
 <span class="lineNum">      42 </span>                :            :     }
-<span class="lineNum">      43 </span>        [<span class="branchCov" title="Branch 0 was taken 1225 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">       1226 :     if (handle-&gt;kvs) {</span>
-<span class="lineNum">      44 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1225 times"> + </span>]:<span class="lineCov">       1225 :         if (handle-&gt;kvs-&gt;type == KVS_SUB) {</span>
+<span class="lineNum">      43 </span>        [<span class="branchCov" title="Branch 0 was taken 1233 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">       1234 :     if (handle-&gt;kvs) {</span>
+<span class="lineNum">      44 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1233 times"> + </span>]:<span class="lineCov">       1233 :         if (handle-&gt;kvs-&gt;type == KVS_SUB) {</span>
 <span class="lineNum">      45 </span>                :            :             // deny transaction on sub handle
 <span class="lineNum">      46 </span>                :<span class="lineNoCov">          0 :             return FDB_RESULT_INVALID_HANDLE;</span>
 <span class="lineNum">      47 </span>                :            :         }
 <span class="lineNum">      48 </span>                :            :     }
 <span class="lineNum">      49 </span>                :            : 
-<span class="lineNum">      50 </span>                :<span class="lineCov">       1226 :     fdb_check_file_reopen(handle);</span>
-<span class="lineNum">      51 </span>                :<span class="lineCov">       1226 :     filemgr_mutex_lock(handle-&gt;file);</span>
-<span class="lineNum">      52 </span>                :<span class="lineCov">       1226 :     fdb_sync_db_header(handle);</span>
-<span class="lineNum">      53 </span>                :<span class="lineCov">       1226 :     fdb_link_new_file(handle);</span>
+<span class="lineNum">      50 </span>                :<span class="lineCov">       1234 :     fdb_check_file_reopen(handle);</span>
+<span class="lineNum">      51 </span>                :<span class="lineCov">       1234 :     filemgr_mutex_lock(handle-&gt;file);</span>
+<span class="lineNum">      52 </span>                :<span class="lineCov">       1234 :     fdb_sync_db_header(handle);</span>
+<span class="lineNum">      53 </span>                :<span class="lineCov">       1234 :     fdb_link_new_file(handle);</span>
 <span class="lineNum">      54 </span>                :            : 
-<span class="lineNum">      55 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 1226 times"> + </span>]:<span class="lineCov">       1226 :     if (filemgr_is_rollback_on(handle-&gt;file)) {</span>
+<span class="lineNum">      55 </span>        [<span class="branchNoCov" title="Branch 1 was not taken"> - </span><span class="branchCov" title="Branch 2 was taken 1234 times"> + </span>]:<span class="lineCov">       1234 :     if (filemgr_is_rollback_on(handle-&gt;file)) {</span>
 <span class="lineNum">      56 </span>                :            :         // deny beginning transaction during rollback
 <span class="lineNum">      57 </span>                :<span class="lineNoCov">          0 :         filemgr_mutex_unlock(handle-&gt;file);</span>
 <span class="lineNum">      58 </span>                :<span class="lineNoCov">          0 :         return FDB_RESULT_FAIL_BY_ROLLBACK;</span>
 <span class="lineNum">      59 </span>                :            :     }
 <span class="lineNum">      60 </span>                :            : 
-<span class="lineNum">      61 </span>        [<span class="branchCov" title="Branch 0 was taken 1226 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1226 :     if (handle-&gt;new_file == NULL) {</span>
-<span class="lineNum">      62 </span>                :<span class="lineCov">       1226 :         file = handle-&gt;file;</span>
+<span class="lineNum">      61 </span>        [<span class="branchCov" title="Branch 0 was taken 1234 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1234 :     if (handle-&gt;new_file == NULL) {</span>
+<span class="lineNum">      62 </span>                :<span class="lineCov">       1234 :         file = handle-&gt;file;</span>
 <span class="lineNum">      63 </span>                :            :     } else {
 <span class="lineNum">      64 </span>                :            :         // compaction is being performed and new file exists
 <span class="lineNum">      65 </span>                :            :         // relay lock
@@ -139,58 +139,58 @@
 <span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :         file = handle-&gt;new_file;</span>
 <span class="lineNum">      69 </span>                :            :     }
 <span class="lineNum">      70 </span>                :            : 
-<span class="lineNum">      71 </span>                :<span class="lineCov">       1226 :     handle-&gt;txn = (fdb_txn*)malloc(sizeof(fdb_txn));</span>
+<span class="lineNum">      71 </span>                :<span class="lineCov">       1234 :     handle-&gt;txn = (fdb_txn*)malloc(sizeof(fdb_txn));</span>
 <span class="lineNum">      72 </span>                :            :     handle-&gt;txn-&gt;wrapper = (struct wal_txn_wrapper *)
-<span class="lineNum">      73 </span>                :<span class="lineCov">       1226 :                            malloc(sizeof(struct wal_txn_wrapper));</span>
-<span class="lineNum">      74 </span>                :<span class="lineCov">       1226 :     handle-&gt;txn-&gt;wrapper-&gt;txn = handle-&gt;txn;</span>
-<span class="lineNum">      75 </span>                :<span class="lineCov">       1226 :     handle-&gt;txn-&gt;handle = handle;</span>
-<span class="lineNum">      76 </span>        [<span class="branchCov" title="Branch 1 was taken 1226 times"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span>]:<span class="lineCov">       1226 :     if (filemgr_get_file_status(handle-&gt;file) != FILE_COMPACT_OLD) {</span>
+<span class="lineNum">      73 </span>                :<span class="lineCov">       1234 :                            malloc(sizeof(struct wal_txn_wrapper));</span>
+<span class="lineNum">      74 </span>                :<span class="lineCov">       1234 :     handle-&gt;txn-&gt;wrapper-&gt;txn = handle-&gt;txn;</span>
+<span class="lineNum">      75 </span>                :<span class="lineCov">       1234 :     handle-&gt;txn-&gt;handle = handle;</span>
+<span class="lineNum">      76 </span>        [<span class="branchCov" title="Branch 1 was taken 1234 times"> + </span><span class="branchNoCov" title="Branch 2 was not taken"> - </span>]:<span class="lineCov">       1234 :     if (filemgr_get_file_status(handle-&gt;file) != FILE_COMPACT_OLD) {</span>
 <span class="lineNum">      77 </span>                :            :         // keep previous header's BID
-<span class="lineNum">      78 </span>                :<span class="lineCov">       1226 :         handle-&gt;txn-&gt;prev_hdr_bid = handle-&gt;last_hdr_bid;</span>
+<span class="lineNum">      78 </span>                :<span class="lineCov">       1234 :         handle-&gt;txn-&gt;prev_hdr_bid = handle-&gt;last_hdr_bid;</span>
 <span class="lineNum">      79 </span>                :            :     } else {
 <span class="lineNum">      80 </span>                :            :         // if file status is COMPACT_OLD,
 <span class="lineNum">      81 </span>                :            :         // then this transaction will work on new file, and
 <span class="lineNum">      82 </span>                :            :         // there is no previous header until the compaction is done.
 <span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :         handle-&gt;txn-&gt;prev_hdr_bid = BLK_NOT_FOUND;</span>
 <span class="lineNum">      84 </span>                :            :     }
-<span class="lineNum">      85 </span>                :<span class="lineCov">       1226 :     handle-&gt;txn-&gt;items = (struct list *)malloc(sizeof(struct list));</span>
-<span class="lineNum">      86 </span>                :<span class="lineCov">       1226 :     handle-&gt;txn-&gt;isolation = isolation_level;</span>
-<span class="lineNum">      87 </span>                :<span class="lineCov">       1226 :     list_init(handle-&gt;txn-&gt;items);</span>
-<span class="lineNum">      88 </span>                :<span class="lineCov">       1226 :     wal_add_transaction(file, handle-&gt;txn);</span>
+<span class="lineNum">      85 </span>                :<span class="lineCov">       1234 :     handle-&gt;txn-&gt;items = (struct list *)malloc(sizeof(struct list));</span>
+<span class="lineNum">      86 </span>                :<span class="lineCov">       1234 :     handle-&gt;txn-&gt;isolation = isolation_level;</span>
+<span class="lineNum">      87 </span>                :<span class="lineCov">       1234 :     list_init(handle-&gt;txn-&gt;items);</span>
+<span class="lineNum">      88 </span>                :<span class="lineCov">       1234 :     wal_add_transaction(file, handle-&gt;txn);</span>
 <span class="lineNum">      89 </span>                :            : 
-<span class="lineNum">      90 </span>                :<span class="lineCov">       1226 :     filemgr_mutex_unlock(file);</span>
+<span class="lineNum">      90 </span>                :<span class="lineCov">       1234 :     filemgr_mutex_unlock(file);</span>
 <span class="lineNum">      91 </span>                :            : 
-<span class="lineNum">      92 </span>                :<span class="lineCov">       1226 :     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">      92 </span>                :<span class="lineCov">       1234 :     return FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">      93 </span>                :            : }
 <a name="94"><span class="lineNum">      94 </span>                :            : </a>
 <span class="lineNum">      95 </span>                :            : LIBFDB_API
-<span class="lineNum">      96 </span>                :<span class="lineCov">          5 : fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)</span>
+<span class="lineNum">      96 </span>                :<span class="lineCov">          9 : fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)</span>
 <span class="lineNum">      97 </span>                :            : {
-<span class="lineNum">      98 </span>                :<span class="lineCov">          5 :     return _fdb_abort_transaction(fhandle-&gt;root);</span>
+<span class="lineNum">      98 </span>                :<span class="lineCov">          9 :     return _fdb_abort_transaction(fhandle-&gt;root);</span>
 <a name="99"><span class="lineNum">      99 </span>                :            : }</a>
 <span class="lineNum">     100 </span>                :            : 
-<span class="lineNum">     101 </span>                :<span class="lineCov">          7 : fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)</span>
+<span class="lineNum">     101 </span>                :<span class="lineCov">         11 : fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)</span>
 <span class="lineNum">     102 </span>                :            : {
 <span class="lineNum">     103 </span>                :            :     struct filemgr *file;
 <span class="lineNum">     104 </span>                :            : 
-<span class="lineNum">     105 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 7 times"> + </span>]:<span class="lineCov">          7 :     if (handle-&gt;txn == NULL) {</span>
+<span class="lineNum">     105 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 11 times"> + </span>]:<span class="lineCov">         11 :     if (handle-&gt;txn == NULL) {</span>
 <span class="lineNum">     106 </span>                :            :         // there is no transaction started
 <span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :         return FDB_RESULT_TRANSACTION_FAIL;</span>
 <span class="lineNum">     108 </span>                :            :     }
-<span class="lineNum">     109 </span>        [<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">          7 :     if (handle-&gt;kvs) {</span>
-<span class="lineNum">     110 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 6 times"> + </span>]:<span class="lineCov">          6 :         if (handle-&gt;kvs-&gt;type == KVS_SUB) {</span>
+<span class="lineNum">     109 </span>        [<span class="branchCov" title="Branch 0 was taken 10 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">         11 :     if (handle-&gt;kvs) {</span>
+<span class="lineNum">     110 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">         10 :         if (handle-&gt;kvs-&gt;type == KVS_SUB) {</span>
 <span class="lineNum">     111 </span>                :            :             // deny transaction on sub handle
 <span class="lineNum">     112 </span>                :<span class="lineNoCov">          0 :             return FDB_RESULT_INVALID_HANDLE;</span>
 <span class="lineNum">     113 </span>                :            :         }
 <span class="lineNum">     114 </span>                :            :     }
 <span class="lineNum">     115 </span>                :            : 
-<span class="lineNum">     116 </span>                :<span class="lineCov">          7 :     fdb_check_file_reopen(handle);</span>
-<span class="lineNum">     117 </span>        [<span class="branchCov" title="Branch 0 was taken 7 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          7 :     if (handle-&gt;new_file == NULL) {</span>
-<span class="lineNum">     118 </span>                :<span class="lineCov">          7 :         file = handle-&gt;file;</span>
-<span class="lineNum">     119 </span>                :<span class="lineCov">          7 :         filemgr_mutex_lock(file);</span>
-<span class="lineNum">     120 </span>                :<span class="lineCov">          7 :         fdb_sync_db_header(handle);</span>
-<span class="lineNum">     121 </span>                :<span class="lineCov">          7 :         fdb_link_new_file(handle);</span>
-<span class="lineNum">     122 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 7 times"> + </span>]:<span class="lineCov">          7 :         if (handle-&gt;new_file) {</span>
+<span class="lineNum">     116 </span>                :<span class="lineCov">         11 :     fdb_check_file_reopen(handle);</span>
+<span class="lineNum">     117 </span>        [<span class="branchCov" title="Branch 0 was taken 11 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         11 :     if (handle-&gt;new_file == NULL) {</span>
+<span class="lineNum">     118 </span>                :<span class="lineCov">         11 :         file = handle-&gt;file;</span>
+<span class="lineNum">     119 </span>                :<span class="lineCov">         11 :         filemgr_mutex_lock(file);</span>
+<span class="lineNum">     120 </span>                :<span class="lineCov">         11 :         fdb_sync_db_header(handle);</span>
+<span class="lineNum">     121 </span>                :<span class="lineCov">         11 :         fdb_link_new_file(handle);</span>
+<span class="lineNum">     122 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 11 times"> + </span>]:<span class="lineCov">         11 :         if (handle-&gt;new_file) {</span>
 <span class="lineNum">     123 </span>                :            :             // compaction is being performed and new file exists
 <span class="lineNum">     124 </span>                :            :             // relay lock
 <span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :             filemgr_mutex_lock(handle-&gt;new_file);</span>
@@ -204,50 +204,50 @@
 <span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         fdb_sync_db_header(handle);</span>
 <span class="lineNum">     134 </span>                :            :     }
 <span class="lineNum">     135 </span>                :            : 
-<span class="lineNum">     136 </span>                :<span class="lineCov">          7 :     wal_discard(file, handle-&gt;txn);</span>
-<span class="lineNum">     137 </span>                :<span class="lineCov">          7 :     wal_remove_transaction(file, handle-&gt;txn);</span>
+<span class="lineNum">     136 </span>                :<span class="lineCov">         11 :     wal_discard(file, handle-&gt;txn);</span>
+<span class="lineNum">     137 </span>                :<span class="lineCov">         11 :     wal_remove_transaction(file, handle-&gt;txn);</span>
 <span class="lineNum">     138 </span>                :            : 
-<span class="lineNum">     139 </span>                :<span class="lineCov">          7 :     free(handle-&gt;txn-&gt;items);</span>
-<span class="lineNum">     140 </span>                :<span class="lineCov">          7 :     free(handle-&gt;txn-&gt;wrapper);</span>
-<span class="lineNum">     141 </span>                :<span class="lineCov">          7 :     free(handle-&gt;txn);</span>
-<span class="lineNum">     142 </span>                :<span class="lineCov">          7 :     handle-&gt;txn = NULL;</span>
+<span class="lineNum">     139 </span>                :<span class="lineCov">         11 :     free(handle-&gt;txn-&gt;items);</span>
+<span class="lineNum">     140 </span>                :<span class="lineCov">         11 :     free(handle-&gt;txn-&gt;wrapper);</span>
+<span class="lineNum">     141 </span>                :<span class="lineCov">         11 :     free(handle-&gt;txn);</span>
+<span class="lineNum">     142 </span>                :<span class="lineCov">         11 :     handle-&gt;txn = NULL;</span>
 <span class="lineNum">     143 </span>                :            : 
-<span class="lineNum">     144 </span>                :<span class="lineCov">          7 :     filemgr_mutex_unlock(file);</span>
+<span class="lineNum">     144 </span>                :<span class="lineCov">         11 :     filemgr_mutex_unlock(file);</span>
 <span class="lineNum">     145 </span>                :            : 
-<span class="lineNum">     146 </span>                :<span class="lineCov">          7 :     return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     146 </span>                :<span class="lineCov">         11 :     return FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">     147 </span>                :            : }
 <a name="148"><span class="lineNum">     148 </span>                :            : </a>
 <span class="lineNum">     149 </span>                :            : LIBFDB_API
-<span class="lineNum">     150 </span>                :<span class="lineCov">       1219 : fdb_status fdb_end_transaction(fdb_file_handle *fhandle,</span>
+<span class="lineNum">     150 </span>                :<span class="lineCov">       1223 : fdb_status fdb_end_transaction(fdb_file_handle *fhandle,</span>
 <span class="lineNum">     151 </span>                :            :                                fdb_commit_opt_t opt)
 <span class="lineNum">     152 </span>                :            : {
-<span class="lineNum">     153 </span>                :<span class="lineCov">       1219 :     fdb_kvs_handle *handle = fhandle-&gt;root;</span>
+<span class="lineNum">     153 </span>                :<span class="lineCov">       1223 :     fdb_kvs_handle *handle = fhandle-&gt;root;</span>
 <span class="lineNum">     154 </span>                :            :     struct filemgr *file;
 <span class="lineNum">     155 </span>                :            : 
-<span class="lineNum">     156 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1219 times"> + </span>]:<span class="lineCov">       1219 :     if (handle-&gt;txn == NULL) {</span>
+<span class="lineNum">     156 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1223 times"> + </span>]:<span class="lineCov">       1223 :     if (handle-&gt;txn == NULL) {</span>
 <span class="lineNum">     157 </span>                :            :         // there is no transaction started
 <span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :         return FDB_RESULT_TRANSACTION_FAIL;</span>
 <span class="lineNum">     159 </span>                :            :     }
-<span class="lineNum">     160 </span>        [<span class="branchCov" title="Branch 0 was taken 1219 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1219 :     if (handle-&gt;kvs) {</span>
-<span class="lineNum">     161 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1219 times"> + </span>]:<span class="lineCov">       1219 :         if (handle-&gt;kvs-&gt;type == KVS_SUB) {</span>
+<span class="lineNum">     160 </span>        [<span class="branchCov" title="Branch 0 was taken 1223 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1223 :     if (handle-&gt;kvs) {</span>
+<span class="lineNum">     161 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1223 times"> + </span>]:<span class="lineCov">       1223 :         if (handle-&gt;kvs-&gt;type == KVS_SUB) {</span>
 <span class="lineNum">     162 </span>                :            :             // deny transaction on sub handle
 <span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :             return FDB_RESULT_INVALID_HANDLE;</span>
 <span class="lineNum">     164 </span>                :            :         }
 <span class="lineNum">     165 </span>                :            :     }
 <span class="lineNum">     166 </span>                :            : 
-<span class="lineNum">     167 </span>                :<span class="lineCov">       1219 :     fdb_status fs = FDB_RESULT_SUCCESS;</span>
-<span class="lineNum">     168 </span>        [<span class="branchCov" title="Branch 1 was taken 1218 times"> + </span><span class="branchCov" title="Branch 2 was taken 1 time"> + </span>]:<span class="lineCov">       1219 :     if (list_begin(handle-&gt;txn-&gt;items)) {</span>
-<span class="lineNum">     169 </span>                :<span class="lineCov">       1218 :         fs = _fdb_commit(handle, opt);</span>
+<span class="lineNum">     167 </span>                :<span class="lineCov">       1223 :     fdb_status fs = FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     168 </span>        [<span class="branchCov" title="Branch 1 was taken 1222 times"> + </span><span class="branchCov" title="Branch 2 was taken 1 time"> + </span>]:<span class="lineCov">       1223 :     if (list_begin(handle-&gt;txn-&gt;items)) {</span>
+<span class="lineNum">     169 </span>                :<span class="lineCov">       1222 :         fs = _fdb_commit(handle, opt);</span>
 <span class="lineNum">     170 </span>                :            :     }
 <span class="lineNum">     171 </span>                :            : 
-<span class="lineNum">     172 </span>        [<span class="branchCov" title="Branch 0 was taken 1219 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1219 :     if (fs == FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">     173 </span>                :<span class="lineCov">       1219 :         fdb_check_file_reopen(handle);</span>
-<span class="lineNum">     174 </span>        [<span class="branchCov" title="Branch 0 was taken 1219 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1219 :         if (handle-&gt;new_file == NULL) {</span>
-<span class="lineNum">     175 </span>                :<span class="lineCov">       1219 :             file = handle-&gt;file;</span>
-<span class="lineNum">     176 </span>                :<span class="lineCov">       1219 :             filemgr_mutex_lock(file);</span>
-<span class="lineNum">     177 </span>                :<span class="lineCov">       1219 :             fdb_sync_db_header(handle);</span>
-<span class="lineNum">     178 </span>                :<span class="lineCov">       1219 :             fdb_link_new_file(handle);</span>
-<span class="lineNum">     179 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1219 times"> + </span>]:<span class="lineCov">       1219 :             if (handle-&gt;new_file) {</span>
+<span class="lineNum">     172 </span>        [<span class="branchCov" title="Branch 0 was taken 1223 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1223 :     if (fs == FDB_RESULT_SUCCESS) {</span>
+<span class="lineNum">     173 </span>                :<span class="lineCov">       1223 :         fdb_check_file_reopen(handle);</span>
+<span class="lineNum">     174 </span>        [<span class="branchCov" title="Branch 0 was taken 1223 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1223 :         if (handle-&gt;new_file == NULL) {</span>
+<span class="lineNum">     175 </span>                :<span class="lineCov">       1223 :             file = handle-&gt;file;</span>
+<span class="lineNum">     176 </span>                :<span class="lineCov">       1223 :             filemgr_mutex_lock(file);</span>
+<span class="lineNum">     177 </span>                :<span class="lineCov">       1223 :             fdb_sync_db_header(handle);</span>
+<span class="lineNum">     178 </span>                :<span class="lineCov">       1223 :             fdb_link_new_file(handle);</span>
+<span class="lineNum">     179 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1223 times"> + </span>]:<span class="lineCov">       1223 :             if (handle-&gt;new_file) {</span>
 <span class="lineNum">     180 </span>                :            :                 // compaction is being performed and new file exists
 <span class="lineNum">     181 </span>                :            :                 // relay lock
 <span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                 filemgr_mutex_lock(handle-&gt;new_file);</span>
@@ -261,16 +261,16 @@
 <span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :             fdb_sync_db_header(handle);</span>
 <span class="lineNum">     191 </span>                :            :         }
 <span class="lineNum">     192 </span>                :            : 
-<span class="lineNum">     193 </span>                :<span class="lineCov">       1219 :         wal_remove_transaction(file, handle-&gt;txn);</span>
+<span class="lineNum">     193 </span>                :<span class="lineCov">       1223 :         wal_remove_transaction(file, handle-&gt;txn);</span>
 <span class="lineNum">     194 </span>                :            : 
-<span class="lineNum">     195 </span>                :<span class="lineCov">       1219 :         free(handle-&gt;txn-&gt;items);</span>
-<span class="lineNum">     196 </span>                :<span class="lineCov">       1219 :         free(handle-&gt;txn-&gt;wrapper);</span>
-<span class="lineNum">     197 </span>                :<span class="lineCov">       1219 :         free(handle-&gt;txn);</span>
-<span class="lineNum">     198 </span>                :<span class="lineCov">       1219 :         handle-&gt;txn = NULL;</span>
+<span class="lineNum">     195 </span>                :<span class="lineCov">       1223 :         free(handle-&gt;txn-&gt;items);</span>
+<span class="lineNum">     196 </span>                :<span class="lineCov">       1223 :         free(handle-&gt;txn-&gt;wrapper);</span>
+<span class="lineNum">     197 </span>                :<span class="lineCov">       1223 :         free(handle-&gt;txn);</span>
+<span class="lineNum">     198 </span>                :<span class="lineCov">       1223 :         handle-&gt;txn = NULL;</span>
 <span class="lineNum">     199 </span>                :            : 
-<span class="lineNum">     200 </span>                :<span class="lineCov">       1219 :         filemgr_mutex_unlock(file);</span>
+<span class="lineNum">     200 </span>                :<span class="lineCov">       1223 :         filemgr_mutex_unlock(file);</span>
 <span class="lineNum">     201 </span>                :            :     }
-<span class="lineNum">     202 </span>                :<span class="lineCov">       1219 :     return fs;</span>
+<span class="lineNum">     202 </span>                :<span class="lineCov">       1223 :     return fs;</span>
 <span class="lineNum">     203 </span>                :            : }
 </pre>
       </td>

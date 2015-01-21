@@ -194,7 +194,7 @@ INLINE struct bnode * _btree_init_node(
     node_addr = addr;
 
     node = (struct bnode *)node_addr;
-    node->kvsize = btree->ksize<<4 | btree->vsize;
+    node->kvsize = btree->ksize<<8 | btree->vsize;
     node->nentry = 0;
     node->level = level;
     node->flag = flag;

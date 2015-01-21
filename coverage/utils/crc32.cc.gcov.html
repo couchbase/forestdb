@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-16 07:39:57</td>
+            <td class="headerValue">2015-01-21 07:52:10</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">3</td>
@@ -390,12 +390,12 @@
 <span class="lineNum">     319 </span>                :<span class="lineCov">          1 :     return ~crc;</span>
 <a name="320"><span class="lineNum">     320 </span>                :            : }</a>
 <span class="lineNum">     321 </span>                :            : 
-<span class="lineNum">     322 </span>                :<span class="lineCov">   50149299 : uint32_t crc32_8(void* data, size_t len, uint32_t prev_value)</span>
+<span class="lineNum">     322 </span>                :<span class="lineCov">   52043648 : uint32_t crc32_8(void* data, size_t len, uint32_t prev_value)</span>
 <span class="lineNum">     323 </span>                :            : {
-<span class="lineNum">     324 </span>                :<span class="lineCov">   50149299 :     uint32_t *cur = (uint32_t*) data;</span>
-<span class="lineNum">     325 </span>                :<span class="lineCov">   50149299 :     uint32_t crc = ~prev_value;</span>
+<span class="lineNum">     324 </span>                :<span class="lineCov">   52043648 :     uint32_t *cur = (uint32_t*) data;</span>
+<span class="lineNum">     325 </span>                :<span class="lineCov">   52043648 :     uint32_t crc = ~prev_value;</span>
 <span class="lineNum">     326 </span>                :            : 
-<span class="lineNum">     327 </span>        [<span class="branchCov" title="Branch 0 was taken 717061566 times"> + </span><span class="branchCov" title="Branch 1 was taken 50149299 times"> + </span>]:<span class="lineCov">  767210865 :     while (len &gt;= 8) {</span>
+<span class="lineNum">     327 </span>        [<span class="branchCov" title="Branch 0 was taken 734162796 times"> + </span><span class="branchCov" title="Branch 1 was taken 52043648 times"> + </span>]:<span class="lineCov">  786206444 :     while (len &gt;= 8) {</span>
 <span class="lineNum">     328 </span>                :            : #ifdef _BIG_ENDIAN
 <span class="lineNum">     329 </span>                :            :         uint32_t one = *cur++ ^ bitswap32(crc);
 <span class="lineNum">     330 </span>                :            :         uint32_t two = *cur++;
@@ -409,26 +409,26 @@
 <span class="lineNum">     338 </span>                :            :             crc_lookup[1][(two&gt;&gt; 8) &amp; 0xFF] ^
 <span class="lineNum">     339 </span>                :            :             crc_lookup[0][(two    ) &amp; 0xFF];
 <span class="lineNum">     340 </span>                :            : #else
-<span class="lineNum">     341 </span>                :<span class="lineCov">  717061566 :         uint32_t one = *cur++ ^ crc;</span>
-<span class="lineNum">     342 </span>                :<span class="lineCov">  717061566 :         uint32_t two = *cur++;</span>
+<span class="lineNum">     341 </span>                :<span class="lineCov">  734162796 :         uint32_t one = *cur++ ^ crc;</span>
+<span class="lineNum">     342 </span>                :<span class="lineCov">  734162796 :         uint32_t two = *cur++;</span>
 <span class="lineNum">     343 </span>                :            :         crc =
-<span class="lineNum">     344 </span>                :<span class="lineCov">  717061566 :             crc_lookup[7][(one    ) &amp; 0xFF] ^</span>
-<span class="lineNum">     345 </span>                :<span class="lineCov">  717061566 :             crc_lookup[6][(one&gt;&gt; 8) &amp; 0xFF] ^</span>
-<span class="lineNum">     346 </span>                :<span class="lineCov">  717061566 :             crc_lookup[5][(one&gt;&gt;16) &amp; 0xFF] ^</span>
-<span class="lineNum">     347 </span>                :<span class="lineCov">  717061566 :             crc_lookup[4][(one&gt;&gt;24) &amp; 0xFF] ^</span>
-<span class="lineNum">     348 </span>                :<span class="lineCov">  717061566 :             crc_lookup[3][(two    ) &amp; 0xFF] ^</span>
-<span class="lineNum">     349 </span>                :<span class="lineCov">  717061566 :             crc_lookup[2][(two&gt;&gt; 8) &amp; 0xFF] ^</span>
-<span class="lineNum">     350 </span>                :<span class="lineCov">  717061566 :             crc_lookup[1][(two&gt;&gt;16) &amp; 0xFF] ^</span>
-<span class="lineNum">     351 </span>                :<span class="lineCov"> 5736492528 :             crc_lookup[0][(two&gt;&gt;24) &amp; 0xFF];</span>
+<span class="lineNum">     344 </span>                :<span class="lineCov">  734162796 :             crc_lookup[7][(one    ) &amp; 0xFF] ^</span>
+<span class="lineNum">     345 </span>                :<span class="lineCov">  734162796 :             crc_lookup[6][(one&gt;&gt; 8) &amp; 0xFF] ^</span>
+<span class="lineNum">     346 </span>                :<span class="lineCov">  734162796 :             crc_lookup[5][(one&gt;&gt;16) &amp; 0xFF] ^</span>
+<span class="lineNum">     347 </span>                :<span class="lineCov">  734162796 :             crc_lookup[4][(one&gt;&gt;24) &amp; 0xFF] ^</span>
+<span class="lineNum">     348 </span>                :<span class="lineCov">  734162796 :             crc_lookup[3][(two    ) &amp; 0xFF] ^</span>
+<span class="lineNum">     349 </span>                :<span class="lineCov">  734162796 :             crc_lookup[2][(two&gt;&gt; 8) &amp; 0xFF] ^</span>
+<span class="lineNum">     350 </span>                :<span class="lineCov">  734162796 :             crc_lookup[1][(two&gt;&gt;16) &amp; 0xFF] ^</span>
+<span class="lineNum">     351 </span>                :<span class="lineCov"> 5873302368 :             crc_lookup[0][(two&gt;&gt;24) &amp; 0xFF];</span>
 <span class="lineNum">     352 </span>                :            : #endif
-<span class="lineNum">     353 </span>                :<span class="lineCov">  717061566 :         len -= 8;</span>
+<span class="lineNum">     353 </span>                :<span class="lineCov">  734162796 :         len -= 8;</span>
 <span class="lineNum">     354 </span>                :            :     }
 <span class="lineNum">     355 </span>                :            : 
-<span class="lineNum">     356 </span>                :<span class="lineCov">   50149299 :     unsigned char *cur_byte = (unsigned char*) cur;</span>
-<span class="lineNum">     357 </span>        [<span class="branchCov" title="Branch 0 was taken 78907381 times"> + </span><span class="branchCov" title="Branch 1 was taken 50149299 times"> + </span>]:<span class="lineCov">  129056680 :     while (len--)</span>
-<span class="lineNum">     358 </span>                :<span class="lineCov">   78907381 :         crc = (crc &gt;&gt; 8) ^ crc_lookup[0][(crc &amp; 0xFF) ^ *cur_byte++];</span>
+<span class="lineNum">     356 </span>                :<span class="lineCov">   52043648 :     unsigned char *cur_byte = (unsigned char*) cur;</span>
+<span class="lineNum">     357 </span>        [<span class="branchCov" title="Branch 0 was taken 83912071 times"> + </span><span class="branchCov" title="Branch 1 was taken 52043648 times"> + </span>]:<span class="lineCov">  135955719 :     while (len--)</span>
+<span class="lineNum">     358 </span>                :<span class="lineCov">   83912071 :         crc = (crc &gt;&gt; 8) ^ crc_lookup[0][(crc &amp; 0xFF) ^ *cur_byte++];</span>
 <span class="lineNum">     359 </span>                :            : 
-<span class="lineNum">     360 </span>                :<span class="lineCov">   50149299 :     return ~crc;</span>
+<span class="lineNum">     360 </span>                :<span class="lineCov">   52043648 :     return ~crc;</span>
 <a name="361"><span class="lineNum">     361 </span>                :            : }</a>
 <span class="lineNum">     362 </span>                :            : 
 <span class="lineNum">     363 </span>                :<span class="lineCov">          4 : uint32_t crc32_8_last8(void *data, size_t len, uint32_t prev_value)</span>

@@ -141,7 +141,7 @@ struct bnode* dummy_node(uint8_t ksize, uint8_t vsize, uint16_t level)
     node = (struct bnode*)malloc(sizeof(bnode) + FDB_BLOCKSIZE);
     memset(node, 0, sizeof(bnode));
 
-    node->kvsize = ksize<<4 | vsize;
+    node->kvsize = ksize<<8 | vsize;
     node->level = level;
     node->data = (uint8_t *)node + sizeof(bnode);
     return node;

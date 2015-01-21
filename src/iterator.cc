@@ -81,26 +81,26 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
         if (info->kvs) {
             // multi KV instance mode
             // KV ID should be compared separately
-            size_t size_id = sizeof(fdb_kvs_id_t);
-            fdb_kvs_id_t a_id, b_id, _a_id, _b_id;
-            _a_id = *(fdb_kvs_id_t*)aa->key;
-            _b_id = *(fdb_kvs_id_t*)bb->key;
-            a_id = _endian_decode(_a_id);
-            b_id = _endian_decode(_b_id);
+            size_t size_chunk = info->kvs->root->config.chunksize;
+            fdb_kvs_id_t a_id, b_id;
+            buf2kvid(size_chunk, aa->key, &a_id);
+            buf2kvid(size_chunk, bb->key, &b_id);
 
             if (a_id < b_id) {
                 return -1;
             } else if (a_id > b_id) {
                 return 1;
             } else {
-                if (aa->keylen == size_id) { // key1 < key2
+                if (aa->keylen == size_chunk) { // key1 < key2
                     return -1;
-                } else if (bb->keylen == size_id) { // key1 > key2
+                } else if (bb->keylen == size_chunk) { // key1 > key2
                     return 1;
                 }
                 return info->kvs_config.custom_cmp(
-                            (uint8_t*)aa->key + size_id, aa->keylen - size_id,
-                            (uint8_t*)bb->key + size_id, bb->keylen - size_id);
+                            (uint8_t*)aa->key + size_chunk,
+                            aa->keylen - size_chunk,
+                            (uint8_t*)bb->key + size_chunk,
+                            bb->keylen - size_chunk);
             }
         } else {
             return info->kvs_config.custom_cmp(aa->key, aa->keylen,
@@ -119,26 +119,24 @@ int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
         if (iterator->handle.kvs) {
             // multi KV instance mode
             // KV ID should be compared separately
-            size_t size_id = sizeof(fdb_kvs_id_t);
-            fdb_kvs_id_t a_id, b_id, _a_id, _b_id;
-            _a_id = *(fdb_kvs_id_t*)key1;
-            _b_id = *(fdb_kvs_id_t*)key2;
-            a_id = _endian_decode(_a_id);
-            b_id = _endian_decode(_b_id);
+            size_t size_chunk = iterator->handle.config.chunksize;
+            fdb_kvs_id_t a_id, b_id;
+            buf2kvid(size_chunk, key1, &a_id);
+            buf2kvid(size_chunk, key2, &b_id);
 
             if (a_id < b_id) {
                 cmp = -1;
             } else if (a_id > b_id) {
                 cmp = 1;
             } else {
-                if (keylen1 == size_id) { // key1 < key2
+                if (keylen1 == size_chunk) { // key1 < key2
                     return -1;
-                } else if (keylen2 == size_id) { // key1 > key2
+                } else if (keylen2 == size_chunk) { // key1 > key2
                     return 1;
                 }
                 cmp = iterator->handle.kvs_config.custom_cmp(
-                          (uint8_t*)key1 + size_id, keylen1 - size_id,
-                          (uint8_t*)key2 + size_id, keylen2 - size_id);
+                          (uint8_t*)key1 + size_chunk, keylen1 - size_chunk,
+                          (uint8_t*)key2 + size_chunk, keylen2 - size_chunk);
             }
         } else {
             cmp = iterator->handle.kvs_config.custom_cmp(key1, keylen1,
@@ -249,38 +247,36 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 
     if (handle->kvs) {
         // multi KV instance mode .. prepend KV ID
-        size_t size_id = sizeof(fdb_kvs_id_t);
+        size_t size_chunk = handle->config.chunksize;
         uint8_t *start_key_temp, *end_key_temp;
-        fdb_kvs_id_t _kv_id = _endian_encode(handle->kvs->id);
 
         if (start_key == NULL) {
-            start_key_temp = alca(uint8_t, size_id);
-            memcpy(start_key_temp, &_kv_id, size_id);
+            start_key_temp = alca(uint8_t, size_chunk);
+            kvid2buf(size_chunk, handle->kvs->id, start_key_temp);
             start_key = start_key_temp;
-            start_keylen = size_id;
+            start_keylen = size_chunk;
         } else {
-            start_key_temp = alca(uint8_t, size_id + start_keylen);
-            memcpy(start_key_temp, &_kv_id, size_id);
-            memcpy(start_key_temp + size_id, start_key, start_keylen);
+            start_key_temp = alca(uint8_t, size_chunk + start_keylen);
+            kvid2buf(size_chunk, handle->kvs->id, start_key_temp);
+            memcpy(start_key_temp + size_chunk, start_key, start_keylen);
             start_key = start_key_temp;
-            start_keylen += size_id;
+            start_keylen += size_chunk;
         }
 
         if (end_key == NULL) {
-            end_key_temp = alca(uint8_t, size_id);
             // set end_key as NULL key of the next KV ID.
             // NULL key doesn't actually exist so that the iterator ends
             // at the last key of the current KV ID.
-            _kv_id = _endian_encode(handle->kvs->id+1);
-            memcpy(end_key_temp, &_kv_id, size_id);
+            end_key_temp = alca(uint8_t, size_chunk);
+            kvid2buf(size_chunk, handle->kvs->id+1, end_key_temp);
             end_key = end_key_temp;
-            end_keylen = size_id;
+            end_keylen = size_chunk;
         } else {
-            end_key_temp = alca(uint8_t, size_id + end_keylen);
-            memcpy(end_key_temp, &_kv_id, size_id);
-            memcpy(end_key_temp + size_id, end_key, end_keylen);
+            end_key_temp = alca(uint8_t, size_chunk + end_keylen);
+            kvid2buf(size_chunk, handle->kvs->id, end_key_temp);
+            memcpy(end_key_temp + size_chunk, end_key, end_keylen);
             end_key = end_key_temp;
-            end_keylen += size_id;
+            end_keylen += size_chunk;
         }
 
         iterator->start_key = (void*)malloc(start_keylen);
@@ -560,8 +556,8 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                     // copy from WAL_ITEM
                     if (handle->kvs) { // multi KV instance mode
                         // get KV ID from key
-                        _kv_id = *((fdb_kvs_id_t*)wal_item_header->key);
-                        kv_id = _endian_decode(_kv_id);
+                        buf2kvid(wal_item_header->chunksize,
+                                 wal_item_header->key, &kv_id);
                         if (kv_id != handle->kvs->id) {
                             // KV instance doesn't match
                             he = list_next(he);
@@ -930,12 +926,12 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
 {
     int cmp, cmp2; // intermediate results of comparison
     int next_op = 0; // 0: none, -1: prev(), 1: next();
+    int size_chunk = iterator->handle.config.chunksize;
     uint8_t *seek_key_kv;
     uint64_t _offset;
     size_t seek_keylen_kv;
     bool skip_wal = false, fetch_next = true, fetch_wal = true;
     bool locked = false;
-    fdb_kvs_id_t _kv_id;
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
     struct snap_wal_entry *snap_item = NULL, query;
     struct docio_object _doc;
@@ -951,11 +947,10 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     }
 
     if (iterator->handle.kvs) {
-        seek_keylen_kv = seek_keylen + sizeof(fdb_kvs_id_t);
+        seek_keylen_kv = seek_keylen + size_chunk;
         seek_key_kv = alca(uint8_t, seek_keylen_kv);
-        _kv_id = _endian_encode(iterator->handle.kvs->id);
-        memcpy(seek_key_kv, &_kv_id, sizeof(fdb_kvs_id_t));
-        memcpy(seek_key_kv + sizeof(fdb_kvs_id_t), seek_key, seek_keylen);
+        kvid2buf(size_chunk, iterator->handle.kvs->id, seek_key_kv);
+        memcpy(seek_key_kv + size_chunk, seek_key, seek_keylen);
     } else {
         seek_keylen_kv = seek_keylen;
         seek_key_kv = (uint8_t*)seek_key;
@@ -1093,7 +1088,9 @@ fetch_hbtrie:
 
     if (hr == HBTRIE_RESULT_SUCCESS && iterator->handle.kvs) {
         // seek is done byeond the KV ID
-        if (memcmp(&_kv_id, iterator->_key, sizeof(fdb_kvs_id_t))) {
+        fdb_kvs_id_t kv_id;
+        buf2kvid(size_chunk, iterator->_key, &kv_id);
+        if (iterator->handle.kvs->id != kv_id) {
             hr = HBTRIE_RESULT_FAIL;
         }
     }
@@ -1341,7 +1338,7 @@ fetch_hbtrie:
 }
 
 fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
-    size_t size_id = sizeof(fdb_kvs_id_t);
+    size_t size_chunk = iterator->handle.config.chunksize;
     bool locked = false;
 
     if (!iterator || !iterator->_key) {
@@ -1352,19 +1349,19 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
     // called right after fdb_iterator_init() so the cursor gets positioned
     // correctly
     iterator->direction = FDB_ITR_FORWARD;
-    if (iterator->start_keylen > size_id) {
+    if (iterator->start_keylen > size_chunk) {
         fdb_iterator_seek_opt_t dir = (iterator->opt & FDB_ITR_SKIP_MIN_KEY) ?
                                       FDB_ITR_SEEK_HIGHER : FDB_ITR_SEEK_LOWER;
         fdb_status status = fdb_iterator_seek(iterator,
-                (uint8_t *)iterator->start_key + size_id,
-                iterator->start_keylen - size_id, dir);
+                (uint8_t *)iterator->start_key + size_chunk,
+                iterator->start_keylen - size_chunk, dir);
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_LOWER) {
             dir = FDB_ITR_SEEK_HIGHER;
             // It is possible that the min key specified during init does not
             // exist, so retry the seek with the HIGHER key
             return fdb_iterator_seek(iterator,
-                (uint8_t *)iterator->start_key + size_id,
-                iterator->start_keylen - size_id, dir);
+                (uint8_t *)iterator->start_key + size_chunk,
+                iterator->start_keylen - size_chunk, dir);
         }
         return status;
     }
@@ -1389,7 +1386,7 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
 
 fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
     int cmp;
-    size_t size_id = sizeof(fdb_kvs_id_t);
+    size_t size_chunk = iterator->handle.config.chunksize;
     bool locked = false;
 
     if (!iterator || !iterator->_key) {
@@ -1400,28 +1397,27 @@ fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
     // called right after fdb_iterator_init() so the cursor gets positioned
     // correctly
     iterator->direction = FDB_ITR_FORWARD;
-    if (iterator->end_keylen > size_id) {
+    if (iterator->end_keylen > size_chunk) {
         fdb_iterator_seek_opt_t dir = (iterator->opt & FDB_ITR_SKIP_MAX_KEY) ?
                                       FDB_ITR_SEEK_LOWER : FDB_ITR_SEEK_HIGHER;
         fdb_status status = fdb_iterator_seek(iterator,
-                (uint8_t *)iterator->end_key + size_id,
-                iterator->end_keylen - size_id, dir);
+                (uint8_t *)iterator->end_key + size_chunk,
+                iterator->end_keylen - size_chunk, dir);
 
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_HIGHER) {
             dir = FDB_ITR_SEEK_LOWER;
             // It is possible that the max key specified during init does not
             // exist, so retry the seek with the LOWER key
             return fdb_iterator_seek(iterator,
-                    (uint8_t *)iterator->end_key + size_id,
-                    iterator->end_keylen - size_id, dir);
+                    (uint8_t *)iterator->end_key + size_chunk,
+                    iterator->end_keylen - size_chunk, dir);
         }
         return status;
     }
     iterator->direction = FDB_ITR_REVERSE; // only reverse iteration possible
 
     locked = _fdb_itr_chk_lock(iterator);
-
-    if (iterator->end_key && iterator->end_keylen == size_id) {
+    if (iterator->end_key && iterator->end_keylen == size_chunk) {
         // end_key exists but end_keylen == size_id
         // it means that user doesn't assign end_key but
         // end_key is automatically assigned due to multi KVS mode.
@@ -1469,7 +1465,7 @@ static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator)
     struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
     fdb_seqnum_t seqnum;
-    fdb_kvs_id_t kv_id, _kv_id;
+    fdb_kvs_id_t kv_id;
     struct avl_node *cursor;
 
     size_id = sizeof(fdb_kvs_id_t);
@@ -1503,8 +1499,7 @@ start_seq:
                              (void *)&offset);
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
-                memcpy(&_kv_id, seq_kv, size_id);
-                kv_id = _endian_decode(_kv_id);
+                buf2kvid(size_id, seq_kv, &kv_id);
                 if (kv_id != iterator->handle.kvs->id) {
                     // iterator is beyond the boundary
                     br = BTREE_RESULT_FAIL;
@@ -1646,7 +1641,7 @@ static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator)
     struct docio_handle *dhandle;
     struct snap_wal_entry *snap_item = NULL;
     fdb_seqnum_t seqnum;
-    fdb_kvs_id_t kv_id, _kv_id;
+    fdb_kvs_id_t kv_id;
     struct avl_node *cursor;
 
     size_id = sizeof(fdb_kvs_id_t);
@@ -1685,8 +1680,7 @@ start_seq:
                              (void *)&offset);
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
-                memcpy(&_kv_id, seq_kv, size_id);
-                kv_id = _endian_decode(_kv_id);
+                buf2kvid(size_id, seq_kv, &kv_id);
                 if (kv_id != iterator->handle.kvs->id) {
                     // iterator is beyond the boundary
                     br = BTREE_RESULT_FAIL;
@@ -1911,14 +1905,16 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
     return result;
 }
 
-// DOC returned by this function must be freed using 'fdb_doc_free'
+// DOC returned by this function must be freed by fdb_doc_free
+// if it was allocated because the incoming doc was pointing to NULL
 fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 {
     struct docio_object _doc;
     fdb_status ret = FDB_RESULT_SUCCESS;
     uint64_t offset;
     struct docio_handle *dhandle;
-    size_t size_id = sizeof(fdb_kvs_id_t);
+    size_t size_chunk = iterator->handle.config.chunksize;
+    bool alloced_key, alloced_meta, alloced_body;
 
     if (!iterator || !doc) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1930,10 +1926,27 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     }
 
     offset = iterator->_get_offset;
-    _doc.key = NULL;
-    _doc.length.keylen = 0;
-    _doc.meta = NULL;
-    _doc.body = NULL;
+
+    if (*doc == NULL) {
+        ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
+        if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+            return ret;
+        } // LCOV_EXCL_STOP
+        _doc.key = NULL;
+        _doc.length.keylen = 0;
+        _doc.meta = NULL;
+        _doc.body = NULL;
+        alloced_key = true;
+        alloced_meta = true;
+        alloced_body = true;
+    } else {
+        _doc.key = (*doc)->key;
+        _doc.meta = (*doc)->meta;
+        _doc.body = (*doc)->body;
+        alloced_key = _doc.key ? false : true;
+        alloced_meta = _doc.meta ? false : true;
+        alloced_body = _doc.body ? false : true;
+    }
 
     uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
     if (_offset == offset) {
@@ -1941,30 +1954,35 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     }
     if (_doc.length.flag & DOCIO_DELETED &&
         (iterator->opt & FDB_ITR_NO_DELETES)) {
-        free(_doc.key);
-        free(_doc.meta);
-        free(_doc.body);
+        if (alloced_key) {
+            free(_doc.key);
+        }
+        if (alloced_meta) {
+            free(_doc.meta);
+        }
+        if (alloced_body) {
+            free(_doc.body);
+        }
         return FDB_RESULT_KEY_NOT_FOUND;
-    }
-
-    ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
-    if (ret != FDB_RESULT_SUCCESS) {
-        free(_doc.key);
-        free(_doc.meta);
-        free(_doc.body);
-        return ret;
     }
 
     if (iterator->handle.kvs) {
         // eliminate KV ID from key
-        _doc.length.keylen -= size_id;
-        memmove(_doc.key, (uint8_t*)_doc.key + size_id, _doc.length.keylen);
+        _doc.length.keylen -= size_chunk;
+        memmove(_doc.key, (uint8_t*)_doc.key + size_chunk, _doc.length.keylen);
     }
-    (*doc)->key = _doc.key;
+
+    if (alloced_key) {
+        (*doc)->key = _doc.key;
+    }
+    if (alloced_meta) {
+        (*doc)->meta = _doc.meta;
+    }
+    if (alloced_body) {
+        (*doc)->body = _doc.body;
+    }
     (*doc)->keylen = _doc.length.keylen;
-    (*doc)->meta = _doc.meta;
     (*doc)->metalen = _doc.length.metalen;
-    (*doc)->body = _doc.body;
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
@@ -1980,7 +1998,8 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
     fdb_status ret = FDB_RESULT_SUCCESS;
     uint64_t offset, _offset;
     struct docio_handle *dhandle;
-    size_t size_id = sizeof(fdb_kvs_id_t);
+    size_t size_chunk = iterator->handle.config.chunksize;
+    bool alloced_key, alloced_meta;
 
     if (!iterator || !doc) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1993,37 +2012,52 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 
     offset = iterator->_get_offset;
 
-    _doc.key = NULL;
-    _doc.length.keylen = 0;
-    _doc.meta = NULL;
-    _doc.body = NULL;
+    if (*doc == NULL) {
+        ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
+        if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+            return ret;
+        } // LCOV_EXCL_STOP
+        _doc.key = NULL;
+        _doc.length.keylen = 0;
+        _doc.meta = NULL;
+        _doc.body = NULL;
+        alloced_key = true;
+        alloced_meta = true;
+    } else {
+        _doc.key = (*doc)->key;
+        _doc.meta = (*doc)->meta;
+        _doc.body = NULL;
+        alloced_key = _doc.key ? false : true;
+        alloced_meta = _doc.meta ? false : true;
+    }
+
     _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
     if (_offset == offset) {
         return FDB_RESULT_KEY_NOT_FOUND;
     }
     if (_doc.length.flag & DOCIO_DELETED &&
             (iterator->opt & FDB_ITR_NO_DELETES)) {
-        free(_doc.key);
-        free(_doc.meta);
+        if (alloced_key) {
+            free(_doc.key);
+        }
+        if (alloced_meta) {
+            free(_doc.meta);
+        }
         return FDB_RESULT_KEY_NOT_FOUND;
-    }
-
-    ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
-    if (ret != FDB_RESULT_SUCCESS) {
-        free(_doc.key);
-        free(_doc.meta);
-        free(_doc.body);
-        return ret;
     }
 
     if (iterator->handle.kvs) {
         // eliminate KV ID from key
-        _doc.length.keylen -= size_id;
-        memmove(_doc.key, (uint8_t*)_doc.key + size_id, _doc.length.keylen);
+        _doc.length.keylen -= size_chunk;
+        memmove(_doc.key, (uint8_t*)_doc.key + size_chunk, _doc.length.keylen);
     }
-    (*doc)->key = _doc.key;
+    if (alloced_key) {
+        (*doc)->key = _doc.key;
+    }
+    if (alloced_meta) {
+        (*doc)->meta = _doc.meta;
+    }
     (*doc)->keylen = _doc.length.keylen;
-    (*doc)->meta = _doc.meta;
     (*doc)->metalen = _doc.length.metalen;
     (*doc)->bodylen = _doc.length.bodylen;
     (*doc)->seqnum = _doc.seqnum;

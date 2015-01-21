@@ -58,6 +58,7 @@ struct hbtrie {
     struct btree_kv_ops *btree_leaf_kv_ops;
     hbtrie_func_readkey *readkey;
     hbtrie_cmp_map *map;
+    btree_cmp_args cmp_args;
     void *last_map_chunk;
 };
 

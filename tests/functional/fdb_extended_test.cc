@@ -139,7 +139,7 @@ static void *_reader_thread(void *voidargs)
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_status status;
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_config fconfig = *(args->config);
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
@@ -162,6 +162,7 @@ static void *_reader_thread(void *voidargs)
             TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     fdb_close(dbfile);
@@ -178,7 +179,7 @@ static void *_rollback_reader_thread(void *voidargs)
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_status status;
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_config fconfig = *(args->config);
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
@@ -211,6 +212,7 @@ static void *_rollback_reader_thread(void *voidargs)
         }
         mutex_unlock(&rollback_mutex);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     fdb_kvs_close(db);
@@ -229,7 +231,7 @@ static void *_snapshot_reader_thread(void *voidargs)
     fdb_kvs_handle *db;
     fdb_kvs_handle *snap_db;
     fdb_status status;
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_config fconfig = *(args->config);
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
@@ -253,6 +255,7 @@ static void *_snapshot_reader_thread(void *voidargs)
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // create an iterator on the snapshot for a specific range
@@ -269,6 +272,7 @@ static void *_snapshot_reader_thread(void *voidargs)
         TEST_CHK(!memcmp(rdoc->body, args->doc[i-1]->body, rdoc->bodylen));
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         ++i;
     } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(iterator);
@@ -290,7 +294,7 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
     fdb_kvs_handle *db;
     fdb_kvs_handle *snap_db;
     fdb_status status;
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_config fconfig = *(args->config);
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
@@ -331,6 +335,7 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
             TEST_CHK(rdoc->seqnum != args->doc[i]->seqnum);
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // create an iterator on the snapshot for a sepcfic range
@@ -347,6 +352,7 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
         TEST_CHK(!memcmp(rdoc->body, args->doc[i-1]->body, rdoc->bodylen));
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         ++i;
     } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
     fdb_iterator_close(iterator);
@@ -367,7 +373,7 @@ static void *_writer_thread(void *voidargs)
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_status status;
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_config fconfig = *(args->config);
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
@@ -400,6 +406,7 @@ static void *_writer_thread(void *voidargs)
         status = fdb_set(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
 
         ++count;
         if (count % args->batch_size == 0) {

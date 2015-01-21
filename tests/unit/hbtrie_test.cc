@@ -124,6 +124,7 @@ void basic_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
+    config.chunksize = sizeof(uint64_t);
 
     filemgr_open_result result = filemgr_open((char *) "./dummy",
                                               get_filemgr_ops(), &config, NULL);
@@ -235,6 +236,7 @@ void large_test()
     config.ncacheblock = 0 * 1024 * 128;
     config.flag = 0;
     config.options = FILEMGR_CREATE;
+    config.chunksize = sizeof(uint64_t);
 
     DBG("filemgr, bcache init .. \n");
     rr = system(SHELL_DEL" dummy");
@@ -420,6 +422,7 @@ void skew_basic_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
+    config.chunksize = sizeof(uint64_t);
 
     filemgr_open_result result = filemgr_open((char*)"./dummy",
                                               get_filemgr_ops(), &config, NULL);
@@ -582,6 +585,7 @@ void hbtrie_reverse_iterator_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = nodesize;
     config.options = FILEMGR_CREATE;
+    config.chunksize = ksize;
 
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
@@ -740,6 +744,7 @@ void hbtrie_partial_update_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = nodesize;
     config.options = FILEMGR_CREATE;
+    config.chunksize = ksize;
 
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;

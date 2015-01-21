@@ -39,6 +39,7 @@ enum{
 struct wal_item_header{
     void *key;
     uint16_t keylen;
+    uint8_t chunksize;
     struct list items;
     struct hash_elem he_key;
     struct list_elem list_elem;

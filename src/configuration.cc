@@ -80,6 +80,10 @@ bool validate_fdb_config(fdb_config *fconfig) {
         // Chunk size should be set between 4 and 64 bytes.
         return false;
     }
+    if (fconfig->chunksize < sizeof(void *)) {
+        // Chunk size should be equal to or greater than the address bus size
+        return false;
+    }
     if (fconfig->blocksize < 1024 || fconfig->blocksize > 131072) {
         // Block size should be set between 1KB and 128KB
         return false;

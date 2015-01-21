@@ -2021,3 +2021,49 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
     return ret;
 }
 
+void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id)
+{
+    int size_id = sizeof(fdb_kvs_id_t);
+    fdb_kvs_id_t temp;
+
+    if (chunksize == size_id) {
+        temp = *((fdb_kvs_id_t*)buf);
+    } else if (chunksize < size_id) {
+        temp = 0;
+        memcpy((uint8_t*)&temp + (size_id - chunksize), buf, chunksize);
+    } else { // chunksize > sizeof(fdb_kvs_id_t)
+        memcpy(&temp, (uint8_t*)buf + (chunksize - size_id), size_id);
+    }
+    *id = _endian_decode(temp);
+}
+
+void kvid2buf(size_t chunksize, fdb_kvs_id_t id, void *buf)
+{
+    int size_id = sizeof(fdb_kvs_id_t);
+    id = _endian_encode(id);
+
+    if (chunksize == size_id) {
+        memcpy(buf, &id, size_id);
+    } else if (chunksize < size_id) {
+        memcpy(buf, (uint8_t*)&id + (size_id - chunksize), chunksize);
+    } else { // chunksize > sizeof(fdb_kvs_id_t)
+        memset(buf, 0x0, chunksize - size_id);
+        memcpy((uint8_t*)buf + (chunksize - size_id), &id, size_id);
+    }
+}
+
+void buf2buf(size_t chunksize_src, void *buf_src,
+             size_t chunksize_dst, void *buf_dst)
+{
+    if (chunksize_dst == chunksize_src) {
+        memcpy(buf_dst, buf_src, chunksize_src);
+    } else if (chunksize_dst < chunksize_src) {
+        memcpy(buf_dst, (uint8_t*)buf_src + (chunksize_src - chunksize_dst),
+               chunksize_dst);
+    } else { // chunksize_dst > chunksize_src
+        memset(buf_dst, 0x0, chunksize_dst - chunksize_src);
+        memcpy((uint8_t*)buf_dst + (chunksize_dst - chunksize_src),
+               buf_src, chunksize_src);
+    }
+}
+

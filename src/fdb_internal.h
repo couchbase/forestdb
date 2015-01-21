@@ -60,6 +60,11 @@ typedef enum {
 #define FDB_FLAG_ROOT_INITIALIZED (0x2)
 #define FDB_FLAG_ROOT_CUSTOM_CMP (0x4)
 
+void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id);
+void kvid2buf(size_t chunksize, fdb_kvs_id_t id, void *buf);
+void buf2buf(size_t chunksize_src, void *buf_src,
+             size_t chunksize_dst, void *buf_dst);
+
 size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf);
 size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf);
 int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux);

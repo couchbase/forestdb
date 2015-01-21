@@ -37,6 +37,7 @@ struct filemgr_config {
     int blocksize;
     int ncacheblock;
     int flag;
+    int chunksize;
     uint8_t options;
 #define FILEMGR_SYNC 0x01
 #define FILEMGR_READONLY 0x02

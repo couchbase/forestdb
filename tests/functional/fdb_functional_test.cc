@@ -41,7 +41,7 @@ void basic_test()
     fdb_kvs_handle *db;
     fdb_kvs_handle *db_rdonly;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -100,6 +100,7 @@ void basic_test()
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -116,6 +117,7 @@ void basic_test()
     TEST_CHK(rdoc->deleted == true);
     TEST_CMP(rdoc->meta, doc[5]->meta, rdoc->metalen);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // close the db
     fdb_kvs_close(db);
@@ -158,6 +160,7 @@ void basic_test()
 
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // do compaction
@@ -181,6 +184,7 @@ void basic_test()
 
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // retrieve documents by sequence number
@@ -199,6 +203,7 @@ void basic_test()
 
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // update document #5 with an empty doc body.
@@ -206,6 +211,7 @@ void basic_test()
     status = fdb_set(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
     // Check document #5 with respect to metadata and doc body.
@@ -216,6 +222,7 @@ void basic_test()
     TEST_CHK(rdoc->body == NULL);
     TEST_CHK(rdoc->bodylen == 0);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // Read-Only mode test: Open succeeds if file exists, but disallow writes
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
@@ -240,6 +247,7 @@ void basic_test()
     TEST_CHK(status == FDB_RESULT_RONLY_VIOLATION);
 
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     fdb_kvs_close(db_rdonly);
     fdb_close(dbfile_rdonly);
 
@@ -261,6 +269,69 @@ void basic_test()
     memleak_end();
 
     TEST_RESULT("basic test");
+}
+
+void set_get_meta_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    char keybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
+
+    sprintf(keybuf, "key%d", 0);
+    fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+    fdb_set(db, rdoc);
+    status = fdb_get(db, rdoc);
+    assert(status == FDB_RESULT_SUCCESS);
+    status = fdb_get_byoffset(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_get_metaonly(db, rdoc);
+    assert(status == FDB_RESULT_SUCCESS);
+    status = fdb_get_metaonly_byseq(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_del(db, rdoc);
+    status = fdb_get(db, rdoc);
+    assert(status == FDB_RESULT_KEY_NOT_FOUND);
+    assert(rdoc->deleted == true);
+
+    status = fdb_get_metaonly(db, rdoc);
+    assert(status == FDB_RESULT_SUCCESS);
+    assert(rdoc->deleted == true);
+
+    status = fdb_get_metaonly_byseq(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    assert(rdoc->deleted == true);
+
+    status = fdb_get_byoffset(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    assert(rdoc->deleted == true);
+
+
+    fdb_doc_free(rdoc);
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("set get meta test");
 }
 
 void long_filename_test()
@@ -384,7 +455,7 @@ void seq_tree_exception_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *it;
 
@@ -525,7 +596,7 @@ void wal_commit_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -598,6 +669,7 @@ void wal_commit_test()
 
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // free all documents
@@ -685,7 +757,7 @@ void db_drop_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc *, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -758,6 +830,7 @@ void db_drop_test()
 
     // free all documents
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     for (i=0;i<2;++i){
         fdb_doc_free(doc[i]);
     }
@@ -781,7 +854,7 @@ void db_destroy_test()
     fdb_file_handle *dbfile, *dbfile2;
     fdb_kvs_handle *db, *db2;
     fdb_doc **doc = alca(fdb_doc *, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
@@ -860,6 +933,7 @@ void db_destroy_test()
 
     // free all documents
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     for (i=0;i<n;++i){
         fdb_doc_free(doc[i]);
     }
@@ -907,7 +981,7 @@ void *_worker_thread(void *voidargs)
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_status status;
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     char temp[1024];
 
     char cnt_str[IDX_DIGIT+1];
@@ -997,6 +1071,7 @@ void *_worker_thread(void *voidargs)
             }
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         c++;
 
         gettimeofday(&ts_cur, NULL);
@@ -1223,7 +1298,7 @@ void *multi_thread_kvs_client(void *args)
     fdb_kvs_handle *tdb;
     fdb_kvs_handle **db = alca(fdb_kvs_handle*, nclients);
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
@@ -1351,7 +1426,7 @@ void incomplete_block_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -1397,6 +1472,7 @@ void incomplete_block_test()
 
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // close db file
@@ -1444,7 +1520,7 @@ void custom_compare_primitive_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -1491,6 +1567,7 @@ void custom_compare_primitive_test()
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
 
@@ -1506,6 +1583,7 @@ void custom_compare_primitive_test()
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
 
@@ -1522,6 +1600,7 @@ void custom_compare_primitive_test()
         TEST_CHK(key_double > key_double_prev);
         key_double_prev = key_double;
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     fdb_iterator_close(iterator);
 
@@ -1560,7 +1639,7 @@ void custom_compare_variable_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *db2;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_iterator *iterator;
 
@@ -1616,6 +1695,7 @@ void custom_compare_variable_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // range scan (before flushing WAL)
@@ -1630,6 +1710,7 @@ void custom_compare_variable_test()
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
@@ -1650,6 +1731,7 @@ void custom_compare_variable_test()
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
@@ -1670,6 +1752,7 @@ void custom_compare_variable_test()
         prev_keylen = rdoc->keylen;
         memcpy(prev_key, rdoc->key, rdoc->keylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
@@ -1682,6 +1765,7 @@ void custom_compare_variable_test()
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
     TEST_CHK(count == n);
@@ -1691,6 +1775,7 @@ void custom_compare_variable_test()
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     };
     TEST_CHK(count == 0);
     fdb_iterator_close(iterator);
@@ -1709,6 +1794,7 @@ void custom_compare_variable_test()
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
 
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // close db file
@@ -1743,7 +1829,7 @@ void doc_compression_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
@@ -1786,6 +1872,7 @@ void doc_compression_test()
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -1836,6 +1923,7 @@ void doc_compression_test()
 
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // do compaction
@@ -1859,6 +1947,7 @@ void doc_compression_test()
 
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // free all documents
@@ -1940,6 +2029,7 @@ void read_doc_by_offset_test()
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -1966,6 +2056,7 @@ void read_doc_by_offset_test()
     TEST_CMP(rdoc1->body, doc[5]->body, rdoc1->bodylen);
 
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     fdb_doc_free(rdoc1);
 
     // do compaction
@@ -1981,6 +2072,7 @@ void read_doc_by_offset_test()
     TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
     TEST_CHK(rdoc->deleted == true);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // free all documents
     for (i=0;i<n;++i){
@@ -2010,7 +2102,7 @@ void purge_logically_deleted_doc_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -2049,6 +2141,7 @@ void purge_logically_deleted_doc_test()
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -2073,6 +2166,7 @@ void purge_logically_deleted_doc_test()
         }
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
 
         // retrieve metadata
         // all documents including logically deleted document should exist
@@ -2080,6 +2174,7 @@ void purge_logically_deleted_doc_test()
         status = fdb_get_metaonly(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     printf("wait for 3 seconds..\n");
@@ -2105,6 +2200,7 @@ void purge_logically_deleted_doc_test()
         }
         // free result document
         fdb_doc_free(rdoc);
+        rdoc = NULL;
 
         // retrieve metadata
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
@@ -2116,6 +2212,7 @@ void purge_logically_deleted_doc_test()
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // close db file
@@ -2380,7 +2477,7 @@ void flush_before_commit_multi_writers_test()
     fdb_file_handle *dbfile1, *dbfile2;
     fdb_kvs_handle *db1, *db2;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_config fconfig;
     fdb_kvs_config kvs_config;
@@ -2453,6 +2550,7 @@ void flush_before_commit_multi_writers_test()
         TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
         TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
 
         // retrieve through db2
         fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
@@ -2462,6 +2560,7 @@ void flush_before_commit_multi_writers_test()
         TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
         TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     fdb_commit(dbfile1, FDB_COMMIT_NORMAL);
@@ -2484,6 +2583,7 @@ void flush_before_commit_multi_writers_test()
         TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
         TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
 
         // retrieve through db2
         fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf),
@@ -2493,6 +2593,7 @@ void flush_before_commit_multi_writers_test()
         TEST_CMP(metabuf, rdoc->meta, rdoc->metalen);
         TEST_CMP(bodybuf, rdoc->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // close db file
@@ -2603,7 +2704,7 @@ void last_wal_flush_header_test()
     fdb_file_handle *dbfile, *dbfile_txn1, *dbfile_txn2;
     fdb_kvs_handle *db, *db_txn1, *db_txn2;
     fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -2665,6 +2766,7 @@ void last_wal_flush_header_test()
             TEST_CHK(status != FDB_RESULT_SUCCESS);
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // insert docs using transaction
@@ -2696,6 +2798,7 @@ void last_wal_flush_header_test()
             // doesn't matter
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     // insert docs without transaction
@@ -2734,6 +2837,7 @@ void last_wal_flush_header_test()
             TEST_CHK(status != FDB_RESULT_SUCCESS);
         }
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     fdb_open(&dbfile_txn1, "dummy1", &fconfig);
@@ -2773,6 +2877,7 @@ void last_wal_flush_header_test()
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     fdb_open(&dbfile_txn1, "dummy1", &fconfig);
@@ -2811,7 +2916,7 @@ void long_key_test()
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, l*n*m);
-    fdb_doc *rdoc;
+    fdb_doc *rdoc = NULL;
     fdb_status status;
     fdb_file_info info;
 
@@ -2892,6 +2997,7 @@ void long_key_test()
         TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
         TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
+        rdoc = NULL;
     }
 
     fdb_close(dbfile);
@@ -2913,6 +3019,7 @@ void long_key_test()
 int main(){
 
     basic_test();
+    set_get_meta_test();
     long_filename_test();
     error_to_str_test();
     seq_tree_exception_test();
