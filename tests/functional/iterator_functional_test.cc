@@ -409,6 +409,78 @@ void iterator_with_concurrent_updates_test()
     TEST_RESULT("iterator with concurrent updates test");
 }
 
+void iterator_compact_uncommitted_db()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+    fdb_iterator *it;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
+
+
+    // set docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_set_kv(db, keybuf, strlen(keybuf),
+                bodybuf, strlen(bodybuf));
+    }
+
+    // count number of iteratable docs
+    status = fdb_iterator_sequence_init(db, &it, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    i=0;
+    do { ++i; }
+    while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(it);
+    TEST_CHK(i == n);
+
+    // compact
+    fdb_compact(dbfile, NULL);
+
+    // set again
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_set_kv(db, keybuf, strlen(keybuf),
+                bodybuf, strlen(bodybuf));
+    }
+
+    // count number of iteratable docs
+    status = fdb_iterator_sequence_init(db, &it, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    i=0;
+    do { ++i; }
+    while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(it);
+    TEST_CHK(i == n);
+
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("iterator compact uncommitted db");
+}
+
 void iterator_seek_test()
 {
     TEST_INIT();
@@ -2793,6 +2865,7 @@ int main(){
 
     iterator_test();
     iterator_with_concurrent_updates_test();
+    iterator_compact_uncommitted_db();
     iterator_seek_test();
     for (i=0;i<=6;++i){
         for (j=0;j<2;++j){
