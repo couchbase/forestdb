@@ -1449,8 +1449,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
-    if (prev_filename && !handle->shandle) {
-        if (strcmp(prev_filename, handle->file->filename)) {
+    if (prev_filename) {
+        if (!handle->shandle && strcmp(prev_filename, handle->file->filename)) {
             // record the old filename into the file handle of current file
             // and REMOVE old file on the first open
             // WARNING: snapshots must have been opened before this call
