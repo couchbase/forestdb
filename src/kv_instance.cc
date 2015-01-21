@@ -454,7 +454,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
     fdb_kvs_header_reset_all_stats(new_file);
     spin_lock(&handle->file->kv_header->lock);
     spin_lock(&new_file->kv_header->lock);
-    // copy all in-memory custom cmp function pointers
+    // copy all in-memory custom cmp function pointers & seqnums
     new_file->kv_header->default_kvs_cmp =
         handle->file->kv_header->default_kvs_cmp;
     new_file->kv_header->custom_cmp_enabled =
@@ -467,6 +467,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         assert(aa); // MUST exist
         node_new = _get_entry(aa, struct kvs_node, avl_id);
         node_new->custom_cmp = node_old->custom_cmp;
+        node_new->seqnum = node_old->seqnum;
         a = avl_next(a);
     }
     spin_unlock(&new_file->kv_header->lock);
