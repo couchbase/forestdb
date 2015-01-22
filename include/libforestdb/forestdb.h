@@ -447,6 +447,9 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator);
 
 /**
  * Get the item (key, metadata, doc body) from the iterator.
+ * Note that the parameter 'doc' should be set to NULL before passing it
+ * to this API if the API caller wants a fdb_doc instance to be created and
+ * returned by this API.
  *
  * @param iterator Pointer to the iterator.
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
@@ -457,6 +460,9 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc);
 
 /**
  * Get item metadata only(key, metadata, offset to doc body) from the iterator.
+ * Note that the parameter 'doc' should be set to NULL before passing it
+ * to this API if the API caller wants a fdb_doc instance to be created and
+ * returned by this API.
  *
  * @param iterator Pointer to the iterator.
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.

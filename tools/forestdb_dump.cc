@@ -419,7 +419,7 @@ int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
     uint64_t offset;
     fdb_iterator *fit;
     fdb_status fs;
-    fdb_doc *fdoc;
+    fdb_doc *fdoc = NULL;
 
     if (opt->one_key) {
         fdb_doc_create(&fdoc, opt->one_key,
@@ -432,6 +432,7 @@ int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
            return -1;
        }
        fdb_doc_free(fdoc);
+       fdoc = NULL;
     } else if (opt->scan_mode == SCAN_BY_KEY) {
         fs = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, 0x0);
         if (fs != FDB_RESULT_SUCCESS) {
@@ -442,6 +443,7 @@ int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
                 offset = fdoc->offset;
                 print_doc(db, kvs_name, offset, opt);
                 fdb_doc_free(fdoc);
+                fdoc = NULL;
             }
         } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
         fdb_iterator_close(fit);
@@ -455,6 +457,7 @@ int scan_docs(fdb_kvs_handle *db, struct dump_option *opt, char *kvs_name)
                 offset = fdoc->offset;
                 print_doc(db, kvs_name, offset, opt);
                 fdb_doc_free(fdoc);
+                fdoc = NULL;
             }
         } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
         fdb_iterator_close(fit);
