@@ -101,8 +101,6 @@ struct bcache_item {
     // contents address
     void *addr;
     struct fnamedic_item *fname;
-    // pointer of the list to which this item belongs
-    //struct list *list;
     // hash elem for lookup hash table
     struct hash_elem hash_elem;
     // list elem for {free, clean, dirty} lists
@@ -189,7 +187,7 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
     #endif
 }
 
-void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
+static void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
 {
     file_status_t fs;
 
@@ -203,7 +201,9 @@ void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
         }
     }
 
-    if (fname->curlist) list_remove(fname->curlist, &fname->le);
+    if (fname->curlist) {
+        list_remove(fname->curlist, &fname->le);
+    }
     if (list) {
         fs = filemgr_get_file_status(fname->curfile);
 
@@ -277,7 +277,7 @@ struct fnamedic_item *_bcache_get_victim()
     return NULL;
 }
 
-struct bcache_item *_bcache_alloc_freeblock()
+static struct bcache_item *_bcache_alloc_freeblock()
 {
     struct list_elem *e = NULL;
     struct bcache_item *item;
@@ -294,7 +294,7 @@ struct bcache_item *_bcache_alloc_freeblock()
     return NULL;
 }
 
-void _bcache_release_freeblock(struct bcache_item *item)
+static void _bcache_release_freeblock(struct bcache_item *item)
 {
     spin_lock(&freelist_lock);
     item->flag = BCACHE_FREE;
@@ -306,7 +306,7 @@ void _bcache_release_freeblock(struct bcache_item *item)
 
 // flush a bunch of dirty blocks (BCACHE_FLUSH_UNIT) & make then as clean
 //2 FNAME_LOCK is already acquired by caller (of the caller)
-fdb_status _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
+static fdb_status _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 {
     // get oldest dirty block
     void *buf = NULL;
@@ -434,7 +434,7 @@ fdb_status _bcache_evict_dirty(struct fnamedic_item *fname_item, int sync)
 }
 
 // perform eviction
-struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
+static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
 {
     size_t n_evict;
     struct list_elem *e = NULL;
@@ -541,7 +541,7 @@ struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
     return &item->list_elem;
 }
 
-struct fnamedic_item * _fname_create(struct filemgr *file) {
+static struct fnamedic_item * _fname_create(struct filemgr *file) {
     // TODO: we MUST NOT directly read file sturcture
 
     struct fnamedic_item *fname_new;
@@ -578,7 +578,7 @@ struct fnamedic_item * _fname_create(struct filemgr *file) {
     return fname_new;
 }
 
-void _fname_free(struct fnamedic_item *fname)
+static void _fname_free(struct fnamedic_item *fname)
 {
     // remove from corresponding list
     _bcache_move_fname_list(fname, NULL);
