@@ -16,7 +16,7 @@
 #endif
 
 #ifdef _HASH_TREE
-int _hash_cmp_wrap(struct avl_node *a, struct avl_node *b, void *aux)
+static int _hash_cmp_wrap(struct avl_node *a, struct avl_node *b, void *aux)
 {
     return ((struct hash *)aux)->cmp(
         _get_entry(a, struct hash_elem, avl),

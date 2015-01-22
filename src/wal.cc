@@ -559,7 +559,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
     return FDB_RESULT_SUCCESS;
 }
 
-int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+static int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct wal_item *aa, *bb;
     aa = _get_entry(a, struct wal_item, avl);
@@ -633,12 +633,12 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status _wal_flush(struct filemgr *file,
-                     void *dbhandle,
-                     wal_flush_func *flush_func,
-                     wal_get_old_offset_func *get_old_offset,
-                     struct avl_tree *flush_items,
-                     bool by_compactor)
+static fdb_status _wal_flush(struct filemgr *file,
+                             void *dbhandle,
+                             wal_flush_func *flush_func,
+                             wal_get_old_offset_func *get_old_offset,
+                             struct avl_tree *flush_items,
+                             bool by_compactor)
 {
     struct avl_tree *tree = flush_items;
     struct avl_node *a;
@@ -808,8 +808,8 @@ typedef enum wal_discard_type {
 } wal_discard_t;
 
 // discard all entries
-fdb_status _wal_close(struct filemgr *file,
-                      wal_discard_t type, void *aux)
+static fdb_status _wal_close(struct filemgr *file,
+                             wal_discard_t type, void *aux)
 {
     struct wal_item *item;
     struct wal_item_header *header;

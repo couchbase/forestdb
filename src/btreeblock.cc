@@ -572,7 +572,7 @@ void btreeblk_set_dirty(void *voidhandle, bid_t bid)
 #endif
 }
 
-void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)
+static void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)
 {
     struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;

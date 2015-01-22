@@ -176,7 +176,7 @@ INLINE struct avl_node* _rotate_RL(struct avl_node *parent, int parent_bf)
 
 #define _get_balance(node) ((node)?(avl_bf(node)):(0))
 
-struct avl_node* _balance_tree(struct avl_node *node, int bf)
+static struct avl_node* _balance_tree(struct avl_node *node, int bf)
 {
     int child_bf;
     int height_diff= _get_balance(node) + bf;

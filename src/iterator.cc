@@ -47,7 +47,7 @@
 #endif
 
 // lexicographically compares two variable-length binary streams
-int _fdb_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
+static int _fdb_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
     if (keylen1 == keylen2) {
         return memcmp(key1, key2, keylen1);
@@ -61,7 +61,7 @@ int _fdb_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
     }
 }
 
-int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+static int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct snap_wal_entry *aa, *bb;
     aa = _get_entry(a, struct snap_wal_entry, avl_seq);
@@ -69,7 +69,7 @@ int _fdb_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     return (aa->seqnum - bb->seqnum);
 }
 
-int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+static int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     _fdb_key_cmp_info *info = (_fdb_key_cmp_info*)aux;
     struct snap_wal_entry *aa, *bb;
@@ -111,8 +111,8 @@ int _fdb_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
-int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
-                 void *key2, size_t keylen2) {
+static int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
+                        void *key2, size_t keylen2) {
     int cmp;
     if (iterator->handle.kvs_config.custom_cmp) {
         // custom compare function for variable length key

@@ -2836,7 +2836,7 @@ fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
     return fdb_set(handle, &_doc);
 }
 
-uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
+static uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
 {
     uint64_t rv = 0;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -3311,13 +3311,13 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
-fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
-                                  struct filemgr *new_file,
-                                  struct hbtrie *new_trie,
-                                  struct btree *new_idtree,
-                                  struct btree *new_seqtree,
-                                  struct docio_handle *new_dhandle,
-                                  struct btreeblk_handle *new_bhandle)
+static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
+                                         struct filemgr *new_file,
+                                         struct hbtrie *new_trie,
+                                         struct btree *new_idtree,
+                                         struct btree *new_seqtree,
+                                         struct docio_handle *new_dhandle,
+                                         struct btreeblk_handle *new_bhandle)
 {
     uint8_t deleted;
     uint64_t offset;

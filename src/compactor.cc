@@ -504,8 +504,9 @@ void compactor_shutdown()
 #endif
 }
 
-fdb_status _compactor_store_metafile(char *metafile,
-                                     struct compactor_meta *metadata);
+static fdb_status _compactor_store_metafile(char *metafile,
+                                            struct compactor_meta *metadata);
+
 fdb_status compactor_register_file(struct filemgr *file, fdb_config *config)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -630,8 +631,8 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
     return metadata;
 }
 
-fdb_status _compactor_store_metafile(char *metafile,
-                                     struct compactor_meta *metadata)
+static fdb_status _compactor_store_metafile(char *metafile,
+                                            struct compactor_meta *metadata)
 {
     int fd_meta;
     ssize_t ret;
@@ -864,7 +865,7 @@ bool compactor_is_valid_mode(const char *filename, fdb_config *config)
     return true;
 }
 
-fdb_status _compactor_search_n_destroy(const char *filename)
+static fdb_status _compactor_search_n_destroy(const char *filename)
 {
     int i;
     int filename_len;

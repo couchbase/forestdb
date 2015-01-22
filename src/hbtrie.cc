@@ -102,9 +102,9 @@ int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey,
 }
 
 // this function only returns (raw) key length
-int _hbtrie_reform_key_reverse(struct hbtrie *trie,
-                               void *key,
-                               int keylen)
+static int _hbtrie_reform_key_reverse(struct hbtrie *trie,
+                                      void *key,
+                                      int keylen)
 {
     uint8_t rsize;
     rsize = *((uint8_t*)key + keylen - 1);
@@ -203,8 +203,8 @@ void hbtrie_set_map_function(struct hbtrie *trie,
 }
 
 // IMPORTANT: hbmeta doesn't have own allocated memory space (pointers only)
-void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize,
-                        struct hbtrie_meta *hbmeta, void *buf)
+static void _hbtrie_fetch_meta(struct hbtrie *trie, int metasize,
+                               struct hbtrie_meta *hbmeta, void *buf)
 {
     // read hbmeta from buf
     int offset = 0;
@@ -245,14 +245,14 @@ typedef enum {
  * [Value (optional)]:  x bytes
  * [Prefix (optional)]: y bytes
  */
-void _hbtrie_store_meta(struct hbtrie *trie,
-                        metasize_t *metasize_out,
-                        chunkno_t chunkno,
-                        hbmeta_opt opt,
-                        void *prefix,
-                        int prefixlen,
-                        void *value,
-                        void *buf)
+static void _hbtrie_store_meta(struct hbtrie *trie,
+                               metasize_t *metasize_out,
+                               chunkno_t chunkno,
+                               hbmeta_opt opt,
+                               void *prefix,
+                               int prefixlen,
+                               void *value,
+                               void *buf)
 {
     chunkno_t _chunkno;
 
@@ -424,12 +424,12 @@ hbtrie_result hbtrie_last(struct hbtrie_iterator *it)
 // recursive function
 #define HBTRIE_PREFIX_MATCH_ONLY (0x1)
 #define HBTRIE_PARTIAL_MATCH (0x2)
-hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
-                           struct btreeit_item *item,
-                           void *key_buf,
-                           size_t *keylen,
-                           void *value_buf,
-                           uint8_t flag)
+static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
+                                  struct btreeit_item *item,
+                                  void *key_buf,
+                                  size_t *keylen,
+                                  void *value_buf,
+                                  uint8_t flag)
 {
     struct hbtrie *trie = &it->trie;
     struct list_elem *e;
@@ -671,12 +671,12 @@ hbtrie_result hbtrie_prev(struct hbtrie_iterator *it,
 }
 
 // recursive function
-hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
-                           struct btreeit_item *item,
-                           void *key_buf,
-                           size_t *keylen,
-                           void *value_buf,
-                           uint8_t flag)
+static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
+                                  struct btreeit_item *item,
+                                  void *key_buf,
+                                  size_t *keylen,
+                                  void *value_buf,
+                                  uint8_t flag)
 {
     struct hbtrie *trie = &it->trie;
     struct list_elem *e;
@@ -913,7 +913,7 @@ hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
     return hr;
 }
 
-void _hbtrie_free_btreelist(struct list *btreelist)
+static void _hbtrie_free_btreelist(struct list *btreelist)
 {
     struct btreelist_item *btreeitem;
     struct list_elem *e;
@@ -927,10 +927,10 @@ void _hbtrie_free_btreelist(struct list *btreelist)
     }
 }
 
-void _hbtrie_btree_cascaded_update(struct hbtrie *trie,
-                                   struct list *btreelist,
-                                   void *key,
-                                   int free_opt)
+static void _hbtrie_btree_cascaded_update(struct hbtrie *trie,
+                                          struct list *btreelist,
+                                          void *key,
+                                          int free_opt)
 {
     bid_t bid_new, _bid;
     struct btreelist_item *btreeitem, *btreeitem_child;
@@ -976,8 +976,8 @@ void _hbtrie_btree_cascaded_update(struct hbtrie *trie,
     }
 }
 
-hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
-                           void *valuebuf, struct list *btreelist, uint8_t flag)
+static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
+                                  void *valuebuf, struct list *btreelist, uint8_t flag)
 {
     int nchunk;
     int rawkeylen;
@@ -1296,12 +1296,11 @@ struct _key_item {
     struct list_elem le;
 };
 
-void _hbtrie_extend_leaf_tree(
-    struct hbtrie *trie,
-    struct list *btreelist,
-    struct btreelist_item *btreeitem,
-    void *pre_str,
-    size_t pre_str_len)
+static void _hbtrie_extend_leaf_tree(struct hbtrie *trie,
+                                     struct list *btreelist,
+                                     struct btreelist_item *btreeitem,
+                                     void *pre_str,
+                                     size_t pre_str_len)
 {
     struct list keys;
     struct list_elem *e;

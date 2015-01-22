@@ -415,7 +415,7 @@ key: 5
 largest key equal or smaller than KEY: 4
 return: 1 (index# of the key '4')
 */
-idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
+static idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
 {
     idx_t start, end, middle, temp;
     uint8_t *k = alca(uint8_t, btree->ksize);
@@ -476,7 +476,7 @@ idx_t _btree_find_entry(struct btree *btree, struct bnode *node, void *key)
     return BTREE_IDX_NOT_FOUND;
 }
 
-idx_t _btree_add_entry(struct btree *btree, struct bnode *node, void *key, void *value)
+static idx_t _btree_add_entry(struct btree *btree, struct bnode *node, void *key, void *value)
 {
     idx_t idx, idx_insert;
     uint8_t *k = alca(uint8_t, btree->ksize);
@@ -526,7 +526,7 @@ idx_t _btree_add_entry(struct btree *btree, struct bnode *node, void *key, void 
     return idx_insert;
 }
 
-idx_t _btree_remove_entry(struct btree *btree, struct bnode *node, void *key)
+static idx_t _btree_remove_entry(struct btree *btree, struct bnode *node, void *key)
 {
     idx_t idx;
 
@@ -553,7 +553,8 @@ idx_t _btree_remove_entry(struct btree *btree, struct bnode *node, void *key)
     }
 }
 
-void _btree_print_node(struct btree *btree, int depth, bid_t bid, btree_print_func func)
+static void _btree_print_node(struct btree *btree, int depth,
+                              bid_t bid, btree_print_func func)
 {
     int i;
     uint8_t *k = alca(uint8_t, btree->ksize);
@@ -716,7 +717,7 @@ btree_result btree_find(struct btree *btree, void *key, void *value_buf)
     return BTREE_RESULT_SUCCESS;
 }
 
-int _btree_split_node(
+static int _btree_split_node(
     struct btree *btree, void *key, struct bnode **node, bid_t *bid, idx_t *idx, int i,
     struct list *kv_ins_list, size_t nsplitnode, void *k, void *v,
     int8_t *modified, int8_t *minkey_replace, int8_t *ins)
@@ -868,7 +869,7 @@ int _btree_split_node(
     return 0;
 }
 
-int _btree_move_modified_node(
+static int _btree_move_modified_node(
     struct btree *btree, void *key, struct bnode **node, bid_t *bid,
     idx_t *idx, int i,
     struct list *kv_ins_list, void *k, void *v,
@@ -1333,8 +1334,8 @@ btree_result btree_iterator_free(struct btree_iterator *it)
     return BTREE_RESULT_SUCCESS;
 }
 
-btree_result _btree_prev(struct btree_iterator *it, void *key_buf,
-                         void *value_buf, int depth)
+static btree_result _btree_prev(struct btree_iterator *it, void *key_buf,
+                                void *value_buf, int depth)
 {
     struct btree *btree;
     btree = &it->btree;
@@ -1482,8 +1483,8 @@ btree_result btree_prev(struct btree_iterator *it, void *key_buf,
     return br;
 }
 
-btree_result _btree_next(struct btree_iterator *it, void *key_buf,
-                         void *value_buf, int depth)
+static btree_result _btree_next(struct btree_iterator *it, void *key_buf,
+                                void *value_buf, int depth)
 {
     struct btree *btree;
     btree = &it->btree;

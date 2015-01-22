@@ -39,7 +39,7 @@
 #endif
 
 // lexicographically compares two variable-length binary streams
-int _snp_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
+static int _snp_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
     if (keylen1 == keylen2) {
         return memcmp(key1, key2, keylen1);
@@ -53,7 +53,7 @@ int _snp_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
     }
 }
 
-int _snp_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+static int _snp_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct snap_wal_entry *aa, *bb;
     aa = _get_entry(a, struct snap_wal_entry, avl_seq);
@@ -61,7 +61,7 @@ int _snp_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     return (aa->seqnum - bb->seqnum);
 }
 
-int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+static int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct _fdb_key_cmp_info *info = (struct _fdb_key_cmp_info*)aux;
     struct snap_wal_entry *aa, *bb;

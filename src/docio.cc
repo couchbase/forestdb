@@ -442,10 +442,10 @@ INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
     return status;
 }
 
-uint64_t _docio_read_length(struct docio_handle *handle,
-                            uint64_t offset,
-                            struct docio_length *length,
-                            err_log_callback *log_callback)
+static uint64_t _docio_read_length(struct docio_handle *handle,
+                                   uint64_t offset,
+                                   struct docio_length *length,
+                                   err_log_callback *log_callback)
 {
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
@@ -483,11 +483,11 @@ uint64_t _docio_read_length(struct docio_handle *handle,
     return bid * real_blocksize + pos;
 }
 
-uint64_t _docio_read_doc_component(struct docio_handle *handle,
-                                   uint64_t offset,
-                                   uint32_t len,
-                                   void *buf_out,
-                                   err_log_callback *log_callback)
+static uint64_t _docio_read_doc_component(struct docio_handle *handle,
+                                          uint64_t offset,
+                                          uint32_t len,
+                                          void *buf_out,
+                                          err_log_callback *log_callback)
 {
     uint32_t rest_len;
     size_t blocksize = handle->file->blocksize;
@@ -535,13 +535,13 @@ uint64_t _docio_read_doc_component(struct docio_handle *handle,
 
 #ifdef _DOC_COMP
 
-uint64_t _docio_read_doc_component_comp(struct docio_handle *handle,
-                                        uint64_t offset,
-                                        uint32_t len,
-                                        uint32_t comp_len,
-                                        void *buf_out,
-                                        void *comp_data_out,
-                                        err_log_callback *log_callback)
+static uint64_t _docio_read_doc_component_comp(struct docio_handle *handle,
+                                               uint64_t offset,
+                                               uint32_t len,
+                                               uint32_t comp_len,
+                                               void *buf_out,
+                                               void *comp_data_out,
+                                               err_log_callback *log_callback)
 {
     int ret;
     size_t uncomp_size;

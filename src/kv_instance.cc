@@ -475,8 +475,8 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
 }
 
 // export KV header info to raw data
-void _fdb_kvs_header_export(struct kvs_header *kv_header,
-                               void **data, size_t *len)
+static void _fdb_kvs_header_export(struct kvs_header *kv_header,
+                                   void **data, size_t *len)
 {
     /* << raw data structure >>
      * [# KV instances]:        8 bytes
@@ -840,9 +840,9 @@ void fdb_kvs_header_free(struct filemgr *file)
     file->kv_header = NULL;
 }
 
-fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
-                           const char *kvs_name,
-                           fdb_kvs_config *kvs_config)
+static fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
+                                  const char *kvs_name,
+                                  fdb_kvs_config *kvs_config)
 {
     int kv_ins_name_len;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -1173,7 +1173,7 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
     return fdb_kvs_open(fhandle, ptr_handle, NULL, config);
 }
 
-fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
+static fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
 {
     fdb_kvs_handle *root_handle = handle->kvs->root;
     fdb_status fs;
