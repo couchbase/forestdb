@@ -327,11 +327,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                     // if mode is NORMAL, restore all items
                                     // if mode is KV_INS, restore items matching ID
                                     wal_insert(&file->global_txn, file,
-                                               &wal_doc, doc_offset);
+                                               &wal_doc, doc_offset, 0);
                                 }
                             } else {
                                 wal_insert(&file->global_txn, file,
-                                           &wal_doc, doc_offset);
+                                           &wal_doc, doc_offset, 0);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -2733,9 +2733,9 @@ fdb_set_start:
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
-        wal_insert(txn, file, &kv_ins_doc, offset);
+        wal_insert(txn, file, &kv_ins_doc, offset, 0);
     } else {
-        wal_insert(txn, file, doc, offset);
+        wal_insert(txn, file, doc, offset, 0);
     }
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -3418,8 +3418,8 @@ fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j-i].length);
                         wal_doc.deleted = deleted;
 
-                        wal_insert_by_compactor(&new_file->global_txn,
-                                                new_file, &wal_doc, new_offset);
+                        wal_insert(&new_file->global_txn,
+                                   new_file, &wal_doc, new_offset, 1);
                         n_moved_docs++;
 
                     }
