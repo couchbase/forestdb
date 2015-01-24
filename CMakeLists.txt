@@ -5,10 +5,23 @@ IF (${CMAKE_MAJOR_VERSION} GREATER 2)
     CMAKE_POLICY(SET CMP0042 NEW)
 ENDIF (${CMAKE_MAJOR_VERSION} GREATER 2)
 
+INCLUDE(CheckFunctionExists)
+INCLUDE(CheckIncludeFileCXX)
+INCLUDE(CheckIncludeFiles)
+INCLUDE(CheckLibraryExists)
+INCLUDE(CheckSymbolExists)
+INCLUDE(CheckTypeSize)
+
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/option)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/utils)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/src)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
+include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/src)
+
+CHECK_INCLUDE_FILES("atomic.h" HAVE_ATOMIC_H)
+
+CONFIGURE_FILE (${CMAKE_CURRENT_SOURCE_DIR}/src/config.cmake.h
+                ${CMAKE_CURRENT_BINARY_DIR}/src/config.h)
 
 if (COUCHBASE_SERVER_BUILD)
     ADD_DEFINITIONS(-D_DOC_COMP=1)
@@ -63,6 +76,7 @@ endif()
 
 add_library(forestdb SHARED
             src/api_wrapper.cc
+            src/atomic.cc
             src/avltree.cc
             src/blockcache.cc
             src/btree.cc
@@ -99,6 +113,7 @@ target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 add_executable(forestdb_dump
                tools/forestdb_dump.cc
                src/api_wrapper.cc
+               src/atomic.cc
                src/avltree.cc
                src/blockcache.cc
                src/btree.cc
