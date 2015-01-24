@@ -325,7 +325,7 @@ struct _fdb_iterator {
     /**
      * ForestDB KV store handle.
      */
-    fdb_kvs_handle handle;
+    fdb_kvs_handle *handle;
     /**
      * HB+Trie iterator instance.
      */

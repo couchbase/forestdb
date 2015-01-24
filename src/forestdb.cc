@@ -880,6 +880,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
         // sub-handle in multi KV instance mode
         fs = _fdb_kvs_open(handle_in->kvs->root,
                               &config, &kvs_config, file,
+                              file->filename,
                               _fdb_kvs_get_name(handle_in,
                                                    file),
                               handle);
@@ -1089,6 +1090,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     uint64_t nlivenodes = 0;
     bid_t hdr_bid = 0; // initialize to zero for in-memory snapshot
     char actual_filename[FDB_MAX_FILENAME_LEN];
+    char virtual_filename[FDB_MAX_FILENAME_LEN];
+    char *target_filename = NULL;
     fdb_status status;
 
     if (filename == NULL) {
@@ -1114,12 +1117,27 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         strcpy(actual_filename, filename);
     }
 
-    if (handle->filename) {
-        handle->filename = (char *)realloc(handle->filename, strlen(filename)+1);
+    if ( config->compaction_mode == FDB_COMPACTION_MANUAL ||
+         (config->compaction_mode == FDB_COMPACTION_AUTO   &&
+          filename_mode == FDB_VFILENAME) ) {
+        // 1) manual compaction mode, OR
+        // 2) auto compaction mode + 'filename' is virtual filename
+        // -> copy 'filename'
+        target_filename = (char *)filename;
     } else {
-        handle->filename = (char*)malloc(strlen(filename)+1);
+        // otherwise (auto compaction mode + 'filename' is actual filename)
+        // -> copy 'virtual_filename'
+        compactor_get_virtual_filename(filename, virtual_filename);
+        target_filename = virtual_filename;
     }
-    strcpy(handle->filename, filename);
+
+    if (handle->filename) {
+        handle->filename = (char *)realloc(handle->filename,
+                                           strlen(target_filename)+1);
+    } else {
+        handle->filename = (char*)malloc(strlen(target_filename)+1);
+    }
+    strcpy(handle->filename, target_filename);
 
     handle->fileops = get_filemgr_ops();
     filemgr_open_result result = filemgr_open((char *)actual_filename,

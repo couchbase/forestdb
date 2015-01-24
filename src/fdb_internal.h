@@ -145,10 +145,12 @@ fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
 void fdb_kvs_header_free(struct filemgr *file);
 
 char* _fdb_kvs_get_name(fdb_kvs_handle *kv_ins, struct filemgr *file);
+
 fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
                          struct filemgr *file,
+                         const char *filename,
                          const char *kvs_name,
                          fdb_kvs_handle *handle);
 fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle);
