@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-21 07:52:10</td>
+            <td class="headerValue">2015-01-26 10:31:18</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">9</td>
@@ -110,7 +110,7 @@
 <span class="lineNum">      39 </span>                :            : #endif
 <a name="40"><span class="lineNum">      40 </span>                :            : </a>
 <span class="lineNum">      41 </span>                :            : // lexicographically compares two variable-length binary streams
-<span class="lineNum">      42 </span>                :<span class="lineCov">       5578 : int _snp_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)</span>
+<span class="lineNum">      42 </span>                :<span class="lineCov">       5578 : static int _snp_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)</span>
 <span class="lineNum">      43 </span>                :            : {
 <span class="lineNum">      44 </span>        [<span class="branchCov" title="Branch 0 was taken 5576 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">       5578 :     if (keylen1 == keylen2) {</span>
 <span class="lineNum">      45 </span>                :<span class="lineCov">       5576 :         return memcmp(key1, key2, keylen1);</span>
@@ -124,7 +124,7 @@
 <span class="lineNum">      53 </span>                :            :     }
 <a name="54"><span class="lineNum">      54 </span>                :            : }</a>
 <span class="lineNum">      55 </span>                :            : 
-<span class="lineNum">      56 </span>                :<span class="lineCov">       4095 : int _snp_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)</span>
+<span class="lineNum">      56 </span>                :<span class="lineCov">       4095 : static int _snp_seqnum_cmp(struct avl_node *a, struct avl_node *b, void *aux)</span>
 <span class="lineNum">      57 </span>                :            : {
 <span class="lineNum">      58 </span>                :            :     struct snap_wal_entry *aa, *bb;
 <span class="lineNum">      59 </span>                :<span class="lineCov">       4095 :     aa = _get_entry(a, struct snap_wal_entry, avl_seq);</span>
@@ -132,7 +132,7 @@
 <span class="lineNum">      61 </span>                :<span class="lineCov">       4095 :     return (aa-&gt;seqnum - bb-&gt;seqnum);</span>
 <a name="62"><span class="lineNum">      62 </span>                :            : }</a>
 <span class="lineNum">      63 </span>                :            : 
-<span class="lineNum">      64 </span>                :<span class="lineCov">      11053 : int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)</span>
+<span class="lineNum">      64 </span>                :<span class="lineCov">      11053 : static int _snp_wal_cmp(struct avl_node *a, struct avl_node *b, void *aux)</span>
 <span class="lineNum">      65 </span>                :            : {
 <span class="lineNum">      66 </span>                :<span class="lineCov">      11053 :     struct _fdb_key_cmp_info *info = (struct _fdb_key_cmp_info*)aux;</span>
 <span class="lineNum">      67 </span>                :            :     struct snap_wal_entry *aa, *bb;
@@ -245,23 +245,23 @@
 <span class="lineNum">     174 </span>                :<span class="lineCov">        627 :     return FDB_RESULT_SUCCESS;</span>
 <a name="175"><span class="lineNum">     175 </span>                :            : }</a>
 <span class="lineNum">     176 </span>                :            : 
-<span class="lineNum">     177 </span>                :<span class="lineCov">     361001 : fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,</span>
+<span class="lineNum">     177 </span>                :<span class="lineCov">     360907 : fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,</span>
 <span class="lineNum">     178 </span>                :            :                       uint64_t *offset)
 <span class="lineNum">     179 </span>                :            : {
 <span class="lineNum">     180 </span>                :            :     struct snap_wal_entry query;
 <span class="lineNum">     181 </span>                :            :     struct avl_node *node;
-<span class="lineNum">     182 </span>                :<span class="lineCov">     361001 :     memset(&amp;query, 0, sizeof(snap_wal_entry));</span>
-<span class="lineNum">     183 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 361000 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1 time"> + </span>]:<span class="lineCov">     361001 :     if (doc-&gt;seqnum == SEQNUM_NOT_USED || (doc-&gt;key &amp;&amp; doc-&gt;keylen &gt; 0)) {</span>
+<span class="lineNum">     182 </span>                :<span class="lineCov">     360907 :     memset(&amp;query, 0, sizeof(snap_wal_entry));</span>
+<span class="lineNum">     183 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 360906 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1 time"> + </span>]:<span class="lineCov">     360907 :     if (doc-&gt;seqnum == SEQNUM_NOT_USED || (doc-&gt;key &amp;&amp; doc-&gt;keylen &gt; 0)) {</span>
 <span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
-<span class="lineNum">     184 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 361000 times"> + </span>]:<span class="lineCov">     361000 :         if (!shandle-&gt;key_tree) {</span>
+<span class="lineNum">     184 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 360906 times"> + </span>]:<span class="lineCov">     360906 :         if (!shandle-&gt;key_tree) {</span>
 <span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :             return FDB_RESULT_KEY_NOT_FOUND;</span>
 <span class="lineNum">     186 </span>                :            :         }
 <span class="lineNum">     187 </span>                :            :         // search by key
-<span class="lineNum">     188 </span>                :<span class="lineCov">     361000 :         query.key = doc-&gt;key;</span>
-<span class="lineNum">     189 </span>                :<span class="lineCov">     361000 :         query.keylen = doc-&gt;keylen;</span>
-<span class="lineNum">     190 </span>                :<span class="lineCov">     361000 :         node = avl_search(shandle-&gt;key_tree, &amp;query.avl, _snp_wal_cmp);</span>
-<span class="lineNum">     191 </span>        [<span class="branchCov" title="Branch 0 was taken 360352 times"> + </span><span class="branchCov" title="Branch 1 was taken 601 times"> + </span>]:<span class="lineCov">     360953 :         if (!node) {</span>
-<span class="lineNum">     192 </span>                :<span class="lineCov">     360352 :             return FDB_RESULT_KEY_NOT_FOUND;</span>
+<span class="lineNum">     188 </span>                :<span class="lineCov">     360906 :         query.key = doc-&gt;key;</span>
+<span class="lineNum">     189 </span>                :<span class="lineCov">     360906 :         query.keylen = doc-&gt;keylen;</span>
+<span class="lineNum">     190 </span>                :<span class="lineCov">     360906 :         node = avl_search(shandle-&gt;key_tree, &amp;query.avl, _snp_wal_cmp);</span>
+<span class="lineNum">     191 </span>        [<span class="branchCov" title="Branch 0 was taken 360126 times"> + </span><span class="branchCov" title="Branch 1 was taken 601 times"> + </span>]:<span class="lineCov">     360727 :         if (!node) {</span>
+<span class="lineNum">     192 </span>                :<span class="lineCov">     360126 :             return FDB_RESULT_KEY_NOT_FOUND;</span>
 <span class="lineNum">     193 </span>                :            :         } else {
 <span class="lineNum">     194 </span>                :            :             struct snap_wal_entry *item;
 <span class="lineNum">     195 </span>                :<span class="lineCov">        601 :             item = _get_entry(node, struct snap_wal_entry, avl);</span>
@@ -291,7 +291,7 @@
 <span class="lineNum">     219 </span>                :            :             } else {
 <span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :                 doc-&gt;deleted = true;</span>
 <span class="lineNum">     221 </span>                :            :             }
-<span class="lineNum">     222 </span>                :<span class="lineCov">     360954 :             return FDB_RESULT_SUCCESS;</span>
+<span class="lineNum">     222 </span>                :<span class="lineCov">     360728 :             return FDB_RESULT_SUCCESS;</span>
 <span class="lineNum">     223 </span>                :            :         }
 <span class="lineNum">     224 </span>                :            :     }
 <span class="lineNum">     225 </span>                :            :     return FDB_RESULT_KEY_NOT_FOUND;

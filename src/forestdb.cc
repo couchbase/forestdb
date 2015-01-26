@@ -327,11 +327,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                     // if mode is NORMAL, restore all items
                                     // if mode is KV_INS, restore items matching ID
                                     wal_insert(&file->global_txn, file,
-                                               &wal_doc, doc_offset);
+                                               &wal_doc, doc_offset, 0);
                                 }
                             } else {
                                 wal_insert(&file->global_txn, file,
-                                           &wal_doc, doc_offset);
+                                           &wal_doc, doc_offset, 0);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -1449,8 +1449,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
-    if (prev_filename && !handle->shandle) {
-        if (strcmp(prev_filename, handle->file->filename)) {
+    if (prev_filename) {
+        if (!handle->shandle && strcmp(prev_filename, handle->file->filename)) {
             // record the old filename into the file handle of current file
             // and REMOVE old file on the first open
             // WARNING: snapshots must have been opened before this call
@@ -2733,9 +2733,9 @@ fdb_set_start:
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
-        wal_insert(txn, file, &kv_ins_doc, offset);
+        wal_insert(txn, file, &kv_ins_doc, offset, 0);
     } else {
-        wal_insert(txn, file, doc, offset);
+        wal_insert(txn, file, doc, offset, 0);
     }
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -2836,7 +2836,7 @@ fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
     return fdb_set(handle, &_doc);
 }
 
-uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
+static uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
 {
     uint64_t rv = 0;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -3311,13 +3311,13 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
-fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
-                                  struct filemgr *new_file,
-                                  struct hbtrie *new_trie,
-                                  struct btree *new_idtree,
-                                  struct btree *new_seqtree,
-                                  struct docio_handle *new_dhandle,
-                                  struct btreeblk_handle *new_bhandle)
+static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
+                                         struct filemgr *new_file,
+                                         struct hbtrie *new_trie,
+                                         struct btree *new_idtree,
+                                         struct btree *new_seqtree,
+                                         struct docio_handle *new_dhandle,
+                                         struct btreeblk_handle *new_bhandle)
 {
     uint8_t deleted;
     uint64_t offset;
@@ -3418,8 +3418,8 @@ fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j-i].length);
                         wal_doc.deleted = deleted;
 
-                        wal_insert_by_compactor(&new_file->global_txn,
-                                                new_file, &wal_doc, new_offset);
+                        wal_insert(&new_file->global_txn,
+                                   new_file, &wal_doc, new_offset, 1);
                         n_moved_docs++;
 
                     }

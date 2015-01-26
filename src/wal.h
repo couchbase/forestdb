@@ -106,11 +106,11 @@ struct wal_txn_wrapper {
 
 fdb_status wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
-fdb_status wal_insert(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t offset);
-fdb_status wal_insert_by_compactor(fdb_txn *txn,
-                                   struct filemgr *file,
-                                   fdb_doc *doc,
-                                   uint64_t offset);
+fdb_status wal_insert(fdb_txn *txn,
+                      struct filemgr *file,
+                      fdb_doc *doc,
+                      uint64_t offset,
+                      int is_compactor);
 fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset);
 fdb_status wal_find_kv_id(fdb_txn *txn,
                           struct filemgr *file,

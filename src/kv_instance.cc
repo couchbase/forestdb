@@ -454,7 +454,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
     fdb_kvs_header_reset_all_stats(new_file);
     spin_lock(&handle->file->kv_header->lock);
     spin_lock(&new_file->kv_header->lock);
-    // copy all in-memory custom cmp function pointers
+    // copy all in-memory custom cmp function pointers & seqnums
     new_file->kv_header->default_kvs_cmp =
         handle->file->kv_header->default_kvs_cmp;
     new_file->kv_header->custom_cmp_enabled =
@@ -467,6 +467,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         assert(aa); // MUST exist
         node_new = _get_entry(aa, struct kvs_node, avl_id);
         node_new->custom_cmp = node_old->custom_cmp;
+        node_new->seqnum = node_old->seqnum;
         a = avl_next(a);
     }
     spin_unlock(&new_file->kv_header->lock);
@@ -474,8 +475,8 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
 }
 
 // export KV header info to raw data
-void _fdb_kvs_header_export(struct kvs_header *kv_header,
-                               void **data, size_t *len)
+static void _fdb_kvs_header_export(struct kvs_header *kv_header,
+                                   void **data, size_t *len)
 {
     /* << raw data structure >>
      * [# KV instances]:        8 bytes
@@ -839,9 +840,9 @@ void fdb_kvs_header_free(struct filemgr *file)
     file->kv_header = NULL;
 }
 
-fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
-                           const char *kvs_name,
-                           fdb_kvs_config *kvs_config)
+static fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
+                                  const char *kvs_name,
+                                  fdb_kvs_config *kvs_config)
 {
     int kv_ins_name_len;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -1172,7 +1173,7 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
     return fdb_kvs_open(fhandle, ptr_handle, NULL, config);
 }
 
-fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
+static fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
 {
     fdb_kvs_handle *root_handle = handle->kvs->root;
     fdb_status fs;

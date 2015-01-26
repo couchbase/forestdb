@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-21 07:52:10</td>
+            <td class="headerValue">2015-01-26 10:31:18</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">20</td>
@@ -647,35 +647,35 @@
 <span class="lineNum">     575 </span>                :            :     }
 <a name="576"><span class="lineNum">     576 </span>                :            : }</a>
 <span class="lineNum">     577 </span>                :            : 
-<span class="lineNum">     578 </span>                :<span class="lineCov">       1557 : struct btree_kv_ops * btree_fast_str_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops)</span>
+<span class="lineNum">     578 </span>                :<span class="lineCov">       1565 : struct btree_kv_ops * btree_fast_str_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops)</span>
 <span class="lineNum">     579 </span>                :            : {
 <span class="lineNum">     580 </span>                :            :     struct btree_kv_ops *btree_kv_ops;
-<span class="lineNum">     581 </span>        [<span class="branchCov" title="Branch 0 was taken 1557 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1557 :     if (kv_ops) {</span>
-<span class="lineNum">     582 </span>                :<span class="lineCov">       1557 :         btree_kv_ops = kv_ops;</span>
+<span class="lineNum">     581 </span>        [<span class="branchCov" title="Branch 0 was taken 1565 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1565 :     if (kv_ops) {</span>
+<span class="lineNum">     582 </span>                :<span class="lineCov">       1565 :         btree_kv_ops = kv_ops;</span>
 <span class="lineNum">     583 </span>                :            :     }else{
 <span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :         btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));</span>
 <span class="lineNum">     585 </span>                :            :     }
 <span class="lineNum">     586 </span>                :            : 
-<span class="lineNum">     587 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;get_kv = _get_fast_str_kv;</span>
-<span class="lineNum">     588 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;set_kv = _set_fast_str_kv;</span>
-<span class="lineNum">     589 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;ins_kv = _ins_fast_str_kv;</span>
-<span class="lineNum">     590 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;copy_kv = _copy_fast_str_kv;</span>
-<span class="lineNum">     591 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;set_key = _set_fast_str_key;</span>
-<span class="lineNum">     592 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;set_value = _set_fast_str_value;</span>
-<span class="lineNum">     593 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;get_data_size = _get_fast_str_data_size;</span>
-<span class="lineNum">     594 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;get_kv_size = _get_fast_str_kv_size;</span>
-<span class="lineNum">     595 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;init_kv_var = _init_fast_str_kv_var;</span>
-<span class="lineNum">     596 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;free_kv_var = _free_fast_str_kv_var;</span>
+<span class="lineNum">     587 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;get_kv = _get_fast_str_kv;</span>
+<span class="lineNum">     588 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;set_kv = _set_fast_str_kv;</span>
+<span class="lineNum">     589 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;ins_kv = _ins_fast_str_kv;</span>
+<span class="lineNum">     590 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;copy_kv = _copy_fast_str_kv;</span>
+<span class="lineNum">     591 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;set_key = _set_fast_str_key;</span>
+<span class="lineNum">     592 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;set_value = _set_fast_str_value;</span>
+<span class="lineNum">     593 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;get_data_size = _get_fast_str_data_size;</span>
+<span class="lineNum">     594 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;get_kv_size = _get_fast_str_kv_size;</span>
+<span class="lineNum">     595 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;init_kv_var = _init_fast_str_kv_var;</span>
+<span class="lineNum">     596 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;free_kv_var = _free_fast_str_kv_var;</span>
 <span class="lineNum">     597 </span>                :            : 
-<span class="lineNum">     598 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;get_nth_idx = _get_fast_str_nth_idx;</span>
-<span class="lineNum">     599 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;get_nth_splitter = _get_fast_str_nth_splitter;</span>
+<span class="lineNum">     598 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;get_nth_idx = _get_fast_str_nth_idx;</span>
+<span class="lineNum">     599 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;get_nth_splitter = _get_fast_str_nth_splitter;</span>
 <span class="lineNum">     600 </span>                :            : 
-<span class="lineNum">     601 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;cmp = _cmp_fast_str64;</span>
+<span class="lineNum">     601 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;cmp = _cmp_fast_str64;</span>
 <span class="lineNum">     602 </span>                :            : 
-<span class="lineNum">     603 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;bid2value = _fast_str_bid_to_value_64;</span>
-<span class="lineNum">     604 </span>                :<span class="lineCov">       1557 :     btree_kv_ops-&gt;value2bid = _fast_str_value_to_bid_64;</span>
+<span class="lineNum">     603 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;bid2value = _fast_str_bid_to_value_64;</span>
+<span class="lineNum">     604 </span>                :<span class="lineCov">       1565 :     btree_kv_ops-&gt;value2bid = _fast_str_value_to_bid_64;</span>
 <span class="lineNum">     605 </span>                :            : 
-<span class="lineNum">     606 </span>                :<span class="lineCov">       1557 :     return btree_kv_ops;</span>
+<span class="lineNum">     606 </span>                :<span class="lineCov">       1565 :     return btree_kv_ops;</span>
 <span class="lineNum">     607 </span>                :            : }
 </pre>
       </td>

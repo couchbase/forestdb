@@ -161,14 +161,14 @@ static void _log_errno_str(struct filemgr_ops *ops,
     }
 }
 
-uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
+static uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
     struct filemgr *file = _get_entry(e, struct filemgr, e);
     int len = strlen(file->filename);
     return chksum(file->filename, len) & ((unsigned)(NBUCKET-1));
 }
 
-int _file_cmp(struct hash_elem *a, struct hash_elem *b)
+static int _file_cmp(struct hash_elem *a, struct hash_elem *b)
 {
     struct filemgr *aa, *bb;
     aa = _get_entry(a, struct filemgr, e);
@@ -218,7 +218,7 @@ void filemgr_init(struct filemgr_config *config)
     }
 }
 
-void * _filemgr_get_temp_buf()
+static void * _filemgr_get_temp_buf()
 {
     struct list_elem *e;
     struct temp_buf_item *item;
@@ -240,7 +240,7 @@ void * _filemgr_get_temp_buf()
     return item->addr;
 }
 
-void _filemgr_release_temp_buf(void *buf)
+static void _filemgr_release_temp_buf(void *buf)
 {
     struct temp_buf_item *item;
 
@@ -250,7 +250,7 @@ void _filemgr_release_temp_buf(void *buf)
     spin_unlock(&temp_buf_lock);
 }
 
-void _filemgr_shutdown_temp_buf()
+static void _filemgr_shutdown_temp_buf()
 {
     struct list_elem *e;
     struct temp_buf_item *item;
@@ -267,7 +267,7 @@ void _filemgr_shutdown_temp_buf()
     spin_unlock(&temp_buf_lock);
 }
 
-fdb_status _filemgr_read_header(struct filemgr *file)
+static fdb_status _filemgr_read_header(struct filemgr *file)
 {
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
@@ -391,7 +391,7 @@ struct filemgr_prefetch_args {
     void *aux;
 };
 
-void *_filemgr_prefetch_thread(void *voidargs)
+static void *_filemgr_prefetch_thread(void *voidargs)
 {
     struct filemgr_prefetch_args *args = (struct filemgr_prefetch_args*)voidargs;
     uint8_t *buf = alca(uint8_t, args->file->blocksize);
