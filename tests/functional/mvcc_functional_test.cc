@@ -2066,7 +2066,94 @@ void rollback_prior_to_ops(bool walflush)
     TEST_RESULT(bodybuf);
 }
 
+void auto_compaction_snapshots_test()
+{
+    TEST_INIT();
 
+    memleak_start();
+
+    fdb_file_handle *file;
+    fdb_kvs_handle *kvs, *snapshot;
+    fdb_status status;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_seqnum_t seqnum;
+    fdb_kvs_info info;
+    fdb_doc *rdoc;
+
+    int i;
+
+    system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // Open Database File
+    config = fdb_get_default_config();
+    config.compaction_mode=FDB_COMPACTION_AUTO;
+    config.compactor_sleep_duration=1;
+    status = fdb_open(&file, "dummy1", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Open KV Store
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Several kv pairs
+    for(i=0;i<100000;i++) {
+        char str[15];
+        sprintf(str, "%d", i);
+        status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Every 10 Commit
+        if (i % 10 == 0) {
+            status = fdb_commit(file, FDB_COMMIT_NORMAL);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+
+        // Every 100 iterations Get Seq/Snapshot
+        if (i % 100 == 0) {
+            status = fdb_get_kvs_info(kvs, &info);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            seqnum = info.last_seqnum;
+            // Open durable snapshot in the midst of compaction..
+            status = fdb_snapshot_open(kvs, &snapshot, seqnum);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            // verify last doc set is captured in snapshot..
+            fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+            rdoc->seqnum = seqnum;
+            status = fdb_get_byseq(kvs, rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CMP(rdoc->key, str, strlen(str));
+            // free result document
+            fdb_doc_free(rdoc);
+            status = fdb_kvs_close(snapshot);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+            // Open in-memory snapshot and verify content
+            status = fdb_snapshot_open(kvs, &snapshot, FDB_SNAPSHOT_INMEM);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            // verify last doc set is captured in snapshot..
+            fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+            rdoc->seqnum = seqnum;
+            status = fdb_get_byseq(kvs, rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CMP(rdoc->key, str, strlen(str));
+            // free result document
+            fdb_doc_free(rdoc);
+            status = fdb_kvs_close(snapshot);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    status = fdb_close(file);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+
+    TEST_RESULT("auto compaction with snapshots test");
+}
 
 int main(){
 
@@ -2086,6 +2173,7 @@ int main(){
     transaction_simple_api_test();
     rollback_prior_to_ops(true); // wal commit
     rollback_prior_to_ops(false); // normal commit
+    auto_compaction_snapshots_test(); // test snapshots with auto-compaction
 
     return 0;
 }

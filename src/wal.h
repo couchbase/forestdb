@@ -139,6 +139,7 @@ fdb_status wal_flush_by_compactor(struct filemgr *file,
                                   struct avl_tree *flush_items);
 fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
+                        fdb_seqnum_t *upto_seq,
                         wal_snapshot_func *snapshot_func);
 fdb_status wal_discard(struct filemgr *file, fdb_txn *txn);
 fdb_status wal_close(struct filemgr *file);

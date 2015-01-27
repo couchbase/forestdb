@@ -721,11 +721,15 @@ fdb_status wal_flush_by_compactor(struct filemgr *file,
 // Used to copy all the WAL items for non-durable snapshots
 fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
+                        fdb_seqnum_t *upto_seq,
                         wal_snapshot_func *snapshot_func)
 {
     struct list_elem *e, *ee;
     struct wal_item *item;
     struct wal_item_header *header;
+    fdb_seqnum_t copy_upto = *upto_seq;
+    fdb_seqnum_t copied_seq = 0;
+    fdb_doc doc;
 
     spin_lock(&file->wal->lock);
     e = list_begin(&file->wal->list);
@@ -734,13 +738,28 @@ fdb_status wal_snapshot(struct filemgr *file,
         ee = list_begin(&header->items);
         while(ee) {
             item = _get_entry(ee, struct wal_item, list_elem);
-            if (!(item->flag & WAL_ITEM_COMMITTED) && // Skip uncommitted items
-                item->txn != &file->global_txn && // that aren't part of global
-                item->txn != txn) { // nor current transaction
-                ee = list_next(ee);
-                continue;
+            if (item->flag & WAL_ITEM_BY_COMPACTOR) { // Always skip
+                ee = list_next(ee); // items moved by compactor to prevent
+                continue; // duplication of items in WAL & Main-index
             }
-            fdb_doc doc;
+            if (copy_upto != FDB_SNAPSHOT_INMEM) {
+                // Take stable snapshot in new_file: Skip all items that are...
+                if (copy_upto < item->seqnum || // higher than requested seqnum
+                   !(item->flag & WAL_ITEM_COMMITTED)) { // or uncommitted
+                    ee = list_next(ee);
+                    continue;
+                }
+            } else { // An in-memory snapshot in current file..
+                // Skip any uncommitted item, if not part of either global or
+                // the current transaction
+                if (!(item->flag & WAL_ITEM_COMMITTED) &&
+                      item->txn != &file->global_txn &&
+                      item->txn != txn) {
+                    ee = list_next(ee);
+                    continue;
+                }
+            }
+
             doc.keylen = item->header->keylen;
             doc.key = malloc(doc.keylen); // (freed in fdb_snapshot_close)
             memcpy(doc.key, item->header->key, doc.keylen);
@@ -748,12 +767,16 @@ fdb_status wal_snapshot(struct filemgr *file,
             doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
                     item->action == WAL_ACT_REMOVE);
             snapshot_func(dbhandle, &doc, item->offset);
+            if (doc.seqnum > copied_seq) {
+                copied_seq = doc.seqnum;
+            }
             break; // We just require a single latest copy in the snapshot
         }
         e = list_next(e);
     }
     spin_unlock(&file->wal->lock);
 
+    *upto_seq = copied_seq; // Return to caller the highest copied seqnum
     return FDB_RESULT_SUCCESS;
 }
 

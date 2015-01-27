@@ -225,7 +225,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     }
 
     if (!handle->shandle) {
-        fdb_check_file_reopen(handle);
+        fdb_check_file_reopen(handle, NULL);
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
     }
@@ -462,7 +462,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     }
 
     if (!handle->shandle) {
-        fdb_check_file_reopen(handle);
+        fdb_check_file_reopen(handle, NULL);
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
     }

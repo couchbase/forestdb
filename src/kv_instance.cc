@@ -767,7 +767,7 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
         // return MAX_SEQNUM instead of the file's sequence number
         *seqnum = handle->max_seqnum;
     } else {
-        fdb_check_file_reopen(handle);
+        fdb_check_file_reopen(handle, NULL);
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
@@ -861,7 +861,7 @@ static fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
     }
 
 fdb_kvs_create_start:
-    fdb_check_file_reopen(root_handle);
+    fdb_check_file_reopen(root_handle, NULL);
     filemgr_mutex_lock(root_handle->file);
     fdb_sync_db_header(root_handle);
     fdb_link_new_file(root_handle);
@@ -1054,7 +1054,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         config_local = get_default_kvs_config();
     }
 
-    fdb_check_file_reopen(root_handle);
+    fdb_check_file_reopen(root_handle, NULL);
     fdb_link_new_file(root_handle);
     fdb_sync_db_header(root_handle);
     if (root_handle->new_file == NULL) {
@@ -1345,7 +1345,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     }
     if (fstatus == FILE_REMOVED_PENDING) {
         filemgr_mutex_unlock(handle_in->file);
-        fdb_check_file_reopen(handle_in);
+        fdb_check_file_reopen(handle_in, NULL);
         fdb_sync_db_header(handle_in);
     } else {
         filemgr_mutex_unlock(handle_in->file);
@@ -1472,7 +1472,7 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
     }
 
 fdb_kvs_remove_start:
-    fdb_check_file_reopen(root_handle);
+    fdb_check_file_reopen(root_handle, NULL);
     filemgr_mutex_lock(root_handle->file);
     fdb_sync_db_header(root_handle);
     fdb_link_new_file(root_handle);
