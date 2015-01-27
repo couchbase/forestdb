@@ -1200,7 +1200,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         filemgr_mutex_unlock(handle->file);
         hdr_bid = 0; // This prevents _fdb_restore_wal() as incoming handle's
                      // *_open() should have already restored it
-    } else {
+    } else { // Persisted snapshot or file rollback..
         filemgr_mutex_unlock(handle->file);
 
         hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
@@ -1237,14 +1237,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
                 if (!handle->kvs || handle->kvs->id == 0) {
                     // single KVS mode OR default KVS
-                    if (handle->shandle) {
-                        // snapshot
-                        memset(&handle->shandle->stat, 0x0,
-                               sizeof(handle->shandle->stat));
-                        handle->shandle->stat.ndocs = ndocs;
-                        handle->shandle->stat.datasize = datasize;
-                        handle->shandle->stat.nlivenodes = nlivenodes;
-                    } else {
+                    if (!handle->shandle) {
                         // rollback
                         struct kvs_stat stat_dst;
                         _kvs_stat_get(handle->file, 0, &stat_dst);
@@ -1274,14 +1267,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     // get local sequence number for the KV instance
                     seqnum = _fdb_kvs_get_seqnum(kv_header,
                                                  handle->kvs->id);
-                    if (handle->shandle) {
-                        // snapshot: store stats in shandle
-                        memset(&handle->shandle->stat, 0x0,
-                               sizeof(handle->shandle->stat));
-                        _kvs_stat_get(handle->file,
-                                      handle->kvs->id,
-                                      &handle->shandle->stat);
-                    } else {
+                    if (!handle->shandle) {
                         // rollback: replace kv_header stats
                         // read from the current header's kv_header
                         struct kvs_stat stat_src, stat_dst;
@@ -1334,7 +1320,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     wal_shutdown(handle->file);
                 }
             }
-        } else {
+        } else { // snapshot to sequence number 0 requested..
             if (handle->shandle) { // fdb_snapshot_open API call
                 if (seqnum) {
                     // Database currently has a non-zero seq number,
@@ -1415,6 +1401,21 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         handle->config.multi_kv_instances = true;
         // only super handle can be opened using fdb_open(...)
         fdb_kvs_info_create(NULL, handle, handle->file, NULL);
+    }
+
+    if (handle->shandle) { // Populate snapshot stats..
+        if (kv_info_offset == BLK_NOT_FOUND) { // Single KV mode
+            memset(&handle->shandle->stat, 0x0,
+                    sizeof(handle->shandle->stat));
+            handle->shandle->stat.ndocs = ndocs;
+            handle->shandle->stat.datasize = datasize;
+            handle->shandle->stat.nlivenodes = nlivenodes;
+        } else { // Multi KV instance mode, populate specific kv stats
+            memset(&handle->shandle->stat, 0x0,
+                    sizeof(handle->shandle->stat));
+            _kvs_stat_get(handle->file, handle->kvs->id,
+                    &handle->shandle->stat);
+        }
     }
 
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
