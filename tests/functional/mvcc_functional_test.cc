@@ -2184,9 +2184,10 @@ void auto_compaction_snapshots_test()
     fdb_kvs_info info;
     fdb_doc *rdoc;
 
-    int i;
+    int i, r;
 
-    system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
 
     // Open Database File
     config = fdb_get_default_config();
