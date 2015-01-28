@@ -29,6 +29,11 @@ add_executable(bcache_test
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM})
 
+add_executable(atomic_test
+               atomic_test.cc
+               ${ROOT_SRC}/atomic.cc
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(atomic_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(filemgr_test
                filemgr_test.cc
@@ -154,6 +159,7 @@ target_link_libraries(btree_kv_test ${LIBM})
 # add test target
 add_test(hash_test hash_test)
 add_test(bcache_test bcache_test)
+add_test(atomic_test atomic_test)
 add_test(filemgr_test filemgr_test)
 add_test(btreeblock_test btreeblock_test)
 add_test(docio_test docio_test)

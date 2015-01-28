@@ -567,6 +567,109 @@ void snapshot_test()
     TEST_RESULT("snapshot test");
 }
 
+void snapshot_stats_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
+    fdb_seqnum_t snap_seq;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_kvs_info kvs_info;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // ------- Setup test ----------------------------------
+    // insert documents
+    for (i=0; i<n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+        fdb_doc_free(doc[i]);
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // retrieve the sequence number for a snapshot open
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    snap_seq = kvs_info.last_seqnum;
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "snapshot_stats_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Init Snapshot of open file with saved document seqnum as marker
+    status = fdb_snapshot_open(db, &snap_db, snap_seq);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // check snapshot's sequence number
+    fdb_get_kvs_info(snap_db, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum == snap_seq);
+
+    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.file == dbfile);
+
+    // close snapshot handle
+    fdb_kvs_close(snap_db);
+
+    // Test stats by creating an in-memory snapshot
+    status = fdb_snapshot_open(db, &snap_db, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // check snapshot's sequence number
+    fdb_get_kvs_info(snap_db, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum == snap_seq);
+
+    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.file == dbfile);
+
+    // close snapshot handle
+    fdb_kvs_close(snap_db);
+
+    // close db handle
+    fdb_kvs_close(db);
+    // close db file
+    fdb_close(dbfile);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("snapshot stats test");
+}
+
 void in_memory_snapshot_test()
 {
     TEST_INIT();
@@ -888,7 +991,7 @@ void snapshot_clone_test()
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     status = fdb_set_log_callback(db, logCallbackFunc,
-                                  (void *) "snapshot_test");
+                                  (void *) "snapshot_clone_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     // ---------- Snapshot tests begin -----------------------
     // Attempt to take snapshot with out-of-range marker..
@@ -2066,7 +2169,94 @@ void rollback_prior_to_ops(bool walflush)
     TEST_RESULT(bodybuf);
 }
 
+void auto_compaction_snapshots_test()
+{
+    TEST_INIT();
 
+    memleak_start();
+
+    fdb_file_handle *file;
+    fdb_kvs_handle *kvs, *snapshot;
+    fdb_status status;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_seqnum_t seqnum;
+    fdb_kvs_info info;
+    fdb_doc *rdoc;
+
+    int i;
+
+    system(SHELL_DEL" dummy* > errorlog.txt");
+
+    // Open Database File
+    config = fdb_get_default_config();
+    config.compaction_mode=FDB_COMPACTION_AUTO;
+    config.compactor_sleep_duration=1;
+    status = fdb_open(&file, "dummy1", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Open KV Store
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Several kv pairs
+    for(i=0;i<100000;i++) {
+        char str[15];
+        sprintf(str, "%d", i);
+        status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Every 10 Commit
+        if (i % 10 == 0) {
+            status = fdb_commit(file, FDB_COMMIT_NORMAL);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+
+        // Every 100 iterations Get Seq/Snapshot
+        if (i % 100 == 0) {
+            status = fdb_get_kvs_info(kvs, &info);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            seqnum = info.last_seqnum;
+            // Open durable snapshot in the midst of compaction..
+            status = fdb_snapshot_open(kvs, &snapshot, seqnum);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            // verify last doc set is captured in snapshot..
+            fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+            rdoc->seqnum = seqnum;
+            status = fdb_get_byseq(kvs, rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CMP(rdoc->key, str, strlen(str));
+            // free result document
+            fdb_doc_free(rdoc);
+            status = fdb_kvs_close(snapshot);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+            // Open in-memory snapshot and verify content
+            status = fdb_snapshot_open(kvs, &snapshot, FDB_SNAPSHOT_INMEM);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            // verify last doc set is captured in snapshot..
+            fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+            rdoc->seqnum = seqnum;
+            status = fdb_get_byseq(kvs, rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CMP(rdoc->key, str, strlen(str));
+            // free result document
+            fdb_doc_free(rdoc);
+            status = fdb_kvs_close(snapshot);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    status = fdb_close(file);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+
+    TEST_RESULT("auto compaction with snapshots test");
+}
 
 int main(){
 
@@ -2077,6 +2267,7 @@ int main(){
     snapshot_test();
     in_memory_snapshot_test();
     snapshot_clone_test();
+    snapshot_stats_test();
     rollback_forward_seqnum();
     rollback_test(false); // single kv instance mode
     rollback_test(true); // multi kv instance mode
@@ -2086,6 +2277,7 @@ int main(){
     transaction_simple_api_test();
     rollback_prior_to_ops(true); // wal commit
     rollback_prior_to_ops(false); // normal commit
+    auto_compaction_snapshots_test(); // test snapshots with auto-compaction
 
     return 0;
 }

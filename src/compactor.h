@@ -37,6 +37,8 @@ fdb_status compactor_register_file(struct filemgr *file, fdb_config *config);
 void compactor_deregister_file(struct filemgr *file);
 void compactor_change_threshold(struct filemgr *file, size_t new_threshold);
 void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file);
+void compactor_get_virtual_filename(const char *filename,
+                                    char *virtual_filename);
 fdb_status compactor_get_actual_filename(const char *filename,
                                          char *actual_filename,
                                          fdb_compaction_mode_t comp_mode);

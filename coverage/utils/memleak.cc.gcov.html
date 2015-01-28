@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-26 10:31:18</td>
+            <td class="headerValue">2015-01-28 09:11:22</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">2</td>
@@ -192,18 +192,18 @@
 <span class="lineNum">     121 </span>                :            : // LCOV_EXCL_STOP
 <a name="122"><span class="lineNum">     122 </span>                :            : </a>
 <span class="lineNum">     123 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     124 </span>                :<span class="lineCov">        219 : void memleak_start()</span>
+<span class="lineNum">     124 </span>                :<span class="lineCov">        222 : void memleak_start()</span>
 <span class="lineNum">     125 </span>                :            : {
-<span class="lineNum">     126 </span>                :<span class="lineCov">        219 :     spin_init(&amp;lock);</span>
-<span class="lineNum">     127 </span>                :<span class="lineCov">        219 :     avl_init(&amp;tree_index, NULL);</span>
-<span class="lineNum">     128 </span>                :<span class="lineCov">        219 :     start_sw = 1;</span>
-<span class="lineNum">     129 </span>                :<span class="lineCov">        219 : }</span>
+<span class="lineNum">     126 </span>                :<span class="lineCov">        222 :     spin_init(&amp;lock);</span>
+<span class="lineNum">     127 </span>                :<span class="lineCov">        222 :     avl_init(&amp;tree_index, NULL);</span>
+<span class="lineNum">     128 </span>                :<span class="lineCov">        222 :     start_sw = 1;</span>
+<span class="lineNum">     129 </span>                :<span class="lineCov">        222 : }</span>
 <a name="130"><span class="lineNum">     130 </span>                :            : </a>
 <span class="lineNum">     131 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     132 </span>                :<span class="lineCov">        216 : void memleak_end()</span>
+<span class="lineNum">     132 </span>                :<span class="lineCov">        219 : void memleak_end()</span>
 <span class="lineNum">     133 </span>                :            : {
 <span class="lineNum">     134 </span>                :            :     uint8_t is_leaked;
-<span class="lineNum">     135 </span>                :<span class="lineCov">        216 :     size_t count = 0;</span>
+<span class="lineNum">     135 </span>                :<span class="lineCov">        219 :     size_t count = 0;</span>
 <span class="lineNum">     136 </span>                :            :     struct avl_node *a;
 <span class="lineNum">     137 </span>                :            :     struct memleak_item *item;
 <span class="lineNum">     138 </span>                :            : #ifdef _STACK_BACKTRACE
@@ -213,12 +213,12 @@
 <span class="lineNum">     142 </span>                :            :     unsigned line;
 <span class="lineNum">     143 </span>                :            : #endif
 <span class="lineNum">     144 </span>                :            : 
-<span class="lineNum">     145 </span>                :<span class="lineCov">        216 :     spin_lock(&amp;lock);</span>
+<span class="lineNum">     145 </span>                :<span class="lineCov">        219 :     spin_lock(&amp;lock);</span>
 <span class="lineNum">     146 </span>                :            : 
-<span class="lineNum">     147 </span>                :<span class="lineCov">        216 :     start_sw = 0;</span>
+<span class="lineNum">     147 </span>                :<span class="lineCov">        219 :     start_sw = 0;</span>
 <span class="lineNum">     148 </span>                :            : 
-<span class="lineNum">     149 </span>                :<span class="lineCov">        216 :     a = avl_first(&amp;tree_index);</span>
-<span class="lineNum">     150 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 216 times"> + </span>]:<span class="lineCov">        216 :     while(a){</span>
+<span class="lineNum">     149 </span>                :<span class="lineCov">        219 :     a = avl_first(&amp;tree_index);</span>
+<span class="lineNum">     150 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 219 times"> + </span>]:<span class="lineCov">        219 :     while(a){</span>
 <span class="lineNum">     151 </span>                :<span class="lineNoCov">          0 :         item = _get_entry(a, struct memleak_item, avl);</span>
 <span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         a = avl_next(a);</span>
 <span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :         avl_remove(&amp;tree_index, &amp;item-&gt;avl);</span>
@@ -265,10 +265,10 @@
 <span class="lineNum">     194 </span>                :            :         }
 <span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         free(item);</span>
 <span class="lineNum">     196 </span>                :            :     }
-<span class="lineNum">     197 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 216 times"> + </span>]:<span class="lineCov">        216 :     if (count &gt; 0) fprintf(stderr, &quot;total %d objects\n&quot;, (int)count);</span>
+<span class="lineNum">     197 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 219 times"> + </span>]:<span class="lineCov">        219 :     if (count &gt; 0) fprintf(stderr, &quot;total %d objects\n&quot;, (int)count);</span>
 <span class="lineNum">     198 </span>                :            : 
-<span class="lineNum">     199 </span>                :<span class="lineCov">        216 :     spin_unlock(&amp;lock);</span>
-<span class="lineNum">     200 </span>                :<span class="lineCov">        216 : }</span>
+<span class="lineNum">     199 </span>                :<span class="lineCov">        219 :     spin_unlock(&amp;lock);</span>
+<span class="lineNum">     200 </span>                :<span class="lineCov">        219 : }</span>
 <span class="lineNum">     201 </span>                :            : 
 <span class="lineNum">     202 </span>                :            : // LCOV_EXCL_START
 <span class="lineNum">     203 </span>                :            : void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uint8_t init_val)

@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-26 10:31:18</td>
+            <td class="headerValue">2015-01-28 09:11:22</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">4</td>
@@ -118,7 +118,7 @@
 <span class="lineNum">      47 </span>                :            :         }
 <span class="lineNum">      48 </span>                :            :     }
 <span class="lineNum">      49 </span>                :            : 
-<span class="lineNum">      50 </span>                :<span class="lineCov">       1234 :     fdb_check_file_reopen(handle);</span>
+<span class="lineNum">      50 </span>                :<span class="lineCov">       1234 :     fdb_check_file_reopen(handle, NULL);</span>
 <span class="lineNum">      51 </span>                :<span class="lineCov">       1234 :     filemgr_mutex_lock(handle-&gt;file);</span>
 <span class="lineNum">      52 </span>                :<span class="lineCov">       1234 :     fdb_sync_db_header(handle);</span>
 <span class="lineNum">      53 </span>                :<span class="lineCov">       1234 :     fdb_link_new_file(handle);</span>
@@ -184,7 +184,7 @@
 <span class="lineNum">     113 </span>                :            :         }
 <span class="lineNum">     114 </span>                :            :     }
 <span class="lineNum">     115 </span>                :            : 
-<span class="lineNum">     116 </span>                :<span class="lineCov">         11 :     fdb_check_file_reopen(handle);</span>
+<span class="lineNum">     116 </span>                :<span class="lineCov">         11 :     fdb_check_file_reopen(handle, NULL);</span>
 <span class="lineNum">     117 </span>        [<span class="branchCov" title="Branch 0 was taken 11 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         11 :     if (handle-&gt;new_file == NULL) {</span>
 <span class="lineNum">     118 </span>                :<span class="lineCov">         11 :         file = handle-&gt;file;</span>
 <span class="lineNum">     119 </span>                :<span class="lineCov">         11 :         filemgr_mutex_lock(file);</span>
@@ -241,7 +241,7 @@
 <span class="lineNum">     170 </span>                :            :     }
 <span class="lineNum">     171 </span>                :            : 
 <span class="lineNum">     172 </span>        [<span class="branchCov" title="Branch 0 was taken 1223 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1223 :     if (fs == FDB_RESULT_SUCCESS) {</span>
-<span class="lineNum">     173 </span>                :<span class="lineCov">       1223 :         fdb_check_file_reopen(handle);</span>
+<span class="lineNum">     173 </span>                :<span class="lineCov">       1223 :         fdb_check_file_reopen(handle, NULL);</span>
 <span class="lineNum">     174 </span>        [<span class="branchCov" title="Branch 0 was taken 1223 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">       1223 :         if (handle-&gt;new_file == NULL) {</span>
 <span class="lineNum">     175 </span>                :<span class="lineCov">       1223 :             file = handle-&gt;file;</span>
 <span class="lineNum">     176 </span>                :<span class="lineCov">       1223 :             filemgr_mutex_lock(file);</span>

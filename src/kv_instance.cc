@@ -767,7 +767,7 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
         // return MAX_SEQNUM instead of the file's sequence number
         *seqnum = handle->max_seqnum;
     } else {
-        fdb_check_file_reopen(handle);
+        fdb_check_file_reopen(handle, NULL);
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
@@ -861,7 +861,7 @@ static fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
     }
 
 fdb_kvs_create_start:
-    fdb_check_file_reopen(root_handle);
+    fdb_check_file_reopen(root_handle, NULL);
     filemgr_mutex_lock(root_handle->file);
     fdb_sync_db_header(root_handle);
     fdb_link_new_file(root_handle);
@@ -959,6 +959,11 @@ char* _fdb_kvs_get_name(fdb_kvs_handle *handle, struct filemgr *file)
     struct kvs_node *node, query;
     struct avl_node *a;
 
+    if (handle->kvs == NULL) {
+        // single KV instance mode
+        return NULL;
+    }
+
     query.id = handle->kvs->id;
     if (query.id == 0) { // default KV instance
         return NULL;
@@ -974,10 +979,17 @@ char* _fdb_kvs_get_name(fdb_kvs_handle *handle, struct filemgr *file)
     return NULL;
 }
 
+// 1) allocate memory & create 'handle->kvs'
+//    by calling fdb_kvs_info_create().
+//      -> this will allocate a corresponding node and
+//         insert it into fhandle->handles list.
+// 2) if matching KVS name doesn't exist, create it.
+// 3) call _fdb_open().
 fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
                          struct filemgr *file,
+                         const char *filename,
                          const char *kvs_name,
                          fdb_kvs_handle *handle)
 {
@@ -1012,7 +1024,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
             return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
         }
     }
-    fs = _fdb_open(handle, file->filename, FDB_AFILENAME, config);
+    fs = _fdb_open(handle, filename, FDB_AFILENAME, config);
     if (fs != FDB_RESULT_SUCCESS) {
         if (handle->node) {
             spin_lock(&root_handle->fhandle->lock);
@@ -1025,6 +1037,18 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
     return fs;
 }
 
+// 1) identify whether the requested KVS is default or non-default.
+// 2) if the requested KVS is default,
+//   2-1) if no KVS handle is opened yet from this fhandle,
+//        -> return the root handle.
+//   2-2) if the root handle is already opened,
+//        -> allocate memory for handle, and call _fdb_open().
+//        -> 'handle->kvs' will be created in _fdb_open(),
+//           since it is treated as a default handle.
+//        -> allocate a corresponding node and insert it into
+//           fhandle->handles list.
+// 3) if the requested KVS is non-default,
+//    -> allocate memory for handle, and call _fdb_kvs_open().
 LIBFDB_API
 fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
                         fdb_kvs_handle **ptr_handle,
@@ -1037,6 +1061,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     fdb_kvs_handle *root_handle;
     fdb_kvs_config config_local;
     struct filemgr *file = NULL;
+    struct filemgr *latest_file = NULL;
 
     if (!fhandle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -1054,13 +1079,26 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         config_local = get_default_kvs_config();
     }
 
-    fdb_check_file_reopen(root_handle);
+    fdb_check_file_reopen(root_handle, NULL);
     fdb_link_new_file(root_handle);
     fdb_sync_db_header(root_handle);
-    if (root_handle->new_file == NULL) {
+    if (root_handle->new_file == NULL ||
+        filemgr_get_file_status(root_handle->file) == FILE_COMPACT_OLD) {
+        // If the file is being compacted, new_file is incomplete yet
+        // so that there is no DB header in the new_file.
+        // Hence, we should open the old file.
+        // Note: compaction recovery will not be triggered as the
+        //       file's status is FILE_COMPACT_OLD.
         file = root_handle->file;
-    } else{
-        file = root_handle->new_file;
+        // even though we open 'file' due to ongoing compaction,
+        // KVS info should be retrieved from 'latest_file'.
+        if (root_handle->new_file) {
+            latest_file = root_handle->new_file;
+        } else {
+            latest_file = root_handle->file;
+        }
+    } else {
+        file = latest_file = root_handle->new_file;
     }
 
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
@@ -1155,7 +1193,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
 
     handle->fhandle = fhandle;
     fs = _fdb_kvs_open(root_handle, &config, &config_local,
-                       file, kvs_name, handle);
+                       latest_file, file->filename, kvs_name, handle);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_handle = handle;
     } else {
@@ -1173,6 +1211,8 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
     return fdb_kvs_open(fhandle, ptr_handle, NULL, config);
 }
 
+// 1) remove corresponding node from fhandle->handles list.
+// 2) call _fdb_close().
 static fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
 {
     fdb_kvs_handle *root_handle = handle->kvs->root;
@@ -1215,6 +1255,20 @@ fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle)
     return FDB_RESULT_SUCCESS;
 }
 
+// 1) identify whether the requested handle is for default KVS or not.
+// 2) if the requested handle is for the default KVS,
+//   2-1) if the requested handle is the root handle,
+//        -> just clear the OPENED flag.
+//   2-2) if the requested handle is not the root handle,
+//        -> call _fdb_close(),
+//        -> free 'handle->kvs' by calling fdb_kvs_info_free(),
+//        -> remove the corresponding node from fhandle->handles list,
+//        -> free the memory for the handle.
+// 3) if the requested handle is for non-default KVS,
+//    -> call _fdb_kvs_close(),
+//       -> this will remove the node from fhandle->handles list.
+//    -> free 'handle->kvs' by calling fdb_kvs_info_free(),
+//    -> free the memory for the handle.
 LIBFDB_API
 fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
 {
@@ -1345,7 +1399,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     }
     if (fstatus == FILE_REMOVED_PENDING) {
         filemgr_mutex_unlock(handle_in->file);
-        fdb_check_file_reopen(handle_in);
+        fdb_check_file_reopen(handle_in, NULL);
         fdb_sync_db_header(handle_in);
     } else {
         filemgr_mutex_unlock(handle_in->file);
@@ -1360,6 +1414,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                            &config,
                            &kvs_config,
                            handle_in->file,
+                           handle_in->file->filename,
                            _fdb_kvs_get_name(handle_in,
                                              handle_in->file),
                            handle);
@@ -1472,7 +1527,7 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
     }
 
 fdb_kvs_remove_start:
-    fdb_check_file_reopen(root_handle);
+    fdb_check_file_reopen(root_handle, NULL);
     filemgr_mutex_lock(root_handle->file);
     fdb_sync_db_header(root_handle);
     fdb_link_new_file(root_handle);

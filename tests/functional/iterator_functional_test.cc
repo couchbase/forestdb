@@ -2860,6 +2860,85 @@ void iterator_after_wal_threshold()
     TEST_RESULT("iterator after wal threshold");
 }
 
+void iterator_concurrent_compaction()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile, *dbfile2;
+    fdb_kvs_handle *db, *db2;
+    fdb_doc *rdoc = NULL;
+    fdb_status status;
+    fdb_iterator *it_id, *it_seq;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    void *value_out;
+    size_t valuelen_out;
+
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+
+    // write docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+    }
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    fdb_open(&dbfile2, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile2, &db2, "db", &kvs_config);
+
+    fdb_compact(dbfile, "./dummy2");
+
+    status = fdb_iterator_init(db2, &it_id, NULL, 0, NULL, 0, 0x0);
+    status = fdb_iterator_sequence_init(db, &it_seq, 0, 0, 0x0);
+
+    // retrieve docs
+    // now handle's header is updated
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        fdb_get_kv(db, keybuf, strlen(keybuf), &value_out, &valuelen_out);
+        free(value_out);
+    }
+
+    do {
+        rdoc = NULL;
+        status = fdb_iterator_get(it_id, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    } while (fdb_iterator_next(it_id) != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_close(it_id);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    do {
+        rdoc = NULL;
+        status = fdb_iterator_get(it_seq, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    } while (fdb_iterator_next(it_seq) != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_close(it_seq);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_close(dbfile);
+    fdb_close(dbfile2);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("iterator with concurrent compaction test");
+}
+
 int main(){
     int i, j;
 
@@ -2882,6 +2961,7 @@ int main(){
     reverse_iterator_test();
     iterator_seek_wal_only_test();
     iterator_after_wal_threshold();
+    iterator_concurrent_compaction();
 
     return 0;
 }
