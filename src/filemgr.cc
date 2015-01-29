@@ -370,6 +370,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file)
     file->header.revnum = 0;
     file->header.seqnum = 0;
     file->header.data = NULL;
+    file->header.bid = 0;
     file->header.dirty_idtree_root = BLK_NOT_FOUND;
     file->header.dirty_seqtree_root = BLK_NOT_FOUND;
     memset(&file->header.stat, 0x0, sizeof(file->header.stat));
@@ -855,6 +856,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     filemgr_header_revnum_t _revnum;
     filemgr_header_len_t hdr_len;
     filemgr_magic_t magic;
+    bid_t _prev_bid, prev_bid;
     int found = 0;
 
     if (!bid || bid == BLK_NOT_FOUND) {
@@ -863,26 +865,71 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     }
     _buf = (uint8_t *)_filemgr_get_temp_buf();
 
-    bid--;
     // Reverse scan the file for a previous DB header
     do {
+        // Get prev_bid from the current header.
+        // Since the current header is already cached during the previous
+        // operation, no disk I/O will be triggered.
         if (filemgr_read(file, (bid_t)bid, _buf, log_callback)
-             != FDB_RESULT_SUCCESS) {
+                != FDB_RESULT_SUCCESS) {
             break;
         }
-        memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
-                BLK_MARKER_SIZE);
 
-        if (marker[0] != BLK_MARKER_DBHEADER) {
-            continue;
+        memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
+               BLK_MARKER_SIZE);
+        memcpy(&magic,
+               _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
+               sizeof(magic));
+        magic = _endian_decode(magic);
+
+        if (marker[0] != BLK_MARKER_DBHEADER ||
+            magic != FILEMGR_MAGIC) {
+            // not a header block
+            // this happens when this function is invoked between
+            // fdb_set() call and fdb_commit() call, so the last block
+            // in the file is not a header block
+            bid_t latest_hdr = filemgr_get_header_bid(file);
+            if (latest_hdr != BLK_NOT_FOUND && bid > latest_hdr) {
+                // get the latest header BID
+                bid = latest_hdr;
+            } else {
+                break;
+            }
+        } else {
+            memcpy(&_prev_bid,
+                   _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
+                       sizeof(hdr_len) - sizeof(_prev_bid),
+                   sizeof(_prev_bid));
+            prev_bid = _endian_decode(_prev_bid);
+            if (bid <= prev_bid) {
+                // no more prev header, or broken linked list
+                break;
+            }
+            bid = prev_bid;
         }
+
+        // Read the prev header
+        if (filemgr_read(file, (bid_t)bid, _buf, log_callback)
+                != FDB_RESULT_SUCCESS) {
+            break;
+        }
+
+        memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
+               BLK_MARKER_SIZE);
+        if (marker[0] != BLK_MARKER_DBHEADER) {
+            // broken linked list
+            break;
+        }
+
         memcpy(&magic,
                _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
                sizeof(magic));
         magic = _endian_decode(magic);
         if (magic != FILEMGR_MAGIC) {
-            continue;
+            // broken linked list
+            break;
         }
+
         memcpy(&hdr_len,
                _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
                sizeof(hdr_len), sizeof(hdr_len));
@@ -898,7 +945,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         *len = hdr_len;
         found = 1;
         break;
-    } while (bid--); // scan even the first block 0
+    } while (false); // no repetition
 
     if (!found) { // no other header found till end of file
         *len = 0;
@@ -1414,6 +1461,7 @@ fdb_status filemgr_commit(struct filemgr *file,
 {
     uint16_t header_len = file->header.size;
     uint16_t _header_len;
+    bid_t _prev_bid;
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
@@ -1435,9 +1483,16 @@ fdb_status filemgr_commit(struct filemgr *file,
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
 
-        // <-------------------------- block size --------------------------->
-        // <-  len -><---  8 ---><-  8 ->             <-- 2 --><- 8 -><-  1 ->
-        // [hdr data][hdr revnum][seqnum] ..(empty).. [hdr len][magic][marker]
+        // [header data]:        'header_len' bytes   <---+
+        // [header revnum]:      8 bytes                  |
+        // [default KVS seqnum]: 8 bytes                  |
+        // ...                                            |
+        // (empty)                                    blocksize
+        // ...                                            |
+        // [prev header bid]:    8 bytes                  |
+        // [header length]:      2 bytes                  |
+        // [magic number]:       8 bytes                  |
+        // [block marker]:       1 byte               <---+
 
         // header data
         memcpy(buf, file->header.data, header_len);
@@ -1445,11 +1500,16 @@ fdb_status filemgr_commit(struct filemgr *file,
         _revnum = _endian_encode(file->header.revnum);
         memcpy((uint8_t *)buf + header_len, &_revnum,
                sizeof(filemgr_header_revnum_t));
-        // file's sequence number
+        // file's sequence number (default KVS seqnum)
         _seqnum = _endian_encode(file->header.seqnum);
         memcpy((uint8_t *)buf + header_len + sizeof(filemgr_header_revnum_t),
                &_seqnum, sizeof(fdb_seqnum_t));
 
+        // prev header bid
+        _prev_bid = _endian_encode(file->header.bid);
+        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+               - sizeof(header_len) - sizeof(_prev_bid) - BLK_MARKER_SIZE),
+               &_prev_bid, sizeof(_prev_bid));
         // header length
         _header_len = _endian_encode(header_len);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
@@ -1466,7 +1526,8 @@ fdb_status filemgr_commit(struct filemgr *file,
                marker, BLK_MARKER_SIZE);
 
         ssize_t rv = file->ops->pwrite(file->fd, buf, file->blocksize, file->pos);
-        _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
+        _log_errno_str(file->ops, log_callback, (fdb_status) rv,
+                       "WRITE", file->filename);
         if (rv != file->blocksize) {
             _filemgr_release_temp_buf(buf);
             spin_unlock(&file->lock);
