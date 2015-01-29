@@ -612,6 +612,30 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
                                  fdb_kvs_name_list *kvs_name_list);
 
 /**
+ * Return all the snapshot markers in a given database file.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param markers Pointer to the allocated array of snapshot_info instances
+ *                that correspond to each of the commit markers in a file.
+ * @param size Number of elements of the markers that are allocated.
+ * @return file i/o or other on failure, FDB_RESULT_SUCCESS if successful.
+ *
+ */
+fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
+                                    fdb_snapshot_info_t **markers,
+                                    uint64_t *size);
+/**
+ * Free a kv snapshot_info array allocated by fdb_get_All_snap_markers API.
+ *
+ * @param snap_info Pointer to a KV snapshot_info array that is allocated by
+ *                  fdb_get_all_snap_markers API.
+ * @param size Number of elements in above array.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size);
+
+/**
  * Free a KV store name list.
  *
  * @param kvs_name_list Pointer to a KV store name list to be freed.

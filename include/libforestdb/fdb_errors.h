@@ -174,6 +174,10 @@ typedef enum {
      * Please retry in sometime.
      */
     FDB_RESULT_IN_USE_BY_COMPACTOR = -35,
+    /**
+     * DB file used in this operation has not been opened
+     */
+    FDB_RESULT_FILE_NOT_OPEN = -36
 } fdb_status;
 
 #ifdef __cplusplus

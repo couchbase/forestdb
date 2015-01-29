@@ -1126,6 +1126,157 @@ void snapshot_clone_test()
     TEST_RESULT("snapshot clone test");
 }
 
+void snapshot_markers_in_file_test(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    int num_kvs = 4; // keep this the same as number of fdb_commit() calls
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+    fdb_snapshot_info_t *markers;
+    uint64_t num_markers;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    char kv_name[8];
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    if (multi_kv) {
+        for (r = 0; r < num_kvs; ++r) {
+            sprintf(kv_name, "kv%d", r);
+            fdb_kvs_open(dbfile, &db[r], kv_name, &kvs_config);
+        }
+    } else {
+        num_kvs = 1;
+        fdb_kvs_open_default(dbfile, &db[0], &kvs_config);
+    }
+
+   // ------- Setup test ----------------------------------
+   // insert documents of 0-4
+    for (i=0; i<n/4; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 5 - 9
+    for (; i < n/2; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit again without a WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // insert documents from 10-14 into HB-trie
+    for (; i < (n/2 + n/4); i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 15 - 19 on file into the WAL
+    for (; i < n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // commit without a WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                      (void *) "snapshot_markers_in_file");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    if (!multi_kv) {
+        TEST_CHK(num_markers == 4);
+        for (r = 0; r < num_kvs; ++r) {
+            TEST_CHK(markers[r].num_kvs_markers == 1);
+            TEST_CHK(markers[r].kvs_markers[0].seqnum == (n - r*5));
+        }
+    } else {
+        TEST_CHK(num_markers == 8);
+        for (r = 0; r < num_kvs; ++r) {
+            TEST_CHK(markers[r].num_kvs_markers == num_kvs);
+            for (i = 0; i < num_kvs; ++i) {
+                TEST_CHK(markers[r].kvs_markers[i].seqnum == (n - r*5));
+                sprintf(kv_name, "kv%d", i);
+                TEST_CMP(markers[r].kvs_markers[i].kv_store_name, kv_name, 3);
+            }
+        }
+    }
+
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf, "snapshot markers in file test %s", multi_kv ?
+                                                        "multiple kv mode:"
+                                                      : "single kv mode:");
+    TEST_RESULT(bodybuf);
+}
+
 void rollback_forward_seqnum()
 {
 
@@ -2164,8 +2315,8 @@ void rollback_prior_to_ops(bool walflush)
     fdb_shutdown();
     memleak_end();
 
-    sprintf(bodybuf, "rollback prior to ops test %s", walflush? "commi with wal flush:"
-                                                  : "normal commit:");
+    sprintf(bodybuf, "rollback prior to ops test %s",
+            walflush ? "commit with wal flush:" : "normal commit:");
     TEST_RESULT(bodybuf);
 }
 
@@ -2269,6 +2420,8 @@ int main(){
     in_memory_snapshot_test();
     snapshot_clone_test();
     snapshot_stats_test();
+    snapshot_markers_in_file_test(true); // multi kv instance mode
+    snapshot_markers_in_file_test(false); // single kv instance mode
     rollback_forward_seqnum();
     rollback_test(false); // single kv instance mode
     rollback_test(true); // multi kv instance mode

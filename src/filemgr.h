@@ -164,7 +164,6 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid, void *buf,
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    err_log_callback *log_callback);
-
 fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
                          const char *orig_file_name,
