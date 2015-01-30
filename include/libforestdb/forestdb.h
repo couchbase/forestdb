@@ -621,6 +621,7 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
  * @return file i/o or other on failure, FDB_RESULT_SUCCESS if successful.
  *
  */
+LIBFDB_API
 fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
                                     fdb_snapshot_info_t **markers,
                                     uint64_t *size);
