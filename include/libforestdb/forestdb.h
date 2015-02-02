@@ -60,7 +60,7 @@ LIBFDB_API
 fdb_config fdb_get_default_config(void);
 
 /**
- * Get the default ForestDB KV(Key-Vaule) store configs. Note that multiple KV
+ * Get the default ForestDB KV(Key-Value) store configs. Note that multiple KV
  * store instances can be created in a single ForestDB file.
  * The general recommendation is to invoke this API to get the default configs
  * and change some configs if necessary and then pass them to fdb_kvs_open APIs.
@@ -158,7 +158,7 @@ fdb_status fdb_doc_create(fdb_doc **doc,
 /**
  * Update a FDB_DOC instance with a given metadata and body.
  * Note that this API does not update an item in the ForestDB KV store, but
- * instead simply update a given FDB_DOC instance only.
+ * instead simply updates a given FDB_DOC instance only.
  *
  * @param doc Pointer to a FDB_DOC instance to be updated.
  * @param meta Pointer to key's metadata.
@@ -428,7 +428,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                              fdb_iterator_opt_t opt);
 
 /**
- * Moves the iterator backward by one.
+ * Move the iterator backward by one.
  *
  * @param iterator Pointer to the iterator.
  * @return FDB_RESULT_SUCCESS on success.
@@ -437,7 +437,7 @@ LIBFDB_API
 fdb_status fdb_iterator_prev(fdb_iterator *iterator);
 
 /**
- * Moves the iterator forward by one.
+ * Move the iterator forward by one.
  *
  * @param iterator Pointer to the iterator.
  * @return FDB_RESULT_SUCCESS on success.
@@ -459,7 +459,7 @@ LIBFDB_API
 fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc);
 
 /**
- * Get item metadata only(key, metadata, offset to doc body) from the iterator.
+ * Get item metadata only (key, metadata, offset to doc body) from the iterator.
  * Note that the parameter 'doc' should be set to NULL before passing it
  * to this API if the API caller wants a fdb_doc instance to be created and
  * returned by this API.
@@ -481,8 +481,8 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc);
  * @param iterator Pointer to the iterator.
  * @param seek_key Pointer to the key to seek to.
  * @param seek_keylen Length of the seek_key
- * @param direction Specifies which key to return if seek_key does not exist
- *                  default value of 0 indicates FDB_ITR_SEEK_HIGHER
+ * @param direction Specifies which key to return if seek_key does not exist.
+ *        Default value of 0 indicates FDB_ITR_SEEK_HIGHER
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
@@ -612,6 +612,31 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
                                  fdb_kvs_name_list *kvs_name_list);
 
 /**
+ * Return all the snapshot markers in a given database file.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param markers Pointer to the allocated array of snapshot_info instances
+ *                that correspond to each of the commit markers in a file.
+ * @param size Number of elements of the markers that are allocated.
+ * @return file i/o or other on failure, FDB_RESULT_SUCCESS if successful.
+ *
+ */
+LIBFDB_API
+fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
+                                    fdb_snapshot_info_t **markers,
+                                    uint64_t *size);
+/**
+ * Free a kv snapshot_info array allocated by fdb_get_all_snap_markers API.
+ *
+ * @param markers Pointer to a KV snapshot_info array that is allocated by
+ *        fdb_get_all_snap_markers API.
+ * @param size Number of elements in above array.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size);
+
+/**
  * Free a KV store name list.
  *
  * @param kvs_name_list Pointer to a KV store name list to be freed.
@@ -656,9 +681,7 @@ fdb_status fdb_close(fdb_file_handle *fhandle);
  * including current and past versions of the file.
  * Note that all handles on the file should be closed through fdb_close
  * calls before calling this API.
- * @param filename - the file path that needs to be destroyed
- * @param fconfig  - the forestdb configuration to determine
- *                   error log callbacks, manual/auto compaction etc
+ *
  * NOTE: If manual compaction is being used, fdb_destroy() is best-effort only
  *       and must be called with the correct filename
  * Reason for best-effort in manual compaction case:
@@ -666,6 +689,9 @@ fdb_status fdb_close(fdb_file_handle *fhandle);
  * (In above case, FileB cannot be destroyed as its info is not
  *  reachable from file path "FileC", api will wipe out FileA, FileC and FileD)
  *
+ * @param filename The file path that needs to be destroyed
+ * @param fconfig  The forestdb configuration to determine
+ *        error log callbacks, manual/auto compaction etc
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API

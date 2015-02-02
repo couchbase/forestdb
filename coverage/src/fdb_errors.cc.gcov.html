@@ -31,13 +31,13 @@
             <td class="headerValue">coverage.info.cleaned</td>
             <td></td>
             <td class="headerItem">Lines:</td>
-            <td class="headerCovTableEntry">39</td>
-            <td class="headerCovTableEntry">39</td>
+            <td class="headerCovTableEntry">40</td>
+            <td class="headerCovTableEntry">40</td>
             <td class="headerCovTableEntryHi">100.0 %</td>
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-01-28 09:11:22</td>
+            <td class="headerValue">2015-02-02 13:09:40</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">1</td>
@@ -49,8 +49,8 @@
             <td></td>
             <td></td>
             <td class="headerItem">Branches:</td>
-            <td class="headerCovTableEntry">37</td>
-            <td class="headerCovTableEntry">37</td>
+            <td class="headerCovTableEntry">38</td>
+            <td class="headerCovTableEntry">38</td>
             <td class="headerCovTableEntryHi">100.0 %</td>
           </tr>
           <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
@@ -90,16 +90,16 @@
 <span class="lineNum">      19 </span>                :            : #include &quot;libforestdb/forestdb.h&quot;
 <a name="20"><span class="lineNum">      20 </span>                :            : </a>
 <span class="lineNum">      21 </span>                :            : LIBFDB_API
-<span class="lineNum">      22 </span>                :<span class="lineCov">         42 : const char* fdb_error_msg(fdb_status err_code)</span>
+<span class="lineNum">      22 </span>                :<span class="lineCov">         43 : const char* fdb_error_msg(fdb_status err_code)</span>
 <span class="lineNum">      23 </span>                :            : {
-<span class="lineNum">      24 </span>  [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span><span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span> :<span class="lineCov">         42 :     switch (err_code)</span>
+<span class="lineNum">      24 </span>  [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span><span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span> :<span class="lineCov">         43 :     switch (err_code)</span>
 <span class="lineNum">         </span><span class="branchCov" title="Branch 4 was taken 1 time"> + </span><span class="branchCov" title="Branch 5 was taken 1 time"> + </span><span class="branchCov" title="Branch 6 was taken 1 time"> + </span><span class="branchCov" title="Branch 7 was taken 1 time"> + </span><span class="branchCov" title="Branch 8 was taken 1 time"> + </span> 
 <span class="lineNum">         </span><span class="branchCov" title="Branch 9 was taken 2 times"> + </span><span class="branchCov" title="Branch 10 was taken 2 times"> + </span><span class="branchCov" title="Branch 11 was taken 1 time"> + </span><span class="branchCov" title="Branch 12 was taken 1 time"> + </span><span class="branchCov" title="Branch 13 was taken 1 time"> + </span> 
 <span class="lineNum">         </span><span class="branchCov" title="Branch 14 was taken 1 time"> + </span><span class="branchCov" title="Branch 15 was taken 1 time"> + </span><span class="branchCov" title="Branch 16 was taken 1 time"> + </span><span class="branchCov" title="Branch 17 was taken 1 time"> + </span><span class="branchCov" title="Branch 18 was taken 1 time"> + </span> 
 <span class="lineNum">         </span><span class="branchCov" title="Branch 19 was taken 1 time"> + </span><span class="branchCov" title="Branch 20 was taken 2 times"> + </span><span class="branchCov" title="Branch 21 was taken 1 time"> + </span><span class="branchCov" title="Branch 22 was taken 1 time"> + </span><span class="branchCov" title="Branch 23 was taken 1 time"> + </span> 
 <span class="lineNum">         </span><span class="branchCov" title="Branch 24 was taken 1 time"> + </span><span class="branchCov" title="Branch 25 was taken 1 time"> + </span><span class="branchCov" title="Branch 26 was taken 1 time"> + </span><span class="branchCov" title="Branch 27 was taken 1 time"> + </span><span class="branchCov" title="Branch 28 was taken 1 time"> + </span> 
 <span class="lineNum">         </span><span class="branchCov" title="Branch 29 was taken 1 time"> + </span><span class="branchCov" title="Branch 30 was taken 1 time"> + </span><span class="branchCov" title="Branch 31 was taken 1 time"> + </span><span class="branchCov" title="Branch 32 was taken 1 time"> + </span><span class="branchCov" title="Branch 33 was taken 1 time"> + </span> 
-<span class="lineNum">         </span>      <span class="branchCov" title="Branch 34 was taken 1 time"> + </span><span class="branchCov" title="Branch 35 was taken 1 time"> + </span><span class="branchCov" title="Branch 36 was taken 1 time"> + </span>]
+<span class="lineNum">         </span>   <span class="branchCov" title="Branch 34 was taken 1 time"> + </span><span class="branchCov" title="Branch 35 was taken 1 time"> + </span><span class="branchCov" title="Branch 36 was taken 1 time"> + </span><span class="branchCov" title="Branch 37 was taken 1 time"> + </span>]
 <span class="lineNum">      25 </span>                :            :     {
 <span class="lineNum">      26 </span>                :            :         case FDB_RESULT_SUCCESS:
 <span class="lineNum">      27 </span>                :<span class="lineCov">          2 :             return &quot;success&quot;;</span>
@@ -209,10 +209,13 @@
 <span class="lineNum">     131 </span>                :            :         case FDB_RESULT_IN_USE_BY_COMPACTOR:
 <span class="lineNum">     132 </span>                :<span class="lineCov">          1 :             return &quot;file is in use by compactor, retry later&quot;;</span>
 <span class="lineNum">     133 </span>                :            : 
-<span class="lineNum">     134 </span>                :            :         default:
-<span class="lineNum">     135 </span>                :<span class="lineCov">         42 :             return &quot;unknown error&quot;;</span>
-<span class="lineNum">     136 </span>                :            :     }
-<span class="lineNum">     137 </span>                :            : }
+<span class="lineNum">     134 </span>                :            :         case FDB_RESULT_FILE_NOT_OPEN:
+<span class="lineNum">     135 </span>                :<span class="lineCov">          1 :             return &quot;this operations needs an opened file handle&quot;;</span>
+<span class="lineNum">     136 </span>                :            : 
+<span class="lineNum">     137 </span>                :            :         default:
+<span class="lineNum">     138 </span>                :<span class="lineCov">         43 :             return &quot;unknown error&quot;;</span>
+<span class="lineNum">     139 </span>                :            :     }
+<span class="lineNum">     140 </span>                :            : }
 </pre>
       </td>
     </tr>

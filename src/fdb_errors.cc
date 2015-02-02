@@ -131,6 +131,9 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_IN_USE_BY_COMPACTOR:
             return "file is in use by compactor, retry later";
 
+        case FDB_RESULT_FILE_NOT_OPEN:
+            return "this operations needs an opened file handle";
+
         default:
             return "unknown error";
     }

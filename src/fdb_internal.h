@@ -138,6 +138,8 @@ struct kvs_header;
 void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
                                void *data, size_t len);
+fdb_status _fdb_kvs_get_snap_info(void *data,
+                                  fdb_snapshot_info_t *snap_info);
 void _fdb_kvs_header_free(struct kvs_header *kv_header);
 fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
                                     fdb_kvs_id_t id);

@@ -479,6 +479,45 @@ typedef struct {
     char **kvs_names;
 } fdb_kvs_name_list;
 
+/**
+ * Persisted Snapshot Marker in file (Sequence number + KV Store name)
+ */
+typedef struct {
+    /**
+     * NULL-terminated KV Store name.
+     */
+    char *kv_store_name;
+    /**
+     * A Sequence number of the above KV store, which results from an
+     * fdb_commit operation.
+     */
+    fdb_seqnum_t seqnum;
+} fdb_kvs_commit_marker_t;
+
+/**
+ * An opaque file-level snapshot marker that can be used to purge
+ * stale data up to a given file-level snapshot marker.
+*/
+typedef uint64_t fdb_snapshot_marker_t;
+
+/**
+ * Snapshot Information structure for a ForestDB database file.
+ */
+typedef struct {
+    /**
+     * Opaque file-level snapshot marker that can be passed to
+     * fdb_compact_upto() api.
+     */
+    fdb_snapshot_marker_t marker;
+    /**
+     * Number of KV store snapshot markers in the kvs_markers array.
+     */
+    int64_t num_kvs_markers;
+    /**
+     * Pointer to an array of {kv_store_name, committed_seqnum} pairs.
+     */
+    fdb_kvs_commit_marker_t *kvs_markers;
+} fdb_snapshot_info_t;
 
 #ifdef __cplusplus
 }

@@ -673,6 +673,62 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     spin_unlock(&kv_header->lock);
 }
 
+fdb_status _fdb_kvs_get_snap_info(void *data,
+                                  fdb_snapshot_info_t *snap_info)
+{
+    int i, offset = 0, sizeof_skipped_segments;
+    uint16_t name_len, _name_len;
+    int64_t n_kv, _n_kv;
+    fdb_seqnum_t _seqnum;
+
+    // # KV instances
+    memcpy(&_n_kv, (uint8_t*)data + offset, sizeof(_n_kv));
+    offset += sizeof(_n_kv);
+    n_kv = _endian_decode(_n_kv);
+    assert(n_kv); // Must have at least one kv instance
+    snap_info->kvs_markers = (fdb_kvs_commit_marker_t *)malloc(
+                                   (n_kv) * sizeof(fdb_kvs_commit_marker_t));
+    if (!snap_info->kvs_markers) { // LCOV_EXCL_START
+        return FDB_RESULT_ALLOC_FAIL;
+    } // LCOV_EXCL_STOP
+
+    snap_info->num_kvs_markers = n_kv;
+
+    // Skip over ID counter
+    offset += sizeof(fdb_kvs_id_t);
+
+    sizeof_skipped_segments = sizeof(uint64_t) // seqnum will be the last read
+                            + sizeof(uint64_t) // skip over nlivenodes
+                            + sizeof(uint64_t) // skip over ndocs
+                            + sizeof(uint64_t) // skip over datasize
+                            + sizeof(uint64_t); // skip over flags
+
+    for (i = 0; i < n_kv; ++i){
+        fdb_kvs_commit_marker_t *info = &snap_info->kvs_markers[i];
+        // Read the kv store name length
+        memcpy(&_name_len, (uint8_t*)data + offset, sizeof(_name_len));
+        offset += sizeof(_name_len);
+        name_len = _endian_decode(_name_len);
+
+        // Retrieve the KV Store name
+        info->kv_store_name = (char *)malloc(name_len); // TODO: cleanup if err
+        memcpy(info->kv_store_name, (uint8_t*)data + offset, name_len);
+        offset += name_len;
+
+        // Skip over KV ID
+        offset += sizeof(uint64_t);
+
+        // Retrieve the KV Store Commit Sequence number
+        memcpy(&_seqnum, (uint8_t*)data + offset, sizeof(_seqnum));
+        info->seqnum = _endian_decode(_seqnum);
+
+        // Skip over seqnum, nlivenodes, ndocs, datasize and flags onto next..
+        offset += sizeof_skipped_segments;
+    }
+
+    return FDB_RESULT_SUCCESS;
+}
+
 uint64_t fdb_kvs_header_append(struct filemgr *file,
                                   struct docio_handle *dhandle)
 {
