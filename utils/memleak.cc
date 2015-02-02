@@ -209,7 +209,9 @@ void _memleak_add_to_index(void *addr, size_t size, char *file, size_t line, uin
     item->line = line;
     item->size = size;
 #ifdef INIT_VAL
-    memset(addr, init_val, size);
+    if (init_val == INIT_VAL) {
+        memset(addr, init_val, size);
+    }
 #endif
 #ifdef _STACK_BACKTRACE
     void *temp_stack[256];
@@ -360,7 +362,7 @@ void *memleak_realloc(void *ptr, size_t size)
             DBG("realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n",
                 item->addr, item->file, item->line, item->size, (uint64_t)addr, size);
             avl_remove(&tree_index, a);
-            _memleak_add_to_index(addr, size, item->file, item->line, INIT_VAL);
+            _memleak_add_to_index(addr, size, item->file, item->line, 0);
 #ifdef _STACK_BACKTRACE
             free(item->btrace);
 #endif
