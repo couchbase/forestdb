@@ -228,6 +228,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     uint64_t last_wal_flush_hdr_bid = handle->last_wal_flush_hdr_bid;
     uint64_t hdr_off = hdr_bid * FDB_BLOCKSIZE;
     uint64_t offset = 0; //assume everything from first block needs restoration
+    err_log_callback *log_callback;
 
     if (!hdr_off) { // Nothing to do if we don't have a header block offset
         return;
@@ -250,7 +251,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     // Temporarily disable the error logging callback as there are false positive
     // checksum errors in docio_read_doc.
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.
-    err_log_callback *log_callback = handle->dhandle->log_callback;
+    log_callback = handle->dhandle->log_callback;
     handle->dhandle->log_callback = NULL;
 
     for (; offset < hdr_off;
@@ -784,8 +785,8 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
 }
 
 LIBFDB_API
-fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_handle,
-                             fdb_seqnum_t seqnum)
+fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
+                             fdb_kvs_handle **ptr_handle, fdb_seqnum_t seqnum)
 {
 #ifdef _MEMPOOL
     mempool_init();
@@ -860,7 +861,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in, fdb_kvs_handle **ptr_han
     // If cloning an existing snapshot handle, then rewind indexes
     // to its last DB header and point its avl tree to existing snapshot's tree
     if (handle_in->shandle) {
-        handle->last_hdr_bid = handle_in->last_hdr_bid;
+        handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
         if (snap_clone(handle_in->shandle, handle_in->max_seqnum,
                    &handle->shandle, seqnum) == FDB_RESULT_SUCCESS) {
             handle->max_seqnum = FDB_SNAPSHOT_INMEM; // temp value to skip WAL
@@ -987,11 +988,12 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     // If compaction is running, wait until it is aborted.
     // TODO: Find a better way of waiting for the compaction abortion.
     unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fstatus;
-    while ((fstatus = filemgr_get_file_status(handle_in->file)) == FILE_COMPACT_OLD) {
+    file_status_t fstatus = filemgr_get_file_status(handle_in->file);
+    while (fstatus == FILE_COMPACT_OLD || fstatus == FILE_COMPACT_INPROG) {
         filemgr_mutex_unlock(handle_in->file);
         decaying_usleep(&sleep_time, 1000000);
         filemgr_mutex_lock(handle_in->file);
+        fstatus = filemgr_get_file_status(handle_in->file);
     }
     if (fstatus == FILE_REMOVED_PENDING) {
         filemgr_mutex_unlock(handle_in->file);
@@ -2667,6 +2669,7 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
     bool txn_enabled = false;
     bool sub_handle = false;
     bool wal_flushed = false;
+    file_status_t fstatus;
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_status wr = FDB_RESULT_SUCCESS;
 
@@ -2733,8 +2736,10 @@ fdb_set_start:
         dhandle = handle->new_dhandle;
     }
 
-    if (!(file->status == FILE_NORMAL ||
-          file->status == FILE_COMPACT_NEW)) {
+    fstatus = file->status;
+    if (!(fstatus == FILE_NORMAL ||
+          fstatus == FILE_COMPACT_NEW ||
+          fstatus == FILE_COMPACT_INPROG)) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);
@@ -3305,7 +3310,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
     if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
-        earliest_txn = wal_earliest_txn(handle->file, &handle->file->global_txn);
+        earliest_txn = wal_earliest_txn(handle->file,
+                                        &handle->file->global_txn);
         if (earliest_txn) {
             // there exists other transaction that is not committed yet
             if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
@@ -3365,13 +3371,190 @@ INLINE int _fdb_cmp_uint64_t(const void *key1, const void *key2)
 #endif
 }
 
+static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
+                                     bid_t start_bid,
+                                     bid_t stop_bid,
+                                     struct filemgr *new_file,
+                                     struct hbtrie *new_trie,
+                                     struct btree *new_idtree,
+                                     struct hbtrie *new_seqtrie,
+                                     struct btree *new_seqtree,
+                                     struct docio_handle *new_dhandle,
+                                     struct btreeblk_handle *new_bhandle)
+{
+    struct timeval tv;
+    fdb_kvs_handle new_handle;
+    timestamp_t cur_timestamp;
+    uint32_t blocksize = handle->file->blocksize;
+    uint64_t offset; // starting point
+    uint64_t new_offset;
+    uint64_t stop_offset = stop_bid * blocksize; // stopping point
+    uint64_t n_moved_docs = 0;
+    err_log_callback *log_callback;
+    fdb_status fs = FDB_RESULT_SUCCESS;
+
+    if (start_bid == BLK_NOT_FOUND || start_bid == stop_bid) {
+        return fs;
+    } else {
+        offset = (start_bid + 1) * blocksize;
+    }
+
+    gettimeofday(&tv, NULL);
+    cur_timestamp = tv.tv_sec;
+
+    // TODO: Need to adapt docio_read_doc to separate false checksum errors.
+    log_callback = handle->dhandle->log_callback;
+    handle->dhandle->log_callback = NULL;
+
+    for (; offset < stop_offset;
+        offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
+        if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
+            continue;
+        } else {
+            do {
+                fdb_doc wal_doc;
+                uint8_t deleted;
+                struct docio_object doc;
+                uint64_t _offset;
+                memset(&doc, 0, sizeof(doc));
+                _offset = docio_read_doc(handle->dhandle, offset, &doc);
+                if (!doc.key && !(doc.length.flag & DOCIO_TXN_COMMITTED)) {
+                    // No more documents in this block, break go to next block
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
+                    offset = _offset;
+                    break;
+                }
+                // check if the doc is transactional or not, and
+                // also check if the doc contains system info
+                if (doc.length.flag & DOCIO_TXN_DIRTY ||
+                    doc.length.flag & DOCIO_SYSTEM) {
+                    // skip transactional document or system document
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
+                    offset = _offset;
+                    continue;
+                    // do not break.. read next doc
+                }
+                if (doc.length.flag & DOCIO_TXN_COMMITTED) {
+                    // commit mark .. read the previously skipped doc
+                    docio_read_doc(handle->dhandle, doc.doc_offset, &doc);
+                    if (doc.key == NULL) { // doc read error
+                        free(doc.meta);
+                        free(doc.body);
+                        offset = _offset;
+                        continue;
+                    }
+                }
+
+                // If a rollback was requested on this file, skip
+                // any db items written past the rollback point
+                if (!handle->kvs) {
+                    if (doc.seqnum > handle->seqnum) {
+                        free(doc.key);
+                        free(doc.meta);
+                        free(doc.body);
+                        offset = _offset;
+                        continue;
+                    }
+                } else {
+                    // check seqnum before insert
+                    fdb_kvs_id_t kv_id;
+                    fdb_seqnum_t kv_seqnum;
+                    buf2kvid(handle->config.chunksize, doc.key, &kv_id);
+
+                    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                        kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
+                    } else {
+                        kv_seqnum = SEQNUM_NOT_USED;
+                    }
+                    // Only pick up items written before any rollback
+                    if (doc.seqnum > kv_seqnum) {
+                        free(doc.key);
+                        free(doc.meta);
+                        free(doc.body);
+                        offset = _offset;
+                        continue;
+                    }
+                }
+                // compare timestamp
+                // Do not re-write the document to new file if
+                // 1. the document is deleted OR
+                // 2. the document is not logically deleted but
+                //    its timestamp is overdue
+                deleted = doc.length.flag & DOCIO_DELETED;
+                if (deleted && cur_timestamp >= doc.timestamp
+                                + handle->config.purging_interval) {
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
+                    offset = _offset;
+                    continue;
+                }
+                // Re-Write Document to the new file
+                new_offset = docio_append_doc(new_dhandle, &doc, deleted, 0);
+                if (new_offset == BLK_NOT_FOUND) {
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
+                    return FDB_RESULT_WRITE_FAIL;
+                }
+
+                // Restore the document into the WAL section of new file..
+                wal_doc.keylen = doc.length.keylen;
+                wal_doc.metalen = doc.length.metalen;
+                wal_doc.bodylen = doc.length.bodylen;
+                wal_doc.key = doc.key;
+                wal_doc.meta = doc.meta;
+                wal_doc.seqnum = doc.seqnum;
+                wal_doc.deleted = deleted;
+                wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
+
+                wal_insert(&new_file->global_txn,
+                        new_file, &wal_doc, new_offset, 1);
+                n_moved_docs++;
+                free(doc.key);
+                free(doc.meta);
+                free(doc.body);
+                offset = _offset;
+            } while (offset + sizeof(struct docio_length) < stop_offset);
+        }
+    }
+    // wal flush into new file so all documents are reflected in its main index
+    if (n_moved_docs) {
+        struct avl_tree flush_items;
+        new_handle = *handle;
+        new_handle.file = new_file;
+        new_handle.trie = new_trie;
+        new_handle.idtree = new_idtree;
+        if (handle->kvs) {
+            new_handle.seqtrie = new_seqtrie;
+        } else {
+            new_handle.seqtree = new_seqtree;
+        }
+        new_handle.dhandle = new_dhandle;
+        new_handle.bhandle = new_bhandle;
+
+        wal_flush_by_compactor(new_file, (void*)&new_handle,
+                               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
+                               &flush_items);
+        wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+        wal_release_flushed_items(new_file, &flush_items);
+    }
+
+    return fs;
+}
+
 static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                          struct filemgr *new_file,
                                          struct hbtrie *new_trie,
                                          struct btree *new_idtree,
                                          struct btree *new_seqtree,
                                          struct docio_handle *new_dhandle,
-                                         struct btreeblk_handle *new_bhandle)
+                                         struct btreeblk_handle *new_bhandle,
+                                         bool got_lock)
 {
     uint8_t deleted;
     uint64_t offset;
@@ -3446,7 +3629,9 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     docio_read_doc(handle->dhandle, offset, &doc[j-i]);
                 }
 
-                filemgr_mutex_lock(new_file);
+                if (!got_lock) {
+                    filemgr_mutex_lock(new_file);
+                }
                 for(j=i; j<MIN(c, i+FDB_COMPACTION_BATCHSIZE); ++j){
                     // compare timestamp
                     deleted = doc[j-i].length.flag & DOCIO_DELETED;
@@ -3481,7 +3666,9 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     free(doc[j-i].meta);
                     free(doc[j-i].body);
                 }
-                filemgr_mutex_unlock(new_file);
+                if (!got_lock) {
+                    filemgr_mutex_unlock(new_file);
+                }
             }
             // reset to zero
             c=0;
@@ -3546,32 +3733,13 @@ static uint64_t _fdb_doc_move(void *dbhandle,
     return new_offset;
 }
 
-fdb_status fdb_compact_file(fdb_file_handle *fhandle,
-                            const char *new_filename,
-                            bool in_place_compaction)
+fdb_status _fdb_compact_file_checks(fdb_kvs_handle *handle,
+                                    const char *new_filename)
 {
-    struct filemgr *new_file, *old_file;
-    struct filemgr_config fconfig;
-    struct btreeblk_handle *new_bhandle;
-    struct docio_handle *new_dhandle;
-    struct hbtrie *new_trie = NULL;
-    struct btree *new_idtree = NULL;
-    struct btree *new_seqtree = NULL, *old_seqtree;
-    struct hbtrie *new_seqtrie = NULL;
-    struct avl_tree flush_items;
-    char *old_filename = NULL;
-    size_t old_filename_len = 0;
-    fdb_kvs_handle *handle = fhandle->root;
-    fdb_seqnum_t seqnum;
-
-    // prevent update to the target file
-    filemgr_mutex_lock(handle->file);
-
     // if the file is already compacted by other thread
     if (filemgr_get_file_status(handle->file) != FILE_NORMAL ||
         handle->new_file || handle->file->new_file) {
         // update handle and return
-        filemgr_mutex_unlock(handle->file);
         fdb_check_file_reopen(handle, NULL);
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
@@ -3582,27 +3750,90 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     if (handle->kvs) {
         if (handle->kvs->type == KVS_SUB) {
             // deny compaction on sub handle
-            filemgr_mutex_unlock(handle->file);
             return FDB_RESULT_INVALID_HANDLE;
         }
     }
 
     // invalid filename
     if (!new_filename) {
-        filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_INVALID_ARGS;
     }
     if (strlen(new_filename) > FDB_MAX_FILENAME_LEN - 8) {
-        filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_TOO_LONG_FILENAME;
     }
     if (!strcmp(new_filename, handle->file->filename)) {
-        filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_INVALID_ARGS;
     }
     if (filemgr_is_rollback_on(handle->file)) {
-        filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
+    return FDB_RESULT_SUCCESS;
+}
+
+static void _fdb_cleanup_compact_err(fdb_kvs_handle *handle,
+                                     struct filemgr *new_file,
+                                     bool cleanup_cache,
+                                     bool got_lock,
+                                     struct btreeblk_handle *new_bhandle,
+                                     struct docio_handle *new_dhandle,
+                                     struct hbtrie *new_trie,
+                                     struct hbtrie *new_seqtrie,
+                                     struct btree *new_seqtree)
+{
+    filemgr_set_compaction_state(new_file, NULL, FILE_REMOVED_PENDING);
+    if (got_lock) {
+        filemgr_mutex_unlock(new_file);
+    }
+    filemgr_close(new_file, cleanup_cache, new_file->filename,
+                  &handle->log_callback);
+    // Free all the resources allocated in this function.
+    btreeblk_free(new_bhandle);
+    free(new_bhandle);
+    docio_free(new_dhandle);
+    free(new_dhandle);
+    hbtrie_free(new_trie);
+    free(new_trie);
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        if (handle->kvs) {
+            hbtrie_free(new_seqtrie);
+            free(new_seqtrie);
+        } else {
+            free(new_seqtree);
+        }
+    }
+}
+
+fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
+                             struct filemgr *new_file,
+                             struct btreeblk_handle *new_bhandle,
+                             struct docio_handle *new_dhandle,
+                             struct hbtrie *new_trie,
+                             struct hbtrie *new_seqtrie,
+                             struct btree *new_seqtree);
+
+
+fdb_status fdb_compact_file(fdb_file_handle *fhandle,
+                            const char *new_filename,
+                            bool in_place_compaction)
+{
+    struct filemgr *new_file;
+    struct filemgr_config fconfig;
+    struct btreeblk_handle *new_bhandle;
+    struct docio_handle *new_dhandle;
+    struct hbtrie *new_trie = NULL;
+    struct btree *new_seqtree = NULL, *old_seqtree;
+    struct hbtrie *new_seqtrie = NULL;
+    fdb_kvs_handle *handle = fhandle->root;
+    fdb_status status;
+
+    // prevent update to the target file
+    filemgr_mutex_lock(handle->file);
+
+    status = _fdb_compact_file_checks(handle, new_filename);
+    if (status != FDB_RESULT_SUCCESS) {
+        filemgr_mutex_unlock(handle->file);
+        return status;
     }
 
     // sync handle
@@ -3637,17 +3868,6 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     filemgr_set_in_place_compaction(new_file, in_place_compaction);
     // prevent update to the new_file
     filemgr_mutex_lock(new_file);
-
-    // sync dirty root nodes
-    bid_t dirty_idtree_root, dirty_seqtree_root;
-    filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-    if (dirty_idtree_root != BLK_NOT_FOUND) {
-        handle->trie->root_bid = dirty_idtree_root;
-    }
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-        dirty_seqtree_root != BLK_NOT_FOUND) {
-        handle->seqtree->root_bid = dirty_seqtree_root;
-    }
 
     // create new hb-trie and related handles
     new_bhandle = (struct btreeblk_handle *)calloc(1, sizeof(struct btreeblk_handle));
@@ -3688,6 +3908,30 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                        old_seqtree->blksize, old_seqtree->ksize,
                        old_seqtree->vsize, 0x0, NULL);
         }
+    }
+
+    return _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
+                             new_trie, new_seqtrie, new_seqtree);
+}
+
+fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
+                             struct filemgr *new_file,
+                             struct btreeblk_handle *new_bhandle,
+                             struct docio_handle *new_dhandle,
+                             struct hbtrie *new_trie,
+                             struct hbtrie *new_seqtrie,
+                             struct btree *new_seqtree)
+
+{
+    struct avl_tree flush_items;
+    char *old_filename = NULL;
+    size_t old_filename_len = 0;
+    struct filemgr *old_file;
+    struct btree *new_idtree = NULL;
+    bid_t dirty_idtree_root, dirty_seqtree_root;
+    fdb_seqnum_t seqnum;
+
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // copy old file's seqnum to new file
         // (KV instances' seq numbers will be copied along with KV header)
         seqnum = filemgr_get_seqnum(handle->file);
@@ -3697,6 +3941,17 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     if (handle->kvs) {
         // multi KV instance mode .. copy KV header data to new file
         fdb_kvs_header_copy(handle, new_file, new_dhandle);
+    }
+
+    // sync dirty root nodes
+    filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
+                           &dirty_seqtree_root);
+    if (dirty_idtree_root != BLK_NOT_FOUND) {
+        handle->trie->root_bid = dirty_idtree_root;
+    }
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+        dirty_seqtree_root != BLK_NOT_FOUND) {
+        handle->seqtree->root_bid = dirty_seqtree_root;
     }
 
     // flush WAL and set DB header
@@ -3723,25 +3978,10 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     wal_release_flushed_items(handle->file, &flush_items);
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
-        filemgr_set_compaction_state(new_file, NULL, FILE_REMOVED_PENDING);
         filemgr_mutex_unlock(handle->file);
-        filemgr_mutex_unlock(new_file);
-        filemgr_close(new_file, true, new_filename, &handle->log_callback);
-        // Free all the resources allocated in this function.
-        btreeblk_free(new_bhandle);
-        free(new_bhandle);
-        docio_free(new_dhandle);
-        free(new_dhandle);
-        hbtrie_free(new_trie);
-        free(new_trie);
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-            if (handle->kvs) {
-                hbtrie_free(new_seqtrie);
-                free(new_seqtrie);
-            } else {
-                free(new_seqtree);
-            }
-        }
+        _fdb_cleanup_compact_err(handle, new_file, true, true, new_bhandle,
+                                 new_dhandle, new_trie, new_seqtrie,
+                                 new_seqtree);
         return fs;
     }
 
@@ -3757,31 +3997,19 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     if (handle->kvs) {
         fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
                                     (struct btree*)new_seqtrie, new_dhandle,
-                                    new_bhandle);
+                                    new_bhandle, false /* not got file lock*/);
     } else {
-        fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree, new_seqtree,
-                                    new_dhandle, new_bhandle);
+        fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
+                                    new_seqtree, new_dhandle, new_bhandle,
+                                    false /*not holding file lock*/);
     }
 
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
-        filemgr_set_compaction_state(new_file, NULL, FILE_REMOVED_PENDING);
-        filemgr_close(new_file, false, new_filename, &handle->log_callback);
-        // Free all the resources allocated in this function.
-        btreeblk_free(new_bhandle);
-        free(new_bhandle);
-        docio_free(new_dhandle);
-        free(new_dhandle);
-        hbtrie_free(new_trie);
-        free(new_trie);
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-            if (handle->kvs) {
-                hbtrie_free(new_seqtrie);
-                free(new_seqtrie);
-            } else {
-                free(new_seqtree);
-            }
-        }
+
+        _fdb_cleanup_compact_err(handle, new_file, false, false, new_bhandle,
+                                 new_dhandle, new_trie, new_seqtrie,
+                                 new_seqtree);
         return fs;
     }
 
@@ -3864,6 +4092,362 @@ fdb_status fdb_compact(fdb_file_handle *fhandle,
         (void)ret;
         return fs;
     }
+}
+
+fdb_status fdb_compact_file_upto(fdb_file_handle *fhandle,
+                                 const char *new_filename,
+                                 bool in_place_compaction,
+                                 bid_t marker)
+{
+    struct filemgr *new_file = NULL;
+    struct filemgr_config fconfig;
+    struct btreeblk_handle *new_bhandle;
+    struct docio_handle *new_dhandle;
+    struct hbtrie *new_trie = NULL;
+    struct btree *new_idtree = NULL;
+    struct btree *new_seqtree = NULL;
+    struct hbtrie *new_seqtrie = NULL;
+    fdb_kvs_handle *rhandle = fhandle->root;
+    size_t header_len = 0;
+    bid_t last_hdr_bid;
+    bid_t latest_hdr_bid;
+    int hdr_array_len;
+    int hdr_idx;
+    fdb_seqnum_t seqnum;
+    struct hdr_info_t {
+        bid_t bid;
+        fdb_seqnum_t _seqnum;
+    } *hdr_info;
+    err_log_callback *log_callback = &rhandle->log_callback;
+    bool got_lock = true;
+    fdb_status fs;
+
+    // Grab locks only for error checks..
+    filemgr_mutex_lock(rhandle->file);
+    fs = _fdb_compact_file_checks(rhandle, new_filename);
+    if (fs != FDB_RESULT_SUCCESS) {
+        filemgr_mutex_unlock(rhandle->file);
+        return fs;
+    }
+
+    hdr_info = (struct hdr_info_t *) malloc(sizeof(struct hdr_info_t));
+    hdr_array_len = 1;
+
+catch_up_compaction:
+    // sync handle
+    fdb_sync_db_header(rhandle);
+    last_hdr_bid = filemgr_get_header_bid(rhandle->file);
+    hdr_idx = 0;
+    hdr_info[0].bid = last_hdr_bid;
+    // Also cache the seqnums since these values need to be migrated from the
+    // old_file to the new_file if we are in single KV instance mode compaction
+    hdr_info[0]._seqnum = filemgr_get_seqnum(rhandle->file);
+
+    if (marker < hdr_info[hdr_idx].bid) {
+        // Mark the current file as compaction_inprog so that any other calls
+        // attempting to compact this file will fail
+        filemgr_update_file_status(rhandle->file, FILE_COMPACT_INPROG, NULL);
+        // Allow mutations to happen on old file while compaction is in-prog
+        // This means new headers may be created between now and the calls below
+        filemgr_mutex_unlock(rhandle->file);
+        got_lock = false;
+    }
+    while (marker < hdr_info[hdr_idx].bid) {
+        bid_t prev_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
+                              hdr_info[hdr_idx].bid, NULL, &header_len,
+                              &seqnum, log_callback);
+        if (!header_len) { // LCOV_EXCL_START
+            free(hdr_info);
+            return FDB_RESULT_READ_FAIL;
+        } // LCOV_EXCL_STOP
+
+        ++hdr_idx;
+        if (hdr_idx >= hdr_array_len) { // grow the vector of header bids
+            hdr_array_len *= 2;
+            hdr_info = (struct hdr_info_t *) realloc(hdr_info,
+                                    hdr_array_len * sizeof(struct hdr_info_t));
+        }
+        hdr_info[hdr_idx].bid = prev_hdr_bid;
+        // caching the seqnums saves us from an extra DB header fetch call
+        // while migrating docs in single kv instance mode
+        hdr_info[hdr_idx]._seqnum = seqnum;
+        if (prev_hdr_bid < marker) { // gone past the snapshot marker?!
+            free(hdr_info);
+            return FDB_RESULT_NO_DB_INSTANCE;
+        }
+    }
+
+    if (!new_file) { // Do only once - Setup new_file for compaction..
+        // Initial setup for New File
+        fconfig.blocksize = rhandle->config.blocksize;
+        fconfig.ncacheblock = rhandle->config.buffercache_size /
+                              rhandle->config.blocksize;
+        fconfig.chunksize = rhandle->config.chunksize;
+        fconfig.options = FILEMGR_CREATE;
+        fconfig.flag = 0x0;
+        if (rhandle->config.durability_opt & FDB_DRB_ODIRECT) {
+            fconfig.flag |= _ARCH_O_DIRECT;
+        }
+        if (!(rhandle->config.durability_opt & FDB_DRB_ASYNC)) {
+            fconfig.options |= FILEMGR_SYNC;
+        }
+
+        // open new file
+        filemgr_open_result result = filemgr_open((char *)new_filename,
+                                                  rhandle->fileops,
+                                                  &fconfig,
+                                                  log_callback);
+        if (result.rv != FDB_RESULT_SUCCESS) {
+            if (got_lock) {
+                filemgr_mutex_unlock(rhandle->file);
+            }
+            free(hdr_info);
+            return (fdb_status) result.rv;
+        }
+
+        new_file = result.file;
+        assert(new_file);
+
+        filemgr_set_in_place_compaction(new_file, in_place_compaction);
+        // GRAB FILE LOCK: prevent any update to the new_file
+        filemgr_mutex_lock(new_file);
+        // create new hb-trie and related handles
+        new_bhandle = (struct btreeblk_handle *)calloc(1,
+                                               sizeof(struct btreeblk_handle));
+        new_bhandle->log_callback = log_callback;
+        new_dhandle = (struct docio_handle *)calloc(1,
+                                                  sizeof(struct docio_handle));
+        new_dhandle->log_callback = log_callback;
+
+        docio_init(new_dhandle, new_file,
+                   rhandle->config.compress_document_body);
+        btreeblk_init(new_bhandle, new_file, new_file->blocksize);
+
+        new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
+        hbtrie_init(new_trie, rhandle->trie->chunksize, rhandle->trie->valuelen,
+                new_file->blocksize, BLK_NOT_FOUND,
+                (void *)new_bhandle, rhandle->btreeblkops,
+                (void*)new_dhandle, _fdb_readkey_wrap);
+
+        hbtrie_set_leaf_cmp(new_trie, _fdb_custom_cmp_wrap);
+        // set aux
+        new_trie->flag = rhandle->trie->flag;
+        new_trie->leaf_height_limit = rhandle->trie->leaf_height_limit;
+        new_trie->map = rhandle->trie->map;
+
+        if (rhandle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            // if we use sequence number tree
+            if (rhandle->kvs) { // multi KV instance mode
+                new_seqtrie = (struct hbtrie *)calloc(1, sizeof(struct hbtrie));
+
+                hbtrie_init(new_seqtrie, sizeof(fdb_kvs_id_t),
+                        OFFSET_SIZE, new_file->blocksize, BLK_NOT_FOUND,
+                        (void *)new_bhandle, rhandle->btreeblkops,
+                        (void *)new_dhandle, _fdb_readseq_wrap);
+
+            } else {
+                struct btree *old_seqtree;
+                new_seqtree = (struct btree *)calloc(1, sizeof(struct btree));
+                old_seqtree = rhandle->seqtree;
+
+                btree_init(new_seqtree, (void *)new_bhandle,
+                           old_seqtree->blk_ops, old_seqtree->kv_ops,
+                           old_seqtree->blksize, old_seqtree->ksize,
+                           old_seqtree->vsize, 0x0, NULL);
+            }
+        }
+        // Mark new file as newly compacted
+        filemgr_update_file_status(new_file, FILE_COMPACT_NEW, NULL);
+    }
+    // Now we repeat the compaction process from marker header to most recent..
+    for (; hdr_idx; --hdr_idx) {
+        fdb_kvs_handle handle;
+        struct snap_handle shandle;
+        struct kvs_info kvs;
+        fdb_kvs_config kvs_config = rhandle->kvs_config;
+        fdb_config config = rhandle->config;
+        struct filemgr *file = rhandle->file;
+        struct hbtrie *tmp_trie;
+        struct hbtrie *tmp_seqtrie;
+        struct btree *tmp_seqtree;
+        memset(&handle, 0, sizeof(fdb_kvs_handle));
+        memset(&shandle, 0, sizeof(struct snap_handle));
+        memset(&kvs, 0, sizeof(struct kvs_info));
+        // Setup a temporary DB handle to look like a snapshot of the old_file
+        // at the current snapshot marker
+        handle.last_hdr_bid = hdr_info[hdr_idx].bid; // Fast rewind on open
+        handle.max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
+        handle.shandle = &shandle;
+        handle.fhandle = fhandle;
+        if (rhandle->kvs) {
+            handle.kvs = &kvs;
+            _fdb_kvs_init_root(&handle, file);
+        }
+        handle.log_callback = *log_callback;
+
+        config.flags |= FDB_OPEN_FLAG_RDONLY;
+        // do not perform compaction for snapshot
+        config.compaction_mode = FDB_COMPACTION_MANUAL;
+        if (rhandle->kvs) {
+            // sub-handle in multi KV instance mode
+            fs = _fdb_kvs_open(NULL,
+                               &config, &kvs_config, file,
+                               file->filename,
+                               NULL,
+                               &handle);
+        } else {
+            fs = _fdb_open(&handle, file->filename, FDB_AFILENAME, &config);
+        }
+        if (fs != FDB_RESULT_SUCCESS) {
+            free(hdr_info);
+            return fs;
+        }
+
+        if (rhandle->config.seqtree_opt == FDB_SEQTREE_USE) {
+            // Set cached old_file's sequence number into header of new_file
+            // so it gets migrated correctly for the fdb_set_file_header below
+            filemgr_set_seqnum(new_file, hdr_info[hdr_idx]._seqnum);
+        }
+        if (handle.kvs) {
+            // Reset all header stats as we are about to load new data into
+            // the file and do a wal_flush which will update all stats..
+            // copy KV header data in 'handle' to new file
+            fdb_kvs_header_create(new_file);
+            // read from 'handle->dhandle', and import into 'new_file'
+            // This will fetch kvs_name, kv_id of all the instance
+            fdb_kvs_header_read(new_file, handle.dhandle,
+                                handle.kv_info_offset);
+            // Since we are about to migrate all the docs of all kv instance
+            // the stats will be populated at the time of wal_flush, so
+            // for correct stats, ensure that they are reset to 0 first
+            fdb_kvs_header_reset_all_stats(new_file);
+        }
+
+        // Move all docs from old file to new file
+        if (handle.kvs) {
+            fs = _fdb_compact_move_docs(&handle, new_file, new_trie, new_idtree,
+                    (struct btree*)new_seqtrie, new_dhandle,
+                    new_bhandle, true /* already holding new_file lock*/);
+        } else {
+            fs = _fdb_compact_move_docs(&handle, new_file, new_trie, new_idtree,
+                    new_seqtree, new_dhandle, new_bhandle,
+                    true /*already holding new_file lock*/);
+        }
+        if (fs != FDB_RESULT_SUCCESS) {
+            _fdb_cleanup_compact_err(&handle, new_file, true, true, new_bhandle,
+                                     new_dhandle, new_trie, new_seqtrie,
+                                     new_seqtree);
+            free(hdr_info);
+            return fs;
+        }
+        fs = _fdb_move_wal_docs(&handle,
+                                hdr_info[hdr_idx].bid,
+                                hdr_info[hdr_idx -1].bid,
+                                new_file, new_trie, new_idtree,
+                                new_seqtrie, new_seqtree,
+                                new_dhandle,
+                                new_bhandle);
+        if (fs != FDB_RESULT_SUCCESS) {
+            _fdb_cleanup_compact_err(&handle, new_file, true, true, new_bhandle,
+                                     new_dhandle, new_trie, new_seqtrie,
+                                     new_seqtree);
+            free(hdr_info);
+            return fs;
+        }
+        // Set handle's file as new_file
+        handle.file = new_file;
+
+        // Note: Appending KVS header must be done after flushing WAL
+        //       because KVS stats info is updated during WAL flushing.
+        if (handle.kvs) {
+            // multi KV instance mode .. append up-to-date KV header
+            handle.kv_info_offset = fdb_kvs_header_append(new_file,
+                                                          new_dhandle);
+            tmp_seqtrie = handle.seqtrie;
+            handle.seqtrie = new_seqtrie;
+        } else {
+            tmp_seqtree = handle.seqtree;
+            handle.seqtree = new_seqtree;
+        }
+
+        // flush WAL and set DB header
+        wal_commit(&new_file->global_txn, new_file, NULL);
+        wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
+        // Setup current handle to look just like a snapshot of the
+        // old_file except that it is meant for the new_file
+        // This is done so that fdb_set_file_header() will reflect
+        // correct values into the new_file
+        tmp_trie = handle.trie;
+        handle.last_hdr_bid = (new_file->pos) / new_file->blocksize;
+        handle.last_wal_flush_hdr_bid = handle.last_hdr_bid; // WAL was flushed
+        handle.cur_header_revnum = fdb_set_file_header(&handle);
+        btreeblk_end(handle.bhandle);
+
+        // Commit the current file handle to record the compaction filename
+        fdb_status fs = filemgr_commit(handle.file, log_callback);
+        if (fs != FDB_RESULT_SUCCESS) {
+            _fdb_cleanup_compact_err(&handle, new_file, true, true, new_bhandle,
+                                     new_dhandle, new_trie, new_seqtrie,
+                                     new_seqtree);
+            free(hdr_info);
+            return fs;
+        }
+
+        // Restore & close this DB handle with its allocated pointers
+        // to free up the structs allocated by the _fdb_open call
+        handle.file = file;
+        handle.trie = tmp_trie;
+        if (handle.kvs) {
+            handle.seqtrie = tmp_seqtrie;
+            fdb_kvs_header_free(new_file); // it will be recreated if needed
+        } else {
+            handle.seqtree = tmp_seqtree;
+        }
+        handle.shandle = NULL;
+        _fdb_close(&handle);
+    }
+
+    // Re-acquire source file lock if final DB header of compaction..
+    if (marker < hdr_info[hdr_idx].bid) {
+        if (!got_lock) {
+            filemgr_mutex_lock(rhandle->file); // Re-acquire file lock & repeat
+            got_lock = true;
+        }
+        latest_hdr_bid = filemgr_get_header_bid(rhandle->file);
+        if (last_hdr_bid < latest_hdr_bid) {
+            // A new header was written while compaction was still in progress
+            marker = last_hdr_bid; // Set marker to previous latest DB hdr
+            // Need to repeat above steps to catch up to remaining headers
+            goto catch_up_compaction;
+        } // else reached the latest DB header, proceed with regular compaction
+    }
+
+    free(hdr_info);
+    return _fdb_compact_file(rhandle, new_file, new_bhandle, new_dhandle,
+                             new_trie, new_seqtrie, new_seqtree);
+}
+
+LIBFDB_API
+fdb_status fdb_compact_upto(fdb_file_handle *fhandle,
+                            const char *new_filename,
+                            fdb_snapshot_marker_t marker)
+{
+    fdb_kvs_handle *handle = fhandle->root;
+    bool in_place_compaction = false;
+    char nextfile[FDB_MAX_FILENAME_LEN];
+
+    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!new_filename) { // In-place compaction.
+        in_place_compaction = true;
+        compactor_get_next_filename(handle->file->filename, nextfile);
+        new_filename = nextfile;
+    }
+
+    return fdb_compact_file_upto(fhandle, new_filename, in_place_compaction,
+                                 (bid_t)marker);
 }
 
 LIBFDB_API

@@ -768,13 +768,16 @@ char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *
 }
 // LCOV_EXCL_STOP
 
+bid_t _filemgr_get_header_bid(struct filemgr *file)
+{
+    return (file->header.size > 0) ? file->header.bid : BLK_NOT_FOUND;
+}
+
 bid_t filemgr_get_header_bid(struct filemgr *file)
 {
-    bid_t ret = BLK_NOT_FOUND;
+    bid_t ret;
     spin_lock(&file->lock);
-    if (file->header.size > 0) {
-        ret = file->header.bid;
-    }
+    ret = _filemgr_get_header_bid(file);
     spin_unlock(&file->lock);
     return ret;
 }
@@ -935,7 +938,9 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                sizeof(hdr_len), sizeof(hdr_len));
         hdr_len = _endian_decode(hdr_len);
 
-        memcpy(buf, _buf, hdr_len);
+        if (buf) {
+            memcpy(buf, _buf, hdr_len);
+        }
         memcpy(&_revnum, _buf + hdr_len,
                sizeof(filemgr_header_revnum_t));
         memcpy(&_seqnum,
@@ -1826,8 +1831,9 @@ uint64_t filemgr_get_pos(struct filemgr *file)
 
 bool filemgr_is_rollback_on(struct filemgr *file)
 {
+    bool rv;
     spin_lock(&file->lock);
-    bool rv = (file->fflags & FILEMGR_ROLLBACK_IN_PROG);
+    rv = (file->fflags & FILEMGR_ROLLBACK_IN_PROG);
     spin_unlock(&file->lock);
     return rv;
 }

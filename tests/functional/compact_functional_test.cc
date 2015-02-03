@@ -414,6 +414,181 @@ void compact_reopen_named_kvs()
     TEST_RESULT("compact reopen named kvs");
 }
 
+void compact_upto_test(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    int num_kvs = 4; // keep this the same as number of fdb_commit() calls
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+    fdb_snapshot_info_t *markers;
+    fdb_kvs_handle *snapshot;
+    uint64_t num_markers;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    char kv_name[8];
+    char compact_filename[16];
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    if (multi_kv) {
+        for (r = 0; r < num_kvs; ++r) {
+            sprintf(kv_name, "kv%d", r);
+            fdb_kvs_open(dbfile, &db[r], kv_name, &kvs_config);
+        }
+    } else {
+        num_kvs = 1;
+        fdb_kvs_open_default(dbfile, &db[0], &kvs_config);
+    }
+
+   // ------- Setup test ----------------------------------
+   // insert documents of 0-4
+    for (i=0; i<n/4; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 5 - 9
+    for (; i < n/2; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit again without a WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // insert documents from 10-14 into HB-trie
+    for (; i < (n/2 + n/4); i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 15 - 19 on file into the WAL
+    for (; i < n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // commit without a WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                      (void *) "compact_upto_test");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    if (!multi_kv) {
+        TEST_CHK(num_markers == 4);
+        for (r = 0; r < num_markers; ++r) {
+            TEST_CHK(markers[r].num_kvs_markers == 1);
+            TEST_CHK(markers[r].kvs_markers[0].seqnum == (n - r*5));
+        }
+        r = 1; // Test compacting upto sequence number 15
+        sprintf(compact_filename, "dummy_compact%d", r);
+        status = fdb_compact_upto(dbfile, compact_filename,
+                                  markers[r].marker);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        // create a snapshot
+        status = fdb_snapshot_open(db[0], &snapshot,
+                                   markers[r].kvs_markers[0].seqnum);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        // close snapshot
+        fdb_kvs_close(snapshot);
+    } else {
+        TEST_CHK(num_markers == 8);
+        for (r = 0; r < num_kvs; ++r) {
+            TEST_CHK(markers[r].num_kvs_markers == num_kvs);
+            for (i = 0; i < num_kvs; ++i) {
+                TEST_CHK(markers[r].kvs_markers[i].seqnum == (n - r*5));
+                sprintf(kv_name, "kv%d", i);
+                TEST_CMP(markers[r].kvs_markers[i].kv_store_name, kv_name, 3);
+            }
+        }
+        i = r = 1;
+        sprintf(compact_filename, "dummy_compact%d", i);
+        status = fdb_compact_upto(dbfile, compact_filename,
+                markers[i].marker);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        // create a snapshot
+        status = fdb_snapshot_open(db[r], &snapshot,
+                markers[i].kvs_markers[r].seqnum);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        // close snapshot
+        fdb_kvs_close(snapshot);
+    }
+
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf, "compact upto marker in file test %s", multi_kv ?
+                                                           "multiple kv mode:"
+                                                         : "single kv mode:");
+    TEST_RESULT(bodybuf);
+}
+
 void auto_recover_compact_ok_test()
 {
     TEST_INIT();
@@ -1179,6 +1354,8 @@ int main(){
     compact_wo_reopen_test();
     compact_with_reopen_test();
     compact_reopen_named_kvs();
+    compact_upto_test(false); // single kv instance in file
+    compact_upto_test(true); // multiple kv instance in file
     auto_recover_compact_ok_test();
     db_compact_overwrite();
     db_compact_during_doc_delete(NULL);
