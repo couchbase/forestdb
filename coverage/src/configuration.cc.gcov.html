@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-02-02 13:09:40</td>
+            <td class="headerValue">2015-02-03 02:07:19</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">4</td>
@@ -93,44 +93,44 @@
 <span class="lineNum">      22 </span>                :            : #include &quot;configuration.h&quot;
 <a name="23"><span class="lineNum">      23 </span>                :            : </a>
 <span class="lineNum">      24 </span>                :            : 
-<span class="lineNum">      25 </span>                :<span class="lineCov">        159 : fdb_config get_default_config(void) {</span>
+<span class="lineNum">      25 </span>                :<span class="lineCov">        160 : fdb_config get_default_config(void) {</span>
 <span class="lineNum">      26 </span>                :            :     fdb_config fconfig;
 <span class="lineNum">      27 </span>                :            : 
-<span class="lineNum">      28 </span>                :<span class="lineCov">        159 :     fconfig.chunksize = sizeof(uint64_t);</span>
+<span class="lineNum">      28 </span>                :<span class="lineCov">        160 :     fconfig.chunksize = sizeof(uint64_t);</span>
 <span class="lineNum">      29 </span>                :            :     // 4KB by default.
-<span class="lineNum">      30 </span>                :<span class="lineCov">        159 :     fconfig.blocksize = FDB_BLOCKSIZE;</span>
+<span class="lineNum">      30 </span>                :<span class="lineCov">        160 :     fconfig.blocksize = FDB_BLOCKSIZE;</span>
 <span class="lineNum">      31 </span>                :            :     // 128MB by default.
-<span class="lineNum">      32 </span>                :<span class="lineCov">        159 :     fconfig.buffercache_size = 134217728;</span>
+<span class="lineNum">      32 </span>                :<span class="lineCov">        160 :     fconfig.buffercache_size = 134217728;</span>
 <span class="lineNum">      33 </span>                :            :     // 4096 WAL entries by default.
-<span class="lineNum">      34 </span>                :<span class="lineCov">        159 :     fconfig.wal_threshold = 4096;</span>
-<span class="lineNum">      35 </span>                :<span class="lineCov">        159 :     fconfig.wal_flush_before_commit = true;</span>
-<span class="lineNum">      36 </span>                :<span class="lineCov">        159 :     fconfig.auto_commit = false;</span>
+<span class="lineNum">      34 </span>                :<span class="lineCov">        160 :     fconfig.wal_threshold = 4096;</span>
+<span class="lineNum">      35 </span>                :<span class="lineCov">        160 :     fconfig.wal_flush_before_commit = true;</span>
+<span class="lineNum">      36 </span>                :<span class="lineCov">        160 :     fconfig.auto_commit = false;</span>
 <span class="lineNum">      37 </span>                :            :     // 0 second by default.
-<span class="lineNum">      38 </span>                :<span class="lineCov">        159 :     fconfig.purging_interval = 0;</span>
+<span class="lineNum">      38 </span>                :<span class="lineCov">        160 :     fconfig.purging_interval = 0;</span>
 <span class="lineNum">      39 </span>                :            :     // Use a seq btree by default.
-<span class="lineNum">      40 </span>                :<span class="lineCov">        159 :     fconfig.seqtree_opt = FDB_SEQTREE_USE;</span>
+<span class="lineNum">      40 </span>                :<span class="lineCov">        160 :     fconfig.seqtree_opt = FDB_SEQTREE_USE;</span>
 <span class="lineNum">      41 </span>                :            :     // Use a synchronous commit by default.
-<span class="lineNum">      42 </span>                :<span class="lineCov">        159 :     fconfig.durability_opt = FDB_DRB_NONE;</span>
-<span class="lineNum">      43 </span>                :<span class="lineCov">        159 :     fconfig.flags = FDB_OPEN_FLAG_CREATE;</span>
+<span class="lineNum">      42 </span>                :<span class="lineCov">        160 :     fconfig.durability_opt = FDB_DRB_NONE;</span>
+<span class="lineNum">      43 </span>                :<span class="lineCov">        160 :     fconfig.flags = FDB_OPEN_FLAG_CREATE;</span>
 <span class="lineNum">      44 </span>                :            :     // 4MB by default.
-<span class="lineNum">      45 </span>                :<span class="lineCov">        159 :     fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;</span>
+<span class="lineNum">      45 </span>                :<span class="lineCov">        160 :     fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;</span>
 <span class="lineNum">      46 </span>                :            :     // Clean up cache entries when a file is closed.
-<span class="lineNum">      47 </span>                :<span class="lineCov">        159 :     fconfig.cleanup_cache_onclose = true;</span>
+<span class="lineNum">      47 </span>                :<span class="lineCov">        160 :     fconfig.cleanup_cache_onclose = true;</span>
 <span class="lineNum">      48 </span>                :            :     // Compress the body of documents using snappy.
-<span class="lineNum">      49 </span>                :<span class="lineCov">        159 :     fconfig.compress_document_body = false;</span>
+<span class="lineNum">      49 </span>                :<span class="lineCov">        160 :     fconfig.compress_document_body = false;</span>
 <span class="lineNum">      50 </span>                :            :     // Auto compaction is disabled by default
-<span class="lineNum">      51 </span>                :<span class="lineCov">        159 :     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;</span>
+<span class="lineNum">      51 </span>                :<span class="lineCov">        160 :     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;</span>
 <span class="lineNum">      52 </span>                :            :     // Compaction threshold, 30% by default
-<span class="lineNum">      53 </span>                :<span class="lineCov">        159 :     fconfig.compaction_threshold = FDB_DEFAULT_COMPACTION_THRESHOLD;</span>
-<span class="lineNum">      54 </span>                :<span class="lineCov">        159 :     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default</span>
+<span class="lineNum">      53 </span>                :<span class="lineCov">        160 :     fconfig.compaction_threshold = FDB_DEFAULT_COMPACTION_THRESHOLD;</span>
+<span class="lineNum">      54 </span>                :<span class="lineCov">        160 :     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default</span>
 <span class="lineNum">      55 </span>                :            :     // 15 seconds by default
-<span class="lineNum">      56 </span>                :<span class="lineCov">        159 :     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;</span>
+<span class="lineNum">      56 </span>                :<span class="lineCov">        160 :     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;</span>
 <span class="lineNum">      57 </span>                :            :     // Disable supporting multiple KV instances by default
-<span class="lineNum">      58 </span>                :<span class="lineCov">        159 :     fconfig.multi_kv_instances = true;</span>
+<span class="lineNum">      58 </span>                :<span class="lineCov">        160 :     fconfig.multi_kv_instances = true;</span>
 <span class="lineNum">      59 </span>                :            :     // 30 seconds by default
-<span class="lineNum">      60 </span>                :<span class="lineCov">        159 :     fconfig.prefetch_duration = 30;</span>
+<span class="lineNum">      60 </span>                :<span class="lineCov">        160 :     fconfig.prefetch_duration = 30;</span>
 <span class="lineNum">      61 </span>                :            : 
-<span class="lineNum">      62 </span>                :<span class="lineCov">        159 :     return fconfig;</span>
+<span class="lineNum">      62 </span>                :<span class="lineCov">        160 :     return fconfig;</span>
 <a name="63"><span class="lineNum">      63 </span>                :            : }</a>
 <span class="lineNum">      64 </span>                :            : 
 <span class="lineNum">      65 </span>                :<span class="lineCov">        542 : fdb_kvs_config get_default_kvs_config(void) {</span>
@@ -170,7 +170,7 @@
 <span class="lineNum">      98 </span>                :            :         fconfig-&gt;durability_opt != FDB_DRB_ODIRECT_ASYNC) {
 <span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :         return false;</span>
 <span class="lineNum">     100 </span>                :            :     }
-<span class="lineNum">     101 </span>[<span class="branchCov" title="Branch 0 was taken 579 times"> + </span><span class="branchCov" title="Branch 1 was taken 115 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchCov" title="Branch 3 was taken 578 times"> + </span>]:<span class="lineCov">        694 :     if ((fconfig-&gt;flags &amp; FDB_OPEN_FLAG_CREATE) &amp;&amp;</span>
+<span class="lineNum">     101 </span>[<span class="branchCov" title="Branch 0 was taken 580 times"> + </span><span class="branchCov" title="Branch 1 was taken 114 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchCov" title="Branch 3 was taken 579 times"> + </span>]:<span class="lineCov">        694 :     if ((fconfig-&gt;flags &amp; FDB_OPEN_FLAG_CREATE) &amp;&amp;</span>
 <span class="lineNum">     102 </span>                :            :         (fconfig-&gt;flags &amp; FDB_OPEN_FLAG_RDONLY)) {
 <span class="lineNum">     103 </span>                :<span class="lineCov">          1 :         return false;</span>
 <span class="lineNum">     104 </span>                :            :     }

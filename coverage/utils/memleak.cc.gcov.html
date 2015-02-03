@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-02-02 13:09:40</td>
+            <td class="headerValue">2015-02-03 02:07:19</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">2</td>
@@ -280,216 +280,218 @@
 <span class="lineNum">     209 </span>                :            :     item-&gt;line = line;
 <span class="lineNum">     210 </span>                :            :     item-&gt;size = size;
 <span class="lineNum">     211 </span>                :            : #ifdef INIT_VAL
-<span class="lineNum">     212 </span>                :            :     memset(addr, init_val, size);
-<span class="lineNum">     213 </span>                :            : #endif
-<span class="lineNum">     214 </span>                :            : #ifdef _STACK_BACKTRACE
-<span class="lineNum">     215 </span>                :            :     void *temp_stack[256];
-<span class="lineNum">     216 </span>                :            :     item-&gt;bt_size = backtrace(temp_stack, 256);
-<span class="lineNum">     217 </span>                :            :     item-&gt;btrace = (void**)malloc(sizeof(void*) * item-&gt;bt_size);
-<span class="lineNum">     218 </span>                :            :     memcpy(item-&gt;btrace, temp_stack, sizeof(void*) * item-&gt;bt_size);
-<span class="lineNum">     219 </span>                :            : #endif
-<span class="lineNum">     220 </span>                :            : #ifdef _CHK_MODIFY_AFTER_FREE
-<span class="lineNum">     221 </span>                :            :     item-&gt;freed = 0;
-<span class="lineNum">     222 </span>                :            : #endif
-<span class="lineNum">     223 </span>                :            :     avl_insert(&amp;tree_index, &amp;item-&gt;avl, memleak_cmp);
-<span class="lineNum">     224 </span>                :            : }
-<span class="lineNum">     225 </span>                :            : // LCOV_EXCL_STOP
-<span class="lineNum">     226 </span>                :            : 
-<span class="lineNum">     227 </span>                :            : // LCOV_EXCL_START
-<span class="lineNum">     228 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     229 </span>                :            : void * memleak_alloc(size_t size, char *file, size_t line)
-<span class="lineNum">     230 </span>                :            : {
-<span class="lineNum">     231 </span>                :            :     void *addr = (void*)malloc(size);
-<span class="lineNum">     232 </span>                :            :     if (addr &amp;&amp; start_sw) {
-<span class="lineNum">     233 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     234 </span>                :            :         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
-<span class="lineNum">     235 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     236 </span>                :            :     }
-<span class="lineNum">     237 </span>                :            : 
-<span class="lineNum">     238 </span>                :            :     return addr;
-<span class="lineNum">     239 </span>                :            : }
-<span class="lineNum">     240 </span>                :            : // LCOV_EXCL_STOP
-<span class="lineNum">     241 </span>                :            : 
-<span class="lineNum">     242 </span>                :            : // LCOV_EXCL_START
-<span class="lineNum">     243 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     244 </span>                :            : void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
-<span class="lineNum">     245 </span>                :            : {
-<span class="lineNum">     246 </span>                :            :     void *addr = (void *)calloc(nmemb, size);
-<span class="lineNum">     247 </span>                :            :     if (addr &amp;&amp; start_sw) {
-<span class="lineNum">     248 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     249 </span>                :            :         _memleak_add_to_index(addr, size, file, line, 0x0);
-<span class="lineNum">     250 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     251 </span>                :            :     }
-<span class="lineNum">     252 </span>                :            : 
-<span class="lineNum">     253 </span>                :            :     return addr;
-<span class="lineNum">     254 </span>                :            : }
-<span class="lineNum">     255 </span>                :            : // LCOV_EXCL_STOP
-<span class="lineNum">     256 </span>                :            : 
-<span class="lineNum">     257 </span>                :            : #if !defined(WIN32)
+<span class="lineNum">     212 </span>                :            :     if (init_val == INIT_VAL) {
+<span class="lineNum">     213 </span>                :            :         memset(addr, init_val, size);
+<span class="lineNum">     214 </span>                :            :     }
+<span class="lineNum">     215 </span>                :            : #endif
+<span class="lineNum">     216 </span>                :            : #ifdef _STACK_BACKTRACE
+<span class="lineNum">     217 </span>                :            :     void *temp_stack[256];
+<span class="lineNum">     218 </span>                :            :     item-&gt;bt_size = backtrace(temp_stack, 256);
+<span class="lineNum">     219 </span>                :            :     item-&gt;btrace = (void**)malloc(sizeof(void*) * item-&gt;bt_size);
+<span class="lineNum">     220 </span>                :            :     memcpy(item-&gt;btrace, temp_stack, sizeof(void*) * item-&gt;bt_size);
+<span class="lineNum">     221 </span>                :            : #endif
+<span class="lineNum">     222 </span>                :            : #ifdef _CHK_MODIFY_AFTER_FREE
+<span class="lineNum">     223 </span>                :            :     item-&gt;freed = 0;
+<span class="lineNum">     224 </span>                :            : #endif
+<span class="lineNum">     225 </span>                :            :     avl_insert(&amp;tree_index, &amp;item-&gt;avl, memleak_cmp);
+<span class="lineNum">     226 </span>                :            : }
+<span class="lineNum">     227 </span>                :            : // LCOV_EXCL_STOP
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :            : // LCOV_EXCL_START
+<span class="lineNum">     230 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     231 </span>                :            : void * memleak_alloc(size_t size, char *file, size_t line)
+<span class="lineNum">     232 </span>                :            : {
+<span class="lineNum">     233 </span>                :            :     void *addr = (void*)malloc(size);
+<span class="lineNum">     234 </span>                :            :     if (addr &amp;&amp; start_sw) {
+<span class="lineNum">     235 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     236 </span>                :            :         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
+<span class="lineNum">     237 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     238 </span>                :            :     }
+<span class="lineNum">     239 </span>                :            : 
+<span class="lineNum">     240 </span>                :            :     return addr;
+<span class="lineNum">     241 </span>                :            : }
+<span class="lineNum">     242 </span>                :            : // LCOV_EXCL_STOP
+<span class="lineNum">     243 </span>                :            : 
+<span class="lineNum">     244 </span>                :            : // LCOV_EXCL_START
+<span class="lineNum">     245 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     246 </span>                :            : void * memleak_calloc(size_t nmemb, size_t size, char *file, size_t line)
+<span class="lineNum">     247 </span>                :            : {
+<span class="lineNum">     248 </span>                :            :     void *addr = (void *)calloc(nmemb, size);
+<span class="lineNum">     249 </span>                :            :     if (addr &amp;&amp; start_sw) {
+<span class="lineNum">     250 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     251 </span>                :            :         _memleak_add_to_index(addr, size, file, line, 0x0);
+<span class="lineNum">     252 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     253 </span>                :            :     }
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>                :            :     return addr;
+<span class="lineNum">     256 </span>                :            : }
+<span class="lineNum">     257 </span>                :            : // LCOV_EXCL_STOP
 <span class="lineNum">     258 </span>                :            : 
-<span class="lineNum">     259 </span>                :            : #if !defined(__ANDROID__)
-<span class="lineNum">     260 </span>                :            : // posix only
-<span class="lineNum">     261 </span>                :            : // LCOV_EXCL_START
-<span class="lineNum">     262 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     263 </span>                :            : int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
-<span class="lineNum">     264 </span>                :            : {
-<span class="lineNum">     265 </span>                :            : 
-<span class="lineNum">     266 </span>                :            :     int ret = posix_memalign(memptr, alignment, size);
-<span class="lineNum">     267 </span>                :            :     if (ret==0 &amp;&amp; start_sw)
-<span class="lineNum">     268 </span>                :            :     {
-<span class="lineNum">     269 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     270 </span>                :            :         _memleak_add_to_index(*memptr, size, file, line, INIT_VAL);
-<span class="lineNum">     271 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     272 </span>                :            :     }
-<span class="lineNum">     273 </span>                :            : 
-<span class="lineNum">     274 </span>                :            :     return ret;
-<span class="lineNum">     275 </span>                :            : }
-<span class="lineNum">     276 </span>                :            : // LCOV_EXCL_STOP
-<span class="lineNum">     277 </span>                :            : #else // not __ANDROID__
-<span class="lineNum">     278 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     279 </span>                :            : void * memleak_memalign(size_t size, size_t alignment, char *file, size_t line)
-<span class="lineNum">     280 </span>                :            : {
-<span class="lineNum">     281 </span>                :            :     void *addr = memalign(alignment, size);
-<span class="lineNum">     282 </span>                :            :     if (addr &amp;&amp; start_sw)
-<span class="lineNum">     283 </span>                :            :     {
-<span class="lineNum">     284 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     285 </span>                :            :         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
-<span class="lineNum">     286 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     287 </span>                :            :     }
-<span class="lineNum">     288 </span>                :            :     return addr;
-<span class="lineNum">     289 </span>                :            : }
-<span class="lineNum">     290 </span>                :            : #endif
-<span class="lineNum">     291 </span>                :            : 
-<span class="lineNum">     292 </span>                :            : #else // not WIN32
+<span class="lineNum">     259 </span>                :            : #if !defined(WIN32)
+<span class="lineNum">     260 </span>                :            : 
+<span class="lineNum">     261 </span>                :            : #if !defined(__ANDROID__)
+<span class="lineNum">     262 </span>                :            : // posix only
+<span class="lineNum">     263 </span>                :            : // LCOV_EXCL_START
+<span class="lineNum">     264 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     265 </span>                :            : int memleak_posix_memalign(void **memptr, size_t alignment, size_t size, char *file, size_t line)
+<span class="lineNum">     266 </span>                :            : {
+<span class="lineNum">     267 </span>                :            : 
+<span class="lineNum">     268 </span>                :            :     int ret = posix_memalign(memptr, alignment, size);
+<span class="lineNum">     269 </span>                :            :     if (ret==0 &amp;&amp; start_sw)
+<span class="lineNum">     270 </span>                :            :     {
+<span class="lineNum">     271 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     272 </span>                :            :         _memleak_add_to_index(*memptr, size, file, line, INIT_VAL);
+<span class="lineNum">     273 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     274 </span>                :            :     }
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :            :     return ret;
+<span class="lineNum">     277 </span>                :            : }
+<span class="lineNum">     278 </span>                :            : // LCOV_EXCL_STOP
+<span class="lineNum">     279 </span>                :            : #else // not __ANDROID__
+<span class="lineNum">     280 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     281 </span>                :            : void * memleak_memalign(size_t size, size_t alignment, char *file, size_t line)
+<span class="lineNum">     282 </span>                :            : {
+<span class="lineNum">     283 </span>                :            :     void *addr = memalign(alignment, size);
+<span class="lineNum">     284 </span>                :            :     if (addr &amp;&amp; start_sw)
+<span class="lineNum">     285 </span>                :            :     {
+<span class="lineNum">     286 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     287 </span>                :            :         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
+<span class="lineNum">     288 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     289 </span>                :            :     }
+<span class="lineNum">     290 </span>                :            :     return addr;
+<span class="lineNum">     291 </span>                :            : }
+<span class="lineNum">     292 </span>                :            : #endif
 <span class="lineNum">     293 </span>                :            : 
-<span class="lineNum">     294 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     295 </span>                :            : void * memleak_aligned_malloc(size_t size, size_t alignment, char *file, size_t line)
-<span class="lineNum">     296 </span>                :            : {
-<span class="lineNum">     297 </span>                :            :     void *addr = (void*)_aligned_malloc(size, alignment);
-<span class="lineNum">     298 </span>                :            :     if (addr &amp;&amp; start_sw) {
-<span class="lineNum">     299 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     300 </span>                :            :         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
-<span class="lineNum">     301 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     302 </span>                :            :     }
-<span class="lineNum">     303 </span>                :            :     return addr;
-<span class="lineNum">     304 </span>                :            : }
-<span class="lineNum">     305 </span>                :            : 
-<span class="lineNum">     306 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     307 </span>                :            : void memleak_aligned_free(void *addr, char *file, size_t line)
-<span class="lineNum">     308 </span>                :            : {
-<span class="lineNum">     309 </span>                :            :     struct avl_node *a;
-<span class="lineNum">     310 </span>                :            :     struct memleak_item *item, query;
-<span class="lineNum">     311 </span>                :            : 
-<span class="lineNum">     312 </span>                :            :     if (start_sw) {
-<span class="lineNum">     313 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     314 </span>                :            : 
-<span class="lineNum">     315 </span>                :            :         query.addr = (uint64_t)addr;
-<span class="lineNum">     316 </span>                :            :         a = avl_search(&amp;tree_index, &amp;query.avl, memleak_cmp);
-<span class="lineNum">     317 </span>                :            :         if (!a) {
-<span class="lineNum">     318 </span>                :            : #ifdef _WARN_NOT_ALLOCATED_MEMORY
-<span class="lineNum">     319 </span>                :            :             fprintf(stderr, &quot;try to free not allocated memory address 0x%016lx at %s:%ld\n&quot;,
-<span class="lineNum">     320 </span>                :            :                 (long unsigned int)addr, file, line);
-<span class="lineNum">     321 </span>                :            : #endif
-<span class="lineNum">     322 </span>                :            :             spin_unlock(&amp;lock);
-<span class="lineNum">     323 </span>                :            :             return;
-<span class="lineNum">     324 </span>                :            :         }
-<span class="lineNum">     325 </span>                :            : 
-<span class="lineNum">     326 </span>                :            :         item = _get_entry(a, struct memleak_item, avl);
-<span class="lineNum">     327 </span>                :            :         DBG(&quot;free address 0x%016lx (allocated at %s:%ld, size %ld)\n&quot;,
-<span class="lineNum">     328 </span>                :            :             item-&gt;addr, item-&gt;file, item-&gt;line, item-&gt;size);
-<span class="lineNum">     329 </span>                :            : #ifdef FREE_VAL
-<span class="lineNum">     330 </span>                :            :         memset(addr, FREE_VAL, item-&gt;size);
-<span class="lineNum">     331 </span>                :            : #endif
-<span class="lineNum">     332 </span>                :            : 
-<span class="lineNum">     333 </span>                :            :         avl_remove(&amp;tree_index, a);
-<span class="lineNum">     334 </span>                :            : #ifdef _STACK_BACKTRACE
-<span class="lineNum">     335 </span>                :            :         free(item-&gt;btrace);
-<span class="lineNum">     336 </span>                :            : #endif
-<span class="lineNum">     337 </span>                :            :         free(item);
-<span class="lineNum">     338 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     339 </span>                :            :     }
-<span class="lineNum">     340 </span>                :            :     _aligned_free(addr);
-<span class="lineNum">     341 </span>                :            : }
-<span class="lineNum">     342 </span>                :            : 
-<span class="lineNum">     343 </span>                :            : #endif // not WIN32
+<span class="lineNum">     294 </span>                :            : #else // not WIN32
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     297 </span>                :            : void * memleak_aligned_malloc(size_t size, size_t alignment, char *file, size_t line)
+<span class="lineNum">     298 </span>                :            : {
+<span class="lineNum">     299 </span>                :            :     void *addr = (void*)_aligned_malloc(size, alignment);
+<span class="lineNum">     300 </span>                :            :     if (addr &amp;&amp; start_sw) {
+<span class="lineNum">     301 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     302 </span>                :            :         _memleak_add_to_index(addr, size, file, line, INIT_VAL);
+<span class="lineNum">     303 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     304 </span>                :            :     }
+<span class="lineNum">     305 </span>                :            :     return addr;
+<span class="lineNum">     306 </span>                :            : }
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     309 </span>                :            : void memleak_aligned_free(void *addr, char *file, size_t line)
+<span class="lineNum">     310 </span>                :            : {
+<span class="lineNum">     311 </span>                :            :     struct avl_node *a;
+<span class="lineNum">     312 </span>                :            :     struct memleak_item *item, query;
+<span class="lineNum">     313 </span>                :            : 
+<span class="lineNum">     314 </span>                :            :     if (start_sw) {
+<span class="lineNum">     315 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :            :         query.addr = (uint64_t)addr;
+<span class="lineNum">     318 </span>                :            :         a = avl_search(&amp;tree_index, &amp;query.avl, memleak_cmp);
+<span class="lineNum">     319 </span>                :            :         if (!a) {
+<span class="lineNum">     320 </span>                :            : #ifdef _WARN_NOT_ALLOCATED_MEMORY
+<span class="lineNum">     321 </span>                :            :             fprintf(stderr, &quot;try to free not allocated memory address 0x%016lx at %s:%ld\n&quot;,
+<span class="lineNum">     322 </span>                :            :                 (long unsigned int)addr, file, line);
+<span class="lineNum">     323 </span>                :            : #endif
+<span class="lineNum">     324 </span>                :            :             spin_unlock(&amp;lock);
+<span class="lineNum">     325 </span>                :            :             return;
+<span class="lineNum">     326 </span>                :            :         }
+<span class="lineNum">     327 </span>                :            : 
+<span class="lineNum">     328 </span>                :            :         item = _get_entry(a, struct memleak_item, avl);
+<span class="lineNum">     329 </span>                :            :         DBG(&quot;free address 0x%016lx (allocated at %s:%ld, size %ld)\n&quot;,
+<span class="lineNum">     330 </span>                :            :             item-&gt;addr, item-&gt;file, item-&gt;line, item-&gt;size);
+<span class="lineNum">     331 </span>                :            : #ifdef FREE_VAL
+<span class="lineNum">     332 </span>                :            :         memset(addr, FREE_VAL, item-&gt;size);
+<span class="lineNum">     333 </span>                :            : #endif
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :            :         avl_remove(&amp;tree_index, a);
+<span class="lineNum">     336 </span>                :            : #ifdef _STACK_BACKTRACE
+<span class="lineNum">     337 </span>                :            :         free(item-&gt;btrace);
+<span class="lineNum">     338 </span>                :            : #endif
+<span class="lineNum">     339 </span>                :            :         free(item);
+<span class="lineNum">     340 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     341 </span>                :            :     }
+<span class="lineNum">     342 </span>                :            :     _aligned_free(addr);
+<span class="lineNum">     343 </span>                :            : }
 <span class="lineNum">     344 </span>                :            : 
-<span class="lineNum">     345 </span>                :            : // LCOV_EXCL_START
-<span class="lineNum">     346 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     347 </span>                :            : void *memleak_realloc(void *ptr, size_t size)
-<span class="lineNum">     348 </span>                :            : {
-<span class="lineNum">     349 </span>                :            : 
-<span class="lineNum">     350 </span>                :            :     void *addr = (void *)realloc(ptr, size);
-<span class="lineNum">     351 </span>                :            :     if (addr &amp;&amp; start_sw) {
-<span class="lineNum">     352 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     353 </span>                :            :         struct avl_node *a;
-<span class="lineNum">     354 </span>                :            :         struct memleak_item *item, query;
-<span class="lineNum">     355 </span>                :            : 
-<span class="lineNum">     356 </span>                :            :         query.addr = (uint64_t)ptr;
-<span class="lineNum">     357 </span>                :            :         a = avl_search(&amp;tree_index, &amp;query.avl, memleak_cmp);
-<span class="lineNum">     358 </span>                :            :         if (a) {
-<span class="lineNum">     359 </span>                :            :             item = _get_entry(a, struct memleak_item, avl);
-<span class="lineNum">     360 </span>                :            :             DBG(&quot;realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n&quot;,
-<span class="lineNum">     361 </span>                :            :                 item-&gt;addr, item-&gt;file, item-&gt;line, item-&gt;size, (uint64_t)addr, size);
-<span class="lineNum">     362 </span>                :            :             avl_remove(&amp;tree_index, a);
-<span class="lineNum">     363 </span>                :            :             _memleak_add_to_index(addr, size, item-&gt;file, item-&gt;line, INIT_VAL);
-<span class="lineNum">     364 </span>                :            : #ifdef _STACK_BACKTRACE
-<span class="lineNum">     365 </span>                :            :             free(item-&gt;btrace);
-<span class="lineNum">     366 </span>                :            : #endif
-<span class="lineNum">     367 </span>                :            :             free(item);
-<span class="lineNum">     368 </span>                :            :         }
-<span class="lineNum">     369 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     370 </span>                :            :     }
-<span class="lineNum">     371 </span>                :            : 
-<span class="lineNum">     372 </span>                :            :     return addr;
-<span class="lineNum">     373 </span>                :            : }
-<span class="lineNum">     374 </span>                :            : // LCOV_EXCL_STOP
-<span class="lineNum">     375 </span>                :            : 
-<span class="lineNum">     376 </span>                :            : // LCOV_EXCL_START
-<span class="lineNum">     377 </span>                :            : LIBMEMLEAK_API
-<span class="lineNum">     378 </span>                :            : void memleak_free(void *addr, char *file, size_t line)
-<span class="lineNum">     379 </span>                :            : {
-<span class="lineNum">     380 </span>                :            :     struct avl_node *a;
-<span class="lineNum">     381 </span>                :            :     struct memleak_item *item, query;
-<span class="lineNum">     382 </span>                :            : 
-<span class="lineNum">     383 </span>                :            :     if (start_sw) {
-<span class="lineNum">     384 </span>                :            :         spin_lock(&amp;lock);
-<span class="lineNum">     385 </span>                :            : 
-<span class="lineNum">     386 </span>                :            :         query.addr = (uint64_t)addr;
-<span class="lineNum">     387 </span>                :            :         a = avl_search(&amp;tree_index, &amp;query.avl, memleak_cmp);
-<span class="lineNum">     388 </span>                :            :         if (!a) {
-<span class="lineNum">     389 </span>                :            : #ifdef _WARN_NOT_ALLOCATED_MEMORY
-<span class="lineNum">     390 </span>                :            :             fprintf(stderr, &quot;try to free not allocated memory address 0x%016lx at %s:%ld\n&quot;,
-<span class="lineNum">     391 </span>                :            :                 (long unsigned int)addr, file, line);
-<span class="lineNum">     392 </span>                :            : #endif
-<span class="lineNum">     393 </span>                :            :             spin_unlock(&amp;lock);
-<span class="lineNum">     394 </span>                :            :             return;
-<span class="lineNum">     395 </span>                :            :         }
-<span class="lineNum">     396 </span>                :            : 
-<span class="lineNum">     397 </span>                :            :         item = _get_entry(a, struct memleak_item, avl);
-<span class="lineNum">     398 </span>                :            :         DBG(&quot;free address 0x%016lx (allocated at %s:%ld, size %ld)\n&quot;,
-<span class="lineNum">     399 </span>                :            :             item-&gt;addr, item-&gt;file, item-&gt;line, item-&gt;size);
-<span class="lineNum">     400 </span>                :            : #ifdef FREE_VAL
-<span class="lineNum">     401 </span>                :            :         memset(addr, FREE_VAL, item-&gt;size);
-<span class="lineNum">     402 </span>                :            : #endif
-<span class="lineNum">     403 </span>                :            : 
-<span class="lineNum">     404 </span>                :            : #ifdef _STACK_BACKTRACE
-<span class="lineNum">     405 </span>                :            :         free(item-&gt;btrace);
-<span class="lineNum">     406 </span>                :            : #endif
-<span class="lineNum">     407 </span>                :            : 
-<span class="lineNum">     408 </span>                :            : #ifndef _CHK_MODIFY_AFTER_FREE
-<span class="lineNum">     409 </span>                :            :         avl_remove(&amp;tree_index, a);
-<span class="lineNum">     410 </span>                :            :         free(item);
-<span class="lineNum">     411 </span>                :            : #else
-<span class="lineNum">     412 </span>                :            :         item-&gt;freed = 1;
-<span class="lineNum">     413 </span>                :            : #endif
-<span class="lineNum">     414 </span>                :            :         spin_unlock(&amp;lock);
-<span class="lineNum">     415 </span>                :            :     }
-<span class="lineNum">     416 </span>                :            : #ifndef _CHK_MODIFY_AFTER_FREE
-<span class="lineNum">     417 </span>                :            :     free(addr);
-<span class="lineNum">     418 </span>                :            : #endif
-<span class="lineNum">     419 </span>                :            : }
-<span class="lineNum">     420 </span>                :            : // LCOV_EXCL_STOP
-<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     345 </span>                :            : #endif // not WIN32
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :            : // LCOV_EXCL_START
+<span class="lineNum">     348 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     349 </span>                :            : void *memleak_realloc(void *ptr, size_t size)
+<span class="lineNum">     350 </span>                :            : {
+<span class="lineNum">     351 </span>                :            : 
+<span class="lineNum">     352 </span>                :            :     void *addr = (void *)realloc(ptr, size);
+<span class="lineNum">     353 </span>                :            :     if (addr &amp;&amp; start_sw) {
+<span class="lineNum">     354 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     355 </span>                :            :         struct avl_node *a;
+<span class="lineNum">     356 </span>                :            :         struct memleak_item *item, query;
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>                :            :         query.addr = (uint64_t)ptr;
+<span class="lineNum">     359 </span>                :            :         a = avl_search(&amp;tree_index, &amp;query.avl, memleak_cmp);
+<span class="lineNum">     360 </span>                :            :         if (a) {
+<span class="lineNum">     361 </span>                :            :             item = _get_entry(a, struct memleak_item, avl);
+<span class="lineNum">     362 </span>                :            :             DBG(&quot;realloc from address 0x%016lx (allocated at %s:%ld, size %ld)\n\tto address 0x%016lx (size %ld)\n&quot;,
+<span class="lineNum">     363 </span>                :            :                 item-&gt;addr, item-&gt;file, item-&gt;line, item-&gt;size, (uint64_t)addr, size);
+<span class="lineNum">     364 </span>                :            :             avl_remove(&amp;tree_index, a);
+<span class="lineNum">     365 </span>                :            :             _memleak_add_to_index(addr, size, item-&gt;file, item-&gt;line, 0);
+<span class="lineNum">     366 </span>                :            : #ifdef _STACK_BACKTRACE
+<span class="lineNum">     367 </span>                :            :             free(item-&gt;btrace);
+<span class="lineNum">     368 </span>                :            : #endif
+<span class="lineNum">     369 </span>                :            :             free(item);
+<span class="lineNum">     370 </span>                :            :         }
+<span class="lineNum">     371 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     372 </span>                :            :     }
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>                :            :     return addr;
+<span class="lineNum">     375 </span>                :            : }
+<span class="lineNum">     376 </span>                :            : // LCOV_EXCL_STOP
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :            : // LCOV_EXCL_START
+<span class="lineNum">     379 </span>                :            : LIBMEMLEAK_API
+<span class="lineNum">     380 </span>                :            : void memleak_free(void *addr, char *file, size_t line)
+<span class="lineNum">     381 </span>                :            : {
+<span class="lineNum">     382 </span>                :            :     struct avl_node *a;
+<span class="lineNum">     383 </span>                :            :     struct memleak_item *item, query;
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :            :     if (start_sw) {
+<span class="lineNum">     386 </span>                :            :         spin_lock(&amp;lock);
+<span class="lineNum">     387 </span>                :            : 
+<span class="lineNum">     388 </span>                :            :         query.addr = (uint64_t)addr;
+<span class="lineNum">     389 </span>                :            :         a = avl_search(&amp;tree_index, &amp;query.avl, memleak_cmp);
+<span class="lineNum">     390 </span>                :            :         if (!a) {
+<span class="lineNum">     391 </span>                :            : #ifdef _WARN_NOT_ALLOCATED_MEMORY
+<span class="lineNum">     392 </span>                :            :             fprintf(stderr, &quot;try to free not allocated memory address 0x%016lx at %s:%ld\n&quot;,
+<span class="lineNum">     393 </span>                :            :                 (long unsigned int)addr, file, line);
+<span class="lineNum">     394 </span>                :            : #endif
+<span class="lineNum">     395 </span>                :            :             spin_unlock(&amp;lock);
+<span class="lineNum">     396 </span>                :            :             return;
+<span class="lineNum">     397 </span>                :            :         }
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :            :         item = _get_entry(a, struct memleak_item, avl);
+<span class="lineNum">     400 </span>                :            :         DBG(&quot;free address 0x%016lx (allocated at %s:%ld, size %ld)\n&quot;,
+<span class="lineNum">     401 </span>                :            :             item-&gt;addr, item-&gt;file, item-&gt;line, item-&gt;size);
+<span class="lineNum">     402 </span>                :            : #ifdef FREE_VAL
+<span class="lineNum">     403 </span>                :            :         memset(addr, FREE_VAL, item-&gt;size);
+<span class="lineNum">     404 </span>                :            : #endif
+<span class="lineNum">     405 </span>                :            : 
+<span class="lineNum">     406 </span>                :            : #ifdef _STACK_BACKTRACE
+<span class="lineNum">     407 </span>                :            :         free(item-&gt;btrace);
+<span class="lineNum">     408 </span>                :            : #endif
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :            : #ifndef _CHK_MODIFY_AFTER_FREE
+<span class="lineNum">     411 </span>                :            :         avl_remove(&amp;tree_index, a);
+<span class="lineNum">     412 </span>                :            :         free(item);
+<span class="lineNum">     413 </span>                :            : #else
+<span class="lineNum">     414 </span>                :            :         item-&gt;freed = 1;
+<span class="lineNum">     415 </span>                :            : #endif
+<span class="lineNum">     416 </span>                :            :         spin_unlock(&amp;lock);
+<span class="lineNum">     417 </span>                :            :     }
+<span class="lineNum">     418 </span>                :            : #ifndef _CHK_MODIFY_AFTER_FREE
+<span class="lineNum">     419 </span>                :            :     free(addr);
+<span class="lineNum">     420 </span>                :            : #endif
+<span class="lineNum">     421 </span>                :            : }
+<span class="lineNum">     422 </span>                :            : // LCOV_EXCL_STOP
+<span class="lineNum">     423 </span>                :            : 
 </pre>
       </td>
     </tr>
