@@ -193,10 +193,9 @@ void * btreeblk_alloc(void *voidhandle, bid_t *bid) {
 INLINE void _btreeblk_encode(struct btreeblk_handle *handle,
                              struct btreeblk_block *block)
 {
-    size_t i, j, n, nsb, sb_size, offset;
+    size_t i, nsb, sb_size, offset;
     void *addr;
     struct bnode *node;
-    struct bnode **node_arr;
 
     for (offset=0; offset<handle->nnodeperblock; ++offset) {
         if (block->sb_no > -1) {
@@ -211,6 +210,9 @@ INLINE void _btreeblk_encode(struct btreeblk_handle *handle,
             addr = (uint8_t*)block->addr +
                    (handle->nodesize) * offset +
                    sb_size * i;
+#ifdef _BTREE_HAS_MULTIPLE_BNODES
+            size_t j, n;
+            struct bnode **node_arr;
             node_arr = btree_get_bnode_array(addr, &n);
             for (j=0;j<n;++j){
                 node = node_arr[j];
@@ -220,16 +222,22 @@ INLINE void _btreeblk_encode(struct btreeblk_handle *handle,
                 node->nentry = _endian_encode(node->nentry);
             }
             free(node_arr);
+#else
+            node = btree_get_bnode(addr);
+            node->kvsize = _endian_encode(node->kvsize);
+            node->flag = _endian_encode(node->flag);
+            node->level = _endian_encode(node->level);
+            node->nentry = _endian_encode(node->nentry);
+#endif
         }
     }
 }
 INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
                              struct btreeblk_block *block)
 {
-    size_t i, j, n, nsb, sb_size, offset;
+    size_t i, nsb, sb_size, offset;
     void *addr;
     struct bnode *node;
-    struct bnode **node_arr;
 
     for (offset=0; offset<handle->nnodeperblock; ++offset) {
         if (block->sb_no > -1) {
@@ -244,6 +252,9 @@ INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
             addr = (uint8_t*)block->addr +
                    (handle->nodesize) * offset +
                    sb_size * i;
+#ifdef _BTREE_HAS_MULTIPLE_BNODES
+            size_t j, n;
+            struct bnode **node_arr;
             node_arr = btree_get_bnode_array(addr, &n);
             for (j=0;j<n;++j){
                 node = node_arr[j];
@@ -253,6 +264,13 @@ INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
                 node->nentry = _endian_decode(node->nentry);
             }
             free(node_arr);
+#else
+            node = btree_get_bnode(addr);
+            node->kvsize = _endian_decode(node->kvsize);
+            node->flag = _endian_decode(node->flag);
+            node->level = _endian_decode(node->level);
+            node->nentry = _endian_decode(node->nentry);
+#endif
         }
     }
 }
