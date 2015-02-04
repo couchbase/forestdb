@@ -15,12 +15,14 @@
 #endif
 
 
+#ifdef LIST_LOCK
 void list_init(struct list *list)
 {
     list->head = NULL;
     list->tail = NULL;
     IFDEF_LOCK( spin_init(&list->lock); );
 }
+#endif
 
 void list_push_front(struct list *list, struct list_elem *e)
 {
@@ -160,6 +162,7 @@ struct list_elem *list_pop_back(struct list *list)
     return NULL;
 }
 
+#ifdef LIST_LOCK
 struct list_elem *list_begin(struct list *list)
 {
     IFDEF_LOCK( spin_lock(&list->lock); );
@@ -175,14 +178,4 @@ struct list_elem *list_end(struct list *list)
     IFDEF_LOCK( spin_unlock(&list->lock); );
     return e;
 }
-
-struct list_elem *list_next(struct list_elem *e)
-{
-    return e->next;
-}
-
-struct list_elem *list_prev(struct list_elem *e)
-{
-    return e->prev;
-}
-
+#endif
