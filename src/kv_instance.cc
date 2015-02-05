@@ -322,6 +322,17 @@ void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
     return NULL;
 }
 
+void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file) {
+    handle->kvs->type = KVS_ROOT;
+    handle->kvs->root = handle->fhandle->root;
+    // super handle's ID is always 0
+    handle->kvs->id = 0;
+    // force custom cmp function
+    spin_lock(&file->kv_header->lock);
+    handle->kvs_config.custom_cmp = file->kv_header->default_kvs_cmp;
+    spin_unlock(&file->kv_header->lock);
+}
+
 void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
                          fdb_kvs_handle *handle,
                          struct filemgr *file,
@@ -335,15 +346,7 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
 
     if (root_handle == NULL) {
         // 'handle' is a super handle
-        handle->kvs->type = KVS_ROOT;
-        handle->kvs->root = handle->fhandle->root;
-        // super handle's ID is always 0
-        handle->kvs->id = 0;
-        // force custom cmp function
-        spin_lock(&file->kv_header->lock);
-        handle->kvs_config.custom_cmp = file->kv_header->default_kvs_cmp;
-        spin_unlock(&file->kv_header->lock);
-
+        _fdb_kvs_init_root(handle, file);
     } else {
         // 'handle' is a sub handle (i.e., KV instance in a DB instance)
         handle->kvs->type = KVS_SUB;
@@ -420,7 +423,7 @@ void fdb_kvs_header_create(struct filemgr *file)
     file->free_kv_header = fdb_kvs_header_free;
 }
 
-static void fdb_kvs_header_reset_all_stats(struct filemgr *file)
+void fdb_kvs_header_reset_all_stats(struct filemgr *file)
 {
     struct avl_node *a;
     struct kvs_node *node;
@@ -684,7 +687,8 @@ fdb_status _fdb_kvs_get_snap_info(void *data,
     // # KV instances
     memcpy(&_n_kv, (uint8_t*)data + offset, sizeof(_n_kv));
     offset += sizeof(_n_kv);
-    n_kv = _endian_decode(_n_kv);
+    // since n_kv doesn't count the default KVS, increase it by 1.
+    n_kv = _endian_decode(_n_kv) + 1;
     assert(n_kv); // Must have at least one kv instance
     snap_info->kvs_markers = (fdb_kvs_commit_marker_t *)malloc(
                                    (n_kv) * sizeof(fdb_kvs_commit_marker_t));
@@ -703,7 +707,7 @@ fdb_status _fdb_kvs_get_snap_info(void *data,
                             + sizeof(uint64_t) // skip over datasize
                             + sizeof(uint64_t); // skip over flags
 
-    for (i = 0; i < n_kv; ++i){
+    for (i = 0; i < n_kv-1; ++i){
         fdb_kvs_commit_marker_t *info = &snap_info->kvs_markers[i];
         // Read the kv store name length
         memcpy(&_name_len, (uint8_t*)data + offset, sizeof(_name_len));
@@ -940,7 +944,8 @@ fdb_kvs_create_start:
     }
 
     if (!(file->status == FILE_NORMAL ||
-          file->status == FILE_COMPACT_NEW)) {
+          file->status == FILE_COMPACT_NEW ||
+          file->status == FILE_COMPACT_INPROG)) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);
@@ -1447,11 +1452,12 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     // If compaction is running, wait until it is aborted.
     // TODO: Find a better way of waiting for the compaction abortion.
     unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fstatus;
-    while ((fstatus = filemgr_get_file_status(handle_in->file)) == FILE_COMPACT_OLD) {
+    file_status_t fstatus = filemgr_get_file_status(handle_in->file);
+    while (fstatus == FILE_COMPACT_OLD || fstatus == FILE_COMPACT_INPROG) {
         filemgr_mutex_unlock(handle_in->file);
         decaying_usleep(&sleep_time, 1000000);
         filemgr_mutex_lock(handle_in->file);
+        fstatus = filemgr_get_file_status(handle_in->file);
     }
     if (fstatus == FILE_REMOVED_PENDING) {
         filemgr_mutex_unlock(handle_in->file);
@@ -1606,7 +1612,8 @@ fdb_kvs_remove_start:
     }
 
     if (!(file->status == FILE_NORMAL ||
-          file->status == FILE_COMPACT_NEW)) {
+          file->status == FILE_COMPACT_NEW ||
+          file->status == FILE_COMPACT_INPROG)) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);

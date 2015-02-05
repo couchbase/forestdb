@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-02-04 01:38:08</td>
+            <td class="headerValue">2015-02-05 00:44:44</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">2</td>
@@ -82,8 +82,8 @@
 <span class="lineNum">      11 </span>                :<span class="lineCov">         35 : uint32_t hash_djb2(uint8_t *value, int len)</span>
 <span class="lineNum">      12 </span>                :            : {
 <span class="lineNum">      13 </span>                :<span class="lineCov">         35 :     unsigned hash = 5381;</span>
-<span class="lineNum">      14 </span>        [<span class="branchCov" title="Branch 0 was taken 1073742117 times"> + </span><span class="branchCov" title="Branch 1 was taken 35 times"> + </span>]:<span class="lineCov"> 1073742152 :     while(len--){</span>
-<span class="lineNum">      15 </span>                :<span class="lineCov"> 1073742117 :         hash = ((hash &lt;&lt; 5) + hash) + *((uint8_t*)value + len);</span>
+<span class="lineNum">      14 </span>        [<span class="branchCov" title="Branch 0 was taken 1073742116 times"> + </span><span class="branchCov" title="Branch 1 was taken 35 times"> + </span>]:<span class="lineCov"> 1073742151 :     while(len--){</span>
+<span class="lineNum">      15 </span>                :<span class="lineCov"> 1073742116 :         hash = ((hash &lt;&lt; 5) + hash) + *((uint8_t*)value + len);</span>
 <span class="lineNum">      16 </span>                :            :     }
 <span class="lineNum">      17 </span>                :<span class="lineCov">         35 :     return hash;</span>
 <a name="18"><span class="lineNum">      18 </span>                :            : }</a>

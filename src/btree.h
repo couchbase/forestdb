@@ -164,7 +164,12 @@ struct btree_iterator {
 typedef void btree_print_func(struct btree *btree, void *key, void *value);
 void btree_print_node(struct btree *btree, btree_print_func func);
 
+//#define _BTREE_HAS_MULTIPLE_BNODES
+#ifdef _BTREE_HAS_MULTIPLE_BNODES
 struct bnode ** btree_get_bnode_array(void *addr, size_t *nnode_out);
+#else
+struct bnode * btree_get_bnode(void *addr);
+#endif
 metasize_t btree_read_meta(struct btree *btree, void *buf);
 void btree_update_meta(struct btree *btree, struct btree_meta *meta);
 btree_result btree_init_from_bid(

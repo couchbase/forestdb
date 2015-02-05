@@ -62,6 +62,7 @@ INLINE struct bnode *_fetch_bnode(struct btree *btree, void *addr, uint16_t leve
     return node;
 }
 
+#ifdef _BTREE_HAS_MULTIPLE_BNODES
 struct bnode ** btree_get_bnode_array(void *addr, size_t *nnode_out)
 {
     // original b+tree always has only a single node per block
@@ -72,6 +73,12 @@ struct bnode ** btree_get_bnode_array(void *addr, size_t *nnode_out)
 
     return ret;
 }
+#else
+struct bnode * btree_get_bnode(void *addr)
+{
+    return _fetch_bnode(NULL, addr, 0);
+}
+#endif
 
 INLINE int _bnode_size(
     struct btree *btree, struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)

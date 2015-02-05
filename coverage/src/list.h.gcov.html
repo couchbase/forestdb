@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - src/list.h</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">src</a> - list.h<span style="font-size: 80%;"> (source / <a href="list.h.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2015-02-05 00:44:44</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntryHi">-</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /* -*- Mode: C++; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */</a>
+<span class="lineNum">       2 </span>                :            : /*
+<span class="lineNum">       3 </span>                :            :  * Doubly Linked List
+<span class="lineNum">       4 </span>                :            :  * (C) 2013  Jung-Sang Ahn &lt;jungsang.ahn@gmail.com&gt;
+<span class="lineNum">       5 </span>                :            :  */
+<span class="lineNum">       6 </span>                :            : 
+<span class="lineNum">       7 </span>                :            : #ifndef _JSAHN_LIST_H
+<span class="lineNum">       8 </span>                :            : #define _JSAHN_LIST_H
+<span class="lineNum">       9 </span>                :            : 
+<span class="lineNum">      10 </span>                :            : #include &lt;stdint.h&gt;
+<span class="lineNum">      11 </span>                :            : #include &lt;stddef.h&gt;
+<span class="lineNum">      12 </span>                :            : 
+<span class="lineNum">      13 </span>                :            : #ifdef __cplusplus
+<span class="lineNum">      14 </span>                :            : extern &quot;C&quot; {
+<span class="lineNum">      15 </span>                :            : #endif
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : //#define _LIST_LOCK
+<span class="lineNum">      18 </span>                :            : #include &quot;arch.h&quot;
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :            : struct list_elem {
+<span class="lineNum">      21 </span>                :            :     struct list_elem *prev;
+<span class="lineNum">      22 </span>                :            :     struct list_elem *next;
+<span class="lineNum">      23 </span>                :            : };
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : struct list {
+<span class="lineNum">      26 </span>                :            :     struct list_elem *head;
+<span class="lineNum">      27 </span>                :            :     struct list_elem *tail;
+<span class="lineNum">      28 </span>                :            : #ifdef _LIST_LOCK
+<span class="lineNum">      29 </span>                :            :     spin_t lock;
+<span class="lineNum">      30 </span>                :            : #endif
+<span class="lineNum">      31 </span>                :            : };
+<span class="lineNum">      32 </span>                :            : 
+<span class="lineNum">      33 </span>                :            : #ifndef _get_entry
+<span class="lineNum">      34 </span>                :            : #define _get_entry(ELEM, STRUCT, MEMBER) \
+<span class="lineNum">      35 </span>                :            :     ((STRUCT *) ((uint8_t *) (ELEM) - offsetof (STRUCT, MEMBER)))
+<span class="lineNum">      36 </span>                :            : #endif
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : #ifdef LIST_LOCK
+<a name="39"><span class="lineNum">      39 </span>                :            : void list_init(struct list *list);</a>
+<span class="lineNum">      40 </span>                :            : #else
+<span class="lineNum">      41 </span>                :<span class="lineCov">   38133727 : INLINE void list_init(struct list *list)</span>
+<span class="lineNum">      42 </span>                :            : {
+<span class="lineNum">      43 </span>                :<span class="lineCov">   38133727 :     list-&gt;head = NULL;</span>
+<span class="lineNum">      44 </span>                :<span class="lineCov">   38133727 :     list-&gt;tail = NULL;</span>
+<span class="lineNum">      45 </span>                :<span class="lineCov">   38133727 : }</span>
+<span class="lineNum">      46 </span>                :            : #endif
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :            : void list_push_front(struct list *list, struct list_elem *e);
+<span class="lineNum">      49 </span>                :            : void list_push_back(struct list *list, struct list_elem *e);
+<span class="lineNum">      50 </span>                :            : void list_insert_before(struct list *list, struct list_elem *before, struct list_elem *e);
+<span class="lineNum">      51 </span>                :            : void list_insert_after(struct list *list, struct list_elem *after, struct list_elem *e);
+<span class="lineNum">      52 </span>                :            : 
+<span class="lineNum">      53 </span>                :            : struct list_elem *list_remove(struct list *list, struct list_elem *e);
+<span class="lineNum">      54 </span>                :            : struct list_elem *list_remove_reverse(struct list *list, struct list_elem *e);
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>                :            : struct list_elem *list_pop_front(struct list *list);
+<span class="lineNum">      57 </span>                :            : struct list_elem *list_pop_back(struct list *list);
+<span class="lineNum">      58 </span>                :            : 
+<span class="lineNum">      59 </span>                :            : #ifdef _LIST_LOCK
+<span class="lineNum">      60 </span>                :            : struct list_elem *list_begin(struct list *list);
+<a name="61"><span class="lineNum">      61 </span>                :            : struct list_elem *list_end(struct list *list);</a>
+<span class="lineNum">      62 </span>                :            : #else
+<span class="lineNum">      63 </span>                :<span class="lineCov">  369792177 : INLINE struct list_elem *list_begin(struct list *list)</span>
+<span class="lineNum">      64 </span>                :            : {
+<span class="lineNum">      65 </span>                :<span class="lineCov">  369792177 :     return list-&gt;head;</span>
+<a name="66"><span class="lineNum">      66 </span>                :            : }</a>
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>                :<span class="lineCov">   80975947 : INLINE struct list_elem *list_end(struct list *list)</span>
+<span class="lineNum">      69 </span>                :            : {
+<span class="lineNum">      70 </span>                :<span class="lineCov">   80975947 :     return list-&gt;tail;</span>
+<span class="lineNum">      71 </span>                :            : }
+<a name="72"><span class="lineNum">      72 </span>                :            : #endif</a>
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :<span class="lineCov"> 1387732747 : INLINE struct list_elem *list_next(struct list_elem *e)</span>
+<span class="lineNum">      75 </span>                :            : {
+<span class="lineNum">      76 </span>                :<span class="lineCov"> 1387732747 :     return e-&gt;next;</span>
+<a name="77"><span class="lineNum">      77 </span>                :            : }</a>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :<span class="lineCov">   23340576 : INLINE struct list_elem *list_prev(struct list_elem *e)</span>
+<span class="lineNum">      80 </span>                :            : {
+<span class="lineNum">      81 </span>                :<span class="lineCov">   23340576 :     return e-&gt;prev;</span>
+<span class="lineNum">      82 </span>                :            : }
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            : #ifdef __cplusplus
+<span class="lineNum">      85 </span>                :            : }
+<span class="lineNum">      86 </span>                :            : #endif
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>                :            : #endif
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.11</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

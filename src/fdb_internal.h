@@ -124,6 +124,7 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
                          struct filemgr *file,
                          const char *kvs_name);
 void fdb_kvs_info_free(fdb_kvs_handle *handle);
+void fdb_kvs_header_reset_all_stats(struct filemgr *file);
 void fdb_kvs_header_create(struct filemgr *file);
 uint64_t fdb_kvs_header_append(struct filemgr *file,
                                   struct docio_handle *dhandle);
@@ -135,6 +136,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct docio_handle *new_dhandle);
 
 struct kvs_header;
+void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file);
 void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
                                void *data, size_t len);
