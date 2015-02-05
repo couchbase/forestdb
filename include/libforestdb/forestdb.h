@@ -558,7 +558,7 @@ LIBFDB_API
 fdb_status fdb_compact(fdb_file_handle *fhandle,
                        const char *new_filename);
 /**
- * Compact the database file by purging the stale data up to a given file-level
+ * Compact the database file by retaining the stale data up to a given file-level
  * snapshot marker.
  *
  *  NOTE: Only one compaction will be allowed per file, and any other calls made
@@ -567,9 +567,9 @@ fdb_status fdb_compact(fdb_file_handle *fhandle,
  * @param fhandle Pointer to ForestDB file handle.
  * @param new_filename Name of a new compacted file. The semantics are the same
  *                     as that of fdb_compact() call described above.
- * @param marker Snapshot marker returned by the fdb_get_all_snap_markers() api
- *               indicating the point up till which all stale data will be
- *               purged.
+ * @param marker Snapshot marker retrieved from fdb_get_all_snap_markers() API,
+ *               indicating the stale data up to a given snapshot marker will be
+ *               retained.
  * @return FDB_RESULT_SUCCESS on success or an error indicating either
  *         temporary failure like FDB_RESULT_FAIL_BY_COMPACTION, or permanent
  *         failure such as FDB_RESULT_NO_DB_INSTANCE.
