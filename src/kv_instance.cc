@@ -687,7 +687,8 @@ fdb_status _fdb_kvs_get_snap_info(void *data,
     // # KV instances
     memcpy(&_n_kv, (uint8_t*)data + offset, sizeof(_n_kv));
     offset += sizeof(_n_kv);
-    n_kv = _endian_decode(_n_kv);
+    // since n_kv doesn't count the default KVS, increase it by 1.
+    n_kv = _endian_decode(_n_kv) + 1;
     assert(n_kv); // Must have at least one kv instance
     snap_info->kvs_markers = (fdb_kvs_commit_marker_t *)malloc(
                                    (n_kv) * sizeof(fdb_kvs_commit_marker_t));
@@ -706,7 +707,7 @@ fdb_status _fdb_kvs_get_snap_info(void *data,
                             + sizeof(uint64_t) // skip over datasize
                             + sizeof(uint64_t); // skip over flags
 
-    for (i = 0; i < n_kv; ++i){
+    for (i = 0; i < n_kv-1; ++i){
         fdb_kvs_commit_marker_t *info = &snap_info->kvs_markers[i];
         // Read the kv store name length
         memcpy(&_name_len, (uint8_t*)data + offset, sizeof(_name_len));

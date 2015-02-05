@@ -4888,6 +4888,16 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
                 fdb_free_snap_markers(markers, i);
                 return status;
             } // LCOV_EXCL_STOP
+            if (seqnum) {
+                // default KVS has been used
+                // add the default KVS info
+                int idx = markers[i].num_kvs_markers - 1;
+                markers[i].kvs_markers[idx].seqnum = seqnum;
+                markers[i].kvs_markers[idx].kv_store_name = NULL;
+            } else {
+                // do not count default KVS .. decrease it by one.
+                markers[i].num_kvs_markers--;
+            }
             free_docio_object(&doc, 1, 1, 1);
         }
     }
