@@ -1435,6 +1435,10 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     sizeof(handle->shandle->stat));
             _kvs_stat_get(handle->file, handle->kvs->id,
                     &handle->shandle->stat);
+            // Since wal is restored below, we have to reset
+            // wal stats to zero.
+            handle->shandle->stat.wal_ndeletes = 0;
+            handle->shandle->stat.wal_ndocs = 0;
         }
     }
 
