@@ -56,6 +56,7 @@ void basic_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     r = system(SHELL_DEL" dummy");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
@@ -148,6 +149,7 @@ void iterator_test()
     config.ncacheblock = 0;
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     r = system(SHELL_DEL" dummy");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
@@ -229,6 +231,7 @@ void two_btree_test()
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btreeblk_init(&btreeblk_handle, file, nodesize);
@@ -273,6 +276,7 @@ void range_test()
     fconfig.blocksize = blocksize;
     fconfig.ncacheblock = 0;
     fconfig.options = FILEMGR_CREATE;
+    fconfig.num_wal_shards = 8;
 
     r = system(SHELL_DEL" dummy");
     (void)r;
@@ -344,6 +348,7 @@ void subblock_test()
     fconfig.blocksize = blocksize;
     fconfig.ncacheblock = 0;
     fconfig.options = FILEMGR_CREATE;
+    fconfig.num_wal_shards = 8;
     ops = btree_kv_get_kb64_vb64(NULL);
 
     // btree initialization using large metadata test
@@ -601,6 +606,7 @@ void btree_reverse_iterator_test()
     memset(&config, 0, sizeof(config));
     config.blocksize = nodesize;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
 

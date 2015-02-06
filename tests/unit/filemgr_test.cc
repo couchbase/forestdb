@@ -37,6 +37,7 @@ void basic_test()
     config.blocksize = 4096;
     config.ncacheblock = 1024;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
 
     filemgr_open_result result = filemgr_open((char *) "./dummy",
                                               get_filemgr_ops(), &config, NULL);

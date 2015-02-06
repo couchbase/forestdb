@@ -63,7 +63,10 @@ struct hash {
 
 void hash_init(struct hash *hash, int nbuckets, hash_hash_func *hash_func, hash_cmp_func *cmp_func);
 void hash_insert(struct hash *hash, struct hash_elem *e);
+void hash_insert_by_hash_val(struct hash *hash, struct hash_elem *e, uint32_t hash_val);
 struct hash_elem * hash_find(struct hash *hash, struct hash_elem *e);
+struct hash_elem * hash_find_by_hash_val(struct hash *hash, struct hash_elem *e,
+                                         uint32_t hash_val);
 void *hash_scan(struct hash *hash, hash_check_func *check_func, void *ctx);
 struct hash_elem * hash_remove(struct hash *hash, struct hash_elem *e);
 void hash_free(struct hash *hash);

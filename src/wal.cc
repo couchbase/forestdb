@@ -97,16 +97,40 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
 fdb_status wal_init(struct filemgr *file, int nbucket)
 {
+    int i, num_hash_buckets;
+
     file->wal->flag = WAL_FLAG_INITIALIZED;
-    file->wal->size = 0;
-    file->wal->num_flushable = 0;
-    file->wal->datasize = 0;
+    atomic_val_init_32(&file->wal->size, 0);
+    atomic_val_init_32(&file->wal->num_flushable, 0);
+    atomic_val_init_64(&file->wal->datasize, 0);
     file->wal->wal_dirty = FDB_WAL_CLEAN;
-    hash_init(&file->wal->hash_bykey, nbucket, _wal_hash_bykey, _wal_cmp_bykey);
-    hash_init(&file->wal->hash_byseq, nbucket, _wal_hash_byseq, _wal_cmp_byseq);
-    list_init(&file->wal->list);
+
     list_init(&file->wal->txn_list);
     spin_init(&file->wal->lock);
+
+    if (file->config->num_wal_shards) {
+        file->wal->num_shards = file->config->num_wal_shards;
+    } else {
+        file->wal->num_shards = DEFAULT_NUM_WAL_PARTITIONS;
+    }
+    file->wal->key_shards = (wal_shard_by_key *)
+        malloc(sizeof(struct wal_shard_by_key) * file->wal->num_shards);
+    file->wal->seq_shards = (wal_shard_by_seq *)
+        malloc(sizeof(struct wal_shard_by_seq) * file->wal->num_shards);
+
+    num_hash_buckets = nbucket / file->wal->num_shards;
+    for (i = 0; i < file->wal->num_shards; ++i) {
+        if (i == file->wal->num_shards - 1) {
+            num_hash_buckets = nbucket - (num_hash_buckets * i);
+        }
+        hash_init(&file->wal->key_shards[i].hash_bykey, num_hash_buckets,
+                  _wal_hash_bykey, _wal_cmp_bykey);
+        hash_init(&file->wal->seq_shards[i].hash_byseq, num_hash_buckets,
+                  _wal_hash_byseq, _wal_cmp_byseq);
+        list_init(&file->wal->key_shards[i].list);
+        spin_init(&file->wal->key_shards[i].lock);
+        spin_init(&file->wal->seq_shards[i].lock);
+    }
 
     DBG("wal item size %d\n", (int)sizeof(struct wal_item));
     return FDB_RESULT_SUCCESS;
@@ -139,9 +163,12 @@ fdb_status wal_insert(fdb_txn *txn,
     query.key = key;
     query.keylen = keylen;
 
-    spin_lock(&file->wal->lock);
+    size_t chk_sum = chksum((uint8_t*)key, keylen);
+    size_t shard_num = chk_sum % file->wal->num_shards;
+    spin_lock(&file->wal->key_shards[shard_num].lock);
 
-    he = hash_find(&file->wal->hash_bykey, &query.he_key);
+    he = hash_find_by_hash_val(&file->wal->key_shards[shard_num].hash_bykey,
+                               &query.he_key, (uint32_t) chk_sum);
 
     if (he) {
         // already exist .. retrieve header
@@ -164,12 +191,20 @@ fdb_status wal_insert(fdb_txn *txn,
                 if (item->txn == txn && !(item->flag & WAL_ITEM_COMMITTED)) {
                     item->flag &= ~WAL_ITEM_FLUSH_READY;
 
-                    hash_remove(&file->wal->hash_byseq, &item->he_seq);
+                    size_t seq_shard_num = item->seqnum % file->wal->num_shards;
+                    spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                    hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
+                                &item->he_seq);
+                    spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
                     item->seqnum = doc->seqnum;
-                    hash_insert(&file->wal->hash_byseq, &item->he_seq);
+                    seq_shard_num = doc->seqnum % file->wal->num_shards;
+                    spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                    hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq,
+                                &item->he_seq);
+                    spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
 
-                    file->wal->datasize -= item->doc_size;
-                    file->wal->datasize += doc->size_ondisk;
+                    atomic_val_add_64(&file->wal->datasize, doc->size_ondisk - item->doc_size);
+
                     item->doc_size = doc->size_ondisk;
                     item->offset = offset;
                     item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
@@ -212,7 +247,7 @@ fdb_status wal_insert(fdb_txn *txn,
             }
             item->txn = txn;
             if (txn == &file->global_txn) {
-                file->wal->num_flushable++;
+                atomic_val_incr_32(&file->wal->num_flushable);
             }
             item->header = header;
 
@@ -220,9 +255,12 @@ fdb_status wal_insert(fdb_txn *txn,
             item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
             item->offset = offset;
             item->doc_size = doc->size_ondisk;
-            file->wal->datasize += doc->size_ondisk;
+            atomic_val_add_64(&file->wal->datasize, doc->size_ondisk);
 
-            hash_insert(&file->wal->hash_byseq, &item->he_seq);
+            size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
+            spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+            hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq, &item->he_seq);
+            spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
             if (!is_compactor) {
                 // insert into header's list
                 list_push_front(&header->items, &item->list_elem);
@@ -233,7 +271,7 @@ fdb_status wal_insert(fdb_txn *txn,
                 // always push back because it is already committed
                 list_push_back(&header->items, &item->list_elem);
             }
-            file->wal->size++;
+            atomic_val_incr_32(&file->wal->size);
         }
     } else {
         // not exist .. create new one
@@ -244,7 +282,9 @@ fdb_status wal_insert(fdb_txn *txn,
         header->keylen = keylen;
         header->key = (void *)malloc(header->keylen);
         memcpy(header->key, key, header->keylen);
-        hash_insert(&file->wal->hash_bykey, &header->he_key);
+
+        hash_insert_by_hash_val(&file->wal->key_shards[shard_num].hash_bykey,
+                                &header->he_key, (uint32_t) chk_sum);
 
         item = (struct wal_item *)malloc(sizeof(struct wal_item));
         // entries inserted by compactor is already committed
@@ -258,7 +298,7 @@ fdb_status wal_insert(fdb_txn *txn,
         }
         item->txn = txn;
         if (txn == &file->global_txn) {
-            file->wal->num_flushable++;
+            atomic_val_incr_32(&file->wal->num_flushable);
         }
         item->header = header;
 
@@ -266,8 +306,13 @@ fdb_status wal_insert(fdb_txn *txn,
         item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
         item->doc_size = doc->size_ondisk;
-        file->wal->datasize += doc->size_ondisk;
-        hash_insert(&file->wal->hash_byseq, &item->he_seq);
+        atomic_val_add_64(&file->wal->datasize, doc->size_ondisk);
+
+        size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
+        spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+        hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq, &item->he_seq);
+        spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+
         // insert into header's list
         // (pushing front is ok for compactor because no other item already exists)
         list_push_front(&header->items, &item->list_elem);
@@ -279,12 +324,12 @@ fdb_status wal_insert(fdb_txn *txn,
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
         }
 
-        // insert header into wal global list
-        list_push_back(&file->wal->list, &header->list_elem);
-        ++file->wal->size;
+        // insert an item header into a WAL shard's list
+        list_push_back(&file->wal->key_shards[shard_num].list, &header->list_elem);
+        atomic_val_incr_32(&file->wal->size);
     }
 
-    spin_unlock(&file->wal->lock);
+    spin_unlock(&file->wal->key_shards[shard_num].lock);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -302,13 +347,15 @@ static fdb_status _wal_find(fdb_txn *txn,
     void *key = doc->key;
     size_t keylen = doc->keylen;
 
-    spin_lock(&file->wal->lock);
-
     if (doc->seqnum == SEQNUM_NOT_USED || (key && keylen>0)) {
+        size_t chk_sum = chksum((uint8_t*)key, keylen);
+        size_t shard_num = chk_sum % file->wal->num_shards;
+        spin_lock(&file->wal->key_shards[shard_num].lock);
         // search by key
         query.key = key;
         query.keylen = keylen;
-        he = hash_find(&file->wal->hash_bykey, &query.he_key);
+        he = hash_find_by_hash_val(&file->wal->key_shards[shard_num].hash_bykey,
+                                   &query.he_key, (uint32_t) chk_sum);
         if (he) {
             // retrieve header
             header = _get_entry(he, struct wal_item_header, he_key);
@@ -327,12 +374,13 @@ static fdb_status _wal_find(fdb_txn *txn,
                     } else {
                         doc->deleted = true;
                     }
-                    spin_unlock(&file->wal->lock);
+                    spin_unlock(&file->wal->key_shards[shard_num].lock);
                     return FDB_RESULT_SUCCESS;
                 }
                 le = list_next(le);
             }
         }
+        spin_unlock(&file->wal->key_shards[shard_num].lock);
     } else {
         // search by seqnum
         struct wal_item_header temp_header;
@@ -343,7 +391,10 @@ static fdb_status _wal_find(fdb_txn *txn,
             item_query.header = &temp_header;
         }
         item_query.seqnum = doc->seqnum;
-        he = hash_find(&file->wal->hash_byseq, &item_query.he_seq);
+
+        size_t shard_num = doc->seqnum % file->wal->num_shards;
+        spin_lock(&file->wal->seq_shards[shard_num].lock);
+        he = hash_find(&file->wal->seq_shards[shard_num].hash_byseq, &item_query.he_seq);
         if (he) {
             item = _get_entry(he, struct wal_item, he_seq);
             if ((item->flag & WAL_ITEM_COMMITTED) ||
@@ -355,13 +406,13 @@ static fdb_status _wal_find(fdb_txn *txn,
                 } else {
                     doc->deleted = true;
                 }
-                spin_unlock(&file->wal->lock);
+                spin_unlock(&file->wal->seq_shards[shard_num].lock);
                 return FDB_RESULT_SUCCESS;
             }
         }
+        spin_unlock(&file->wal->seq_shards[shard_num].lock);
     }
 
-    spin_unlock(&file->wal->lock);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -393,60 +444,74 @@ fdb_status wal_txn_migration(void *dbhandle,
     struct wal_item_header *header;
     struct wal_item *item;
     struct list_elem *e1, *e2;
+    size_t i = 0;
+    size_t num_shards = old_file->wal->num_shards;
 
-    spin_lock(&old_file->wal->lock);
+    // Note that the caller (i.e., compactor) alreay owns the locks on
+    // both old_file and new_file filemgr instances. Therefore, it is OK to
+    // grab each partition lock individually and move all uncommitted items
+    // to the new_file filemgr instance.
 
-    e1 = list_begin(&old_file->wal->list);
-    while(e1) {
-        header = _get_entry(e1, struct wal_item_header, list_elem);
-
-        e2 = list_end(&header->items);
-        while(e2) {
-            item = _get_entry(e2, struct wal_item, list_elem);
-            if (!(item->flag & WAL_ITEM_COMMITTED)) {
-                // not committed yet
-                // move doc
-                offset = move_doc(dbhandle, new_dhandle, item, &doc);
-                // insert into new_file's WAL
-                wal_insert(item->txn, new_file, &doc, offset, 0);
-                // remove from seq hash table
-                hash_remove(&old_file->wal->hash_byseq, &item->he_seq);
-                // remove from header's list
-                e2 = list_remove_reverse(&header->items, e2);
-                // remove from transaction's list
-                list_remove(item->txn->items, &item->list_elem_txn);
-                // decrease num_flushable of old_file if non-transactional update
-                if (item->txn == &old_file->global_txn) {
-                    old_file->wal->num_flushable--;
+    for (; i < num_shards; ++i) {
+        spin_lock(&old_file->wal->key_shards[i].lock);
+        e1 = list_begin(&old_file->wal->key_shards[i].list);
+        while(e1) {
+            header = _get_entry(e1, struct wal_item_header, list_elem);
+            e2 = list_end(&header->items);
+            while(e2) {
+                item = _get_entry(e2, struct wal_item, list_elem);
+                if (!(item->flag & WAL_ITEM_COMMITTED)) {
+                    // not committed yet
+                    // move doc
+                    offset = move_doc(dbhandle, new_dhandle, item, &doc);
+                    // insert into new_file's WAL
+                    wal_insert(item->txn, new_file, &doc, offset, 0);
+                    // remove from seq hash table
+                    size_t shard_num = item->seqnum % num_shards;
+                    spin_lock(&old_file->wal->seq_shards[shard_num].lock);
+                    hash_remove(&old_file->wal->seq_shards[shard_num].hash_byseq,
+                                &item->he_seq);
+                    spin_unlock(&old_file->wal->seq_shards[shard_num].lock);
+                    // remove from header's list
+                    e2 = list_remove_reverse(&header->items, e2);
+                    // remove from transaction's list
+                    list_remove(item->txn->items, &item->list_elem_txn);
+                    // decrease num_flushable of old_file if non-transactional update
+                    if (item->txn == &old_file->global_txn) {
+                        atomic_val_decr_32(&old_file->wal->num_flushable);
+                    }
+                    if (item->action != WAL_ACT_REMOVE) {
+                        atomic_val_sub_64(&old_file->wal->datasize, item->doc_size);
+                    }
+                    // free item
+                    free(item);
+                    // free doc
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
+                    atomic_val_decr_32(&old_file->wal->size);
+                } else {
+                    e2= list_prev(e2);
                 }
-                if (item->action != WAL_ACT_REMOVE) {
-                    old_file->wal->datasize -= item->doc_size;
-                }
-                // free item
-                free(item);
-                // free doc
-                free(doc.key);
-                free(doc.meta);
-                free(doc.body);
-                old_file->wal->size--;
+            }
+
+            if (list_begin(&header->items) == NULL) {
+                // header's list becomes empty
+                // remove from key hash table
+                hash_remove(&old_file->wal->key_shards[i].hash_bykey, &header->he_key);
+                // remove from wal list
+                e1 = list_remove(&old_file->wal->key_shards[i].list, &header->list_elem);
+                // free key & header
+                free(header->key);
+                free(header);
             } else {
-                e2= list_prev(e2);
+                e1 = list_next(e1);
             }
         }
-
-        if (list_begin(&header->items) == NULL) {
-            // header's list becomes empty
-            // remove from key hash table
-            hash_remove(&old_file->wal->hash_bykey, &header->he_key);
-            // remove from wal list
-            e1 = list_remove(&old_file->wal->list, &header->list_elem);
-            // free key & header
-            free(header->key);
-            free(header);
-        } else {
-            e1 = list_next(e1);
-        }
+        spin_unlock(&old_file->wal->key_shards[i].lock);
     }
+
+    spin_lock(&old_file->wal->lock);
 
     // migrate all entries in txn list
     e1 = list_begin(&old_file->wal->txn_list);
@@ -479,13 +544,16 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
     struct list_elem *e1, *e2;
     fdb_kvs_id_t kv_id;
     fdb_status status;
-
-    spin_lock(&file->wal->lock);
+    size_t shard_num;
 
     e1 = list_begin(txn->items);
     while(e1) {
         item = _get_entry(e1, struct wal_item, list_elem_txn);
         assert(item->txn == txn);
+        // Grab the WAL key shard lock.
+        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
+            file->wal->num_shards;
+        spin_lock(&file->wal->key_shards[shard_num].lock);
 
         if (!(item->flag & WAL_ITEM_COMMITTED)) {
             // get KVS ID
@@ -500,7 +568,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             if (func) {
                 status = func(txn->handle, item->offset);
                 if (status != FDB_RESULT_SUCCESS) {
-                    spin_unlock(&file->wal->lock);
+                    spin_unlock(&file->wal->key_shards[shard_num].lock);
                     return status;
                 }
             }
@@ -516,13 +584,17 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                 if ((_item->flag & WAL_ITEM_COMMITTED) &&
                     !(_item->flag & WAL_ITEM_FLUSH_READY)) {
                     list_remove(&item->header->items, &_item->list_elem);
-                    hash_remove(&file->wal->hash_byseq, &_item->he_seq);
+                    size_t seq_shard_num = _item->seqnum % file->wal->num_shards;
+                    spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                    hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
+                                &_item->he_seq);
+                    spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
                     prev_action = _item->action;
                     prev_commit = 1;
-                    file->wal->size--;
-                    file->wal->num_flushable--;
+                    atomic_val_decr_32(&file->wal->size);
+                    atomic_val_decr_32(&file->wal->num_flushable);
                     if (item->action != WAL_ACT_REMOVE) {
-                        file->wal->datasize -= _item->doc_size;
+                        atomic_val_sub_64(&file->wal->datasize, _item->doc_size);
                     }
                     free(_item);
                 }
@@ -544,7 +616,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             }
             // increase num_flushable if it is transactional update
             if (item->txn != &file->global_txn) {
-                file->wal->num_flushable++;
+                atomic_val_incr_32(&file->wal->num_flushable);
             }
             // move the committed item to the end of the wal_item_header's list
             list_remove(&item->header->items, &item->list_elem);
@@ -553,9 +625,9 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
 
         // remove from transaction's list
         e1 = list_remove(txn->items, e1);
+        spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
 
-    spin_unlock(&file->wal->lock);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -588,15 +660,20 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
     struct avl_node *a;
     struct wal_item *item;
     fdb_kvs_id_t kv_id;
+    size_t shard_num, seq_shard_num;
 
     // scan and remove entries in the avl-tree
-    spin_lock(&file->wal->lock);
     while (1) {
         if ((a = avl_first(tree)) == NULL) {
             break;
         }
         item = _get_entry(a, struct wal_item, avl);
         avl_remove(tree, &item->avl);
+
+        // Grab the WAL key shard lock.
+        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
+            file->wal->num_shards;
+        spin_lock(&file->wal->key_shards[shard_num].lock);
 
         // get KVS ID
         if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
@@ -606,12 +683,16 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
         }
 
         list_remove(&item->header->items, &item->list_elem);
-        hash_remove(&file->wal->hash_byseq, &item->he_seq);
+        seq_shard_num = item->seqnum % file->wal->num_shards;
+        spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+        hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
+                    &item->he_seq);
+        spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
         if (list_begin(&item->header->items) == NULL) {
             // wal_item_header becomes empty
             // free header and remove from hash table & wal list
-            list_remove(&file->wal->list, &item->header->list_elem);
-            hash_remove(&file->wal->hash_bykey, &item->header->he_key);
+            list_remove(&file->wal->key_shards[shard_num].list, &item->header->list_elem);
+            hash_remove(&file->wal->key_shards[shard_num].hash_bykey, &item->header->he_key);
             free(item->header->key);
             free(item->header);
         }
@@ -621,14 +702,14 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
         }
         _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
-        file->wal->size--;
-        file->wal->num_flushable--;
+        atomic_val_decr_32(&file->wal->size);
+        atomic_val_decr_32(&file->wal->num_flushable);
         if (item->action != WAL_ACT_REMOVE) {
-            file->wal->datasize -= item->doc_size;
+            atomic_val_sub_64(&file->wal->datasize, item->doc_size);
         }
         free(item);
+        spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
-    spin_unlock(&file->wal->lock);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -645,40 +726,44 @@ static fdb_status _wal_flush(struct filemgr *file,
     struct list_elem *e, *ee;
     struct wal_item *item;
     struct wal_item_header *header;
+    size_t i = 0;
+    size_t num_shards = file->wal->num_shards;
 
     // sort by old byte-offset of the document (for sequential access)
-    spin_lock(&file->wal->lock);
     avl_init(tree, NULL);
-    e = list_begin(&file->wal->list);
-    while(e){
-        header = _get_entry(e, struct wal_item_header, list_elem);
-        ee = list_end(&header->items);
-        while(ee) {
-            item = _get_entry(ee, struct wal_item, list_elem);
-            // committed but not flushed items
-            if (!(item->flag & WAL_ITEM_COMMITTED)) {
-                break;
+    for (; i < num_shards; ++i) {
+        spin_lock(&file->wal->key_shards[i].lock);
+        e = list_begin(&file->wal->key_shards[i].list);
+        while (e) {
+            header = _get_entry(e, struct wal_item_header, list_elem);
+            ee = list_end(&header->items);
+            while (ee) {
+                item = _get_entry(ee, struct wal_item, list_elem);
+                // committed but not flushed items
+                if (!(item->flag & WAL_ITEM_COMMITTED)) {
+                    break;
+                }
+                if (by_compactor &&
+                    !(item->flag & WAL_ITEM_BY_COMPACTOR)) {
+                    // during compaction, do not flush normally committed item
+                    break;
+                }
+                if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
+                    item->flag |= WAL_ITEM_FLUSH_READY;
+                    // if WAL_ITEM_FLUSH_READY flag is set,
+                    // this item becomes immutable, so that
+                    // no other concurrent thread modifies it.
+                    spin_unlock(&file->wal->key_shards[i].lock);
+                    item->old_offset = get_old_offset(dbhandle, item);
+                    avl_insert(tree, &item->avl, _wal_flush_cmp);
+                    spin_lock(&file->wal->key_shards[i].lock);
+                }
+                ee = list_prev(ee);
             }
-            if (by_compactor &&
-                !(item->flag & WAL_ITEM_BY_COMPACTOR)) {
-                // during compaction, do not flush normally committed item
-                break;
-            }
-            if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
-                item->flag |= WAL_ITEM_FLUSH_READY;
-                // if WAL_ITEM_FLUSH_READY flag is set,
-                // this item becomes immutable, so that
-                // no other concurrent thread modifies it.
-                spin_unlock(&file->wal->lock);
-                item->old_offset = get_old_offset(dbhandle, item);
-                avl_insert(tree, &item->avl, _wal_flush_cmp);
-                spin_lock(&file->wal->lock);
-            }
-            ee = list_prev(ee);
+            e = list_next(e);
         }
-        e = list_next(e);
+        spin_unlock(&file->wal->key_shards[i].lock);
     }
-    spin_unlock(&file->wal->lock);
 
     // scan and flush entries in the avl-tree
     a = avl_first(tree);
@@ -730,51 +815,55 @@ fdb_status wal_snapshot(struct filemgr *file,
     fdb_seqnum_t copy_upto = *upto_seq;
     fdb_seqnum_t copied_seq = 0;
     fdb_doc doc;
+    size_t i = 0;
+    size_t num_shards = file->wal->num_shards;
 
-    spin_lock(&file->wal->lock);
-    e = list_begin(&file->wal->list);
-    while(e){
-        header = _get_entry(e, struct wal_item_header, list_elem);
-        ee = list_begin(&header->items);
-        while(ee) {
-            item = _get_entry(ee, struct wal_item, list_elem);
-            if (item->flag & WAL_ITEM_BY_COMPACTOR) { // Always skip
-                ee = list_next(ee); // items moved by compactor to prevent
-                continue; // duplication of items in WAL & Main-index
-            }
-            if (copy_upto != FDB_SNAPSHOT_INMEM) {
-                // Take stable snapshot in new_file: Skip all items that are...
-                if (copy_upto < item->seqnum || // higher than requested seqnum
-                   !(item->flag & WAL_ITEM_COMMITTED)) { // or uncommitted
-                    ee = list_next(ee);
-                    continue;
+    for (; i < num_shards; ++i) {
+        spin_lock(&file->wal->key_shards[i].lock);
+        e = list_begin(&file->wal->key_shards[i].list);
+        while (e) {
+            header = _get_entry(e, struct wal_item_header, list_elem);
+            ee = list_begin(&header->items);
+            while (ee) {
+                item = _get_entry(ee, struct wal_item, list_elem);
+                if (item->flag & WAL_ITEM_BY_COMPACTOR) { // Always skip
+                    ee = list_next(ee); // items moved by compactor to prevent
+                    continue; // duplication of items in WAL & Main-index
                 }
-            } else { // An in-memory snapshot in current file..
-                // Skip any uncommitted item, if not part of either global or
-                // the current transaction
-                if (!(item->flag & WAL_ITEM_COMMITTED) &&
-                      item->txn != &file->global_txn &&
-                      item->txn != txn) {
-                    ee = list_next(ee);
-                    continue;
+                if (copy_upto != FDB_SNAPSHOT_INMEM) {
+                    // Take stable snapshot in new_file: Skip all items that are...
+                    if (copy_upto < item->seqnum || // higher than requested seqnum
+                        !(item->flag & WAL_ITEM_COMMITTED)) { // or uncommitted
+                        ee = list_next(ee);
+                        continue;
+                    }
+                } else { // An in-memory snapshot in current file..
+                    // Skip any uncommitted item, if not part of either global or
+                    // the current transaction
+                    if (!(item->flag & WAL_ITEM_COMMITTED) &&
+                        item->txn != &file->global_txn &&
+                        item->txn != txn) {
+                        ee = list_next(ee);
+                        continue;
+                    }
                 }
-            }
 
-            doc.keylen = item->header->keylen;
-            doc.key = malloc(doc.keylen); // (freed in fdb_snapshot_close)
-            memcpy(doc.key, item->header->key, doc.keylen);
-            doc.seqnum = item->seqnum;
-            doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
-                    item->action == WAL_ACT_REMOVE);
-            snapshot_func(dbhandle, &doc, item->offset);
-            if (doc.seqnum > copied_seq) {
-                copied_seq = doc.seqnum;
+                doc.keylen = item->header->keylen;
+                doc.key = malloc(doc.keylen); // (freed in fdb_snapshot_close)
+                memcpy(doc.key, item->header->key, doc.keylen);
+                doc.seqnum = item->seqnum;
+                doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                               item->action == WAL_ACT_REMOVE);
+                snapshot_func(dbhandle, &doc, item->offset);
+                if (doc.seqnum > copied_seq) {
+                    copied_seq = doc.seqnum;
+                }
+                break; // We just require a single latest copy in the snapshot
             }
-            break; // We just require a single latest copy in the snapshot
+            e = list_next(e);
         }
-        e = list_next(e);
+        spin_unlock(&file->wal->key_shards[i].lock);
     }
-    spin_unlock(&file->wal->lock);
 
     *upto_seq = copied_seq; // Return to caller the highest copied seqnum
     return FDB_RESULT_SUCCESS;
@@ -785,23 +874,32 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
 {
     struct wal_item *item;
     struct list_elem *e;
-
-    spin_lock(&file->wal->lock);
+    size_t shard_num, seq_shard_num;
 
     e = list_begin(txn->items);
     while(e) {
         item = _get_entry(e, struct wal_item, list_elem_txn);
+        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
+            file->wal->num_shards;
+        spin_lock(&file->wal->key_shards[shard_num].lock);
 
         // remove from seq hash table
-        hash_remove(&file->wal->hash_byseq, &item->he_seq);
+        seq_shard_num = item->seqnum % file->wal->num_shards;
+        spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+        hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
+                    &item->he_seq);
+        spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+
         // remove from header's list
         list_remove(&item->header->items, &item->list_elem);
         // remove header if empty
         if (list_begin(&item->header->items) == NULL) {
             //remove from key hash table
-            hash_remove(&file->wal->hash_bykey, &item->header->he_key);
+            hash_remove(&file->wal->key_shards[shard_num].hash_bykey,
+                        &item->header->he_key);
             // remove from wal list
-            list_remove(&file->wal->list, &item->header->list_elem);
+            list_remove(&file->wal->key_shards[shard_num].list,
+                        &item->header->list_elem);
             // free key and header
             free(item->header->key);
             free(item->header);
@@ -810,17 +908,17 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
         e = list_remove(txn->items, e);
         if (item->txn == &file->global_txn ||
             item->flag & WAL_ITEM_COMMITTED) {
-            file->wal->num_flushable--;
+            atomic_val_decr_32(&file->wal->num_flushable);
         }
         if (item->action != WAL_ACT_REMOVE) {
-            file->wal->datasize -= item->doc_size;
+            atomic_val_sub_64(&file->wal->datasize, item->doc_size);
         }
         // free
         free(item);
-        file->wal->size--;
+        atomic_val_decr_32(&file->wal->size);
+        spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
 
-    spin_unlock(&file->wal->lock);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -840,6 +938,8 @@ static fdb_status _wal_close(struct filemgr *file,
     fdb_kvs_id_t kv_id, kv_id_req;
     bool committed;
     wal_item_action committed_item_action;
+    size_t i = 0, seq_shard_num;
+    size_t num_shards = file->wal->num_shards;
 
     if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
         if (aux == NULL) { // aux must contain pointer to KV ID
@@ -848,78 +948,80 @@ static fdb_status _wal_close(struct filemgr *file,
         kv_id_req = *(fdb_kvs_id_t*)aux;
     }
 
-    spin_lock(&file->wal->lock);
-
-    e1 = list_begin(&file->wal->list);
-    while(e1){
-        header = _get_entry(e1, struct wal_item_header, list_elem);
-
-        if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
-            buf2kvid(header->chunksize, header->key, &kv_id);
-            // begin while loop only on matching KV ID
-            e2 = (kv_id == kv_id_req)?(list_begin(&header->items)):(NULL);
-        } else {
-            kv_id = 0;
-            e2 = list_begin(&header->items);
-        }
-
-        committed = false;
-        while(e2) {
-            item = _get_entry(e2, struct wal_item, list_elem);
-
-            if ( type == WAL_DISCARD_ALL ||
-                (type == WAL_DISCARD_UNCOMMITTED_ONLY &&
-                    !(item->flag & WAL_ITEM_COMMITTED)) ||
-                 type == WAL_DISCARD_KV_INS) {
-                // remove from header's list
-                e2 = list_remove(&header->items, e2);
-                if (!(item->flag & WAL_ITEM_COMMITTED)) {
-                    // and also remove from transaction's list
-                    list_remove(item->txn->items, &item->list_elem_txn);
-                } else {
-                    // committed item exists and will be removed
-                    committed = true;
-                    committed_item_action = item->action;
-                }
-                // remove from seq hash table
-                hash_remove(&file->wal->hash_byseq, &item->he_seq);
-
-                if (item->action != WAL_ACT_REMOVE) {
-                    file->wal->datasize -= item->doc_size;
-                }
-                if (item->txn == &file->global_txn) {
-                    file->wal->num_flushable--;
-                }
-
-                free(item);
-                file->wal->size--;
+    for (; i < num_shards; ++i) {
+        spin_lock(&file->wal->key_shards[i].lock);
+        e1 = list_begin(&file->wal->key_shards[i].list);
+        while (e1) {
+            header = _get_entry(e1, struct wal_item_header, list_elem);
+            if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
+                buf2kvid(header->chunksize, header->key, &kv_id);
+                // begin while loop only on matching KV ID
+                e2 = (kv_id == kv_id_req)?(list_begin(&header->items)):(NULL);
             } else {
-                e2 = list_next(e2);
+                kv_id = 0;
+                e2 = list_begin(&header->items);
             }
-        }
-        e1 = list_next(e1);
 
-        if (list_begin(&header->items) == NULL) {
-            // wal_item_header becomes empty
-            // free header and remove from hash table & wal list
-            list_remove(&file->wal->list, &header->list_elem);
-            hash_remove(&file->wal->hash_bykey, &header->he_key);
-            free(header->key);
-            free(header);
+            committed = false;
+            while (e2) {
+                item = _get_entry(e2, struct wal_item, list_elem);
+                if ( type == WAL_DISCARD_ALL ||
+                     (type == WAL_DISCARD_UNCOMMITTED_ONLY &&
+                      !(item->flag & WAL_ITEM_COMMITTED)) ||
+                     type == WAL_DISCARD_KV_INS) {
+                    // remove from header's list
+                    e2 = list_remove(&header->items, e2);
+                    if (!(item->flag & WAL_ITEM_COMMITTED)) {
+                        // and also remove from transaction's list
+                        list_remove(item->txn->items, &item->list_elem_txn);
+                    } else {
+                        // committed item exists and will be removed
+                        committed = true;
+                        committed_item_action = item->action;
+                    }
+                    // remove from seq hash table
+                    seq_shard_num = item->seqnum % num_shards;
+                    spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                    hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
+                                &item->he_seq);
+                    spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
 
-            if (committed) {
-                // this document was committed
-                // num_docs and num_deletes should be updated
-                if (committed_item_action == WAL_ACT_LOGICAL_REMOVE ||
-                    committed_item_action == WAL_ACT_REMOVE) {
-                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
+                    if (item->action != WAL_ACT_REMOVE) {
+                        atomic_val_sub_64(&file->wal->datasize, item->doc_size);
+                    }
+                    if (item->txn == &file->global_txn) {
+                        atomic_val_decr_32(&file->wal->num_flushable);
+                    }
+                    free(item);
+                    atomic_val_decr_32(&file->wal->size);
+                } else {
+                    e2 = list_next(e2);
                 }
-                _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
+            }
+            e1 = list_next(e1);
+
+            if (list_begin(&header->items) == NULL) {
+                // wal_item_header becomes empty
+                // free header and remove from hash table & wal list
+                list_remove(&file->wal->key_shards[i].list, &header->list_elem);
+                hash_remove(&file->wal->key_shards[i].hash_bykey, &header->he_key);
+                free(header->key);
+                free(header);
+
+                if (committed) {
+                    // this document was committed
+                    // num_docs and num_deletes should be updated
+                    if (committed_item_action == WAL_ACT_LOGICAL_REMOVE ||
+                        committed_item_action == WAL_ACT_REMOVE) {
+                        _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
+                    }
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
+                }
             }
         }
+        spin_unlock(&file->wal->key_shards[i].lock);
     }
 
-    spin_unlock(&file->wal->lock);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -932,8 +1034,9 @@ fdb_status wal_close(struct filemgr *file)
 fdb_status wal_shutdown(struct filemgr *file)
 {
     fdb_status wr = _wal_close(file, WAL_DISCARD_ALL, NULL);
-    file->wal->size = 0;
-    file->wal->num_flushable = 0;
+    atomic_val_store_32(&file->wal->size, 0);
+    atomic_val_store_32(&file->wal->num_flushable, 0);
+    atomic_val_store_64(&file->wal->datasize, 0);
     return wr;
 }
 
@@ -946,12 +1049,12 @@ fdb_status wal_close_kv_ins(struct filemgr *file,
 
 size_t wal_get_size(struct filemgr *file)
 {
-    return file->wal->size;
+    return file->wal->size.value.val_32;
 }
 
 size_t wal_get_num_flushable(struct filemgr *file)
 {
-    return file->wal->num_flushable;
+    return file->wal->num_flushable.value.val_32;
 }
 
 size_t wal_get_num_docs(struct filemgr *file) {
@@ -964,12 +1067,7 @@ size_t wal_get_num_deletes(struct filemgr *file) {
 
 size_t wal_get_datasize(struct filemgr *file)
 {
-    size_t datasize = 0;
-    spin_lock(&file->wal->lock);
-    datasize = file->wal->datasize;
-    spin_unlock(&file->wal->lock);
-
-    return datasize;
+    return file->wal->datasize.value.val_64;
 }
 
 void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status)

@@ -41,6 +41,7 @@ void basic_test()
     config.blocksize = 4096;
     config.ncacheblock = 5;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
@@ -90,6 +91,7 @@ void basic_test2()
     config.ncacheblock = 5;
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
@@ -201,6 +203,7 @@ void multi_thread_test(
     config.ncacheblock = cachesize;
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 

@@ -44,6 +44,7 @@ struct filemgr_config {
 #define FILEMGR_ROLLBACK_IN_PROG 0x04
 #define FILEMGR_CREATE 0x08
     uint64_t prefetch_duration;
+    uint16_t num_wal_shards;
 };
 
 struct filemgr_ops {

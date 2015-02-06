@@ -1069,9 +1069,19 @@ static void _filemgr_free_func(struct hash_elem *h)
     // destroy WAL
     if (wal_is_initialized(file)) {
         wal_shutdown(file);
-        hash_free(&file->wal->hash_bykey);
-        hash_free(&file->wal->hash_byseq);
+        size_t i = 0;
+        for (; i < file->wal->num_shards; ++i) {
+            hash_free(&file->wal->key_shards[i].hash_bykey);
+            spin_destroy(&file->wal->key_shards[i].lock);
+            hash_free(&file->wal->seq_shards[i].hash_byseq);
+            spin_destroy(&file->wal->seq_shards[i].lock);
+        }
         spin_destroy(&file->wal->lock);
+        atomic_val_destroy(&file->wal->size);
+        atomic_val_destroy(&file->wal->num_flushable);
+        atomic_val_destroy(&file->wal->datasize);
+        free(file->wal->key_shards);
+        free(file->wal->seq_shards);
     }
     free(file->wal);
 

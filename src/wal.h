@@ -23,6 +23,7 @@
 #include "hash.h"
 #include "list.h"
 #include "avltree.h"
+#include "atomic.h"
 #include "libforestdb/fdb_errors.h"
 
 #ifdef __cplusplus
@@ -86,16 +87,27 @@ enum {
     FDB_WAL_PENDING = 2
 };
 
+struct wal_shard_by_key {
+    struct hash hash_bykey; // indexes 'wal_item_header's key in WAL shard
+    struct list list; // list of all 'wal_item_header' instances in WAL shard
+    spin_t lock;
+};
+
+struct wal_shard_by_seq {
+    struct hash hash_byseq; // indexes 'wal_item's seq num in WAL shard
+    spin_t lock;
+};
+
 struct wal {
     uint8_t flag;
-    size_t size; // total # entries in WAL
-    size_t num_flushable; // # flushable entries in WAL
-    uint64_t datasize;
-    struct hash hash_bykey; // indexes 'wal_item_header's
-    struct hash hash_byseq; // indexes 'wal_item's
-    struct list list; // list of 'wal_item_header's
+    atomic_val_t size; // total # entries in WAL (uint32_t)
+    atomic_val_t num_flushable; // # flushable entries in WAL (uint32_t)
+    atomic_val_t datasize; // total data size in WAL (uint64_t)
     struct list txn_list; // list of active transactions
     wal_dirty_t wal_dirty;
+    struct wal_shard_by_key *key_shards;
+    struct wal_shard_by_seq *seq_shards;
+    size_t num_shards;
     spin_t lock;
 };
 

@@ -267,6 +267,12 @@ typedef struct {
      * prefetching is disabled. This is a local config to each ForestDB file.
      */
     uint64_t prefetch_duration;
+
+    /**
+     * Number of in-memory WAL index partitions for a DB file.
+     * This is a local config to each ForestDB file.
+     */
+    uint16_t num_wal_partitions;
 } fdb_config;
 
 typedef struct {

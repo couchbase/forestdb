@@ -35,7 +35,7 @@
 extern "C" {
 #endif
 
-struct atomic_val_t {
+typedef struct {
     union {
         volatile uint64_t val_64;
         volatile uint32_t val_32;
@@ -46,7 +46,7 @@ struct atomic_val_t {
     // TODO: Need to figure out an atomic support without using lock.
     spin_t lock;
 #endif
-};
+} atomic_val_t;
 
 void atomic_val_init_64(atomic_val_t *atomic_val, uint64_t initial);
 void atomic_val_init_32(atomic_val_t *atomic_val, uint32_t initial);

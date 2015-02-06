@@ -1065,6 +1065,7 @@ static void _fdb_init_file_config(const fdb_config *config,
     }
 
     fconfig->prefetch_duration = config->prefetch_duration;
+    fconfig->num_wal_shards = config->num_wal_partitions;
 }
 
 fdb_status _fdb_open(fdb_kvs_handle *handle,
@@ -3848,6 +3849,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
     fconfig.chunksize = handle->config.chunksize;
     fconfig.options = FILEMGR_CREATE;
+    fconfig.num_wal_shards = handle->config.num_wal_partitions;
     fconfig.flag = 0x0;
     if (handle->config.durability_opt & FDB_DRB_ODIRECT) {
         fconfig.flag |= _ARCH_O_DIRECT;
@@ -3967,7 +3969,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // migrate uncommitted transaction items to new file
     wal_txn_migration((void*)handle, (void*)new_dhandle,
                       handle->file, new_file, _fdb_doc_move);
-
     // mark name of new file in old file
     filemgr_set_compaction_state(handle->file, new_file, FILE_COMPACT_OLD);
 
@@ -4195,6 +4196,7 @@ catch_up_compaction:
         if (!(rhandle->config.durability_opt & FDB_DRB_ASYNC)) {
             fconfig.options |= FILEMGR_SYNC;
         }
+        fconfig.num_wal_shards = rhandle->config.num_wal_partitions;
 
         // open new file
         filemgr_open_result result = filemgr_open((char *)new_filename,
