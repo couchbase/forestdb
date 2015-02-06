@@ -1251,6 +1251,7 @@ void compaction_daemon_test(size_t time_sec)
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
     status = fdb_destroy("dummy_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_FILE_IS_BUSY);
+    fdb_close(dbfile_non);
 
     // Simulate a database crash by doing a premature shutdown
     // Note that db_non was never closed properly
