@@ -1286,7 +1286,6 @@ void *multi_thread_kvs_client(void *args)
 {
 
     TEST_INIT();
-    memleak_start();
 
     int i, j, r;
     int n = 50;
@@ -1308,6 +1307,7 @@ void *multi_thread_kvs_client(void *args)
 
     if (args == NULL)
     { // parent
+        memleak_start();
 
         r = system(SHELL_DEL" dummy* > errorlog.txt");
         (void)r;
@@ -1366,6 +1366,7 @@ void *multi_thread_kvs_client(void *args)
                 TEST_CHK(!memcmp(rdoc->key, keybuf, strlen(keybuf)));
                 TEST_CHK(!memcmp(rdoc->meta, metabuf, rdoc->metalen));
                 TEST_CHK(!memcmp(rdoc->body, bodybuf, rdoc->bodylen));
+                status = fdb_doc_free(rdoc);
             }
             status = fdb_kvs_close(db[i]);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1373,8 +1374,8 @@ void *multi_thread_kvs_client(void *args)
 
         status = fdb_close(dbfile);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        memleak_end();
         fdb_shutdown();
+        memleak_end();
         TEST_RESULT("multi thread kvs client");
         return NULL;
     }
@@ -1409,7 +1410,6 @@ void *multi_thread_kvs_client(void *args)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_close(dbfile);
-    memleak_end();
     return NULL;
 }
 
@@ -3017,7 +3017,6 @@ void long_key_test()
 
 
 int main(){
-
     basic_test();
     set_get_meta_test();
     long_filename_test();
@@ -3038,12 +3037,10 @@ int main(){
     auto_commit_test();
     last_wal_flush_header_test();
     long_key_test();
-
-
-    purge_logically_deleted_doc_test();
-    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
     multi_thread_client_shutdown(NULL);
     multi_thread_kvs_client(NULL);
+    purge_logically_deleted_doc_test();
+    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;
 }
