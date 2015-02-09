@@ -30,6 +30,161 @@
 #include "internal_types.h"
 #include "functional_util.h"
 
+struct cb_args {
+    int n_moved_docs;
+    int n_batch_move;
+    bool begin;
+    bool end;
+    bool wal_flush;
+    fdb_kvs_handle *handle;
+};
+
+static int compaction_cb(fdb_file_handle *fhandle,
+                         fdb_compaction_status status,
+                         fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
+                         void *ctx)
+{
+    TEST_INIT();
+    fdb_doc *rdoc;
+    fdb_status s;
+    struct cb_args *args = (struct cb_args *)ctx;
+
+    if (status == FDB_CS_BEGIN) {
+        args->begin = true;
+    } else if (status == FDB_CS_END) {
+        args->end = true;
+    } else if (status == FDB_CS_FLUSH_WAL) {
+        args->wal_flush = true;
+    } else if (status == FDB_CS_MOVE_DOC) {
+        args->n_moved_docs++;
+        fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+        rdoc->offset = old_offset;
+        s = fdb_get_byoffset(args->handle, rdoc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    } else { // FDB_CS_BATCH_MOVE
+        args->n_batch_move++;
+        fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+        rdoc->offset = old_offset;
+        s = fdb_get_byoffset(args->handle, rdoc);
+        TEST_CHK (s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+}
+
+void compaction_callback_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 1000;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status s;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    struct cb_args cb_args;
+
+    memset(&cb_args, 0x0, sizeof(struct cb_args));
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_cb = compaction_cb;
+    fconfig.compaction_cb_ctx = &cb_args;
+    fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                                 FDB_CS_MOVE_DOC |
+                                 FDB_CS_FLUSH_WAL |
+                                 FDB_CS_END;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    cb_args.handle = db;
+
+    // write docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%04d", i);
+        sprintf(bodybuf, "body%04d", i);
+        s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+    }
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    s = fdb_compact(dbfile, "./dummy2");
+
+    TEST_CHK(cb_args.n_moved_docs == n);
+    TEST_CHK(cb_args.begin);
+    TEST_CHK(cb_args.end);
+    TEST_CHK(cb_args.wal_flush);
+    fdb_close(dbfile);
+
+    // open db without move doc
+    memset(&cb_args, 0x0, sizeof(struct cb_args));
+    fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                                 FDB_CS_FLUSH_WAL |
+                                 FDB_CS_END;
+    fdb_open(&dbfile, "./dummy2", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    cb_args.handle = db;
+    s = fdb_compact(dbfile, "./dummy3");
+    TEST_CHK(cb_args.n_moved_docs == 0);
+    TEST_CHK(cb_args.begin);
+    TEST_CHK(cb_args.end);
+    TEST_CHK(cb_args.wal_flush);
+    fdb_close(dbfile);
+
+    // open db without wal_flush
+    memset(&cb_args, 0x0, sizeof(struct cb_args));
+    fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                                 FDB_CS_MOVE_DOC |
+                                 FDB_CS_END;
+    fdb_open(&dbfile, "./dummy3", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    cb_args.handle = db;
+    s = fdb_compact(dbfile, "./dummy4");
+    TEST_CHK(cb_args.n_moved_docs == n);
+    TEST_CHK(cb_args.begin);
+    TEST_CHK(cb_args.end);
+    TEST_CHK(!cb_args.wal_flush);
+    fdb_close(dbfile);
+
+    // open db without begin/end
+    memset(&cb_args, 0x0, sizeof(struct cb_args));
+    fconfig.compaction_cb_mask = FDB_CS_MOVE_DOC |
+                                 FDB_CS_FLUSH_WAL;
+    fdb_open(&dbfile, "./dummy4", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    cb_args.handle = db;
+    s = fdb_compact(dbfile, "./dummy5");
+    TEST_CHK(cb_args.n_moved_docs == n);
+    TEST_CHK(!cb_args.begin);
+    TEST_CHK(!cb_args.end);
+    TEST_CHK(cb_args.wal_flush);
+    fdb_close(dbfile);
+
+    // open db with batch move
+    memset(&cb_args, 0x0, sizeof(struct cb_args));
+    fconfig.compaction_cb_mask = FDB_CS_BATCH_MOVE;
+    fdb_open(&dbfile, "./dummy5", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    cb_args.handle = db;
+    s = fdb_compact(dbfile, "./dummy6");
+    TEST_CHK(cb_args.n_moved_docs == 0);
+    TEST_CHK(cb_args.n_batch_move && cb_args.n_batch_move < n);
+    TEST_CHK(!cb_args.begin);
+    TEST_CHK(!cb_args.end);
+    TEST_CHK(!cb_args.wal_flush);
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("compaction callback function test");
+}
+
 void compact_wo_reopen_test()
 {
     TEST_INIT();
@@ -1352,6 +1507,7 @@ void auto_compaction_with_concurrent_insert_test(size_t t_limit)
 }
 
 int main(){
+    compaction_callback_test();
     compact_wo_reopen_test();
     compact_with_reopen_test();
     compact_reopen_named_kvs();

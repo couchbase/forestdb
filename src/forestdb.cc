@@ -3568,7 +3568,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 {
     uint8_t deleted;
     uint64_t offset;
-    uint64_t new_offset;
+    uint64_t old_offset, new_offset;
     uint64_t *offset_array;
     uint64_t n_moved_docs;
     size_t i, j, c, count;
@@ -3581,6 +3581,12 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     fdb_kvs_handle new_handle;
     timestamp_t cur_timestamp;
     fdb_status fs = FDB_RESULT_SUCCESS;
+
+    if (handle->config.compaction_cb &&
+        handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, 0, 0,
+                                     handle->config.compaction_cb_ctx);
+    }
 
     gettimeofday(&tv, NULL);
     cur_timestamp = tv.tv_sec;
@@ -3600,7 +3606,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     offset_array_max =
         handle->config.compaction_buf_maxsize / sizeof(uint64_t);
     offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
-    c = count = n_moved_docs = 0;
+    c = count = n_moved_docs = old_offset = new_offset = 0;
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
@@ -3655,6 +3661,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         //    its timestamp isn't overdue
                         new_offset = docio_append_doc(new_dhandle, &doc[j-i],
                                                       deleted, 0);
+                        old_offset = offset_array[j];
 
                         wal_doc.keylen = doc[j-i].length.keylen;
                         wal_doc.metalen = doc[j-i].length.metalen;
@@ -3666,11 +3673,25 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.body = doc[j-i].body;
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j-i].length);
                         wal_doc.deleted = deleted;
+                        wal_doc.offset = new_offset;
 
                         wal_insert(&new_file->global_txn,
                                    new_file, &wal_doc, new_offset, 1);
                         n_moved_docs++;
 
+                        if (handle->config.compaction_cb &&
+                            handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+                            if (!got_lock) {
+                                filemgr_mutex_unlock(new_file);
+                            }
+                            handle->config.compaction_cb(
+                                handle->fhandle, FDB_CS_MOVE_DOC,
+                                &wal_doc, old_offset, new_offset,
+                                handle->config.compaction_cb_ctx);
+                            if (!got_lock) {
+                                filemgr_mutex_lock(new_file);
+                            }
+                        }
                     }
                     free(doc[j-i].key);
                     free(doc[j-i].meta);
@@ -3679,6 +3700,14 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 if (!got_lock) {
                     filemgr_mutex_unlock(new_file);
                 }
+            }
+
+            if (handle->config.compaction_cb &&
+                handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
+                handle->config.compaction_cb(handle->fhandle,
+                                             FDB_CS_BATCH_MOVE, NULL,
+                                             old_offset, new_offset,
+                                             handle->config.compaction_cb_ctx);
             }
             // reset to zero
             c=0;
@@ -3694,6 +3723,14 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                 wal_release_flushed_items(new_file, &flush_items);
                 n_moved_docs = 0;
+
+                if (handle->config.compaction_cb &&
+                    handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+                    handle->config.compaction_cb(handle->fhandle,
+                                                 FDB_CS_FLUSH_WAL, NULL,
+                                                 old_offset, new_offset,
+                                                 handle->config.compaction_cb_ctx);
+                }
             }
 
             // If the rollback operation is issued, abort the compaction task.
@@ -3706,6 +3743,14 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
     hbtrie_iterator_free(&it);
     free(offset_array);
+
+    if (handle->config.compaction_cb &&
+        handle->config.compaction_cb_mask & FDB_CS_END) {
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
+                                     NULL, old_offset, new_offset,
+                                     handle->config.compaction_cb_ctx);
+    }
+
     return fs;
 }
 
