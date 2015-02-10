@@ -2320,6 +2320,168 @@ void rollback_prior_to_ops(bool walflush)
     TEST_RESULT(bodybuf);
 }
 
+struct cb_snapshot_args {
+    fdb_kvs_handle *handle;
+    int ndocs;
+    int nupdates;
+};
+
+static void _snapshot_check(fdb_kvs_handle *handle, int ndocs, int nupdates)
+{
+    TEST_INIT();
+    int i, j, update_no;
+    int commit_term = ndocs/2;
+    char keybuf[256], bodybuf[256];
+    char *value;
+    size_t valuelen;
+    fdb_kvs_handle *snap;
+    fdb_status s;
+    fdb_kvs_info info;
+
+    // check last seqnum
+    fdb_get_kvs_info(handle, &info);
+    TEST_CHK(info.last_seqnum == commit_term * nupdates);
+
+    // open snapshot for every 'commit_term' seq numbers
+    for (i=0; i<nupdates; i++) {
+        s = fdb_snapshot_open(handle, &snap, (i+1)*commit_term);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+        for (j=0;j<ndocs;++j) {
+            if (j < ndocs/2) {
+                update_no = (i/2) * 2;
+            } else {
+                if (i == 0) {
+                    break;
+                }
+                update_no = 1 + ((i-1)/2) * 2;
+            }
+            sprintf(keybuf, "key%04d", j);
+            sprintf(bodybuf, "body%04d_update%d", j, update_no);
+            s = fdb_get_kv(snap, keybuf, strlen(keybuf)+1,
+                           (void**)&value, &valuelen);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            TEST_CMP(value, bodybuf, valuelen);
+            free(value);
+        }
+
+        s = fdb_kvs_close(snap);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+}
+
+static void _snapshot_update_docs(fdb_file_handle *fhandle, struct cb_snapshot_args *args)
+{
+    int i;
+    char keybuf[256], bodybuf[256];
+    fdb_status s;
+
+    // update (half) docs
+    if (args->nupdates % 2 == 0) {
+        // former half
+        for (i=0; i<args->ndocs/2; ++i) {
+            sprintf(keybuf, "key%04d", i);
+            sprintf(bodybuf, "body%04d_update%d", i, args->nupdates);
+            s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+        }
+    } else {
+        // latter half
+        for (i=args->ndocs/2 ; i<args->ndocs; ++i) {
+            sprintf(keybuf, "key%04d", i);
+            sprintf(bodybuf, "body%04d_update%d", i, args->nupdates);
+            s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+        }
+    }
+    s = fdb_commit(fhandle, FDB_COMMIT_NORMAL);
+    args->nupdates++;
+}
+
+static int cb_snapshot(fdb_file_handle *fhandle,
+                       fdb_compaction_status status,
+                       fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
+                       void *ctx)
+{
+    struct cb_snapshot_args *args = (struct cb_snapshot_args *)ctx;
+
+    if (status == FDB_CS_BEGIN) {
+        // first verification
+        _snapshot_check(args->handle, args->ndocs, args->nupdates);
+        // update half docs
+        _snapshot_update_docs(fhandle, args);
+        // second verification
+        _snapshot_check(args->handle, args->ndocs, args->nupdates);
+    } else { // if (status == FDB_CS_END)
+        // first verification
+        _snapshot_check(args->handle, args->ndocs, args->nupdates);
+        // update half docs
+        _snapshot_update_docs(fhandle, args);
+        // second verification
+        _snapshot_check(args->handle, args->ndocs, args->nupdates);
+    }
+    return 0;
+}
+
+void snapshot_concurrent_compaction_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, j, idx, r;
+    int n = 100;
+    int commit_term = n/2;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status s;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    struct cb_snapshot_args cb_args;
+
+    memset(&cb_args, 0x0, sizeof(struct cb_snapshot_args));
+    fconfig.wal_threshold = 128;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_cb = cb_snapshot;
+    fconfig.compaction_cb_ctx = &cb_args;
+    fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                                 FDB_CS_END;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    cb_args.handle = db;
+
+    // write docs & commit for each n/2 doc updates
+    for (i=0;i<n;++i){
+        idx = i;
+        j = i/commit_term;
+        sprintf(keybuf, "key%04d", idx);
+        sprintf(bodybuf, "body%04d_update%d", idx, j);
+        s = fdb_set_kv(db, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+        if ((i+1)%commit_term == 0) {
+            s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        }
+    }
+    cb_args.ndocs = n;
+    cb_args.nupdates = 2;
+
+    _snapshot_check(db, cb_args.ndocs, cb_args.nupdates);
+
+    s = fdb_compact(dbfile, "./dummy2");
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("snapshot with concurrent compaction test");
+}
+
+
 void auto_compaction_snapshots_test()
 {
     TEST_INIT();
@@ -2411,7 +2573,6 @@ void auto_compaction_snapshots_test()
 }
 
 int main(){
-
     multi_version_test();
 #ifdef __CRC32
     crash_recovery_test();
@@ -2431,6 +2592,7 @@ int main(){
     transaction_simple_api_test();
     rollback_prior_to_ops(true); // wal commit
     rollback_prior_to_ops(false); // normal commit
+    snapshot_concurrent_compaction_test();
     auto_compaction_snapshots_test(); // test snapshots with auto-compaction
 
     return 0;

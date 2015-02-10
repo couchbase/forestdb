@@ -116,6 +116,7 @@ fdb_status snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle)
     avl_init(shandle->seq_tree, NULL);
     spin_init(&shandle->lock);
     shandle->ref_cnt = 1;
+    shandle->type = FDB_SNAP_NORMAL;
     return FDB_RESULT_SUCCESS;
 }
 

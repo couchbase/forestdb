@@ -811,10 +811,21 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
     if (!handle_in->shandle) {
         fdb_check_file_reopen(handle_in, &fstatus);
         if (fstatus == FILE_COMPACT_OLD) { // If file is undergoing compaction
-            file = handle_in->file; // pick old_file for main index and new_file
-            compaction_inprog = true; // for WAL so all writes made after
-            // the point where compator and writers began to interleave are
-            // copied into the snapshot
+            fdb_seqnum_t last_seqnum;
+            file = handle_in->file; // pick old_file for main index
+            // get old file's last seqnum
+            if (handle_in->kvs && handle_in->kvs->type == KVS_SUB) {
+                last_seqnum = fdb_kvs_get_seqnum(file, handle_in->kvs->id);
+            } else {
+                last_seqnum = filemgr_get_seqnum(file);
+            }
+            if (last_seqnum < seqnum) {
+                // req.seqnum is greater than the last seqnum of old file:
+                // pick new_file for WAL so all writes made after
+                // the point where compator and writers began to interleave are
+                // copied into the snapshot
+                compaction_inprog = true;
+            }
         } else { // in case compaction had completed, open new_file directly
             fdb_link_new_file(handle_in);
             fdb_sync_db_header(handle_in);
@@ -906,16 +917,20 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
                     *ptr_handle = NULL;
                     return FDB_RESULT_NO_DB_INSTANCE;
                 }
+                handle->shandle->type = FDB_SNAP_COMPACTION;
+                // link new file for WAL
+                fdb_link_new_file_enforce(handle);
+                handle->max_seqnum = seqnum;
             } else {
                 wal_snapshot(handle->file, (void *)handle->shandle,
                         handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
-            }
-            // set seqnum based on handle type (multikv or default)
-            if (handle_in->kvs && handle_in->kvs->id > 0) {
-                handle->max_seqnum = _fdb_kvs_get_seqnum(file->kv_header,
-                                                         handle_in->kvs->id);
-            } else {
-                handle->max_seqnum = filemgr_get_seqnum(file);
+                // set seqnum based on handle type (multikv or default)
+                if (handle_in->kvs && handle_in->kvs->id > 0) {
+                    handle->max_seqnum = _fdb_kvs_get_seqnum(file->kv_header,
+                                                             handle_in->kvs->id);
+                } else {
+                    handle->max_seqnum = filemgr_get_seqnum(file);
+                }
             }
         } else if (handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
             handle->max_seqnum = handle_in->seqnum;
@@ -2000,24 +2015,36 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
     return fs;
 }
 
+INLINE void _fdb_link_new_file(fdb_kvs_handle *handle)
+{
+    assert(handle->file->new_file);
+
+    // open new file and new dhandle
+    filemgr_open_result result = filemgr_open(handle->file->new_file->filename,
+                                              handle->fileops, handle->file->config,
+                                              &handle->log_callback);
+    handle->new_file = result.file;
+    handle->new_dhandle = (struct docio_handle *)
+                          calloc(1, sizeof(struct docio_handle));
+    handle->new_dhandle->log_callback = &handle->log_callback;
+    docio_init(handle->new_dhandle,
+               handle->new_file,
+               handle->config.compress_document_body);
+}
+
 void fdb_link_new_file(fdb_kvs_handle *handle)
 {
     // check whether this file is being compacted
     if (!handle->new_file &&
         filemgr_get_file_status(handle->file) == FILE_COMPACT_OLD) {
-        assert(handle->file->new_file);
+        _fdb_link_new_file(handle);
+    }
+}
 
-        // open new file and new dhandle
-        filemgr_open_result result = filemgr_open(handle->file->new_file->filename,
-                                                  handle->fileops, handle->file->config,
-                                                  &handle->log_callback);
-        handle->new_file = result.file;
-        handle->new_dhandle = (struct docio_handle *)
-                              calloc(1, sizeof(struct docio_handle));
-        handle->new_dhandle->log_callback = &handle->log_callback;
-        docio_init(handle->new_dhandle,
-                   handle->new_file,
-                   handle->config.compress_document_body);
+void fdb_link_new_file_enforce(fdb_kvs_handle *handle)
+{
+    if (!handle->new_file) {
+        _fdb_link_new_file(handle);
     }
 }
 
@@ -2107,7 +2134,12 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         } else {
             wr = snap_find(handle->shandle, doc, &offset);
         }
-        dhandle = handle->dhandle;
+        if (wr != FDB_RESULT_SUCCESS ||
+            handle->shandle->type == FDB_SNAP_NORMAL) {
+            dhandle = handle->dhandle;
+        } else { // FDB_SNAP_COMPACTION
+            dhandle = handle->new_dhandle;
+        }
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
@@ -2230,7 +2262,12 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         } else {
             wr = snap_find(handle->shandle, doc, &offset);
         }
-        dhandle = handle->dhandle;
+        if (wr != FDB_RESULT_SUCCESS ||
+            handle->shandle->type == FDB_SNAP_NORMAL) {
+            dhandle = handle->dhandle;
+        } else { // FDB_SNAP_COMPACTION
+            dhandle = handle->new_dhandle;
+        }
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
@@ -2337,7 +2374,12 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
-        dhandle = handle->dhandle;
+        if (wr != FDB_RESULT_SUCCESS ||
+            handle->shandle->type == FDB_SNAP_NORMAL) {
+            dhandle = handle->dhandle;
+        } else { // FDB_SNAP_COMPACTION
+            dhandle = handle->new_dhandle;
+        }
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
@@ -2464,7 +2506,12 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
-        dhandle = handle->dhandle;
+        if (wr != FDB_RESULT_SUCCESS ||
+            handle->shandle->type == FDB_SNAP_NORMAL) {
+            dhandle = handle->dhandle;
+        } else { // FDB_SNAP_COMPACTION
+            dhandle = handle->new_dhandle;
+        }
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {

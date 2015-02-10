@@ -42,6 +42,19 @@ struct snap_wal_entry {
     struct avl_node avl_seq;
 };
 
+typedef uint8_t snap_handle_type;
+enum {
+    /**
+     * Normal type: both main index and WAL are in the same file.
+     */
+    FDB_SNAP_NORMAL = 0,
+    /**
+     * Compaction in progress: main index is in the old file, while WAL
+     * is in the new file.
+     */
+    FDB_SNAP_COMPACTION = 1
+};
+
 struct snap_handle {
     /**
      * Lock to protect the reference count of cloned snapshots
@@ -51,6 +64,10 @@ struct snap_handle {
      * Reference count to avoid copy in cloned snapshots
      */
     volatile uint16_t ref_cnt;
+    /**
+     * Type of the snapshot handle
+     */
+    snap_handle_type type;
     /**
      * Cache custom compare function from original handle
      */

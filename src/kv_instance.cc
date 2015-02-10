@@ -831,19 +831,20 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
+        struct filemgr *file;
+        if (handle->new_file) {
+            file = handle->new_file;
+        } else {
+            file = handle->file;
+        }
+
         if (handle->kvs == NULL ||
             handle->kvs->id == 0) {
-            if (handle->new_file) {
-                filemgr_mutex_lock(handle->new_file);
-                *seqnum = filemgr_get_seqnum(handle->new_file);
-                filemgr_mutex_unlock(handle->new_file);
-            } else {
-                filemgr_mutex_lock(handle->file);
-                *seqnum = filemgr_get_seqnum(handle->file);
-                filemgr_mutex_unlock(handle->file);
-            }
+            filemgr_mutex_lock(file);
+            *seqnum = filemgr_get_seqnum(file);
+            filemgr_mutex_unlock(file);
         } else {
-            *seqnum = fdb_kvs_get_seqnum(handle->file, handle->kvs->id);
+            *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id);
         }
     }
     return FDB_RESULT_SUCCESS;
@@ -1745,6 +1746,7 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     uint64_t nlivenodes;
     fdb_kvs_id_t kv_id;
     struct avl_node *a;
+    struct filemgr *file;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
     struct kvs_stat stat;
@@ -1753,12 +1755,22 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    fdb_check_file_reopen(handle, NULL);
+    fdb_link_new_file(handle);
+    fdb_sync_db_header(handle);
+
+    if (handle->new_file) {
+        file = handle->new_file;
+    } else {
+        file = handle->file;
+    }
+
     if (handle->kvs == NULL) {
         info->name = default_kvs_name;
         kv_id = 0;
 
     } else {
-        kv_header = handle->file->kv_header;
+        kv_header = file->kv_header;
         kv_id = handle->kvs->id;
         spin_lock(&kv_header->lock);
 
@@ -1777,7 +1789,7 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         // snapshot .. get its local stats
         snap_get_stat(handle->shandle, &stat);
     } else {
-        _kvs_stat_get(handle->file, kv_id, &stat);
+        _kvs_stat_get(file, kv_id, &stat);
     }
     ndocs = stat.ndocs;
     wal_docs = stat.wal_ndocs;

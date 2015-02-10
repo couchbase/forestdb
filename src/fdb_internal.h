@@ -82,6 +82,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt);
 
 fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status);
 void fdb_link_new_file(fdb_kvs_handle *handle);
+void fdb_link_new_file_enforce(fdb_kvs_handle *handle);
 void fdb_sync_db_header(fdb_kvs_handle *handle);
 
 void fdb_fetch_header(void *header_buf,
