@@ -70,6 +70,7 @@ static int compaction_cb(fdb_file_handle *fhandle,
         TEST_CHK (s == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
     }
+    return 0;
 }
 
 void compaction_callback_test()
