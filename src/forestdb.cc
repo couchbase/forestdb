@@ -2647,6 +2647,11 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
     }
     doc->deleted = _doc.length.flag & DOCIO_DELETED;
     doc->size_ondisk = _fdb_get_docsize(_doc.length);
+    if (handle->kvs) {
+        // Since _doc.length was adjusted in _remove_kv_id(),
+        // we need to compensate it.
+        doc->size_ondisk += handle->config.chunksize;
+    }
 
     if (_doc.length.flag & DOCIO_DELETED) {
         return FDB_RESULT_KEY_NOT_FOUND;
