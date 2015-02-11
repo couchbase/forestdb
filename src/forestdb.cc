@@ -287,7 +287,8 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
 
                         // If say a snapshot is taken on a db handle after
                         // rollback, then skip WAL items after rollback point
-                        if ((mode == FDB_RESTORE_KV_INS || !handle->kvs) &&
+                        if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+                            (mode == FDB_RESTORE_KV_INS || !handle->kvs) &&
                             doc.seqnum > handle->seqnum) {
                             free(doc.key);
                             free(doc.meta);
