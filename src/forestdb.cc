@@ -906,6 +906,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
             fdb_seqnum_t upto_seq = seqnum;
             if (compaction_inprog && seqnum != FDB_SNAPSHOT_INMEM) {
                 // Persistent snapshot requested in the middle of compaction..
+                handle->shandle->type = FDB_SNAP_COMPACTION;
                 wal_snapshot(handle->file->new_file, (void *)handle->shandle,
                         handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
                 // If new_file's WAL did have items, check to see that the
@@ -917,7 +918,6 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
                     *ptr_handle = NULL;
                     return FDB_RESULT_NO_DB_INSTANCE;
                 }
-                handle->shandle->type = FDB_SNAP_COMPACTION;
                 // link new file for WAL
                 fdb_link_new_file_enforce(handle);
                 handle->max_seqnum = seqnum;

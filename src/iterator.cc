@@ -259,6 +259,10 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                 iterator->handle->seqtree->root_bid = handle->seqtree->root_bid;
             }
         }
+        // link new file if wal_tree points to the new file
+        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
+            fdb_link_new_file_enforce(iterator->handle);
+        }
     }
     iterator->opt = opt;
 
@@ -527,6 +531,10 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
             } else {
                 iterator->handle->seqtree->root_bid = handle->seqtree->root_bid;
             }
+        }
+        // link new file if wal_tree points to the new file
+        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
+            fdb_link_new_file_enforce(iterator->handle);
         }
     }
     iterator->hbtrie_iterator = NULL;
