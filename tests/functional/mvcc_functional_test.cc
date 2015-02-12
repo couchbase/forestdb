@@ -2481,6 +2481,164 @@ void snapshot_concurrent_compaction_test()
     TEST_RESULT("snapshot with concurrent compaction test");
 }
 
+void rollback_to_zero_test(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    int num_kvs = 4; // keep this the same as number of fdb_commit() calls
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_kvs_info info;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    char kv_name[8];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+
+    if (multi_kv) {
+        for (r = 0; r < num_kvs; ++r) {
+            sprintf(kv_name, "kv%d", r);
+            fdb_kvs_open(dbfile, &db[r], kv_name, &kvs_config);
+        }
+    } else {
+        num_kvs = 1;
+        fdb_kvs_open_default(dbfile, &db[0], &kvs_config);
+    }
+
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                      (void *) "rollback_to_zero_test");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+   // ------- Setup test ----------------------------------
+   // insert documents of 0-4
+    for (i=0; i<n/4; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 5 - 9
+    for (; i < n/2; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit again without a WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // insert documents from 10-14 into HB-trie
+    for (; i < (n/2 + n/4); i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents from 15 - 19 on file into the WAL
+    for (; i < n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // commit without a WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    if (!multi_kv) {
+        status = fdb_rollback(&db[0], 0);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_get_kvs_info(db[0], &info);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(info.last_seqnum == 0);
+        TEST_CHK(info.doc_count == 0);
+        TEST_CHK(info.space_used == 0);
+        status = fdb_get(db[0], doc[0]);
+        TEST_CHK(status = FDB_RESULT_KEY_NOT_FOUND);
+        status = fdb_set(db[0], doc[0]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    } else {
+        for (r = 0; r < num_kvs; ++r) {
+            status = fdb_rollback(&db[r], 0);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_get_kvs_info(db[r], &info);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(info.last_seqnum == 0);
+            TEST_CHK(info.doc_count == 0);
+            TEST_CHK(info.space_used == 0);
+            status = fdb_get(db[r], doc[0]);
+            TEST_CHK(status = FDB_RESULT_KEY_NOT_FOUND);
+            // test normal operation after rollback
+            status = fdb_set(db[r], doc[0]);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    // test normal operation after rollbacks manually flush WAL & commit
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf, "rollback to zero test %s", multi_kv ? "multiple kv mode:"
+                                                          : "single kv mode:");
+    TEST_RESULT(bodybuf);
+}
 
 void auto_compaction_snapshots_test()
 {
@@ -2593,6 +2751,8 @@ int main(){
     rollback_prior_to_ops(true); // wal commit
     rollback_prior_to_ops(false); // normal commit
     snapshot_concurrent_compaction_test();
+    rollback_to_zero_test(true); // multi kv instance mode
+    rollback_to_zero_test(false); // single kv instance mode
     auto_compaction_snapshots_test(); // test snapshots with auto-compaction
 
     return 0;
