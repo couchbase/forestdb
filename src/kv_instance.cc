@@ -1403,7 +1403,7 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     size_t size_chunk, size_id;
     uint8_t *_kv_id;
     fdb_status fs = FDB_RESULT_SUCCESS;
-    fdb_kvs_id_t kv_id;
+    fdb_kvs_id_t kv_id = 0;
     fdb_kvs_handle *root_handle;
     struct avl_node *a = NULL;
     struct list_elem *e;
