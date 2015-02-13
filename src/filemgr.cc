@@ -1077,9 +1077,9 @@ static void _filemgr_free_func(struct hash_elem *h)
             spin_destroy(&file->wal->seq_shards[i].lock);
         }
         spin_destroy(&file->wal->lock);
-        atomic_val_destroy(&file->wal->size);
-        atomic_val_destroy(&file->wal->num_flushable);
-        atomic_val_destroy(&file->wal->datasize);
+        atomic_destroy_uint32_t(&file->wal->size);
+        atomic_destroy_uint32_t(&file->wal->num_flushable);
+        atomic_destroy_uint64_t(&file->wal->datasize);
         free(file->wal->key_shards);
         free(file->wal->seq_shards);
     }

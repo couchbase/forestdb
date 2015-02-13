@@ -100,9 +100,9 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
     int i, num_hash_buckets;
 
     file->wal->flag = WAL_FLAG_INITIALIZED;
-    atomic_val_init_32(&file->wal->size, 0);
-    atomic_val_init_32(&file->wal->num_flushable, 0);
-    atomic_val_init_64(&file->wal->datasize, 0);
+    atomic_init_uint32_t(&file->wal->size, 0);
+    atomic_init_uint32_t(&file->wal->num_flushable, 0);
+    atomic_init_uint64_t(&file->wal->datasize, 0);
     file->wal->wal_dirty = FDB_WAL_CLEAN;
 
     list_init(&file->wal->txn_list);
@@ -203,7 +203,7 @@ fdb_status wal_insert(fdb_txn *txn,
                                 &item->he_seq);
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
 
-                    atomic_val_add_64(&file->wal->datasize, doc->size_ondisk - item->doc_size);
+                    atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk - item->doc_size);
 
                     item->doc_size = doc->size_ondisk;
                     item->offset = offset;
@@ -247,7 +247,7 @@ fdb_status wal_insert(fdb_txn *txn,
             }
             item->txn = txn;
             if (txn == &file->global_txn) {
-                atomic_val_incr_32(&file->wal->num_flushable);
+                atomic_incr_uint32_t(&file->wal->num_flushable);
             }
             item->header = header;
 
@@ -255,7 +255,7 @@ fdb_status wal_insert(fdb_txn *txn,
             item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
             item->offset = offset;
             item->doc_size = doc->size_ondisk;
-            atomic_val_add_64(&file->wal->datasize, doc->size_ondisk);
+            atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
 
             size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
             spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
@@ -271,7 +271,7 @@ fdb_status wal_insert(fdb_txn *txn,
                 // always push back because it is already committed
                 list_push_back(&header->items, &item->list_elem);
             }
-            atomic_val_incr_32(&file->wal->size);
+            atomic_incr_uint32_t(&file->wal->size);
         }
     } else {
         // not exist .. create new one
@@ -298,7 +298,7 @@ fdb_status wal_insert(fdb_txn *txn,
         }
         item->txn = txn;
         if (txn == &file->global_txn) {
-            atomic_val_incr_32(&file->wal->num_flushable);
+            atomic_incr_uint32_t(&file->wal->num_flushable);
         }
         item->header = header;
 
@@ -306,7 +306,7 @@ fdb_status wal_insert(fdb_txn *txn,
         item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
         item->doc_size = doc->size_ondisk;
-        atomic_val_add_64(&file->wal->datasize, doc->size_ondisk);
+        atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
 
         size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
         spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
@@ -326,7 +326,7 @@ fdb_status wal_insert(fdb_txn *txn,
 
         // insert an item header into a WAL shard's list
         list_push_back(&file->wal->key_shards[shard_num].list, &header->list_elem);
-        atomic_val_incr_32(&file->wal->size);
+        atomic_incr_uint32_t(&file->wal->size);
     }
 
     spin_unlock(&file->wal->key_shards[shard_num].lock);
@@ -478,10 +478,10 @@ fdb_status wal_txn_migration(void *dbhandle,
                     list_remove(item->txn->items, &item->list_elem_txn);
                     // decrease num_flushable of old_file if non-transactional update
                     if (item->txn == &old_file->global_txn) {
-                        atomic_val_decr_32(&old_file->wal->num_flushable);
+                        atomic_decr_uint32_t(&old_file->wal->num_flushable);
                     }
                     if (item->action != WAL_ACT_REMOVE) {
-                        atomic_val_sub_64(&old_file->wal->datasize, item->doc_size);
+                        atomic_sub_uint64_t(&old_file->wal->datasize, item->doc_size);
                     }
                     // free item
                     free(item);
@@ -489,7 +489,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                     free(doc.key);
                     free(doc.meta);
                     free(doc.body);
-                    atomic_val_decr_32(&old_file->wal->size);
+                    atomic_decr_uint32_t(&old_file->wal->size);
                 } else {
                     e2= list_prev(e2);
                 }
@@ -591,10 +591,10 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
                     prev_action = _item->action;
                     prev_commit = 1;
-                    atomic_val_decr_32(&file->wal->size);
-                    atomic_val_decr_32(&file->wal->num_flushable);
+                    atomic_decr_uint32_t(&file->wal->size);
+                    atomic_decr_uint32_t(&file->wal->num_flushable);
                     if (item->action != WAL_ACT_REMOVE) {
-                        atomic_val_sub_64(&file->wal->datasize, _item->doc_size);
+                        atomic_sub_uint64_t(&file->wal->datasize, _item->doc_size);
                     }
                     free(_item);
                 }
@@ -616,7 +616,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             }
             // increase num_flushable if it is transactional update
             if (item->txn != &file->global_txn) {
-                atomic_val_incr_32(&file->wal->num_flushable);
+                atomic_incr_uint32_t(&file->wal->num_flushable);
             }
             // move the committed item to the end of the wal_item_header's list
             list_remove(&item->header->items, &item->list_elem);
@@ -702,10 +702,10 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
         }
         _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
-        atomic_val_decr_32(&file->wal->size);
-        atomic_val_decr_32(&file->wal->num_flushable);
+        atomic_decr_uint32_t(&file->wal->size);
+        atomic_decr_uint32_t(&file->wal->num_flushable);
         if (item->action != WAL_ACT_REMOVE) {
-            atomic_val_sub_64(&file->wal->datasize, item->doc_size);
+            atomic_sub_uint64_t(&file->wal->datasize, item->doc_size);
         }
         free(item);
         spin_unlock(&file->wal->key_shards[shard_num].lock);
@@ -908,14 +908,14 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
         e = list_remove(txn->items, e);
         if (item->txn == &file->global_txn ||
             item->flag & WAL_ITEM_COMMITTED) {
-            atomic_val_decr_32(&file->wal->num_flushable);
+            atomic_decr_uint32_t(&file->wal->num_flushable);
         }
         if (item->action != WAL_ACT_REMOVE) {
-            atomic_val_sub_64(&file->wal->datasize, item->doc_size);
+            atomic_sub_uint64_t(&file->wal->datasize, item->doc_size);
         }
         // free
         free(item);
-        atomic_val_decr_32(&file->wal->size);
+        atomic_decr_uint32_t(&file->wal->size);
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
 
@@ -987,13 +987,13 @@ static fdb_status _wal_close(struct filemgr *file,
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
 
                     if (item->action != WAL_ACT_REMOVE) {
-                        atomic_val_sub_64(&file->wal->datasize, item->doc_size);
+                        atomic_sub_uint64_t(&file->wal->datasize, item->doc_size);
                     }
                     if (item->txn == &file->global_txn) {
-                        atomic_val_decr_32(&file->wal->num_flushable);
+                        atomic_decr_uint32_t(&file->wal->num_flushable);
                     }
                     free(item);
-                    atomic_val_decr_32(&file->wal->size);
+                    atomic_decr_uint32_t(&file->wal->size);
                 } else {
                     e2 = list_next(e2);
                 }
@@ -1034,9 +1034,9 @@ fdb_status wal_close(struct filemgr *file)
 fdb_status wal_shutdown(struct filemgr *file)
 {
     fdb_status wr = _wal_close(file, WAL_DISCARD_ALL, NULL);
-    atomic_val_store_32(&file->wal->size, 0);
-    atomic_val_store_32(&file->wal->num_flushable, 0);
-    atomic_val_store_64(&file->wal->datasize, 0);
+    atomic_store_uint32_t(&file->wal->size, 0);
+    atomic_store_uint32_t(&file->wal->num_flushable, 0);
+    atomic_store_uint64_t(&file->wal->datasize, 0);
     return wr;
 }
 
@@ -1049,12 +1049,12 @@ fdb_status wal_close_kv_ins(struct filemgr *file,
 
 size_t wal_get_size(struct filemgr *file)
 {
-    return file->wal->size.value.val_32;
+    return file->wal->size.val;
 }
 
 size_t wal_get_num_flushable(struct filemgr *file)
 {
-    return file->wal->num_flushable.value.val_32;
+    return file->wal->num_flushable.val;
 }
 
 size_t wal_get_num_docs(struct filemgr *file) {
@@ -1067,7 +1067,7 @@ size_t wal_get_num_deletes(struct filemgr *file) {
 
 size_t wal_get_datasize(struct filemgr *file)
 {
-    return file->wal->datasize.value.val_64;
+    return file->wal->datasize.val;
 }
 
 void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status)

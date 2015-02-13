@@ -17,77 +17,95 @@
 
 #include "atomic.h"
 
-void atomic_val_init_64(atomic_val_t *atomic_val, uint64_t initial) {
+void atomic_init_uint64_t(atomic_uint64_t *atomic_val, uint64_t initial) {
 #ifdef _MSC_VER
     spin_init(&atomic_val->lock);
 #endif
-    atomic_val_store_64(atomic_val, initial);
+    atomic_store_uint64_t(atomic_val, initial);
 }
 
-void atomic_val_init_32(atomic_val_t *atomic_val, uint32_t initial) {
+void atomic_init_uint32_t(atomic_uint32_t *atomic_val, uint32_t initial) {
 #ifdef _MSC_VER
     spin_init(&atomic_val->lock);
 #endif
-    atomic_val_store_32(atomic_val, initial);
+    atomic_store_uint32_t(atomic_val, initial);
 }
 
-void atomic_val_init_16(atomic_val_t *atomic_val, uint16_t initial) {
+void atomic_init_uint16_t(atomic_uint16_t *atomic_val, uint16_t initial) {
 #ifdef _MSC_VER
     spin_init(&atomic_val->lock);
 #endif
-    atomic_val_store_16(atomic_val, initial);
+    atomic_store_uint16_t(atomic_val, initial);
 }
 
-void atomic_val_init_8(atomic_val_t *atomic_val, uint8_t initial) {
+void atomic_init_uint8_t(atomic_uint8_t *atomic_val, uint8_t initial) {
 #ifdef _MSC_VER
     spin_init(&atomic_val->lock);
 #endif
-    atomic_val_store_8(atomic_val, initial);
+    atomic_store_uint8_t(atomic_val, initial);
 }
 
-void atomic_val_destroy(atomic_val_t *atomic_val) {
+void atomic_destroy_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
     spin_destroy(&atomic_val->lock);
 #endif
 }
 
-void atomic_val_store_64(atomic_val_t *atomic_val, uint64_t new_val) {
+void atomic_destroy_uint32_t(atomic_uint32_t *atomic_val) {
+#ifdef _MSC_VER
+    spin_destroy(&atomic_val->lock);
+#endif
+}
 
-    atomic_val->value.val_64 = new_val;
+void atomic_destroy_uint16_t(atomic_uint16_t *atomic_val) {
+#ifdef _MSC_VER
+    spin_destroy(&atomic_val->lock);
+#endif
+}
+
+void atomic_destroy_uint8_t(atomic_uint8_t *atomic_val) {
+#ifdef _MSC_VER
+    spin_destroy(&atomic_val->lock);
+#endif
+}
+
+void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val) {
+
+    atomic_val->val = new_val;
     fdb_sync_synchronize();
 }
 
-void atomic_val_store_32(atomic_val_t *atomic_val, uint32_t new_val) {
+void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val) {
 
-    atomic_val->value.val_32 = new_val;
+    atomic_val->val = new_val;
     fdb_sync_synchronize();
 }
 
-void atomic_val_store_16(atomic_val_t *atomic_val, uint16_t new_val) {
+void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val) {
 
-    atomic_val->value.val_16 = new_val;
+    atomic_val->val = new_val;
     fdb_sync_synchronize();
 }
 
-void atomic_val_store_8(atomic_val_t *atomic_val, uint8_t new_val) {
+void atomic_store_uint8_t(atomic_uint8_t *atomic_val, uint8_t new_val) {
 
-    atomic_val->value.val_8 = new_val;
+    atomic_val->val = new_val;
     fdb_sync_synchronize();
 }
 
-bool atomic_val_compare_and_set_64(atomic_val_t *atomic_val,
-                                   uint64_t expected_val, uint64_t new_val) {
+bool atomic_cas_uint64_t(atomic_uint64_t *atomic_val,
+                         uint64_t expected_val, uint64_t new_val) {
     bool rv = false;
 
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    if (atomic_val->value.val_64 == expected_val) {
-        atomic_val->value.val_64 = new_val;
+    if (atomic_val->val == expected_val) {
+        atomic_val->val = new_val;
         rv = true;
     }
     spin_unlock(&atomic_val->lock);
 #else
-    if (fdb_sync_bool_compare_and_swap_64(&atomic_val->value.val_64,
+    if (fdb_sync_bool_compare_and_swap_64(&atomic_val->val,
                                           expected_val, new_val)) {
         rv = true;
     }
@@ -96,19 +114,19 @@ bool atomic_val_compare_and_set_64(atomic_val_t *atomic_val,
     return rv;
 }
 
-bool atomic_val_compare_and_set_32(atomic_val_t *atomic_val,
-                                   uint32_t expected_val, uint32_t new_val) {
+bool atomic_cas_uint32_t(atomic_uint32_t *atomic_val,
+                         uint32_t expected_val, uint32_t new_val) {
     bool rv = false;
 
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    if (atomic_val->value.val_32 == expected_val) {
-        atomic_val->value.val_32 = new_val;
+    if (atomic_val->val == expected_val) {
+        atomic_val->val = new_val;
         rv = true;
     }
     spin_unlock(&atomic_val->lock);
 #else
-    if (fdb_sync_bool_compare_and_swap_32(&atomic_val->value.val_32,
+    if (fdb_sync_bool_compare_and_swap_32(&atomic_val->val,
                                           expected_val, new_val)) {
         rv = true;
     }
@@ -117,19 +135,19 @@ bool atomic_val_compare_and_set_32(atomic_val_t *atomic_val,
     return rv;
 }
 
-bool atomic_val_compare_and_set_16(atomic_val_t *atomic_val,
-                                   uint16_t expected_val, uint16_t new_val) {
+bool atomic_cas_uint16_t(atomic_uint16_t *atomic_val,
+                         uint16_t expected_val, uint16_t new_val) {
     bool rv = false;
 
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    if (atomic_val->value.val_16 == expected_val) {
-        atomic_val->value.val_16 = new_val;
+    if (atomic_val->val == expected_val) {
+        atomic_val->val = new_val;
         rv = true;
     }
     spin_unlock(&atomic_val->lock);
 #else
-    if (fdb_sync_bool_compare_and_swap_16(&atomic_val->value.val_16,
+    if (fdb_sync_bool_compare_and_swap_16(&atomic_val->val,
                                           expected_val, new_val)) {
         rv = true;
     }
@@ -138,19 +156,19 @@ bool atomic_val_compare_and_set_16(atomic_val_t *atomic_val,
     return rv;
 }
 
-bool atomic_val_compare_and_set_8(atomic_val_t *atomic_val,
-                                  uint8_t expected_val, uint8_t new_val) {
+bool atomic_cas_uint8_t(atomic_uint8_t *atomic_val,
+                        uint8_t expected_val, uint8_t new_val) {
     bool rv = false;
 
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    if (atomic_val->value.val_8 == expected_val) {
-        atomic_val->value.val_8 = new_val;
+    if (atomic_val->val == expected_val) {
+        atomic_val->val = new_val;
         rv = true;
     }
     spin_unlock(&atomic_val->lock);
 #else
-    if (fdb_sync_bool_compare_and_swap_8(&atomic_val->value.val_8,
+    if (fdb_sync_bool_compare_and_swap_8(&atomic_val->val,
                                          expected_val, new_val)) {
         rv = true;
     }
@@ -159,162 +177,162 @@ bool atomic_val_compare_and_set_8(atomic_val_t *atomic_val,
     return rv;
 }
 
-void atomic_val_incr_64(atomic_val_t *atomic_val) {
+void atomic_incr_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    ++atomic_val->value.val_64;
+    ++atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_64(&atomic_val->value.val_64, 1);
+    fdb_sync_add_and_fetch_64(&atomic_val->val, 1);
 #endif
 }
 
-void atomic_val_incr_32(atomic_val_t *atomic_val) {
+void atomic_incr_uint32_t(atomic_uint32_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    ++atomic_val->value.val_32;
+    ++atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_32(&atomic_val->value.val_32, 1);
+    fdb_sync_add_and_fetch_32(&atomic_val->val, 1);
 #endif
 }
 
-void atomic_val_incr_16(atomic_val_t *atomic_val) {
+void atomic_incr_uint16_t(atomic_uint16_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    ++atomic_val->value.val_16;
+    ++atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_16(&atomic_val->value.val_16, 1);
+    fdb_sync_add_and_fetch_16(&atomic_val->val, 1);
 #endif
 }
 
-void atomic_val_incr_8(atomic_val_t *atomic_val) {
+void atomic_incr_uint8_t(atomic_uint8_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    ++atomic_val->value.val_8;
+    ++atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_8(&atomic_val->value.val_8, 1);
+    fdb_sync_add_and_fetch_8(&atomic_val->val, 1);
 #endif
 }
 
-void atomic_val_decr_64(atomic_val_t *atomic_val) {
+void atomic_decr_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    --atomic_val->value.val_64;
+    --atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_64(&atomic_val->value.val_64, -1);
+    fdb_sync_add_and_fetch_64(&atomic_val->val, -1);
 #endif
 }
 
-void atomic_val_decr_32(atomic_val_t *atomic_val) {
+void atomic_decr_uint32_t(atomic_uint32_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    --atomic_val->value.val_32;
+    --atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_32(&atomic_val->value.val_32, -1);
+    fdb_sync_add_and_fetch_32(&atomic_val->val, -1);
 #endif
 }
 
-void atomic_val_decr_16(atomic_val_t *atomic_val) {
+void atomic_decr_uint16_t(atomic_uint16_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    --atomic_val->value.val_16;
+    --atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_16(&atomic_val->value.val_16, -1);
+    fdb_sync_add_and_fetch_16(&atomic_val->val, -1);
 #endif
 }
 
-void atomic_val_decr_8(atomic_val_t *atomic_val) {
+void atomic_decr_uint8_t(atomic_uint8_t *atomic_val) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    --atomic_val->value.val_8;
+    --atomic_val->val;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_8(&atomic_val->value.val_8, -1);
+    fdb_sync_add_and_fetch_8(&atomic_val->val, -1);
 #endif
 }
 
-void atomic_val_add_64(atomic_val_t *atomic_val, int64_t increment) {
+void atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increment) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_64 += increment;
+    atomic_val->val += increment;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_64(&atomic_val->value.val_64, increment);
+    fdb_sync_add_and_fetch_64(&atomic_val->val, increment);
 #endif
 }
 
-void atomic_val_add_32(atomic_val_t *atomic_val, int32_t increment) {
+void atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increment) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_32 += increment;
+    atomic_val->val += increment;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_32(&atomic_val->value.val_32, increment);
+    fdb_sync_add_and_fetch_32(&atomic_val->val, increment);
 #endif
 }
 
-void atomic_val_add_16(atomic_val_t *atomic_val, int16_t increment) {
+void atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increment) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_16 += increment;
+    atomic_val->val += increment;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_16(&atomic_val->value.val_16, increment);
+    fdb_sync_add_and_fetch_16(&atomic_val->val, increment);
 #endif
 }
 
-void atomic_val_add_8(atomic_val_t *atomic_val, int8_t increment) {
+void atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_8 += increment;
+    atomic_val->val += increment;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_8(&atomic_val->value.val_8, increment);
+    fdb_sync_add_and_fetch_8(&atomic_val->val, increment);
 #endif
 }
 
-void atomic_val_sub_64(atomic_val_t *atomic_val, int64_t decrement) {
+void atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decrement) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_64 -= decrement;
+    atomic_val->val -= decrement;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_64(&atomic_val->value.val_64, -decrement);
+    fdb_sync_add_and_fetch_64(&atomic_val->val, -decrement);
 #endif
 }
 
-void atomic_val_sub_32(atomic_val_t *atomic_val, int32_t decrement) {
+void atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decrement) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_32 -= decrement;
+    atomic_val->val -= decrement;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_32(&atomic_val->value.val_32, -decrement);
+    fdb_sync_add_and_fetch_32(&atomic_val->val, -decrement);
 #endif
 }
 
-void atomic_val_sub_16(atomic_val_t *atomic_val, int16_t decrement) {
+void atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decrement) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_16 -= decrement;
+    atomic_val->val -= decrement;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_16(&atomic_val->value.val_16, -decrement);
+    fdb_sync_add_and_fetch_16(&atomic_val->val, -decrement);
 #endif
 }
 
-void atomic_val_sub_8(atomic_val_t *atomic_val, int8_t decrement) {
+void atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement) {
 #ifdef _MSC_VER
     spin_lock(&atomic_val->lock);
-    atomic_val->value.val_8 -= decrement;
+    atomic_val->val -= decrement;
     spin_unlock(&atomic_val->lock);
 #else
-    fdb_sync_add_and_fetch_8(&atomic_val->value.val_8, -decrement);
+    fdb_sync_add_and_fetch_8(&atomic_val->val, -decrement);
 #endif
 }

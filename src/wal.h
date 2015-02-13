@@ -100,9 +100,9 @@ struct wal_shard_by_seq {
 
 struct wal {
     uint8_t flag;
-    atomic_val_t size; // total # entries in WAL (uint32_t)
-    atomic_val_t num_flushable; // # flushable entries in WAL (uint32_t)
-    atomic_val_t datasize; // total data size in WAL (uint64_t)
+    atomic_uint32_t size; // total # entries in WAL (uint32_t)
+    atomic_uint32_t num_flushable; // # flushable entries in WAL (uint32_t)
+    atomic_uint64_t datasize; // total data size in WAL (uint64_t)
     struct list txn_list; // list of active transactions
     wal_dirty_t wal_dirty;
     struct wal_shard_by_key *key_shards;
