@@ -100,7 +100,8 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle);
 
 fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
                                   const char *filename,
-                                  fdb_config *config);
+                                  fdb_config *fconfig,
+                                  struct list *cmp_func_list);
 
 fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                             const char *new_filename,
@@ -115,6 +116,11 @@ void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
                                     size_t n_func,
                                     char **kvs_names,
                                     fdb_custom_cmp_variable *functions);
+void fdb_file_handle_clone_cmp_func_list(fdb_file_handle *fhandle,
+                                         struct list *cmp_func_list);
+void fdb_file_handle_add_cmp_func(fdb_file_handle *fhandle,
+                                  char *kvs_name,
+                                  fdb_custom_cmp_variable cmp_func);
 void fdb_file_handle_free(fdb_file_handle *fhandle);
 
 fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle);

@@ -115,6 +115,8 @@ void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
     }
 
     fhandle->cmp_func_list = (struct list*)calloc(1, sizeof(struct list));
+    list_init(fhandle->cmp_func_list);
+
     for (i=0;i<n_func;++i){
         node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
         if (kvs_names[i]) {
@@ -127,6 +129,61 @@ void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
         node->func = functions[i];
         list_push_back(fhandle->cmp_func_list, &node->le);
     }
+}
+
+// clone all items in cmp_func_list to fhandle->cmp_func_list
+void fdb_file_handle_clone_cmp_func_list(fdb_file_handle *fhandle,
+                                         struct list *cmp_func_list)
+{
+    struct list_elem *e;
+    struct cmp_func_node *src, *dst;
+
+    if (fhandle->cmp_func_list || /* already exist */
+        !cmp_func_list) {
+        return;
+    }
+
+    fhandle->cmp_func_list = (struct list*)calloc(1, sizeof(struct list));
+    list_init(fhandle->cmp_func_list);
+
+    e = list_begin(cmp_func_list);
+    while (e) {
+        src = _get_entry(e, struct cmp_func_node, le);
+        dst = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
+        if (src->kvs_name) {
+            dst->kvs_name = (char*)calloc(1, strlen(src->kvs_name)+1);
+            strcpy(dst->kvs_name, src->kvs_name);
+        } else {
+            dst->kvs_name = NULL; // default KVS
+        }
+        dst->func = src->func;
+        list_push_back(fhandle->cmp_func_list, &dst->le);
+        e = list_next(&src->le);
+    }
+}
+
+void fdb_file_handle_add_cmp_func(fdb_file_handle *fhandle,
+                                  char *kvs_name,
+                                  fdb_custom_cmp_variable cmp_func)
+{
+    struct cmp_func_node *node;
+
+    // create list if not exist
+    if (!fhandle->cmp_func_list) {
+        fhandle->cmp_func_list = (struct list*)calloc(1, sizeof(struct list));
+        list_init(fhandle->cmp_func_list);
+    }
+
+    node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
+    if (kvs_name) {
+        node->kvs_name = (char*)calloc(1, strlen(kvs_name)+1);
+        strcpy(node->kvs_name, kvs_name);
+    } else {
+        // default KVS
+        node->kvs_name = NULL;
+    }
+    node->func = cmp_func;
+    list_push_back(fhandle->cmp_func_list, &node->le);
 }
 
 static void _free_cmp_func_list(fdb_file_handle *fhandle)
@@ -977,6 +1034,12 @@ fdb_kvs_create_start:
     if (node->custom_cmp == NULL && kvs_config->custom_cmp) {
         // follow kvs_config's custom cmp next
         node->custom_cmp = kvs_config->custom_cmp;
+        // if custom cmp function is given by user but
+        // there is no corresponding function in fhandle's list
+        // add it into the list
+        fdb_file_handle_add_cmp_func(root_handle->fhandle,
+                                     (char*)kvs_name,
+                                     kvs_config->custom_cmp);
     }
     if (node->custom_cmp) { // custom cmp function is used
         node->flags |= KVS_FLAG_CUSTOM_CMP;

@@ -33,7 +33,9 @@ struct compactor_config{
 void compactor_init(struct compactor_config *config);
 void compactor_shutdown();
 bool compactor_switch_compaction_flag(struct filemgr *file, bool flag);
-fdb_status compactor_register_file(struct filemgr *file, fdb_config *config);
+fdb_status compactor_register_file(struct filemgr *file,
+                                   fdb_config *config,
+                                   struct list *cmp_func_list);
 void compactor_deregister_file(struct filemgr *file);
 void compactor_change_threshold(struct filemgr *file, size_t new_threshold);
 void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file);

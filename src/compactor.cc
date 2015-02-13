@@ -29,6 +29,7 @@
 #include "fdb_internal.h"
 #include "filemgr.h"
 #include "avltree.h"
+#include "list.h"
 #include "common.h"
 #include "filemgr_ops.h"
 #include "configuration.h"
@@ -85,6 +86,7 @@ struct openfiles_elem {
     fdb_config config;
     uint32_t register_count;
     bool compaction_flag; // set when the file is being compacted
+    struct list *cmp_func_list; // pointer to fhandle's list
     struct avl_node avl;
 };
 
@@ -371,7 +373,8 @@ void * compactor_thread(void *voidargs)
                 elem->compaction_flag = true;
                 spin_unlock(&cpt_lock);
 
-                fs = fdb_open_for_compactor(&fhandle, vfilename, &config);
+                fs = fdb_open_for_compactor(&fhandle, vfilename, &config,
+                                            elem->cmp_func_list);
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(filename, new_filename);
                     fdb_compact_file(fhandle, new_filename, false);
@@ -507,7 +510,9 @@ void compactor_shutdown()
 static fdb_status _compactor_store_metafile(char *metafile,
                                             struct compactor_meta *metadata);
 
-fdb_status compactor_register_file(struct filemgr *file, fdb_config *config)
+fdb_status compactor_register_file(struct filemgr *file,
+                                   fdb_config *config,
+                                   struct list *cmp_func_list)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a = NULL;
@@ -528,6 +533,7 @@ fdb_status compactor_register_file(struct filemgr *file, fdb_config *config)
         elem->config = *config;
         elem->register_count = 1;
         elem->compaction_flag = false;
+        elem->cmp_func_list = cmp_func_list;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
 
         // store in metafile

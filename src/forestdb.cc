@@ -752,7 +752,8 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
 
 fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
                                   const char *filename,
-                                  fdb_config *fconfig)
+                                  fdb_config *fconfig,
+                                  struct list *cmp_func_list)
 {
 #ifdef _MEMPOOL
     mempool_init();
@@ -774,6 +775,9 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
 
     fdb_file_handle_init(fhandle, handle);
+    if (cmp_func_list) {
+        fdb_file_handle_clone_cmp_func_list(fhandle, cmp_func_list);
+    }
     fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, fconfig);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
@@ -1557,7 +1561,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     // do not register read-only handles
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
         config->compaction_mode == FDB_COMPACTION_AUTO) {
-        status = compactor_register_file(handle->file, (fdb_config *)config);
+        status = compactor_register_file(handle->file, (fdb_config *)config,
+                                         handle->fhandle->cmp_func_list);
     }
 
     return status;
@@ -1991,7 +1996,8 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             // because the old file is already removed when compaction is complete.
             if (!(config.flags & FDB_OPEN_FLAG_RDONLY) &&
                 config.compaction_mode == FDB_COMPACTION_AUTO) {
-                fs = compactor_register_file(handle->file, &config);
+                fs = compactor_register_file(handle->file, &config,
+                                             handle->fhandle->cmp_func_list);
             }
 
         } else {
@@ -2000,8 +2006,10 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
                 // compaction daemon mode .. just close and then open
                 char filename[FDB_MAX_FILENAME_LEN];
                 strcpy(filename, handle->filename);
-                _fdb_close(handle);
-                _fdb_open(handle, filename, FDB_VFILENAME, &config);
+                fs = _fdb_close(handle);
+                assert(fs == FDB_RESULT_SUCCESS);
+                fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
+                assert(fs == FDB_RESULT_SUCCESS);
 
             } else {
                 filemgr_get_header(handle->file, buf, &header_len);
@@ -2010,8 +2018,10 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
                                  &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
                                  &kv_info_offset, &header_flags,
                                  &new_filename, NULL);
-                _fdb_close(handle);
-                _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
+                fs = _fdb_close(handle);
+                assert(fs == FDB_RESULT_SUCCESS);
+                fs = _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
+                assert(fs == FDB_RESULT_SUCCESS);
             }
         }
     }
