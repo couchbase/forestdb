@@ -145,6 +145,7 @@ void write_failure_test()
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get(db, rdoc);
         if (status != FDB_RESULT_SUCCESS) {
+            fdb_doc_free(rdoc);
             anomaly_hit = 1;
             break;
         }
