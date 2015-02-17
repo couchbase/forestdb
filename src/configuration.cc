@@ -60,10 +60,13 @@ fdb_config get_default_config(void) {
     fconfig.prefetch_duration = 30;
     // 8 WAL partitions by default
     fconfig.num_wal_partitions = DEFAULT_NUM_WAL_PARTITIONS;
+    // 8 buffer cache partitions by default
+    fconfig.num_bcache_partitions = DEFAULT_NUM_BCACHE_PARTITIONS;
     // No compaction callback function by default
     fconfig.compaction_cb = NULL;
     fconfig.compaction_cb_mask = 0x0;
     fconfig.compaction_cb_ctx = NULL;
+
     return fconfig;
 }
 
@@ -117,6 +120,10 @@ bool validate_fdb_config(fdb_config *fconfig) {
     }
     if (!fconfig->num_wal_partitions ||
         (fconfig->num_wal_partitions > MAX_NUM_WAL_PARTITIONS)) {
+        return false;
+    }
+    if (!fconfig->num_bcache_partitions ||
+        (fconfig->num_bcache_partitions > MAX_NUM_BCACHE_PARTITIONS)) {
         return false;
     }
 

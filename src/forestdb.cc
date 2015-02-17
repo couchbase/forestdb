@@ -1092,6 +1092,7 @@ static void _fdb_init_file_config(const fdb_config *config,
 
     fconfig->prefetch_duration = config->prefetch_duration;
     fconfig->num_wal_shards = config->num_wal_partitions;
+    fconfig->num_bcache_shards = config->num_bcache_partitions;
 }
 
 fdb_status _fdb_open(fdb_kvs_handle *handle,
@@ -4125,6 +4126,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     fconfig.chunksize = handle->config.chunksize;
     fconfig.options = FILEMGR_CREATE;
     fconfig.num_wal_shards = handle->config.num_wal_partitions;
+    fconfig.num_bcache_shards = handle->config.num_bcache_partitions;
     fconfig.flag = 0x0;
     if ((handle->config.durability_opt & FDB_DRB_ODIRECT) &&
         handle->config.buffercache_size) {
@@ -4474,6 +4476,7 @@ catch_up_compaction:
             fconfig.options |= FILEMGR_SYNC;
         }
         fconfig.num_wal_shards = rhandle->config.num_wal_partitions;
+        fconfig.num_bcache_shards = rhandle->config.num_bcache_partitions;
 
         // open new file
         filemgr_open_result result = filemgr_open((char *)new_filename,

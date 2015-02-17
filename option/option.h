@@ -56,8 +56,7 @@
 //#define __DEBUG_COUCHBENCH
 
 #define FDB_BLOCKSIZE (4096)
-// MUST BE a power of 2
-#define FDB_WAL_NBUCKET (4*1024)
+#define FDB_WAL_NBUCKET (4099) // a prime number
 #define FDB_MAX_FILENAME_LEN (1024)
 #define FDB_MAX_KVINS_NAME_LEN (65536)
 #define FDB_WAL_THRESHOLD (4*1024)
@@ -66,10 +65,8 @@
 #define FDB_COMPACTOR_SLEEP_DURATION (15)
 #define FDB_DEFAULT_COMPACTION_THRESHOLD (30)
 
-// MUST BE a power of 2
-//#define BCACHE_NBUCKET (1024*1024)
-#define BCACHE_NBUCKET (4096)
-#define BCACHE_NDICBUCKET (4096)
+#define BCACHE_NBUCKET (4099) // a prime number
+#define BCACHE_NDICBUCKET (4099) // a prime number
 #define BCACHE_FLUSH_UNIT (1048576) // 1MB
 #define BCACHE_EVICT_UNIT (1)
 #define BCACHE_RANDOM_VICTIM_UNIT (2)
@@ -99,7 +96,11 @@
 #endif
 
 // WAL parition sizes
-#define DEFAULT_NUM_WAL_PARTITIONS (8)
+#define DEFAULT_NUM_WAL_PARTITIONS (11) // a prime number
 #define MAX_NUM_WAL_PARTITIONS (512)
+
+// Buffer cache partition size
+#define DEFAULT_NUM_BCACHE_PARTITIONS (11) // a prime number
+#define MAX_NUM_BCACHE_PARTITIONS (512)
 
 #endif

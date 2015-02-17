@@ -45,6 +45,7 @@ struct filemgr_config {
 #define FILEMGR_CREATE 0x08
     uint64_t prefetch_duration;
     uint16_t num_wal_shards;
+    uint16_t num_bcache_shards;
 };
 
 struct filemgr_ops {

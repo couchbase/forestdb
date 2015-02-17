@@ -44,7 +44,7 @@
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item_header *item = _get_entry(e, struct wal_item_header, he_key);
-    return chksum((uint8_t*)item->key, item->keylen) & ((uint64_t)hash->nbuckets - 1);
+    return chksum((uint8_t*)item->key, item->keylen) % ((uint64_t)hash->nbuckets);
 }
 
 INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
@@ -67,7 +67,7 @@ INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
 INLINE uint32_t _wal_hash_byseq(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item *item = _get_entry(e, struct wal_item, he_seq);
-    return (item->seqnum) & ((uint64_t)hash->nbuckets - 1);
+    return (item->seqnum) % ((uint64_t)hash->nbuckets);
 }
 
 INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)

@@ -71,7 +71,7 @@ void hash_insert(struct hash *hash, struct hash_elem *e)
 void hash_insert_by_hash_val(struct hash *hash, struct hash_elem *e,
                              uint32_t hash_val)
 {
-    int bucket = hash_val & ((uint64_t)hash->nbuckets - 1);
+    int bucket = hash_val % ((uint64_t)hash->nbuckets);
     _hash_insert(hash, e, bucket);
 }
 
@@ -115,7 +115,7 @@ struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
 struct hash_elem * hash_find_by_hash_val(struct hash *ht, struct hash_elem *e,
                                          uint32_t hash_val)
 {
-    int bucket = hash_val & ((uint64_t)ht->nbuckets - 1);
+    int bucket = hash_val % ((uint64_t)ht->nbuckets);
     return _hash_find(ht, e, bucket);
 }
 
