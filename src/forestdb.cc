@@ -1411,12 +1411,11 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     if (handle->config.multi_kv_instances) {
         // multi KV instance mode
+        filemgr_mutex_lock(handle->file);
         if (kv_info_offset == BLK_NOT_FOUND) {
             // there is no KV header .. create & initialize
-            filemgr_mutex_lock(handle->file);
             fdb_kvs_header_create(handle->file);
             kv_info_offset = fdb_kvs_header_append(handle->file, handle->dhandle);
-            filemgr_mutex_unlock(handle->file);
         } else if (handle->file->kv_header == NULL) {
             // KV header already exists but not loaded .. read & import
             fdb_kvs_header_create(handle->file);
@@ -1426,6 +1425,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         // validation check for key order of all KV stores
         if (handle == handle->fhandle->root) {
             fdb_status fs = fdb_kvs_cmp_check(handle);
+            filemgr_mutex_unlock(handle->file);
             if (fs != FDB_RESULT_SUCCESS) { // cmp function mismatch
                 docio_free(handle->dhandle);
                 free(handle->dhandle);
@@ -1437,6 +1437,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                               &handle->log_callback);
                 return fs;
             }
+        } else {
+            filemgr_mutex_unlock(handle->file);
         }
     }
     handle->kv_info_offset = kv_info_offset;
