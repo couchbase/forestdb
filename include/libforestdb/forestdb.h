@@ -451,6 +451,32 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator);
  * to this API if the API caller wants a fdb_doc instance to be created and
  * returned by this API.
  *
+ * Example usage:
+ *   ...
+ *   fdb_doc *doc = NULL;
+ *   // fdb_doc instance is created and returned by fdb_iterator_get API.
+ *   fdb_status status = fdb_iterator_get(iterator, &doc);
+ *   ...
+ *   fdb_doc_free(doc);
+ *
+ * Otherwise, if the client knows the max lengths of key, metadata, and
+ * value in the iterator range, then it can pre-allocate fdb_doc instance with
+ * these max lengths, and pass it to this API, so that the memory allocation
+ * overhead can be avoided for each iteration.
+ *
+ * Example usage:
+ *   ...
+ *   fdb_doc *doc;
+ *   fdb_doc_create(&doc, NULL, 0, NULL, 0, NULL, 0);
+ *   doc->key = malloc(MAX_KEY_LENGTH);
+ *   doc->meta = malloc(MAX_META_LENGTH);
+ *   doc->body = malloc(MAX_VALUE_LENGTH);
+ *   while (...) {
+ *       status = fdb_iterator_get(iterator, &doc);
+ *       ...
+ *   }
+ *   fdb_doc_free(doc);
+ *
  * @param iterator Pointer to the iterator.
  * @param doc Pointer to FDB_DOC instance to be populated by the iterator.
  * @return FDB_RESULT_SUCCESS on success.
