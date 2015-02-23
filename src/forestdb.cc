@@ -1085,7 +1085,8 @@ static void _fdb_init_file_config(const fdb_config *config,
     }
 
     fconfig->flag = 0x0;
-    if (config->durability_opt & FDB_DRB_ODIRECT) {
+    if ((config->durability_opt & FDB_DRB_ODIRECT) &&
+        config->buffercache_size) {
         fconfig->flag |= _ARCH_O_DIRECT;
     }
 
@@ -4049,7 +4050,8 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
     fconfig.options = FILEMGR_CREATE;
     fconfig.num_wal_shards = handle->config.num_wal_partitions;
     fconfig.flag = 0x0;
-    if (handle->config.durability_opt & FDB_DRB_ODIRECT) {
+    if ((handle->config.durability_opt & FDB_DRB_ODIRECT) &&
+         handle->config.buffercache_size) {
         fconfig.flag |= _ARCH_O_DIRECT;
     }
     if (!(handle->config.durability_opt & FDB_DRB_ASYNC)) {
@@ -4124,7 +4126,8 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     fconfig.options = FILEMGR_CREATE;
     fconfig.num_wal_shards = handle->config.num_wal_partitions;
     fconfig.flag = 0x0;
-    if (handle->config.durability_opt & FDB_DRB_ODIRECT) {
+    if ((handle->config.durability_opt & FDB_DRB_ODIRECT) &&
+        handle->config.buffercache_size) {
         fconfig.flag |= _ARCH_O_DIRECT;
     }
     if (!(handle->config.durability_opt & FDB_DRB_ASYNC)) {
@@ -4463,7 +4466,8 @@ catch_up_compaction:
         fconfig.chunksize = rhandle->config.chunksize;
         fconfig.options = FILEMGR_CREATE;
         fconfig.flag = 0x0;
-        if (rhandle->config.durability_opt & FDB_DRB_ODIRECT) {
+        if ((rhandle->config.durability_opt & FDB_DRB_ODIRECT) &&
+            rhandle->config.buffercache_size) {
             fconfig.flag |= _ARCH_O_DIRECT;
         }
         if (!(rhandle->config.durability_opt & FDB_DRB_ASYNC)) {
