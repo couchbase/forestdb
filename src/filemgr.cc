@@ -1310,11 +1310,29 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
             if (status != FDB_RESULT_SUCCESS) {
                 _log_errno_str(file->ops, log_callback, status, "READ",
                         file->filename);
+                if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                    plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                    mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                    spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
                 return status;
             }
 #endif
             r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
             if (r != global_config.blocksize) {
+                if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                    plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                    mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                    spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "WRITE", file->filename);
                 return FDB_RESULT_WRITE_FAIL;
@@ -1404,6 +1422,15 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     r = file->ops->pread(file->fd, _buf, file->blocksize,
                                          bid * file->blocksize);
                     if (r != file->blocksize) {
+                        if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                            plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                            mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                            spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                        }
                         _filemgr_release_temp_buf(_buf);
                         _log_errno_str(file->ops, log_callback, (fdb_status) r,
                                        "READ", file->filename);
@@ -1413,6 +1440,15 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                 memcpy((uint8_t *)_buf + offset, buf, len);
                 r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
                 if (r != global_config.blocksize) {
+                    if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                        plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                        mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                        spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                    }
                     _filemgr_release_temp_buf(_buf);
                     _log_errno_str(file->ops, log_callback,
                             (fdb_status) r, "WRITE", file->filename);
