@@ -937,13 +937,16 @@ int bcache_write(struct filemgr *file,
     struct bcache_item query;
     struct fnamedic_item *fname_new;
 
-    spin_lock(&bcache_lock);
     fname_new = file->bcache;
     if (fname_new == NULL) {
-        // filename doesn't exist in filename dictionary .. create
-        fname_new = _fname_create(file);
+        spin_lock(&bcache_lock);
+        fname_new = file->bcache;
+        if (fname_new == NULL) {
+            // filename doesn't exist in filename dictionary .. create
+            fname_new = _fname_create(file);
+        }
+        spin_unlock(&bcache_lock);
     }
-    spin_unlock(&bcache_lock);
 
     // move to the head of FILE_LRU
     _bcache_move_fname_list(fname_new, &file_lru);
@@ -1047,13 +1050,16 @@ int bcache_write_partial(struct filemgr *file,
     struct bcache_item query;
     struct fnamedic_item *fname_new;
 
-    spin_lock(&bcache_lock);
     fname_new = file->bcache;
     if (fname_new == NULL) {
-        // filename doesn't exist in filename dictionary .. create
-        fname_new = _fname_create(file);
+        spin_lock(&bcache_lock);
+        fname_new = file->bcache;
+        if (fname_new == NULL) {
+            // filename doesn't exist in filename dictionary .. create
+            fname_new = _fname_create(file);
+        }
+        spin_unlock(&bcache_lock);
     }
-    spin_unlock(&bcache_lock);
 
     // move to the head of FILE_LRU
     _bcache_move_fname_list(fname_new, &file_lru);

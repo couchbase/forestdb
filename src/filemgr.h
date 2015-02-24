@@ -28,6 +28,7 @@
 #include "common.h"
 #include "hash.h"
 #include "partiallock.h"
+#include "atomic.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,9 +74,9 @@ struct filemgr_header{
     filemgr_header_len_t size;
     filemgr_header_revnum_t revnum;
     volatile fdb_seqnum_t seqnum;
-    bid_t bid;
-    bid_t dirty_idtree_root; // for wal_flush_before_commit option
-    bid_t dirty_seqtree_root; // for wal_flush_before_commit option
+    atomic_uint64_t bid;
+    atomic_uint64_t dirty_idtree_root; // for wal_flush_before_commit option
+    atomic_uint64_t dirty_seqtree_root; // for wal_flush_before_commit option
     struct kvs_stat stat; // stats for the default KVS
     void *data;
 };
@@ -98,13 +99,13 @@ struct filemgr {
     uint16_t filename_len;
     uint32_t blocksize;
     int fd;
-    uint64_t pos;
-    uint64_t last_commit;
+    atomic_uint64_t pos;
+    atomic_uint64_t last_commit;
     struct wal *wal;
     struct filemgr_header header;
     struct filemgr_ops *ops;
     struct hash_elem e;
-    file_status_t status;
+    atomic_uint8_t status;
     struct filemgr_config *config;
     struct filemgr *new_file;
     char *old_filename; // Old file name before compaction.
@@ -159,7 +160,10 @@ void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
 
 char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
 
-bid_t filemgr_get_header_bid(struct filemgr *file);
+INLINE bid_t filemgr_get_header_bid(struct filemgr *file)
+{
+    return ((file->header.size > 0) ? file->header.bid.val : BLK_NOT_FOUND);
+}
 bid_t _filemgr_get_header_bid(struct filemgr *file);
 void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len);
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid, void *buf,
@@ -172,7 +176,10 @@ fdb_status filemgr_close(struct filemgr *file,
                          const char *orig_file_name,
                          err_log_callback *log_callback);
 
-bid_t filemgr_get_next_alloc_block(struct filemgr *file);
+INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
+{
+    return file->pos.val / file->blocksize;
+}
 bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback);
 void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
                             bid_t *end, err_log_callback *log_callback);
@@ -190,7 +197,16 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset
                           uint64_t len, void *buf, err_log_callback *log_callback);
 fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback);
-int filemgr_is_writable(struct filemgr *file, bid_t bid);
+INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)
+{
+    uint64_t pos = bid * file->blocksize;
+    // Note that we don't need to grab file->lock here because
+    // 1) both file->pos and file->last_commit are only incremented.
+    // 2) file->last_commit is updated using the value of file->pos,
+    //    and always equal to or smaller than file->pos.
+    return (pos <  file->pos.val &&
+            pos >= file->last_commit.val);
+}
 void filemgr_remove_file(struct filemgr *file);
 
 fdb_status filemgr_commit(struct filemgr *file,
@@ -215,8 +231,14 @@ typedef char *filemgr_redirect_hdr_func(uint8_t *buf, char *new_filename,
 char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                                 struct filemgr *new_file,
                                 filemgr_redirect_hdr_func redirect_func);
-file_status_t filemgr_get_file_status(struct filemgr *file);
-uint64_t filemgr_get_pos(struct filemgr *file);
+INLINE file_status_t filemgr_get_file_status(struct filemgr *file)
+{
+    return file->status.val;
+}
+INLINE uint64_t filemgr_get_pos(struct filemgr *file)
+{
+    return file->pos.val;
+}
 
 bool filemgr_is_rollback_on(struct filemgr *file);
 void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
@@ -232,10 +254,19 @@ void filemgr_mutex_unlock(struct filemgr *file);
 void filemgr_set_dirty_root(struct filemgr *file,
                             bid_t dirty_idtree_root,
                             bid_t dirty_seqtree_root);
-void filemgr_get_dirty_root(struct filemgr *file,
-                            bid_t *dirty_idtree_root,
-                            bid_t *dirty_seqtree_root);
-bool filemgr_dirty_root_exist(struct filemgr *file);
+INLINE void filemgr_get_dirty_root(struct filemgr *file,
+                                   bid_t *dirty_idtree_root,
+                                   bid_t *dirty_seqtree_root)
+{
+    *dirty_idtree_root = file->header.dirty_idtree_root.val;
+    *dirty_seqtree_root = file->header.dirty_seqtree_root.val;
+}
+
+INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
+{
+    return (file->header.dirty_idtree_root.val  != BLK_NOT_FOUND ||
+            file->header.dirty_seqtree_root.val != BLK_NOT_FOUND);
+}
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

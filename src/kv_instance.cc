@@ -1001,9 +1001,10 @@ fdb_kvs_create_start:
         dhandle = root_handle->new_dhandle;
     }
 
-    if (!(file->status == FILE_NORMAL ||
-          file->status == FILE_COMPACT_NEW ||
-          file->status == FILE_COMPACT_INPROG)) {
+    file_status_t fstatus = filemgr_get_file_status(file);
+    if (!(fstatus == FILE_NORMAL ||
+          fstatus == FILE_COMPACT_NEW ||
+          fstatus == FILE_COMPACT_INPROG)) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);
@@ -1516,9 +1517,10 @@ fdb_kvs_remove_start:
         dhandle = root_handle->new_dhandle;
     }
 
-    if (!(file->status == FILE_NORMAL ||
-          file->status == FILE_COMPACT_NEW ||
-          file->status == FILE_COMPACT_INPROG)) {
+    file_status_t fstatus = filemgr_get_file_status(file);
+    if (!(fstatus == FILE_NORMAL ||
+          fstatus == FILE_COMPACT_NEW ||
+          fstatus == FILE_COMPACT_INPROG)) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);

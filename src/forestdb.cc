@@ -472,7 +472,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     }
     docio_init(&dhandle, new_file, config.compress_document_body);
 
-    for (offset = 0; offset < new_file->pos;
+    for (offset = 0; offset < filemgr_get_pos(new_file);
         offset = ((offset/blocksize)+1) * blocksize) {
 
         if (!docio_check_buffer(&dhandle, offset/blocksize)) {
@@ -552,7 +552,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
                     offset = _offset;
                     break;
                 }
-            } while (offset + sizeof(struct docio_length) < new_file->pos);
+            } while (offset + sizeof(struct docio_length) < filemgr_get_pos(new_file));
         }
     }
 
@@ -1540,7 +1540,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             // record the old filename into the file handle of current file
             // and REMOVE old file on the first open
             // WARNING: snapshots must have been opened before this call
-            if (filemgr_update_file_status(handle->file, handle->file->status,
+            if (filemgr_update_file_status(handle->file,
+                                           filemgr_get_file_status(handle->file),
                                            prev_filename)) {
                 // Open the old file with read-only mode.
                 fconfig.options = FILEMGR_READONLY;
@@ -2813,7 +2814,7 @@ fdb_set_start:
         dhandle = handle->new_dhandle;
     }
 
-    fstatus = file->status;
+    fstatus = filemgr_get_file_status(file);
     if (!(fstatus == FILE_NORMAL ||
           fstatus == FILE_COMPACT_NEW ||
           fstatus == FILE_COMPACT_INPROG)) {
@@ -4250,7 +4251,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // mark name of new file in old file
     filemgr_set_compaction_state(handle->file, new_file, FILE_COMPACT_OLD);
 
-    handle->last_hdr_bid = (handle->file->pos) / handle->file->blocksize;
+    handle->last_hdr_bid = filemgr_get_pos(handle->file) / handle->file->blocksize;
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
 
     handle->cur_header_revnum = fdb_set_file_header(handle);
@@ -4664,7 +4665,7 @@ catch_up_compaction:
         // This is done so that fdb_set_file_header() will reflect
         // correct values into the new_file
         tmp_trie = handle.trie;
-        handle.last_hdr_bid = (new_file->pos) / new_file->blocksize;
+        handle.last_hdr_bid = filemgr_get_pos(new_file) / new_file->blocksize;
         handle.last_wal_flush_hdr_bid = handle.last_hdr_bid; // WAL was flushed
         handle.cur_header_revnum = fdb_set_file_header(&handle);
         btreeblk_end(handle.bhandle);
