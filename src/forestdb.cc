@@ -1188,6 +1188,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                       header_buf, &header_len,
                                       &handle->log_callback);
         if (status != FDB_RESULT_SUCCESS) {
+            filemgr_mutex_unlock(handle->file);
             free(handle->filename);
             handle->filename = NULL;
             filemgr_close(handle->file, false, handle->filename,
