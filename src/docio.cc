@@ -719,12 +719,12 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
         doc->key = (void *)malloc(doc->length.keylen);
         key_alloc = 1;
     }
-    if (doc->meta == NULL) {
+    if (doc->meta == NULL && doc->length.metalen) {
         doc->meta = (void *)malloc(doc->length.metalen);
         meta_alloc = 1;
     }
 
-    assert(doc->key && doc->meta);
+    assert(doc->key);
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen,
                                         doc->key, log_callback);
@@ -827,16 +827,16 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         doc->key = (void *)malloc(doc->length.keylen);
         key_alloc = 1;
     }
-    if (doc->meta == NULL) {
+    if (doc->meta == NULL && doc->length.metalen) {
         doc->meta = (void *)malloc(doc->length.metalen);
         meta_alloc = 1;
     }
-    if (doc->body == NULL) {
+    if (doc->body == NULL && doc->length.bodylen) {
         doc->body = (void *)malloc(doc->length.bodylen);
         body_alloc = 1;
     }
 
-    assert(doc->key && doc->meta && doc->body);
+    assert(doc->key);
 
     _offset = _docio_read_doc_component(handle, _offset,
                                         doc->length.keylen,
