@@ -156,6 +156,87 @@ typedef int (*fdb_custom_cmp_fixed)(void *a, void *b);
 typedef int (*fdb_custom_cmp_variable)(void *a, size_t len_a,
                                        void *b, size_t len_b);
 
+typedef uint64_t fdb_seqnum_t;
+#define FDB_SNAPSHOT_INMEM ((fdb_seqnum_t)(-1))
+
+/**
+ * ForestDB doc structure definition
+ */
+typedef struct fdb_doc_struct {
+    /**
+     * key length.
+     */
+    size_t keylen;
+    /**
+     * metadata length.
+     */
+    size_t metalen;
+    /**
+     * doc body length.
+     */
+    size_t bodylen;
+    /**
+     * actual doc size written on disk.
+     */
+    size_t size_ondisk;
+    /**
+     * Pointer to doc's key.
+     */
+    void *key;
+    /**
+     * Sequence number assigned to a doc.
+     */
+    fdb_seqnum_t seqnum;
+    /**
+     * Offset to the doc (header + key + metadata + body) on disk.
+     */
+    uint64_t offset;
+    /**
+     * Pointer to doc's metadata.
+     */
+    void *meta;
+    /**
+     * Pointer to doc's body.
+     */
+    void *body;
+    /**
+     * Is a doc deleted?
+     */
+    bool deleted;
+} fdb_doc;
+
+/**
+ * Opaque reference to a ForestDB file handle, which is exposed in public APIs.
+ */
+typedef struct _fdb_file_handle fdb_file_handle;
+
+/**
+ * Opaque reference to a ForestDB KV store handle, which is exposed in public APIs.
+ */
+typedef struct _fdb_kvs_handle fdb_kvs_handle;
+
+/**
+ * Compaction status for callback function.
+ */
+typedef uint32_t fdb_compaction_status;
+enum {
+    FDB_CS_BEGIN = 0x1,
+    FDB_CS_MOVE_DOC = 0x2,
+    FDB_CS_BATCH_MOVE = 0x4,
+    FDB_CS_FLUSH_WAL = 0x8,
+    FDB_CS_END = 0x10,
+};
+
+/**
+ * Pointer type definition of a callback function for compaction.
+ */
+typedef int (*fdb_compaction_callback)(fdb_file_handle *fhandle,
+                                       fdb_compaction_status status,
+                                       fdb_doc *doc,
+                                       uint64_t last_oldfile_offset,
+                                       uint64_t last_newfile_offset,
+                                       void *ctx);
+
 /**
  * ForestDB config options that are passed to fdb_open API.
  */
@@ -267,6 +348,29 @@ typedef struct {
      * prefetching is disabled. This is a local config to each ForestDB file.
      */
     uint64_t prefetch_duration;
+
+    /**
+     * Number of in-memory WAL index partitions for a DB file.
+     * This is a local config to each ForestDB file.
+     */
+    uint16_t num_wal_partitions;
+    /**
+     * Callback function for compaction.
+     * This is a local config to each ForestDB file.
+     */
+    fdb_compaction_callback compaction_cb;
+    /**
+     * Mask to select when to invoke callback function during compaction.
+     * Note that mask value is a combination of flags defined in
+     * fdb_compaction_status.
+     * This is a local config to each ForestDB file.
+     */
+    uint32_t compaction_cb_mask;
+    /**
+     * Auxiliary data for compaction callback function.
+     * This is a local config to each ForestDB file.
+     */
+    void *compaction_cb_ctx;
 } fdb_config;
 
 typedef struct {
@@ -281,70 +385,10 @@ typedef struct {
     fdb_custom_cmp_variable custom_cmp;
 } fdb_kvs_config;
 
-typedef uint64_t fdb_seqnum_t;
-#define FDB_SNAPSHOT_INMEM ((fdb_seqnum_t)(-1))
-
-/**
- * ForestDB doc structure definition
- */
-typedef struct fdb_doc_struct {
-    /**
-     * key length.
-     */
-    size_t keylen;
-    /**
-     * metadata length.
-     */
-    size_t metalen;
-    /**
-     * doc body length.
-     */
-    size_t bodylen;
-    /**
-     * actual doc size written on disk.
-     */
-    size_t size_ondisk;
-    /**
-     * Pointer to doc's key.
-     */
-    void *key;
-    /**
-     * Sequence number assigned to a doc.
-     */
-    fdb_seqnum_t seqnum;
-    /**
-     * Offset to the doc (header + key + metadata + body) on disk.
-     */
-    uint64_t offset;
-    /**
-     * Pointer to doc's metadata.
-     */
-    void *meta;
-    /**
-     * Pointer to doc's body.
-     */
-    void *body;
-
-    /**
-     * Is a doc deleted?
-     */
-    bool deleted;
-} fdb_doc;
-
 /**
  * Pointer type definition of an error logging callback function.
  */
 typedef void (*fdb_log_callback)(int err_code, const char *err_msg, void *ctx_data);
-
-/**
- * Opaque reference to a ForestDB file handle, which is exposed in public APIs.
- */
-typedef struct _fdb_file_handle fdb_file_handle;
-
-/**
- * Opaque reference to a ForestDB KV store handle, which is exposed in public APIs.
- */
-typedef struct _fdb_kvs_handle fdb_kvs_handle;
 
 /**
  * ForestDB iterator options.Combinational options can be passed to the iterator.

@@ -259,6 +259,10 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                 iterator->handle->seqtree->root_bid = handle->seqtree->root_bid;
             }
         }
+        // link new file if wal_tree points to the new file
+        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
+            fdb_link_new_file_enforce(iterator->handle);
+        }
     }
     iterator->opt = opt;
 
@@ -363,74 +367,76 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         iterator->wal_tree = (struct avl_tree*)malloc(sizeof(struct avl_tree));
         avl_init(iterator->wal_tree, (void*)iterator->handle);
 
-        spin_lock(&wal_file->wal->lock);
-        he = list_begin(&wal_file->wal->list);
-        while(he) {
-            wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
-            ie = list_begin(&wal_item_header->items);
-            if (txn->isolation == FDB_ISOLATION_READ_COMMITTED) {
-                // Search for the first uncommitted item belonging to this txn..
-                for (; ie; ie = list_next(ie)) {
-                    wal_item = _get_entry(ie, struct wal_item, list_elem);
-                    if (wal_item->txn == txn) {
-                        break;
-                    } // else fall through and pick the committed item at end..
+        size_t i = 0;
+        size_t num_shards = wal_file->wal->num_shards;
+        for (; i < num_shards; ++i) {
+            spin_lock(&wal_file->wal->key_shards[i].lock);
+            he = list_begin(&wal_file->wal->key_shards[i].list);
+            while(he) {
+                wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
+                ie = list_begin(&wal_item_header->items);
+                if (txn->isolation == FDB_ISOLATION_READ_COMMITTED) {
+                    // Search for the first uncommitted item belonging to this txn..
+                    for (; ie; ie = list_next(ie)) {
+                        wal_item = _get_entry(ie, struct wal_item, list_elem);
+                        if (wal_item->txn == txn) {
+                            break;
+                        } // else fall through and pick the committed item at end..
+                    }
+                    if (!ie) {
+                        ie = list_end(&wal_item_header->items);
+                    }
                 }
-                if (!ie) {
-                    ie = list_end(&wal_item_header->items);
-                }
-            }
 
-            wal_item = _get_entry(ie, struct wal_item, list_elem);
-            if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
-                // ignore items moved by compactor
+                wal_item = _get_entry(ie, struct wal_item, list_elem);
+                if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
+                    // ignore items moved by compactor
+                    he = list_next(he);
+                    continue;
+                }
+                if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
+                    (wal_item->txn == txn) ||
+                    (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
+                    if (end_key) {
+                        cmp = _fdb_key_cmp(iterator,
+                                           (void *)end_key, end_keylen,
+                                           wal_item_header->key,
+                                           wal_item_header->keylen);
+                        if ((cmp == 0 && opt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
+                            he = list_next(he);
+                            continue; // skip keys greater than max or equal (opt)
+                        }
+                    }
+                    if (start_key) {
+                        cmp = _fdb_key_cmp(iterator,
+                                           (void *)start_key, start_keylen,
+                                           wal_item_header->key,
+                                           wal_item_header->keylen);
+                        if ((cmp == 0 && opt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
+                            he = list_next(he);
+                            continue; // skip keys smaller than min or equal (opt)
+                        }
+                    }
+                    // copy from 'wal_item_header'
+                    snap_item = (struct snap_wal_entry*)malloc(sizeof(struct snap_wal_entry));
+                    snap_item->keylen = wal_item_header->keylen;
+                    snap_item->key = (void*)malloc(snap_item->keylen);
+                    memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
+                    snap_item->action = wal_item->action;
+                    snap_item->offset = wal_item->offset;
+                    if (wal_file == iterator->handle->new_file) {
+                        snap_item->flag = SNAP_ITEM_IN_NEW_FILE;
+                    } else {
+                        snap_item->flag = 0x0;
+                    }
+
+                    // insert into tree
+                    avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
+                }
                 he = list_next(he);
-                continue;
             }
-            if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
-                (wal_item->txn == txn) ||
-                (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
-                if (end_key) {
-                    cmp = _fdb_key_cmp(iterator,
-                                       (void *)end_key, end_keylen,
-                                       wal_item_header->key,
-                                       wal_item_header->keylen);
-                    if ((cmp == 0 && opt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
-                        he = list_next(he);
-                        continue; // skip keys greater than max or equal (opt)
-                    }
-                }
-                if (start_key) {
-                    cmp = _fdb_key_cmp(iterator,
-                                       (void *)start_key, start_keylen,
-                                       wal_item_header->key,
-                                       wal_item_header->keylen);
-                    if ((cmp == 0 && opt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
-                        he = list_next(he);
-                        continue; // skip keys smaller than min or equal (opt)
-                    }
-                }
-                // copy from 'wal_item_header'
-                snap_item = (struct snap_wal_entry*)malloc(sizeof(
-                             struct snap_wal_entry));
-                snap_item->keylen = wal_item_header->keylen;
-                snap_item->key = (void*)malloc(snap_item->keylen);
-                memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
-                snap_item->action = wal_item->action;
-                snap_item->offset = wal_item->offset;
-                if (wal_file == iterator->handle->new_file) {
-                    snap_item->flag = SNAP_ITEM_IN_NEW_FILE;
-                } else {
-                    snap_item->flag = 0x0;
-                }
-
-                // insert into tree
-                avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
-            }
-            he = list_next(he);
+            spin_unlock(&wal_file->wal->key_shards[i].lock);
         }
-
-        spin_unlock(&wal_file->wal->lock);
     } else {
         iterator->wal_tree = handle->shandle->key_tree;
     }
@@ -526,6 +532,10 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                 iterator->handle->seqtree->root_bid = handle->seqtree->root_bid;
             }
         }
+        // link new file if wal_tree points to the new file
+        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
+            fdb_link_new_file_enforce(iterator->handle);
+        }
     }
     iterator->hbtrie_iterator = NULL;
     iterator->_key = NULL;
@@ -591,58 +601,62 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                              malloc(sizeof(struct avl_tree));
         avl_init(iterator->wal_tree, (void*)_fdb_seqnum_cmp);
 
-        spin_lock(&wal_file->wal->lock);
-        he = list_begin(&wal_file->wal->list);
-        while(he) {
-            wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
+        size_t i = 0;
+        size_t num_shards = wal_file->wal->num_shards;
+        for (; i < num_shards; ++i) {
+            spin_lock(&wal_file->wal->key_shards[i].lock);
+            he = list_begin(&wal_file->wal->key_shards[i].list);
+            while(he) {
+                wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
 
-            // compare committed item only (at the end of the list)
-            ie = list_end(&wal_item_header->items);
-            wal_item = _get_entry(ie, struct wal_item, list_elem);
-            if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
-                // ignore items moved by compactor
-                he = list_next(he);
-                continue;
-            }
-            if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
-                (wal_item->txn == txn) ||
-                (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
-                if (iterator->_seqnum <= wal_item->seqnum) {
-                    // (documents whose seq numbers are greater than end_seqnum
-                    //  also have to be included for duplication check)
-                    // copy from WAL_ITEM
-                    if (iterator->handle->kvs) { // multi KV instance mode
-                        // get KV ID from key
-                        buf2kvid(wal_item_header->chunksize,
-                                 wal_item_header->key, &kv_id);
-                        if (kv_id != iterator->handle->kvs->id) {
-                            // KV instance doesn't match
-                            he = list_next(he);
-                            continue;
-                        }
-                    }
-                    snap_item = (struct snap_wal_entry*)
-                                malloc(sizeof(struct snap_wal_entry));
-                    snap_item->keylen = wal_item_header->keylen;
-                    snap_item->key = (void*)malloc(snap_item->keylen);
-                    memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
-                    snap_item->seqnum = wal_item->seqnum;
-                    snap_item->action = wal_item->action;
-                    snap_item->offset = wal_item->offset;
-                    if (wal_file == iterator->handle->new_file) {
-                        snap_item->flag = SNAP_ITEM_IN_NEW_FILE;
-                    } else {
-                        snap_item->flag = 0x0;
-                    }
-
-                    // insert into tree
-                    avl_insert(iterator->wal_tree, &snap_item->avl_seq,
-                               _fdb_seqnum_cmp);
+                // compare committed item only (at the end of the list)
+                ie = list_end(&wal_item_header->items);
+                wal_item = _get_entry(ie, struct wal_item, list_elem);
+                if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
+                    // ignore items moved by compactor
+                    he = list_next(he);
+                    continue;
                 }
+                if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
+                    (wal_item->txn == txn) ||
+                    (txn->isolation == FDB_ISOLATION_READ_UNCOMMITTED)) {
+                    if (iterator->_seqnum <= wal_item->seqnum) {
+                        // (documents whose seq numbers are greater than end_seqnum
+                        //  also have to be included for duplication check)
+                        // copy from WAL_ITEM
+                        if (iterator->handle->kvs) { // multi KV instance mode
+                            // get KV ID from key
+                            buf2kvid(wal_item_header->chunksize,
+                                     wal_item_header->key, &kv_id);
+                            if (kv_id != iterator->handle->kvs->id) {
+                                // KV instance doesn't match
+                                he = list_next(he);
+                                continue;
+                            }
+                        }
+                        snap_item = (struct snap_wal_entry*)
+                            malloc(sizeof(struct snap_wal_entry));
+                        snap_item->keylen = wal_item_header->keylen;
+                        snap_item->key = (void*)malloc(snap_item->keylen);
+                        memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
+                        snap_item->seqnum = wal_item->seqnum;
+                        snap_item->action = wal_item->action;
+                        snap_item->offset = wal_item->offset;
+                        if (wal_file == iterator->handle->new_file) {
+                            snap_item->flag = SNAP_ITEM_IN_NEW_FILE;
+                        } else {
+                            snap_item->flag = 0x0;
+                        }
+
+                        // insert into tree
+                        avl_insert(iterator->wal_tree, &snap_item->avl_seq,
+                                   _fdb_seqnum_cmp);
+                    }
+                }
+                he = list_next(he);
             }
-            he = list_next(he);
+            spin_unlock(&wal_file->wal->key_shards[i].lock);
         }
-        spin_unlock(&wal_file->wal->lock);
     } else {
         iterator->wal_tree = handle->shandle->seq_tree;
     }
@@ -811,8 +825,9 @@ start:
         cmp = _fdb_key_cmp(iterator, iterator->end_key,
                            iterator->end_keylen, key, keylen);
 
-        if (cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) {
+        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
             // key is the end_key but users wishes to skip it, redo..
+            // OR current key (KEY) is lexicographically greater than END_KEY
             goto start;
         }
     }
@@ -953,8 +968,9 @@ start:
         cmp = _fdb_key_cmp(iterator, iterator->start_key,
                            iterator->start_keylen, key, keylen);
 
-        if (cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) {
+        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
             // If user wishes to skip start key, redo first step
+            // OR current key (KEY) is lexicographically smaller than START_KEY
             goto start;
         }
     }

@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-02-05 00:44:44</td>
+            <td class="headerValue">2015-02-25 17:26:46</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntry">4</td>
@@ -89,52 +89,52 @@
 <span class="lineNum">      18 </span>                :            :     struct list_elem le;
 <a name="19"><span class="lineNum">      19 </span>                :            : };</a>
 <span class="lineNum">      20 </span>                :            : 
-<span class="lineNum">      21 </span>                :<span class="lineCov">        335 : int plock_init(struct plock *plock, struct plock_config *config)</span>
+<span class="lineNum">      21 </span>                :<span class="lineCov">        351 : int plock_init(struct plock *plock, struct plock_config *config)</span>
 <span class="lineNum">      22 </span>                :            : {
-<span class="lineNum">      23 </span>[<span class="branchCov" title="Branch 0 was taken 335 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 335 times"> + </span>]:<span class="lineCov">        335 :     if (!plock || !config) {</span>
+<span class="lineNum">      23 </span>[<span class="branchCov" title="Branch 0 was taken 351 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 351 times"> + </span>]:<span class="lineCov">        351 :     if (!plock || !config) {</span>
 <span class="lineNum">      24 </span>                :<span class="lineNoCov">          0 :         return PLOCK_RESULT_INVALID_ARGS;</span>
 <span class="lineNum">      25 </span>                :            :     }
 <span class="lineNum">      26 </span>                :            : 
-<span class="lineNum">      27 </span>                :<span class="lineCov">        335 :     plock-&gt;ops = (struct plock_ops *)malloc(sizeof(struct plock_ops));</span>
-<span class="lineNum">      28 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 335 times"> + </span>]:<span class="lineCov">        335 :     if (!plock-&gt;ops) {</span>
+<span class="lineNum">      27 </span>                :<span class="lineCov">        351 :     plock-&gt;ops = (struct plock_ops *)malloc(sizeof(struct plock_ops));</span>
+<span class="lineNum">      28 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 351 times"> + </span>]:<span class="lineCov">        351 :     if (!plock-&gt;ops) {</span>
 <span class="lineNum">      29 </span>                :<span class="lineNoCov">          0 :         return PLOCK_RESULT_ALLOC_FAIL;</span>
 <span class="lineNum">      30 </span>                :            :     }
-<span class="lineNum">      31 </span>                :<span class="lineCov">        335 :     *plock-&gt;ops = *(config-&gt;ops);</span>
+<span class="lineNum">      31 </span>                :<span class="lineCov">        351 :     *plock-&gt;ops = *(config-&gt;ops);</span>
 <span class="lineNum">      32 </span>                :            : 
 <span class="lineNum">      33 </span>                :            :     // allocate and init lock
-<span class="lineNum">      34 </span>                :<span class="lineCov">        335 :     plock-&gt;sizeof_lock_user = config-&gt;sizeof_lock_user;</span>
-<span class="lineNum">      35 </span>                :<span class="lineCov">        335 :     plock-&gt;sizeof_lock_internal = config-&gt;sizeof_lock_internal;</span>
-<span class="lineNum">      36 </span>                :<span class="lineCov">        335 :     plock-&gt;sizeof_range = config-&gt;sizeof_range;</span>
-<span class="lineNum">      37 </span>                :<span class="lineCov">        335 :     plock-&gt;aux = config-&gt;aux;</span>
-<span class="lineNum">      38 </span>                :<span class="lineCov">        335 :     plock-&gt;lock = (void *)malloc(plock-&gt;sizeof_lock_internal);</span>
-<span class="lineNum">      39 </span>                :<span class="lineCov">        335 :     plock-&gt;ops-&gt;init_internal(plock-&gt;lock);</span>
+<span class="lineNum">      34 </span>                :<span class="lineCov">        351 :     plock-&gt;sizeof_lock_user = config-&gt;sizeof_lock_user;</span>
+<span class="lineNum">      35 </span>                :<span class="lineCov">        351 :     plock-&gt;sizeof_lock_internal = config-&gt;sizeof_lock_internal;</span>
+<span class="lineNum">      36 </span>                :<span class="lineCov">        351 :     plock-&gt;sizeof_range = config-&gt;sizeof_range;</span>
+<span class="lineNum">      37 </span>                :<span class="lineCov">        351 :     plock-&gt;aux = config-&gt;aux;</span>
+<span class="lineNum">      38 </span>                :<span class="lineCov">        351 :     plock-&gt;lock = (void *)malloc(plock-&gt;sizeof_lock_internal);</span>
+<span class="lineNum">      39 </span>                :<span class="lineCov">        351 :     plock-&gt;ops-&gt;init_internal(plock-&gt;lock);</span>
 <span class="lineNum">      40 </span>                :            : 
 <span class="lineNum">      41 </span>                :            :     // init list and tree
-<span class="lineNum">      42 </span>                :<span class="lineCov">        335 :     list_init(&amp;plock-&gt;active);</span>
-<span class="lineNum">      43 </span>                :<span class="lineCov">        335 :     list_init(&amp;plock-&gt;inactive);</span>
+<span class="lineNum">      42 </span>                :<span class="lineCov">        351 :     list_init(&amp;plock-&gt;active);</span>
+<span class="lineNum">      43 </span>                :<span class="lineCov">        351 :     list_init(&amp;plock-&gt;inactive);</span>
 <span class="lineNum">      44 </span>                :            : 
-<span class="lineNum">      45 </span>                :<span class="lineCov">        335 :     return PLOCK_RESULT_SUCCESS;</span>
+<span class="lineNum">      45 </span>                :<span class="lineCov">        351 :     return PLOCK_RESULT_SUCCESS;</span>
 <a name="46"><span class="lineNum">      46 </span>                :            : }</a>
 <span class="lineNum">      47 </span>                :            : 
-<span class="lineNum">      48 </span>                :<span class="lineCov">    8095823 : plock_entry_t *plock_lock(struct plock *plock, void *start, void *len)</span>
+<span class="lineNum">      48 </span>                :<span class="lineCov">    8454823 : plock_entry_t *plock_lock(struct plock *plock, void *start, void *len)</span>
 <span class="lineNum">      49 </span>                :            : {
-<span class="lineNum">      50 </span>                :<span class="lineCov">    8095823 :     struct list_elem *le = NULL;</span>
-<span class="lineNum">      51 </span>                :<span class="lineCov">    8095823 :     struct plock_node *node = NULL;</span>
+<span class="lineNum">      50 </span>                :<span class="lineCov">    8454823 :     struct list_elem *le = NULL;</span>
+<span class="lineNum">      51 </span>                :<span class="lineCov">    8454823 :     struct plock_node *node = NULL;</span>
 <span class="lineNum">      52 </span>                :            : 
-<span class="lineNum">      53 </span>[<span class="branchCov" title="Branch 0 was taken 8085835 times"> + </span><span class="branchCov" title="Branch 1 was taken 9988 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 8089862 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">    8095823 :     if (!plock || !start || !len) {</span>
-<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 8095823 times"> + </span>]
+<span class="lineNum">      53 </span>[<span class="branchCov" title="Branch 0 was taken 8449166 times"> + </span><span class="branchCov" title="Branch 1 was taken 5657 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 8453044 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">    8454823 :     if (!plock || !start || !len) {</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 8454823 times"> + </span>]
 <span class="lineNum">      54 </span>                :<span class="lineNoCov">          0 :         return NULL;</span>
 <span class="lineNum">      55 </span>                :            :     }
 <span class="lineNum">      56 </span>                :            : 
 <span class="lineNum">      57 </span>                :            :     // grab plock's lock
-<span class="lineNum">      58 </span>                :<span class="lineCov">    8095823 :     plock-&gt;ops-&gt;lock_internal(plock-&gt;lock);</span>
+<span class="lineNum">      58 </span>                :<span class="lineCov">    8454823 :     plock-&gt;ops-&gt;lock_internal(plock-&gt;lock);</span>
 <span class="lineNum">      59 </span>                :            : 
 <span class="lineNum">      60 </span>                :            :     // find existing overlapped lock
-<span class="lineNum">      61 </span>                :<span class="lineCov">    8101449 :     le = list_begin(&amp;plock-&gt;active);</span>
-<span class="lineNum">      62 </span>        [<span class="branchCov" title="Branch 0 was taken 4636991 times"> + </span><span class="branchCov" title="Branch 1 was taken 8101449 times"> + </span>]:<span class="lineCov">   12738440 :     while (le) {</span>
-<span class="lineNum">      63 </span>                :<span class="lineCov">    4636991 :         node = _get_entry(le, struct plock_node, le);</span>
-<span class="lineNum">      64 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 4636991 times"> + </span>]:<span class="lineCov">    4636991 :         if (plock-&gt;ops-&gt;is_overlapped(node-&gt;start, node-&gt;len,</span>
-<span class="lineNum">      65 </span>                :<span class="lineCov">    4636991 :                                       start, len, plock-&gt;aux)) {</span>
+<span class="lineNum">      61 </span>                :<span class="lineCov">    8458486 :     le = list_begin(&amp;plock-&gt;active);</span>
+<span class="lineNum">      62 </span>        [<span class="branchCov" title="Branch 0 was taken 5920275 times"> + </span><span class="branchCov" title="Branch 1 was taken 8458486 times"> + </span>]:<span class="lineCov">   14378761 :     while (le) {</span>
+<span class="lineNum">      63 </span>                :<span class="lineCov">    5920275 :         node = _get_entry(le, struct plock_node, le);</span>
+<span class="lineNum">      64 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 5920275 times"> + </span>]:<span class="lineCov">    5920275 :         if (plock-&gt;ops-&gt;is_overlapped(node-&gt;start, node-&gt;len,</span>
+<span class="lineNum">      65 </span>                :<span class="lineCov">    5920275 :                                       start, len, plock-&gt;aux)) {</span>
 <span class="lineNum">      66 </span>                :            :             // overlapped
 <span class="lineNum">      67 </span>                :            :             // increase waiting count
 <span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :             node-&gt;wcount++;</span>
@@ -158,86 +158,86 @@
 <span class="lineNum">      86 </span>                :            :             // release node's lock
 <span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :             plock-&gt;ops-&gt;unlock_user(node-&gt;lock);</span>
 <span class="lineNum">      88 </span>                :            :         } else {
-<span class="lineNum">      89 </span>                :<span class="lineCov">    4636991 :             le = list_next(le);</span>
+<span class="lineNum">      89 </span>                :<span class="lineCov">    5920275 :             le = list_next(le);</span>
 <span class="lineNum">      90 </span>                :            :         }
 <span class="lineNum">      91 </span>                :            :     }
 <span class="lineNum">      92 </span>                :            : 
 <span class="lineNum">      93 </span>                :            :     // get a free lock
-<span class="lineNum">      94 </span>                :<span class="lineCov">    8101449 :     le = list_pop_front(&amp;plock-&gt;inactive);</span>
-<span class="lineNum">      95 </span>        [<span class="branchCov" title="Branch 0 was taken 140 times"> + </span><span class="branchCov" title="Branch 1 was taken 8101309 times"> + </span>]:<span class="lineCov">    8101449 :     if (le == NULL) {</span>
+<span class="lineNum">      94 </span>                :<span class="lineCov">    8458486 :     le = list_pop_front(&amp;plock-&gt;inactive);</span>
+<span class="lineNum">      95 </span>        [<span class="branchCov" title="Branch 0 was taken 150 times"> + </span><span class="branchCov" title="Branch 1 was taken 8458336 times"> + </span>]:<span class="lineCov">    8458486 :     if (le == NULL) {</span>
 <span class="lineNum">      96 </span>                :            :         // no free lock .. create one
-<span class="lineNum">      97 </span>                :<span class="lineCov">        140 :         node = (struct plock_node *)malloc(sizeof(struct plock_node));</span>
-<span class="lineNum">      98 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 140 times"> + </span>]:<span class="lineCov">        140 :         if (!node) {</span>
+<span class="lineNum">      97 </span>                :<span class="lineCov">        150 :         node = (struct plock_node *)malloc(sizeof(struct plock_node));</span>
+<span class="lineNum">      98 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 150 times"> + </span>]:<span class="lineCov">        150 :         if (!node) {</span>
 <span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :             plock-&gt;ops-&gt;unlock_internal(plock-&gt;lock);</span>
 <span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :             return NULL;</span>
 <span class="lineNum">     101 </span>                :            :         }
-<span class="lineNum">     102 </span>                :<span class="lineCov">        140 :         node-&gt;lock = (void *)malloc(plock-&gt;sizeof_lock_user);</span>
-<span class="lineNum">     103 </span>                :<span class="lineCov">        140 :         plock-&gt;ops-&gt;init_user(node-&gt;lock);</span>
-<span class="lineNum">     104 </span>                :<span class="lineCov">        140 :         node-&gt;start = (void *)malloc(plock-&gt;sizeof_range);</span>
-<span class="lineNum">     105 </span>                :<span class="lineCov">        140 :         node-&gt;len = (void *)malloc(plock-&gt;sizeof_range);</span>
-<span class="lineNum">     106 </span>[<span class="branchCov" title="Branch 0 was taken 140 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 140 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">        140 :         if (!node-&gt;lock || !node-&gt;start || !node-&gt;len) {</span>
-<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 140 times"> + </span>]
+<span class="lineNum">     102 </span>                :<span class="lineCov">        150 :         node-&gt;lock = (void *)malloc(plock-&gt;sizeof_lock_user);</span>
+<span class="lineNum">     103 </span>                :<span class="lineCov">        150 :         plock-&gt;ops-&gt;init_user(node-&gt;lock);</span>
+<span class="lineNum">     104 </span>                :<span class="lineCov">        150 :         node-&gt;start = (void *)malloc(plock-&gt;sizeof_range);</span>
+<span class="lineNum">     105 </span>                :<span class="lineCov">        150 :         node-&gt;len = (void *)malloc(plock-&gt;sizeof_range);</span>
+<span class="lineNum">     106 </span>[<span class="branchCov" title="Branch 0 was taken 150 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 150 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">        150 :         if (!node-&gt;lock || !node-&gt;start || !node-&gt;len) {</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 150 times"> + </span>]
 <span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :             free(node);</span>
 <span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :             plock-&gt;ops-&gt;unlock_internal(plock-&gt;lock);</span>
 <span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :             return NULL;</span>
 <span class="lineNum">     110 </span>                :            :         }
 <span class="lineNum">     111 </span>                :            :     } else {
-<span class="lineNum">     112 </span>                :<span class="lineCov">    8101309 :         node = _get_entry(le, struct plock_node ,le);</span>
+<span class="lineNum">     112 </span>                :<span class="lineCov">    8458336 :         node = _get_entry(le, struct plock_node ,le);</span>
 <span class="lineNum">     113 </span>                :            :     }
-<span class="lineNum">     114 </span>                :<span class="lineCov">    8101449 :     node-&gt;wcount = 0;</span>
+<span class="lineNum">     114 </span>                :<span class="lineCov">    8458486 :     node-&gt;wcount = 0;</span>
 <span class="lineNum">     115 </span>                :            : 
 <span class="lineNum">     116 </span>                :            :     // copy start &amp; len value
-<span class="lineNum">     117 </span>                :<span class="lineCov">    8101449 :     memcpy(node-&gt;start, start, plock-&gt;sizeof_range);</span>
-<span class="lineNum">     118 </span>                :<span class="lineCov">    8101449 :     memcpy(node-&gt;len, len, plock-&gt;sizeof_range);</span>
+<span class="lineNum">     117 </span>                :<span class="lineCov">    8458486 :     memcpy(node-&gt;start, start, plock-&gt;sizeof_range);</span>
+<span class="lineNum">     118 </span>                :<span class="lineCov">    8458486 :     memcpy(node-&gt;len, len, plock-&gt;sizeof_range);</span>
 <span class="lineNum">     119 </span>                :            :     // insert into active list
-<span class="lineNum">     120 </span>                :<span class="lineCov">    8101449 :     list_push_back(&amp;plock-&gt;active, &amp;node-&gt;le);</span>
+<span class="lineNum">     120 </span>                :<span class="lineCov">    8458486 :     list_push_back(&amp;plock-&gt;active, &amp;node-&gt;le);</span>
 <span class="lineNum">     121 </span>                :            : 
 <span class="lineNum">     122 </span>                :            :     // grab node's lock &amp; release plock's lock
-<span class="lineNum">     123 </span>                :<span class="lineCov">    8101449 :     plock-&gt;ops-&gt;lock_user(node-&gt;lock);</span>
-<span class="lineNum">     124 </span>                :<span class="lineCov">    8101449 :     plock-&gt;ops-&gt;unlock_internal(plock-&gt;lock);</span>
+<span class="lineNum">     123 </span>                :<span class="lineCov">    8458486 :     plock-&gt;ops-&gt;lock_user(node-&gt;lock);</span>
+<span class="lineNum">     124 </span>                :<span class="lineCov">    8458486 :     plock-&gt;ops-&gt;unlock_internal(plock-&gt;lock);</span>
 <span class="lineNum">     125 </span>                :            : 
-<span class="lineNum">     126 </span>                :<span class="lineCov">    8101442 :     return node;</span>
+<span class="lineNum">     126 </span>                :<span class="lineCov">    8458470 :     return node;</span>
 <a name="127"><span class="lineNum">     127 </span>                :            : }</a>
 <span class="lineNum">     128 </span>                :            : 
-<span class="lineNum">     129 </span>                :<span class="lineCov">    8095058 : int plock_unlock(struct plock *plock, plock_entry_t *plock_entry)</span>
+<span class="lineNum">     129 </span>                :<span class="lineCov">    8452709 : int plock_unlock(struct plock *plock, plock_entry_t *plock_entry)</span>
 <span class="lineNum">     130 </span>                :            : {
-<span class="lineNum">     131 </span>                :<span class="lineCov">    8095058 :     struct plock_node *node = plock_entry;</span>
+<span class="lineNum">     131 </span>                :<span class="lineCov">    8452709 :     struct plock_node *node = plock_entry;</span>
 <span class="lineNum">     132 </span>                :            : 
-<span class="lineNum">     133 </span>[<span class="branchCov" title="Branch 0 was taken 8094398 times"> + </span><span class="branchCov" title="Branch 1 was taken 660 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 8095058 times"> + </span>]:<span class="lineCov">    8095058 :     if (!plock || !plock_entry) {</span>
+<span class="lineNum">     133 </span>[<span class="branchCov" title="Branch 0 was taken 8450372 times"> + </span><span class="branchCov" title="Branch 1 was taken 2337 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 8452709 times"> + </span>]:<span class="lineCov">    8452709 :     if (!plock || !plock_entry) {</span>
 <span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :         return PLOCK_RESULT_INVALID_ARGS;</span>
 <span class="lineNum">     135 </span>                :            :     }
 <span class="lineNum">     136 </span>                :            : 
 <span class="lineNum">     137 </span>                :            :     // grab plock's lock
-<span class="lineNum">     138 </span>                :<span class="lineCov">    8095058 :     plock-&gt;ops-&gt;lock_internal(plock-&gt;lock);</span>
+<span class="lineNum">     138 </span>                :<span class="lineCov">    8452709 :     plock-&gt;ops-&gt;lock_internal(plock-&gt;lock);</span>
 <span class="lineNum">     139 </span>                :            : 
-<span class="lineNum">     140 </span>        [<span class="branchCov" title="Branch 0 was taken 8101449 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    8101449 :     if (node-&gt;wcount == 0) {</span>
+<span class="lineNum">     140 </span>        [<span class="branchCov" title="Branch 0 was taken 8458486 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">    8458486 :     if (node-&gt;wcount == 0) {</span>
 <span class="lineNum">     141 </span>                :            :         // no other thread refers this node
 <span class="lineNum">     142 </span>                :            :         // move from active to inactive
-<span class="lineNum">     143 </span>                :<span class="lineCov">    8101449 :         list_remove(&amp;plock-&gt;active, &amp;node-&gt;le);</span>
-<span class="lineNum">     144 </span>                :<span class="lineCov">    8101449 :         list_push_front(&amp;plock-&gt;inactive, &amp;node-&gt;le);</span>
+<span class="lineNum">     143 </span>                :<span class="lineCov">    8458486 :         list_remove(&amp;plock-&gt;active, &amp;node-&gt;le);</span>
+<span class="lineNum">     144 </span>                :<span class="lineCov">    8458486 :         list_push_front(&amp;plock-&gt;inactive, &amp;node-&gt;le);</span>
 <span class="lineNum">     145 </span>                :            :     }
-<span class="lineNum">     146 </span>                :<span class="lineCov">    8101449 :     plock-&gt;ops-&gt;unlock_user(node-&gt;lock);</span>
+<span class="lineNum">     146 </span>                :<span class="lineCov">    8458486 :     plock-&gt;ops-&gt;unlock_user(node-&gt;lock);</span>
 <span class="lineNum">     147 </span>                :            : 
 <span class="lineNum">     148 </span>                :            :     // release plock's lock
-<span class="lineNum">     149 </span>                :<span class="lineCov">    8101449 :     plock-&gt;ops-&gt;unlock_internal(plock-&gt;lock);</span>
+<span class="lineNum">     149 </span>                :<span class="lineCov">    8458486 :     plock-&gt;ops-&gt;unlock_internal(plock-&gt;lock);</span>
 <span class="lineNum">     150 </span>                :            : 
-<span class="lineNum">     151 </span>                :<span class="lineCov">    8099815 :     return PLOCK_RESULT_SUCCESS;</span>
+<span class="lineNum">     151 </span>                :<span class="lineCov">    8452116 :     return PLOCK_RESULT_SUCCESS;</span>
 <a name="152"><span class="lineNum">     152 </span>                :            : }</a>
 <span class="lineNum">     153 </span>                :            : 
-<span class="lineNum">     154 </span>                :<span class="lineCov">        334 : int plock_destroy(struct plock *plock)</span>
+<span class="lineNum">     154 </span>                :<span class="lineCov">        350 : int plock_destroy(struct plock *plock)</span>
 <span class="lineNum">     155 </span>                :            : {
 <span class="lineNum">     156 </span>                :            :     struct list_elem *le;
 <span class="lineNum">     157 </span>                :            :     struct plock_node *node;
 <span class="lineNum">     158 </span>                :            : 
-<span class="lineNum">     159 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 334 times"> + </span>]:<span class="lineCov">        334 :     if (!plock) {</span>
+<span class="lineNum">     159 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 350 times"> + </span>]:<span class="lineCov">        350 :     if (!plock) {</span>
 <span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :         return PLOCK_RESULT_INVALID_ARGS;</span>
 <span class="lineNum">     161 </span>                :            :     }
 <span class="lineNum">     162 </span>                :            : 
-<span class="lineNum">     163 </span>                :<span class="lineCov">        334 :     plock-&gt;ops-&gt;destroy_internal(plock-&gt;lock);</span>
+<span class="lineNum">     163 </span>                :<span class="lineCov">        350 :     plock-&gt;ops-&gt;destroy_internal(plock-&gt;lock);</span>
 <span class="lineNum">     164 </span>                :            : 
 <span class="lineNum">     165 </span>                :            :     // free all active locks
-<span class="lineNum">     166 </span>                :<span class="lineCov">        334 :     le = list_begin(&amp;plock-&gt;active);</span>
-<span class="lineNum">     167 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 334 times"> + </span>]:<span class="lineCov">        334 :     while(le) {</span>
+<span class="lineNum">     166 </span>                :<span class="lineCov">        350 :     le = list_begin(&amp;plock-&gt;active);</span>
+<span class="lineNum">     167 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 350 times"> + </span>]:<span class="lineCov">        350 :     while(le) {</span>
 <span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :         node = _get_entry(le, struct plock_node, le);</span>
 <span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :         le = list_next(le);</span>
 <span class="lineNum">     170 </span>                :            : 
@@ -251,24 +251,24 @@
 <span class="lineNum">     178 </span>                :            :     }
 <span class="lineNum">     179 </span>                :            : 
 <span class="lineNum">     180 </span>                :            :     // free all inactive locks
-<span class="lineNum">     181 </span>                :<span class="lineCov">        334 :     le = list_begin(&amp;plock-&gt;inactive);</span>
-<span class="lineNum">     182 </span>        [<span class="branchCov" title="Branch 0 was taken 140 times"> + </span><span class="branchCov" title="Branch 1 was taken 334 times"> + </span>]:<span class="lineCov">        474 :     while(le) {</span>
-<span class="lineNum">     183 </span>                :<span class="lineCov">        140 :         node = _get_entry(le, struct plock_node, le);</span>
-<span class="lineNum">     184 </span>                :<span class="lineCov">        140 :         le = list_next(le);</span>
+<span class="lineNum">     181 </span>                :<span class="lineCov">        350 :     le = list_begin(&amp;plock-&gt;inactive);</span>
+<span class="lineNum">     182 </span>        [<span class="branchCov" title="Branch 0 was taken 150 times"> + </span><span class="branchCov" title="Branch 1 was taken 350 times"> + </span>]:<span class="lineCov">        500 :     while(le) {</span>
+<span class="lineNum">     183 </span>                :<span class="lineCov">        150 :         node = _get_entry(le, struct plock_node, le);</span>
+<span class="lineNum">     184 </span>                :<span class="lineCov">        150 :         le = list_next(le);</span>
 <span class="lineNum">     185 </span>                :            : 
 <span class="lineNum">     186 </span>                :            :         // destroy
-<span class="lineNum">     187 </span>                :<span class="lineCov">        140 :         plock-&gt;ops-&gt;destroy_user(node-&gt;lock);</span>
-<span class="lineNum">     188 </span>                :<span class="lineCov">        140 :         free(node-&gt;start);</span>
-<span class="lineNum">     189 </span>                :<span class="lineCov">        140 :         free(node-&gt;len);</span>
-<span class="lineNum">     190 </span>                :<span class="lineCov">        140 :         free(node-&gt;lock);</span>
-<span class="lineNum">     191 </span>                :<span class="lineCov">        140 :         free(node);</span>
+<span class="lineNum">     187 </span>                :<span class="lineCov">        150 :         plock-&gt;ops-&gt;destroy_user(node-&gt;lock);</span>
+<span class="lineNum">     188 </span>                :<span class="lineCov">        150 :         free(node-&gt;start);</span>
+<span class="lineNum">     189 </span>                :<span class="lineCov">        150 :         free(node-&gt;len);</span>
+<span class="lineNum">     190 </span>                :<span class="lineCov">        150 :         free(node-&gt;lock);</span>
+<span class="lineNum">     191 </span>                :<span class="lineCov">        150 :         free(node);</span>
 <span class="lineNum">     192 </span>                :            :     }
 <span class="lineNum">     193 </span>                :            : 
 <span class="lineNum">     194 </span>                :            :     // free plock
-<span class="lineNum">     195 </span>                :<span class="lineCov">        334 :     free(plock-&gt;lock);</span>
-<span class="lineNum">     196 </span>                :<span class="lineCov">        334 :     free(plock-&gt;ops);</span>
+<span class="lineNum">     195 </span>                :<span class="lineCov">        350 :     free(plock-&gt;lock);</span>
+<span class="lineNum">     196 </span>                :<span class="lineCov">        350 :     free(plock-&gt;ops);</span>
 <span class="lineNum">     197 </span>                :            : 
-<span class="lineNum">     198 </span>                :<span class="lineCov">        334 :     return PLOCK_RESULT_SUCCESS;</span>
+<span class="lineNum">     198 </span>                :<span class="lineCov">        350 :     return PLOCK_RESULT_SUCCESS;</span>
 <span class="lineNum">     199 </span>                :            : }
 <span class="lineNum">     200 </span>                :            : 
 </pre>

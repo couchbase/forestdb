@@ -116,6 +116,7 @@ fdb_status snap_init(struct snap_handle *shandle, fdb_kvs_handle *handle)
     avl_init(shandle->seq_tree, NULL);
     spin_init(&shandle->lock);
     shandle->ref_cnt = 1;
+    shandle->type = FDB_SNAP_NORMAL;
     return FDB_RESULT_SUCCESS;
 }
 
@@ -137,7 +138,11 @@ fdb_status snap_insert(struct snap_handle *shandle, fdb_doc *doc,
         item->seqnum = doc->seqnum;
         item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
         item->offset = offset;
-        item->flag = 0;
+        if (shandle->type == FDB_SNAP_COMPACTION) {
+            item->flag = SNAP_ITEM_IN_NEW_FILE;
+        } else {
+            item->flag = 0;
+        }
         avl_insert(shandle->key_tree, &item->avl, _snp_wal_cmp);
         avl_insert(shandle->seq_tree, &item->avl_seq, _snp_seqnum_cmp);
 

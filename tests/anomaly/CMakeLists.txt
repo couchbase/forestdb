@@ -1,4 +1,5 @@
 add_executable(fdb_anomaly_test
+               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc

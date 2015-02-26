@@ -63,6 +63,7 @@ void basic_test()
     config.blocksize = blocksize;
     config.ncacheblock = 1024;
     config.options = FILEMGR_CREATE;
+    config.num_wal_shards = 8;
     r = system(SHELL_DEL " dummy");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);

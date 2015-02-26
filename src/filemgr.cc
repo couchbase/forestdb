@@ -1069,9 +1069,19 @@ static void _filemgr_free_func(struct hash_elem *h)
     // destroy WAL
     if (wal_is_initialized(file)) {
         wal_shutdown(file);
-        hash_free(&file->wal->hash_bykey);
-        hash_free(&file->wal->hash_byseq);
+        size_t i = 0;
+        for (; i < file->wal->num_shards; ++i) {
+            hash_free(&file->wal->key_shards[i].hash_bykey);
+            spin_destroy(&file->wal->key_shards[i].lock);
+            hash_free(&file->wal->seq_shards[i].hash_byseq);
+            spin_destroy(&file->wal->seq_shards[i].lock);
+        }
         spin_destroy(&file->wal->lock);
+        atomic_destroy_uint32_t(&file->wal->size);
+        atomic_destroy_uint32_t(&file->wal->num_flushable);
+        atomic_destroy_uint64_t(&file->wal->datasize);
+        free(file->wal->key_shards);
+        free(file->wal->seq_shards);
     }
     free(file->wal);
 
@@ -1140,13 +1150,14 @@ void filemgr_shutdown()
         filemgr_initialized = 0;
 #ifndef SPIN_INITIALIZER
         initial_lock_status = 0;
-        spin_destroy(&initial_lock);
 #else
         initial_lock = SPIN_INITIALIZER;
 #endif
         _filemgr_shutdown_temp_buf();
-
         spin_unlock(&initial_lock);
+#ifndef SPIN_INITIALIZER
+        spin_destroy(&initial_lock);
+#endif
     }
 }
 

@@ -10,6 +10,7 @@ target_link_libraries(hash_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(bcache_test
                bcache_test.cc
+               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/filemgr.cc
@@ -37,6 +38,7 @@ target_link_libraries(atomic_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(filemgr_test
                filemgr_test.cc
+               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/filemgr.cc
@@ -58,6 +60,7 @@ target_link_libraries(filemgr_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(btreeblock_test
                btreeblock_test.cc
+               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
@@ -82,6 +85,7 @@ target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM})
 
 add_executable(docio_test
                docio_test.cc
+               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/docio.cc
@@ -104,6 +108,7 @@ target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(hbtrie_test
                hbtrie_test.cc
+               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc

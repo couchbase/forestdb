@@ -50,10 +50,8 @@ void hash_init(struct hash *hash, int nbuckets, hash_hash_func *hash_func, hash_
     hash->cmp = cmp_func;
 }
 
-void hash_insert(struct hash *hash, struct hash_elem *e)
-{
-    int bucket = hash->hash_func(hash, e);
-
+static void _hash_insert(struct hash *hash, struct hash_elem *e,
+                         int bucket) {
     IFDEF_LOCK( spin_lock(hash->locks + bucket) );
 
 #ifdef _HASH_TREE
@@ -65,9 +63,22 @@ void hash_insert(struct hash *hash, struct hash_elem *e)
     IFDEF_LOCK( spin_unlock(hash->locks + bucket) );
 }
 
-struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
+void hash_insert(struct hash *hash, struct hash_elem *e)
 {
-    int bucket = ht->hash_func(ht, e);
+    _hash_insert(hash, e, hash->hash_func(hash, e));
+}
+
+void hash_insert_by_hash_val(struct hash *hash, struct hash_elem *e,
+                             uint32_t hash_val)
+{
+    int bucket = hash_val & ((uint64_t)hash->nbuckets - 1);
+    _hash_insert(hash, e, bucket);
+}
+
+
+static struct hash_elem * _hash_find(struct hash *ht, struct hash_elem *e,
+                                     int bucket)
+{
     struct hash_elem *elem = NULL;
 
     IFDEF_LOCK( spin_lock(ht->locks + bucket) );
@@ -94,6 +105,18 @@ struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
 
     IFDEF_LOCK( spin_unlock(ht->locks + bucket) );
     return NULL;
+}
+
+struct hash_elem * hash_find(struct hash *ht, struct hash_elem *e)
+{
+    return _hash_find(ht, e, ht->hash_func(ht, e));
+}
+
+struct hash_elem * hash_find_by_hash_val(struct hash *ht, struct hash_elem *e,
+                                         uint32_t hash_val)
+{
+    int bucket = hash_val & ((uint64_t)ht->nbuckets - 1);
+    return _hash_find(ht, e, bucket);
 }
 
 void *hash_scan(struct hash *hash, hash_check_func *check_func, void *ctx)

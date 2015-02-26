@@ -759,6 +759,9 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
         return offset;
     }
 
+    uint8_t free_meta = meta_alloc && !doc->length.metalen;
+    free_docio_object(doc, 0, free_meta, 0);
+
     return _offset;
 }
 

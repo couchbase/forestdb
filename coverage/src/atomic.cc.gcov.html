@@ -31,18 +31,18 @@
             <td class="headerValue">coverage.info.cleaned</td>
             <td></td>
             <td class="headerItem">Lines:</td>
-            <td class="headerCovTableEntry">96</td>
-            <td class="headerCovTableEntry">98</td>
-            <td class="headerCovTableEntryHi">98.0 %</td>
+            <td class="headerCovTableEntry">104</td>
+            <td class="headerCovTableEntry">104</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
           </tr>
           <tr>
             <td class="headerItem">Date:</td>
-            <td class="headerValue">2015-02-05 00:44:44</td>
+            <td class="headerValue">2015-02-25 17:26:46</td>
             <td></td>
             <td class="headerItem">Functions:</td>
-            <td class="headerCovTableEntry">28</td>
-            <td class="headerCovTableEntry">29</td>
-            <td class="headerCovTableEntryHi">96.6 %</td>
+            <td class="headerCovTableEntry">32</td>
+            <td class="headerCovTableEntry">32</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
           </tr>
           <tr>
             <td></td>
@@ -88,307 +88,325 @@
 <span class="lineNum">      17 </span>                :            : 
 <a name="18"><span class="lineNum">      18 </span>                :            : #include &quot;atomic.h&quot;</a>
 <span class="lineNum">      19 </span>                :            : 
-<span class="lineNum">      20 </span>                :<span class="lineCov">          2 : void atomic_val_init_64(atomic_val_t *atomic_val, uint64_t initial) {</span>
+<span class="lineNum">      20 </span>                :<span class="lineCov">        353 : void atomic_init_uint64_t(atomic_uint64_t *atomic_val, uint64_t initial) {</span>
 <span class="lineNum">      21 </span>                :            : #ifdef _MSC_VER
 <span class="lineNum">      22 </span>                :            :     spin_init(&amp;atomic_val-&gt;lock);
 <span class="lineNum">      23 </span>                :            : #endif
-<span class="lineNum">      24 </span>                :<span class="lineCov">          2 :     atomic_val_store_64(atomic_val, initial);</span>
-<a name="25"><span class="lineNum">      25 </span>                :<span class="lineCov">          2 : }</span></a>
+<span class="lineNum">      24 </span>                :<span class="lineCov">        353 :     atomic_store_uint64_t(atomic_val, initial);</span>
+<a name="25"><span class="lineNum">      25 </span>                :<span class="lineCov">        353 : }</span></a>
 <span class="lineNum">      26 </span>                :            : 
-<span class="lineNum">      27 </span>                :<span class="lineCov">          2 : void atomic_val_init_32(atomic_val_t *atomic_val, uint32_t initial) {</span>
+<span class="lineNum">      27 </span>                :<span class="lineCov">        704 : void atomic_init_uint32_t(atomic_uint32_t *atomic_val, uint32_t initial) {</span>
 <span class="lineNum">      28 </span>                :            : #ifdef _MSC_VER
 <span class="lineNum">      29 </span>                :            :     spin_init(&amp;atomic_val-&gt;lock);
 <span class="lineNum">      30 </span>                :            : #endif
-<span class="lineNum">      31 </span>                :<span class="lineCov">          2 :     atomic_val_store_32(atomic_val, initial);</span>
-<a name="32"><span class="lineNum">      32 </span>                :<span class="lineCov">          2 : }</span></a>
+<span class="lineNum">      31 </span>                :<span class="lineCov">        704 :     atomic_store_uint32_t(atomic_val, initial);</span>
+<a name="32"><span class="lineNum">      32 </span>                :<span class="lineCov">        704 : }</span></a>
 <span class="lineNum">      33 </span>                :            : 
-<span class="lineNum">      34 </span>                :<span class="lineCov">          2 : void atomic_val_init_16(atomic_val_t *atomic_val, uint16_t initial) {</span>
+<span class="lineNum">      34 </span>                :<span class="lineCov">          2 : void atomic_init_uint16_t(atomic_uint16_t *atomic_val, uint16_t initial) {</span>
 <span class="lineNum">      35 </span>                :            : #ifdef _MSC_VER
 <span class="lineNum">      36 </span>                :            :     spin_init(&amp;atomic_val-&gt;lock);
 <span class="lineNum">      37 </span>                :            : #endif
-<span class="lineNum">      38 </span>                :<span class="lineCov">          2 :     atomic_val_store_16(atomic_val, initial);</span>
+<span class="lineNum">      38 </span>                :<span class="lineCov">          2 :     atomic_store_uint16_t(atomic_val, initial);</span>
 <a name="39"><span class="lineNum">      39 </span>                :<span class="lineCov">          2 : }</span></a>
 <span class="lineNum">      40 </span>                :            : 
-<span class="lineNum">      41 </span>                :<span class="lineCov">          2 : void atomic_val_init_8(atomic_val_t *atomic_val, uint8_t initial) {</span>
+<span class="lineNum">      41 </span>                :<span class="lineCov">          2 : void atomic_init_uint8_t(atomic_uint8_t *atomic_val, uint8_t initial) {</span>
 <span class="lineNum">      42 </span>                :            : #ifdef _MSC_VER
 <span class="lineNum">      43 </span>                :            :     spin_init(&amp;atomic_val-&gt;lock);
 <span class="lineNum">      44 </span>                :            : #endif
-<span class="lineNum">      45 </span>                :<span class="lineCov">          2 :     atomic_val_store_8(atomic_val, initial);</span>
+<span class="lineNum">      45 </span>                :<span class="lineCov">          2 :     atomic_store_uint8_t(atomic_val, initial);</span>
 <a name="46"><span class="lineNum">      46 </span>                :<span class="lineCov">          2 : }</span></a>
 <span class="lineNum">      47 </span>                :            : 
-<span class="lineNum">      48 </span>                :<span class="lineNoCov">          0 : void atomic_val_destroy(atomic_val_t *atomic_val) {</span>
+<span class="lineNum">      48 </span>                :<span class="lineCov">        352 : void atomic_destroy_uint64_t(atomic_uint64_t *atomic_val) {</span>
 <span class="lineNum">      49 </span>                :            : #ifdef _MSC_VER
 <span class="lineNum">      50 </span>                :            :     spin_destroy(&amp;atomic_val-&gt;lock);
 <span class="lineNum">      51 </span>                :            : #endif
-<a name="52"><span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<a name="52"><span class="lineNum">      52 </span>                :<span class="lineCov">        352 : }</span></a>
 <span class="lineNum">      53 </span>                :            : 
-<span class="lineNum">      54 </span>                :<span class="lineCov">          3 : void atomic_val_store_64(atomic_val_t *atomic_val, uint64_t new_val) {</span>
-<span class="lineNum">      55 </span>                :            : 
-<span class="lineNum">      56 </span>                :<span class="lineCov">          3 :     atomic_val-&gt;value.val_64 = new_val;</span>
-<span class="lineNum">      57 </span>                :<span class="lineCov">          3 :     fdb_sync_synchronize();</span>
-<a name="58"><span class="lineNum">      58 </span>                :<span class="lineCov">          3 : }</span></a>
+<span class="lineNum">      54 </span>                :<span class="lineCov">        702 : void atomic_destroy_uint32_t(atomic_uint32_t *atomic_val) {</span>
+<span class="lineNum">      55 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">      56 </span>                :            :     spin_destroy(&amp;atomic_val-&gt;lock);
+<span class="lineNum">      57 </span>                :            : #endif
+<a name="58"><span class="lineNum">      58 </span>                :<span class="lineCov">        702 : }</span></a>
 <span class="lineNum">      59 </span>                :            : 
-<span class="lineNum">      60 </span>                :<span class="lineCov">          3 : void atomic_val_store_32(atomic_val_t *atomic_val, uint32_t new_val) {</span>
-<span class="lineNum">      61 </span>                :            : 
-<span class="lineNum">      62 </span>                :<span class="lineCov">          3 :     atomic_val-&gt;value.val_32 = new_val;</span>
-<span class="lineNum">      63 </span>                :<span class="lineCov">          3 :     fdb_sync_synchronize();</span>
-<a name="64"><span class="lineNum">      64 </span>                :<span class="lineCov">          3 : }</span></a>
+<span class="lineNum">      60 </span>                :<span class="lineCov">          2 : void atomic_destroy_uint16_t(atomic_uint16_t *atomic_val) {</span>
+<span class="lineNum">      61 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">      62 </span>                :            :     spin_destroy(&amp;atomic_val-&gt;lock);
+<span class="lineNum">      63 </span>                :            : #endif
+<a name="64"><span class="lineNum">      64 </span>                :<span class="lineCov">          2 : }</span></a>
 <span class="lineNum">      65 </span>                :            : 
-<span class="lineNum">      66 </span>                :<span class="lineCov">          3 : void atomic_val_store_16(atomic_val_t *atomic_val, uint16_t new_val) {</span>
-<span class="lineNum">      67 </span>                :            : 
-<span class="lineNum">      68 </span>                :<span class="lineCov">          3 :     atomic_val-&gt;value.val_16 = new_val;</span>
-<span class="lineNum">      69 </span>                :<span class="lineCov">          3 :     fdb_sync_synchronize();</span>
-<a name="70"><span class="lineNum">      70 </span>                :<span class="lineCov">          3 : }</span></a>
+<span class="lineNum">      66 </span>                :<span class="lineCov">          2 : void atomic_destroy_uint8_t(atomic_uint8_t *atomic_val) {</span>
+<span class="lineNum">      67 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">      68 </span>                :            :     spin_destroy(&amp;atomic_val-&gt;lock);
+<span class="lineNum">      69 </span>                :            : #endif
+<a name="70"><span class="lineNum">      70 </span>                :<span class="lineCov">          2 : }</span></a>
 <span class="lineNum">      71 </span>                :            : 
-<span class="lineNum">      72 </span>                :<span class="lineCov">          3 : void atomic_val_store_8(atomic_val_t *atomic_val, uint8_t new_val) {</span>
+<span class="lineNum">      72 </span>                :<span class="lineCov">        707 : void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val) {</span>
 <span class="lineNum">      73 </span>                :            : 
-<span class="lineNum">      74 </span>                :<span class="lineCov">          3 :     atomic_val-&gt;value.val_8 = new_val;</span>
-<span class="lineNum">      75 </span>                :<span class="lineCov">          3 :     fdb_sync_synchronize();</span>
-<a name="76"><span class="lineNum">      76 </span>                :<span class="lineCov">          3 : }</span></a>
+<span class="lineNum">      74 </span>                :<span class="lineCov">        707 :     atomic_val-&gt;val = new_val;</span>
+<span class="lineNum">      75 </span>                :<span class="lineCov">        707 :     fdb_sync_synchronize();</span>
+<a name="76"><span class="lineNum">      76 </span>                :<span class="lineCov">        707 : }</span></a>
 <span class="lineNum">      77 </span>                :            : 
-<span class="lineNum">      78 </span>                :<span class="lineCov">          1 : bool atomic_val_compare_and_set_64(atomic_val_t *atomic_val,</span>
-<span class="lineNum">      79 </span>                :            :                                    uint64_t expected_val, uint64_t new_val) {
-<span class="lineNum">      80 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
-<span class="lineNum">      81 </span>                :            : 
-<span class="lineNum">      82 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">      83 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">      84 </span>                :            :     if (atomic_val-&gt;value.val_64 == expected_val) {
-<span class="lineNum">      85 </span>                :            :         atomic_val-&gt;value.val_64 = new_val;
-<span class="lineNum">      86 </span>                :            :         rv = true;
-<span class="lineNum">      87 </span>                :            :     }
-<span class="lineNum">      88 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">      89 </span>                :            : #else
-<span class="lineNum">      90 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_64(&amp;atomic_val-&gt;value.val_64,</span>
-<span class="lineNum">      91 </span>                :            :                                           expected_val, new_val)) {
-<span class="lineNum">      92 </span>                :<span class="lineCov">          1 :         rv = true;</span>
-<span class="lineNum">      93 </span>                :            :     }
-<span class="lineNum">      94 </span>                :            : #endif
+<span class="lineNum">      78 </span>                :<span class="lineCov">       1411 : void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val) {</span>
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :<span class="lineCov">       1411 :     atomic_val-&gt;val = new_val;</span>
+<span class="lineNum">      81 </span>                :<span class="lineCov">       1411 :     fdb_sync_synchronize();</span>
+<a name="82"><span class="lineNum">      82 </span>                :<span class="lineCov">       1411 : }</span></a>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :<span class="lineCov">          3 : void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val) {</span>
+<span class="lineNum">      85 </span>                :            : 
+<span class="lineNum">      86 </span>                :<span class="lineCov">          3 :     atomic_val-&gt;val = new_val;</span>
+<span class="lineNum">      87 </span>                :<span class="lineCov">          3 :     fdb_sync_synchronize();</span>
+<a name="88"><span class="lineNum">      88 </span>                :<span class="lineCov">          3 : }</span></a>
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :<span class="lineCov">          3 : void atomic_store_uint8_t(atomic_uint8_t *atomic_val, uint8_t new_val) {</span>
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :<span class="lineCov">          3 :     atomic_val-&gt;val = new_val;</span>
+<span class="lineNum">      93 </span>                :<span class="lineCov">          3 :     fdb_sync_synchronize();</span>
+<a name="94"><span class="lineNum">      94 </span>                :<span class="lineCov">          3 : }</span></a>
 <span class="lineNum">      95 </span>                :            : 
-<span class="lineNum">      96 </span>                :<span class="lineCov">          1 :     return rv;</span>
-<a name="97"><span class="lineNum">      97 </span>                :            : }</a>
-<span class="lineNum">      98 </span>                :            : 
-<span class="lineNum">      99 </span>                :<span class="lineCov">          1 : bool atomic_val_compare_and_set_32(atomic_val_t *atomic_val,</span>
-<span class="lineNum">     100 </span>                :            :                                    uint32_t expected_val, uint32_t new_val) {
-<span class="lineNum">     101 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
-<span class="lineNum">     102 </span>                :            : 
-<span class="lineNum">     103 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     104 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     105 </span>                :            :     if (atomic_val-&gt;value.val_32 == expected_val) {
-<span class="lineNum">     106 </span>                :            :         atomic_val-&gt;value.val_32 = new_val;
-<span class="lineNum">     107 </span>                :            :         rv = true;
-<span class="lineNum">     108 </span>                :            :     }
-<span class="lineNum">     109 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     110 </span>                :            : #else
-<span class="lineNum">     111 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_32(&amp;atomic_val-&gt;value.val_32,</span>
-<span class="lineNum">     112 </span>                :            :                                           expected_val, new_val)) {
-<span class="lineNum">     113 </span>                :<span class="lineCov">          1 :         rv = true;</span>
-<span class="lineNum">     114 </span>                :            :     }
-<span class="lineNum">     115 </span>                :            : #endif
+<span class="lineNum">      96 </span>                :<span class="lineCov">          1 : bool atomic_cas_uint64_t(atomic_uint64_t *atomic_val,</span>
+<span class="lineNum">      97 </span>                :            :                          uint64_t expected_val, uint64_t new_val) {
+<span class="lineNum">      98 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     101 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     102 </span>                :            :     if (atomic_val-&gt;val == expected_val) {
+<span class="lineNum">     103 </span>                :            :         atomic_val-&gt;val = new_val;
+<span class="lineNum">     104 </span>                :            :         rv = true;
+<span class="lineNum">     105 </span>                :            :     }
+<span class="lineNum">     106 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     107 </span>                :            : #else
+<span class="lineNum">     108 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_64(&amp;atomic_val-&gt;val,</span>
+<span class="lineNum">     109 </span>                :            :                                           expected_val, new_val)) {
+<span class="lineNum">     110 </span>                :<span class="lineCov">          1 :         rv = true;</span>
+<span class="lineNum">     111 </span>                :            :     }
+<span class="lineNum">     112 </span>                :            : #endif
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>                :<span class="lineCov">          1 :     return rv;</span>
+<a name="115"><span class="lineNum">     115 </span>                :            : }</a>
 <span class="lineNum">     116 </span>                :            : 
-<span class="lineNum">     117 </span>                :<span class="lineCov">          1 :     return rv;</span>
-<a name="118"><span class="lineNum">     118 </span>                :            : }</a>
-<span class="lineNum">     119 </span>                :            : 
-<span class="lineNum">     120 </span>                :<span class="lineCov">          1 : bool atomic_val_compare_and_set_16(atomic_val_t *atomic_val,</span>
-<span class="lineNum">     121 </span>                :            :                                    uint16_t expected_val, uint16_t new_val) {
-<span class="lineNum">     122 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
-<span class="lineNum">     123 </span>                :            : 
-<span class="lineNum">     124 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     125 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     126 </span>                :            :     if (atomic_val-&gt;value.val_16 == expected_val) {
-<span class="lineNum">     127 </span>                :            :         atomic_val-&gt;value.val_16 = new_val;
-<span class="lineNum">     128 </span>                :            :         rv = true;
-<span class="lineNum">     129 </span>                :            :     }
-<span class="lineNum">     130 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     131 </span>                :            : #else
-<span class="lineNum">     132 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_16(&amp;atomic_val-&gt;value.val_16,</span>
-<span class="lineNum">     133 </span>                :            :                                           expected_val, new_val)) {
-<span class="lineNum">     134 </span>                :<span class="lineCov">          1 :         rv = true;</span>
-<span class="lineNum">     135 </span>                :            :     }
-<span class="lineNum">     136 </span>                :            : #endif
+<span class="lineNum">     117 </span>                :<span class="lineCov">          1 : bool atomic_cas_uint32_t(atomic_uint32_t *atomic_val,</span>
+<span class="lineNum">     118 </span>                :            :                          uint32_t expected_val, uint32_t new_val) {
+<span class="lineNum">     119 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     122 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     123 </span>                :            :     if (atomic_val-&gt;val == expected_val) {
+<span class="lineNum">     124 </span>                :            :         atomic_val-&gt;val = new_val;
+<span class="lineNum">     125 </span>                :            :         rv = true;
+<span class="lineNum">     126 </span>                :            :     }
+<span class="lineNum">     127 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     128 </span>                :            : #else
+<span class="lineNum">     129 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_32(&amp;atomic_val-&gt;val,</span>
+<span class="lineNum">     130 </span>                :            :                                           expected_val, new_val)) {
+<span class="lineNum">     131 </span>                :<span class="lineCov">          1 :         rv = true;</span>
+<span class="lineNum">     132 </span>                :            :     }
+<span class="lineNum">     133 </span>                :            : #endif
+<span class="lineNum">     134 </span>                :            : 
+<span class="lineNum">     135 </span>                :<span class="lineCov">          1 :     return rv;</span>
+<a name="136"><span class="lineNum">     136 </span>                :            : }</a>
 <span class="lineNum">     137 </span>                :            : 
-<span class="lineNum">     138 </span>                :<span class="lineCov">          1 :     return rv;</span>
-<a name="139"><span class="lineNum">     139 </span>                :            : }</a>
-<span class="lineNum">     140 </span>                :            : 
-<span class="lineNum">     141 </span>                :<span class="lineCov">          1 : bool atomic_val_compare_and_set_8(atomic_val_t *atomic_val,</span>
-<span class="lineNum">     142 </span>                :            :                                   uint8_t expected_val, uint8_t new_val) {
-<span class="lineNum">     143 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
-<span class="lineNum">     144 </span>                :            : 
-<span class="lineNum">     145 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     146 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     147 </span>                :            :     if (atomic_val-&gt;value.val_8 == expected_val) {
-<span class="lineNum">     148 </span>                :            :         atomic_val-&gt;value.val_8 = new_val;
-<span class="lineNum">     149 </span>                :            :         rv = true;
-<span class="lineNum">     150 </span>                :            :     }
-<span class="lineNum">     151 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     152 </span>                :            : #else
-<span class="lineNum">     153 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_8(&amp;atomic_val-&gt;value.val_8,</span>
-<span class="lineNum">     154 </span>                :            :                                          expected_val, new_val)) {
-<span class="lineNum">     155 </span>                :<span class="lineCov">          1 :         rv = true;</span>
-<span class="lineNum">     156 </span>                :            :     }
-<span class="lineNum">     157 </span>                :            : #endif
+<span class="lineNum">     138 </span>                :<span class="lineCov">          1 : bool atomic_cas_uint16_t(atomic_uint16_t *atomic_val,</span>
+<span class="lineNum">     139 </span>                :            :                          uint16_t expected_val, uint16_t new_val) {
+<span class="lineNum">     140 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     143 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     144 </span>                :            :     if (atomic_val-&gt;val == expected_val) {
+<span class="lineNum">     145 </span>                :            :         atomic_val-&gt;val = new_val;
+<span class="lineNum">     146 </span>                :            :         rv = true;
+<span class="lineNum">     147 </span>                :            :     }
+<span class="lineNum">     148 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     149 </span>                :            : #else
+<span class="lineNum">     150 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_16(&amp;atomic_val-&gt;val,</span>
+<span class="lineNum">     151 </span>                :            :                                           expected_val, new_val)) {
+<span class="lineNum">     152 </span>                :<span class="lineCov">          1 :         rv = true;</span>
+<span class="lineNum">     153 </span>                :            :     }
+<span class="lineNum">     154 </span>                :            : #endif
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineCov">          1 :     return rv;</span>
+<a name="157"><span class="lineNum">     157 </span>                :            : }</a>
 <span class="lineNum">     158 </span>                :            : 
-<span class="lineNum">     159 </span>                :<span class="lineCov">          1 :     return rv;</span>
-<a name="160"><span class="lineNum">     160 </span>                :            : }</a>
-<span class="lineNum">     161 </span>                :            : 
-<span class="lineNum">     162 </span>                :<span class="lineCov">      68614 : void atomic_val_incr_64(atomic_val_t *atomic_val) {</span>
+<span class="lineNum">     159 </span>                :<span class="lineCov">          1 : bool atomic_cas_uint8_t(atomic_uint8_t *atomic_val,</span>
+<span class="lineNum">     160 </span>                :            :                         uint8_t expected_val, uint8_t new_val) {
+<span class="lineNum">     161 </span>                :<span class="lineCov">          1 :     bool rv = false;</span>
+<span class="lineNum">     162 </span>                :            : 
 <span class="lineNum">     163 </span>                :            : #ifdef _MSC_VER
 <span class="lineNum">     164 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     165 </span>                :            :     ++atomic_val-&gt;value.val_64;
-<span class="lineNum">     166 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     167 </span>                :            : #else
-<span class="lineNum">     168 </span>                :<span class="lineCov">      68614 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;value.val_64, 1);</span>
-<span class="lineNum">     169 </span>                :            : #endif
-<a name="170"><span class="lineNum">     170 </span>                :<span class="lineCov">      68614 : }</span></a>
-<span class="lineNum">     171 </span>                :            : 
-<span class="lineNum">     172 </span>                :<span class="lineCov">      63195 : void atomic_val_incr_32(atomic_val_t *atomic_val) {</span>
-<span class="lineNum">     173 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     174 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     175 </span>                :            :     ++atomic_val-&gt;value.val_32;
-<span class="lineNum">     176 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     177 </span>                :            : #else
-<span class="lineNum">     178 </span>                :<span class="lineCov">      63195 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;value.val_32, 1);</span>
-<span class="lineNum">     179 </span>                :            : #endif
-<a name="180"><span class="lineNum">     180 </span>                :<span class="lineCov">      63195 : }</span></a>
-<span class="lineNum">     181 </span>                :            : 
-<span class="lineNum">     182 </span>                :<span class="lineCov">      69952 : void atomic_val_incr_16(atomic_val_t *atomic_val) {</span>
-<span class="lineNum">     183 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     184 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     185 </span>                :            :     ++atomic_val-&gt;value.val_16;
-<span class="lineNum">     186 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     187 </span>                :            : #else
-<span class="lineNum">     188 </span>                :<span class="lineCov">      69952 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;value.val_16, 1);</span>
-<span class="lineNum">     189 </span>                :            : #endif
-<a name="190"><span class="lineNum">     190 </span>                :<span class="lineCov">      69952 : }</span></a>
-<span class="lineNum">     191 </span>                :            : 
-<span class="lineNum">     192 </span>                :<span class="lineCov">      64305 : void atomic_val_incr_8(atomic_val_t *atomic_val) {</span>
-<span class="lineNum">     193 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     194 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     195 </span>                :            :     ++atomic_val-&gt;value.val_8;
-<span class="lineNum">     196 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     197 </span>                :            : #else
-<span class="lineNum">     198 </span>                :<span class="lineCov">      64305 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;value.val_8, 1);</span>
-<span class="lineNum">     199 </span>                :            : #endif
-<a name="200"><span class="lineNum">     200 </span>                :<span class="lineCov">      64305 : }</span></a>
-<span class="lineNum">     201 </span>                :            : 
-<span class="lineNum">     202 </span>                :<span class="lineCov">      71061 : void atomic_val_decr_64(atomic_val_t *atomic_val) {</span>
-<span class="lineNum">     203 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     204 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     205 </span>                :            :     --atomic_val-&gt;value.val_64;
-<span class="lineNum">     206 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     207 </span>                :            : #else
-<span class="lineNum">     208 </span>                :<span class="lineCov">      71061 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;value.val_64, -1);</span>
-<span class="lineNum">     209 </span>                :            : #endif
-<a name="210"><span class="lineNum">     210 </span>                :<span class="lineCov">      71061 : }</span></a>
-<span class="lineNum">     211 </span>                :            : 
-<span class="lineNum">     212 </span>                :<span class="lineCov">      63213 : void atomic_val_decr_32(atomic_val_t *atomic_val) {</span>
-<span class="lineNum">     213 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     214 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     215 </span>                :            :     --atomic_val-&gt;value.val_32;
-<span class="lineNum">     216 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     217 </span>                :            : #else
-<span class="lineNum">     218 </span>                :<span class="lineCov">      63213 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;value.val_32, -1);</span>
-<span class="lineNum">     219 </span>                :            : #endif
-<a name="220"><span class="lineNum">     220 </span>                :<span class="lineCov">      63213 : }</span></a>
-<span class="lineNum">     221 </span>                :            : 
-<span class="lineNum">     222 </span>                :<span class="lineCov">      70509 : void atomic_val_decr_16(atomic_val_t *atomic_val) {</span>
-<span class="lineNum">     223 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     224 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     225 </span>                :            :     --atomic_val-&gt;value.val_16;
-<span class="lineNum">     226 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     227 </span>                :            : #else
-<span class="lineNum">     228 </span>                :<span class="lineCov">      70509 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;value.val_16, -1);</span>
-<span class="lineNum">     229 </span>                :            : #endif
-<a name="230"><span class="lineNum">     230 </span>                :<span class="lineCov">      70509 : }</span></a>
-<span class="lineNum">     231 </span>                :            : 
-<span class="lineNum">     232 </span>                :<span class="lineCov">      49677 : void atomic_val_decr_8(atomic_val_t *atomic_val) {</span>
-<span class="lineNum">     233 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     234 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     235 </span>                :            :     --atomic_val-&gt;value.val_8;
-<span class="lineNum">     236 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     237 </span>                :            : #else
-<span class="lineNum">     238 </span>                :<span class="lineCov">      49677 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;value.val_8, -1);</span>
-<span class="lineNum">     239 </span>                :            : #endif
-<a name="240"><span class="lineNum">     240 </span>                :<span class="lineCov">      49677 : }</span></a>
-<span class="lineNum">     241 </span>                :            : 
-<span class="lineNum">     242 </span>                :<span class="lineCov">      69574 : void atomic_val_add_64(atomic_val_t *atomic_val, int64_t increment) {</span>
-<span class="lineNum">     243 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     244 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     245 </span>                :            :     atomic_val-&gt;value.val_64 += increment;
-<span class="lineNum">     246 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     247 </span>                :            : #else
-<span class="lineNum">     248 </span>                :<span class="lineCov">      69574 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;value.val_64, increment);</span>
-<span class="lineNum">     249 </span>                :            : #endif
-<a name="250"><span class="lineNum">     250 </span>                :<span class="lineCov">      69574 : }</span></a>
-<span class="lineNum">     251 </span>                :            : 
-<span class="lineNum">     252 </span>                :<span class="lineCov">      70060 : void atomic_val_add_32(atomic_val_t *atomic_val, int32_t increment) {</span>
-<span class="lineNum">     253 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     254 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     255 </span>                :            :     atomic_val-&gt;value.val_32 += increment;
-<span class="lineNum">     256 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     257 </span>                :            : #else
-<span class="lineNum">     258 </span>                :<span class="lineCov">      70060 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;value.val_32, increment);</span>
-<span class="lineNum">     259 </span>                :            : #endif
-<a name="260"><span class="lineNum">     260 </span>                :<span class="lineCov">      70060 : }</span></a>
-<span class="lineNum">     261 </span>                :            : 
-<span class="lineNum">     262 </span>                :<span class="lineCov">      69450 : void atomic_val_add_16(atomic_val_t *atomic_val, int16_t increment) {</span>
-<span class="lineNum">     263 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     264 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     265 </span>                :            :     atomic_val-&gt;value.val_16 += increment;
-<span class="lineNum">     266 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     267 </span>                :            : #else
-<span class="lineNum">     268 </span>                :<span class="lineCov">      69450 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;value.val_16, increment);</span>
-<span class="lineNum">     269 </span>                :            : #endif
-<a name="270"><span class="lineNum">     270 </span>                :<span class="lineCov">      69450 : }</span></a>
-<span class="lineNum">     271 </span>                :            : 
-<span class="lineNum">     272 </span>                :<span class="lineCov">      63405 : void atomic_val_add_8(atomic_val_t *atomic_val, int8_t increment) {</span>
-<span class="lineNum">     273 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     274 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     275 </span>                :            :     atomic_val-&gt;value.val_8 += increment;
-<span class="lineNum">     276 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     277 </span>                :            : #else
-<span class="lineNum">     278 </span>                :<span class="lineCov">      63405 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;value.val_8, increment);</span>
-<span class="lineNum">     279 </span>                :            : #endif
-<a name="280"><span class="lineNum">     280 </span>                :<span class="lineCov">      63405 : }</span></a>
-<span class="lineNum">     281 </span>                :            : 
-<span class="lineNum">     282 </span>                :<span class="lineCov">      70170 : void atomic_val_sub_64(atomic_val_t *atomic_val, int64_t decrement) {</span>
-<span class="lineNum">     283 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     284 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     285 </span>                :            :     atomic_val-&gt;value.val_64 -= decrement;
-<span class="lineNum">     286 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     287 </span>                :            : #else
-<span class="lineNum">     288 </span>                :<span class="lineCov">      70170 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;value.val_64, -decrement);</span>
-<span class="lineNum">     289 </span>                :            : #endif
-<a name="290"><span class="lineNum">     290 </span>                :<span class="lineCov">      70170 : }</span></a>
-<span class="lineNum">     291 </span>                :            : 
-<span class="lineNum">     292 </span>                :<span class="lineCov">      70436 : void atomic_val_sub_32(atomic_val_t *atomic_val, int32_t decrement) {</span>
-<span class="lineNum">     293 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     294 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     295 </span>                :            :     atomic_val-&gt;value.val_32 -= decrement;
-<span class="lineNum">     296 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     297 </span>                :            : #else
-<span class="lineNum">     298 </span>                :<span class="lineCov">      70436 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;value.val_32, -decrement);</span>
-<span class="lineNum">     299 </span>                :            : #endif
-<a name="300"><span class="lineNum">     300 </span>                :<span class="lineCov">      70436 : }</span></a>
-<span class="lineNum">     301 </span>                :            : 
-<span class="lineNum">     302 </span>                :<span class="lineCov">      63275 : void atomic_val_sub_16(atomic_val_t *atomic_val, int16_t decrement) {</span>
-<span class="lineNum">     303 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     304 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     305 </span>                :            :     atomic_val-&gt;value.val_16 -= decrement;
-<span class="lineNum">     306 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     307 </span>                :            : #else
-<span class="lineNum">     308 </span>                :<span class="lineCov">      63275 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;value.val_16, -decrement);</span>
-<span class="lineNum">     309 </span>                :            : #endif
-<a name="310"><span class="lineNum">     310 </span>                :<span class="lineCov">      63275 : }</span></a>
-<span class="lineNum">     311 </span>                :            : 
-<span class="lineNum">     312 </span>                :<span class="lineCov">      70019 : void atomic_val_sub_8(atomic_val_t *atomic_val, int8_t decrement) {</span>
-<span class="lineNum">     313 </span>                :            : #ifdef _MSC_VER
-<span class="lineNum">     314 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     315 </span>                :            :     atomic_val-&gt;value.val_8 -= decrement;
-<span class="lineNum">     316 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
-<span class="lineNum">     317 </span>                :            : #else
-<span class="lineNum">     318 </span>                :<span class="lineCov">      70019 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;value.val_8, -decrement);</span>
-<span class="lineNum">     319 </span>                :            : #endif
-<span class="lineNum">     320 </span>                :<span class="lineCov">      70019 : }</span>
+<span class="lineNum">     165 </span>                :            :     if (atomic_val-&gt;val == expected_val) {
+<span class="lineNum">     166 </span>                :            :         atomic_val-&gt;val = new_val;
+<span class="lineNum">     167 </span>                :            :         rv = true;
+<span class="lineNum">     168 </span>                :            :     }
+<span class="lineNum">     169 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     170 </span>                :            : #else
+<span class="lineNum">     171 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :     if (fdb_sync_bool_compare_and_swap_8(&amp;atomic_val-&gt;val,</span>
+<span class="lineNum">     172 </span>                :            :                                          expected_val, new_val)) {
+<span class="lineNum">     173 </span>                :<span class="lineCov">          1 :         rv = true;</span>
+<span class="lineNum">     174 </span>                :            :     }
+<span class="lineNum">     175 </span>                :            : #endif
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>                :<span class="lineCov">          1 :     return rv;</span>
+<a name="178"><span class="lineNum">     178 </span>                :            : }</a>
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :<span class="lineCov">      69411 : void atomic_incr_uint64_t(atomic_uint64_t *atomic_val) {</span>
+<span class="lineNum">     181 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     182 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     183 </span>                :            :     ++atomic_val-&gt;val;
+<span class="lineNum">     184 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     185 </span>                :            : #else
+<span class="lineNum">     186 </span>                :<span class="lineCov">      69411 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;val, 1);</span>
+<span class="lineNum">     187 </span>                :            : #endif
+<a name="188"><span class="lineNum">     188 </span>                :<span class="lineCov">      69411 : }</span></a>
+<span class="lineNum">     189 </span>                :            : 
+<span class="lineNum">     190 </span>                :<span class="lineCov">    9567402 : void atomic_incr_uint32_t(atomic_uint32_t *atomic_val) {</span>
+<span class="lineNum">     191 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     192 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     193 </span>                :            :     ++atomic_val-&gt;val;
+<span class="lineNum">     194 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     195 </span>                :            : #else
+<span class="lineNum">     196 </span>                :<span class="lineCov">    9567402 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;val, 1);</span>
+<span class="lineNum">     197 </span>                :            : #endif
+<a name="198"><span class="lineNum">     198 </span>                :<span class="lineCov">    9567402 : }</span></a>
+<span class="lineNum">     199 </span>                :            : 
+<span class="lineNum">     200 </span>                :<span class="lineCov">      75001 : void atomic_incr_uint16_t(atomic_uint16_t *atomic_val) {</span>
+<span class="lineNum">     201 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     202 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     203 </span>                :            :     ++atomic_val-&gt;val;
+<span class="lineNum">     204 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     205 </span>                :            : #else
+<span class="lineNum">     206 </span>                :<span class="lineCov">      75001 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;val, 1);</span>
+<span class="lineNum">     207 </span>                :            : #endif
+<a name="208"><span class="lineNum">     208 </span>                :<span class="lineCov">      75001 : }</span></a>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :<span class="lineCov">      69348 : void atomic_incr_uint8_t(atomic_uint8_t *atomic_val) {</span>
+<span class="lineNum">     211 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     212 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     213 </span>                :            :     ++atomic_val-&gt;val;
+<span class="lineNum">     214 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     215 </span>                :            : #else
+<span class="lineNum">     216 </span>                :<span class="lineCov">      69348 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;val, 1);</span>
+<span class="lineNum">     217 </span>                :            : #endif
+<a name="218"><span class="lineNum">     218 </span>                :<span class="lineCov">      69348 : }</span></a>
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :<span class="lineCov">      66881 : void atomic_decr_uint64_t(atomic_uint64_t *atomic_val) {</span>
+<span class="lineNum">     221 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     222 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     223 </span>                :            :     --atomic_val-&gt;val;
+<span class="lineNum">     224 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     225 </span>                :            : #else
+<span class="lineNum">     226 </span>                :<span class="lineCov">      66881 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;val, -1);</span>
+<span class="lineNum">     227 </span>                :            : #endif
+<a name="228"><span class="lineNum">     228 </span>                :<span class="lineCov">      66881 : }</span></a>
+<span class="lineNum">     229 </span>                :            : 
+<span class="lineNum">     230 </span>                :<span class="lineCov">    9542211 : void atomic_decr_uint32_t(atomic_uint32_t *atomic_val) {</span>
+<span class="lineNum">     231 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     232 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     233 </span>                :            :     --atomic_val-&gt;val;
+<span class="lineNum">     234 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     235 </span>                :            : #else
+<span class="lineNum">     236 </span>                :<span class="lineCov">    9542211 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;val, -1);</span>
+<span class="lineNum">     237 </span>                :            : #endif
+<a name="238"><span class="lineNum">     238 </span>                :<span class="lineCov">    9542211 : }</span></a>
+<span class="lineNum">     239 </span>                :            : 
+<span class="lineNum">     240 </span>                :<span class="lineCov">      75263 : void atomic_decr_uint16_t(atomic_uint16_t *atomic_val) {</span>
+<span class="lineNum">     241 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     242 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     243 </span>                :            :     --atomic_val-&gt;val;
+<span class="lineNum">     244 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     245 </span>                :            : #else
+<span class="lineNum">     246 </span>                :<span class="lineCov">      75263 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;val, -1);</span>
+<span class="lineNum">     247 </span>                :            : #endif
+<a name="248"><span class="lineNum">     248 </span>                :<span class="lineCov">      75263 : }</span></a>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :<span class="lineCov">      69756 : void atomic_decr_uint8_t(atomic_uint8_t *atomic_val) {</span>
+<span class="lineNum">     251 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     252 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     253 </span>                :            :     --atomic_val-&gt;val;
+<span class="lineNum">     254 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     255 </span>                :            : #else
+<span class="lineNum">     256 </span>                :<span class="lineCov">      69756 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;val, -1);</span>
+<span class="lineNum">     257 </span>                :            : #endif
+<a name="258"><span class="lineNum">     258 </span>                :<span class="lineCov">      69756 : }</span></a>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :<span class="lineCov">    4863320 : void atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increment) {</span>
+<span class="lineNum">     261 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     262 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     263 </span>                :            :     atomic_val-&gt;val += increment;
+<span class="lineNum">     264 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     265 </span>                :            : #else
+<span class="lineNum">     266 </span>                :<span class="lineCov">    4863320 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;val, increment);</span>
+<span class="lineNum">     267 </span>                :            : #endif
+<a name="268"><span class="lineNum">     268 </span>                :<span class="lineCov">    4863320 : }</span></a>
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :<span class="lineCov">      75128 : void atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increment) {</span>
+<span class="lineNum">     271 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     272 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     273 </span>                :            :     atomic_val-&gt;val += increment;
+<span class="lineNum">     274 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     275 </span>                :            : #else
+<span class="lineNum">     276 </span>                :<span class="lineCov">      75128 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;val, increment);</span>
+<span class="lineNum">     277 </span>                :            : #endif
+<a name="278"><span class="lineNum">     278 </span>                :<span class="lineCov">      75128 : }</span></a>
+<span class="lineNum">     279 </span>                :            : 
+<span class="lineNum">     280 </span>                :<span class="lineCov">      75105 : void atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increment) {</span>
+<span class="lineNum">     281 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     282 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     283 </span>                :            :     atomic_val-&gt;val += increment;
+<span class="lineNum">     284 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     285 </span>                :            : #else
+<span class="lineNum">     286 </span>                :<span class="lineCov">      75105 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;val, increment);</span>
+<span class="lineNum">     287 </span>                :            : #endif
+<a name="288"><span class="lineNum">     288 </span>                :<span class="lineCov">      75105 : }</span></a>
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>                :<span class="lineCov">      75408 : void atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) {</span>
+<span class="lineNum">     291 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     292 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     293 </span>                :            :     atomic_val-&gt;val += increment;
+<span class="lineNum">     294 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     295 </span>                :            : #else
+<span class="lineNum">     296 </span>                :<span class="lineCov">      75408 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;val, increment);</span>
+<span class="lineNum">     297 </span>                :            : #endif
+<a name="298"><span class="lineNum">     298 </span>                :<span class="lineCov">      75408 : }</span></a>
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :<span class="lineCov">    4822694 : void atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decrement) {</span>
+<span class="lineNum">     301 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     302 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     303 </span>                :            :     atomic_val-&gt;val -= decrement;
+<span class="lineNum">     304 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     305 </span>                :            : #else
+<span class="lineNum">     306 </span>                :<span class="lineCov">    4822694 :     fdb_sync_add_and_fetch_64(&amp;atomic_val-&gt;val, -decrement);</span>
+<span class="lineNum">     307 </span>                :            : #endif
+<a name="308"><span class="lineNum">     308 </span>                :<span class="lineCov">    4822694 : }</span></a>
+<span class="lineNum">     309 </span>                :            : 
+<span class="lineNum">     310 </span>                :<span class="lineCov">      75157 : void atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decrement) {</span>
+<span class="lineNum">     311 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     312 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     313 </span>                :            :     atomic_val-&gt;val -= decrement;
+<span class="lineNum">     314 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     315 </span>                :            : #else
+<span class="lineNum">     316 </span>                :<span class="lineCov">      75157 :     fdb_sync_add_and_fetch_32(&amp;atomic_val-&gt;val, -decrement);</span>
+<span class="lineNum">     317 </span>                :            : #endif
+<a name="318"><span class="lineNum">     318 </span>                :<span class="lineCov">      75157 : }</span></a>
+<span class="lineNum">     319 </span>                :            : 
+<span class="lineNum">     320 </span>                :<span class="lineCov">      55482 : void atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decrement) {</span>
+<span class="lineNum">     321 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     322 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     323 </span>                :            :     atomic_val-&gt;val -= decrement;
+<span class="lineNum">     324 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     325 </span>                :            : #else
+<span class="lineNum">     326 </span>                :<span class="lineCov">      55482 :     fdb_sync_add_and_fetch_16(&amp;atomic_val-&gt;val, -decrement);</span>
+<span class="lineNum">     327 </span>                :            : #endif
+<a name="328"><span class="lineNum">     328 </span>                :<span class="lineCov">      55482 : }</span></a>
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>                :<span class="lineCov">      69759 : void atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement) {</span>
+<span class="lineNum">     331 </span>                :            : #ifdef _MSC_VER
+<span class="lineNum">     332 </span>                :            :     spin_lock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     333 </span>                :            :     atomic_val-&gt;val -= decrement;
+<span class="lineNum">     334 </span>                :            :     spin_unlock(&amp;atomic_val-&gt;lock);
+<span class="lineNum">     335 </span>                :            : #else
+<span class="lineNum">     336 </span>                :<span class="lineCov">      69759 :     fdb_sync_add_and_fetch_8(&amp;atomic_val-&gt;val, -decrement);</span>
+<span class="lineNum">     337 </span>                :            : #endif
+<span class="lineNum">     338 </span>                :<span class="lineCov">      69759 : }</span>
 </pre>
       </td>
     </tr>

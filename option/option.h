@@ -98,4 +98,8 @@
     #define BTREE_CRC_OFFSET (__UTREE_HEADER_SIZE+8)
 #endif
 
+// WAL parition sizes
+#define DEFAULT_NUM_WAL_PARTITIONS (8)
+#define MAX_NUM_WAL_PARTITIONS (512)
+
 #endif

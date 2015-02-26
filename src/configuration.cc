@@ -58,7 +58,12 @@ fdb_config get_default_config(void) {
     fconfig.multi_kv_instances = true;
     // 30 seconds by default
     fconfig.prefetch_duration = 30;
-
+    // 8 WAL partitions by default
+    fconfig.num_wal_partitions = DEFAULT_NUM_WAL_PARTITIONS;
+    // No compaction callback function by default
+    fconfig.compaction_cb = NULL;
+    fconfig.compaction_cb_mask = 0x0;
+    fconfig.compaction_cb_ctx = NULL;
     return fconfig;
 }
 
@@ -108,6 +113,10 @@ bool validate_fdb_config(fdb_config *fconfig) {
     }
     if (fconfig->compactor_sleep_duration == 0) {
         // Sleep duration should be larger than zero
+        return false;
+    }
+    if (!fconfig->num_wal_partitions ||
+        (fconfig->num_wal_partitions > MAX_NUM_WAL_PARTITIONS)) {
         return false;
     }
 
