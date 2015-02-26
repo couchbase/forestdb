@@ -2441,7 +2441,12 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
-        _doc.key = doc->key;
+        if (!handle->kvs) { // single KVS mode
+            _doc.key = doc->key;
+            _doc.length.keylen = doc->keylen;
+        } else {
+            _doc.key = NULL;
+        }
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
@@ -2458,8 +2463,13 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         if (handle->kvs) {
             int size_chunk = handle->config.chunksize;
             doc->keylen = _doc.length.keylen - size_chunk;
-            doc->key = _doc.key;
-            memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            if (doc->key) { // doc->key is given by user
+                memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
+                free_docio_object(&_doc, 1, 0, 0);
+            } else {
+                doc->key = _doc.key;
+                memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            }
         } else {
             doc->keylen = _doc.length.keylen;
             doc->key = _doc.key;
@@ -2575,7 +2585,12 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
-        _doc.key = doc->key;
+        if (!handle->kvs) { // single KVS mode
+            _doc.key = doc->key;
+            _doc.length.keylen = doc->keylen;
+        } else {
+            _doc.key = NULL;
+        }
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
@@ -2587,8 +2602,13 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         if (handle->kvs) {
             int size_chunk = handle->config.chunksize;
             doc->keylen = _doc.length.keylen - size_chunk;
-            doc->key = _doc.key;
-            memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            if (doc->key) { // doc->key is given by user
+                memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
+                free_docio_object(&_doc, 1, 0, 0);
+            } else {
+                doc->key = _doc.key;
+                memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            }
         } else {
             doc->keylen = _doc.length.keylen;
             doc->key = _doc.key;
