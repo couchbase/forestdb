@@ -2113,7 +2113,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn;
     fdb_doc doc_kv = *doc;
 
-    if (doc->key == NULL || doc->keylen == 0 ||
+    if (!handle || !doc || !doc->key || doc->keylen == 0 ||
         doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -2240,7 +2240,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn;
     fdb_doc doc_kv = *doc;
 
-    if (handle == NULL || doc == NULL || doc->key == NULL ||
+    if (!handle || !doc || !doc->key ||
         doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -2362,7 +2362,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_seqnum_t _seqnum;
     fdb_txn *txn;
 
-    if (doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2388,12 +2388,14 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             txn = &wal_file->global_txn;
         }
         // prevent searching by key in WAL if 'doc' is not empty
+        size_t key_len = doc->keylen;
         doc->keylen = 0;
         if (handle->kvs) {
             wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, doc, &offset);
         } else {
             wr = wal_find(txn, wal_file, doc, &offset);
         }
+        doc->keylen = key_len;
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         if (wr != FDB_RESULT_SUCCESS ||
@@ -2439,7 +2441,12 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
-        _doc.key = doc->key;
+        if (!handle->kvs) { // single KVS mode
+            _doc.key = doc->key;
+            _doc.length.keylen = doc->keylen;
+        } else {
+            _doc.key = NULL;
+        }
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
@@ -2456,8 +2463,13 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         if (handle->kvs) {
             int size_chunk = handle->config.chunksize;
             doc->keylen = _doc.length.keylen - size_chunk;
-            doc->key = _doc.key;
-            memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            if (doc->key) { // doc->key is given by user
+                memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
+                free_docio_object(&_doc, 1, 0, 0);
+            } else {
+                doc->key = _doc.key;
+                memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            }
         } else {
             doc->keylen = _doc.length.keylen;
             doc->key = _doc.key;
@@ -2495,7 +2507,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_seqnum_t _seqnum;
     fdb_txn *txn = handle->fhandle->root->txn;
 
-    if (doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2520,12 +2532,14 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             txn = &wal_file->global_txn;
         }
         // prevent searching by key in WAL if 'doc' is not empty
+        size_t key_len = doc->keylen;
         doc->keylen = 0;
         if (handle->kvs) {
             wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, doc, &offset);
         } else {
             wr = wal_find(txn, wal_file, doc, &offset);
         }
+        doc->keylen = key_len;
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         if (wr != FDB_RESULT_SUCCESS ||
@@ -2571,7 +2585,12 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
-        _doc.key = doc->key;
+        if (!handle->kvs) { // single KVS mode
+            _doc.key = doc->key;
+            _doc.length.keylen = doc->keylen;
+        } else {
+            _doc.key = NULL;
+        }
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
@@ -2583,8 +2602,13 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         if (handle->kvs) {
             int size_chunk = handle->config.chunksize;
             doc->keylen = _doc.length.keylen - size_chunk;
-            doc->key = _doc.key;
-            memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            if (doc->key) { // doc->key is given by user
+                memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
+                free_docio_object(&_doc, 1, 0, 0);
+            } else {
+                doc->key = _doc.key;
+                memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
+            }
         } else {
             doc->keylen = _doc.length.keylen;
             doc->key = _doc.key;
