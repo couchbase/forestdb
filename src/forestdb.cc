@@ -2113,7 +2113,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn;
     fdb_doc doc_kv = *doc;
 
-    if (doc->key == NULL || doc->keylen == 0 ||
+    if (!handle || !doc || !doc->key || doc->keylen == 0 ||
         doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -2240,7 +2240,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn;
     fdb_doc doc_kv = *doc;
 
-    if (handle == NULL || doc == NULL || doc->key == NULL ||
+    if (!handle || !doc || !doc->key ||
         doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -2362,7 +2362,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_seqnum_t _seqnum;
     fdb_txn *txn;
 
-    if (doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2495,7 +2495,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_seqnum_t _seqnum;
     fdb_txn *txn = handle->fhandle->root->txn;
 
-    if (doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
