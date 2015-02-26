@@ -2388,12 +2388,14 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             txn = &wal_file->global_txn;
         }
         // prevent searching by key in WAL if 'doc' is not empty
+        size_t key_len = doc->keylen;
         doc->keylen = 0;
         if (handle->kvs) {
             wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, doc, &offset);
         } else {
             wr = wal_find(txn, wal_file, doc, &offset);
         }
+        doc->keylen = key_len;
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         if (wr != FDB_RESULT_SUCCESS ||
@@ -2520,12 +2522,14 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             txn = &wal_file->global_txn;
         }
         // prevent searching by key in WAL if 'doc' is not empty
+        size_t key_len = doc->keylen;
         doc->keylen = 0;
         if (handle->kvs) {
             wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, doc, &offset);
         } else {
             wr = wal_find(txn, wal_file, doc, &offset);
         }
+        doc->keylen = key_len;
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         if (wr != FDB_RESULT_SUCCESS ||
