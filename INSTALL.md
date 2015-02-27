@@ -49,7 +49,7 @@ We use [CMake](http://www.cmake.org/cmake/) to provide the build support for a w
 
 Once CMake is installed, please follow the instructions below to compile and build ForestDB on Ubuntu, Centos, or OS X:
 
-`git clone forestdb_repo_url`
+`git clone git://github.com/couchbase/forestdb`
 
 `cd forestdb`
 
@@ -65,7 +65,7 @@ Once CMake is installed, please follow the instructions below to compile and bui
 
 On Windows (using Visual Studio's CL compiler), the instructions are as follows:
 
-`git clone forestdb_repo_url` (or clone repository using [TortoiseGit](http://code.google.com/p/tortoisegit/))
+`git clone git://github.com/couchbase/forestdb` (or clone repository using [TortoiseGit](http://code.google.com/p/tortoisegit/))
 
 `cd forestdb`
 
