@@ -483,6 +483,16 @@ void filemgr_prefetch(struct filemgr *file,
     spin_unlock(&file->lock);
 }
 
+fdb_status filemgr_does_file_exist(char *filename) {
+    struct filemgr_ops *ops = get_filemgr_ops();
+    int fd = ops->open(filename, O_RDONLY, 0444);
+    if (fd < 0) {
+        return (fdb_status) fd;
+    }
+    ops->close(fd);
+    return FDB_RESULT_SUCCESS;
+}
+
 filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                  struct filemgr_config *config,
                                  err_log_callback *log_callback)
@@ -1768,8 +1778,10 @@ fdb_status filemgr_destroy_file(char *filename,
         e = hash_remove(&hash, &file->e);
         assert(e);
         _filemgr_free_func(&file->e);
-        if (remove(filename)) {
-            status = FDB_RESULT_FILE_REMOVE_FAIL;
+        if (filemgr_does_file_exist(filename) == FDB_RESULT_SUCCESS) {
+            if (remove(filename)) {
+                status = FDB_RESULT_FILE_REMOVE_FAIL;
+            }
         }
     } else { // file not in memory, read on-disk to destroy older versions..
         file = (struct filemgr *)alca(struct filemgr, 1);
@@ -1798,6 +1810,7 @@ fdb_status filemgr_destroy_file(char *filename,
                     if (!destroy_file_set) { // top level or non-recursive call
                         hash_free(destroy_set);
                     }
+                    file->ops->close(file->fd);
                     return status;
                 }
                 if (file->header.data) {
@@ -1817,13 +1830,16 @@ fdb_status filemgr_destroy_file(char *filename,
                     }
                     free(file->header.data);
                 }
+                file->ops->close(file->fd);
                 if (status == FDB_RESULT_SUCCESS) {
-                    if (remove(filename)) {
-                        status = FDB_RESULT_FILE_REMOVE_FAIL;
+                    if (filemgr_does_file_exist(filename)
+                                               == FDB_RESULT_SUCCESS) {
+                        if (remove(filename)) {
+                            status = FDB_RESULT_FILE_REMOVE_FAIL;
+                        }
                     }
                 }
             }
-            file->ops->close(file->fd);
         }
     }
 
