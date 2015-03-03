@@ -72,6 +72,15 @@ struct temp_buf_item{
 static struct list temp_buf;
 static spin_t temp_buf_lock;
 
+struct keystr_file {
+    char *filename;
+    uint64_t size;
+    int fd;
+    void *addr;
+    void *aux; // reserved for filemap handle in MSVC
+    struct list_elem le;
+};
+
 static void _filemgr_free_func(struct hash_elem *h);
 
 static void spin_init_wrap(void *lock) {
@@ -693,6 +702,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     spin_init(&file->mutex);
 #endif
 
+    list_init(&file->keystr_files);
+    file->n_keystr_files = 0;
     // initialize WAL
     if (!wal_is_initialized(file)) {
         wal_init(file, FDB_WAL_NBUCKET);
@@ -1085,6 +1096,9 @@ static void _filemgr_free_func(struct hash_elem *h)
         free(file->wal->seq_shards);
     }
     free(file->wal);
+
+    // free mmap files if exist
+    filemgr_remove_keystr_files(file);
 
     // free filename and header
     free(file->filename);
@@ -1912,6 +1926,72 @@ void filemgr_set_dirty_root(struct filemgr *file,
 {
     atomic_store_uint64_t(&file->header.dirty_idtree_root, dirty_idtree_root);
     atomic_store_uint64_t(&file->header.dirty_seqtree_root, dirty_seqtree_root);
+}
+
+// Create keystr file and return mmapped address
+// Note that both filemgr_add_keystr_file() and filemgr_remove_keystr_files()
+// are protected by filemgr_mutex_lock, since they are called by update operations
+void *filemgr_add_keystr_file(struct filemgr *file, uint64_t size)
+{
+    struct keystr_file *keystr_file;
+    keystr_file = (struct keystr_file *)calloc(1, sizeof(struct keystr_file));
+
+    keystr_file->filename = (char*)malloc(file->filename_len + 32);
+    sprintf(keystr_file->filename, "%s.wal_index_%05d", file->filename, file->n_keystr_files);
+    keystr_file->fd = file->ops->open(keystr_file->filename,
+                                      O_CREAT | O_RDWR | O_TRUNC, 0644);
+    if (keystr_file->fd < 0) {
+        free(keystr_file->filename);
+        free(keystr_file);
+        return NULL;
+    }
+
+    // allocate file blocks
+    ssize_t r = file->ops->pwrite(keystr_file->fd, (void*)"x", 1, size-1);
+    if (r != 1) {
+        file->ops->close(keystr_file->fd);
+        free(keystr_file->filename);
+        free(keystr_file);
+        return NULL;
+    }
+
+    keystr_file->size = size;
+    keystr_file->addr = file->ops->mmap(keystr_file->fd, keystr_file->size,
+                                        &keystr_file->aux);
+    if (keystr_file->addr == NULL) {
+        file->ops->close(keystr_file->fd);
+        free(keystr_file->filename);
+        free(keystr_file);
+        return NULL;
+    }
+    list_push_front(&file->keystr_files, &keystr_file->le);
+    file->n_keystr_files++;
+
+    return keystr_file->addr;
+}
+
+// Close & unmap & remove all keystr files
+void filemgr_remove_keystr_files(struct filemgr *file)
+{
+    struct keystr_file *keystr_file;
+    struct list_elem *e;
+
+    e = list_begin(&file->keystr_files);
+    while (e) {
+        keystr_file = _get_entry(e, struct keystr_file, le);
+        e = list_remove(&file->keystr_files, &keystr_file->le);
+
+        if (file->ops->munmap(keystr_file->addr, keystr_file->size,
+                              keystr_file->aux) < 0) {
+            continue;
+        }
+        if (file->ops->close(keystr_file->fd) < 0) {
+            continue;
+        }
+        remove(keystr_file->filename);
+        free(keystr_file->filename);
+        free(keystr_file);
+    }
 }
 
 static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
