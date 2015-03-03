@@ -20,7 +20,10 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+
+#undef NDEBUG
 #include <assert.h>
+
 #if !defined(__APPLE__)
 #include <malloc.h>
 #endif

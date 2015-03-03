@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
-#include <assert.h>
 #include <sys/stat.h>
 #include <stdarg.h>
 #if !defined(WIN32) && !defined(_WIN32)

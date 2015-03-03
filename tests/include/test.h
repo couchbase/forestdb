@@ -24,7 +24,6 @@
 #include <sys/time.h>
 #endif
 #include "time_utils.h"
-#include <assert.h>
 
 #include "common.h"
 

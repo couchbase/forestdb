@@ -16,7 +16,6 @@
  */
 
 #include <stdio.h>
-#include <assert.h>
 
 #include "list.h"
 #include "test.h"
