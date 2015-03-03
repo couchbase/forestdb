@@ -5,7 +5,6 @@
  */
 
 #include <stdio.h>
-#include <assert.h>
 #include "list.h"
 
 #ifdef _LIST_LOCK

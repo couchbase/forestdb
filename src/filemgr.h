@@ -49,6 +49,7 @@ struct filemgr_config {
     uint16_t num_bcache_shards;
 };
 
+typedef void* voidref;
 struct filemgr_ops {
     int (*open)(const char *pathname, int flags, mode_t mode);
     ssize_t (*pwrite)(int fd, void *buf, size_t count, cs_off_t offset);
@@ -59,6 +60,8 @@ struct filemgr_ops {
     int (*fdatasync)(int fd);
     int (*fsync)(int fd);
     void (*get_errno_str)(char *buf, size_t size);
+    voidref (*mmap)(int fd, size_t length, void **aux);
+    int (*munmap)(void *addr, size_t length, void *aux);
 };
 
 struct filemgr_buffer{
@@ -118,6 +121,10 @@ struct filemgr {
     // variables related to prefetching
     volatile filemgr_prefetch_status_t prefetch_status;
     thread_t prefetch_tid;
+
+    // list for mmapped files
+    struct list keystr_files;
+    uint32_t n_keystr_files;
 
     // spin lock for small region
     spin_t lock;
@@ -267,6 +274,9 @@ INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
     return (file->header.dirty_idtree_root.val  != BLK_NOT_FOUND ||
             file->header.dirty_seqtree_root.val != BLK_NOT_FOUND);
 }
+
+void *filemgr_add_keystr_file(struct filemgr *file, uint64_t size);
+void filemgr_remove_keystr_files(struct filemgr *file);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

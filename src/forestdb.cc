@@ -329,11 +329,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                     // if mode is NORMAL, restore all items
                                     // if mode is KV_INS, restore items matching ID
                                     wal_insert(&file->global_txn, file,
-                                               &wal_doc, doc_offset, 0);
+                                               &wal_doc, doc_offset, 0, 0);
                                 }
                             } else {
                                 wal_insert(&file->global_txn, file,
-                                           &wal_doc, doc_offset, 0);
+                                           &wal_doc, doc_offset, 0, 0);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -2764,6 +2764,7 @@ static uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
 LIBFDB_API
 fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 {
+    int mmap_alloc = 0;
     uint64_t offset;
     struct docio_object _doc;
     struct filemgr *file;
@@ -2890,14 +2891,19 @@ fdb_set_start:
     if (!txn) {
         txn = &file->global_txn;
     }
+    if (file == handle->new_file &&
+        filemgr_get_file_status(file) == FILE_COMPACT_NEW) {
+        // compaction is in progress
+        mmap_alloc = 1;
+    }
     if (handle->kvs) {
         // multi KV instance mode
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
-        wal_insert(txn, file, &kv_ins_doc, offset, 0);
+        wal_insert(txn, file, &kv_ins_doc, offset, 0, mmap_alloc);
     } else {
-        wal_insert(txn, file, doc, offset, 0);
+        wal_insert(txn, file, doc, offset, 0, mmap_alloc);
     }
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -3438,6 +3444,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     if (wal_flushed) {
         wal_release_flushed_items(handle->file, &flush_items);
+        wal_release_keystr_files(handle->file);
     }
 
     // Mark the old file as "remove_pending".
@@ -3616,7 +3623,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
 
                 wal_insert(&new_file->global_txn,
-                        new_file, &wal_doc, new_offset, 1);
+                           new_file, &wal_doc, new_offset, 1, 0);
                 n_moved_docs++;
                 free(doc.key);
                 free(doc.meta);
@@ -3769,7 +3776,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.offset = new_offset;
 
                         wal_insert(&new_file->global_txn,
-                                   new_file, &wal_doc, new_offset, 1);
+                                   new_file, &wal_doc, new_offset, 1, 0);
                         n_moved_docs++;
 
                         if (handle->config.compaction_cb &&
