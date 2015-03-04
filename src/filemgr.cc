@@ -23,6 +23,8 @@
 #include <stdarg.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
+#include <dirent.h>
+#include <unistd.h>
 #endif
 
 #include "filemgr.h"
@@ -1991,6 +1993,106 @@ void filemgr_remove_keystr_files(struct filemgr *file)
         remove(keystr_file->filename);
         free(keystr_file->filename);
         free(keystr_file);
+    }
+}
+
+struct filename_item {
+    char *filename;
+    struct list_elem le;
+};
+
+// manually scan & remove all keystr files
+void filemgr_scan_remove_keystr_files(struct filemgr *file)
+{
+    int i;
+    int filename_len = file->filename_len;
+    int dirname_len;
+    char *filename = file->filename;
+    char prefix[FDB_MAX_FILENAME_LEN];
+    char dirname[FDB_MAX_FILENAME_LEN];
+    struct list filelist;
+    struct filename_item *item;
+    struct list_elem *e;
+
+    list_init(&filelist);
+
+#if !defined(WIN32) && !defined(_WIN32)
+    // Posix
+    DIR *dir_info;
+    struct dirent *dir_entry;
+
+    for (i=filename_len-1; i>=0; --i){
+        if (filename[i] == '/') {
+            dirname_len = i+1;
+            break;
+        }
+    }
+
+    if (dirname_len > 0) {
+        strncpy(dirname, filename, dirname_len);
+        dirname[dirname_len] = 0;
+    } else {
+        strcpy(dirname, ".");
+    }
+    strcpy(prefix, filename + dirname_len);
+    strcat(prefix, ".wal_index");
+
+    dir_info = opendir(dirname);
+    if (dir_info != NULL) {
+        int prefix_size = strlen(prefix);
+        while ((dir_entry = readdir(dir_info))) {
+            if (!strncmp(dir_entry->d_name, prefix, prefix_size)) {
+                item = (struct filename_item*)calloc(1, sizeof(struct filename_item));
+                item->filename = (char*)malloc(strlen(dir_entry->d_name)+1);
+                strcpy(item->filename, dir_entry->d_name);
+                list_push_front(&filelist, &item->le);
+            }
+        }
+        closedir(dir_info);
+    }
+#else
+    // Windows
+    for (i=filename_len-1; i>=0; --i){
+        if (filename[i] == '/' || filename[i] == '\\') {
+            dirname_len = i+1;
+            break;
+        }
+    }
+
+    strcpy(prefix, filename + dirname_len);
+    strcat(prefix, ".wal_index");
+
+    WIN32_FIND_DATA filedata;
+    HANDLE hfind;
+    char query_str[FDB_MAX_FILENAME_LEN];
+
+    // find all files start with 'prefix'
+    int prefix_size = strlen(prefix);
+    sprintf(query_str, "%s*", prefix);
+    hfind = FindFirstFile(query_str, &filedata);
+    while (hfind != INVALID_HANDLE_VALUE) {
+        if (!strncmp(filedata.cFileName, prefix, prefix_size)) {
+            item = (struct filename_item*)calloc(1, sizeof(struct filename_item));
+            item->filename = (char*)malloc(strlen(filedata.cFileName)+1);
+            strcpy(item->filename, filedata.cFileName);
+            list_push_front(&filelist, &item->le);
+        }
+
+        if (!FindNextFile(hfind, &filedata)) {
+            FindClose(hfind);
+            hfind = INVALID_HANDLE_VALUE;
+        }
+    }
+#endif
+
+    // remove all file in list
+    e = list_begin(&filelist);
+    while (e) {
+        item = _get_entry(e, struct filename_item, le);
+        e = list_remove(&filelist, &item->le);
+        remove(item->filename);
+        free(item->filename);
+        free(item);
     }
 }
 

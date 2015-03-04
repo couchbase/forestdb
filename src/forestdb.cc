@@ -413,6 +413,10 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     }
 
     new_file = new_db.file;
+
+    // remove temporary wal_index files if exist
+    filemgr_scan_remove_keystr_files(new_file);
+
     if (new_file->old_filename &&
         !strncmp(new_file->old_filename, handle->file->filename,
                  FDB_MAX_FILENAME_LEN)) {
