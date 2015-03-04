@@ -2860,6 +2860,125 @@ void iterator_after_wal_threshold()
     TEST_RESULT("iterator after wal threshold");
 }
 
+void iterator_manual_wal_flush()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    unsigned char key1[] =       { 8,  5, 62, 62, 52, 50, 48, 49,
+                                  45,  0,  6, 49,  0,  0,  0};
+    unsigned char key2[] =       { 8,  5, 62, 62, 52, 50, 48, 49,
+                                  49, 45,  0,  6, 49, 50,  0,  0,
+                                   0};
+    unsigned char start_key1[] = { 8,  5, 62, 62, 52, 49, 57, 57,
+                                  57, 45,  0};
+    unsigned char start_key2[] = { 8,  5, 62, 62, 52, 51, 52, 53,
+                                  10, 20,  0};
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *db2;
+    fdb_doc *rdoc = NULL;
+    fdb_status status;
+    fdb_iterator *it;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
+    fdb_kvs_open(dbfile, &db2, "db2", &kvs_config);
+
+    fdb_set_kv(db, key1, sizeof(key1), NULL, 0);
+    fdb_set_kv(db, key2, sizeof(key2), NULL, 0);
+
+    // normal commit
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // start_key's skipped prefix is smaller than the common prefix
+    status = fdb_iterator_init(db, &it, start_key1, sizeof(start_key1),
+                               NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    do {
+        status = fdb_iterator_get(it, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(it);
+
+    // start_key's skipped prefix is gerater than the common prefix
+    status = fdb_iterator_init(db, &it, start_key2, sizeof(start_key2),
+                               NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+    fdb_iterator_close(it);
+
+    fdb_set_kv(db2, key1, sizeof(key1), NULL, 0);
+    fdb_set_kv(db2, key2, sizeof(key2), NULL, 0);
+
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // start_key's skipped prefix is smaller than the common prefix
+    status = fdb_iterator_init(db2, &it, start_key1, sizeof(start_key1),
+                               NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    do {
+        status = fdb_iterator_get(it, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+    fdb_iterator_close(it);
+
+    // start_key's skipped prefix is gerater than the common prefix
+    status = fdb_iterator_init(db, &it, start_key2, sizeof(start_key2),
+                               NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+    fdb_iterator_close(it);
+
+    // start_key's skipped prefix is smaller than the common prefix
+    status = fdb_iterator_init(db2, &it, NULL, 0,
+                               start_key1, sizeof(start_key1), FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_seek(it, start_key1, sizeof(start_key1), FDB_ITR_SEEK_LOWER);
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+    fdb_iterator_close(it);
+
+    // start_key's skipped prefix is gerater than the common prefix
+    status = fdb_iterator_init(db, &it, NULL, 0,
+                               start_key2, sizeof(start_key2), FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_seek(it, start_key2, sizeof(start_key2), FDB_ITR_SEEK_LOWER);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+    while (fdb_iterator_prev(it) != FDB_RESULT_ITERATOR_FAIL) {
+        status = fdb_iterator_get(it, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    }
+    fdb_iterator_close(it);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("iterator manual wal flush");
+}
+
 void iterator_concurrent_compaction()
 {
     TEST_INIT();
@@ -2961,6 +3080,7 @@ int main(){
     reverse_iterator_test();
     iterator_seek_wal_only_test();
     iterator_after_wal_threshold();
+    iterator_manual_wal_flush();
     iterator_concurrent_compaction();
 
     return 0;
