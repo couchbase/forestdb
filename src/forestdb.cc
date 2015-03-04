@@ -3448,8 +3448,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     if (wal_flushed) {
         wal_release_flushed_items(handle->file, &flush_items);
-        wal_release_keystr_files(handle->file);
     }
+    wal_release_keystr_files(handle->file);
 
     // Mark the old file as "remove_pending".
     // Note that a file deletion will be pended until there is no handle
