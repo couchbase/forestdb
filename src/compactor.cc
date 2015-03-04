@@ -598,6 +598,7 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
     ssize_t ret;
     uint8_t *buf = alca(uint8_t, sizeof(struct compactor_meta));
     uint32_t crc;
+    char fullpath[MAX_FNAMELEN];
     struct filemgr_ops *ops;
     struct compactor_meta meta;
 
@@ -622,7 +623,8 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
             return NULL;
         }
         // check if the file exists
-        fd_db = ops->open(meta.filename, O_RDONLY, 0644);
+        _reconstruct_path(fullpath, metafile, meta.filename);
+        fd_db = ops->open(fullpath, O_RDONLY, 0644);
         if (fd_db < 0) {
             // file doesn't exist
             return NULL;
