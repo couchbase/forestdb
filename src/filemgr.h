@@ -277,6 +277,7 @@ INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
 
 void *filemgr_add_keystr_file(struct filemgr *file, uint64_t size);
 void filemgr_remove_keystr_files(struct filemgr *file);
+void filemgr_scan_remove_keystr_files(struct filemgr *file);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

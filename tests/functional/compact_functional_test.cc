@@ -1626,6 +1626,120 @@ void auto_compaction_with_custom_cmp_function()
     TEST_RESULT("auto compaction with custom comparison function");
 }
 
+struct cb_txn_args {
+    fdb_file_handle *file;
+    fdb_kvs_handle *handle;
+    int ndocs;
+    int nupdates;
+    int done;
+};
+
+static int cb_txn(fdb_file_handle *fhandle,
+                  fdb_compaction_status status,
+                  fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
+                  void *ctx)
+{
+    struct cb_txn_args *args = (struct cb_txn_args *)ctx;
+
+    if (status == FDB_CS_END && !args->done) {
+        int i;
+        int n = 10;
+        char keybuf[256], bodybuf[256];
+        fdb_status s;
+
+        // begin transaction
+        fdb_begin_transaction(args->file, FDB_ISOLATION_READ_COMMITTED);
+        // insert new docs, but do not end transaction
+        for (i=0;i<n/2;++i){
+            sprintf(keybuf, "txn%04d", i);
+            sprintf(bodybuf, "txn_body%04d", i);
+            s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                                         bodybuf, strlen(bodybuf)+1);
+        }
+        args->done = 1;
+    }
+
+    return 0;
+}
+
+void compaction_with_concurrent_transaction_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    size_t valuelen;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile, *txn_file;
+    fdb_kvs_handle *db, *txn;
+    fdb_status s;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    void *value;
+    struct cb_txn_args cb_args;
+
+    memset(&cb_args, 0x0, sizeof(struct cb_txn_args));
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_cb = cb_txn;
+    fconfig.compaction_cb_ctx = &cb_args;
+    fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                                 FDB_CS_END;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+
+    fdb_open(&txn_file, "./dummy1", &fconfig);
+    fdb_kvs_open(txn_file, &txn, "db", &kvs_config);
+    cb_args.file = txn_file;
+    cb_args.handle = txn;
+
+    // write docs & commit
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%04d", i);
+        sprintf(bodybuf, "body%04d", i);
+        s = fdb_set_kv(db, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+    }
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    cb_args.ndocs = n;
+    cb_args.nupdates = 2;
+
+    s = fdb_compact(dbfile, "./dummy2");
+
+    // insert new docs through transaction
+    for (i=n/2;i<n;++i){
+        sprintf(keybuf, "txn%04d", i);
+        sprintf(bodybuf, "txn_body%04d", i);
+        s = fdb_set_kv(txn, keybuf, strlen(keybuf)+1,
+                            bodybuf, strlen(bodybuf)+1);
+    }
+    // all txn docs should be retrieved
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "txn%04d", i);
+        sprintf(bodybuf, "txn_body%04d", i);
+        s = fdb_get_kv(txn, keybuf, strlen(keybuf)+1,
+                            &value, &valuelen);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CMP(value, bodybuf, valuelen);
+        free(value);
+    }
+    s = fdb_end_transaction(txn_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    fdb_close(txn_file);
+
+    s = fdb_compact(dbfile, "./dummy3");
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("compaction with concurrent transaction test");
+}
+
 int main(){
     compaction_callback_test();
     compact_wo_reopen_test();
@@ -1636,6 +1750,7 @@ int main(){
     auto_recover_compact_ok_test();
     db_compact_overwrite();
     db_compact_during_doc_delete(NULL);
+    compaction_with_concurrent_transaction_test();
     auto_compaction_with_custom_cmp_function();
     compaction_daemon_test(20);
     auto_compaction_with_concurrent_insert_test(20);

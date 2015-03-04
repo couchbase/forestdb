@@ -170,6 +170,29 @@ void *_wal_alloc_mmap(struct filemgr *file, size_t size)
 void wal_release_keystr_files(struct filemgr *file)
 {
     // Note that this function is protected by filemgr_mutex
+    size_t i = 0;
+    size_t num_shards = file->wal->num_shards;
+    void *old_ptr;
+    struct list_elem *e;
+    struct wal_item_header *header;
+
+    // convert all mmapped memory regions to malloc regions
+    for (; i < num_shards; ++i) {
+        spin_lock(&file->wal->key_shards[i].lock);
+        e = list_begin(&file->wal->key_shards[i].list);
+        while (e) {
+            header = _get_entry(e, struct wal_item_header, list_elem);
+            if (header->mmap) {
+                old_ptr = header->key;
+                header->key = (void *)malloc(header->keylen);
+                memcpy(header->key, old_ptr, header->keylen);
+                header->mmap = 0;
+            }
+            e = list_next(e);
+        }
+        spin_unlock(&file->wal->key_shards[i].lock);
+    }
+
     if (file->wal->key_seg.cur_addr) {
         filemgr_remove_keystr_files(file);
         file->wal->key_seg.cur_addr = NULL;
