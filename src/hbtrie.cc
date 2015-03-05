@@ -556,6 +556,41 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                 // happen only once for the first call (for each level of b-trees)
                 chunk = (uint8_t*)it->curkey +
                         item_new->chunkno*trie->chunksize;
+                if (item->chunkno+1 < item_new->chunkno) {
+                    // skipped prefix exists
+                    // Note: all skipped chunks should be compared using the default
+                    //       cmp function
+                    int i, offset_meta, offset_key, chunkcmp;
+                    for (i=item->chunkno+1; i<item_new->chunkno; ++i) {
+                        offset_meta = trie->chunksize * (i - (item->chunkno+1));
+                        offset_key = trie->chunksize * i;
+                        chunkcmp = trie->btree_kv_ops->cmp(
+                            (uint8_t*)it->curkey + offset_key,
+                            (uint8_t*)hbmeta.prefix + offset_meta,
+                            trie->aux);
+                        if (chunkcmp < 0) {
+                            // start_key's prefix is smaller than the skipped prefix
+                            // we have to go back to parent B+tree and pick prev entry
+                            mempool_free(bmeta.data);
+                            mempool_free(item_new);
+                            it->keylen = offset_key;
+                            hr = HBTRIE_RESULT_FAIL;
+                            HBTRIE_ITR_SET_MOVED(it);
+                            break;
+                        } else if (chunkcmp > 0) {
+                            // start_key's prefix is gerater than the skipped prefix
+                            // set largest key for next B+tree
+                            chunk = alca(uint8_t, trie->chunksize);
+                            memset(chunk, 0xff, trie->chunksize);
+                            break;
+                        }
+                    }
+                    if (chunkcmp < 0) {
+                        // go back to parent B+tree
+                        continue;
+                    }
+                }
+
             } else {
                 // chunk number of the b-tree is shorter than current iterator's key
                 if (!HBTRIE_ITR_IS_MOVED(it)) {
@@ -801,6 +836,40 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                 // happen only once for the first call (for each level of b-trees)
                 chunk = (uint8_t*)it->curkey +
                         item_new->chunkno*trie->chunksize;
+                if (item->chunkno+1 < item_new->chunkno) {
+                    // skipped prefix exists
+                    // Note: all skipped chunks should be compared using the default
+                    //       cmp function
+                    int i, offset_meta, offset_key, chunkcmp;
+                    for (i=item->chunkno+1; i<item_new->chunkno; ++i) {
+                        offset_meta = trie->chunksize * (i - (item->chunkno+1));
+                        offset_key = trie->chunksize * i;
+                        chunkcmp = trie->btree_kv_ops->cmp(
+                            (uint8_t*)it->curkey + offset_key,
+                            (uint8_t*)hbmeta.prefix + offset_meta,
+                            trie->aux);
+                        if (chunkcmp < 0) {
+                            // start_key's prefix is smaller than the skipped prefix
+                            // set smallest key for next B+tree
+                            it->keylen = offset_key;
+                            chunk = NULL;
+                            break;
+                        } else if (chunkcmp > 0) {
+                            // start_key's prefix is gerater than the skipped prefix
+                            // we have to go back to parent B+tree and pick next entry
+                            mempool_free(bmeta.data);
+                            mempool_free(item_new);
+                            it->keylen = offset_key;
+                            hr = HBTRIE_RESULT_FAIL;
+                            HBTRIE_ITR_SET_MOVED(it);
+                            break;
+                        }
+                    }
+                    if (chunkcmp > 0) {
+                        // go back to parent B+tree
+                        continue;
+                    }
+                }
             }else{
                 // chunk number of the b-tree is longer than current iterator's key
                 // set smallest key
