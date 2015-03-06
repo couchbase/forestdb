@@ -35,6 +35,15 @@
 extern "C" {
 #endif
 
+#ifdef _ALIGN_MEM_ACCESS
+typedef struct __attribute__((aligned(8))) {
+#ifdef _MSC_VER
+    // TODO: Need to figure out an atomic support without using lock.
+    spin_t lock;
+#endif
+    volatile uint64_t val;
+} atomic_uint64_t;
+#else
 typedef struct {
 #ifdef _MSC_VER
     // TODO: Need to figure out an atomic support without using lock.
@@ -42,6 +51,7 @@ typedef struct {
 #endif
     volatile uint64_t val;
 } atomic_uint64_t;
+#endif
 
 typedef struct {
 #ifdef _MSC_VER
