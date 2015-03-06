@@ -2006,7 +2006,7 @@ void filemgr_scan_remove_keystr_files(struct filemgr *file)
 {
     int i;
     int filename_len = file->filename_len;
-    int dirname_len;
+    int dirname_len = 0;
     char *filename = file->filename;
     char prefix[FDB_MAX_FILENAME_LEN];
     char dirname[FDB_MAX_FILENAME_LEN];
