@@ -117,7 +117,7 @@
     #include <inttypes.h>
     #include <alloca.h>
 
-    #define INLINE __inline
+    #define INLINE static __inline
 
     #define _X64 "llx"
     #define _F64 "lld"
