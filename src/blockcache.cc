@@ -214,9 +214,11 @@ static void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *li
         fs = filemgr_get_file_status(fname->curfile);
 
         if (list == &file_lru && fs == FILE_COMPACT_OLD) {
-            // insert compact old file always at the tail of LRU
-            list_push_back(list, &fname->le);
-        }else{
+            // Note: giving the lowest priority to the old file sometimes brings
+            //       starvation issue, which makes the compaction throughput
+            //       rapidly degrade. So we use fair balancing for now.
+            list_push_front(list, &fname->le);
+        } else {
             list_push_front(list, &fname->le);
         }
     }
