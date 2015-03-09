@@ -3882,8 +3882,11 @@ static fdb_status _fdb_compact_move_docs_seq(fdb_kvs_handle *handle,
 
                 if (n_moved_docs >= offset_array_max &&
                     wal_get_num_flushable(new_file) > 0) {
-
                     struct avl_tree flush_items;
+                    // ensure wal_flush does not race with insert from user
+                    if (!got_lock) {
+                        filemgr_mutex_lock(new_file);
+                    }
                     wal_flush_by_compactor(new_file, (void*)&new_handle,
                                            _fdb_wal_flush_func,
                                            _fdb_wal_get_old_offset,
@@ -3891,6 +3894,10 @@ static fdb_status _fdb_compact_move_docs_seq(fdb_kvs_handle *handle,
                     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                     wal_release_flushed_items(new_file, &flush_items);
                     n_moved_docs = 0;
+
+                    if (!got_lock) {
+                        filemgr_mutex_unlock(new_file);
+                    }
 
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
