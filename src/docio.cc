@@ -798,6 +798,15 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     if (doc->length.flag & DOCIO_TXN_COMMITTED) {
         // transaction commit mark
         // read the corresponding doc offset
+
+        // If TXN_COMMITTED flag is set, this doc is not an actual doc, but a
+        // transaction commit marker. Thus, all lengths should be zero.
+        if (doc->length.keylen || doc->length.metalen ||
+            doc->length.bodylen || doc->length.bodylen_ondisk) {
+            free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+            return offset;
+        }
+
         uint64_t doc_offset;
         _offset = _docio_read_doc_component(handle, _offset,
                                             sizeof(doc_offset), &doc_offset,
@@ -807,6 +816,12 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
             return offset;
         }
         doc->doc_offset = _endian_decode(doc_offset);
+        // The offset of the actual document that pointed by this commit marker
+        // should not be greater than the file size.
+        if (doc->doc_offset > filemgr_get_pos(handle->file)) {
+            free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+            return offset;
+        }
         return _offset;
     }
 

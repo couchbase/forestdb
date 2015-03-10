@@ -3816,7 +3816,6 @@ static fdb_status _fdb_compact_move_docs_seq(fdb_kvs_handle *handle,
                     free(doc[c].key);
                     free(doc[c].meta);
                     free(doc[c].body);
-                    offset = _offset;
                     break;
                 }
                 if (!doc[c].key) {
@@ -3842,6 +3841,19 @@ static fdb_status _fdb_compact_move_docs_seq(fdb_kvs_handle *handle,
                     return fs;
                 }
                 offset_trie = _endian_decode(_offset_trie);
+
+                if (offset % blocksize == blocksize - BLK_MARKER_SIZE) {
+                    // if offset points to block marker, the marker is automatically
+                    // skipped by docio_read_doc(), but the offset itself will
+                    // differ to the offset returned from HB+trie. We need to
+                    // adjust it to right position.
+                    offset += BLK_MARKER_SIZE;
+                }
+                if (offset_trie % blocksize == blocksize - BLK_MARKER_SIZE) {
+                    // same as above
+                    offset_trie += BLK_MARKER_SIZE;
+                }
+
                 if (hr != HBTRIE_RESULT_SUCCESS ||
                     offset != offset_trie) {
                     // skip this document
