@@ -269,6 +269,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
             fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
                     "Error in compressing the doc body of key '%s'",
                     (char *) doc->key);
+            free(compbuf);
             // we use BLK_NOT_FOUND for error code of appending instead of 0
             // because document can be written at the byte offset 0
             return BLK_NOT_FOUND;
