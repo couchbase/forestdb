@@ -1031,17 +1031,18 @@ void *db_compact_during_doc_delete(void *args)
     fdb_doc **doc = alca(fdb_doc*, n);
     char keybuf[256], metabuf[256], bodybuf[256];
 
+    // init dbfile
+    kvs_config = fdb_get_default_kvs_config();
+    fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.compaction_threshold = 0;
+
     if (args == NULL)
     { // parent
 
         r = system(SHELL_DEL" dummy* > errorlog.txt");
         (void)r;
-        // init dbfile
-        kvs_config = fdb_get_default_kvs_config();
-        fconfig = fdb_get_default_config();
-        fconfig.buffercache_size = 0;
-        fconfig.wal_threshold = 1024;
-        fconfig.compaction_threshold = 0;
 
         status = fdb_open(&dbfile, "./dummy1", &fconfig);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1075,6 +1076,8 @@ void *db_compact_during_doc_delete(void *args)
         // join compactor
         thread_join(tid, &thread_ret);
 
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
         // verify no docs remaining
         fdb_get_kvs_info(db, &kvs_info);
         TEST_CHK(kvs_info.doc_count == 0);
@@ -1103,10 +1106,12 @@ void *db_compact_during_doc_delete(void *args)
         return NULL;
     }
 
-    // threads enter here //
-    dbfile = (fdb_file_handle *)args;
+    // compaction thread enters here //
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_compact(dbfile, NULL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_close(dbfile);
 
     // shutdown
     thread_exit(0);
