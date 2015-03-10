@@ -2854,20 +2854,16 @@ fdb_set_start:
         goto fdb_set_start;
     }
 
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        if (sub_handle) {
-            // multiple KV instance mode AND sub handle
-            handle->seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id) + 1;
-            fdb_kvs_set_seqnum(file, handle->kvs->id, handle->seqnum);
-        } else {
-            // super handle OR single KV instnace mode
-            handle->seqnum = filemgr_get_seqnum(file) + 1;
-            filemgr_set_seqnum(file, handle->seqnum);
-        }
-        _doc.seqnum = doc->seqnum = handle->seqnum;
-    } else{
-        _doc.seqnum = SEQNUM_NOT_USED;
+    if (sub_handle) {
+        // multiple KV instance mode AND sub handle
+        handle->seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id) + 1;
+        fdb_kvs_set_seqnum(file, handle->kvs->id, handle->seqnum);
+    } else {
+        // super handle OR single KV instnace mode
+        handle->seqnum = filemgr_get_seqnum(file) + 1;
+        filemgr_set_seqnum(file, handle->seqnum);
     }
+    _doc.seqnum = doc->seqnum = handle->seqnum;
 
     if (doc->deleted) {
         // set timestamp
@@ -3882,11 +3878,8 @@ static fdb_status _fdb_compact_move_docs_seq(fdb_kvs_handle *handle,
 
                 if (n_moved_docs >= offset_array_max &&
                     wal_get_num_flushable(new_file) > 0) {
+
                     struct avl_tree flush_items;
-                    // ensure wal_flush does not race with insert from user
-                    if (!got_lock) {
-                        filemgr_mutex_lock(new_file);
-                    }
                     wal_flush_by_compactor(new_file, (void*)&new_handle,
                                            _fdb_wal_flush_func,
                                            _fdb_wal_get_old_offset,
@@ -3894,10 +3887,6 @@ static fdb_status _fdb_compact_move_docs_seq(fdb_kvs_handle *handle,
                     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                     wal_release_flushed_items(new_file, &flush_items);
                     n_moved_docs = 0;
-
-                    if (!got_lock) {
-                        filemgr_mutex_unlock(new_file);
-                    }
 
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
@@ -4327,12 +4316,10 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     bid_t dirty_idtree_root, dirty_seqtree_root;
     fdb_seqnum_t seqnum;
 
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        // copy old file's seqnum to new file
-        // (KV instances' seq numbers will be copied along with KV header)
-        seqnum = filemgr_get_seqnum(handle->file);
-        filemgr_set_seqnum(new_file, seqnum);
-    }
+    // copy old file's seqnum to new file
+    // (KV instances' seq numbers will be copied along with KV header)
+    seqnum = filemgr_get_seqnum(handle->file);
+    filemgr_set_seqnum(new_file, seqnum);
 
     if (handle->kvs) {
         // multi KV instance mode .. copy KV header data to new file
@@ -4701,11 +4688,10 @@ catch_up_compaction:
             return fs;
         }
 
-        if (rhandle->config.seqtree_opt == FDB_SEQTREE_USE) {
-            // Set cached old_file's sequence number into header of new_file
-            // so it gets migrated correctly for the fdb_set_file_header below
-            filemgr_set_seqnum(new_file, hdr_info[hdr_idx]._seqnum);
-        }
+        // Set cached old_file's sequence number into header of new_file
+        // so it gets migrated correctly for the fdb_set_file_header below
+        filemgr_set_seqnum(new_file, hdr_info[hdr_idx]._seqnum);
+
         if (handle.kvs) {
             // Reset all header stats as we are about to load new data into
             // the file and do a wal_flush which will update all stats..

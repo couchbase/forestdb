@@ -372,7 +372,7 @@ void print_doc(fdb_kvs_handle *db,
     if (kvs_name) {
         printf("    KV store name: %s\n", kvs_name);
     }
-    if (db->config.seqtree_opt == FDB_SEQTREE_USE) {
+    if (doc.seqnum != SEQNUM_NOT_USED) {
         printf("    Sequence number: %" _F64 "\n", doc.seqnum);
     }
     printf("    Byte offset: %" _F64 "\n", offset);
