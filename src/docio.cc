@@ -902,9 +902,6 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen,
                                         doc->body, log_callback);
     if (_offset == 0) {
-        if (comp_body) {
-            free(comp_body);
-        }
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }
