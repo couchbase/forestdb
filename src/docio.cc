@@ -269,6 +269,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
             fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
                     "Error in compressing the doc body of key '%s'",
                     (char *) doc->key);
+            free(compbuf);
             // we use BLK_NOT_FOUND for error code of appending instead of 0
             // because document can be written at the byte offset 0
             return BLK_NOT_FOUND;
@@ -797,6 +798,15 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     if (doc->length.flag & DOCIO_TXN_COMMITTED) {
         // transaction commit mark
         // read the corresponding doc offset
+
+        // If TXN_COMMITTED flag is set, this doc is not an actual doc, but a
+        // transaction commit marker. Thus, all lengths should be zero.
+        if (doc->length.keylen || doc->length.metalen ||
+            doc->length.bodylen || doc->length.bodylen_ondisk) {
+            free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+            return offset;
+        }
+
         uint64_t doc_offset;
         _offset = _docio_read_doc_component(handle, _offset,
                                             sizeof(doc_offset), &doc_offset,
@@ -806,6 +816,12 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
             return offset;
         }
         doc->doc_offset = _endian_decode(doc_offset);
+        // The offset of the actual document that pointed by this commit marker
+        // should not be greater than the file size.
+        if (doc->doc_offset > filemgr_get_pos(handle->file)) {
+            free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
+            return offset;
+        }
         return _offset;
     }
 
@@ -901,9 +917,6 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     _offset = _docio_read_doc_component(handle, _offset, doc->length.bodylen,
                                         doc->body, log_callback);
     if (_offset == 0) {
-        if (comp_body) {
-            free(comp_body);
-        }
         free_docio_object(doc, key_alloc, meta_alloc, body_alloc);
         return offset;
     }
