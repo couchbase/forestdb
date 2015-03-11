@@ -1654,6 +1654,125 @@ void iterator_set_del_docs_test()
     TEST_RESULT("iterator set del docs");
 }
 
+void iterator_del_next_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc pre_alloc_doc;
+    fdb_doc *rdoc = &pre_alloc_doc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    rdoc->key = keybuf;
+    rdoc->meta = metabuf;
+    rdoc->body = bodybuf;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "kv1", &kvs_config);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "iterator_del_next_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert documents of even number
+    for (i=0;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert documents of odd number
+    for (i=1;i<n;i+=2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // now even number docs are in hb-trie & odd number docs are in WAL
+
+    // create an iterator for full range
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+        // Delete the document to ensure that the iteration is not affected
+        status = fdb_del(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        i++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(i==10);
+
+    // go back to start and retry iteration (should not be affected by deletes)
+    status = fdb_iterator_seek_to_min(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // repeat full iteration until fail
+    i=0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+        i++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(i==10);
+
+    fdb_iterator_close(iterator);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    memleak_end();
+
+    TEST_RESULT("iterator del next test");
+}
+
 void sequence_iterator_test()
 {
     TEST_INIT();
@@ -3073,6 +3192,7 @@ int main(){
     iterator_extreme_key_test();
     iterator_no_deletes_test();
     iterator_set_del_docs_test();
+    iterator_del_next_test();
     sequence_iterator_test();
     sequence_iterator_duplicate_test();
     reverse_sequence_iterator_test();
