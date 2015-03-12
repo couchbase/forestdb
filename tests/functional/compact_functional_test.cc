@@ -565,6 +565,118 @@ void compact_reopen_named_kvs()
     TEST_RESULT("compact reopen named kvs");
 }
 
+void compact_reopen_with_iterator()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 9;
+    int count = 0;
+    int nkvdocs;
+    fdb_file_handle *dbfile, *compact_file;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc = NULL;
+    fdb_status status;
+    fdb_kvs_info kvs_info;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db",  &kvs_config);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "compact_reopen_with_iterator");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // MB-13859: compact the file using a separate handle..
+    fdb_open(&compact_file, "./dummy1", &fconfig);
+    // compact
+    status = fdb_compact(compact_file, "./dummy2");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // close file after compaction to make the new_file's ref count 0
+    fdb_close(compact_file);
+
+    i = 0;
+    status = fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+        i++;
+        count++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+
+    TEST_CHK(count==n);
+
+
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // save ndocs
+    fdb_get_kvs_info(db, &kvs_info);
+    nkvdocs = kvs_info.doc_count;
+
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // reopen
+    fdb_open(&dbfile, "./dummy2", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db",  &kvs_config);
+
+    // verify kvs stats
+    fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(nkvdocs == kvs_info.doc_count);
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("compact reopen with iterator");
+}
+
+
 void compact_upto_test(bool multi_kv)
 {
     TEST_INIT();
@@ -1744,6 +1856,7 @@ int main(){
     compaction_callback_test();
     compact_wo_reopen_test();
     compact_with_reopen_test();
+    compact_reopen_with_iterator();
     compact_reopen_named_kvs();
     compact_upto_test(false); // single kv instance in file
     compact_upto_test(true); // multiple kv instance in file

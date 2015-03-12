@@ -1204,6 +1204,12 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
     }
 
+    // initialize the docio handle so kv headers may be read
+    handle->dhandle = (struct docio_handle *)
+                      calloc(1, sizeof(struct docio_handle));
+    handle->dhandle->log_callback = &handle->log_callback;
+    docio_init(handle->dhandle, handle->file, config->compress_document_body);
+
     if (header_len > 0) {
         fdb_fetch_header(header_buf, &trie_root_bid,
                          &seq_root_bid, &ndocs, &nlivenodes,
@@ -1217,8 +1223,18 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
         // set seqnum based on handle type (multikv or default)
         if (handle->kvs && handle->kvs->id > 0) {
-            seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
-                                         handle->kvs->id);
+            if (kv_info_offset != BLK_NOT_FOUND) {
+                if (!handle->file->kv_header) {
+                    fdb_kvs_header_create(handle->file);
+                    // KV header already exists but not loaded .. read & import
+                    fdb_kvs_header_read(handle->file, handle->dhandle,
+                                        kv_info_offset);
+                }
+                seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                             handle->kvs->id);
+            } else { // no kv_info offset, ok to set seqnum to zero
+                seqnum = 0;
+            }
         } else {
             seqnum = filemgr_get_seqnum(handle->file);
         }
@@ -1241,12 +1257,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     handle->config.seqtree_opt = seqtree_opt;
     handle->config.multi_kv_instances = multi_kv_instances;
 
-    handle->dhandle = (struct docio_handle *)
-                      calloc(1, sizeof(struct docio_handle));
-    handle->dhandle->log_callback = &handle->log_callback;
     handle->new_file = NULL;
     handle->new_dhandle = NULL;
-    docio_init(handle->dhandle, handle->file, config->compress_document_body);
 
     if (handle->shandle && handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
         // Either an in-memory snapshot or cloning from an existing snapshot..
