@@ -265,6 +265,9 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                 uint64_t doc_offset;
                 memset(&doc, 0, sizeof(doc));
                 _offset = docio_read_doc(handle->dhandle, offset, &doc);
+                if (_offset == offset) { // reached unreadable doc, skip block
+                    break;
+                }
                 if (doc.key || (doc.length.flag & DOCIO_TXN_COMMITTED)) {
                     // check if the doc is transactional or not, and
                     // also check if the doc contains system info
