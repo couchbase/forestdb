@@ -846,9 +846,9 @@ fdb_status fdb_kvs_close(fdb_kvs_handle *handle);
  * Permanently drop a given KV store instance from a ForestDB file.
  *
  * @param fhandle Pointer to ForestDB file handle.
- * @param kvs_name The name of KV store instance to be removed. If the name is
- *        not given (i.e., NULL is passed), the KV store instance named
- *        "default" will be dropped.
+ * @param kvs_name The name of KV store instance to be removed. If the name is not given
+ *        (i.e., NULL is passed), the KV store instance named "default" will be
+ *        dropped.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
