@@ -827,6 +827,7 @@ void in_memory_snapshot_test()
     // repeat until fail
     i=0;
     count=0;
+    rdoc = NULL;
     do {
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);

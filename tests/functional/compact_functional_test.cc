@@ -119,6 +119,7 @@ void compaction_callback_test()
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(cb_args.begin);
     TEST_CHK(cb_args.end);
+    TEST_CHK(cb_args.wal_flush);
     fdb_close(dbfile);
 
     // open db without move doc
@@ -133,6 +134,7 @@ void compaction_callback_test()
     TEST_CHK(cb_args.n_moved_docs == 0);
     TEST_CHK(cb_args.begin);
     TEST_CHK(cb_args.end);
+    TEST_CHK(cb_args.wal_flush);
     fdb_close(dbfile);
 
     // open db without wal_flush
@@ -147,6 +149,7 @@ void compaction_callback_test()
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(cb_args.begin);
     TEST_CHK(cb_args.end);
+    TEST_CHK(!cb_args.wal_flush);
     fdb_close(dbfile);
 
     // open db without begin/end
@@ -160,6 +163,7 @@ void compaction_callback_test()
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(!cb_args.begin);
     TEST_CHK(!cb_args.end);
+    TEST_CHK(cb_args.wal_flush);
     fdb_close(dbfile);
 
     // open db with batch move
@@ -173,6 +177,7 @@ void compaction_callback_test()
     TEST_CHK(cb_args.n_batch_move && cb_args.n_batch_move < n);
     TEST_CHK(!cb_args.begin);
     TEST_CHK(!cb_args.end);
+    TEST_CHK(!cb_args.wal_flush);
     fdb_close(dbfile);
 
     fdb_shutdown();
