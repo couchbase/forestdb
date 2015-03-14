@@ -514,9 +514,18 @@ fdb_status compactor_register_file(struct filemgr *file,
                                    fdb_config *config,
                                    struct list *cmp_func_list)
 {
+    file_status_t fstatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
+
+    // Ignore files whose status is COMPACT_OLD or REMOVED_PENDING.
+    // Those files do not need to be compacted again.
+    fstatus = filemgr_get_file_status(file);
+    if (fstatus == FILE_COMPACT_OLD ||
+        fstatus == FILE_REMOVED_PENDING) {
+        return fs;
+    }
 
     // first search the existing file
     spin_lock(&cpt_lock);
