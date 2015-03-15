@@ -144,3 +144,10 @@ fdb_status fdb_del_kv(fdb_kvs_handle *handle,
     return fs;
 }
 
+LIBFDB_API
+fdb_status fdb_free_block(void *ptr)
+{
+    free(ptr);
+    return FDB_RESULT_SUCCESS;
+}
+

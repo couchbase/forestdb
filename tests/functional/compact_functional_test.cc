@@ -1844,7 +1844,7 @@ void compaction_with_concurrent_transaction_test()
                             &value, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        s = fdb_free_block(value);
     }
     s = fdb_end_transaction(txn_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
     fdb_close(txn_file);
