@@ -1914,7 +1914,79 @@ void compact_upto_twice_test()
     TEST_RESULT("compact upto twice");
 }
 
+void compact_upto_post_snapshot_test()
+{
+    TEST_INIT();
+    memleak_start();
+    int i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *snap_db;
+    fdb_snapshot_info_t *markers;
+    fdb_status status;
+    fdb_iterator *iterator;
+    fdb_doc *rdoc = NULL;
+    uint64_t num_markers;
+    char keybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+
+    for (i=0;i<10;++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf),
+                            (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    }
+
+    // open snapshot at seqnum 5
+    status = fdb_snapshot_open(db, &snap_db, 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+
+    // compact upto
+    status = fdb_get_all_snap_markers(dbfile, &markers,
+                                      &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_compact_upto(dbfile, NULL, markers[5].marker);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+
+    // iterate over snapshot
+    status = fdb_iterator_init(snap_db,
+                               &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    i = 0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+        i++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+
+
+    fdb_iterator_close(iterator);
+    fdb_kvs_close(snap_db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("compact upto post snapshot test");
+}
+
 int main(){
+    compact_upto_post_snapshot_test();
     compact_upto_twice_test();
     compaction_callback_test();
     compact_wo_reopen_test();
