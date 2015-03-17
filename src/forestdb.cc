@@ -4709,6 +4709,9 @@ catch_up_compaction:
         // This is done so that fdb_set_file_header() will reflect
         // correct values into the new_file
         tmp_trie = handle.trie;
+        // Set handle's trie as new_trie
+        handle.trie = new_trie;
+
         handle.last_hdr_bid = filemgr_get_pos(new_file) / new_file->blocksize;
         handle.last_wal_flush_hdr_bid = handle.last_hdr_bid; // WAL was flushed
         handle.cur_header_revnum = fdb_set_file_header(&handle);
