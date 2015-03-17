@@ -2125,7 +2125,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        status = fdb_free_block(value);
 
         // txn1
         sprintf(keybuf, "key%d", i);
@@ -2133,7 +2133,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db_txn1, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        status = fdb_free_block(value);
 
         // txn2
         sprintf(keybuf, "key%d", i);
@@ -2141,7 +2141,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        status = fdb_free_block(value);
     }
 
     // commit txn1
@@ -2153,7 +2153,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        status = fdb_free_block(value);
 
         // txn2
         sprintf(keybuf, "key%d", i);
@@ -2161,7 +2161,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        status = fdb_free_block(value);
     }
 
     // commit txn2
@@ -2173,7 +2173,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        status = fdb_free_block(value);
     }
 
     // close db file
@@ -2363,7 +2363,7 @@ static void _snapshot_check(fdb_kvs_handle *handle, int ndocs, int nupdates)
                            (void**)&value, &valuelen);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
             TEST_CMP(value, bodybuf, valuelen);
-            free(value);
+            s = fdb_free_block(value);
         }
 
         s = fdb_kvs_close(snap);

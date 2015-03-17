@@ -3148,7 +3148,7 @@ void iterator_concurrent_compaction()
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         fdb_get_kv(db, keybuf, strlen(keybuf), &value_out, &valuelen_out);
-        free(value_out);
+        fdb_free_block(value_out);
     }
 
     do {

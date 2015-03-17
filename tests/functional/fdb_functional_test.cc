@@ -405,7 +405,7 @@ void long_filename_test()
         sprintf(key, "key%08d", i);
         s = fdb_get_kv(db, key, strlen(key)+1, &rvalue, &rvalue_len);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        free(rvalue);
+        s = fdb_free_block(rvalue);
     }
 
     s = fdb_kvs_close(db);
@@ -2300,7 +2300,7 @@ void api_wrapper_test()
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             sprintf(temp, "body%d", i);
             TEST_CMP(value, temp, valuelen);
-            free(value);
+            status = fdb_free_block(value);
         } else {
             // removed document
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
@@ -2662,7 +2662,7 @@ void auto_commit_test()
         status = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value_out, value, valuelen);
-        free(value_out);
+        status = fdb_free_block(value_out);
     }
 
     // close & reopen
@@ -2680,7 +2680,7 @@ void auto_commit_test()
         status = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value_out, value, valuelen);
-        free(value_out);
+        status = fdb_free_block(value_out);
     }
 
     // free all resources

@@ -1844,7 +1844,7 @@ void compaction_with_concurrent_transaction_test()
                             &value, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        free(value);
+        s = fdb_free_block(value);
     }
     s = fdb_end_transaction(txn_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
     fdb_close(txn_file);
@@ -1857,7 +1857,65 @@ void compaction_with_concurrent_transaction_test()
     TEST_RESULT("compaction with concurrent transaction test");
 }
 
+void compact_upto_twice_test()
+{
+    TEST_INIT();
+    memleak_start();
+    int i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_snapshot_info_t *markers;
+    fdb_status status;
+    uint64_t num_markers;
+    char keybuf[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+
+    for (i=0;i<10;++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf),
+                            (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    }
+
+    // compact upto twice with incrementing seqnums
+    status = fdb_get_all_snap_markers(dbfile, &markers,
+                                      &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_compact_upto(dbfile, NULL, markers[5].marker);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // compact upto
+    status = fdb_get_all_snap_markers(dbfile, &markers,
+                                      &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_compact_upto(dbfile, NULL, markers[1].marker);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("compact upto twice");
+}
+
 int main(){
+    compact_upto_twice_test();
     compaction_callback_test();
     compact_wo_reopen_test();
     compact_with_reopen_test();
