@@ -1925,6 +1925,7 @@ void compact_upto_post_snapshot_test()
     fdb_status status;
     fdb_iterator *iterator;
     fdb_doc *rdoc = NULL;
+    fdb_kvs_info kvs_info;
     uint64_t num_markers;
     char keybuf[256];
 
@@ -1949,9 +1950,19 @@ void compact_upto_post_snapshot_test()
         fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
     }
 
+    // check  db info
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(kvs_info.last_seqnum == 10);
+
     // open snapshot at seqnum 5
     status = fdb_snapshot_open(db, &snap_db, 5);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // check snap info
+    status = fdb_get_kvs_info(snap_db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(kvs_info.last_seqnum == 5);
 
 
     // compact upto
@@ -1962,6 +1973,14 @@ void compact_upto_post_snapshot_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_free_snap_markers(markers, num_markers);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // check db and snap info
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(kvs_info.last_seqnum == 10);
+    status = fdb_get_kvs_info(snap_db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(kvs_info.last_seqnum == 5);
 
 
     // iterate over snapshot
@@ -1974,8 +1993,17 @@ void compact_upto_post_snapshot_test()
         fdb_doc_free(rdoc);
         rdoc = NULL;
         i++;
+
+        // check db and snap info
+        status = fdb_get_kvs_info(db, &kvs_info);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(kvs_info.last_seqnum == 10);
+        status = fdb_get_kvs_info(snap_db, &kvs_info);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(kvs_info.last_seqnum == 5);
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
 
+    TEST_CHK(i == 5);
 
     fdb_iterator_close(iterator);
     fdb_kvs_close(snap_db);
