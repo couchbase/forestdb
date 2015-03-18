@@ -235,30 +235,25 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 
     fdb_iterator *iterator = (fdb_iterator *)calloc(1, sizeof(fdb_iterator));
 
-    fs = fdb_kvs_open(handle->fhandle, &iterator->handle,
-                      _fdb_kvs_get_name(handle, handle->file),
-                      &handle->kvs_config);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return fs;
-    }
     if (!handle->shandle) {
+        // snapshot handle doesn't exist
+        // open a new handle to make the iterator handle as a snapshot
+        fs = fdb_kvs_open(handle->fhandle, &iterator->handle,
+                          _fdb_kvs_get_name(handle, handle->file),
+                          &handle->kvs_config);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
+
         // Since fdb_kvs_open doesn't assign handle->new_file automatically,
         // we need to call these functions again.
         fdb_check_file_reopen(iterator->handle, NULL);
         fdb_link_new_file(iterator->handle);
         fdb_sync_db_header(iterator->handle);
     } else {
-        // snapshot handle exists
-        iterator->handle->shandle = handle->shandle;
-        iterator->handle->last_hdr_bid = handle->last_hdr_bid;
-        iterator->handle->trie->root_bid = handle->trie->root_bid;
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-            if (handle->config.multi_kv_instances) {
-                iterator->handle->seqtrie->root_bid = handle->seqtrie->root_bid;
-            } else {
-                iterator->handle->seqtree->root_bid = handle->seqtree->root_bid;
-            }
-        }
+        // Snapshot handle exists
+        // We don't need to open a new handle.. just point to the snapshot handle.
+        iterator->handle = handle;
         // link new file if wal_tree points to the new file
         if (handle->shandle->type == FDB_SNAP_COMPACTION) {
             fdb_link_new_file_enforce(iterator->handle);
@@ -508,30 +503,25 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     size_seq = sizeof(fdb_seqnum_t);
     fdb_iterator *iterator = (fdb_iterator *)calloc(1, sizeof(fdb_iterator));
 
-    fs = fdb_kvs_open(handle->fhandle, &iterator->handle,
-                      _fdb_kvs_get_name(handle, handle->file),
-                      &handle->kvs_config);
-    if (fs != FDB_RESULT_SUCCESS) {
-        return fs;
-    }
     if (!handle->shandle) {
+        // snapshot handle doesn't exist
+        // open a new handle to make the iterator handle as a snapshot
+        fs = fdb_kvs_open(handle->fhandle, &iterator->handle,
+                          _fdb_kvs_get_name(handle, handle->file),
+                          &handle->kvs_config);
+        if (fs != FDB_RESULT_SUCCESS) {
+            return fs;
+        }
+
         // Since fdb_kvs_open doesn't assign handle->new_file automatically,
         // we need to call these functions again.
         fdb_check_file_reopen(iterator->handle, NULL);
         fdb_link_new_file(iterator->handle);
         fdb_sync_db_header(iterator->handle);
     } else {
-        // snapshot handle exists
-        iterator->handle->shandle = handle->shandle;
-        iterator->handle->last_hdr_bid = handle->last_hdr_bid;
-        iterator->handle->trie->root_bid = handle->trie->root_bid;
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-            if (handle->config.multi_kv_instances) {
-                iterator->handle->seqtrie->root_bid = handle->seqtrie->root_bid;
-            } else {
-                iterator->handle->seqtree->root_bid = handle->seqtree->root_bid;
-            }
-        }
+        // Snapshot handle exists
+        // We don't need to open a new handle.. just point to the snapshot handle.
+        iterator->handle = handle;
         // link new file if wal_tree points to the new file
         if (handle->shandle->type == FDB_SNAP_COMPACTION) {
             fdb_link_new_file_enforce(iterator->handle);
@@ -2194,10 +2184,11 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         free(iterator->end_key);
     }
 
-    // prevent releasing shandle
-    // (because the shandle is shared with the original handle)
-    iterator->handle->shandle = NULL;
-    fdb_kvs_close(iterator->handle);
+    if (!iterator->handle->shandle) {
+        // Close the opened handle in the iterator,
+        // if the handle is not for snapshot.
+        fdb_kvs_close(iterator->handle);
+    }
 
     free(iterator->_key);
     free(iterator);
