@@ -408,6 +408,7 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
     fdb_kvs_info info;
     fdb_iterator *it;
     fdb_doc *rdoc = NULL;
+    fdb_kvs_handle *snap_kv1, *snap_kv2;
     char *mink = st->index_params->min;
     char *maxk = st->index_params->max;
     checkpoint_t *chk = (checkpoint_t *)malloc(sizeof(checkpoint_t));
@@ -434,7 +435,13 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
     chk->balance = 0;
     chk->type = type;
 
-    status = fdb_iterator_init(st->index1, &it, mink, 12,
+    //use snapshot based iterator
+    status = fdb_snapshot_open(st->index1, &snap_kv1, chk->seqnum_idx1);
+    TEST_CHK (status == FDB_RESULT_SUCCESS);
+    status = fdb_snapshot_open(st->index2, &snap_kv2, chk->seqnum_idx2);
+    TEST_CHK (status == FDB_RESULT_SUCCESS);
+
+    status = fdb_iterator_init(snap_kv1, &it, mink, 12,
                                maxk, 12, FDB_ITR_NO_DELETES);
     if (status == FDB_RESULT_SUCCESS) {
         do {
@@ -446,7 +453,7 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
                     chk->num_indexed++;
 
                     // get from 2nd idx
-                    status = fdb_get(st->index2, rdoc);
+                    status = fdb_get(snap_kv2, rdoc);
                     TEST_CHK (status == FDB_RESULT_SUCCESS);
                     chk->sum_age_indexed+= *((int *)rdoc->body);
                 }
@@ -457,6 +464,8 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
     }
 
     fdb_iterator_close(it);
+    fdb_kvs_close(snap_kv1);
+    fdb_kvs_close(snap_kv2);
 
     return chk;
 }
