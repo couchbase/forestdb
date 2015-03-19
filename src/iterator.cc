@@ -151,7 +151,10 @@ static int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
 static void _fdb_itr_sync_dirty_root(fdb_iterator *iterator,
                                      fdb_kvs_handle *handle)
 {
-    if ( ( handle->dirty_updates ||
+    // Note that snapshot handle does not need to update the dirty root,
+    // since they are created on a committed point.
+    if ( !handle->shandle &&
+         ( handle->dirty_updates ||
            filemgr_dirty_root_exist(handle->file) )  &&
          filemgr_get_header_bid(handle->file) == handle->last_hdr_bid ) {
 
