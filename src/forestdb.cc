@@ -1372,6 +1372,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 docio_free(handle->dhandle);
                 free(handle->dhandle);
                 free(handle->filename);
+                free(prev_filename);
                 handle->filename = NULL;
                 filemgr_close(handle->file, false, handle->filename,
                               &handle->log_callback);
@@ -1396,6 +1397,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     docio_free(handle->dhandle);
                     free(handle->dhandle);
                     free(handle->filename);
+                    free(prev_filename);
                     handle->filename = NULL;
                     filemgr_close(handle->file, false, handle->filename,
                                   &handle->log_callback);
@@ -3637,8 +3639,15 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 wal_doc.deleted = deleted;
                 wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
 
+                // In order to avoid that
+                // doc with same key (but newer one) is inserted into WAL again
+                // (wal_insert by compactor will ignore duplicated doc),
+                // we insert the document into WAL as a normal writer.
+                // Note that there is no cuncurrent writer since
+                // filemgr_mutex is already being held by the caller function.
                 wal_insert(&new_file->global_txn,
-                           new_file, &wal_doc, new_offset, 1, 0);
+                           new_file, &wal_doc, new_offset, 0, 0);
+
                 n_moved_docs++;
                 free(doc.key);
                 free(doc.meta);
@@ -3647,6 +3656,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
             } while (offset + sizeof(struct docio_length) < stop_offset);
         }
     }
+
     // wal flush into new file so all documents are reflected in its main index
     if (n_moved_docs) {
         struct avl_tree flush_items;
@@ -3662,9 +3672,10 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
         new_handle.dhandle = new_dhandle;
         new_handle.bhandle = new_bhandle;
 
-        wal_flush_by_compactor(new_file, (void*)&new_handle,
-                               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                               &flush_items);
+        wal_commit(&new_file->global_txn, new_file, NULL);
+        wal_flush(new_file, (void*)&new_handle,
+                  _fdb_wal_flush_func, _fdb_wal_get_old_offset,
+                  &flush_items);
         wal_set_dirty_status(new_file, FDB_WAL_PENDING);
         wal_release_flushed_items(new_file, &flush_items);
     }
@@ -4438,6 +4449,7 @@ fdb_status fdb_compact_file_upto(fdb_file_handle *fhandle,
     struct hbtrie *new_seqtrie = NULL;
     fdb_kvs_handle *rhandle = fhandle->root;
     size_t header_len = 0;
+    bid_t last_wal_hdr_bid;
     bid_t last_hdr_bid;
     bid_t latest_hdr_bid;
     int hdr_array_len;
@@ -4481,7 +4493,8 @@ catch_up_compaction:
         filemgr_mutex_unlock(rhandle->file);
         got_lock = false;
     }
-    while (marker < hdr_info[hdr_idx].bid) {
+    while (marker <= hdr_info[hdr_idx].bid) {
+        bid_t cur_hdr_bid = hdr_info[hdr_idx].bid;
         bid_t prev_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
                               hdr_info[hdr_idx].bid, NULL, &header_len,
                               &seqnum, log_callback);
@@ -4500,7 +4513,8 @@ catch_up_compaction:
         // caching the seqnums saves us from an extra DB header fetch call
         // while migrating docs in single kv instance mode
         hdr_info[hdr_idx]._seqnum = seqnum;
-        if (prev_hdr_bid < marker) { // gone past the snapshot marker?!
+        if (prev_hdr_bid < marker &&
+            cur_hdr_bid != marker) { // gone past the snapshot marker?!
             free(hdr_info);
             return FDB_RESULT_NO_DB_INSTANCE;
         }
@@ -4592,6 +4606,10 @@ catch_up_compaction:
         filemgr_update_file_status(new_file, FILE_COMPACT_NEW, NULL);
     }
     // Now we repeat the compaction process from marker header to most recent..
+    hdr_idx--;
+    // hdr_idx-1 : right next header of the target header
+    // hdr_idx   : the target header
+    // hdr_idx+1 : right prev header of the target header
     for (; hdr_idx; --hdr_idx) {
         fdb_kvs_handle handle;
         struct snap_handle shandle;
@@ -4671,19 +4689,29 @@ catch_up_compaction:
             free(hdr_info);
             return fs;
         }
-        fs = _fdb_move_wal_docs(&handle,
-                                hdr_info[hdr_idx].bid,
-                                hdr_info[hdr_idx -1].bid,
-                                new_file, new_trie, new_idtree,
-                                new_seqtrie, new_seqtree,
-                                new_dhandle,
-                                new_bhandle);
-        if (fs != FDB_RESULT_SUCCESS) {
-            _fdb_cleanup_compact_err(&handle, new_file, true, true, new_bhandle,
-                                     new_dhandle, new_trie, new_seqtrie,
-                                     new_seqtree);
-            free(hdr_info);
-            return fs;
+        // Restore docs between [last WAL flush header] ~ [current header]
+        //                      [last_wal_hdr_idx]      ~ [hdr_idx]
+        // if and only if (last_wal_hdr_idx != hdr_idx)
+        last_wal_hdr_bid = handle.last_wal_flush_hdr_bid;
+        if (last_wal_hdr_bid == BLK_NOT_FOUND) {
+            // WAL has not been flushed ever
+            last_wal_hdr_bid = 0; // scan from the beginning
+        }
+        if (last_wal_hdr_bid < hdr_info[hdr_idx].bid) {
+            fs = _fdb_move_wal_docs(&handle,
+                                    last_wal_hdr_bid,
+                                    hdr_info[hdr_idx].bid,
+                                    new_file, new_trie, new_idtree,
+                                    new_seqtrie, new_seqtree,
+                                    new_dhandle,
+                                    new_bhandle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                _fdb_cleanup_compact_err(&handle, new_file, true, true, new_bhandle,
+                                         new_dhandle, new_trie, new_seqtrie,
+                                         new_seqtree);
+                free(hdr_info);
+                return fs;
+            }
         }
         // Set handle's file as new_file
         handle.file = new_file;

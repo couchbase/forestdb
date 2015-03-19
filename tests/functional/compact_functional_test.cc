@@ -2013,7 +2013,173 @@ void compact_upto_post_snapshot_test()
     TEST_RESULT("compact upto post snapshot test");
 }
 
+void compact_upto_overwrite_test(int opt)
+{
+    TEST_INIT();
+
+    int n = 10, value_len=32;
+    int i, r, idx, c;
+    char cmd[256];
+    char key[256], *value;
+    char keystr[] = "key%06d";
+    char valuestr[] = "value%08d";
+    char valuestr2[] = "updated_value%08d";
+    fdb_file_handle *db_file;
+    fdb_kvs_handle *db, *snap;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_status s;
+    fdb_kvs_info kvs_info;
+    fdb_iterator *fit;
+    fdb_doc *doc;
+    fdb_snapshot_info_t *markers;
+    fdb_seqnum_t seqnum;
+    fdb_commit_opt_t commit_opt;
+    uint64_t n_markers;
+
+    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    r = system(cmd);
+    (void)r;
+
+    memleak_start();
+
+    value = (char*)malloc(value_len);
+
+    config = fdb_get_default_config();
+    config.durability_opt = FDB_DRB_ASYNC;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.wal_flush_before_commit = true;
+    config.multi_kv_instances = true;
+    config.buffercache_size = 0;
+
+    commit_opt = (opt)?FDB_COMMIT_NORMAL:FDB_COMMIT_MANUAL_WAL_FLUSH;
+
+    kvs_config = fdb_get_default_kvs_config();
+
+    s = fdb_open(&db_file, "./dummy", &config);
+    s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // === write ===
+    for (i=0;i<n;++i){
+        idx = i % (n/2);
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        if (i < (n/2)) {
+            sprintf(value, valuestr, idx);
+        } else {
+            sprintf(value, valuestr2, idx);
+        }
+        s = fdb_set_kv(db, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+        if (opt == 2) {
+            // HB+trie, WAL, HB+trie, WAL...
+            commit_opt = (i%2)?FDB_COMMIT_NORMAL:FDB_COMMIT_MANUAL_WAL_FLUSH;
+        } else if (opt == 3) {
+            // WAL, HB+trie, WAL, HB+trie...
+            commit_opt = (i%2)?FDB_COMMIT_MANUAL_WAL_FLUSH:FDB_COMMIT_NORMAL;
+        }
+
+        s = fdb_commit(db_file, commit_opt);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_get_kvs_info(db, &kvs_info);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    s = fdb_get_all_snap_markers(db_file, &markers, &n_markers);
+
+    int upto = n/2;
+    s = fdb_compact_upto(db_file, "./dummy2", markers[upto].marker);
+
+    // iterating using snapshots with various seqnums
+    for (i=n_markers-1; i>=0; --i) {
+        seqnum = markers[i].kvs_markers->seqnum;
+
+        s = fdb_snapshot_open(db, &snap, seqnum);
+        if (i<=upto) {
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+        } else {
+            // seqnum < (n/2) must fail
+            TEST_CHK(s != FDB_RESULT_SUCCESS);
+            continue;
+        }
+
+        s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        c = 0;
+        do {
+            doc = NULL;
+            s = fdb_iterator_get(fit, &doc);
+            if (s != FDB_RESULT_SUCCESS) break;
+            idx = c;
+            sprintf(key, keystr, idx);
+            memset(value, 'x', value_len);
+            memcpy(value + value_len - 6, "<end>", 6);
+            if (c >= seqnum-(n/2)) {
+                sprintf(value, valuestr, idx);
+            } else {
+                sprintf(value, valuestr2, idx);
+            }
+            TEST_CMP(doc->key, key, doc->keylen);
+            TEST_CMP(doc->body, value, doc->bodylen);
+            c++;
+            s = fdb_doc_free(doc);
+        } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+        s = fdb_iterator_close(fit);
+        TEST_CHK(c == (n/2));
+
+        s = fdb_kvs_close(snap);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    // iterating using the original handle
+    s = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, 0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    c = 0;
+    do {
+        doc = NULL;
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) break;
+        idx = c;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr2, idx);
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        c++;
+        s = fdb_doc_free(doc);
+    } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    s = fdb_iterator_close(fit);
+    TEST_CHK(c == (n/2));
+
+    s = fdb_free_snap_markers(markers, n_markers);
+    free(value);
+    s = fdb_close(db_file);
+    s = fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(cmd, "compact upto overwrite test");
+    if (opt == 0) {
+        strcat(cmd, " (HB+trie)");
+    } else if (opt == 1) {
+        strcat(cmd, " (WAL)");
+    } else if (opt == 2) {
+        strcat(cmd, " (mixed, HB+trie/WAL)");
+    } else if (opt == 3) {
+        strcat(cmd, " (mixed, WAL/HB+trie)");
+    }
+    TEST_RESULT(cmd);
+}
+
 int main(){
+    int i;
+    for (i=0;i<4;++i) {
+        compact_upto_overwrite_test(i);
+    }
     compact_upto_post_snapshot_test();
     compact_upto_twice_test();
     compaction_callback_test();
