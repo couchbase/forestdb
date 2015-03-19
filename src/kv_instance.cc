@@ -1852,9 +1852,11 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    fdb_check_file_reopen(handle, NULL);
-    fdb_link_new_file(handle);
-    fdb_sync_db_header(handle);
+    if (!handle->shandle) { // snapshot handle should be immutable
+        fdb_check_file_reopen(handle, NULL);
+        fdb_link_new_file(handle);
+        fdb_sync_db_header(handle);
+    }
 
     if (handle->new_file) {
         file = handle->new_file;
