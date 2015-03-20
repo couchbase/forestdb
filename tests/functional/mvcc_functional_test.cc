@@ -867,6 +867,108 @@ void in_memory_snapshot_test()
     TEST_RESULT("in-memory snapshot test");
 }
 
+
+void in_memory_snapshot_on_dirty_hbtrie_test()
+{
+    TEST_INIT();
+
+    int n = 100, value_len=32;
+    int i, r, idx, c;
+    char cmd[256];
+    char key[256], *value;
+    char keystr[] = "key%06d";
+    char valuestr[] = "value%08d";
+    fdb_file_handle *db_file;
+    fdb_kvs_handle *db, *snap;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_status s;
+    fdb_iterator *fit;
+    fdb_doc *doc;
+
+    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    r = system(cmd);
+    (void)r;
+
+    memleak_start();
+
+    value = (char*)malloc(value_len);
+
+    config = fdb_get_default_config();
+    config.durability_opt = FDB_DRB_ASYNC;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.wal_flush_before_commit = true;
+    config.wal_threshold = n/2;
+    config.multi_kv_instances = true;
+    config.buffercache_size = 0;
+
+    kvs_config = fdb_get_default_kvs_config();
+
+    s = fdb_open(&db_file, "./dummy", &config);
+    s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // write a few documents and commit & wal flush
+    for (i=0;i<n/10;++i){
+        idx = i;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        s = fdb_set_kv(db, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    s = fdb_commit(db_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // write a number of documents in order to make WAL be flushed before commit
+    for (i=n/10;i<n;++i){
+        idx = i;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        s = fdb_set_kv(db, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    // create an in-memory snapshot
+    s = fdb_snapshot_open(db, &snap, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    c = 0;
+    do {
+        doc = NULL;
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) break;
+
+        idx = c;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        //printf("%s %s\n", doc->key, doc->body);
+        c++;
+        s = fdb_doc_free(doc);
+    } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    TEST_CHK(c == n);
+
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_close(snap);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_close(db_file);
+    s = fdb_shutdown();
+
+    TEST_RESULT("in-memory snapshot on dirty HB+trie nodes test");
+}
+
 void snapshot_clone_test()
 {
     TEST_INIT();
@@ -2738,6 +2840,7 @@ int main(){
 #endif
     snapshot_test();
     in_memory_snapshot_test();
+    in_memory_snapshot_on_dirty_hbtrie_test();
     snapshot_clone_test();
     snapshot_stats_test();
     snapshot_markers_in_file_test(true); // multi kv instance mode

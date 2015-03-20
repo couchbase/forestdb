@@ -917,10 +917,11 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
             !handle_in->shandle) {
             fdb_seqnum_t upto_seq = seqnum;
             if (compaction_inprog && seqnum != FDB_SNAPSHOT_INMEM) {
+                // Compaction in progress AND commit-based snapshot
                 // Persistent snapshot requested in the middle of compaction..
                 handle->shandle->type = FDB_SNAP_COMPACTION;
                 wal_snapshot(handle->file->new_file, (void *)handle->shandle,
-                        handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
+                             handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
                 // If new_file's WAL did have items, check to see that the
                 // highest number read corresponds to a committed sequence no
                 if (upto_seq && seqnum != upto_seq) {
@@ -934,8 +935,9 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
                 fdb_link_new_file_enforce(handle);
                 handle->max_seqnum = seqnum;
             } else {
+                // In-memory snapshot
                 wal_snapshot(handle->file, (void *)handle->shandle,
-                        handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
+                             handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
                 // set seqnum based on handle type (multikv or default)
                 if (handle_in->kvs && handle_in->kvs->id > 0) {
                     handle->max_seqnum = _fdb_kvs_get_seqnum(file->kv_header,
@@ -943,9 +945,11 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
                 } else {
                     handle->max_seqnum = filemgr_get_seqnum(file);
                 }
+                handle->shandle->in_memory_snapshot = true;
             }
         } else if (handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
             handle->max_seqnum = handle_in->seqnum;
+            handle->shandle->in_memory_snapshot = true;
         }
         *ptr_handle = handle;
     } else {

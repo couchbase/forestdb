@@ -69,6 +69,10 @@ struct snap_handle {
      */
     snap_handle_type type;
     /**
+     * Flag indicating in-memory snapshot
+     */
+    bool in_memory_snapshot;
+    /**
      * Cache custom compare function from original handle
      */
     struct _fdb_key_cmp_info cmp_info;
