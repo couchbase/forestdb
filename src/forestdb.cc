@@ -4493,8 +4493,7 @@ catch_up_compaction:
         filemgr_mutex_unlock(rhandle->file);
         got_lock = false;
     }
-    while (marker <= hdr_info[hdr_idx].bid) {
-        bid_t cur_hdr_bid = hdr_info[hdr_idx].bid;
+    while (marker < hdr_info[hdr_idx].bid) {
         bid_t prev_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
                               hdr_info[hdr_idx].bid, NULL, &header_len,
                               &seqnum, log_callback);
@@ -4513,8 +4512,7 @@ catch_up_compaction:
         // caching the seqnums saves us from an extra DB header fetch call
         // while migrating docs in single kv instance mode
         hdr_info[hdr_idx]._seqnum = seqnum;
-        if (prev_hdr_bid < marker &&
-            cur_hdr_bid != marker) { // gone past the snapshot marker?!
+        if (prev_hdr_bid < marker) { // gone past the snapshot marker?!
             free(hdr_info);
             return FDB_RESULT_NO_DB_INSTANCE;
         }
@@ -4606,10 +4604,6 @@ catch_up_compaction:
         filemgr_update_file_status(new_file, FILE_COMPACT_NEW, NULL);
     }
     // Now we repeat the compaction process from marker header to most recent..
-    hdr_idx--;
-    // hdr_idx-1 : right next header of the target header
-    // hdr_idx   : the target header
-    // hdr_idx+1 : right prev header of the target header
     for (; hdr_idx; --hdr_idx) {
         fdb_kvs_handle handle;
         struct snap_handle shandle;
