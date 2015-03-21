@@ -1036,6 +1036,263 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     TEST_RESULT("in-memory snapshot on dirty HB+trie nodes test");
 }
 
+
+struct cb_inmem_snap_args {
+    fdb_kvs_handle *handle;
+    int n;
+    int move_count;
+    int value_len;
+    char *keystr;
+    char *valuestr;
+};
+
+static int cb_inmem_snap(fdb_file_handle *fhandle,
+                       fdb_compaction_status status,
+                       fdb_doc *doc_in, uint64_t old_offset, uint64_t new_offset,
+                       void *ctx)
+{
+    TEST_INIT();
+    int c, idx;
+    char key[256], value[256];
+    void *value_out;
+    size_t valuelen;
+    fdb_kvs_handle *snap;
+    fdb_kvs_info info;
+    fdb_iterator *fit;
+    fdb_doc *doc;
+    fdb_status s;
+    struct cb_inmem_snap_args *args = (struct cb_inmem_snap_args *)ctx;
+    (void)args;
+
+    if (status == FDB_CS_MOVE_DOC) {
+        args->move_count++;
+        if (args->move_count == 2) {
+            // open in-memory snapshot
+            s = fdb_snapshot_open(args->handle, &snap, FDB_SNAPSHOT_INMEM);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+            s = fdb_get_kvs_info(snap, &info);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            TEST_CHK(info.last_seqnum == args->n);
+
+            s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+            c = 0;
+            do {
+                doc = NULL;
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) {
+                    break;
+                }
+                idx = c;
+                sprintf(key, args->keystr, idx);
+                memset(value, 'x', args->value_len);
+                memcpy(value + args->value_len - 6, "<end>", 6);
+                sprintf(value, args->valuestr, idx);
+                TEST_CMP(doc->key, key, doc->keylen);
+                TEST_CMP(doc->body, value, doc->bodylen);
+
+                c++;
+                fdb_doc_free(doc);
+            } while (fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+            TEST_CHK(c == args->n);
+
+            s = fdb_iterator_close(fit);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+            fdb_kvs_close(snap);
+
+        } else if (args->move_count == 5) {
+            // insert new doc
+            sprintf(key, "new_key");
+            sprintf(value, "new_value");
+            s = fdb_set_kv(args->handle, (void*)key, strlen(key)+1, (void*)value, strlen(value)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+            // open in-memory snapshot
+            s = fdb_snapshot_open(args->handle, &snap, FDB_SNAPSHOT_INMEM);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+            s = fdb_get_kvs_info(snap, &info);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            TEST_CHK(info.last_seqnum == args->n+1);
+
+            s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+            c = 0;
+            do {
+                doc = NULL;
+                s = fdb_iterator_get(fit, &doc);
+                if (s != FDB_RESULT_SUCCESS) {
+                    break;
+                }
+                if (c < args->n) {
+                    idx = c;
+                    sprintf(key, args->keystr, idx);
+                    memset(value, 'x', args->value_len);
+                    memcpy(value + args->value_len - 6, "<end>", 6);
+                    sprintf(value, args->valuestr, idx);
+                    TEST_CMP(doc->key, key, doc->keylen);
+                    TEST_CMP(doc->body, value, doc->bodylen);
+                } else {
+                    // new document
+                    sprintf(key, "new_key");
+                    sprintf(value, "new_value");
+                    TEST_CMP(doc->key, key, doc->keylen);
+                    TEST_CMP(doc->body, value, doc->bodylen);
+                }
+
+                c++;
+                fdb_doc_free(doc);
+            } while (fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+            TEST_CHK(c == args->n + 1);
+
+            s = fdb_iterator_close(fit);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+            s = fdb_get_kv(snap, (void*)key, strlen(key)+1, &value_out, &valuelen);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            TEST_CMP(value_out, value, valuelen);
+            fdb_free_block(value_out);
+
+            fdb_kvs_close(snap);
+        }
+    }
+    return 0;
+}
+
+void in_memory_snapshot_compaction_test()
+{
+    TEST_INIT();
+
+    int n = 10, value_len=32;
+    int i, r, c, idx;
+    char cmd[256];
+    char key[256], *value;
+    char keystr[] = "k%05d";
+    char valuestr[] = "value%08d";
+    void *value_out;
+    size_t valuelen;
+    fdb_file_handle *db_file;
+    fdb_kvs_handle *db, *db2, *snap;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_kvs_info info;
+    fdb_iterator *fit;
+    fdb_doc *doc;
+    fdb_status s;
+    struct cb_inmem_snap_args cargs;
+
+    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    r = system(cmd);
+    (void)r;
+
+    memleak_start();
+
+    value = (char*)malloc(value_len);
+
+    config = fdb_get_default_config();
+    config.durability_opt = FDB_DRB_ASYNC;
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.wal_flush_before_commit = true;
+    config.wal_threshold = n/5;
+    config.multi_kv_instances = true;
+    config.buffercache_size = 0;
+    config.compaction_cb = cb_inmem_snap;
+    config.compaction_cb_mask = FDB_CS_MOVE_DOC;
+    config.compaction_cb_ctx = &cargs;
+
+    kvs_config = fdb_get_default_kvs_config();
+
+    s = fdb_open(&db_file, "./dummy", &config);
+    s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(db_file, &db2, "db", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    cargs.handle = db2;
+    cargs.move_count = 0;
+    cargs.n = n;
+    cargs.keystr = keystr;
+    cargs.valuestr = valuestr;
+    cargs.value_len = value_len;
+
+    // write
+    for (i=0;i<n;++i){
+        idx = i;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        s = fdb_set_kv(db, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    s = fdb_commit(db_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_compact(db_file, "./dummy2");
+
+    // open in-memory snapshot
+    s = fdb_snapshot_open(db, &snap, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_get_kvs_info(snap, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CHK(info.last_seqnum == n+1);
+
+    s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    c = 0;
+    do {
+        doc = NULL;
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        if (c < n) {
+            idx = c;
+            sprintf(key, keystr, idx);
+            memset(value, 'x', value_len);
+            memcpy(value + value_len - 6, "<end>", 6);
+            sprintf(value, valuestr, idx);
+            TEST_CMP(doc->key, key, doc->keylen);
+            TEST_CMP(doc->body, value, doc->bodylen);
+        } else {
+            // new document
+            sprintf(key, "new_key");
+            sprintf(value, "new_value");
+            TEST_CMP(doc->key, key, doc->keylen);
+            TEST_CMP(doc->body, value, doc->bodylen);
+        }
+
+        c++;
+        fdb_doc_free(doc);
+    } while (fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    TEST_CHK(c == n + 1);
+
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_get_kv(snap, (void*)key, strlen(key)+1, &value_out, &valuelen);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CMP(value_out, value, valuelen);
+    fdb_free_block(value_out);
+
+    fdb_kvs_close(snap);
+
+    s = fdb_close(db_file);
+    s = fdb_shutdown();
+    free(value);
+
+    memleak_end();
+
+    TEST_RESULT("in-memory snapshot with concurrent compaction test");
+}
+
 void snapshot_clone_test()
 {
     TEST_INIT();
@@ -2908,6 +3165,7 @@ int main(){
     snapshot_test();
     in_memory_snapshot_test();
     in_memory_snapshot_on_dirty_hbtrie_test();
+    in_memory_snapshot_compaction_test();
     snapshot_clone_test();
     snapshot_stats_test();
     snapshot_markers_in_file_test(true); // multi kv instance mode

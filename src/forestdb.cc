@@ -937,16 +937,39 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
                 handle->max_seqnum = seqnum;
             } else {
                 // In-memory snapshot
-                // (Compaction is either in-progress or not.. don't care)
 
-                wal_snapshot(handle->file, (void *)handle->shandle,
-                             handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
-                // set seqnum based on handle type (multikv or default)
-                if (handle_in->kvs && handle_in->kvs->id > 0) {
-                    handle->max_seqnum = _fdb_kvs_get_seqnum(file->kv_header,
-                                                             handle_in->kvs->id);
+                if (compaction_inprog && handle->file->new_file) {
+                    // Compaction is in progress.
+                    // copy WAL entries in the new file
+                    handle->shandle->type = FDB_SNAP_COMPACTION;
+                    wal_snapshot(handle->file->new_file, (void *)handle->shandle,
+                                 handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
+                    fdb_link_new_file_enforce(handle);
+                    if (upto_seq) {
+                        // At least one WAL entry in the new file is copied
+                        handle->max_seqnum = upto_seq;
+                    } else {
+                        // no new entry in the new file .. get old file's seqnum
+                        if (handle_in->kvs && handle_in->kvs->id > 0) {
+                            handle->max_seqnum =
+                                _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                                    handle_in->kvs->id);
+                        } else {
+                            handle->max_seqnum = filemgr_get_seqnum(handle->file);
+                        }
+                    }
                 } else {
-                    handle->max_seqnum = filemgr_get_seqnum(file);
+                    // No concurrent compaction
+                    wal_snapshot(handle->file, (void *)handle->shandle,
+                                 handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
+                    // set seqnum based on handle type (multikv or default)
+                    if (handle_in->kvs && handle_in->kvs->id > 0) {
+                        handle->max_seqnum =
+                            _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                                handle_in->kvs->id);
+                    } else {
+                        handle->max_seqnum = filemgr_get_seqnum(handle->file);
+                    }
                 }
 
                 // synchronize dirty root nodes if exist
