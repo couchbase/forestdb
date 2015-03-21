@@ -1062,7 +1062,11 @@ fdb_kvs_create_start:
     }
     if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE &&
         dirty_seqtree_root != BLK_NOT_FOUND) {
-        root_handle->seqtree->root_bid = dirty_seqtree_root;
+        if (root_handle->kvs) {
+            root_handle->seqtrie->root_bid = dirty_seqtree_root;
+        } else {
+            root_handle->seqtree->root_bid = dirty_seqtree_root;
+        }
     }
 
     // append system doc
@@ -1619,7 +1623,11 @@ fdb_kvs_remove_start:
     }
     if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE &&
         dirty_seqtree_root != BLK_NOT_FOUND) {
-        root_handle->seqtree->root_bid = dirty_seqtree_root;
+        if (root_handle->kvs) {
+            root_handle->seqtrie->root_bid = dirty_seqtree_root;
+        } else {
+            root_handle->seqtree->root_bid = dirty_seqtree_root;
+        }
     }
 
     size_id = sizeof(fdb_kvs_id_t);

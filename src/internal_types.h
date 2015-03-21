@@ -419,11 +419,6 @@ struct _fdb_iterator {
      * Cursor offset to key, meta and value on disk
      */
     uint64_t _get_offset;
-    /**
-     * Flag that indicates the iterator needs to be locked due to
-     * dirty WAL flush.
-     */
-    bool need_to_be_locked;
 };
 
 struct wal_txn_wrapper;

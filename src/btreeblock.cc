@@ -54,7 +54,6 @@ struct btreeblk_block {
 #endif
 };
 
-#ifdef __BTREEBLK_READ_TREE
 static int _btreeblk_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     bid_t aa_bid, bb_bid;
@@ -76,7 +75,6 @@ static int _btreeblk_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 #endif
 }
-#endif
 
 INLINE void _btreeblk_get_aligned_block(struct btreeblk_handle *handle,
                                         struct btreeblk_block *block)
@@ -389,11 +387,27 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
     block->age = 0;
 
     _btreeblk_get_aligned_block(handle, block);
-    if (filemgr_read(handle->file, block->bid, block->addr,
-                     handle->log_callback) != FDB_RESULT_SUCCESS) {
-        _btreeblk_free_aligned_block(handle, block);
-        mempool_free(block);
-        return NULL;
+
+    struct avl_node *dirty_avl = NULL;
+    if (handle->dirty_snapshot) { // dirty snapshot exists
+        // check whether the requested block exists
+        struct btreeblk_block query;
+        query.bid = block->bid;
+        dirty_avl = avl_search(handle->dirty_snapshot, &query.avl, _btreeblk_bid_cmp);
+    }
+
+    if (dirty_avl) { // dirty block exists in the snapshot
+        // copy block
+        struct btreeblk_block *dirty_block;
+        dirty_block = _get_entry(dirty_avl, struct btreeblk_block, avl);
+        memcpy(block->addr, dirty_block->addr, handle->file->blocksize);
+    } else {
+        if (filemgr_read(handle->file, block->bid, block->addr,
+                         handle->log_callback) != FDB_RESULT_SUCCESS) {
+            _btreeblk_free_aligned_block(handle, block);
+            mempool_free(block);
+            return NULL;
+        }
     }
     _btreeblk_decode(handle, block);
 
@@ -985,6 +999,120 @@ void btreeblk_discard_blocks(struct btreeblk_handle *handle)
 #endif
 }
 
+// Create snapshots for dirty B+tree nodes
+// Note that filemgr_mutex MUST be grabbed by the caller
+fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
+{
+    int cmp;
+    uint8_t *marker;
+    bid_t dirty_bid, commit_bid, cur_bid;
+    fdb_status fs;
+    struct btreeblk_block *block = NULL;
+
+    if (handle->dirty_snapshot) { //already exists
+        return FDB_RESULT_SUCCESS;
+    }
+    handle->dirty_snapshot = (struct avl_tree*)calloc(1, sizeof(struct avl_tree));
+
+    marker = alca(uint8_t, BLK_MARKER_SIZE);
+    memset(marker, BLK_MARKER_BNODE, BLK_MARKER_SIZE);
+
+    avl_init(handle->dirty_snapshot, NULL);
+
+    // get last dirty block BID
+    dirty_bid = (handle->file->pos.val / handle->file->blocksize) - 1;
+    // get the BID of the right next block of the last committed block
+    commit_bid = (handle->file->last_commit.val / handle->file->blocksize);
+
+    block = (struct btreeblk_block*)
+            calloc(1, sizeof(struct btreeblk_block));
+    malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
+
+    // scan dirty blocks
+    // TODO: we need to devise more efficient way than scanning
+    for (cur_bid = commit_bid; cur_bid <= dirty_bid; cur_bid++) {
+        // read block from file (most dirty blocks may be cached)
+        block->bid = cur_bid;
+        if ((fs = filemgr_read(handle->file, block->bid, block->addr,
+                         handle->log_callback)) != FDB_RESULT_SUCCESS) {
+            free_align(block->addr);
+            free(block);
+            return fs;
+        }
+        // check if the block is for btree node
+        cmp = memcmp((uint8_t *)block->addr +
+                                handle->file->blocksize - BLK_MARKER_SIZE,
+                     marker, BLK_MARKER_SIZE);
+        if (cmp == 0) { // this is btree block
+            // insert into AVL-tree
+            avl_insert(handle->dirty_snapshot, &block->avl, _btreeblk_bid_cmp);
+            // alloc new block
+            block = (struct btreeblk_block*)
+                    calloc(1, sizeof(struct btreeblk_block));
+            malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
+        }
+    }
+
+    // free unused block
+    free_align(block->addr);
+    free(block);
+
+    return FDB_RESULT_SUCCESS;
+}
+
+void btreeblk_clone_dirty_snapshot(struct btreeblk_handle *dst,
+                                   struct btreeblk_handle *src)
+{
+    struct avl_node *a;
+    struct btreeblk_block *block, *block_copy;
+
+    // return if source handle's dirty snapshot doesn't exist, OR
+    // destination handle's dirty snapshot already exists.
+    if (!src->dirty_snapshot ||
+        dst->dirty_snapshot) {
+        return;
+    }
+
+    dst->dirty_snapshot = (struct avl_tree*)calloc(1, sizeof(struct avl_tree));
+    avl_init(dst->dirty_snapshot, NULL);
+
+    a = avl_first(src->dirty_snapshot);
+    while (a) {
+        block = _get_entry(a, struct btreeblk_block, avl);
+        a = avl_next(&block->avl);
+
+        // alloc new block
+        block_copy = (struct btreeblk_block*)
+                     calloc(1, sizeof(struct btreeblk_block));
+        malloc_align(block_copy->addr, FDB_SECTOR_SIZE, src->file->blocksize);
+        memcpy(block_copy->addr, block->addr, src->file->blocksize);
+
+        // insert into dst handle's AVL-tree
+        avl_insert(dst->dirty_snapshot, &block_copy->avl, _btreeblk_bid_cmp);
+    }
+}
+
+void btreeblk_free_dirty_snapshot(struct btreeblk_handle *handle)
+{
+    struct avl_node *a;
+    struct btreeblk_block *block;
+
+    if (!handle->dirty_snapshot) {
+        return;
+    }
+
+    a = avl_first(handle->dirty_snapshot);
+    while (a) {
+        block = _get_entry(a, struct btreeblk_block, avl);
+        a = avl_next(&block->avl);
+        avl_remove(handle->dirty_snapshot, &block->avl);
+        free_align(block->addr);
+        free(block);
+    }
+    free(handle->dirty_snapshot);
+    handle->dirty_snapshot = NULL;
+}
+
 #ifdef __BTREEBLK_SUBBLOCK
 struct btree_blk_ops btreeblk_ops = {
     btreeblk_alloc,
@@ -1027,6 +1155,7 @@ void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nod
     handle->nodesize = nodesize;
     handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
     handle->nlivenodes = 0;
+    handle->dirty_snapshot = NULL;
 
     list_init(&handle->alc_list);
     list_init(&handle->read_list);
@@ -1120,6 +1249,9 @@ void btreeblk_free(struct btreeblk_handle *handle)
     }
     free(handle->sb);
 #endif
+
+    // free dirty snapshot if exist
+    btreeblk_free_dirty_snapshot(handle);
 }
 
 fdb_status btreeblk_end(struct btreeblk_handle *handle)
