@@ -872,18 +872,19 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
 {
     TEST_INIT();
 
-    int n = 100, value_len=32;
+    int n = 300, value_len=32;
     int i, r, idx, c;
     char cmd[256];
     char key[256], *value;
-    char keystr[] = "key%06d";
+    char keystr[] = "k%05d";
+    char keystr2[] = "k%06d";
     char valuestr[] = "value%08d";
     fdb_file_handle *db_file;
     fdb_kvs_handle *db, *snap;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_status s;
-    fdb_iterator *fit;
+    fdb_iterator *fit, *fit_normal;
     fdb_doc *doc;
 
     sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
@@ -898,7 +899,7 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     config.durability_opt = FDB_DRB_ASYNC;
     config.seqtree_opt = FDB_SEQTREE_USE;
     config.wal_flush_before_commit = true;
-    config.wal_threshold = n/2;
+    config.wal_threshold = n/5;
     config.multi_kv_instances = true;
     config.buffercache_size = 0;
 
@@ -951,7 +952,6 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
         sprintf(value, valuestr, idx);
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
-        //printf("%s %s\n", doc->key, doc->body);
         c++;
         s = fdb_doc_free(doc);
     } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
@@ -960,11 +960,78 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     s = fdb_iterator_close(fit);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
+    // create an iterator and fetch some docs
+    s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // also create an iterator on a normal handle
+    s = fdb_iterator_init(db, &fit_normal, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    c = 0;
+    do {
+        doc = NULL;
+        s = fdb_iterator_get(fit, &doc);
+        if (s != FDB_RESULT_SUCCESS) break;
+
+        idx = c;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        c++;
+        s = fdb_doc_free(doc);
+
+        if (c == n/5) {
+            // insert new docs in the middle of iteration
+            for (i=0; i<n*10; ++i){
+                idx = i;
+                sprintf(key, keystr2, idx);
+                memset(value, 'x', value_len);
+                memcpy(value + value_len - 6, "<end>", 6);
+                sprintf(value, valuestr, idx);
+                s = fdb_set_kv(db, key, strlen(key)+1, value, value_len);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
+            }
+        }
+    } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    TEST_CHK(c == n);
+
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // the results should be same in the normal iterator
+    c = 0;
+    do {
+        doc = NULL;
+        s = fdb_iterator_get(fit_normal, &doc);
+        if (s != FDB_RESULT_SUCCESS) break;
+
+        idx = c;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        c++;
+        s = fdb_doc_free(doc);
+    } while(fdb_iterator_next(fit_normal) == FDB_RESULT_SUCCESS);
+    TEST_CHK(c == n);
+
+    s = fdb_iterator_close(fit_normal);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
     s = fdb_kvs_close(snap);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_close(db_file);
     s = fdb_shutdown();
+    free(value);
+
+    memleak_end();
 
     TEST_RESULT("in-memory snapshot on dirty HB+trie nodes test");
 }
