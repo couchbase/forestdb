@@ -918,6 +918,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
             fdb_seqnum_t upto_seq = seqnum;
             if (compaction_inprog && seqnum != FDB_SNAPSHOT_INMEM) {
                 // Compaction in progress AND commit-based snapshot
+
                 // Persistent snapshot requested in the middle of compaction..
                 handle->shandle->type = FDB_SNAP_COMPACTION;
                 wal_snapshot(handle->file->new_file, (void *)handle->shandle,
@@ -936,20 +937,86 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
                 handle->max_seqnum = seqnum;
             } else {
                 // In-memory snapshot
-                wal_snapshot(handle->file, (void *)handle->shandle,
-                             handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
-                // set seqnum based on handle type (multikv or default)
-                if (handle_in->kvs && handle_in->kvs->id > 0) {
-                    handle->max_seqnum = _fdb_kvs_get_seqnum(file->kv_header,
-                                                             handle_in->kvs->id);
+
+                if (compaction_inprog && handle->file->new_file) {
+                    // Compaction is in progress.
+                    // copy WAL entries in the new file
+                    handle->shandle->type = FDB_SNAP_COMPACTION;
+                    wal_snapshot(handle->file->new_file, (void *)handle->shandle,
+                                 handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
+                    fdb_link_new_file_enforce(handle);
+                    if (upto_seq) {
+                        // At least one WAL entry in the new file is copied
+                        handle->max_seqnum = upto_seq;
+                    } else {
+                        // no new entry in the new file .. get old file's seqnum
+                        if (handle_in->kvs && handle_in->kvs->id > 0) {
+                            handle->max_seqnum =
+                                _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                                    handle_in->kvs->id);
+                        } else {
+                            handle->max_seqnum = filemgr_get_seqnum(handle->file);
+                        }
+                    }
                 } else {
-                    handle->max_seqnum = filemgr_get_seqnum(file);
+                    // No concurrent compaction
+                    wal_snapshot(handle->file, (void *)handle->shandle,
+                                 handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
+                    // set seqnum based on handle type (multikv or default)
+                    if (handle_in->kvs && handle_in->kvs->id > 0) {
+                        handle->max_seqnum =
+                            _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                                handle_in->kvs->id);
+                    } else {
+                        handle->max_seqnum = filemgr_get_seqnum(handle->file);
+                    }
                 }
-                handle->shandle->in_memory_snapshot = true;
+
+                // synchronize dirty root nodes if exist
+                if (filemgr_dirty_root_exist(handle->file)) {
+                    bid_t dirty_idtree_root, dirty_seqtree_root;
+                    filemgr_mutex_lock(handle->file);
+                    filemgr_get_dirty_root(handle->file,
+                                           &dirty_idtree_root, &dirty_seqtree_root);
+                    if (dirty_idtree_root != BLK_NOT_FOUND) {
+                        handle->trie->root_bid = dirty_idtree_root;
+                    }
+                    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                        if (dirty_seqtree_root != BLK_NOT_FOUND) {
+                            if (handle->kvs) {
+                                handle->seqtrie->root_bid = dirty_seqtree_root;
+                            } else {
+                                handle->seqtree->root_bid = dirty_seqtree_root;
+                            }
+                        }
+                    }
+                    btreeblk_discard_blocks(handle->bhandle);
+                    btreeblk_create_dirty_snapshot(handle->bhandle);
+                    filemgr_mutex_unlock(handle->file);
+                }
             }
         } else if (handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
+            // Snapshot is created on the other snapshot handle
+
             handle->max_seqnum = handle_in->seqnum;
-            handle->shandle->in_memory_snapshot = true;
+
+            if (seqnum == FDB_SNAPSHOT_INMEM) {
+                // in-memory snapshot
+                filemgr_mutex_lock(handle->file);
+                // copy dirty root nodes from the source snapshot
+                handle->trie->root_bid = handle_in->trie->root_bid;
+                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                    if (handle->kvs) {
+                        handle->seqtrie->root_bid = handle_in->seqtrie->root_bid;
+                    } else {
+                        handle->seqtree->root_bid = handle_in->seqtree->root_bid;
+                    }
+                }
+                btreeblk_discard_blocks(handle->bhandle);
+                btreeblk_clone_dirty_snapshot(handle->bhandle,
+                                              handle_in->bhandle);
+                filemgr_mutex_unlock(handle->file);
+            }
         }
         *ptr_handle = handle;
     } else {
@@ -2118,7 +2185,11 @@ static bool _fdb_sync_dirty_root(fdb_kvs_handle *handle)
         }
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                handle->seqtree->root_bid = dirty_seqtree_root;
+                if (handle->kvs) {
+                    handle->seqtrie->root_bid = dirty_seqtree_root;
+                } else {
+                    handle->seqtree->root_bid = dirty_seqtree_root;
+                }
             }
         }
         btreeblk_discard_blocks(handle->bhandle);
@@ -2951,7 +3022,11 @@ fdb_set_start:
         }
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
             dirty_seqtree_root != BLK_NOT_FOUND) {
-            handle->seqtree->root_bid = dirty_seqtree_root;
+            if (handle->kvs) {
+                handle->seqtrie->root_bid = dirty_seqtree_root;
+            } else {
+                handle->seqtree->root_bid = dirty_seqtree_root;
+            }
         }
 
         if (wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
@@ -2983,7 +3058,11 @@ fdb_set_start:
             // sync new root node
             dirty_idtree_root = handle->trie->root_bid;
             if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                dirty_seqtree_root = handle->seqtree->root_bid;
+                if (handle->kvs) {
+                    dirty_seqtree_root = handle->seqtrie->root_bid;
+                } else {
+                    dirty_seqtree_root = handle->seqtree->root_bid;
+                }
             }
             filemgr_set_dirty_root(file,
                                    dirty_idtree_root,
@@ -3305,7 +3384,11 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
         }
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
             dirty_seqtree_root != BLK_NOT_FOUND) {
-            handle->seqtree->root_bid = dirty_seqtree_root;
+            if (handle->kvs) {
+                handle->seqtrie->root_bid = dirty_seqtree_root;
+            } else {
+                handle->seqtree->root_bid = dirty_seqtree_root;
+            }
         }
 
         if (handle->dirty_updates) {
@@ -3415,7 +3498,11 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     }
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
         dirty_seqtree_root != BLK_NOT_FOUND) {
-        handle->seqtree->root_bid = dirty_seqtree_root;
+        if (handle->kvs) {
+            handle->seqtrie->root_bid = dirty_seqtree_root;
+        } else {
+            handle->seqtree->root_bid = dirty_seqtree_root;
+        }
     }
 
     wal_commit(&handle->file->global_txn, handle->file, NULL);
@@ -4296,7 +4383,11 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     }
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
         dirty_seqtree_root != BLK_NOT_FOUND) {
-        handle->seqtree->root_bid = dirty_seqtree_root;
+        if (handle->kvs) {
+            handle->seqtrie->root_bid = dirty_seqtree_root;
+        } else {
+            handle->seqtree->root_bid = dirty_seqtree_root;
+        }
     }
 
     // flush WAL and set DB header

@@ -61,6 +61,7 @@ struct btreeblk_handle{
 
     uint32_t nsb;
     struct btreeblk_subblocks *sb;
+    struct avl_tree *dirty_snapshot;
 };
 
 struct btree_blk_ops *btreeblk_get_ops();
@@ -68,6 +69,11 @@ void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nod
 void btreeblk_free(struct btreeblk_handle *handle);
 void btreeblk_discard_blocks(struct btreeblk_handle *handle);
 fdb_status btreeblk_end(struct btreeblk_handle *handle);
+
+fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle);
+void btreeblk_clone_dirty_snapshot(struct btreeblk_handle *dst,
+                                   struct btreeblk_handle *src);
+void btreeblk_free_dirty_snapshot(struct btreeblk_handle *handle);
 
 #ifdef __cplusplus
 }
