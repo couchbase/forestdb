@@ -2167,6 +2167,11 @@ static bool _fdb_sync_dirty_root(fdb_kvs_handle *handle)
     bool locked = false;
     bid_t dirty_idtree_root, dirty_seqtree_root;
 
+    if (handle->shandle) {
+        // skip snapshot
+        return locked;
+    }
+
     if ( ( handle->dirty_updates ||
            filemgr_dirty_root_exist(handle->file) )  &&
          filemgr_get_header_bid(handle->file) == handle->last_hdr_bid ) {
