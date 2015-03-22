@@ -922,6 +922,10 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     s = fdb_commit(db_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
+    // create an in-memory snapshot
+    s = fdb_snapshot_open(db, &snap, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
     // write a number of documents in order to make WAL be flushed before commit
     for (i=n/10;i<n;++i){
         idx = i;
@@ -932,6 +936,20 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
         s = fdb_set_kv(db, key, strlen(key)+1, value, value_len);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
+
+    void *v_out;
+    size_t vlen_out;
+    idx = n/10;
+    sprintf(key, keystr, idx);
+    memset(value, 'x', value_len);
+    memcpy(value + value_len - 6, "<end>", 6);
+    sprintf(value, valuestr, idx);
+    s = fdb_get_kv(snap, key, strlen(key)+1, &v_out, &vlen_out);
+    // should not be able to retrieve
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_close(snap);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // create an in-memory snapshot
     s = fdb_snapshot_open(db, &snap, FDB_SNAPSHOT_INMEM);
