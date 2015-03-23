@@ -880,11 +880,11 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     char keystr2[] = "k%06d";
     char valuestr[] = "value%08d";
     fdb_file_handle *db_file;
-    fdb_kvs_handle *db, *snap;
+    fdb_kvs_handle *db, *snap, *snap_clone;
     fdb_config config;
     fdb_kvs_config kvs_config;
     fdb_status s;
-    fdb_iterator *fit, *fit_normal;
+    fdb_iterator *fit, *fit_normal, *fit_clone;
     fdb_doc *doc;
 
     sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
@@ -922,8 +922,10 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     s = fdb_commit(db_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    // create an in-memory snapshot
+    // create an in-memory snapshot and its clone
     s = fdb_snapshot_open(db, &snap, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_snapshot_open(snap, &snap_clone, FDB_SNAPSHOT_INMEM);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // write a number of documents in order to make WAL be flushed before commit
@@ -941,14 +943,18 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     size_t vlen_out;
     idx = n/10;
     sprintf(key, keystr, idx);
-    memset(value, 'x', value_len);
-    memcpy(value + value_len - 6, "<end>", 6);
-    sprintf(value, valuestr, idx);
     s = fdb_get_kv(snap, key, strlen(key)+1, &v_out, &vlen_out);
     // should not be able to retrieve
     TEST_CHK(s != FDB_RESULT_SUCCESS);
 
+    s = fdb_get_kv(snap_clone, key, strlen(key)+1, &v_out, &vlen_out);
+    // should not be able to retrieve in also clone
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+
+    // close snapshot and its clone
     s = fdb_kvs_close(snap);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_close(snap_clone);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // create an in-memory snapshot
@@ -978,8 +984,14 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     s = fdb_iterator_close(fit);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    // create an iterator and fetch some docs
+    // create a clone
+    s = fdb_snapshot_open(snap, &snap_clone, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // create iterators on snapshot and its clone
     s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_iterator_init(snap_clone, &fit_clone, NULL, 0, NULL, 0, 0x0);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // also create an iterator on a normal handle
@@ -1002,6 +1014,13 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
         c++;
         s = fdb_doc_free(doc);
 
+        doc = NULL;
+        s = fdb_iterator_get(fit, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        s = fdb_doc_free(doc);
+
         if (c == n/5) {
             // insert new docs in the middle of iteration
             for (i=0; i<n*10; ++i){
@@ -1014,10 +1033,23 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
                 TEST_CHK(s == FDB_RESULT_SUCCESS);
             }
         }
-    } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+
+        s = fdb_iterator_next(fit);
+        // result should be same to clone
+        if (s != FDB_RESULT_SUCCESS) {
+            s = fdb_iterator_next(fit_clone);
+            TEST_CHK(s != FDB_RESULT_SUCCESS);
+        } else {
+            s = fdb_iterator_next(fit_clone);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+        }
+    } while(s == FDB_RESULT_SUCCESS);
     TEST_CHK(c == n);
 
+    // close iterators
     s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_iterator_close(fit_clone);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // the results should be same in the normal iterator
@@ -1043,6 +1075,9 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_kvs_close(snap);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_close(snap_clone);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_close(db_file);
