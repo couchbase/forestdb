@@ -1086,6 +1086,7 @@ void btreeblk_clone_dirty_snapshot(struct btreeblk_handle *dst,
                      calloc(1, sizeof(struct btreeblk_block));
         malloc_align(block_copy->addr, FDB_SECTOR_SIZE, src->file->blocksize);
         memcpy(block_copy->addr, block->addr, src->file->blocksize);
+        block_copy->bid = block->bid;
 
         // insert into dst handle's AVL-tree
         avl_insert(dst->dirty_snapshot, &block_copy->avl, _btreeblk_bid_cmp);
