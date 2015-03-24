@@ -295,14 +295,18 @@ void start_checkpoint(storage_t *st)
     status = fdb_set(st->chk, chk_doc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+
+#ifdef __DEBUG_E2E
     sprintf(rbuf, "start checkpoint[seqno:%llu]",chk->seqnum_all);
+    TEST_RESULT(rbuf);
+#endif
 
     free(chk);
     fdb_doc_free(chk_doc);
     chk_doc=NULL;
     chk=NULL;
 
-    TEST_RESULT(rbuf);
+
 }
 
 /*
@@ -339,14 +343,16 @@ void end_checkpoint(storage_t *st)
     status = fdb_set(st->chk, chk_doc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+#ifdef __DEBUG_E2E
     sprintf(rbuf, "end checkpoint[seqno:%llu]",chk->seqnum_all);
+    TEST_RESULT(rbuf);
+#endif
 
     free(chk);
     fdb_doc_free(chk_doc);
     chk_doc=NULL;
     chk=NULL;
 
-    TEST_RESULT(rbuf);
 }
 
 
