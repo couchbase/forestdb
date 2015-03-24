@@ -536,11 +536,11 @@ void e2e_index_normal_commit_autocompact_test()
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
-    fconfig.durability_opt = FDB_DRB_ASYNC;
+    fconfig.durability_opt = FDB_DRB_NONE;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
 
     // test
-    e2e_kvs_index_pattern(2, fconfig, true, true);
+    e2e_kvs_index_pattern(2, fconfig, true, false);
 
     memleak_end();
     TEST_RESULT("TEST: e2e index normal commit autocompact test");
