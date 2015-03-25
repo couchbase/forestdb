@@ -550,6 +550,7 @@ void e2e_index_basic_test()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // configure
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
@@ -570,6 +571,7 @@ void e2e_index_walflush_test_no_deletes_auto_compact()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // configure
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
@@ -590,6 +592,7 @@ void e2e_index_walflush_autocompact_test()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // opts
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
@@ -611,6 +614,7 @@ void e2e_index_normal_commit_autocompact_test()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // opts
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
@@ -630,6 +634,7 @@ void e2e_async_manual_compact_test()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // opts
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;

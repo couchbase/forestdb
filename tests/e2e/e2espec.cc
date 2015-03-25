@@ -280,7 +280,6 @@ void start_checkpoint(storage_t *st)
     checkpoint_t *chk;
     fdb_status status;
     fdb_doc *chk_doc = NULL;
-    char rbuf[256];
 
     status = fdb_begin_transaction(st->records, FDB_ISOLATION_READ_COMMITTED);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -297,6 +296,7 @@ void start_checkpoint(storage_t *st)
 
 
 #ifdef __DEBUG_E2E
+    char rbuf[256];
     sprintf(rbuf, "start checkpoint[seqno:%llu]",chk->seqnum_all);
     TEST_RESULT(rbuf);
 #endif
@@ -322,7 +322,6 @@ void end_checkpoint(storage_t *st)
     fdb_status status;
     fdb_doc *chk_doc = NULL;
     checkpoint_t *chk;
-    char rbuf[256];
 
     // create closing checkpoint doc
     chk = create_checkpoint(st, END_CHECKPOINT);
@@ -344,6 +343,7 @@ void end_checkpoint(storage_t *st)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
 #ifdef __DEBUG_E2E
+    char rbuf[256];
     sprintf(rbuf, "end checkpoint[seqno:%llu]",chk->seqnum_all);
     TEST_RESULT(rbuf);
 #endif
