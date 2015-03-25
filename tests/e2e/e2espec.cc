@@ -94,12 +94,15 @@ storage_t *init_storage(fdb_config *m_fconfig,
     return st;
 }
 
-void e2e_fdb_shutdown(storage_t *st){
-
+void e2e_fdb_close(storage_t *st){
     fdb_close(st->main);
     fdb_close(st->records);
-    fdb_shutdown();
     free(st);
+}
+
+void e2e_fdb_shutdown(storage_t *st){
+    e2e_fdb_close(st);
+    fdb_shutdown();
 }
 
 void rm_storage_fs()
@@ -401,6 +404,56 @@ void e2e_fdb_cancel_checkpoint(storage_t *st)
 
     sprintf(rbuf, "revert to checkpoint[seqno:%llu]\n",chk->seqnum_all);
     TEST_RESULT(rbuf);
+}
+
+/*
+ * creates in-mem snapshots, then iterates over them
+ * in-mem snapshot can be passed in for re-use
+ *
+ * callee must remember to close handle!
+ */
+fdb_kvs_handle * scan(storage_t *st, fdb_kvs_handle *reuse_kv)
+{
+    TEST_INIT();
+
+    fdb_kvs_handle *snap_kv;
+    idx_prams_t params;
+    fdb_status status;
+    fdb_iterator *it;
+    fdb_doc *rdoc = NULL;
+
+    // generate params
+    gen_index_params(&params);
+
+    // create new snapkv or reuse current
+    if(reuse_kv){
+        status = fdb_snapshot_open(reuse_kv, &snap_kv, FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    } else {
+        status = fdb_snapshot_open(st->index1, &snap_kv, FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // iterate over snapkv
+    status = fdb_iterator_init(snap_kv, &it, params.min, 12,
+                               params.max, 12, FDB_ITR_NONE);
+    if (status == FDB_RESULT_SUCCESS) {
+        do {
+            status = fdb_iterator_get(it, &rdoc);
+            if (status == FDB_RESULT_SUCCESS){
+
+                // make sure every doc is within requested range
+                TEST_CHK(((strcmp((char *)rdoc->key,params.min) >= 0) &&
+                       (strcmp((char *)rdoc->key, params.max) <= 0)));
+                fdb_doc_free(rdoc);
+                rdoc=NULL;
+            }
+        } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+    }
+
+    fdb_iterator_close(it);
+
+    return snap_kv;
 }
 
 /*
