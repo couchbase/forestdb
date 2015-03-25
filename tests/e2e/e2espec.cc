@@ -81,6 +81,7 @@ storage_t *init_storage(fdb_config *m_fconfig,
     st->v_chk = v_chk;
     st->index_params = idxp;
     st->walflush = walflush;
+    gen_random(st->keyspace, KEYSPACE_LEN);
 
     // init dbs
     fdb_open(&st->main, E2EDB_MAIN, m_fconfig);
@@ -88,6 +89,8 @@ storage_t *init_storage(fdb_config *m_fconfig,
     fdb_kvs_open(st->main, &st->index1, E2EKV_INDEX1,  kvs_config);
     fdb_kvs_open(st->main, &st->index2, E2EKV_INDEX2,  kvs_config);
 
+
+    // use unique records db for each storage instance
     fdb_open(&st->records, E2EDB_RECORDS, r_fconfig);
     fdb_kvs_open(st->records, &st->rtx, E2EKV_RECORDS,  kvs_config);
     fdb_kvs_open(st->records, &st->chk, E2EKV_CHECKPOINTS,  kvs_config);
@@ -174,6 +177,7 @@ void e2e_fdb_set_person(storage_t *st, person_t *p){
     bool indexed;
     bool existed;
 
+    strcpy(p->keyspace, st->keyspace);
     fdb_doc_create(&doc, p->key, strlen(p->key),
                    NULL, 0, p, sizeof(person_t));
     status = fdb_get(st->all_docs, doc);
@@ -456,6 +460,51 @@ fdb_kvs_handle * scan(storage_t *st, fdb_kvs_handle *reuse_kv)
     return snap_kv;
 }
 
+fdb_seqnum_t last_snap_seqnum(storage_t *st, const char *kvs_name)
+{
+    TEST_INIT();
+
+    int i,k;
+    bool kv_found = false;
+    uint64_t num_markers;
+    fdb_status status;
+    fdb_seqnum_t last_seqnum;
+    fdb_snapshot_info_t *markers;
+
+    // get snapmarkers
+    status = fdb_get_all_snap_markers(st->main, &markers, &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // start with highest seqnum marker
+    for(k=0;(fdb_seqnum_t)k<num_markers;k++){
+        // search each kv marker
+        for(i=0;i<markers[k].num_kvs_markers;i++){
+            if(strcmp(markers[k].kvs_markers[i].kv_store_name, kvs_name) == 0){
+                last_seqnum = markers[k].kvs_markers[i].seqnum;
+                kv_found = true;
+                break;
+            }
+        }
+        if(kv_found){ // already found
+            break;
+        }
+    }
+
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(kv_found);
+    return last_seqnum;
+}
+
+void print_n_markers(storage_t *st, uint64_t n){
+    fdb_snapshot_info_t *markers;
+    uint64_t num_markers, i;
+    fdb_get_all_snap_markers(st->main, &markers, &num_markers);
+    for (i=0;i<n;i++){
+        printf("marker:  %" _F64"\n", markers[i].kvs_markers[0].seqnum);
+    }
+}
+
 /*
  * make a new checkpoint doc based on state of current storage
  */
@@ -467,25 +516,23 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
     fdb_kvs_info info;
     fdb_iterator *it;
     fdb_doc *rdoc = NULL;
-    fdb_kvs_handle *snap_kv1, *snap_kv2;
+    fdb_kvs_handle *snap_kv1, *snap_kv2, *snap_all;
     char *mink = st->index_params->min;
     char *maxk = st->index_params->max;
+    size_t vallen;
+    person_t *p;
     checkpoint_t *chk = (checkpoint_t *)malloc(sizeof(checkpoint_t));
     memset(chk, 0, sizeof(checkpoint_t));
+    status = fdb_get_kvs_info(st->chk, &info);
+    TEST_CHK (status == FDB_RESULT_SUCCESS);
 
     // commit
     e2e_fdb_commit(st->main, st->walflush);
 
-    // get last seqnum of main kvs and indees
-    status = fdb_get_kvs_info(st->all_docs, &info);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-    chk->seqnum_all = info.last_seqnum;
-    status = fdb_get_kvs_info(st->index1, &info);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-    chk->seqnum_idx1 = info.last_seqnum;
-    status = fdb_get_kvs_info(st->index2, &info);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
-    chk->seqnum_idx2 = info.last_seqnum;
+    // get last seqnum of main kvs and indexes
+    chk->seqnum_all = last_snap_seqnum(st, E2EKV_ALLDOCS);
+    chk->seqnum_idx1 = last_snap_seqnum(st, E2EKV_INDEX1);
+    chk->seqnum_idx2 = last_snap_seqnum(st, E2EKV_INDEX2);;
 
 
     // generate check point stats based on current state of db
@@ -494,10 +541,17 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
     chk->balance = 0;
     chk->type = type;
 
-    //use snapshot based iterator
-    status = fdb_snapshot_open(st->index1, &snap_kv1, chk->seqnum_idx1);
+    // use snapshot based iterator
+    status = fdb_snapshot_open(st->all_docs, &snap_all, chk->seqnum_all);
+    if(status != FDB_RESULT_SUCCESS){  print_n_markers(st, 3); } //TODO: rm debugging
     TEST_CHK (status == FDB_RESULT_SUCCESS);
+
+    status = fdb_snapshot_open(st->index1, &snap_kv1, chk->seqnum_idx1);
+    if(status != FDB_RESULT_SUCCESS){  print_n_markers(st, 3); } //TODO: rm debugging
+    TEST_CHK (status == FDB_RESULT_SUCCESS);
+
     status = fdb_snapshot_open(st->index2, &snap_kv2, chk->seqnum_idx2);
+    if(status != FDB_RESULT_SUCCESS){  print_n_markers(st, 3); } //TODO: rm debugging
     TEST_CHK (status == FDB_RESULT_SUCCESS);
 
     status = fdb_iterator_init(snap_kv1, &it, mink, 12,
@@ -506,23 +560,41 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
         do {
             status = fdb_iterator_get(it, &rdoc);
             if (status == FDB_RESULT_SUCCESS){
-                if ((strcmp((char *)rdoc->key, mink) >= 0) &&
-                       (strcmp((char *)rdoc->key, maxk) <= 0)){
-                    // doc was in range of current index
-                    chk->num_indexed++;
+                // doc is expected to be in range of requested keys
+                TEST_CHK((strcmp((char *)rdoc->key, mink) >= 0) &&
+                       (strcmp((char *)rdoc->key, maxk) <= 0));
 
-                    // get from 2nd idx
-                    status = fdb_get(snap_kv2, rdoc);
-                    TEST_CHK (status == FDB_RESULT_SUCCESS);
-                    chk->sum_age_indexed+= *((int *)rdoc->body);
+                // do reverse lookup to main kv to check if
+                // key created by current storage handle
+                status = fdb_get_kv(snap_all,
+                                    rdoc->body, rdoc->bodylen,
+                                    (void **)&p, &vallen);
+                if(status == FDB_RESULT_SUCCESS){
+                  if(strcmp(p->keyspace, st->keyspace) == 0){
+                      // key tracked by current st handle
+                      chk->num_indexed++;
+
+                      // get from 2nd idx
+                      status = fdb_get(snap_kv2, rdoc);
+                      TEST_CHK (status == FDB_RESULT_SUCCESS);
+                      chk->sum_age_indexed+= *((int *)rdoc->body);
+                  }
                 }
-                fdb_doc_free(rdoc);
-                rdoc=NULL;
+                free(p);
+                p=NULL;
             }
+
         } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
     }
+#ifdef __DEBUG_E2E
+    printf("[%s] mink: %s -> maxk: %s (%d docs)\n", st->keyspace, mink, maxk,
+        chk->num_indexed);
+#endif
 
+    fdb_doc_free(rdoc);
+    rdoc=NULL;
     fdb_iterator_close(it);
+    fdb_kvs_close(snap_all);
     fdb_kvs_close(snap_kv1);
     fdb_kvs_close(snap_kv2);
 
