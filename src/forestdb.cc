@@ -2024,6 +2024,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
         uint64_t kv_info_offset, header_flags;
         size_t header_len;
         char *new_filename;
+        char *prev_filename = NULL;
         uint8_t *buf = alca(uint8_t, handle->config.blocksize);
         bid_t trie_root_bid, seq_root_bid;
         fdb_config config = handle->config;
@@ -2049,12 +2050,13 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             btreeblk_init(handle->bhandle, handle->file, handle->config.blocksize);
 
             // read new file's header
+            handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
             filemgr_get_header(handle->file, buf, &header_len);
             fdb_fetch_header(buf,
                              &trie_root_bid, &seq_root_bid,
                              &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
                              &kv_info_offset, &header_flags,
-                             &new_filename, NULL);
+                             &new_filename, &prev_filename);
 
             // reset trie (id-tree)
             handle->trie->root_bid = trie_root_bid;
@@ -2088,7 +2090,13 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
 
             // the others
             handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
+            handle->last_wal_flush_hdr_bid = last_wal_flush_hdr_bid;
+            handle->kv_info_offset = kv_info_offset;
             handle->dirty_updates = 0;
+
+            if (prev_filename) {
+                free(prev_filename);
+            }
 
             // note that we don't need to call 'compactor_deregister_file'
             // because the old file is already removed when compaction is complete.
@@ -3448,6 +3456,9 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
                 handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
             }
         }
+
+        assert(handle->last_wal_flush_hdr_bid == BLK_NOT_FOUND ||
+               handle->last_wal_flush_hdr_bid <= handle->last_hdr_bid);
 
         if (txn == NULL) {
             // update global_txn's previous header BID

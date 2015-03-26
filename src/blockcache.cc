@@ -315,12 +315,6 @@ struct fnamedic_item *_bcache_get_victim()
     return NULL;
 }
 
-INLINE struct bcache_shard *_bcache_get_victim_shard(struct fnamedic_item *victim)
-{
-    size_t shard_num = random(victim->num_shards);
-    return &victim->shards[shard_num];
-}
-
 static struct bcache_item *_bcache_alloc_freeblock()
 {
     struct list_elem *e = NULL;
@@ -660,21 +654,17 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
     // select the clean blocks from the victim file
     n_evict = 0;
     while(n_evict < BCACHE_EVICT_UNIT) {
-        int num_empty_shards = 0;
-        bool empty = true;
+        size_t num_shards = victim->num_shards;
+        size_t i = random(num_shards);
+        bool found_victim_shard = false;
         bcache_shard *bshard = NULL;
-        while (1) {
-            bshard = _bcache_get_victim_shard(victim);
+
+        for (size_t to_visit = num_shards; to_visit; --to_visit) {
+            i = (i + 1) % num_shards; // Round robin over empty shards..
+            bshard = &victim->shards[i];
             spin_lock(&bshard->lock);
             if (_shard_empty(bshard)) {
                 spin_unlock(&bshard->lock);
-                if (++num_empty_shards == victim->num_shards && empty) {
-                    // We couldn't find any non-empty shards even after 'num_shards' attempts.
-                    // The file is *likely* empty. Note that it is OK to return NULL
-                    // even if the file is not empty because the caller will retry again.
-                    return NULL;
-                }
-                empty = true;
                 continue;
             }
             e = list_pop_back(&bshard->cleanlist);
@@ -692,17 +682,25 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
 #ifdef __BCACHE_SECOND_CHANCE
             // repeat until zero-score item is found
             if (item->score == 0) {
+                found_victim_shard = true;
                 break;
             } else {
                 // give second chance to the item
                 item->score--;
                 list_push_front(&bshard->cleanlist, &item->list_elem);
                 spin_unlock(&bshard->lock);
-                empty = false;
             }
 #else
+            found_victim_shard = true;
             break;
 #endif
+        }
+        if (!found_victim_shard) {
+            // We couldn't find any non-empty shards even after 'num_shards'
+            // attempts.
+            // The file is *likely* empty. Note that it is OK to return NULL
+            // even if the file is not empty because the caller will retry again.
+            return NULL;
         }
 
         atomic_decr_uint64_t(&victim->nitems);

@@ -405,6 +405,84 @@ void replay(storage_t *st)
 
 }
 
+void *compact_thread(void *args){
+    int i;
+    fdb_config *fconfig = (fdb_config *)args;
+    fdb_file_handle *dbfile;
+    fdb_open(&dbfile, E2EDB_MAIN, fconfig);
+    for(i=0;i<10;++i){
+        sleep(5);
+#ifdef __DEBUG_E2E
+        printf("compact: %d\n", i);
+#endif
+        fdb_compact(dbfile, NULL);
+    }
+    fdb_close(dbfile);
+    return NULL;
+}
+
+void e2e_async_compact_pattern(int n_checkpoints, fdb_config fconfig, bool deletes, bool walflush)
+{
+    TEST_INIT();
+    int n, i;
+    storage_t *st;
+    checkpoint_t verification_checkpoint;
+    idx_prams_t index_params;
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_kvs_info info;
+    fdb_kvs_handle *snap_db;
+    fdb_status status;
+    thread_t tid;
+    void *thread_ret;
+
+    memleak_start();
+
+    // init
+    rm_storage_fs();
+    gen_index_params(&index_params);
+    memset(&verification_checkpoint, 0, sizeof(checkpoint_t));
+
+    // setup
+    st = init_storage(&fconfig, &fconfig, &kvs_config,
+            &index_params, &verification_checkpoint, walflush);
+
+    // create compaction thread
+    thread_create(&tid, compact_thread, (void*)&fconfig);
+
+    // test
+    for (n=0;n<n_checkpoints;++n){
+
+#ifdef __DEBUG_E2E
+        printf("checkpoint: %d\n", n);
+#endif
+        load_persons(st);
+        for (i=0;i<100;++i){
+#ifdef __DEBUG_E2E
+            printf("\n\n----%d----\n", i);
+#endif
+            load_persons(st);
+            if (deletes){
+                delete_persons(st);
+            }
+            e2e_fdb_commit(st->main, walflush);
+            status = fdb_get_kvs_info(st->all_docs, &info);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_snapshot_open(st->all_docs, &snap_db, info.last_seqnum);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            update_index(st);
+            verify_db(st);
+            fdb_kvs_close(snap_db);
+        }
+    }
+
+    thread_join(tid, &thread_ret);
+    // teardown
+    e2e_fdb_shutdown(st);
+
+    memleak_end();
+
+}
+
 void e2e_kvs_index_pattern(int n_checkpoints, fdb_config fconfig, bool deletes, bool walflush)
 {
 
@@ -424,6 +502,7 @@ void e2e_kvs_index_pattern(int n_checkpoints, fdb_config fconfig, bool deletes, 
     // setup
     st = init_storage(&fconfig, &fconfig, &kvs_config,
             &index_params, &verification_checkpoint, walflush);
+
 
     // test
     for (n=0;n<n_checkpoints;++n){
@@ -471,6 +550,7 @@ void e2e_index_basic_test()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // configure
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
@@ -491,6 +571,7 @@ void e2e_index_walflush_test_no_deletes_auto_compact()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // configure
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
@@ -511,6 +592,7 @@ void e2e_index_walflush_autocompact_test()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // opts
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
@@ -532,23 +614,44 @@ void e2e_index_normal_commit_autocompact_test()
     TEST_INIT();
     memleak_start();
 
+    randomize();
     // opts
     fdb_config fconfig = fdb_get_default_config();
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
-    fconfig.durability_opt = FDB_DRB_ASYNC;
+    fconfig.durability_opt = FDB_DRB_NONE;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
 
     // test
-    e2e_kvs_index_pattern(2, fconfig, true, true);
+    e2e_kvs_index_pattern(2, fconfig, true, false);
 
     memleak_end();
     TEST_RESULT("TEST: e2e index normal commit autocompact test");
 }
 
+void e2e_async_manual_compact_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    randomize();
+    // opts
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.durability_opt = FDB_DRB_ASYNC;
+
+    // test
+    e2e_async_compact_pattern(10, fconfig, false, true);
+    memleak_end();
+    TEST_RESULT("TEST: e2e async manual compact test");
+}
+
+
 int main()
 {
 
+    e2e_async_manual_compact_test();
     e2e_index_basic_test();
     e2e_index_walflush_test_no_deletes_auto_compact();
     e2e_index_walflush_autocompact_test();

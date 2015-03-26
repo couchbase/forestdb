@@ -97,7 +97,7 @@ struct fnamedic_item;
 struct kvs_header;
 struct filemgr {
     char *filename; // Current file name.
-    uint8_t ref_count;
+    uint32_t ref_count;
     uint8_t fflags;
     uint16_t filename_len;
     uint32_t blocksize;
