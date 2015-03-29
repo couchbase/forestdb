@@ -40,6 +40,12 @@ add_executable(multi_kv_functional_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(multi_kv_functional_test forestdb)
 
+add_executable(big_concurrency_test
+               big_concurrency_test.cc
+               ${ROOT_UTILS}/time_utils.cc
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(big_concurrency_test forestdb)
+
 # add test target
 add_test(fdb_functional_test fdb_functional_test)
 add_test(fdb_extended_test fdb_extended_test)
