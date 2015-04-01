@@ -58,6 +58,14 @@ ELSEIF (_MEMLEAK EQUAL 2)
     ADD_DEFINITIONS(-D_CHK_MODIFY_AFTER_FREE=1)
 ENDIF()
 
+# Uncomment the following define below to enable handle tracking on SIGABRT
+# set(_TRACK_HANDLES 1)
+#
+
+IF (_TRACK_HANDLES EQUAL 1)
+    ADD_DEFINITIONS(-D_TRACE_HANDLES=1)
+ENDIF()
+
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments -g -fomit-frame-pointer -pthread")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
@@ -124,6 +132,7 @@ add_executable(forestdb_dump
                src/compactor.cc
                src/configuration.cc
                src/docio.cc
+               src/fdb_errors.cc
                src/filemgr.cc
                src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}

@@ -106,7 +106,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                                         log_callback) == handle->curblock+1) {
 
             // start from current block
-            assert(begin == handle->curblock + 1);
+            fdb_assert(begin == handle->curblock + 1, begin, handle->curblock+1);
 
             if (_add_blk_marker(handle->file, handle->curblock, blocksize,
                                 marker, log_callback) != FDB_RESULT_SUCCESS) {
@@ -138,7 +138,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                                         nblock + ((remain>offset)?1:0), &begin, &end,
                                         log_callback) == handle->curblock+1) {
             // start from current block
-            assert(begin == handle->curblock + 1);
+            fdb_assert(begin == handle->curblock + 1, begin, handle->curblock+1);
 
             if (_add_blk_marker(handle->file, handle->curblock, blocksize,
                                 marker, log_callback) != FDB_RESULT_SUCCESS) {
@@ -184,7 +184,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
             } else {
                 // write rest of document
-                assert(i==end);
+                fdb_assert(i==end, i, end);
                 if (_add_blk_marker(handle->file, i, blocksize, marker,
                                     log_callback) != FDB_RESULT_SUCCESS) {
                     return BLK_NOT_FOUND;
@@ -559,7 +559,7 @@ static uint64_t _docio_read_doc_component_comp(struct docio_handle *handle,
                             (char*)buf_out, &uncomp_size);
     if (ret < 0) return 0;
 
-    assert(uncomp_size == len);
+    fdb_assert(uncomp_size == len, uncomp_size, len);
     return _offset;
 }
 
@@ -725,7 +725,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
         meta_alloc = 1;
     }
 
-    assert(doc->key);
+    fdb_assert(doc->key, handle, doc->length.keylen);
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen,
                                         doc->key, log_callback);
@@ -852,7 +852,7 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         body_alloc = 1;
     }
 
-    assert(doc->key);
+    fdb_assert(doc->key, handle, doc->length.keylen);
 
     _offset = _docio_read_doc_component(handle, _offset,
                                         doc->length.keylen,

@@ -81,7 +81,7 @@ int _hbtrie_reform_key(struct hbtrie *trie, void *rawkey,
     } else {
         rsize = rawkeylen;
     }
-    assert(rsize && rsize <= trie->chunksize);
+    fdb_assert(rsize && rsize <= trie->chunksize, rsize, trie);
     memcpy((uint8_t*)outkey, (uint8_t*)rawkey, rawkeylen);
 
     if (rsize < csize) {
@@ -107,7 +107,7 @@ static int _hbtrie_reform_key_reverse(struct hbtrie *trie,
 {
     uint8_t rsize;
     rsize = *((uint8_t*)key + keylen - 1);
-    assert(rsize);
+    fdb_assert(rsize, rsize, trie);
 
     if (rsize == trie->chunksize) {
         return keylen - trie->chunksize;
@@ -147,8 +147,8 @@ void hbtrie_init(struct hbtrie *trie, int chunksize, int valuelen,
     btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
     btree_leaf_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
 
-    assert(valuelen == 8);
-    assert(chunksize >= sizeof(void *));
+    fdb_assert(valuelen == 8, valuelen, trie);
+    fdb_assert(chunksize >= sizeof(void *), chunksize, trie);
 
     if (chunksize == 8 && valuelen == 8){
         btree_kv_ops = btree_kv_get_kb64_vb64(btree_kv_ops);
@@ -367,7 +367,7 @@ hbtrie_result hbtrie_iterator_init(struct hbtrie *trie,
 
     if (initial_key) {
         it->keylen = _hbtrie_reform_key(trie, initial_key, keylen, it->curkey);
-        assert(it->keylen < HBTRIE_MAX_KEYLEN);
+        fdb_assert(it->keylen < HBTRIE_MAX_KEYLEN, it->keylen, trie);
         memset((uint8_t*)it->curkey + it->keylen, 0, trie->chunksize);
     }else{
         it->keylen = 0;
@@ -1036,7 +1036,7 @@ static void _hbtrie_btree_cascaded_update(struct hbtrie *trie,
         btreeitem = _get_entry(e_child, struct btreelist_item, e);
         trie->root_bid = btreeitem->btree.root_bid;
     }else {
-        assert(0);
+        fdb_assert(0, trie, e_child);
     }
 
     if (free_opt) {
@@ -1103,7 +1103,9 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
             return HBTRIE_RESULT_FAIL;
         }
         btree->aux = trie->aux;
-        assert(btree->ksize == trie->chunksize && btree->vsize == trie->valuelen);
+        fdb_assert(btree->ksize == trie->chunksize &&
+                   btree->vsize == trie->valuelen,
+                   btree->ksize, btree->vsize);
     }
 
     while (curchunkno < nchunk) {
@@ -1125,7 +1127,7 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
 
         //3 check whether there are skipped prefixes.
         if (curchunkno - prevchunkno > 1) {
-            assert(hbmeta.prefix != NULL);
+            fdb_assert(hbmeta.prefix != NULL, hbmeta.prefix, trie);
             // prefix comparison (find the first different chunk)
             int diffchunkno = _hbtrie_find_diff_chunk(
                 trie, hbmeta.prefix,
@@ -1292,7 +1294,7 @@ INLINE hbtrie_result _hbtrie_remove(struct hbtrie *trie,
 
     if (r == HBTRIE_RESULT_SUCCESS) {
         e = list_end(&btreelist);
-        assert(e);
+        fdb_assert(e, trie, flag);
 
         btreeitem = _get_entry(e, struct btreelist_item, e);
         if ( (btreeitem->leaf && rawkeylen ==
@@ -1874,7 +1876,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                (newchunkno - curchunkno) * trie->chunksize >
                    trie->btree_nodesize - HBTRIE_HEADROOM) {
             // prefix is too long .. we have to split it
-            assert(opt == HBMETA_NORMAL);
+            fdb_assert(opt == HBMETA_NORMAL, opt, trie);
             int midchunkno;
             midchunkno = curchunkno +
                         (trie->btree_nodesize - HBTRIE_HEADROOM) /
