@@ -40,7 +40,7 @@ void load_persons(storage_t *st)
     }
 
 #ifdef __DEBUG_E2E
-    printf("load persons: %03d docs created",n);
+    printf("load persons: %03d docs created\n",n);
 #endif
 }
 
@@ -76,7 +76,7 @@ void delete_persons(storage_t *st)
 
     fdb_iterator_close(it);
 
-    sprintf(rbuf, "delete persons: %03d docs deleted",n);
+    sprintf(rbuf, "delete persons: %03d docs deleted\n",n);
 #ifdef __DEBUG_E2E
     TEST_RESULT(rbuf);
 #endif
@@ -152,8 +152,8 @@ void verify_db(storage_t *st){
     int val1, val2;
     int db_ndocs = db_checkpoint->ndocs;
     int exp_ndocs = st->v_chk->ndocs;
-    int db_nidx = db_checkpoint->num_indexed;
     int exp_nidx = st->v_chk->num_indexed;
+    int db_nidx = db_checkpoint->num_indexed;
     int db_suma = db_checkpoint->sum_age_indexed;
     int exp_suma = st->v_chk->sum_age_indexed;
     fdb_kvs_info info;
@@ -376,7 +376,9 @@ void replay(storage_t *st)
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             rollback_seqnum = chk->seqnum_all;
 ;
+#ifdef __DEBUG_E2E
             printf("rollback to %llu\n", chk->seqnum_all);
+#endif
             status = fdb_rollback(&st->all_docs, rollback_seqnum);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             free(chk);
@@ -420,6 +422,7 @@ void *compact_thread(void *args){
     fdb_close(dbfile);
     return NULL;
 }
+
 
 void e2e_async_compact_pattern(int n_checkpoints, fdb_config fconfig, bool deletes, bool walflush)
 {
@@ -544,6 +547,114 @@ void e2e_kvs_index_pattern(int n_checkpoints, fdb_config fconfig, bool deletes, 
     memleak_end();
 }
 
+void *scan_thread(void *args){
+    int i = 0;
+    fdb_kvs_handle *scan_kv = (fdb_kvs_handle *)args;
+
+    for(i=0;i<20;++i){
+        scan(NULL, scan_kv);
+    }
+#ifdef __DEBUG_E2E
+    printf("scan done: \n");
+#endif
+    return NULL;
+}
+
+void *writer_thread(void *args){
+
+    storage_t *st = (storage_t *)args;
+    int i = 0;
+    for (i=0;i<5;++i){
+        load_persons(st);
+        if(i==5){
+            delete_persons(st);
+        }
+    }
+#ifdef __DEBUG_E2E
+    printf("writer done: %i\n");
+#endif
+    return NULL;
+}
+
+
+/*
+ * concurrent scan pattern:
+ *   start n_scanners and n_writers
+ *   scanners share in-mem snapshots and writers use copies of storage_t
+ */
+void e2e_concurrent_scan_pattern(int n_checkpoints, int n_scanners, int n_writers,
+                                 fdb_config fconfig, bool walflush)
+{
+
+    int n, i;
+    storage_t **st = alca(storage_t *, n_writers);
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    thread_t *tid_sc = alca(thread_t, n_scanners);
+    void **thread_ret_sc = alca(void *, n_scanners);
+    thread_t *tid_wr = alca(thread_t, n_writers);
+    void **thread_ret_wr = alca(void *, n_writers);
+    fdb_kvs_handle **scan_kv = alca(fdb_kvs_handle *, n_scanners);
+    idx_prams_t *index_params = alca(idx_prams_t, n_writers);
+    checkpoint_t *verification_checkpoint = alca(checkpoint_t, n_writers);
+
+    memleak_start();
+
+    // init
+    rm_storage_fs();
+
+    // init storage handles
+    for(i=0;i<n_writers;++i){
+        gen_index_params(&index_params[i]);
+        memset(&verification_checkpoint[i], 0, sizeof(checkpoint_t));
+        st[i] = init_storage(&fconfig, &fconfig, &kvs_config,
+                &index_params[i], &verification_checkpoint[i], walflush);
+    }
+
+    // load init data
+    start_checkpoint(st[0]);
+    for (i=0;i<100;++i){
+        load_persons(st[0]);
+    }
+    end_checkpoint(st[0]);
+
+    for (n=0;n<n_checkpoints;++n){
+#ifdef __DEBUG_E2E
+        printf("checkpoint: %d/%d\n", n, n_checkpoints);
+#endif
+        // start writer threads
+        for (i=1;i<n_writers;++i){
+            thread_create(&tid_wr[i], writer_thread, (void*)st[i]);
+        }
+
+        // start scanner threads
+        for (i=0;i<n_scanners;++i){
+            scan_kv[i] = scan(st[i], NULL);
+            thread_create(&tid_sc[i], scan_thread, (void*)scan_kv[i]);
+        }
+
+        // join scan threads
+        for (i=0;i<n_scanners;++i){
+            thread_join(tid_sc[i], &thread_ret_sc[i]);
+            fdb_kvs_close(scan_kv[i]);
+        }
+
+        // join writer threads
+        for (i=0;i<n_writers;++i){
+            thread_join(tid_wr[i], &thread_ret_wr[i]);
+        }
+
+    }
+
+    for(i=0;i<n_writers;++i){
+        // teardown
+        e2e_fdb_close(st[i]);
+    }
+    fdb_shutdown();
+
+    memleak_end();
+}
+
+
 void e2e_index_basic_test()
 {
 
@@ -648,9 +759,30 @@ void e2e_async_manual_compact_test()
 }
 
 
+void e2e_concurrent_scan_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_mode=FDB_COMPACTION_AUTO;
+    fconfig.durability_opt = FDB_DRB_ASYNC;
+
+    // test
+    e2e_concurrent_scan_pattern(3, 5, 5, fconfig, true);
+    // normal_commit
+    e2e_concurrent_scan_pattern(3, 5, 5, fconfig, false);
+
+    memleak_end();
+    TEST_RESULT("TEST: e2e concurrent scan");
+}
+
 int main()
 {
 
+    e2e_concurrent_scan_test();
     e2e_async_manual_compact_test();
     e2e_index_basic_test();
     e2e_index_walflush_test_no_deletes_auto_compact();

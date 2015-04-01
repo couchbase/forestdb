@@ -21,6 +21,7 @@
 
 #include "hash_functions.h"
 #include "common.h"
+#include "libforestdb/fdb_errors.h"
 #include "hash.h"
 #include "list.h"
 #include "blockcache.h"
@@ -562,9 +563,11 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         list_push_front(&fname_item->shards[shard_num].cleanlist,
                         &dirty_block->item->list_elem);
 
-        assert(!(dirty_block->item->flag & BCACHE_FREE));
-        assert(dirty_block->item->list_elem.prev == NULL &&
-               prevhead == dirty_block->item->list_elem.next);
+        fdb_assert(!(dirty_block->item->flag & BCACHE_FREE),
+                   dirty_block->item->flag, BCACHE_FREE);
+        fdb_assert(dirty_block->item->list_elem.prev == NULL &&
+                   prevhead == dirty_block->item->list_elem.next,
+                   prevhead, dirty_block->item->list_elem.next);
         mempool_free(dirty_block);
 
         // Get the next dirty block from the victim shard and insert it into
@@ -647,7 +650,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
             }
         }
     }
-    assert(victim);
+    fdb_assert(victim, victim, NULL);
 
     atomic_incr_uint64_t(&victim->nvictim);
 
@@ -783,7 +786,7 @@ static void _fname_free(struct fnamedic_item *fname)
     _bcache_move_fname_list(fname, NULL);
 
     // file must be empty
-    assert(_file_empty(fname));
+    fdb_assert(_file_empty(fname), false, true);
 
     // free hash
     size_t i = 0;
@@ -841,7 +844,7 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
         if (h) {
             // cache hit
             item = _get_entry(h, struct bcache_item, hash_elem);
-            assert(!(item->flag & BCACHE_FREE));
+            fdb_assert(!(item->flag & BCACHE_FREE), item->flag, file);
 
             // move the item to the head of list if the block is clean
             // (don't care if the block is dirty)
@@ -896,7 +899,7 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
         if (h) {
             // cache hit
             item = _get_entry(h, struct bcache_item, hash_elem);
-            assert(!(item->flag & BCACHE_FREE));
+            fdb_assert(!(item->flag & BCACHE_FREE), item->flag, BCACHE_FREE);
 
             if (!(item->flag & BCACHE_DIRTY)) {
                 atomic_decr_uint64_t(&fname->nitems);
@@ -986,7 +989,7 @@ int bcache_write(struct filemgr *file,
         item = _get_entry(h, struct bcache_item, hash_elem);
     }
 
-    assert(h);
+    fdb_assert(h, h, NULL);
 
     if (item->flag & BCACHE_FREE) {
         atomic_incr_uint64_t(&fname_new->nitems);
@@ -1080,7 +1083,7 @@ int bcache_write_partial(struct filemgr *file,
         item = _get_entry(h, struct bcache_item, hash_elem);
     }
 
-    assert(!(item->flag & BCACHE_FREE));
+    fdb_assert(!(item->flag & BCACHE_FREE), item->flag, BCACHE_FREE);
 
     // check whether this is dirty block
     // to avoid re-insert already existing item into tree
@@ -1192,7 +1195,7 @@ void bcache_remove_file(struct filemgr *file)
         // acquire lock
         spin_lock(&bcache_lock);
         // file must be empty
-        assert(_file_empty(fname_item));
+        fdb_assert(_file_empty(fname_item), fname_item, NULL);
 
         // remove from fname dictionary hash table
         hash_remove(&fnamedic, &fname_item->hash_elem);

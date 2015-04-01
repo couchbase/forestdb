@@ -182,7 +182,8 @@ INLINE int _bnode_size_check(
         item = _get_entry(e, struct kv_ins_item, le);
         cursize = _bnode_size(btree, node, new_minkey, item->key, item->value, 1);
     } else {
-        assert(nitem == 0); /* nitem should never be negative due to size_t */
+        /* nitem should never be negative due to size_t */
+        fdb_assert(nitem == 0, nitem, btree);
         cursize = _bnode_size(btree, node, new_minkey, NULL, NULL, 0);
     }
 
@@ -290,7 +291,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
         metasize = meta->size;
 
         // new meta size cannot be larger than old meta size
-        assert(metasize <= old_metasize);
+        fdb_assert(metasize <= old_metasize, metasize, old_metasize);
         (void)metasize;
 
         // overwrite
@@ -612,7 +613,7 @@ btree_result btree_get_key_range(
     struct bnode *root, *node;
     uint64_t _num, _den, _nentry, resolution, mask, _idx_begin, _idx_end;
 
-    assert(num < den);
+    fdb_assert(num < den, num, den);
     resolution = 1<<4; mask = resolution-1;
 
     if (btree->kv_ops->init_kv_var) btree->kv_ops->init_kv_var(btree, k, v);

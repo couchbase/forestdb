@@ -549,7 +549,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     struct hash_elem *ret;
                     spin_unlock(&file->lock);
                     ret = hash_remove(&hash, &file->e);
-                    assert(ret);
+                    fdb_assert(ret, 0, 0);
                     _filemgr_free_func(&file->e);
                     if (!create) {
                         _log_errno_str(ops, log_callback,
@@ -1007,7 +1007,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             // we can release lock becuase no one will open this file
             spin_unlock(&file->lock);
             struct hash_elem *ret = hash_remove(&hash, &file->e);
-            assert(ret);
+            fdb_assert(ret, 0, 0);
             spin_unlock(&filemgr_openlock);
             _filemgr_free_func(&file->e);
             return (fdb_status) rv;
@@ -1030,7 +1030,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 spin_unlock(&file->lock);
                 // Clean up global hash table, WAL index, and buffer cache.
                 struct hash_elem *ret = hash_remove(&hash, &file->e);
-                assert(ret);
+                fdb_assert(ret, file, 0);
                 spin_unlock(&filemgr_openlock);
                 _filemgr_free_func(&file->e);
                 return (fdb_status) rv;
@@ -1142,13 +1142,13 @@ void filemgr_remove_file(struct filemgr *file)
 {
     struct hash_elem *ret;
 
-    assert(file);
-    assert(file->ref_count <= 0);
+    fdb_assert(file, file, NULL);
+    fdb_assert(file->ref_count <= 0, file->ref_count, 0);
 
     // remove from global hash table
     spin_lock(&filemgr_openlock);
     ret = hash_remove(&hash, &file->e);
-    assert(ret);
+    fdb_assert(ret, ret, NULL);
     spin_unlock(&filemgr_openlock);
 
     _filemgr_free_func(&file->e);
@@ -1270,7 +1270,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
     ssize_t r;
     uint64_t pos = bid * file->blocksize;
     fdb_status status = FDB_RESULT_SUCCESS;
-    assert(pos < file->pos.val);
+    fdb_assert(pos < file->pos.val, pos, file->pos.val);
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
@@ -1380,12 +1380,12 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                                 uint64_t offset, uint64_t len, void *buf,
                                 err_log_callback *log_callback)
 {
-    assert(offset + len <= file->blocksize);
+    fdb_assert(offset + len <= file->blocksize, offset + len, file);
 
     size_t lock_no;
     ssize_t r = 0;
     uint64_t pos = bid * file->blocksize + offset;
-    assert(pos >= file->last_commit.val);
+    fdb_assert(pos >= file->last_commit.val, pos, file->last_commit.val);
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
@@ -1635,7 +1635,7 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
             file->old_filename = old_filename;
         } else {
             ret = 0;
-            assert(file->ref_count);
+            fdb_assert(file->ref_count, file->ref_count, 0);
             free(old_filename);
         }
     }
@@ -1688,8 +1688,8 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     uint16_t new_filename_len;
     char *past_filename;
     spin_lock(&very_old_file->lock);
-    assert(very_old_file->header.size);
-    assert(very_old_file->new_file);
+    fdb_assert(very_old_file->header.size, very_old_file->header.size, 0);
+    fdb_assert(very_old_file->new_file, very_old_file->new_file, 0);
     old_header_len = very_old_file->header.size;
     new_filename_len = strlen(new_file->filename);
     // Find out the new DB header length with new_file's filename
@@ -1713,7 +1713,7 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
 
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
 {
-    assert(new_file);
+    fdb_assert(new_file, new_file, old_file);
 
     spin_lock(&old_file->lock);
     if (old_file->ref_count > 0) {
@@ -1791,7 +1791,7 @@ fdb_status filemgr_destroy_file(char *filename,
 
         // Cleanup file from in-memory as well as on-disk
         e = hash_remove(&hash, &file->e);
-        assert(e);
+        fdb_assert(e, e, 0);
         _filemgr_free_func(&file->e);
         if (filemgr_does_file_exist(filename) == FDB_RESULT_SUCCESS) {
             if (remove(filename)) {
@@ -2311,4 +2311,3 @@ void buf2buf(size_t chunksize_src, void *buf_src,
                buf_src, chunksize_src);
     }
 }
-

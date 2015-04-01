@@ -22,6 +22,7 @@
 
 #include "libforestdb/fdb_types.h"
 #include "common.h"
+#include "avltree.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -278,6 +279,9 @@ struct _fdb_kvs_handle {
      * List element that will be inserted into 'handles' list in the root handle.
      */
     struct kvs_opened_node *node;
+#ifdef _TRACE_HANDLES
+    struct avl_node avl_trace;
+#endif
 };
 
 struct hbtrie_iterator;

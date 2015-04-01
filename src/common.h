@@ -88,4 +88,11 @@ enum{
 
 #define random_custom(prev, num) (prev) = ((prev)+811)&((num)-1)
 
+#define fdb_assert(cond, val, expected) do {if(!(cond)) \
+       _fdb_assert(__func__, __LINE__, __FILE__, \
+                  (uint64_t)(val), (uint64_t)(expected));} while(0);
+
+void _fdb_assert(const char *func, int line,
+                 const char *file, uint64_t val, uint64_t expected);
+
 #endif

@@ -102,6 +102,7 @@ void e2e_fdb_set_person(storage_t *st, person_t *p);
 void e2e_fdb_del_person(storage_t *st, person_t *p);
 void e2e_fdb_cancel_checkpoint(storage_t *st);
 void e2e_fdb_commit(fdb_file_handle* fhandle, bool walflush);
+void e2e_fdb_close(storage_t *st);
 void e2e_fdb_shutdown(storage_t *st);
 
 // checkpointing
@@ -120,6 +121,7 @@ void rm_storage_fs();
 // utility
 bool is_indexed(idx_prams_t *idxp, person_t *p);
 void save_tx(storage_t *st, void *key, size_t keylen, tx_type_t type);
+fdb_kvs_handle *scan(storage_t *st, fdb_kvs_handle *reuse_kv);
 
 #ifdef __cplusplus
 }
