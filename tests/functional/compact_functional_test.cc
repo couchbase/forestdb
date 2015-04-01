@@ -1857,6 +1857,206 @@ void compaction_with_concurrent_transaction_test()
     TEST_RESULT("compaction with concurrent transaction test");
 }
 
+struct cb_upt_args {
+    fdb_file_handle *file;
+    fdb_kvs_handle *handle;
+    fdb_kvs_handle *handle2;
+    int ndocs;
+    int nupdates;
+    int done;
+    int nmoves;
+};
+
+static int cb_upt(fdb_file_handle *fhandle,
+                  fdb_compaction_status status,
+                  fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
+                  void *ctx)
+{
+    TEST_INIT();
+    struct cb_upt_args *args = (struct cb_upt_args *)ctx;
+
+    if (status == FDB_CS_MOVE_DOC) {
+        int i, j;
+        int n = 10;
+        char keybuf[256], bodybuf[256];
+        char keystr[] = "new%04d";
+        char valuestr[] = "new_body%04d";
+        fdb_status s;
+
+        args->nmoves++;
+        if (args->nmoves > n/2 && !args->done) {
+            // insert new docs
+            for (i=0;i<n/2;++i){
+                sprintf(keybuf, keystr, i);
+                sprintf(bodybuf, valuestr, i);
+                s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                                             bodybuf, strlen(bodybuf)+1);
+                s = fdb_commit(args->file, FDB_COMMIT_NORMAL);
+
+                for (j=0; j<=i; ++j){
+                    void *v_out;
+                    size_t vlen_out;
+                    sprintf(keybuf, keystr, i);
+                    sprintf(bodybuf, valuestr, i);
+                    s = fdb_get_kv(args->handle2, keybuf, strlen(keybuf)+1,
+                        &v_out, &vlen_out);
+                    TEST_CHK(s == FDB_RESULT_SUCCESS);
+                    s = fdb_free_block(v_out);
+                }
+            }
+            args->done = 1;
+        }
+        if (args->nmoves > n && args->done == 1) {
+            // the first phase is done. insert new docs.
+            for (i=0;i<2;++i){
+                sprintf(keybuf, "xxx%d", i);
+                sprintf(bodybuf, "xxxvalue%d", i);
+                s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                                             bodybuf, strlen(bodybuf)+1);
+                s = fdb_commit(args->file, FDB_COMMIT_NORMAL);
+            }
+            args->done = 2;
+        }
+        if (args->nmoves == (n*3/2 + 2) && args->done == 2) {
+            // during the second-second phase,
+            // insert new docs, and do not commit.
+            for (i=0;i<2;++i){
+                sprintf(keybuf, "zzz%d", i);
+                sprintf(bodybuf, "zzzvalue%d", i);
+                s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+                                             bodybuf, strlen(bodybuf)+1);
+            }
+            args->done = 3;
+        }
+    }
+
+    return 0;
+}
+
+void compaction_with_concurrent_update_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile, *dbfile2, *dbfile3;
+    fdb_kvs_handle *db, *db2, *db3;
+    fdb_status s;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_kvs_info info;
+    fdb_seqnum_t seqnum;
+    struct cb_upt_args cb_args;
+    void *value;
+    size_t valuelen;
+
+    memset(&cb_args, 0x0, sizeof(struct cb_upt_args));
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_cb = cb_upt;
+    fconfig.compaction_cb_ctx = &cb_args;
+    fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                                 FDB_CS_END | FDB_CS_MOVE_DOC;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
+    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+
+    fdb_open(&dbfile2, "./compact_test1", &fconfig);
+    fdb_kvs_open(dbfile2, &db2, "db", &kvs_config);
+    fdb_open(&dbfile3, "./compact_test1", &fconfig);
+    fdb_kvs_open(dbfile3, &db3, "db", &kvs_config);
+
+    cb_args.file = dbfile2;
+    cb_args.handle = db2;
+    cb_args.handle2 = db3;
+
+    // write docs & commit
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%04d", i);
+        sprintf(bodybuf, "body%04d", i);
+        s = fdb_set_kv(db, keybuf, strlen(keybuf)+1,
+                           bodybuf, strlen(bodybuf)+1);
+    }
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    cb_args.ndocs = n;
+    cb_args.nupdates = 2;
+    cb_args.nmoves = 0;
+
+    s = fdb_compact(dbfile, "./compact_test2");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // insert new docs after compaction
+    for (i=n/2;i<n;++i){
+        sprintf(keybuf, "new%04d", i);
+        sprintf(bodybuf, "new_body%04d", i);
+        s = fdb_set_kv(db2, keybuf, strlen(keybuf)+1,
+                            bodybuf, strlen(bodybuf)+1);
+    }
+    // all interleaved docs should be retrieved
+    // 1. inserted during the first phase of the compaction
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "new%04d", i);
+        sprintf(bodybuf, "new_body%04d", i);
+        s = fdb_get_kv(db2, keybuf, strlen(keybuf)+1,
+                            &value, &valuelen);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CMP(value, bodybuf, valuelen);
+        s = fdb_free_block(value);
+    }
+    // 2. inserted during the second phase of the compaction
+    for (i=0; i<2; ++i) {
+        sprintf(keybuf, "xxx%d", i);
+        sprintf(bodybuf, "xxxvalue%d", i);
+        s = fdb_get_kv(db2, keybuf, strlen(keybuf)+1,
+                            &value, &valuelen);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CMP(value, bodybuf, valuelen);
+        s = fdb_free_block(value);
+
+        sprintf(keybuf, "zzz%d", i);
+        sprintf(bodybuf, "zzzvalue%d", i);
+        s = fdb_get_kv(db2, keybuf, strlen(keybuf)+1,
+                            &value, &valuelen);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CMP(value, bodybuf, valuelen);
+        s = fdb_free_block(value);
+    }
+
+    fdb_close(dbfile2);
+    fdb_close(dbfile3);
+
+    s = fdb_get_kvs_info(db, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    seqnum = info.last_seqnum;
+
+    cb_args.nmoves = 0;
+    s = fdb_compact(dbfile, "./compact_test3");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_get_kvs_info(db, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // No docs are inserted during the compaction.
+    // Seqnum should be same.
+    TEST_CHK(info.last_seqnum == seqnum);
+
+    // insert the last document
+    sprintf(keybuf, "last");
+    sprintf(bodybuf, "last_value");
+    s = fdb_set_kv(db, keybuf, strlen(keybuf)+1, bodybuf, strlen(bodybuf)+1);
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("compaction with concurrent update test");
+}
+
 void compact_upto_twice_test()
 {
     TEST_INIT();
@@ -2193,6 +2393,7 @@ int main(){
     db_compact_overwrite();
     db_compact_during_doc_delete(NULL);
     compaction_with_concurrent_transaction_test();
+    compaction_with_concurrent_update_test();
     auto_compaction_with_custom_cmp_function();
     compaction_daemon_test(20);
     auto_compaction_with_concurrent_insert_test(20);

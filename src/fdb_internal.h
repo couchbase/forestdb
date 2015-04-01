@@ -140,7 +140,8 @@ void fdb_kvs_header_read(struct filemgr *file,
                             uint64_t kv_info_offset);
 void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
-                         struct docio_handle *new_dhandle);
+                         struct docio_handle *new_dhandle,
+                         bool create_new);
 
 struct kvs_header;
 void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file);
