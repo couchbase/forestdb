@@ -622,7 +622,7 @@ void e2e_concurrent_scan_pattern(int n_checkpoints, int n_scanners, int n_writer
         printf("checkpoint: %d/%d\n", n, n_checkpoints);
 #endif
         // start writer threads
-        for (i=1;i<n_writers;++i){
+        for (i=0;i<n_writers;++i){
             thread_create(&tid_wr[i], writer_thread, (void*)st[i]);
         }
 
