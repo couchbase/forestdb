@@ -1391,10 +1391,31 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         lock_no = bid % DLOCK_MAX;
         (void)lock_no;
 
+        bool locked = false;
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+        plock_entry_t *plock_entry;
+        bid_t is_writer = 1;
+        plock_entry = plock_lock(&file->plock, &bid, &is_writer);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+        mutex_lock(&file->data_mutex[lock_no]);
+#else
+        spin_lock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+        locked = true;
+
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
             r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
             if (r != global_config.blocksize) {
+                if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                    plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                    mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                    spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "WRITE", file->filename);
                 return FDB_RESULT_WRITE_FAIL;
@@ -1407,27 +1428,12 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                 // write partially .. we have to read previous contents of the block
                 uint64_t cur_file_pos = file->ops->goto_eof(file->fd);
                 bid_t cur_file_last_bid = cur_file_pos / file->blocksize;
-                bool locked = false;
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                plock_entry_t *plock_entry;
-#endif
                 void *_buf = _filemgr_get_temp_buf();
 
                 if (bid >= cur_file_last_bid) {
                     // this is the first time to write this block
-                    // we don't need to read previous block from file
-                    // and also we don't need to grab lock
+                    // we don't need to read previous block from file.
                 } else {
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                    bid_t is_writer = 1;
-                    plock_entry = plock_lock(&file->plock, &bid, &is_writer);
-#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                    mutex_lock(&file->data_mutex[lock_no]);
-#else
-                    spin_lock(&file->data_spinlock[lock_no]);
-#endif //__FILEMGR_DATA_PARTIAL_LOCK
-                    locked = true;
-
                     r = file->ops->pread(file->fd, _buf, file->blocksize,
                                          bid * file->blocksize);
                     if (r != file->blocksize) {
@@ -1464,20 +1470,21 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     return FDB_RESULT_WRITE_FAIL;
                 }
 
-                if (locked) {
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                    plock_unlock(&file->plock, plock_entry);
-#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                    mutex_unlock(&file->data_mutex[lock_no]);
-#else
-                    spin_unlock(&file->data_spinlock[lock_no]);
-#endif //__FILEMGR_DATA_PARTIAL_LOCK
-                }
-
                 _filemgr_release_temp_buf(_buf);
-            }
+            } // cache miss
+        } // full block or partial block
+
+        if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+            plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+            mutex_unlock(&file->data_mutex[lock_no]);
+#else
+            spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
         }
-    } else {
+
+    } else { // block cache disabled
 
 #ifdef __CRC32
         if (len == file->blocksize) {
@@ -1496,7 +1503,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         if (r != len) {
             return FDB_RESULT_READ_FAIL;
         }
-    }
+    } // block cache check
     return FDB_RESULT_SUCCESS;
 }
 
