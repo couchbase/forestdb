@@ -139,16 +139,3 @@ const char* fdb_error_msg(fdb_status err_code)
             return "unknown error";
     }
 }
-
-
-void _fdb_assert(const char *func, int line,
-                 const char *file, uint64_t val, uint64_t expected) {
-     fprintf(stderr, "Assertion in %s: %p != %p in %d of file %s\n", func,
-            (void *)val, (void *)expected, line, file);
-#ifdef _TRACE_HANDLES
-# ifndef _UNIT_TESTS
-    _fdb_dump_handles();
-# endif
-#endif
-    assert(false);
-}

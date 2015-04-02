@@ -174,7 +174,6 @@ void fdb_kvs_set_seqnum(struct filemgr *file,
 
 fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum);
 
-void _fdb_dump_handles(void);
 #ifdef __cplusplus
 }
 #endif

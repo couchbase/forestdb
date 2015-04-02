@@ -43,5 +43,10 @@ int _dbg_is_sw_set(int n)
 {
     return _global_dbg_switch[n];
 }
+
+void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected) {
+     fprintf(stderr, "Assertion in %p != %p in %s:%d\n",
+            (void *)val, (void *)expected, file, line);
+}
 // LCOV_EXCL_STOP
 
