@@ -88,11 +88,25 @@ enum{
 
 #define random_custom(prev, num) (prev) = ((prev)+811)&((num)-1)
 
-#define fdb_assert(cond, val, expected) do {if(!(cond)) \
-       _fdb_assert(__func__, __LINE__, __FILE__, \
-                  (uint64_t)(val), (uint64_t)(expected));} while(0);
+void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected);
 
-void _fdb_assert(const char *func, int line,
-                 const char *file, uint64_t val, uint64_t expected);
-
+#ifdef _TRACE_HANDLES
+# ifndef _UNIT_TESTS
+void _fdb_dump_handles(void);
+#  define fdb_assert(cond, val, expected)\
+   if (!(cond)) { \
+     _dbg_assert(__LINE__, __FILE__, (uint64_t)(val), (uint64_t)(expected));\
+     _fdb_dump_handles();\
+     assert(cond);\
+   }
+# else // !_UNIT_TESTS
+#   define fdb_assert(cond, val, expected) assert(cond)
+# endif // !_UNIT_TESTS
+#else // if !_TRACE_HANDLES
+#  define fdb_assert(cond, val, expected)\
+   if (!(cond)) { \
+     _dbg_assert(__LINE__, __FILE__, (uint64_t)(val), (uint64_t)(expected));\
+     assert(cond);\
+   }
+#endif // _TRACE_HANDLES
 #endif

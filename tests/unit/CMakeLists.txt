@@ -17,10 +17,8 @@ add_executable(bcache_test
                ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
-               ${ROOT_SRC}/fdb_errors.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
-               ${ROOT_SRC}/fdb_errors.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
                ${GETTIMEOFDAY_VS}
                ${ROOT_SRC}/hash.cc
@@ -47,7 +45,6 @@ add_executable(filemgr_test
                ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
-               ${ROOT_SRC}/fdb_errors.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -76,7 +73,6 @@ add_executable(btreeblock_test
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${ROOT_SRC}/fdb_errors.cc
                ${GETTIMEOFDAY_VS}
                ${ROOT_SRC}/hash.cc
                ${ROOT_SRC}/hash_functions.cc
@@ -97,7 +93,6 @@ add_executable(docio_test
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/docio.cc
-               ${ROOT_SRC}/fdb_errors.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -125,7 +120,6 @@ add_executable(hbtrie_test
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
                ${ROOT_SRC}/docio.cc
-               ${ROOT_SRC}/fdb_errors.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
