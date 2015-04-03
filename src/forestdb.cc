@@ -3104,6 +3104,7 @@ fdb_set_start:
                                    dirty_seqtree_root);
 
             wal_flushed = true;
+            btreeblk_reset_subblock_info(handle->bhandle);
         }
     }
 
@@ -3493,6 +3494,8 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
         if (wal_flushed) {
             wal_release_flushed_items(handle->file, &flush_items);
         }
+
+        btreeblk_reset_subblock_info(handle->bhandle);
 
         handle->dirty_updates = 0;
         filemgr_mutex_unlock(handle->file);

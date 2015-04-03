@@ -66,6 +66,7 @@ struct btreeblk_handle{
 
 struct btree_blk_ops *btreeblk_get_ops();
 void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nodesize);
+void btreeblk_reset_subblock_info(struct btreeblk_handle *handle);
 void btreeblk_free(struct btreeblk_handle *handle);
 void btreeblk_discard_blocks(struct btreeblk_handle *handle);
 fdb_status btreeblk_end(struct btreeblk_handle *handle);
