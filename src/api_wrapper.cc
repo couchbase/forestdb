@@ -25,6 +25,7 @@
 #include "internal_types.h"
 #include "btree_var_kv_ops.h"
 #include "hbtrie.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -55,10 +56,13 @@ fdb_status fdb_get_kv(fdb_kvs_handle *handle,
     }
 
     fs = fdb_doc_create(&doc, key, keylen, NULL, 0, NULL, 0);
-    if (fs != FDB_RESULT_SUCCESS) {
-        if (doc) { // LCOV_EXCL_START
+    if (fs != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+        if (doc) {
             fdb_doc_free(doc);
         }
+        fdb_log(&handle->log_callback, fs,
+                "Warning: Failed to allocate fdb_doc instance for key '%s' in "
+                "fdb_get_kv API.", (const char *)key);
         return fs;
     } // LCOV_EXCL_STOP
 
@@ -94,10 +98,13 @@ fdb_status fdb_set_kv(fdb_kvs_handle *handle,
     }
 
     fs = fdb_doc_create(&doc, key, keylen, NULL, 0, value, valuelen);
-    if (fs != FDB_RESULT_SUCCESS) {
-        if (doc) { // LCOV_EXCL_START
+    if (fs != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+        if (doc) {
             fdb_doc_free(doc);
         }
+        fdb_log(&handle->log_callback, fs,
+                "Warning: Failed to allocate fdb_doc instance for key '%s' in "
+                "fdb_set_kv API.", (const char *)key);
         return fs;
     } // LCOV_EXCL_STOP
 
@@ -127,10 +134,13 @@ fdb_status fdb_del_kv(fdb_kvs_handle *handle,
     }
 
     fs = fdb_doc_create(&doc, key, keylen, NULL, 0, NULL, 0);
-    if (fs != FDB_RESULT_SUCCESS) {
-        if (doc) { // LCOV_EXCL_START
+    if (fs != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+        if (doc) {
             fdb_doc_free(doc);
         }
+        fdb_log(&handle->log_callback, fs,
+                "Warning: Failed to allocate fdb_doc instance for key '%s' in "
+                "fdb_del_kv API.", (const char *)key);
         return fs;
     } // LCOV_EXCL_STOP
 
