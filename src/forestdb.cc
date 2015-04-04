@@ -1216,7 +1216,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     if (filename_mode == FDB_VFILENAME) {
         compactor_get_actual_filename(filename, actual_filename,
-                                      config->compaction_mode);
+                                      config->compaction_mode, &handle->log_callback);
     } else {
         strcpy(actual_filename, filename);
     }
@@ -1660,7 +1660,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
         config->compaction_mode == FDB_COMPACTION_AUTO) {
         status = compactor_register_file(handle->file, (fdb_config *)config,
-                                         handle->fhandle->cmp_func_list);
+                                         handle->fhandle->cmp_func_list,
+                                         &handle->log_callback);
     }
 
 #ifdef _TRACE_HANDLES
@@ -2108,7 +2109,8 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             if (!(config.flags & FDB_OPEN_FLAG_RDONLY) &&
                 config.compaction_mode == FDB_COMPACTION_AUTO) {
                 fs = compactor_register_file(handle->file, &config,
-                                             handle->fhandle->cmp_func_list);
+                                             handle->fhandle->cmp_func_list,
+                                             &handle->log_callback);
             }
 
         } else {
@@ -3575,7 +3577,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     }
     wal_release_keystr_files(new_file);
 
-    compactor_switch_file(old_file, new_file);
+    compactor_switch_file(old_file, new_file, &handle->log_callback);
     do { // Find all files pointing to old_file and redirect them to new file..
         very_old_file = filemgr_search_stale_links(old_file);
         if (very_old_file) {

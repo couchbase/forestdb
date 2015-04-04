@@ -389,6 +389,9 @@ void * compactor_thread(void *voidargs)
                     spin_lock(&cpt_lock);
                     compactor_status = CPT_IDLE;
                 } else {
+                    fdb_log(&fhandle->root->log_callback, fs,
+                            "Failed to open the file '%s' for auto daemon "
+                            "compaction.\n", vfilename);
                     // fail to open file
                     spin_lock(&cpt_lock);
                     compactor_status = CPT_IDLE;
@@ -507,11 +510,13 @@ void compactor_shutdown()
 }
 
 static fdb_status _compactor_store_metafile(char *metafile,
-                                            struct compactor_meta *metadata);
+                                            struct compactor_meta *metadata,
+                                            err_log_callback *log_callback);
 
 fdb_status compactor_register_file(struct filemgr *file,
                                    fdb_config *config,
-                                   struct list *cmp_func_list)
+                                   struct list *cmp_func_list,
+                                   err_log_callback *log_callback)
 {
     file_status_t fstatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -547,7 +552,7 @@ fdb_status compactor_register_file(struct filemgr *file,
         // store in metafile
         _compactor_convert_dbfile_to_metafile(file->filename, path);
         _strcpy_fname(meta.filename, file->filename);
-        fs = _compactor_store_metafile(path, &meta);
+        fs = _compactor_store_metafile(path, &meta, log_callback);
     } else {
         // already exists
         elem = _get_entry(a, struct openfiles_elem, avl);
@@ -600,7 +605,8 @@ void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
 }
 
 struct compactor_meta * _compactor_read_metafile(char *metafile,
-                                                 struct compactor_meta *metadata)
+                                                 struct compactor_meta *metadata,
+                                                 err_log_callback *log_callback)
 {
     int fd_meta, fd_db;
     ssize_t ret;
@@ -617,7 +623,18 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
         // metafile exists .. read metadata
         ret = ops->pread(fd_meta, buf, sizeof(struct compactor_meta), 0);
         if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
-            ops->close(fd_meta);
+            char errno_msg[512];
+            ops->get_errno_str(errno_msg, 512);
+            fdb_log(log_callback, (fdb_status) ret,
+                    "Failed to read the meta file '%s', errno_message: %s\n",
+                    metafile, errno_msg);
+            ret = ops->close(fd_meta);
+            if (ret < 0) {
+                ops->get_errno_str(errno_msg, 512);
+                fdb_log(log_callback, (fdb_status) ret,
+                        "Failed to close the meta file '%s', errno_message: %s\n",
+                        metafile, errno_msg);
+            }
             return NULL;
         }
         memcpy(&meta, buf, sizeof(struct compactor_meta));
@@ -628,6 +645,8 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
         // CRC check
         crc = chksum(buf, sizeof(struct compactor_meta) - sizeof(crc));
         if (crc != meta.crc) {
+            fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
+                    "Checksum mismatch in the meta file '%s'\n", metafile);
             return NULL;
         }
         // check if the file exists
@@ -648,7 +667,8 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
 }
 
 static fdb_status _compactor_store_metafile(char *metafile,
-                                            struct compactor_meta *metadata)
+                                            struct compactor_meta *metadata,
+                                            err_log_callback *log_callback)
 {
     int fd_meta;
     ssize_t ret;
@@ -665,12 +685,26 @@ static fdb_status _compactor_store_metafile(char *metafile,
         crc = chksum((void*)&meta, sizeof(struct compactor_meta) - sizeof(crc));
         meta.crc = _endian_encode(crc);
 
+        char errno_msg[512];
         ret = ops->pwrite(fd_meta, &meta, sizeof(struct compactor_meta), 0);
-        ops->fsync(fd_meta);
-        ops->close(fd_meta);
         if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
+            ops->get_errno_str(errno_msg, 512);
+            fdb_log(log_callback, (fdb_status) ret,
+                    "Failed to perform a write in the meta file '%s', "
+                    "errno_message: %s\n", metafile, errno_msg);
+            ops->close(fd_meta);
             return FDB_RESULT_WRITE_FAIL;
         }
+        ret = ops->fsync(fd_meta);
+        if (ret < 0) {
+            ops->get_errno_str(errno_msg, 512);
+            fdb_log(log_callback, (fdb_status) ret,
+                    "Failed to perform a sync in the meta file '%s', "
+                    "errno_message: %s\n", metafile, errno_msg);
+            ops->close(fd_meta);
+            return FDB_RESULT_FSYNC_FAIL;
+        }
+        ops->close(fd_meta);
     } else {
         return FDB_RESULT_OPEN_FAIL;
     }
@@ -678,7 +712,8 @@ static fdb_status _compactor_store_metafile(char *metafile,
     return FDB_RESULT_SUCCESS;
 }
 
-void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file)
+void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
+                           err_log_callback *log_callback)
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
@@ -701,7 +736,7 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file)
         if (elem->config.compaction_mode == FDB_COMPACTION_AUTO) {
             _compactor_convert_dbfile_to_metafile(new_file->filename, metafile);
             _strcpy_fname(meta.filename, new_file->filename);
-            _compactor_store_metafile(metafile, &meta);
+            _compactor_store_metafile(metafile, &meta, log_callback);
         }
         spin_unlock(&cpt_lock);
 
@@ -724,7 +759,8 @@ void compactor_get_virtual_filename(const char *filename,
 
 fdb_status compactor_get_actual_filename(const char *filename,
                                          char *actual_filename,
-                                         fdb_compaction_mode_t comp_mode)
+                                         fdb_compaction_mode_t comp_mode,
+                                         err_log_callback *log_callback)
 {
     int i;
     int filename_len;
@@ -738,7 +774,7 @@ fdb_status compactor_get_actual_filename(const char *filename,
 
     // get actual filename from metafile
     sprintf(path, "%s.meta", filename);
-    meta_ptr = _compactor_read_metafile(path, &meta);
+    meta_ptr = _compactor_read_metafile(path, &meta, log_callback);
 
     if (meta_ptr == NULL) {
         if (comp_mode == FDB_COMPACTION_MANUAL && does_file_exist(filename)) {
