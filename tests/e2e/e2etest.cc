@@ -91,7 +91,7 @@ void delete_persons(storage_t *st)
  * delete old docs that are part of new index
  * so that they are not included at verification time
  */
-void update_index(storage_t *st){
+void update_index(storage_t *st, bool checkpointing){
 
     TEST_INIT();
 
@@ -108,7 +108,9 @@ void update_index(storage_t *st){
     // change storage index range
     reset_storage_index(st);
 
-    start_checkpoint(st);
+    if (checkpointing){
+        start_checkpoint(st);
+    }
     status = fdb_iterator_init(st->index1, &it, mink, 12,
                                maxk, 12, FDB_ITR_NO_DELETES);
     if (status != FDB_RESULT_SUCCESS){
@@ -116,22 +118,27 @@ void update_index(storage_t *st){
         TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
     }
 
+
+
     do {
         status = fdb_iterator_get(it, &rdoc);
         if (status == FDB_RESULT_SUCCESS){
             status = fdb_get_kv(st->all_docs,
                                 rdoc->body, rdoc->bodylen,
                                 (void **)&p, &vallen);
-            TEST_CHK(status == FDB_RESULT_SUCCESS);
-            if(strcmp(p->keyspace, st->keyspace) == 0){
-                e2e_fdb_del_person(st, p);
-                n++;
+            if(status == FDB_RESULT_SUCCESS){
+                if(strcmp(p->keyspace, st->keyspace) == 0){
+                    e2e_fdb_del_person(st, p);
+                    n++;
+                }
             }
             free(p);
             p=NULL;
         }
     } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
-    end_checkpoint(st);
+    if (checkpointing){
+        end_checkpoint(st);
+    }
 
     fdb_iterator_close(it);
     fdb_doc_free(rdoc);
@@ -358,7 +365,7 @@ void replay(storage_t *st)
     // seek to end so we can reverse iterate
     // seq iterators cannot seek
     do {
-       ;
+        ;
     } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
 
 
@@ -413,6 +420,66 @@ void replay(storage_t *st)
     fdb_iterator_close(it);
     fdb_close(dbfile);
 
+}
+
+/* do forward previous and seek operations on main kv */
+void *iterate_thread(void *args){
+
+    TEST_INIT();
+
+    int i, j;
+    fdb_config *fconfig = (fdb_config *)args;
+    fdb_file_handle *dbfile;
+    fdb_iterator *it;
+    fdb_doc *rdoc = NULL;
+    fdb_open(&dbfile, E2EDB_MAIN, fconfig);
+    fdb_kvs_handle *all_docs, *snap_db;
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_status status;
+    person_t p;
+
+    for (i=0; i<50; i++) {
+        fdb_kvs_open(dbfile, &all_docs, E2EKV_ALLDOCS,  &kvs_config);
+
+        if ((i%2)==0) { //snapshot
+            status = fdb_snapshot_open(all_docs, &snap_db, FDB_SNAPSHOT_INMEM);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_iterator_init(snap_db, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            status = fdb_iterator_init(all_docs, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+        // foward
+        do {
+            status = fdb_iterator_get(it, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+        // reverse and seek ahead
+        for (j = 0; j < 10; j++) {
+            while (fdb_iterator_prev(it) != FDB_RESULT_ITERATOR_FAIL){
+                status = fdb_iterator_get(it, &rdoc);
+                TEST_CHK(status == FDB_RESULT_SUCCESS);
+            }
+            gen_person(&p);
+
+            // seek using random person key
+            if (j%2==0) { // seek higher
+                fdb_iterator_seek(it, p.key, strlen(p.key), FDB_ITR_SEEK_HIGHER);
+            } else {
+                fdb_iterator_seek(it, p.key, strlen(p.key), FDB_ITR_SEEK_LOWER);
+            }
+        }
+        fdb_iterator_close(it);
+        if ((i%2)==0) {
+            fdb_kvs_close(snap_db);
+        }
+        fdb_kvs_close(all_docs);
+    }
+
+    fdb_doc_free(rdoc);
+    fdb_close(dbfile);
+    return NULL;
 }
 
 void *compact_thread(void *args){
@@ -480,7 +547,7 @@ void e2e_async_compact_pattern(int n_checkpoints, fdb_config fconfig, bool delet
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             status = fdb_snapshot_open(st->all_docs, &snap_db, info.last_seqnum);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            update_index(st);
+            update_index(st, true);
             verify_db(st);
             fdb_kvs_close(snap_db);
         }
@@ -537,7 +604,7 @@ void e2e_kvs_index_pattern(int n_checkpoints, fdb_config fconfig, bool deletes, 
         end_checkpoint(st);
 
         // change index range
-        update_index(st);
+        update_index(st, true);
         verify_db(st);
 
     }
@@ -580,6 +647,95 @@ void *writer_thread(void *args){
     return NULL;
 }
 
+
+/*
+ * perform many fdb features against concurrent handlers
+ * to verify robustness of db.  this pattern is qualified by
+ * completion without faults data corrections and has relaxed error handling.
+ */
+void e2e_robust_pattern(fdb_config fconfig)
+{
+
+    int n, i;
+    int n_writers = 10;
+    int n_scanners = 10;
+    storage_t **st = alca(storage_t *, n_writers);
+    storage_t **st2 = alca(storage_t *, n_writers);
+    checkpoint_t *verification_checkpoint = alca(checkpoint_t, n_writers);
+    idx_prams_t *index_params = alca(idx_prams_t, n_writers);
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    thread_t *tid_sc = alca(thread_t, n_scanners);
+    void **thread_ret_sc = alca(void *, n_scanners);
+    thread_t *tid_wr = alca(thread_t, n_writers);
+    void **thread_ret_wr = alca(void *, n_writers);
+    fdb_kvs_handle **scan_kv = alca(fdb_kvs_handle *, n_scanners);
+    thread_t c_tid, i_tid;
+    void *c_ret, *i_ret;
+
+    memleak_start();
+
+    // init
+    rm_storage_fs();
+
+    // init storage handles
+    // the nth writer is commit handler
+    for (i=0;i<n_writers;++i) {
+        gen_index_params(&index_params[i]);
+        memset(&verification_checkpoint[i], 0, sizeof(checkpoint_t));
+        st[i] = init_storage(&fconfig, &fconfig, &kvs_config,
+                &index_params[i], &verification_checkpoint[i], true);
+        st2[i] = init_storage(&fconfig, &fconfig, &kvs_config,
+                &index_params[i], &verification_checkpoint[i], true);
+        memcpy(st2[i]->keyspace, st[i]->keyspace, KEYSPACE_LEN);
+    }
+
+    // load init data
+    for (i=0;i<100;++i) {
+        load_persons(st[0]);
+    }
+
+    thread_create(&c_tid, compact_thread, (void*)&fconfig);
+    thread_create(&i_tid, iterate_thread, (void*)&fconfig);
+    for (n=0;n<10;++n) {
+        // start writer threads
+        for (i=0;i<n_writers-1;++i) {
+            thread_create(&tid_wr[i], writer_thread, (void*)st[i]);
+        }
+
+        // start scanner threads
+        for (i=0;i<n_scanners;++i) {
+            scan_kv[i] = scan(st2[i], NULL);
+            thread_create(&tid_sc[i], scan_thread, (void*)scan_kv[i]);
+        }
+
+        e2e_fdb_commit(st[n_writers-1]->main, true);
+
+        // join scan threads
+        for (i=0;i<n_scanners;++i) {
+            thread_join(tid_sc[i], &thread_ret_sc[i]);
+            fdb_kvs_close(scan_kv[i]);
+        }
+
+        // join writer threads
+        for (i=0;i<n_writers-1;++i) {
+            thread_join(tid_wr[i], &thread_ret_wr[i]);
+            update_index(st[i], false);
+        }
+        e2e_fdb_commit(st[n_writers-1]->main, false);
+
+    }
+    thread_join(c_tid, &c_ret);
+    thread_join(i_tid, &i_ret);
+
+    for (i=0;i<n_writers;++i) {
+        // teardown
+        e2e_fdb_close(st2[i]);
+        e2e_fdb_close(st[i]);
+    }
+    fdb_shutdown();
+
+    memleak_end();
+}
 
 /*
  * concurrent scan pattern:
@@ -628,6 +784,7 @@ void e2e_concurrent_scan_pattern(int n_checkpoints, int n_scanners, int n_writer
     verify_db(st[0]);
 
     for (n=0;n<n_checkpoints;++n){
+
         // start writer threads
         for (i=0;i<n_writers;++i){
             start_checkpoint(st[i]);
@@ -651,7 +808,7 @@ void e2e_concurrent_scan_pattern(int n_checkpoints, int n_scanners, int n_writer
             thread_join(tid_wr[i], &thread_ret_wr[i]);
             end_checkpoint(st[i]);
             verify_db(st[i]);
-            update_index(st[i]);
+            update_index(st[i], true);
         }
 
     }
@@ -792,9 +949,29 @@ void e2e_concurrent_scan_test()
     TEST_RESULT("TEST: e2e concurrent scan");
 }
 
+void e2e_robust_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    randomize();
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_mode=FDB_COMPACTION_AUTO;
+    fconfig.durability_opt = FDB_DRB_ASYNC;
+
+    // test
+    e2e_robust_pattern(fconfig);
+
+    memleak_end();
+    TEST_RESULT("TEST: e2e robust test");
+}
+
 int main()
 {
 
+    e2e_robust_test();
     e2e_concurrent_scan_test();
     e2e_async_manual_compact_test();
     e2e_index_basic_test();

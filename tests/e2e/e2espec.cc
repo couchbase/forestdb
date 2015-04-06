@@ -543,15 +543,12 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
 
     // use snapshot based iterator
     status = fdb_snapshot_open(st->all_docs, &snap_all, chk->seqnum_all);
-    if(status != FDB_RESULT_SUCCESS){  print_n_markers(st, 3); } //TODO: rm debugging
     TEST_CHK (status == FDB_RESULT_SUCCESS);
 
     status = fdb_snapshot_open(st->index1, &snap_kv1, chk->seqnum_idx1);
-    if(status != FDB_RESULT_SUCCESS){  print_n_markers(st, 3); } //TODO: rm debugging
     TEST_CHK (status == FDB_RESULT_SUCCESS);
 
     status = fdb_snapshot_open(st->index2, &snap_kv2, chk->seqnum_idx2);
-    if(status != FDB_RESULT_SUCCESS){  print_n_markers(st, 3); } //TODO: rm debugging
     TEST_CHK (status == FDB_RESULT_SUCCESS);
 
     status = fdb_iterator_init(snap_kv1, &it, mink, 12,
@@ -570,18 +567,18 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
                                     rdoc->body, rdoc->bodylen,
                                     (void **)&p, &vallen);
                 if(status == FDB_RESULT_SUCCESS){
-                  if(strcmp(p->keyspace, st->keyspace) == 0){
-                      // key tracked by current st handle
-                      chk->num_indexed++;
+                    if(strcmp(p->keyspace, st->keyspace) == 0){
+                        // key tracked by current st handle
+                        chk->num_indexed++;
 
-                      // get from 2nd idx
-                      status = fdb_get(snap_kv2, rdoc);
-                      TEST_CHK (status == FDB_RESULT_SUCCESS);
-                      chk->sum_age_indexed+= *((int *)rdoc->body);
-                  }
+                        // get from 2nd idx
+                        status = fdb_get(snap_kv2, rdoc);
+                        TEST_CHK (status == FDB_RESULT_SUCCESS);
+                        chk->sum_age_indexed+= *((int *)rdoc->body);
+                    }
+                    free(p);
+                    p=NULL;
                 }
-                free(p);
-                p=NULL;
             }
 
         } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
