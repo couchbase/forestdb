@@ -217,7 +217,7 @@ static void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *li
         if (list == &file_lru && fs == FILE_COMPACT_OLD) {
             // insert compact old file always at the tail of LRU
             list_push_back(list, &fname->le);
-        }else{
+        } else {
             list_push_front(list, &fname->le);
         }
     }

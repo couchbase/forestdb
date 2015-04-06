@@ -170,6 +170,7 @@ fdb_status wal_close_kv_ins(struct filemgr *file,
                             fdb_kvs_id_t kv_id);
 
 size_t wal_get_size(struct filemgr *file);
+size_t wal_get_num_all_shards(struct filemgr *file);
 size_t wal_get_num_flushable(struct filemgr *file);
 size_t wal_get_num_docs(struct filemgr *file);
 size_t wal_get_num_deletes(struct filemgr *file);

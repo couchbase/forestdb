@@ -41,7 +41,7 @@ fdb_config get_default_config(void) {
     fconfig.durability_opt = FDB_DRB_NONE;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     // 4MB by default.
-    fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;
+    fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MINSIZE;
     // Clean up cache entries when a file is closed.
     fconfig.cleanup_cache_onclose = true;
     // Compress the body of documents using snappy.

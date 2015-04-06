@@ -1503,7 +1503,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     handle->dirty_updates = 0;
 
     if (handle->config.compaction_buf_maxsize == 0) {
-        handle->config.compaction_buf_maxsize = FDB_COMP_BUF_MAXSIZE;
+        handle->config.compaction_buf_maxsize = FDB_COMP_BUF_MINSIZE;
     }
 
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
@@ -3826,14 +3826,16 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                          bool got_lock)
 {
     uint8_t deleted;
-    uint64_t offset;
+    uint64_t window_size;
+    uint64_t offset, _offset;
     uint64_t old_offset, new_offset;
-    uint64_t *offset_array;
-    uint64_t n_moved_docs;
+    uint64_t *offset_array, *old_offset_array;
+    uint64_t n_moved_docs, n_buf, n_docs_in_wal;
+    uint64_t sum_docsize;
     size_t i, j, c, count;
     size_t offset_array_max;
     hbtrie_result hr;
-    struct docio_object doc[FDB_COMPACTION_BATCHSIZE];
+    struct docio_object *doc;
     struct hbtrie_iterator it;
     struct timeval tv;
     fdb_doc wal_doc;
@@ -3862,9 +3864,21 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     new_handle.dhandle = new_dhandle;
     new_handle.bhandle = new_bhandle;
 
-    offset_array_max =
-        handle->config.compaction_buf_maxsize / sizeof(uint64_t);
+    // 1/10 of the block cache size
+    // if block cache is disabled, set to the minimum size
+    window_size = handle->config.buffercache_size / 10;
+    if (window_size < FDB_COMP_BUF_MINSIZE) {
+        window_size = FDB_COMP_BUF_MINSIZE;
+    } else if (window_size > FDB_COMP_BUF_MAXSIZE) {
+        window_size = FDB_COMP_BUF_MAXSIZE;
+    }
+
+    offset_array_max = window_size / sizeof(uint64_t);
     offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
+
+    doc = (struct docio_object *)
+          malloc(sizeof(struct docio_object) * FDB_COMP_BATCHSIZE);
+    old_offset_array = (uint64_t*)malloc(sizeof(uint64_t) * FDB_COMP_BATCHSIZE);
     c = count = n_moved_docs = old_offset = new_offset = 0;
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
@@ -3876,6 +3890,8 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         if (fs != FDB_RESULT_SUCCESS) {
             hbtrie_iterator_free(&it);
             free(offset_array);
+            free(old_offset_array);
+            free(doc);
             return fs;
         }
         offset = _endian_decode(offset);
@@ -3894,49 +3910,68 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
             // quick sort
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
 
-            for (i=0; i<c; i+=FDB_COMPACTION_BATCHSIZE) {
-                for(j=i; j<MIN(c, i+FDB_COMPACTION_BATCHSIZE); ++j){
-                    offset = offset_array[j];
+            // 1) read all documents in offset_array, and
+            // 2) move them into the new file.
+            // 3) flush WAL periodically
+            n_moved_docs = n_docs_in_wal = i = 0;
+            do {
+                // === read docs from the old file ===
+                sum_docsize = n_buf = 0;
+                do {
+                    offset = offset_array[i++];
+                    memset(&doc[n_buf], 0x0, sizeof(struct docio_object));
 
-                    doc[j-i].key = NULL;
-                    doc[j-i].meta = NULL;
-                    doc[j-i].body = NULL;
-                    docio_read_doc(handle->dhandle, offset, &doc[j-i]);
-                }
+                    _offset = docio_read_doc(handle->dhandle, offset, &doc[n_buf]);
+                    if (_offset == offset) {
+                        // read fail, skip this doc
+                        continue;
+                    }
+                    old_offset_array[n_buf] = offset;
+                    sum_docsize += _fdb_get_docsize(doc[n_buf].length);
+                    n_buf++;
+                    // escape when
+                    // 1) sum of doc size exceeds the move unit, OR
+                    // 2) # docs exceeds the batch size, OR
+                    // 3) no more offset in the offset_array
+                } while (sum_docsize < FDB_COMP_MOVE_UNIT &&
+                         n_buf < FDB_COMP_BATCHSIZE       &&
+                         i < c);
 
+                // === write docs into the new file ===
                 if (!got_lock) {
                     filemgr_mutex_lock(new_file);
                 }
-                for(j=i; j<MIN(c, i+FDB_COMPACTION_BATCHSIZE); ++j){
+                for (j=0; j<n_buf; ++j) {
                     // compare timestamp
-                    deleted = doc[j-i].length.flag & DOCIO_DELETED;
+                    deleted = doc[j].length.flag & DOCIO_DELETED;
                     if (!deleted ||
-                        (cur_timestamp < doc[j-i].timestamp +
+                        (cur_timestamp < doc[j].timestamp +
                                          handle->config.purging_interval &&
                          deleted)) {
                         // re-write the document to new file when
                         // 1. the document is not deleted
                         // 2. the document is logically deleted but
                         //    its timestamp isn't overdue
-                        new_offset = docio_append_doc(new_dhandle, &doc[j-i],
+                        new_offset = docio_append_doc(new_dhandle, &doc[j],
                                                       deleted, 0);
-                        old_offset = offset_array[j];
+                        old_offset = old_offset_array[j];
 
-                        wal_doc.keylen = doc[j-i].length.keylen;
-                        wal_doc.metalen = doc[j-i].length.metalen;
-                        wal_doc.bodylen = doc[j-i].length.bodylen;
-                        wal_doc.key = doc[j-i].key;
-                        wal_doc.seqnum = doc[j-i].seqnum;
+                        wal_doc.keylen = doc[j].length.keylen;
+                        wal_doc.metalen = doc[j].length.metalen;
+                        wal_doc.bodylen = doc[j].length.bodylen;
+                        wal_doc.key = doc[j].key;
+                        wal_doc.seqnum = doc[j].seqnum;
 
-                        wal_doc.meta = doc[j-i].meta;
-                        wal_doc.body = doc[j-i].body;
-                        wal_doc.size_ondisk= _fdb_get_docsize(doc[j-i].length);
+                        wal_doc.meta = doc[j].meta;
+                        wal_doc.body = doc[j].body;
+                        wal_doc.size_ondisk= _fdb_get_docsize(doc[j].length);
                         wal_doc.deleted = deleted;
                         wal_doc.offset = new_offset;
 
                         wal_insert(&new_file->global_txn,
                                    new_file, &wal_doc, new_offset, 1, 0);
                         n_moved_docs++;
+                        n_docs_in_wal++;
 
                         if (handle->config.compaction_cb &&
                             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
@@ -3952,56 +3987,66 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                             }
                         }
                     }
-                    free(doc[j-i].key);
-                    free(doc[j-i].meta);
-                    free(doc[j-i].body);
+                    free(doc[j].key);
+                    free(doc[j].meta);
+                    free(doc[j].body);
                 }
                 if (!got_lock) {
                     filemgr_mutex_unlock(new_file);
                 }
-            }
-
-            if (handle->config.compaction_cb &&
-                handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
-                handle->config.compaction_cb(handle->fhandle,
-                                             FDB_CS_BATCH_MOVE, NULL,
-                                             old_offset, new_offset,
-                                             handle->config.compaction_cb_ctx);
-            }
-            // reset to zero
-            c=0;
-            count++;
-
-            // wal flush
-            if (wal_get_num_flushable(new_file) > 0) {
-                struct avl_tree flush_items;
-                wal_flush_by_compactor(new_file, (void*)&new_handle,
-                                       _fdb_wal_flush_func,
-                                       _fdb_wal_get_old_offset,
-                                       &flush_items);
-                wal_set_dirty_status(new_file, FDB_WAL_PENDING);
-                wal_release_flushed_items(new_file, &flush_items);
-                n_moved_docs = 0;
-
                 if (handle->config.compaction_cb &&
-                    handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+                    handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
                     handle->config.compaction_cb(handle->fhandle,
-                                                 FDB_CS_FLUSH_WAL, NULL,
+                                                 FDB_CS_BATCH_MOVE, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
                 }
-            }
 
-            // If the rollback operation is issued, abort the compaction task.
-            if (filemgr_is_rollback_on(handle->file)) {
-                fs = FDB_RESULT_FAIL_BY_ROLLBACK;
-                break;
-            }
+                // === flush WAL entries by compactor ===
+                // flush WAL when
+                // 1) # docs in WAL exceeds the threshold, OR
+                // 2) there is no more offset in offset_array
+                if ( (n_docs_in_wal > FDB_COMP_WAL_FLUSH || i >= c)  &&
+                      wal_get_num_flushable(new_file) > 0 ) {
+
+                    struct avl_tree flush_items;
+                    wal_flush_by_compactor(new_file, (void*)&new_handle,
+                                           _fdb_wal_flush_func,
+                                           _fdb_wal_get_old_offset,
+                                           &flush_items);
+                    wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+                    wal_release_flushed_items(new_file, &flush_items);
+                    n_docs_in_wal = 0;
+
+                    if (handle->config.compaction_cb &&
+                        handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+                        handle->config.compaction_cb(handle->fhandle,
+                                                     FDB_CS_FLUSH_WAL, NULL,
+                                                     old_offset, new_offset,
+                                                     handle->config.compaction_cb_ctx);
+                    }
+                }
+
+                // If the rollback operation is issued, abort the compaction task.
+                if (filemgr_is_rollback_on(handle->file)) {
+                    fs = FDB_RESULT_FAIL_BY_ROLLBACK;
+                    break;
+                }
+
+                // repeat until no more offset in the offset_array
+            } while (i < c);
+            // reset offset_array
+            c = 0;
+        }
+        if (fs == FDB_RESULT_FAIL_BY_ROLLBACK) {
+            break;
         }
     }
 
     hbtrie_iterator_free(&it);
     free(offset_array);
+    free(old_offset_array);
+    free(doc);
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
