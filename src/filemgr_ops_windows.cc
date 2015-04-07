@@ -128,7 +128,7 @@ int _filemgr_win_close(int fd)
 cs_off_t _filemgr_win_goto_eof(int fd)
 {
 #ifdef _MSC_VER
-    cs_off_t rv = _lseek(fd, 0, SEEK_END);
+    cs_off_t rv = _lseeki64(fd, 0, SEEK_END);
     if (rv < 0) {
         return (cs_off_t) FDB_RESULT_SEEK_FAIL;
     }
