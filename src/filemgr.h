@@ -165,8 +165,6 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
 fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file);
 void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
 
-char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len);
-
 INLINE bid_t filemgr_get_header_bid(struct filemgr *file)
 {
     return ((file->header.size > 0) ? file->header.bid.val : BLK_NOT_FOUND);
