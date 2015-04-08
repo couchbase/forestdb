@@ -4489,6 +4489,14 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // mark name of new file in old file
     filemgr_set_compaction_state(handle->file, new_file, FILE_COMPACT_OLD);
 
+    // Note: Appending KVS header must be done after flushing WAL
+    //       because KVS stats info is updated during WAL flushing.
+    if (handle->kvs) {
+        // multi KV instance mode .. append up-to-date KV header
+        handle->kv_info_offset = fdb_kvs_header_append(handle->file,
+                                                       handle->dhandle);
+    }
+
     handle->last_hdr_bid = filemgr_get_pos(handle->file) / handle->file->blocksize;
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
 
