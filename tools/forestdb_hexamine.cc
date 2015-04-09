@@ -198,7 +198,7 @@ int process_file(struct input_option *opt)
         print_header(dbfile->root);
     }
     if (file_size > opt->max_filesize) {
-        printf("\n File %s size %" _F64" exceeds max size of %"_F64" \n",
+        printf("\n File %s size %" _F64" exceeds max size of %" _F64" \n",
                filename, file_size, opt->max_filesize);
         fdb_close(dbfile);
         return -1;
@@ -298,7 +298,7 @@ int parse_options(int argc, char **argv, struct input_option *opt)
             } else if (strncmp(argv[i], "--headers-only", 16) == 0) {
                 opt->headers_only = true;
             } else if (strncmp(argv[i], "--max-filesize", 16) == 0) {
-                sscanf(argv[++i], "%"_F64, &opt->max_filesize);
+                sscanf(argv[++i], "%" _F64, &opt->max_filesize);
             } else {
                 printf("\nUnknown option %s\n", argv[i]);
                 print_usage();
