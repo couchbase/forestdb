@@ -45,6 +45,7 @@
 #include "internal_types.h"
 #include "compactor.h"
 #include "memleak.h"
+#include "time_utils.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB
