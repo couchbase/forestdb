@@ -1,50 +1,282 @@
 add_executable(fdb_functional_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
                fdb_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(fdb_functional_test forestdb)
+target_link_libraries(fdb_functional_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES})
+set_target_properties(fdb_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(fdb_extended_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
                fdb_extended_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(fdb_extended_test forestdb)
+target_link_libraries(fdb_extended_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES})
+set_target_properties(fdb_extended_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(compact_functional_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
                compact_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(compact_functional_test forestdb)
+target_link_libraries(compact_functional_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES})
+set_target_properties(compact_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(iterator_functional_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
                iterator_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(iterator_functional_test forestdb)
+target_link_libraries(iterator_functional_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES})
+set_target_properties(iterator_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(mvcc_functional_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
                mvcc_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(mvcc_functional_test forestdb)
+target_link_libraries(mvcc_functional_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES})
+set_target_properties(mvcc_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(multi_kv_functional_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
                multi_kv_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(multi_kv_functional_test forestdb)
+target_link_libraries(multi_kv_functional_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES})
+set_target_properties(multi_kv_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(big_concurrency_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
                big_concurrency_test.cc
                ${ROOT_UTILS}/time_utils.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(big_concurrency_test forestdb)
+target_link_libraries(big_concurrency_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES})
+set_target_properties(big_concurrency_test PROPERTIES COMPILE_FLAGS
+                      "-D_FDB_TOOLS")
 
 # add test target
 add_test(fdb_functional_test fdb_functional_test)
