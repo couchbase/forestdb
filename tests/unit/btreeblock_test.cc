@@ -47,9 +47,9 @@ void basic_test()
     struct filemgr_config config;
     int i, r;
     uint64_t k,v;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./btreeblock_testfile";
 
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
@@ -57,7 +57,7 @@ void basic_test()
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
     config.num_wal_shards = 8;
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -142,7 +142,7 @@ void iterator_test()
     btree_result br;
     int i, r;
     uint64_t k,v;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./btreeblock_testfile";
 
     memset(&config, 0, sizeof(config));
     config.blocksize = blocksize;
@@ -150,7 +150,7 @@ void iterator_test()
     config.flag = 0x0;
     config.options = FILEMGR_CREATE;
     config.num_wal_shards = 8;
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -223,8 +223,8 @@ void two_btree_test()
     struct btree btree_a, btree_b;
     struct filemgr_config config;
     uint64_t k,v;
-    char *fname = (char *) "./dummy";
-    int r = system(SHELL_DEL" dummy");
+    char *fname = (char *) "./btreeblock_testfile";
+    int r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
     memset(&config, 0, sizeof(config));
@@ -270,7 +270,7 @@ void range_test()
     struct btree btree;
     struct filemgr_config fconfig;
     uint64_t key, value, key_end;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./btreeblock_testfile";
 
     memset(&fconfig, 0, sizeof(fconfig));
     fconfig.blocksize = blocksize;
@@ -278,7 +278,7 @@ void range_test()
     fconfig.options = FILEMGR_CREATE;
     fconfig.num_wal_shards = 8;
 
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -331,7 +331,7 @@ void subblock_test()
     int i, j, k, r, nbtrees;
     int nodesize;
     int blocksize = 4096;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./btreeblock_testfile";
     char keybuf[256], valuebuf[256], temp[256];
     filemgr_open_result result;
     btree_result br;
@@ -352,7 +352,7 @@ void subblock_test()
     ops = btree_kv_get_kb64_vb64(NULL);
 
     // btree initialization using large metadata test
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -413,7 +413,7 @@ void subblock_test()
     free(meta.data);
 
     // coverage: enlarge case 1-1
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -438,7 +438,7 @@ void subblock_test()
     filemgr_shutdown();
 
     // coverage: enlarge case 1-2, move case 1
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -465,7 +465,7 @@ void subblock_test()
 
     // coverage: enlarge case 1-1, 2-1, 2-2, 3-1
     nbtrees = 2;
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -495,7 +495,7 @@ void subblock_test()
 
     // coverage: enlarge case 1-2, 2-1, 3-1, move case 1, 2-1, 2-2
     nbtrees = 2;
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -528,7 +528,7 @@ void subblock_test()
 
     // coverage: enlarge case 1-1, 2-1, 3-2, move case 1, 2-1
     nbtrees = 7;
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -553,7 +553,7 @@ void subblock_test()
 
     // coverage: enlarge case 1-1, 1-2, 2-1, 3-2, move case 1, 2-1
     nbtrees = 7;
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
     result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
@@ -596,9 +596,9 @@ void btree_reverse_iterator_test()
     filemgr_open_result fr;
     uint64_t i;
     uint64_t k,v;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./btreeblock_testfile";
 
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
     memleak_start();

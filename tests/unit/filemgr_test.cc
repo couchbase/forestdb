@@ -39,15 +39,15 @@ void basic_test()
     config.options = FILEMGR_CREATE;
     config.num_wal_shards = 8;
 
-    filemgr_open_result result = filemgr_open((char *) "./dummy",
+    filemgr_open_result result = filemgr_open((char *) "./filemgr_testfile",
                                               get_filemgr_ops(), &config, NULL);
-    result = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    result = filemgr_open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1);
 
     filemgr_close(file, true, NULL, NULL);
-    result = filemgr_open((char *) "./dummy", get_filemgr_ops(), &config, NULL);
+    result = filemgr_open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     memcpy(buf, file->header.data, file->header.size);
@@ -69,7 +69,7 @@ void mt_init_test()
 
 int main()
 {
-    int r = system(SHELL_DEL" dummy");
+    int r = system(SHELL_DEL" filemgr_testfile");
     (void)r;
 
     basic_test();

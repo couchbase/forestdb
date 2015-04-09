@@ -47,8 +47,8 @@ void multi_version_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -59,7 +59,7 @@ void multi_version_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "multi_version_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -78,7 +78,7 @@ void multi_version_test()
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // open same db file using a new handle
-    fdb_open(&dbfile_new, "./dummy1", &fconfig);
+    fdb_open(&dbfile_new, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile_new, &db_new, &kvs_config);
     status = fdb_set_log_callback(db_new, logCallbackFunc, (void *) "multi_version_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -126,7 +126,7 @@ void multi_version_test()
     // close and re-open the new handle
     fdb_kvs_close(db_new);
     fdb_close(dbfile_new);
-    fdb_open(&dbfile_new, "./dummy1", &fconfig);
+    fdb_open(&dbfile_new, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile_new, &db_new, &kvs_config);
     status = fdb_set_log_callback(db_new, logCallbackFunc, (void *) "multi_version_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -182,8 +182,8 @@ void crash_recovery_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -194,7 +194,7 @@ void crash_recovery_test()
     fconfig.compaction_threshold = 0;
 
     // reopen db
-    fdb_open(&dbfile, "./dummy2", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test2", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
@@ -222,16 +222,16 @@ void crash_recovery_test()
 
     // Now append garbage at the end of the file for a few blocks
     r = system(
-       "dd if=/dev/zero bs=4096 of=./dummy2 oseek=3 count=2 >> errorlog.txt");
+       "dd if=/dev/zero bs=4096 of=./mvcc_test2 oseek=3 count=2 >> errorlog.txt");
     (void)r;
     // Write 1024 bytes of non-block aligned garbage to end of file
     r = system(
-       "dd if=/dev/zero bs=1024 of=./dummy2 oseek=20 count=1 >> errorlog.txt");
+       "dd if=/dev/zero bs=1024 of=./mvcc_test2 oseek=20 count=1 >> errorlog.txt");
     (void)r;
 
 
     // reopen the same file
-    fdb_open(&dbfile, "./dummy2", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test2", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
@@ -302,8 +302,8 @@ void snapshot_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -313,12 +313,12 @@ void snapshot_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // open db
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -488,7 +488,7 @@ void snapshot_test()
     }
 
     // 1. Open Database File
-    status = fdb_open(&dbfile, "./dummy2", &fconfig);
+    status = fdb_open(&dbfile, "./mvcc_test2", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // 2. Open KV Store
@@ -585,8 +585,8 @@ void snapshot_stats_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -596,12 +596,12 @@ void snapshot_stats_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // open db
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -691,8 +691,8 @@ void in_memory_snapshot_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -702,12 +702,12 @@ void in_memory_snapshot_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // open db
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -887,7 +887,7 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     fdb_iterator *fit, *fit_normal, *fit_clone;
     fdb_doc *doc;
 
-    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    sprintf(cmd, SHELL_DEL " mvcc_test* > errorlog.txt");
     r = system(cmd);
     (void)r;
 
@@ -905,7 +905,7 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
 
     kvs_config = fdb_get_default_kvs_config();
 
-    s = fdb_open(&db_file, "./dummy", &config);
+    s = fdb_open(&db_file, "./mvcc_test", &config);
     s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -1238,7 +1238,7 @@ void in_memory_snapshot_compaction_test()
     fdb_status s;
     struct cb_inmem_snap_args cargs;
 
-    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    sprintf(cmd, SHELL_DEL " mvcc_test* > errorlog.txt");
     r = system(cmd);
     (void)r;
 
@@ -1259,7 +1259,7 @@ void in_memory_snapshot_compaction_test()
 
     kvs_config = fdb_get_default_kvs_config();
 
-    s = fdb_open(&db_file, "./dummy", &config);
+    s = fdb_open(&db_file, "./mvcc_test", &config);
     s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -1286,7 +1286,7 @@ void in_memory_snapshot_compaction_test()
     s = fdb_commit(db_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    s = fdb_compact(db_file, "./dummy2");
+    s = fdb_compact(db_file, "./mvcc_test2");
 
     // open in-memory snapshot
     s = fdb_snapshot_open(db, &snap, FDB_SNAPSHOT_INMEM);
@@ -1368,8 +1368,8 @@ void snapshot_clone_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1379,12 +1379,12 @@ void snapshot_clone_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // open db
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -1633,12 +1633,12 @@ void snapshot_markers_in_file_test(bool multi_kv)
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     if (multi_kv) {
         for (r = 0; r < num_kvs; ++r) {
             sprintf(kv_name, "kv%d", r);
@@ -1777,14 +1777,14 @@ void rollback_forward_seqnum()
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc = NULL;
     fdb_status status;
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
     fdb_kvs_open(dbfile, &mirror_kv1, NULL, &kvs_config);
 
@@ -1876,8 +1876,8 @@ void rollback_test(bool multi_kv)
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1888,12 +1888,12 @@ void rollback_test(bool multi_kv)
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     if (multi_kv) {
         fdb_kvs_open_default(dbfile, &db, &kvs_config);
     } else {
@@ -1965,7 +1965,7 @@ void rollback_test(bool multi_kv)
     TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
 
     // Open another handle & begin transaction
-    fdb_open(&dbfile_txn, "./dummy1", &fconfig);
+    fdb_open(&dbfile_txn, "./mvcc_test1", &fconfig);
     if (multi_kv) {
         fdb_kvs_open_default(dbfile_txn, &db_txn, &kvs_config);
     } else {
@@ -2054,14 +2054,14 @@ void rollback_and_snapshot_test()
     fdb_kvs_handle *db,  *snapshot;
     int r;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // MB-12530 open db
     config = fdb_get_default_config();
     kvs_config = fdb_get_default_kvs_config();
-    status = fdb_open(&dbfile, "dummy", &config);
+    status = fdb_open(&dbfile, "mvcc_test", &config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2149,14 +2149,14 @@ void rollback_ncommits()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fdb_status status;
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
     fdb_kvs_open(dbfile, &kv2, NULL, &kvs_config);
 
@@ -2215,8 +2215,8 @@ void transaction_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2228,15 +2228,15 @@ void transaction_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "dummy1", &fconfig);
+    fdb_open(&dbfile, "mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "transaction_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // open db and begin transactions
-    fdb_open(&dbfile_txn1, "dummy1", &fconfig);
-    fdb_open(&dbfile_txn2, "dummy1", &fconfig);
+    fdb_open(&dbfile_txn1, "mvcc_test1", &fconfig);
+    fdb_open(&dbfile_txn2, "mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile_txn1, &db_txn1, &kvs_config);
     fdb_kvs_open_default(dbfile_txn2, &db_txn2, &kvs_config);
     fdb_begin_transaction(dbfile_txn1, FDB_ISOLATION_READ_COMMITTED);
@@ -2279,7 +2279,7 @@ void transaction_test()
     }
 
     // uncommitted docs can be read by the transaction that allows uncommitted reads.
-    fdb_open(&dbfile_txn3, "dummy1", &fconfig);
+    fdb_open(&dbfile_txn3, "mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile_txn3, &db_txn3, &kvs_config);
     fdb_begin_transaction(dbfile_txn3, FDB_ISOLATION_READ_UNCOMMITTED);
     for (i=0;i<n;++i){
@@ -2322,7 +2322,7 @@ void transaction_test()
 
     // close & re-open db file
     fdb_close(dbfile);
-    fdb_open(&dbfile, "dummy1", &fconfig);
+    fdb_open(&dbfile, "mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "transaction_test");
@@ -2454,7 +2454,7 @@ void transaction_test()
     fdb_doc_free(rdoc);
 
     // do compaction
-    fdb_compact(dbfile, "dummy2");
+    fdb_compact(dbfile, "mvcc_test2");
 
     // retrieve doc#5
     // using txn1
@@ -2492,7 +2492,7 @@ void transaction_test()
 
     // close & re-open db file
     fdb_close(dbfile);
-    fdb_open(&dbfile, "dummy2", &fconfig);
+    fdb_open(&dbfile, "mvcc_test2", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "transaction_test");
@@ -2547,8 +2547,8 @@ void transaction_simple_api_test()
 
     char keybuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2560,7 +2560,7 @@ void transaction_simple_api_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "transaction_simple_api_test");
@@ -2578,8 +2578,8 @@ void transaction_simple_api_test()
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
     // open db and begin transactions
-    fdb_open(&dbfile_txn1, "./dummy1", &fconfig);
-    fdb_open(&dbfile_txn2, "./dummy1", &fconfig);
+    fdb_open(&dbfile_txn1, "./mvcc_test1", &fconfig);
+    fdb_open(&dbfile_txn2, "./mvcc_test1", &fconfig);
     fdb_kvs_open_default(dbfile_txn1, &db_txn1, &kvs_config);
     fdb_kvs_open_default(dbfile_txn2, &db_txn2, &kvs_config);
     fdb_begin_transaction(dbfile_txn1, FDB_ISOLATION_READ_COMMITTED);
@@ -2690,14 +2690,14 @@ void rollback_prior_to_ops(bool walflush)
     fdb_doc *rdoc = NULL, *vdoc;
     fdb_status status;
 
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 10;
 
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
 
     if(walflush){
@@ -2927,12 +2927,12 @@ void snapshot_concurrent_compaction_test()
     fconfig.compaction_cb_mask = FDB_CS_BEGIN |
                                  FDB_CS_END;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
 
@@ -2953,7 +2953,7 @@ void snapshot_concurrent_compaction_test()
 
     _snapshot_check(db, cb_args.ndocs, cb_args.nupdates);
 
-    s = fdb_compact(dbfile, "./dummy2");
+    s = fdb_compact(dbfile, "./mvcc_test2");
 
     fdb_close(dbfile);
     fdb_shutdown();
@@ -2979,8 +2979,8 @@ void rollback_to_zero_test(bool multi_kv)
     char keybuf[256], metabuf[256], bodybuf[256];
     char kv_name[8];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2992,7 +2992,7 @@ void rollback_to_zero_test(bool multi_kv)
     fconfig.multi_kv_instances = multi_kv;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
 
     if (multi_kv) {
         for (r = 0; r < num_kvs; ++r) {
@@ -3137,14 +3137,14 @@ void auto_compaction_snapshots_test()
 
     int i, r;
 
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     // Open Database File
     config = fdb_get_default_config();
     config.compaction_mode=FDB_COMPACTION_AUTO;
     config.compactor_sleep_duration=1;
-    status = fdb_open(&file, "dummy1", &config);
+    status = fdb_open(&file, "mvcc_test1", &config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // Open KV Store

@@ -48,8 +48,8 @@ void iterator_test()
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -60,7 +60,7 @@ void iterator_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "iterator_test");
@@ -333,14 +333,14 @@ void iterator_with_concurrent_updates_test()
     fdb_status status;
     char keybuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     // open db1, db2, db3 on the same file
     fconfig = fdb_get_default_config();
     kvs_config = fdb_get_default_kvs_config();
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
 
     fdb_kvs_open_default(dbfile, &db1, &kvs_config);
     status = fdb_set_log_callback(db1, logCallbackFunc,
@@ -426,12 +426,12 @@ void iterator_compact_uncommitted_db()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
 
 
@@ -498,8 +498,8 @@ void iterator_seek_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -510,7 +510,7 @@ void iterator_seek_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "iterator_seek_test");
@@ -790,7 +790,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
     fdb_status s;
     uint64_t mask = 0x11111111111; //0x11111111111
 
-    sprintf(cmd, SHELL_DEL " dummy*");
+    sprintf(cmd, SHELL_DEL " iterator_test*");
     r = system(cmd);
     (void)r;
 
@@ -798,7 +798,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
 
     config = fdb_get_default_config();
     kvs_config = fdb_get_default_kvs_config();
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./iterator_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_kvs_open(dbfile, &db_prev, "prev KVS", &kvs_config);
@@ -1383,7 +1383,7 @@ void iterator_extreme_key_test()
     fdb_iterator *fit;
     fdb_status s;
 
-    sprintf(cmd, SHELL_DEL " dummy*");
+    sprintf(cmd, SHELL_DEL " iterator_test*");
     r = system(cmd);
     (void)r;
 
@@ -1391,7 +1391,7 @@ void iterator_extreme_key_test()
 
     config = fdb_get_default_config();
     kvs_config = fdb_get_default_kvs_config();
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./iterator_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1506,8 +1506,8 @@ void iterator_no_deletes_test()
     fdb_iterator *it;
     fdb_status status;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1517,7 +1517,7 @@ void iterator_no_deletes_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy", &fconfig);
+    fdb_open(&dbfile, "./iterator_test", &fconfig);
     fdb_kvs_open(dbfile, &kv, "all_docs",  &kvs_config);
 
     // insert docs to kv
@@ -1590,14 +1590,14 @@ void iterator_set_del_docs_test()
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *vdoc;
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 10;
 
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
 
     for(k=0;k<20;++k){
@@ -1675,8 +1675,8 @@ void iterator_del_next_test()
     rdoc->meta = metabuf;
     rdoc->body = bodybuf;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1687,7 +1687,7 @@ void iterator_del_next_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "kv1", &kvs_config);
 
     status = fdb_set_log_callback(db, logCallbackFunc,
@@ -1791,8 +1791,8 @@ void sequence_iterator_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1803,7 +1803,7 @@ void sequence_iterator_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "sequence_iterator_test");
@@ -2028,8 +2028,8 @@ void sequence_iterator_duplicate_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2039,7 +2039,7 @@ void sequence_iterator_duplicate_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "sequence_iterator_test");
@@ -2139,8 +2139,8 @@ void reverse_sequence_iterator_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2151,7 +2151,7 @@ void reverse_sequence_iterator_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "reverse_sequence_iterator_test");
@@ -2299,8 +2299,8 @@ void reverse_sequence_iterator_kvs_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2311,7 +2311,7 @@ void reverse_sequence_iterator_kvs_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &kv1, &kvs_config);
     status = fdb_set_log_callback(kv1, logCallbackFunc,
                                   (void *) "reverse_sequence_iterator_kvs_test");
@@ -2498,8 +2498,8 @@ void reverse_iterator_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2510,7 +2510,7 @@ void reverse_iterator_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "reverse_iterator_test");
@@ -2672,8 +2672,8 @@ void iterator_seek_wal_only_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -2684,7 +2684,7 @@ void iterator_seek_wal_only_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "iterator_seek_wal_only_test");
@@ -2927,12 +2927,12 @@ void iterator_after_wal_threshold()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
     fdb_kvs_open(dbfile, &db2, "db2", &kvs_config);
 
@@ -3004,12 +3004,12 @@ void iterator_manual_wal_flush()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
     fdb_kvs_open(dbfile, &db2, "db2", &kvs_config);
 
@@ -3119,12 +3119,12 @@ void iterator_concurrent_compaction()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
 
     // write docs
@@ -3135,10 +3135,10 @@ void iterator_concurrent_compaction()
     }
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
-    fdb_open(&dbfile2, "./dummy1", &fconfig);
+    fdb_open(&dbfile2, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile2, &db2, "db", &kvs_config);
 
-    fdb_compact(dbfile, "./dummy2");
+    fdb_compact(dbfile, "./iterator_test2");
 
     status = fdb_iterator_init(db2, &it_id, NULL, 0, NULL, 0, 0x0);
     status = fdb_iterator_sequence_init(db, &it_seq, 0, 0, 0x0);

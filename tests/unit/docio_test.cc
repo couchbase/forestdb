@@ -51,7 +51,7 @@ void basic_test()
     char bodybuf[4096];
     struct docio_object doc;
     struct filemgr_config config;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./docio_testfile";
 
     handle.log_callback = NULL;
 
@@ -64,7 +64,7 @@ void basic_test()
     config.ncacheblock = 1024;
     config.options = FILEMGR_CREATE;
     config.num_wal_shards = 8;
-    r = system(SHELL_DEL " dummy");
+    r = system(SHELL_DEL " docio_testfile");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;

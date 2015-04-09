@@ -98,12 +98,12 @@ void compaction_callback_test()
                                  FDB_CS_FLUSH_WAL |
                                  FDB_CS_END;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
 
@@ -114,7 +114,7 @@ void compaction_callback_test()
         s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
-    s = fdb_compact(dbfile, "./dummy2");
+    s = fdb_compact(dbfile, "./compact_test2");
 
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(cb_args.begin);
@@ -127,10 +127,10 @@ void compaction_callback_test()
     fconfig.compaction_cb_mask = FDB_CS_BEGIN |
                                  FDB_CS_FLUSH_WAL |
                                  FDB_CS_END;
-    fdb_open(&dbfile, "./dummy2", &fconfig);
+    fdb_open(&dbfile, "./compact_test2", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
-    s = fdb_compact(dbfile, "./dummy3");
+    s = fdb_compact(dbfile, "./compact_test3");
     TEST_CHK(cb_args.n_moved_docs == 0);
     TEST_CHK(cb_args.begin);
     TEST_CHK(cb_args.end);
@@ -142,10 +142,10 @@ void compaction_callback_test()
     fconfig.compaction_cb_mask = FDB_CS_BEGIN |
                                  FDB_CS_MOVE_DOC |
                                  FDB_CS_END;
-    fdb_open(&dbfile, "./dummy3", &fconfig);
+    fdb_open(&dbfile, "./compact_test3", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
-    s = fdb_compact(dbfile, "./dummy4");
+    s = fdb_compact(dbfile, "./compact_test4");
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(cb_args.begin);
     TEST_CHK(cb_args.end);
@@ -156,10 +156,10 @@ void compaction_callback_test()
     memset(&cb_args, 0x0, sizeof(struct cb_args));
     fconfig.compaction_cb_mask = FDB_CS_MOVE_DOC |
                                  FDB_CS_FLUSH_WAL;
-    fdb_open(&dbfile, "./dummy4", &fconfig);
+    fdb_open(&dbfile, "./compact_test4", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
-    s = fdb_compact(dbfile, "./dummy5");
+    s = fdb_compact(dbfile, "./compact_test5");
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(!cb_args.begin);
     TEST_CHK(!cb_args.end);
@@ -169,10 +169,10 @@ void compaction_callback_test()
     // open db with batch move
     memset(&cb_args, 0x0, sizeof(struct cb_args));
     fconfig.compaction_cb_mask = FDB_CS_BATCH_MOVE;
-    fdb_open(&dbfile, "./dummy5", &fconfig);
+    fdb_open(&dbfile, "./compact_test5", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
-    s = fdb_compact(dbfile, "./dummy6");
+    s = fdb_compact(dbfile, "./compact_test6");
     TEST_CHK(cb_args.n_moved_docs == 0);
     TEST_CHK(cb_args.n_batch_move && cb_args.n_batch_move < n);
     TEST_CHK(!cb_args.begin);
@@ -203,8 +203,8 @@ void compact_wo_reopen_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -215,12 +215,12 @@ void compact_wo_reopen_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_wo_reopen_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_open(&dbfile_new, "./dummy1", &fconfig);
+    fdb_open(&dbfile_new, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile_new, &db_new, &kvs_config);
     status = fdb_set_log_callback(db_new, logCallbackFunc,
                                   (void *) "compact_wo_reopen_test");
@@ -246,7 +246,7 @@ void compact_wo_reopen_test()
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // perform compaction using one handle
-    fdb_compact(dbfile, (char *) "./dummy2");
+    fdb_compact(dbfile, (char *) "./compact_test2");
 
     // retrieve documents using the other handle without close/re-open
     for (i=0;i<n;++i){
@@ -268,7 +268,7 @@ void compact_wo_reopen_test()
     // check the other handle's filename
     fdb_file_info info;
     fdb_get_file_info(dbfile_new, &info);
-    TEST_CHK(!strcmp("./dummy2", info.filename));
+    TEST_CHK(!strcmp("./compact_test2", info.filename));
 
     // free all documents
     for (i=0;i<n;++i){
@@ -305,8 +305,8 @@ void compact_with_reopen_test()
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -317,7 +317,7 @@ void compact_with_reopen_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
@@ -343,15 +343,15 @@ void compact_with_reopen_test()
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // perform compaction using one handle
-    fdb_compact(dbfile, (char *) "./dummy2");
+    fdb_compact(dbfile, (char *) "./compact_test2");
 
     // close db file
     fdb_kvs_close(db);
     fdb_close(dbfile);
 
-    r = system(SHELL_MOVE " dummy2 dummy1 > errorlog.txt");
+    r = system(SHELL_MOVE " compact_test2 compact_test1 > errorlog.txt");
     (void)r;
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
@@ -377,7 +377,7 @@ void compact_with_reopen_test()
     // check the other handle's filename
     fdb_file_info info;
     fdb_get_file_info(dbfile, &info);
-    TEST_CHK(!strcmp("./dummy1", info.filename));
+    TEST_CHK(!strcmp("./compact_test1", info.filename));
 
     // update documents
     for (i=0;i<n;++i){
@@ -391,7 +391,7 @@ void compact_with_reopen_test()
     // Open the database with another handle.
     fdb_file_handle *second_dbfile;
     fdb_kvs_handle *second_dbh;
-    fdb_open(&second_dbfile, "./dummy1", &fconfig);
+    fdb_open(&second_dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open_default(second_dbfile, &second_dbh, &kvs_config);
     status = fdb_set_log_callback(second_dbh, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
@@ -422,7 +422,7 @@ void compact_with_reopen_test()
     }
 
     // Open database with an original name.
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./compact_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -431,7 +431,7 @@ void compact_with_reopen_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_get_file_info(dbfile, &info);
     // The actual file name should be a compacted one.
-    TEST_CHK(!strcmp("./dummy1.3", info.filename));
+    TEST_CHK(!strcmp("./compact_test1.3", info.filename));
 
     fdb_kvs_close(second_dbh);
     fdb_close(second_dbfile);
@@ -451,9 +451,9 @@ void compact_with_reopen_test()
     fdb_kvs_close(db);
     fdb_close(dbfile);
 
-    r = system(SHELL_MOVE " dummy1 dummy.fdb > errorlog.txt");
+    r = system(SHELL_MOVE " compact_test1 compact_test.fdb > errorlog.txt");
     (void)r;
-    fdb_open(&dbfile, "./dummy.fdb", &fconfig);
+    fdb_open(&dbfile, "./compact_test.fdb", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compact_with_reopen_test");
@@ -463,7 +463,7 @@ void compact_with_reopen_test()
     fdb_kvs_close(db);
     fdb_close(dbfile);
     // Open database with an original name.
-    status = fdb_open(&dbfile, "./dummy.fdb", &fconfig);
+    status = fdb_open(&dbfile, "./compact_test.fdb", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -471,7 +471,7 @@ void compact_with_reopen_test()
                                   (void *) "compact_with_reopen_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_get_file_info(dbfile, &info);
-    TEST_CHK(!strcmp("./dummy.fdb", info.filename));
+    TEST_CHK(!strcmp("./compact_test.fdb", info.filename));
     TEST_CHK(info.doc_count == 100);
 
     // free all documents
@@ -507,8 +507,8 @@ void compact_reopen_named_kvs()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -518,7 +518,7 @@ void compact_reopen_named_kvs()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db",  &kvs_config);
 
     status = fdb_set_log_callback(db, logCallbackFunc,
@@ -549,7 +549,7 @@ void compact_reopen_named_kvs()
     fdb_close(dbfile);
 
     // reopen
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db",  &kvs_config);
 
     // verify kvs stats
@@ -590,8 +590,8 @@ void compact_reopen_with_iterator()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -601,7 +601,7 @@ void compact_reopen_with_iterator()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db",  &kvs_config);
 
     status = fdb_set_log_callback(db, logCallbackFunc,
@@ -621,9 +621,9 @@ void compact_reopen_with_iterator()
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
     // MB-13859: compact the file using a separate handle..
-    fdb_open(&compact_file, "./dummy1", &fconfig);
+    fdb_open(&compact_file, "./compact_test1", &fconfig);
     // compact
-    status = fdb_compact(compact_file, "./dummy2");
+    status = fdb_compact(compact_file, "./compact_test2");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     // close file after compaction to make the new_file's ref count 0
     fdb_close(compact_file);
@@ -660,7 +660,7 @@ void compact_reopen_with_iterator()
     fdb_close(dbfile);
 
     // reopen
-    fdb_open(&dbfile, "./dummy2", &fconfig);
+    fdb_open(&dbfile, "./compact_test2", &fconfig);
     fdb_kvs_open(dbfile, &db, "db",  &kvs_config);
 
     // verify kvs stats
@@ -711,12 +711,12 @@ void compact_upto_test(bool multi_kv)
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     if (multi_kv) {
         for (r = 0; r < num_kvs; ++r) {
             sprintf(kv_name, "kv%d", r);
@@ -802,7 +802,7 @@ void compact_upto_test(bool multi_kv)
             TEST_CHK(markers[r].kvs_markers[0].seqnum == (n - r*5));
         }
         r = 1; // Test compacting upto sequence number 15
-        sprintf(compact_filename, "dummy_compact%d", r);
+        sprintf(compact_filename, "compact_test_compact%d", r);
         status = fdb_compact_upto(dbfile, compact_filename,
                                   markers[r].marker);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -823,7 +823,7 @@ void compact_upto_test(bool multi_kv)
             }
         }
         i = r = 1;
-        sprintf(compact_filename, "dummy_compact%d", i);
+        sprintf(compact_filename, "compact_test_compact%d", i);
         status = fdb_compact_upto(dbfile, compact_filename,
                 markers[i].marker);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -874,8 +874,8 @@ void auto_recover_compact_ok_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL " compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -886,12 +886,12 @@ void auto_recover_compact_ok_test()
     fconfig.compaction_threshold = 0;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "auto_recover_compact_ok_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_open(&dbfile_new, "./dummy1", &fconfig);
+    fdb_open(&dbfile_new, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile_new, &db_new, &kvs_config);
     status = fdb_set_log_callback(db_new, logCallbackFunc,
                                   (void *) "auto_recover_compact_ok_test");
@@ -917,10 +917,10 @@ void auto_recover_compact_ok_test()
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // perform compaction using one handle
-    fdb_compact(dbfile, (char *) "./dummy2");
+    fdb_compact(dbfile, (char *) "./compact_test2");
 
     // save the old file after compaction is done ..
-    r = system(SHELL_COPY " dummy1 dummy11 > errorlog.txt");
+    r = system(SHELL_COPY " compact_test1 compact_test11 > errorlog.txt");
     (void)r;
 
     // now insert third doc: it should go to the newly compacted file.
@@ -941,12 +941,12 @@ void auto_recover_compact_ok_test()
     fdb_close(dbfile_new);
 
     // restore the old file after close is done ..
-    r = system(SHELL_MOVE " dummy11 dummy1 > errorlog.txt");
+    r = system(SHELL_MOVE " compact_test11 compact_test1 > errorlog.txt");
     (void)r;
 
     // now open the old saved compacted file, it should automatically recover
     // and use the new file since compaction was done successfully
-    fdb_open(&dbfile_new, "./dummy1", &fconfig);
+    fdb_open(&dbfile_new, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile_new, &db_new, &kvs_config);
     status = fdb_set_log_callback(db_new, logCallbackFunc,
                                   (void *) "auto_recover_compact_ok_test");
@@ -972,7 +972,7 @@ void auto_recover_compact_ok_test()
     // check this handle's filename it should point to newly compacted file
     fdb_file_info info;
     fdb_get_file_info(dbfile_new, &info);
-    TEST_CHK(!strcmp("./dummy2", info.filename));
+    TEST_CHK(!strcmp("./compact_test2", info.filename));
 
     // close the file
     fdb_kvs_close(db_new);
@@ -1010,8 +1010,8 @@ void db_compact_overwrite()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL " compact_test* > errorlog.txt");
     (void)r;
 
     fconfig = fdb_get_default_config();
@@ -1022,7 +1022,7 @@ void db_compact_overwrite()
     fconfig.compaction_threshold = 0;
 
     // write to db1
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "db_destroy_test");
@@ -1038,7 +1038,7 @@ void db_compact_overwrite()
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
     // Open the empty db with future compact name
-    fdb_open(&dbfile2, "./dummy1.1", &fconfig);
+    fdb_open(&dbfile2, "./compact_test1.1", &fconfig);
     fdb_kvs_open(dbfile2, &db2, NULL, &kvs_config);
     status = fdb_set_log_callback(db2, logCallbackFunc,
                                   (void *) "db_destroy_test");
@@ -1070,7 +1070,7 @@ void db_compact_overwrite()
     fdb_close(dbfile);
 
     // reopen db1
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "db_destroy_test");
@@ -1088,7 +1088,7 @@ void db_compact_overwrite()
     }
 
     // reopen db2
-    fdb_open(&dbfile2, "./dummy1.1", &fconfig);
+    fdb_open(&dbfile2, "./compact_test1.1", &fconfig);
     fdb_kvs_open(dbfile2, &db2, NULL, &kvs_config);
     status = fdb_set_log_callback(db2, logCallbackFunc,
                                   (void *) "db_destroy_test");
@@ -1158,10 +1158,10 @@ void *db_compact_during_doc_delete(void *args)
     if (args == NULL)
     { // parent
 
-        r = system(SHELL_DEL" dummy* > errorlog.txt");
+        r = system(SHELL_DEL" compact_test* > errorlog.txt");
         (void)r;
 
-        status = fdb_open(&dbfile, "./dummy1", &fconfig);
+        status = fdb_open(&dbfile, "./compact_test1", &fconfig);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1202,7 +1202,7 @@ void *db_compact_during_doc_delete(void *args)
         // reopen
         fdb_kvs_close(db);
         fdb_close(dbfile);
-        status = fdb_open(&dbfile, "./dummy1", &fconfig);
+        status = fdb_open(&dbfile, "./compact_test1", &fconfig);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1224,7 +1224,7 @@ void *db_compact_during_doc_delete(void *args)
     }
 
     // compaction thread enters here //
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./compact_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_compact(dbfile, NULL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1256,8 +1256,8 @@ void compaction_daemon_test(size_t time_sec)
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1270,7 +1270,7 @@ void compaction_daemon_test(size_t time_sec)
     fconfig.compactor_sleep_duration = 1; // for quick test
 
     // open db
-    fdb_open(&dbfile, "dummy", &fconfig);
+    fdb_open(&dbfile, "compact_test", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "compaction_daemon_test");
@@ -1292,7 +1292,7 @@ void compaction_daemon_test(size_t time_sec)
 
     // ---- basic retrieve test ------------------------
     // reopen db file
-    status = fdb_open(&dbfile, "dummy", &fconfig);
+    status = fdb_open(&dbfile, "compact_test", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1301,7 +1301,7 @@ void compaction_daemon_test(size_t time_sec)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     // check db filename
     fdb_get_file_info(dbfile, &info);
-    TEST_CHK(!strcmp(info.filename, "dummy"));
+    TEST_CHK(!strcmp(info.filename, "compact_test"));
 
     // retrieve documents
     for (i=0;i<n;++i){
@@ -1326,10 +1326,10 @@ void compaction_daemon_test(size_t time_sec)
 
     // ---- handling when metafile is removed ------------
     // remove meta file
-    r = system(SHELL_DEL" dummy.meta > errorlog.txt");
+    r = system(SHELL_DEL" compact_test.meta > errorlog.txt");
     (void)r;
     // reopen db file
-    status = fdb_open(&dbfile, "dummy", &fconfig);
+    status = fdb_open(&dbfile, "compact_test", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1352,10 +1352,10 @@ void compaction_daemon_test(size_t time_sec)
 
     // ---- handling when metafile points to non-exist file ------------
     // remove meta file
-    r = system(SHELL_MOVE" dummy.0 dummy.23 > errorlog.txt");
+    r = system(SHELL_MOVE" compact_test.0 compact_test.23 > errorlog.txt");
     (void)r;
     // reopen db file
-    status = fdb_open(&dbfile, "dummy", &fconfig);
+    status = fdb_open(&dbfile, "compact_test", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1383,19 +1383,19 @@ void compaction_daemon_test(size_t time_sec)
     // db_manual: DB instance not to be compacted (manual compaction)
 
     // open & create db_less, db_non and db_manual
-    status = fdb_open(&dbfile_less, "dummy_less", &fconfig);
+    status = fdb_open(&dbfile_less, "compact_test_less", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile_less, &db_less, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fconfig.compaction_threshold = 0;
-    status = fdb_open(&dbfile_non, "dummy_non", &fconfig);
+    status = fdb_open(&dbfile_non, "compact_test_non", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile_non, &db_non, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
-    status = fdb_open(&dbfile_manual, "dummy_manual", &fconfig);
+    status = fdb_open(&dbfile_manual, "compact_test_manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile_manual, &db_manual, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1403,7 +1403,7 @@ void compaction_daemon_test(size_t time_sec)
     // reopen db file
     fconfig.compaction_threshold = 30;
     fconfig.compaction_mode = FDB_COMPACTION_AUTO;
-    status = fdb_open(&dbfile, "dummy", &fconfig);
+    status = fdb_open(&dbfile, "compact_test", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1447,12 +1447,12 @@ void compaction_daemon_test(size_t time_sec)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // perform manual compaction of manual-compact file
-    status = fdb_compact(dbfile_manual, "dummy_manual_compacted");
+    status = fdb_compact(dbfile_manual, "compact_test_manual_compacted");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    // open dummy_manual_compacted using new db handle
+    // open compact_test_manual_compacted using new db handle
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
-    status = fdb_open(&dbfile_new, "dummy_manual_compacted", &fconfig);
+    status = fdb_open(&dbfile_new, "compact_test_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // try to switch compaction mode
@@ -1475,7 +1475,7 @@ void compaction_daemon_test(size_t time_sec)
     status = fdb_close(dbfile_manual);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fconfig.compaction_mode = FDB_COMPACTION_AUTO;
-    status = fdb_open(&dbfile_manual, "dummy_manual_compacted", &fconfig);
+    status = fdb_open(&dbfile_manual, "compact_test_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // switch compaction mode of 'db_non' from AUTO to MANUAL
@@ -1486,43 +1486,43 @@ void compaction_daemon_test(size_t time_sec)
     status = fdb_close(dbfile_non);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
-    status = fdb_open(&dbfile_non, "dummy_non", &fconfig);
+    status = fdb_open(&dbfile_non, "compact_test_non", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    // Now perform one manual compaction on dummy_non
-    fdb_compact(dbfile_non, "dummy_non.manual");
+    // Now perform one manual compaction on compact_test_non
+    fdb_compact(dbfile_non, "compact_test_non.manual");
 
-    // close all db files except dummy_non
+    // close all db files except compact_test_non
     fdb_close(dbfile);
     fdb_close(dbfile_less);
     fdb_close(dbfile_manual);
 
-    // open manual compact file (dummy_non) using auto compact mode
+    // open manual compact file (compact_test_non) using auto compact mode
     fconfig.compaction_mode = FDB_COMPACTION_AUTO;
-    status = fdb_open(&dbfile, "dummy_non.manual", &fconfig);
+    status = fdb_open(&dbfile, "compact_test_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
 
     // Attempt to destroy manual compact file using auto compact mode
-    status = fdb_destroy("dummy_non.manual", &fconfig);
+    status = fdb_destroy("compact_test_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
 
-    // open auto copmact file (dummy_manual_compacted) using manual compact mode
+    // open auto copmact file (compact_test_manual_compacted) using manual compact mode
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
-    status = fdb_open(&dbfile, "dummy_manual_compacted", &fconfig);
+    status = fdb_open(&dbfile, "compact_test_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
 
     // Attempt to destroy auto copmact file using manual compact mode
-    status = fdb_destroy("dummy_manual_compacted", &fconfig);
+    status = fdb_destroy("compact_test_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_INVALID_COMPACTION_MODE);
 
     // DESTROY auto copmact file with correct mode
     fconfig.compaction_mode = FDB_COMPACTION_AUTO;
-    status = fdb_destroy("dummy_manual_compacted", &fconfig);
+    status = fdb_destroy("compact_test_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // DESTROY manual compacted file with past version open!
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
-    status = fdb_destroy("dummy_non.manual", &fconfig);
+    status = fdb_destroy("compact_test_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_FILE_IS_BUSY);
     fdb_close(dbfile_non);
 
@@ -1531,23 +1531,23 @@ void compaction_daemon_test(size_t time_sec)
     status = fdb_shutdown();
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_destroy("dummy_non.manual", &fconfig);
+    status = fdb_destroy("compact_test_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // Attempt to read-only auto compacted and destroyed file
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&dbfile, "./dummy_manual_compacted", &fconfig);
+    status = fdb_open(&dbfile, "./compact_test_manual_compacted", &fconfig);
     TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
 
-    status = fdb_open(&dbfile, "./dummy_manual_compacted.meta", &fconfig);
+    status = fdb_open(&dbfile, "./compact_test_manual_compacted.meta", &fconfig);
     TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
 
     // Attempt to read-only past version of manually compacted destroyed file
-    status = fdb_open(&dbfile, "dummy_non", &fconfig);
+    status = fdb_open(&dbfile, "compact_test_non", &fconfig);
     TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
 
     // Attempt to read-only current version of manually compacted destroyed file
-    status = fdb_open(&dbfile, "dummy_non.manual", &fconfig);
+    status = fdb_open(&dbfile, "compact_test_non.manual", &fconfig);
     TEST_CHK(status == FDB_RESULT_NO_SUCH_FILE);
 
     // free all documents
@@ -1578,14 +1578,14 @@ void auto_compaction_with_concurrent_insert_test(size_t t_limit)
     fdb_kvs_config kvs_config;
     struct timeval ts_begin, ts_cur, ts_gap;
 
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     // Open Database File
     config = fdb_get_default_config();
     config.compaction_mode=FDB_COMPACTION_AUTO;
     config.compactor_sleep_duration = 1;
-    status = fdb_open(&file, "dummy", &config);
+    status = fdb_open(&file, "compact_test", &config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // Open KV Store
@@ -1659,7 +1659,7 @@ void auto_compaction_with_custom_cmp_function()
     char *kvs_names[] = {NULL};
     fdb_custom_cmp_variable functions[] = {_compact_test_keycmp};
 
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     // Open Database File
@@ -1667,7 +1667,7 @@ void auto_compaction_with_custom_cmp_function()
     config.compaction_mode=FDB_COMPACTION_AUTO;
     config.compactor_sleep_duration = 1;
     config.compaction_threshold = 10;
-    status = fdb_open_custom_cmp(&file, "dummy", &config,
+    status = fdb_open_custom_cmp(&file, "compact_test", &config,
                                  1, kvs_names, functions);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -1803,15 +1803,15 @@ void compaction_with_concurrent_transaction_test()
     fconfig.compaction_cb_mask = FDB_CS_BEGIN |
                                  FDB_CS_END;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
     (void)r;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
 
-    fdb_open(&txn_file, "./dummy1", &fconfig);
+    fdb_open(&txn_file, "./compact_test1", &fconfig);
     fdb_kvs_open(txn_file, &txn, "db", &kvs_config);
     cb_args.file = txn_file;
     cb_args.handle = txn;
@@ -1827,7 +1827,7 @@ void compaction_with_concurrent_transaction_test()
     cb_args.ndocs = n;
     cb_args.nupdates = 2;
 
-    s = fdb_compact(dbfile, "./dummy2");
+    s = fdb_compact(dbfile, "./compact_test2");
 
     // insert new docs through transaction
     for (i=n/2;i<n;++i){
@@ -1849,7 +1849,7 @@ void compaction_with_concurrent_transaction_test()
     s = fdb_end_transaction(txn_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
     fdb_close(txn_file);
 
-    s = fdb_compact(dbfile, "./dummy3");
+    s = fdb_compact(dbfile, "./compact_test3");
 
     fdb_close(dbfile);
     fdb_shutdown();
@@ -1869,8 +1869,8 @@ void compact_upto_twice_test()
     uint64_t num_markers;
     char keybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL " compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1879,7 +1879,7 @@ void compact_upto_twice_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
 
     for (i=0;i<10;++i){
@@ -1929,8 +1929,8 @@ void compact_upto_post_snapshot_test()
     uint64_t num_markers;
     char keybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    // remove previous compact_test files
+    r = system(SHELL_DEL " compact_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1939,7 +1939,7 @@ void compact_upto_post_snapshot_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // open db
-    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
 
     for (i=0;i<10;++i){
@@ -2037,7 +2037,7 @@ void compact_upto_overwrite_test(int opt)
     fdb_commit_opt_t commit_opt;
     uint64_t n_markers;
 
-    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    sprintf(cmd, SHELL_DEL " compact_test* > errorlog.txt");
     r = system(cmd);
     (void)r;
 
@@ -2056,7 +2056,7 @@ void compact_upto_overwrite_test(int opt)
 
     kvs_config = fdb_get_default_kvs_config();
 
-    s = fdb_open(&db_file, "./dummy", &config);
+    s = fdb_open(&db_file, "./compact_test", &config);
     s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -2091,7 +2091,7 @@ void compact_upto_overwrite_test(int opt)
     s = fdb_get_all_snap_markers(db_file, &markers, &n_markers);
 
     int upto = n/2;
-    s = fdb_compact_upto(db_file, "./dummy2", markers[upto].marker);
+    s = fdb_compact_upto(db_file, "./compact_test2", markers[upto].marker);
 
     // iterating using snapshots with various seqnums
     for (i=n_markers-1; i>=0; --i) {

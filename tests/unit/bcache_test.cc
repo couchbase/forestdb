@@ -35,7 +35,7 @@ void basic_test()
     struct filemgr_config config;
     int i;
     uint8_t buf[4096];
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./bcache_testfile";
 
     memset(&config, 0, sizeof(config));
     config.blocksize = 4096;
@@ -81,9 +81,9 @@ void basic_test2()
     struct filemgr_config config;
     int i;
     uint8_t buf[4096];
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./bcache_testfile";
     int r;
-    r = system(SHELL_DEL " dummy");
+    r = system(SHELL_DEL " bcache_testfile");
     (void)r;
 
     memset(&config, 0, sizeof(config));
@@ -187,12 +187,12 @@ void multi_thread_test(
     uint32_t crc;
     uint8_t *buf;
     int r;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./bcache_testfile";
     thread_t *tid = alca(thread_t, n);
     struct worker_args *args = alca(struct worker_args, n);
     void **ret = alca(void *, n);
 
-    r = system(SHELL_DEL " dummy");
+    r = system(SHELL_DEL " bcache_testfile");
     (void)r;
 
     memleak_start();

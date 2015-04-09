@@ -76,7 +76,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     fdb_kvs_info kvs_info;
     fdb_status s;
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -89,7 +89,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     config.wal_threshold = 50;
     config.buffercache_size = 0;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     if (opt & MULTI_KV_VAR_CMP) {
         kvs_config.custom_cmp = _multi_kv_test_keycmp;
@@ -312,11 +312,11 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                                 2, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile, "./dummy", &config);
+        s = fdb_open(&dbfile, "./multi_kv_test", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
@@ -350,7 +350,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(kvs_info.doc_count == n);
 
-    s = fdb_compact(dbfile, "./dummy2");
+    s = fdb_compact(dbfile, "./multi_kv_test2");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     // retrieve check after compaction
     for (i=0;i<n;++i){
@@ -401,11 +401,11 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
 
     // re-open
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile, "./dummy2", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test2", &config,
                                 2, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile, "./dummy2", &config);
+        s = fdb_open(&dbfile, "./multi_kv_test2", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
 
@@ -481,7 +481,7 @@ void multi_kv_iterator_key_test(uint8_t opt, size_t chunksize)
     fdb_iterator *it;
     fdb_status s;
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -494,7 +494,7 @@ void multi_kv_iterator_key_test(uint8_t opt, size_t chunksize)
     config.wal_threshold = 1000;
     config.buffercache_size = 0;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     if (opt & MULTI_KV_VAR_CMP) {
         kvs_config.custom_cmp = _multi_kv_test_keycmp;
@@ -668,7 +668,7 @@ void multi_kv_iterator_seq_test(uint8_t opt, size_t chunksize)
     fdb_status s;
     fdb_seqnum_t seqnum;
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -681,7 +681,7 @@ void multi_kv_iterator_seq_test(uint8_t opt, size_t chunksize)
     config.wal_threshold = 1000;
     config.buffercache_size = 0;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     if (opt & MULTI_KV_VAR_CMP) {
         kvs_config.custom_cmp = _multi_kv_test_keycmp;
@@ -914,7 +914,7 @@ void multi_kv_txn_test(uint8_t opt, size_t chunksize)
                                            _multi_kv_test_keycmp,
                                            _multi_kv_test_keycmp};
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -927,7 +927,7 @@ void multi_kv_txn_test(uint8_t opt, size_t chunksize)
     config.wal_threshold = 1000;
     config.buffercache_size = 0;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     if (opt & MULTI_KV_VAR_CMP) {
         kvs_config.custom_cmp = _multi_kv_test_keycmp;
@@ -963,11 +963,11 @@ void multi_kv_txn_test(uint8_t opt, size_t chunksize)
 
     // begin a transaction
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile_txn1, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile_txn1, "./multi_kv_test", &config,
                                 3, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile_txn1, "./dummy", &config);
+        s = fdb_open(&dbfile_txn1, "./multi_kv_test", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_kvs_open(dbfile_txn1, &txn1, NULL, &kvs_config);
@@ -1109,11 +1109,11 @@ void multi_kv_txn_test(uint8_t opt, size_t chunksize)
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                                 3, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile, "./dummy", &config);
+        s = fdb_open(&dbfile, "./multi_kv_test", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
@@ -1148,11 +1148,11 @@ void multi_kv_txn_test(uint8_t opt, size_t chunksize)
 
     // begin a transaction
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile_txn1, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile_txn1, "./multi_kv_test", &config,
                                 3, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile_txn1, "./dummy", &config);
+        s = fdb_open(&dbfile_txn1, "./multi_kv_test", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_kvs_open(dbfile_txn1, &txn1, NULL, &kvs_config);
@@ -1202,11 +1202,11 @@ void multi_kv_txn_test(uint8_t opt, size_t chunksize)
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                                 3, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile, "./dummy", &config);
+        s = fdb_open(&dbfile, "./multi_kv_test", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
@@ -1287,7 +1287,7 @@ void multi_kv_snapshot_test(uint8_t opt, size_t chunksize)
     fdb_doc *doc;
     fdb_status s;
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -1300,7 +1300,7 @@ void multi_kv_snapshot_test(uint8_t opt, size_t chunksize)
     config.wal_threshold = 1000;
     config.buffercache_size = 0;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     if (opt & MULTI_KV_VAR_CMP) {
         kvs_config.custom_cmp = _multi_kv_test_keycmp;
@@ -1467,7 +1467,7 @@ void multi_kv_rollback_test(uint8_t opt, size_t chunksize)
                                            _multi_kv_test_keycmp,
                                            _multi_kv_test_keycmp};
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -1481,11 +1481,11 @@ void multi_kv_rollback_test(uint8_t opt, size_t chunksize)
     config.buffercache_size = 0;
 
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                                 3, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile, "./dummy", &config);
+        s = fdb_open(&dbfile, "./multi_kv_test", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
@@ -1695,11 +1695,11 @@ void multi_kv_rollback_test(uint8_t opt, size_t chunksize)
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     if (opt & MULTI_KV_VAR_CMP) {
-        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                                 3, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     } else {
-        s = fdb_open(&dbfile, "./dummy", &config);
+        s = fdb_open(&dbfile, "./multi_kv_test", &config);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1764,7 +1764,7 @@ void multi_kv_custom_cmp_test()
     fdb_iterator *it;
     fdb_status s;
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -1777,7 +1777,7 @@ void multi_kv_custom_cmp_test()
     config.wal_flush_before_commit = false;
     config.buffercache_size = 0;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1833,13 +1833,13 @@ void multi_kv_custom_cmp_test()
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     kvs_config.custom_cmp = NULL;
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s != FDB_RESULT_SUCCESS); // must fail
 
     { // retry with wrong cmp function
         char *kvs_names[] = {NULL};
         fdb_custom_cmp_variable functions[] = {_multi_kv_test_keycmp};
-        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                                 1, kvs_names, functions);
         TEST_CHK(s != FDB_RESULT_SUCCESS); // must fail
     }
@@ -1847,7 +1847,7 @@ void multi_kv_custom_cmp_test()
     { // retry with correct function
         char *kvs_names[] = {(char*)"kv1"};
         fdb_custom_cmp_variable functions[] = {_multi_kv_test_keycmp};
-        s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+        s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                                 1, kvs_names, functions);
         TEST_CHK(s == FDB_RESULT_SUCCESS); // must succeed this time
     }
@@ -1970,7 +1970,7 @@ void multi_kv_custom_cmp_test()
     }
 
     // do compaction
-    s = fdb_compact(dbfile, "./dummy2");
+    s = fdb_compact(dbfile, "./multi_kv_test2");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // retrieve check
@@ -2057,7 +2057,7 @@ void multi_kv_fdb_open_custom_cmp_test()
                                            _multi_kv_test_keycmp,
                                            NULL};
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -2070,7 +2070,7 @@ void multi_kv_fdb_open_custom_cmp_test()
     config.wal_flush_before_commit = false;
     config.buffercache_size = 0;
 
-    s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+    s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                             3, kvs_names, functions);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
@@ -2116,15 +2116,15 @@ void multi_kv_fdb_open_custom_cmp_test()
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test", &config);
     TEST_CHK(s != FDB_RESULT_SUCCESS); // must fail
 
-    s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+    s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                             3, kvs_names, functions);
     TEST_CHK(s != FDB_RESULT_SUCCESS); // must fail
 
     functions[2] = _multi_kv_test_keycmp;
-    s = fdb_open_custom_cmp(&dbfile, "./dummy", &config,
+    s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,
                             3, kvs_names, functions);
     TEST_CHK(s == FDB_RESULT_SUCCESS); // must succeed
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
@@ -2184,7 +2184,7 @@ void multi_kv_use_existing_mode_test()
     fdb_doc *doc;
     fdb_status s;
 
-    sprintf(value, SHELL_DEL" dummy*");
+    sprintf(value, SHELL_DEL" multi_kv_test*");
     r = system(value);
     (void)r;
 
@@ -2197,7 +2197,7 @@ void multi_kv_use_existing_mode_test()
 
     // create DB file under multi KV instance mode
     config.multi_kv_instances = true;
-    s = fdb_open(&dbfile, "./dummy_multi", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test_multi", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -2219,7 +2219,7 @@ void multi_kv_use_existing_mode_test()
 
     // open under single KV instance mode
     config.multi_kv_instances = false;
-    s = fdb_open(&dbfile, "./dummy_multi", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test_multi", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS); // must succeed
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -2240,7 +2240,7 @@ void multi_kv_use_existing_mode_test()
 
     // create DB file under single KV instance mode
     config.multi_kv_instances = false;
-    s = fdb_open(&dbfile, "./dummy_single", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test_single", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -2262,7 +2262,7 @@ void multi_kv_use_existing_mode_test()
 
     // open under multi KV instance mode
     config.multi_kv_instances = true;
-    s = fdb_open(&dbfile, "./dummy_single", &config);
+    s = fdb_open(&dbfile, "./multi_kv_test_single", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS); // must succeed
     s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -2305,8 +2305,8 @@ void multi_kv_close_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous multi_kv_test files
+    r = system(SHELL_DEL" multi_kv_test* > errorlog.txt");
     (void)r;
 
     fconfig = fdb_get_default_config();
@@ -2320,7 +2320,7 @@ void multi_kv_close_test()
     kvs_config = fdb_get_default_kvs_config();
 
     // open db
-    fdb_open(&dbfile1, "dummy1", &fconfig);
+    fdb_open(&dbfile1, "multi_kv_test1", &fconfig);
     fdb_kvs_open(dbfile1, &db1, "db1", &kvs_config);
     fdb_kvs_open(dbfile1, &db2, "db2", &kvs_config);
     fdb_kvs_open(dbfile1, &db3, "db3", &kvs_config);
