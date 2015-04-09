@@ -78,8 +78,8 @@ void write_failure_test()
     // Modify the pwrite callback to redirect to test-specific function
     write_fail_cb->pwrite_cb = &pwrite_failure_cb;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous anomaly_test files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
     (void)r;
 
     // Reset anomalous behavior stats..
@@ -101,7 +101,7 @@ void write_failure_test()
     keybuf = alca(char, keylen_limit);
 
     // open db
-    fdb_open(&dbfile, "dummy1", &fconfig);
+    fdb_open(&dbfile, "anomaly_test1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
 
     // key structure:
@@ -211,8 +211,8 @@ void read_failure_test()
     // Modify the pread callback to redirect to test-specific function
     read_fail_cb->pread_cb = &pread_failure_cb;
 
-    // remove previous dummy files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous anomaly_test files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
     (void)r;
 
     // Reset anomalous behavior stats..
@@ -231,7 +231,7 @@ void read_failure_test()
     keybuf = alca(char, keylen_limit);
 
     // open db
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./anomaly_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -259,12 +259,12 @@ void read_failure_test()
 
     fail_ctx.start_failing_after = fail_ctx.num_ops; // immediately fail
 
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./anomaly_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_READ_FAIL);
 
     fail_ctx.start_failing_after = fail_ctx.num_ops+1000; //normal operation
 
-    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    status = fdb_open(&dbfile, "./anomaly_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);

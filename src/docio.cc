@@ -53,6 +53,31 @@ void docio_free(struct docio_handle *handle)
     FDB_RESULT_SUCCESS
 #endif
 
+INLINE fdb_status _docio_fill_zero(struct docio_handle *handle, bid_t bid, size_t pos)
+{
+    // Fill next few bytes (sizeof(struct docio_length)) with zero
+    // to avoid false positive docio_length checksum during file scanning.
+    // (Note that the checksum value of zero-filled docio_length is 0x6F.)
+
+    size_t blocksize = handle->file->blocksize;
+    size_t len_size = sizeof(struct docio_length);
+    uint8_t *zerobuf = alca(uint8_t, len_size);
+
+#ifdef __CRC32
+    blocksize -= BLK_MARKER_SIZE;
+#endif
+
+    if (pos + len_size <= blocksize) {
+        // enough space in the block
+        memset(zerobuf, 0x0, len_size);
+        return filemgr_write_offset(handle->file, bid, pos, len_size,
+                                    zerobuf, handle->log_callback);
+    } else {
+        // lack of space .. we don't need to fill zero bytes.
+        return FDB_RESULT_SUCCESS;
+    }
+}
+
 bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf)
 {
     uint32_t offset;
@@ -88,6 +113,11 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             return BLK_NOT_FOUND;
         }
         handle->curpos += size;
+
+        if (_docio_fill_zero(handle, handle->curblock, handle->curpos) !=
+            FDB_RESULT_SUCCESS) {
+            return BLK_NOT_FOUND;
+        }
 
         return handle->curblock * real_blocksize + offset;
 
@@ -196,6 +226,11 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                 }
                 offset += remainsize;
                 handle->curpos = remainsize;
+
+                if (_docio_fill_zero(handle, i, handle->curpos) !=
+                    FDB_RESULT_SUCCESS) {
+                    return BLK_NOT_FOUND;
+                }
             }
         }
 
@@ -443,6 +478,14 @@ INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
     return status;
 }
 
+INLINE int _docio_check_buffer(struct docio_handle *handle)
+{
+    uint8_t marker[BLK_MARKER_SIZE];
+    marker[0] = *(((uint8_t *)handle->readbuffer)
+                 + handle->file->blocksize - BLK_MARKER_SIZE);
+    return (marker[0] == BLK_MARKER_DOC);
+}
+
 static uint64_t _docio_read_length(struct docio_handle *handle,
                                    uint64_t offset,
                                    struct docio_length *length,
@@ -466,16 +509,22 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
     restsize = blocksize - pos;
     // read length structure
     _docio_read_through_buffer(handle, bid, log_callback);
+    if (!_docio_check_buffer(handle)) {
+        return offset;
+    }
 
     if (restsize >= sizeof(struct docio_length)) {
         memcpy(length, (uint8_t *)buf + pos, sizeof(struct docio_length));
         pos += sizeof(struct docio_length);
 
-    }else{
+    } else {
         memcpy(length, (uint8_t *)buf + pos, restsize);
         // read additional block
         bid++;
         _docio_read_through_buffer(handle, bid, log_callback);
+        if (!_docio_check_buffer(handle)) {
+            return offset;
+        }
         // memcpy rest of data
         memcpy((uint8_t *)length + restsize, buf, sizeof(struct docio_length) - restsize);
         pos = sizeof(struct docio_length) - restsize;
@@ -965,12 +1014,9 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
 int docio_check_buffer(struct docio_handle *handle, bid_t bid)
 {
-    uint8_t marker[BLK_MARKER_SIZE];
     err_log_callback *log_callback = handle->log_callback;
     _docio_read_through_buffer(handle, bid, log_callback);
-    marker[0] = *(((uint8_t *)handle->readbuffer)
-                 + handle->file->blocksize - BLK_MARKER_SIZE);
-    return (marker[0] == BLK_MARKER_DOC);
+    return _docio_check_buffer(handle);
 }
 
 int docio_check_compact_doc(struct docio_handle *handle,

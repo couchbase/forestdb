@@ -498,20 +498,24 @@ void fdb_kvs_header_reset_all_stats(struct filemgr *file)
 
 void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
-                         struct docio_handle *new_dhandle)
+                         struct docio_handle *new_dhandle,
+                         bool create_new)
 {
     struct avl_node *a, *aa;
     struct kvs_node *node_old, *node_new;
 
-    // copy KV header data in 'handle' to new file
-    fdb_kvs_header_create(new_file);
-    // read from 'handle->dhandle', and import into 'new_file'
-    fdb_kvs_header_read(new_file, handle->dhandle,
-                           handle->kv_info_offset);
-    // write KV header in 'new_file' using 'new_dhandle'
-    handle->kv_info_offset = fdb_kvs_header_append(new_file,
-                                                      new_dhandle);
-    fdb_kvs_header_reset_all_stats(new_file);
+    if (create_new) {
+        // copy KV header data in 'handle' to new file
+        fdb_kvs_header_create(new_file);
+        // read from 'handle->dhandle', and import into 'new_file'
+        fdb_kvs_header_read(new_file, handle->dhandle,
+                               handle->kv_info_offset);
+        // write KV header in 'new_file' using 'new_dhandle'
+        handle->kv_info_offset = fdb_kvs_header_append(new_file,
+                                                          new_dhandle);
+        fdb_kvs_header_reset_all_stats(new_file);
+    }
+
     spin_lock(&handle->file->kv_header->lock);
     spin_lock(&new_file->kv_header->lock);
     // copy all in-memory custom cmp function pointers & seqnums
@@ -1002,9 +1006,7 @@ fdb_kvs_create_start:
     }
 
     file_status_t fstatus = filemgr_get_file_status(file);
-    if (!(fstatus == FILE_NORMAL ||
-          fstatus == FILE_COMPACT_NEW ||
-          fstatus == FILE_COMPACT_INPROG)) {
+    if (fstatus == FILE_REMOVED_PENDING) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);
@@ -1053,6 +1055,29 @@ fdb_kvs_create_start:
     avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
     avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
     spin_unlock(&kv_header->lock);
+
+    // if compaction is in-progress,
+    // create a same kvs_node for the new file
+    if (file->new_file &&
+        filemgr_get_file_status(file) == FILE_COMPACT_OLD) {
+        struct kvs_node *node_new;
+        struct kvs_header *kv_header_new;
+
+        kv_header_new = file->new_file->kv_header;
+        node_new = (struct kvs_node*)calloc(1, sizeof(struct kvs_node));
+        *node_new = *node;
+        node_new->kvs_name = (char*)malloc(kv_ins_name_len);
+        strcpy(node_new->kvs_name, kvs_name);
+
+        // insert into new file's kv_header
+        spin_lock(&kv_header_new->lock);
+        if (node->custom_cmp) {
+            kv_header_new->custom_cmp_enabled = 1;
+        }
+        avl_insert(kv_header_new->idx_name, &node_new->avl_name, _kvs_cmp_name);
+        avl_insert(kv_header_new->idx_id, &node_new->avl_id, _kvs_cmp_id);
+        spin_unlock(&kv_header_new->lock);
+    }
 
     // sync dirty root nodes
     bid_t dirty_idtree_root, dirty_seqtree_root;
@@ -1522,13 +1547,19 @@ fdb_kvs_remove_start:
     }
 
     file_status_t fstatus = filemgr_get_file_status(file);
-    if (!(fstatus == FILE_NORMAL ||
-          fstatus == FILE_COMPACT_NEW ||
-          fstatus == FILE_COMPACT_INPROG)) {
+    if (fstatus == FILE_REMOVED_PENDING) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);
         goto fdb_kvs_remove_start;
+    } else if (fstatus == FILE_COMPACT_OLD) {
+        // Cannot remove existing KV store during compaction.
+        // To remove a KV store, the corresponding first chunk in HB+trie
+        // should be unlinked. This can be possible in the old file during
+        // compaction, but impossible in the new file, since existing documents
+        // (including docs belonging to the KV store to be removed) are being moved.
+        filemgr_mutex_unlock(file);
+        return FDB_RESULT_FAIL_BY_COMPACTION;
     }
 
     // find the kvs_node and remove

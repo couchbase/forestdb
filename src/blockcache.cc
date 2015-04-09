@@ -196,8 +196,6 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
 
 static void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
 {
-    file_status_t fs;
-
     spin_lock(&filelist_lock);
 
     if (fname->curlist != list) {
@@ -212,14 +210,7 @@ static void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *li
         list_remove(fname->curlist, &fname->le);
     }
     if (list) {
-        fs = filemgr_get_file_status(fname->curfile);
-
-        if (list == &file_lru && fs == FILE_COMPACT_OLD) {
-            // insert compact old file always at the tail of LRU
-            list_push_back(list, &fname->le);
-        } else {
-            list_push_front(list, &fname->le);
-        }
+        list_push_front(list, &fname->le);
     }
     fname->curlist = list;
 

@@ -112,7 +112,7 @@ void basic_test()
         key[i] = alca(char, 256);
     }
 
-    rr = system(SHELL_DEL " dummy");
+    rr = system(SHELL_DEL " hbtrie_testfile");
     (void)rr;
 
     doc.key = (void*)keybuf;
@@ -127,7 +127,7 @@ void basic_test()
     config.chunksize = sizeof(uint64_t);
     config.num_wal_shards = 8;
 
-    filemgr_open_result result = filemgr_open((char *) "./dummy",
+    filemgr_open_result result = filemgr_open((char *) "./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     docio_init(&dhandle, file, false);
@@ -241,9 +241,9 @@ void large_test()
     config.num_wal_shards = 8;
 
     DBG("filemgr, bcache init .. \n");
-    rr = system(SHELL_DEL" dummy");
+    rr = system(SHELL_DEL" hbtrie_testfile");
     (void)rr;
-    filemgr_open_result result = filemgr_open((char *) "./dummy",
+    filemgr_open_result result = filemgr_open((char *) "./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     docio_init(&dhandle, file, false);
@@ -416,7 +416,7 @@ void skew_basic_test()
     }
     _skew_key_ptr = key_cpy;
 
-    rr = system(SHELL_DEL " dummy");
+    rr = system(SHELL_DEL " hbtrie_testfile");
     (void)rr;
 
     memset(&config, 0, sizeof(config));
@@ -427,7 +427,7 @@ void skew_basic_test()
     config.chunksize = sizeof(uint64_t);
     config.num_wal_shards = 8;
 
-    filemgr_open_result result = filemgr_open((char*)"./dummy",
+    filemgr_open_result result = filemgr_open((char*)"./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     docio_init(&dhandle, file, false);
@@ -579,9 +579,9 @@ void hbtrie_reverse_iterator_test()
     struct filemgr_config config;
     hbtrie_result hr;
     filemgr_open_result fr;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./hbtrie_testfile";
 
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
     memleak_start();
 
@@ -738,11 +738,11 @@ void hbtrie_partial_update_test()
     struct filemgr_config config;
     hbtrie_result hr;
     filemgr_open_result fr;
-    char *fname = (char *) "./dummy";
+    char *fname = (char *) "./hbtrie_testfile";
 
     memleak_start();
 
-    r = system(SHELL_DEL" dummy");
+    r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
 
     memset(&config, 0, sizeof(config));

@@ -849,11 +849,11 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
                 last_seqnum = filemgr_get_seqnum(file);
             }
             if (last_seqnum < seqnum) {
-                // req.seqnum is greater than the last seqnum of old file:
-                // pick new_file for WAL so all writes made after
-                // the point where compator and writers began to interleave are
-                // copied into the snapshot
-                compaction_inprog = true;
+                // As new docs are inserted into the old file during compaction,
+                // we don't need to set compaction_inprog flag.
+                // All unused codes related to this flag will be removed in a
+                // separate commit.
+                compaction_inprog = false;
             }
         } else { // in case compaction had completed, open new_file directly
             fdb_link_new_file(handle_in);
@@ -1654,11 +1654,13 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                            filemgr_get_file_status(handle->file),
                                            prev_filename)) {
                 // Open the old file with read-only mode.
+                // (Temporarily disable log callback at this time since
+                //  the old file might be already removed.)
                 fconfig.options = FILEMGR_READONLY;
                 filemgr_open_result result = filemgr_open(prev_filename,
                                                           handle->fileops,
                                                           &fconfig,
-                                                          &handle->log_callback);
+                                                          NULL);
                 if (result.file) {
                     filemgr_remove_pending(result.file, handle->file);
                     filemgr_close(result.file, 0, handle->filename,
@@ -2162,6 +2164,11 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
 INLINE void _fdb_link_new_file(fdb_kvs_handle *handle)
 {
     fdb_assert(handle->file->new_file, handle, handle->file);
+    // As new docs are inserted into the old file during compaction,
+    // we don't need to set 'handle->new_file'.
+    // All unused codes related to this variable will be removed in a
+    // separate commit.
+    return;
 
     // open new file and new dhandle
     filemgr_open_result result = filemgr_open(handle->file->new_file->filename,
@@ -2884,11 +2891,8 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
     return FDB_RESULT_SUCCESS;
 }
 
-static uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
+INLINE uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
 {
-    if (filemgr_get_file_status(handle->file) == FILE_COMPACT_NEW) {
-        return wal_get_size(handle->file);
-    }
     return handle->config.wal_threshold;
 }
 
@@ -2972,9 +2976,7 @@ fdb_set_start:
     }
 
     fstatus = filemgr_get_file_status(file);
-    if (!(fstatus == FILE_NORMAL ||
-          fstatus == FILE_COMPACT_NEW ||
-          fstatus == FILE_COMPACT_INPROG)) {
+    if (fstatus == FILE_REMOVED_PENDING) {
         // we must not write into this file
         // file status was changed by other thread .. start over
         filemgr_mutex_unlock(file);
@@ -3037,9 +3039,8 @@ fdb_set_start:
         wal_set_dirty_status(file, FDB_WAL_DIRTY);
     }
 
-    if ((handle->config.wal_flush_before_commit ||
-         handle->config.auto_commit) &&
-        filemgr_get_file_status(handle->file) == FILE_NORMAL) {
+    if (handle->config.wal_flush_before_commit ||
+         handle->config.auto_commit) {
         bid_t dirty_idtree_root, dirty_seqtree_root;
 
         if (!txn_enabled) {
@@ -3336,6 +3337,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
 {
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_txn *earliest_txn;
+    file_status_t fstatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
     bool wal_flushed = false;
     bid_t dirty_idtree_root, dirty_seqtree_root;
@@ -3354,8 +3356,8 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
                        handle->file->filename);
     }
 
+fdb_commit_start:
     fdb_check_file_reopen(handle, NULL);
-
     filemgr_mutex_lock(handle->file);
     fdb_sync_db_header(handle);
     fdb_link_new_file(handle);
@@ -3363,6 +3365,14 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
     if (filemgr_is_rollback_on(handle->file)) {
         filemgr_mutex_unlock(handle->file);
         return FDB_RESULT_FAIL_BY_ROLLBACK;
+    }
+
+    fstatus = filemgr_get_file_status(handle->file);
+    if (fstatus == FILE_REMOVED_PENDING) {
+        // we must not commit this file
+        // file status was changed by other thread .. start over
+        filemgr_mutex_unlock(handle->file);
+        goto fdb_commit_start;
     }
 
     if (handle->new_file) {
@@ -3508,6 +3518,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
                                            struct filemgr *old_file,
                                            struct filemgr *new_file)
 {
+    // Note: new_file == handle->file
+
     fdb_txn *earliest_txn;
     bool wal_flushed = false;
     bid_t dirty_idtree_root, dirty_seqtree_root;
@@ -3529,12 +3541,10 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         }
     } while (very_old_file);
 
-    filemgr_mutex_lock(handle->file);
-
     btreeblk_end(handle->bhandle);
 
     // sync dirty root nodes
-    filemgr_get_dirty_root(handle->file, &dirty_idtree_root, &dirty_seqtree_root);
+    filemgr_get_dirty_root(new_file, &dirty_idtree_root, &dirty_seqtree_root);
     if (dirty_idtree_root != BLK_NOT_FOUND) {
         handle->trie->root_bid = dirty_idtree_root;
     }
@@ -3547,30 +3557,30 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         }
     }
 
-    wal_commit(&handle->file->global_txn, handle->file, NULL);
-    if (wal_get_num_flushable(handle->file)) {
+    wal_commit(&new_file->global_txn, new_file, NULL);
+    if (wal_get_num_flushable(new_file)) {
         // flush wal if not empty
-        wal_flush(handle->file, (void *)handle,
+        wal_flush(new_file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
-        wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+        wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
         wal_flushed = true;
-    } else if (wal_get_size(handle->file) == 0) {
+    } else if (wal_get_size(new_file) == 0) {
         // empty WAL
-        wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+        wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
     }
 
     // Note: Appending KVS header must be done after flushing WAL
     //       because KVS stats info is updated during WAL flushing.
     if (handle->kvs) {
         // multi KV instance mode .. append up-to-date KV header
-        handle->kv_info_offset = fdb_kvs_header_append(handle->file,
+        handle->kv_info_offset = fdb_kvs_header_append(new_file,
                                                        handle->dhandle);
     }
 
-    handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
-    if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
-        earliest_txn = wal_earliest_txn(handle->file,
-                                        &handle->file->global_txn);
+    handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
+    if (wal_get_dirty_status(new_file) == FDB_WAL_CLEAN) {
+        earliest_txn = wal_earliest_txn(new_file,
+                                        &new_file->global_txn);
         if (earliest_txn) {
             // there exists other transaction that is not committed yet
             if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
@@ -3583,30 +3593,33 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     }
 
     // update global_txn's previous header BID
-    handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
+    new_file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
 
     handle->cur_header_revnum = fdb_set_file_header(handle);
-    status = filemgr_commit(handle->file, &handle->log_callback);
+    status = filemgr_commit(new_file, &handle->log_callback);
     if (status != FDB_RESULT_SUCCESS) {
-        filemgr_mutex_unlock(handle->file);
+        filemgr_mutex_unlock(old_file);
+        filemgr_mutex_unlock(new_file);
         return status;
     }
 
     if (wal_flushed) {
-        wal_release_flushed_items(handle->file, &flush_items);
+        wal_release_flushed_items(new_file, &flush_items);
     }
-    wal_release_keystr_files(handle->file);
+    wal_release_keystr_files(new_file);
 
     // Mark the old file as "remove_pending".
     // Note that a file deletion will be pended until there is no handle
     // referring the file.
     filemgr_remove_pending(old_file, new_file);
+    // This mutex was acquired by the caller (i.e., _fdb_compact_file()).
+    filemgr_mutex_unlock(old_file);
 
     // Don't clean up the buffer cache entries for the old file.
     // They will be cleaned up later.
     filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
 
-    filemgr_mutex_unlock(handle->file);
+    filemgr_mutex_unlock(new_file);
     return status;
 }
 
@@ -4058,6 +4071,217 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     return fs;
 }
 
+INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
+                                      fdb_kvs_handle *new_handle,
+                                      struct filemgr *new_file,
+                                      struct hbtrie *new_trie,
+                                      struct btree *new_idtree,
+                                      struct btree *new_seqtree,
+                                      struct docio_handle *new_dhandle,
+                                      struct btreeblk_handle *new_bhandle,
+                                      struct docio_object *doc,
+                                      uint64_t *old_offset_array,
+                                      uint64_t n_buf)
+{
+    uint64_t i;
+    uint64_t doc_offset;
+
+    for (i=0; i<n_buf; ++i) {
+        // append into the new file
+        doc_offset = docio_append_doc(new_dhandle, &doc[i],
+                         doc[i].length.flag & DOCIO_DELETED, 0);
+        // insert into the new file's WAL
+        fdb_doc wal_doc;
+        wal_doc.keylen = doc[i].length.keylen;
+        wal_doc.bodylen = doc[i].length.bodylen;
+        wal_doc.key = doc[i].key;
+        wal_doc.seqnum = doc[i].seqnum;
+        wal_doc.deleted = doc[i].length.flag & DOCIO_DELETED;
+        wal_doc.metalen = doc[i].length.metalen;
+        wal_doc.meta = doc[i].meta;
+        wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
+        wal_insert(&new_file->global_txn, new_file, &wal_doc,
+                   doc_offset, 0, 0);
+
+        if (handle->config.compaction_cb &&
+            handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+            handle->config.compaction_cb(
+                handle->fhandle, FDB_CS_MOVE_DOC,
+                &wal_doc, old_offset_array[i], doc_offset,
+                handle->config.compaction_cb_ctx);
+        }
+
+        // free
+        free(doc[i].key);
+        free(doc[i].meta);
+        free(doc[i].body);
+    }
+
+    // WAL flush
+    struct avl_tree flush_items;
+    wal_commit(&new_file->global_txn, new_file, NULL);
+    wal_flush(new_file, (void*)new_handle,
+              _fdb_wal_flush_func,
+              _fdb_wal_get_old_offset,
+              &flush_items);
+    wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+    wal_release_flushed_items(new_file, &flush_items);
+
+    if (handle->config.compaction_cb &&
+        handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+        handle->config.compaction_cb(
+            handle->fhandle, FDB_CS_FLUSH_WAL, NULL,
+            old_offset_array[i], doc_offset,
+            handle->config.compaction_cb_ctx);
+    }
+}
+
+static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
+                                          struct filemgr *new_file,
+                                          struct hbtrie *new_trie,
+                                          struct btree *new_idtree,
+                                          struct btree *new_seqtree,
+                                          struct docio_handle *new_dhandle,
+                                          struct btreeblk_handle *new_bhandle,
+                                          bid_t begin_hdr, bid_t end_hdr,
+                                          bool got_lock)
+{
+    uint64_t offset, offset_end;
+    uint64_t old_offset, new_offset;
+    uint64_t sum_docsize;;
+    uint64_t *old_offset_array;
+    size_t c;
+    size_t blocksize = handle->config.blocksize;
+    struct timeval tv;
+    struct docio_object *doc;
+    fdb_kvs_handle new_handle;
+    timestamp_t cur_timestamp;
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    err_log_callback *log_callback;
+
+    if (handle->config.compaction_cb &&
+        handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, 0, 0,
+                                     handle->config.compaction_cb_ctx);
+    }
+
+    // Temporarily disable log callback function
+    log_callback = handle->dhandle->log_callback;
+    handle->dhandle->log_callback = NULL;
+
+    gettimeofday(&tv, NULL);
+    cur_timestamp = tv.tv_sec;
+
+    new_handle = *handle;
+    new_handle.file = new_file;
+    new_handle.trie = new_trie;
+    new_handle.idtree = new_idtree;
+    if (handle->kvs) {
+        new_handle.seqtrie = (struct hbtrie *)new_seqtree;
+    } else {
+        new_handle.seqtree = new_seqtree;
+    }
+    new_handle.dhandle = new_dhandle;
+    new_handle.bhandle = new_bhandle;
+
+    doc = (struct docio_object *)
+          malloc(sizeof(struct docio_object) * FDB_COMP_BATCHSIZE);
+    old_offset_array = (uint64_t*)malloc(sizeof(uint64_t) * FDB_COMP_BATCHSIZE);
+    c = old_offset = new_offset = sum_docsize = 0;
+    offset = (begin_hdr+1) * blocksize;
+    offset_end = (end_hdr+1) * blocksize;
+    for (; offset < offset_end;
+        offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
+        if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
+            continue;
+        } else {
+            do {
+                uint64_t _offset;
+                uint64_t doc_offset;
+                memset(&doc[c], 0, sizeof(struct docio_object));
+                _offset = docio_read_doc(handle->dhandle, offset, &doc[c]);
+                if (_offset == offset) { // reached unreadable doc, skip block
+                    break;
+                }
+                if (doc[c].key || (doc[c].length.flag & DOCIO_TXN_COMMITTED)) {
+                    // check if the doc is transactional or not, and
+                    // also check if the doc contains system info
+                    if (!(doc[c].length.flag & DOCIO_TXN_DIRTY) &&
+                        !(doc[c].length.flag & DOCIO_SYSTEM)) {
+                        if (doc[c].length.flag & DOCIO_TXN_COMMITTED) {
+                            // commit mark .. read doc offset
+                            doc_offset = doc[c].doc_offset;
+                            // read the previously skipped doc
+                            docio_read_doc(handle->dhandle, doc_offset, &doc[c]);
+                            if (doc[c].key == NULL) { // doc read error
+                                free(doc[c].meta);
+                                free(doc[c].body);
+                                offset = _offset;
+                                continue;
+                            }
+                        }
+
+                        old_offset_array[c] = offset;
+                        sum_docsize += _fdb_get_docsize(doc[c].length);
+                        c++;
+                        offset = _offset;
+
+                        if (c >= FDB_COMP_MOVE_UNIT ||
+                            sum_docsize >= FDB_COMP_BATCHSIZE) {
+                            // append batched docs & flush WAL
+                            _fdb_append_batched_delta(handle, &new_handle,
+                                                      new_file, new_trie,
+                                                      new_idtree, new_seqtree,
+                                                      new_dhandle, new_bhandle, doc,
+                                                      old_offset_array, c);
+                            c = sum_docsize = 0;
+                        }
+
+                    } else {
+                        // dirty transaction doc OR system doc
+                        free(doc[c].key);
+                        free(doc[c].meta);
+                        free(doc[c].body);
+                        offset = _offset;
+                        // do not break.. read next doc
+                    }
+                } else {
+                    // not a normal document
+                    free(doc[c].key);
+                    free(doc[c].meta);
+                    free(doc[c].body);
+                    offset = _offset;
+                    break;
+                }
+            } while (offset + sizeof(struct docio_length) < offset_end);
+        }
+    }
+
+    // final append & WAL flush
+    if (c) {
+        _fdb_append_batched_delta(handle, &new_handle,
+                                  new_file, new_trie,
+                                  new_idtree, new_seqtree,
+                                  new_dhandle, new_bhandle, doc,
+                                  old_offset_array, c);
+    }
+
+    if (handle->config.compaction_cb &&
+        handle->config.compaction_cb_mask & FDB_CS_END) {
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
+                                     NULL, old_offset, new_offset,
+                                     handle->config.compaction_cb_ctx);
+    }
+
+    handle->dhandle->log_callback = log_callback;
+
+    free(doc);
+    free(old_offset_array);
+
+    return fs;
+}
+
+
 static uint64_t _fdb_doc_move(void *dbhandle,
                               void *void_new_dhandle,
                               struct wal_item *item,
@@ -4459,7 +4683,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
 
     if (handle->kvs) {
         // multi KV instance mode .. copy KV header data to new file
-        fdb_kvs_header_copy(handle, new_file, new_dhandle);
+        fdb_kvs_header_copy(handle, new_file, new_dhandle, true);
     }
 
     // sync dirty root nodes
@@ -4483,9 +4707,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
 
-    // migrate uncommitted transaction items to new file
-    wal_txn_migration((void*)handle, (void*)new_dhandle,
-                      handle->file, new_file, _fdb_doc_move);
     // mark name of new file in old file
     filemgr_set_compaction_state(handle->file, new_file, FILE_COMPACT_OLD);
 
@@ -4509,6 +4730,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
         filemgr_mutex_unlock(handle->file);
+        filemgr_mutex_unlock(new_file);
         _fdb_cleanup_compact_err(handle, new_file, true, true, new_bhandle,
                                  new_dhandle, new_trie, new_seqtrie,
                                  new_seqtree);
@@ -4543,7 +4765,74 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         return fs;
     }
 
+    // The first phase is done. Now move delta documents.
+    bid_t last_hdr;
+    bid_t cur_hdr;
+    bool escape = false;
+    do {
+        last_hdr = handle->last_hdr_bid;
+        // get up-to-date header BID of the old file
+        fdb_sync_db_header(handle);
+        cur_hdr = handle->last_hdr_bid;
+
+        if (last_hdr == cur_hdr) {
+            // All *committed* delta documents are synchronized.
+            // However, there can be uncommitted documents written after the
+            // latest commit. They also should be moved.
+            // But at this time, we should grab the old file's lock to prevent
+            // any additional updates on it.
+            filemgr_mutex_lock(handle->file);
+
+            bid_t last_bid;
+            last_bid = (filemgr_get_pos(handle->file) / handle->config.blocksize) - 1;
+            if (cur_hdr < last_bid) {
+                // move delta one more time
+                cur_hdr = last_bid;
+                escape = true;
+            } else {
+                break;
+            }
+        }
+
+        if (handle->kvs) {
+            fs = _fdb_compact_move_delta(handle, new_file, new_trie, new_idtree,
+                                         (struct btree*)new_seqtrie, new_dhandle,
+                                         new_bhandle, last_hdr, cur_hdr,
+                                         false /* not got file lock*/);
+        } else {
+            fs = _fdb_compact_move_delta(handle, new_file, new_trie, new_idtree,
+                                         new_seqtree, new_dhandle, new_bhandle,
+                                         last_hdr, cur_hdr,
+                                         false /*not holding file lock*/);
+        }
+        if (escape) {
+            break;
+        }
+    } while (last_hdr < cur_hdr);
+
     filemgr_mutex_lock(new_file);
+
+    // As we moved uncommitted non-transactional WAL items,
+    // commit & flush those items. Now WAL contains only uncommitted
+    // transactional items (or empty), so it is ready to migrate ongoing
+    // transactions.
+    wal_commit(&handle->file->global_txn, handle->file, NULL);
+    wal_flush(handle->file, (void*)handle,
+              _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
+    btreeblk_end(handle->bhandle);
+    wal_release_flushed_items(handle->file, &flush_items);
+
+    // copy old file's seqnum to new file (do this again due to delta)
+    seqnum = filemgr_get_seqnum(handle->file);
+    filemgr_set_seqnum(new_file, seqnum);
+    if (handle->kvs) {
+        // copy seqnums of non-default KV stores
+        fdb_kvs_header_copy(handle, new_file, new_dhandle, false);
+    }
+
+    // migrate uncommitted transactional items to new file
+    wal_txn_migration((void*)handle, (void*)new_dhandle,
+                      handle->file, new_file, _fdb_doc_move);
 
     old_file = handle->file;
     compactor_switch_file(old_file, new_file);
@@ -4577,13 +4866,11 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     strncpy(old_filename, old_file->filename, old_filename_len);
     filemgr_update_file_status(new_file, FILE_NORMAL, old_filename);
 
-    // allow update to new_file
-    filemgr_mutex_unlock(new_file);
-
-    // atomically perform
+    // Atomically perform
     // 1) commit new file
     // 2) set remove pending flag of the old file
     // 3) close the old file
+    // Note that both old_file's lock and new_file's lock are still acquired.
     return _fdb_commit_and_remove_pending(handle, old_file, new_file);
 }
 

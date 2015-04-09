@@ -538,6 +538,11 @@ fdb_status wal_txn_migration(void *dbhandle,
                     // not committed yet
                     // move doc
                     offset = move_doc(dbhandle, new_dhandle, item, &doc);
+                    // Note that all items belonging to global_txn should be
+                    // flushed before calling this function
+                    // (migrate transactional items only).
+                    fdb_assert(item->txn != &old_file->global_txn,
+                               (uint64_t)item->txn, 0);
                     // insert into new_file's WAL
                     wal_insert(item->txn, new_file, &doc, offset, 0, 1);
                     // remove from seq hash table

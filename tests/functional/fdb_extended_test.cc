@@ -483,7 +483,7 @@ static void test_multi_readers(multi_reader_type reader_type,
     fdb_status status;
     size_t n_readers = num_readers;
 
-    // remove previous dummy files
+    // remove previous extended_test files
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
     (void)r;
 
@@ -554,7 +554,7 @@ static void test_writer_multi_readers(writer_type wtype,
     fdb_kvs_handle *db;
     fdb_status status;
 
-    // remove previous dummy files
+    // remove previous extended_test files
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
     (void)r;
 
@@ -645,7 +645,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     fdb_status status;
     size_t n_readers = num_readers;
 
-    // remove previous dummy files
+    // remove previous extended_test files
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
     (void)r;
 
@@ -734,7 +734,7 @@ static void test_rollback_compaction(const char *test_name) {
     fdb_kvs_handle *db;
     fdb_status status;
 
-    // remove previous dummy files
+    // remove previous extended_test files
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
     (void)r;
 
