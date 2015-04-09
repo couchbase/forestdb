@@ -119,6 +119,7 @@ add_library(forestdb SHARED
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(forestdb_dump
+               tools/dump_common.cc
                tools/forestdb_dump.cc
                src/api_wrapper.cc
                src/atomic.cc
@@ -156,6 +157,46 @@ add_executable(forestdb_dump
                utils/time_utils.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
+
+add_executable(forestdb_hexamine
+               tools/dump_common.cc
+               tools/forestdb_hexamine.cc
+               src/api_wrapper.cc
+               src/atomic.cc
+               src/avltree.cc
+               src/blockcache.cc
+               src/btree.cc
+               src/btree_kv.cc
+               src/btree_str_kv.cc
+               src/btree_fast_str_kv.cc
+               src/btreeblock.cc
+               src/compactor.cc
+               src/configuration.cc
+               src/docio.cc
+               src/fdb_errors.cc
+               src/filemgr.cc
+               src/filemgr_ops.cc
+               ${FORESTDB_FILE_OPS}
+               src/forestdb.cc
+               src/hash_functions.cc
+               src/hbtrie.cc
+               src/iterator.cc
+               src/list.cc
+               src/hash.cc
+               src/wal.cc
+               ${GETTIMEOFDAY_VS}
+               src/snapshot.cc
+               src/transaction.cc
+               src/kv_instance.cc
+               utils/memleak.cc
+               utils/crc32.cc
+               utils/adler32.cc
+               utils/debug.cc
+               utils/iniparser.cc
+               utils/partiallock.cc
+               utils/time_utils.cc)
+target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
+set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))
     INSTALL(FILES
