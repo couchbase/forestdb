@@ -701,7 +701,7 @@ void compact_upto_test(bool multi_kv)
 
     char keybuf[256], metabuf[256], bodybuf[256];
     char kv_name[8];
-    char compact_filename[16];
+    char compact_filename[32];
 
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
