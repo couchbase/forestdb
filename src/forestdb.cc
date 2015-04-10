@@ -3527,20 +3527,6 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     fdb_status status = FDB_RESULT_SUCCESS;
     struct filemgr *very_old_file;
 
-    do { // Find all files pointing to old_file and redirect them to new file..
-        very_old_file = filemgr_search_stale_links(old_file);
-        if (very_old_file) {
-            filemgr_redirect_old_file(very_old_file, new_file,
-                                      _fdb_redirect_header);
-            filemgr_commit(very_old_file, &handle->log_callback);
-            // I/O errors here are not propogated since this is best-effort
-            // Since filemgr_search_stale_links() will have opened the file
-            // we must close it here to ensure decrement of ref counter
-            filemgr_close(very_old_file, 1, very_old_file->filename,
-                          &handle->log_callback);
-        }
-    } while (very_old_file);
-
     btreeblk_end(handle->bhandle);
 
     // sync dirty root nodes
@@ -3607,6 +3593,21 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         wal_release_flushed_items(new_file, &flush_items);
     }
     wal_release_keystr_files(new_file);
+
+    compactor_switch_file(old_file, new_file);
+    do { // Find all files pointing to old_file and redirect them to new file..
+        very_old_file = filemgr_search_stale_links(old_file);
+        if (very_old_file) {
+            filemgr_redirect_old_file(very_old_file, new_file,
+                                      _fdb_redirect_header);
+            filemgr_commit(very_old_file, &handle->log_callback);
+            // I/O errors here are not propogated since this is best-effort
+            // Since filemgr_search_stale_links() will have opened the file
+            // we must close it here to ensure decrement of ref counter
+            filemgr_close(very_old_file, 1, very_old_file->filename,
+                          &handle->log_callback);
+        }
+    } while (very_old_file);
 
     // Mark the old file as "remove_pending".
     // Note that a file deletion will be pended until there is no handle
@@ -4835,7 +4836,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                       handle->file, new_file, _fdb_doc_move);
 
     old_file = handle->file;
-    compactor_switch_file(old_file, new_file);
     handle->file = new_file;
 
     btreeblk_free(handle->bhandle);
