@@ -270,7 +270,14 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
             file->kv_header->custom_cmp_enabled = ori_flag;
             file->kv_header->default_kvs_cmp = ori_custom_cmp;
             spin_unlock(&file->kv_header->lock);
-            return FDB_RESULT_INVALID_CMP_FUNCTION;
+            const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
+            if (!kvs_name) {
+                kvs_name = DEFAULT_KVS_NAME;
+            }
+            return fdb_log(&handle->log_callback, FDB_RESULT_INVALID_CMP_FUNCTION,
+                           "Error! Tried to open a KV store '%s', which was created with "
+                           "custom compare function enabled, without passing the same "
+                           "custom compare function.", kvs_name);
         }
         if (!(fhandle->flags & FHANDLE_ROOT_CUSTOM_CMP) &&
               handle->kvs_config.custom_cmp) {
@@ -279,7 +286,14 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
             file->kv_header->custom_cmp_enabled = ori_flag;
             file->kv_header->default_kvs_cmp = ori_custom_cmp;
             spin_unlock(&file->kv_header->lock);
-            return FDB_RESULT_INVALID_CMP_FUNCTION;
+            const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
+            if (!kvs_name) {
+                kvs_name = DEFAULT_KVS_NAME;
+            }
+            return fdb_log(&handle->log_callback, FDB_RESULT_INVALID_CMP_FUNCTION,
+                           "Error! Tried to open a KV store '%s', which was created without "
+                           "custom compare function, by passing custom compare function.",
+                    kvs_name);
         }
     }
 
@@ -296,7 +310,14 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
             file->kv_header->custom_cmp_enabled = ori_flag;
             file->kv_header->default_kvs_cmp = ori_custom_cmp;
             spin_unlock(&file->kv_header->lock);
-            return FDB_RESULT_INVALID_CMP_FUNCTION;
+            const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
+            if (!kvs_name) {
+                kvs_name = DEFAULT_KVS_NAME;
+            }
+            return fdb_log(&handle->log_callback, FDB_RESULT_INVALID_CMP_FUNCTION,
+                           "Error! Tried to open a KV store '%s', which was created with "
+                           "custom compare function enabled, without passing the same "
+                           "custom compare function.", kvs_name);
         }
         if (!(kvs_node->flags & KVS_FLAG_CUSTOM_CMP) &&
               kvs_node->custom_cmp) {
@@ -305,7 +326,14 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
             file->kv_header->custom_cmp_enabled = ori_flag;
             file->kv_header->default_kvs_cmp = ori_custom_cmp;
             spin_unlock(&file->kv_header->lock);
-            return FDB_RESULT_INVALID_CMP_FUNCTION;
+            const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
+            if (!kvs_name) {
+                kvs_name = DEFAULT_KVS_NAME;
+            }
+            return fdb_log(&handle->log_callback, FDB_RESULT_INVALID_CMP_FUNCTION,
+                           "Error! Tried to open a KV store '%s', which was created without "
+                           "custom compare function, by passing custom compare function.",
+                           kvs_name);
         }
     }
 
@@ -821,8 +849,8 @@ uint64_t fdb_kvs_header_append(struct filemgr *file,
 }
 
 void fdb_kvs_header_read(struct filemgr *file,
-                            struct docio_handle *dhandle,
-                            uint64_t kv_info_offset)
+                         struct docio_handle *dhandle,
+                         uint64_t kv_info_offset)
 {
     uint64_t offset;
     struct docio_object doc;
@@ -831,6 +859,9 @@ void fdb_kvs_header_read(struct filemgr *file,
     offset = docio_read_doc(dhandle, kv_info_offset, &doc);
 
     if (offset == kv_info_offset) {
+        fdb_log(dhandle->log_callback, FDB_RESULT_READ_FAIL,
+                "Failed to read a KV header with the offset %" _F64 " from a "
+                "database file '%s'", kv_info_offset, file->filename);
         return;
     }
 
@@ -976,10 +1007,16 @@ static fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
 
     if (root_handle->config.multi_kv_instances == false) {
         // cannot open KV instance under single DB instance mode
-        return FDB_RESULT_INVALID_CONFIG;
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_CONFIG,
+                       "Cannot open or create KV store instance '%s' because multi-KV "
+                       "store instance mode is disabled.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
     if (root_handle->kvs->type != KVS_ROOT) {
-        return FDB_RESULT_INVALID_HANDLE;
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
+                       "Cannot open or create KV store instance '%s' because the handle "
+                       "doesn't support multi-KV sotre instance mode.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
 
 fdb_kvs_create_start:
@@ -1023,7 +1060,9 @@ fdb_kvs_create_start:
     if (a) { // KV name already exists
         spin_unlock(&kv_header->lock);
         filemgr_mutex_unlock(file);
-        return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
+                       "Failed to create KV Store '%s' as it already exists.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
 
     // create a kvs_node and insert
@@ -1160,10 +1199,14 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
     if (handle->kvs == NULL) {
         // KV instance name is not found
         if (!kvs_config->create_if_missing) {
-            return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
+            return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
+                           "Failed to open KV store '%s' because it doesn't exist.",
+                           kvs_name ? kvs_name : DEFAULT_KVS_NAME);
         }
         if (root_handle->config.flags == FDB_OPEN_FLAG_RDONLY) {
-            return FDB_RESULT_RONLY_VIOLATION;
+            return fdb_log(&root_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                           "Failed to create KV store '%s' because the KV store's handle "
+                           "is read-only.", kvs_name ? kvs_name : DEFAULT_KVS_NAME);
         }
 
         // create
@@ -1176,7 +1219,9 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
         fdb_kvs_info_create(root_handle, handle, file, kvs_name);
         filemgr_mutex_unlock(file);
         if (handle->kvs == NULL) { // fail again
-            return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
+            return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
+                           "Failed to create KV store '%s' because the KV store's handle "
+                           "is read-only.", kvs_name ? kvs_name : DEFAULT_KVS_NAME);
         }
     }
     fs = _fdb_open(handle, filename, FDB_AFILENAME, config);
@@ -1331,14 +1376,23 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
 
     if (config.multi_kv_instances == false) {
         // cannot open KV instance under single DB instance mode
-        return FDB_RESULT_INVALID_CONFIG;
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_CONFIG,
+                       "Cannot open KV store instance '%s' because multi-KV "
+                       "store instance mode is disabled.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
     if (root_handle->kvs->type != KVS_ROOT) {
-        return FDB_RESULT_INVALID_HANDLE;
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
+                       "Cannot open KV store instance '%s' because the handle "
+                       "doesn't support multi-KV sotre instance mode.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
     if (root_handle->shandle) {
         // cannot open KV instance from a snapshot
-        return FDB_RESULT_INVALID_ARGS;
+        return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_ARGS,
+                       "Not allowed to open KV store instance '%s' from the "
+                       "snapshot handle.",
+                       kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
 
     handle = (fdb_kvs_handle *)calloc(1, sizeof(fdb_kvs_handle));
@@ -1849,6 +1903,9 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
             free(handle);
         } else {
             // cancel the rolling-back of the sequence number
+            fdb_log(&handle_in->log_callback, fs,
+                    "Rollback failed due to a commit failure with a sequence "
+                    "number %" _F64, seqnum);
             filemgr_mutex_lock(handle_in->file);
             fdb_kvs_set_seqnum(handle_in->file,
                                handle_in->kvs->id, old_seqnum);
