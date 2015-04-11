@@ -1360,7 +1360,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         filemgr_mutex_unlock(handle->file);
 
         hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
-        hdr_bid = hdr_bid ? --hdr_bid : 0;
+        if (hdr_bid > 0) {
+            --hdr_bid;
+        }
         if (handle->max_seqnum) {
             struct kvs_stat stat_ori;
             // backup original stats
@@ -3827,6 +3829,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
         wal_release_flushed_items(new_file, &flush_items);
     }
 
+    handle->dhandle->log_callback = log_callback;
     return fs;
 }
 
@@ -4085,7 +4088,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
                                       uint64_t n_buf)
 {
     uint64_t i;
-    uint64_t doc_offset;
+    uint64_t doc_offset = 0;
 
     for (i=0; i<n_buf; ++i) {
         // append into the new file
@@ -4172,6 +4175,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
     gettimeofday(&tv, NULL);
     cur_timestamp = tv.tv_sec;
+    (void)cur_timestamp;
 
     new_handle = *handle;
     new_handle.file = new_file;
@@ -4918,8 +4922,8 @@ fdb_status fdb_compact_file_upto(fdb_file_handle *fhandle,
 {
     struct filemgr *new_file = NULL;
     struct filemgr_config fconfig;
-    struct btreeblk_handle *new_bhandle;
-    struct docio_handle *new_dhandle;
+    struct btreeblk_handle *new_bhandle = NULL;
+    struct docio_handle *new_dhandle = NULL;
     struct hbtrie *new_trie = NULL;
     struct btree *new_idtree = NULL;
     struct btree *new_seqtree = NULL;
@@ -5088,9 +5092,9 @@ catch_up_compaction:
         fdb_kvs_config kvs_config = rhandle->kvs_config;
         fdb_config config = rhandle->config;
         struct filemgr *file = rhandle->file;
-        struct hbtrie *tmp_trie;
-        struct hbtrie *tmp_seqtrie;
-        struct btree *tmp_seqtree;
+        struct hbtrie *tmp_trie = NULL;
+        struct hbtrie *tmp_seqtrie = NULL;
+        struct btree *tmp_seqtree = NULL;
         memset(&handle, 0, sizeof(fdb_kvs_handle));
         memset(&shandle, 0, sizeof(struct snap_handle));
         memset(&kvs, 0, sizeof(struct kvs_info));
@@ -5749,7 +5753,8 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
 
 LIBFDB_API
 fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size) {
-    int64_t i, kvs_idx;
+    uint64_t i;
+    int64_t kvs_idx;
     if (!markers || !size) {
         return FDB_RESULT_INVALID_ARGS;
     }
@@ -5792,9 +5797,10 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
 
     fprintf(stderr, "config: chunksize %d\n", h->config.chunksize);
     fprintf(stderr, "config: blocksize %d\n", h->config.blocksize);
-    fprintf(stderr, "config: buffercache_size %llu\n",
+    fprintf(stderr, "config: buffercache_size %" _F64 "\n",
            h->config.buffercache_size);
-    fprintf(stderr, "config: wal_threshold %llu\n", h->config.wal_threshold);
+    fprintf(stderr, "config: wal_threshold %" _F64 "\n",
+            h->config.wal_threshold);
     fprintf(stderr, "config: wal_flush_before_commit %d\n",
            h->config.wal_flush_before_commit);
     fprintf(stderr, "config: purging_interval %d\n", h->config.purging_interval);
@@ -5810,48 +5816,46 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "config: compaction_mode %d\n", h->config.compaction_mode);
     fprintf(stderr, "config: compaction_threshold %d\n",
            h->config.compaction_threshold);
-    fprintf(stderr, "config: compactor_sleep_duration %llu\n",
+    fprintf(stderr, "config: compactor_sleep_duration %" _F64"\n",
            h->config.compactor_sleep_duration);
 
     fprintf(stderr, "kvs_config: Create if missing = %d\n",
            h->kvs_config.create_if_missing);
 
-    fprintf(stderr, "kvs: id = %llu\n", h->kvs->id);
+    fprintf(stderr, "kvs: id = %" _F64 "\n", h->kvs->id);
     fprintf(stderr, "kvs: type = %d\n", h->kvs->type);
-    fprintf(stderr, "kvs: root_handle %p\n", h->kvs->root);
+    fprintf(stderr, "kvs: root_handle %p\n", (void *)h->kvs->root);
 
-    fprintf(stderr, "fdb_file_handle: %p\n", h->fhandle);
-    fprintf(stderr, "fhandle: root %p\n", h->fhandle->root);
-    fprintf(stderr, "fhandle: flags %llx\n", h->fhandle->flags);
+    fprintf(stderr, "fdb_file_handle: %p\n", (void *)h->fhandle);
+    fprintf(stderr, "fhandle: root %p\n", (void*)h->fhandle->root);
+    fprintf(stderr, "fhandle: flags %p\n", (void *)h->fhandle->flags);
 
-    fprintf(stderr, "hbtrie: %p\n", h->trie);
+    fprintf(stderr, "hbtrie: %p\n", (void *)h->trie);
     fprintf(stderr, "hbtrie: chunksize %u\n", h->trie->chunksize);
     fprintf(stderr, "hbtrie: valuelen %u\n", h->trie->valuelen);
     fprintf(stderr, "hbtrie: flag %x\n", h->trie->flag);
     fprintf(stderr, "hbtrie: leaf_height_limit %u\n",
            h->trie->leaf_height_limit);
-    fprintf(stderr, "hbtrie: root_bid %llu\n", h->trie->root_bid);
-    fprintf(stderr, "hbtrie: root_bid %llu\n", h->trie->root_bid);
-    fprintf(stderr, "hbtrie: readkey %p\n", h->trie->readkey);
+    fprintf(stderr, "hbtrie: root_bid %p\n", (void *)h->trie->root_bid);
+    fprintf(stderr, "hbtrie: root_bid %p\n", (void *)h->trie->root_bid);
 
-    fprintf(stderr, "idtree: %p\n", h->idtree);
+    fprintf(stderr, "idtree: %p\n", (void *)h->idtree);
 
-    fprintf(stderr, "seqtrie: %p\n", h->seqtrie);
+    fprintf(stderr, "seqtrie: %p\n", (void *)h->seqtrie);
     fprintf(stderr, "seqtrie: chunksize %u\n", h->seqtrie->chunksize);
     fprintf(stderr, "seqtrie: valuelen %u\n", h->seqtrie->valuelen);
     fprintf(stderr, "seqtrie: flag %x\n", h->seqtrie->flag);
     fprintf(stderr, "seqtrie: leaf_height_limit %u\n",
            h->seqtrie->leaf_height_limit);
-    fprintf(stderr, "seqtrie: root_bid %llu\n", h->seqtrie->root_bid);
-    fprintf(stderr, "seqtrie: root_bid %llu\n", h->seqtrie->root_bid);
-    fprintf(stderr, "seqtrie: readkey %p\n", h->seqtrie->readkey);
+    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->root_bid);
+    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->root_bid);
 
     fprintf(stderr, "file: filename %s\n", h->file->filename);
     fprintf(stderr, "file: ref_count %d\n", h->file->ref_count);
     fprintf(stderr, "file: fflags %x\n", h->file->fflags);
     fprintf(stderr, "file: blocksize %d\n", h->file->blocksize);
     fprintf(stderr, "file: fd %d\n", h->file->fd);
-    fprintf(stderr, "file: pos %llu\n", h->file->pos.val);
+    fprintf(stderr, "file: pos %" _F64"\n", h->file->pos.val);
     fprintf(stderr, "file: status %d\n", h->file->status.val);
     fprintf(stderr, "file: config: blocksize %d\n", h->file->config->blocksize);
     fprintf(stderr, "file: config: ncacheblock %d\n",
@@ -5859,73 +5863,78 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "file: config: flag %d\n", h->file->config->flag);
     fprintf(stderr, "file: config: chunksize %d\n", h->file->config->chunksize);
     fprintf(stderr, "file: config: options %x\n", h->file->config->options);
-    fprintf(stderr, "file: config: prefetch_duration %llu\n",
+    fprintf(stderr, "file: config: prefetch_duration %" _F64 "\n",
            h->file->config->prefetch_duration);
     fprintf(stderr, "file: config: num_wal_shards %d\n",
            h->file->config->num_wal_shards);
     fprintf(stderr, "file: config: num_bcache_shards %d\n",
            h->file->config->num_bcache_shards);
-    fprintf(stderr, "file: new_file %p\n", h->file->new_file);
-    fprintf(stderr, "file: old_filename %p\n", h->file->old_filename);
-    fprintf(stderr, "file: fnamedic_item: bcache %p\n", h->file->bcache);
-    fprintf(stderr, "file: global_txn: handle %p\n", h->file->global_txn.handle);
-    fprintf(stderr, "file: global_txn: prev_hdr_bid %llu\n",
+    fprintf(stderr, "file: new_file %p\n", (void *)h->file->new_file);
+    fprintf(stderr, "file: old_filename %p\n", (void *)h->file->old_filename);
+    fprintf(stderr, "file: fnamedic_item: bcache %p\n",
+            (void *)h->file->bcache);
+    fprintf(stderr, "file: global_txn: handle %p\n",
+            (void *)h->file->global_txn.handle);
+    fprintf(stderr, "file: global_txn: prev_hdr_bid %" _F64 "\n",
            h->file->global_txn.prev_hdr_bid);
     fprintf(stderr, "file: global_txn: isolation %d\n",
            h->file->global_txn.isolation);
     fprintf(stderr, "file: in_place_compaction: %d\n",
            h->file->in_place_compaction);
-    fprintf(stderr, "file: kvs_header: %llu\n", h->file->kv_header->id_counter);
+    fprintf(stderr, "file: kvs_header: %" _F64 "\n",
+            h->file->kv_header->id_counter);
 
-    fprintf(stderr, "new_file: %p\n", h->new_file);
+    fprintf(stderr, "new_file: %p\n", (void*)h->new_file);
 
-    fprintf(stderr, "docio_handle: %p\n", h->dhandle);
-    fprintf(stderr, "dhandle: file: filename %s\n", h->dhandle->file->filename);
-    fprintf(stderr, "dhandle: curblock %llu\n", h->dhandle->curblock);
+    fprintf(stderr, "docio_handle: %p\n", (void*)h->dhandle);
+    fprintf(stderr, "dhandle: file: filename %s\n",
+            h->dhandle->file->filename);
+    fprintf(stderr, "dhandle: curblock %" _F64 "\n", h->dhandle->curblock);
     fprintf(stderr, "dhandle: curpos %d\n", h->dhandle->curpos);
-    fprintf(stderr, "dhandle: lastbid %llu\n", h->dhandle->lastbid);
+    fprintf(stderr, "dhandle: lastbid %" _F64 "\n", h->dhandle->lastbid);
     fprintf(stderr, "dhandle: readbuffer %p\n", h->dhandle->readbuffer);
     fprintf(stderr, "dhandle: %s\n",
            h->dhandle->compress_document_body ? "compress" : "don't compress");
-    fprintf(stderr, "new_dhandle %p\n", h->dhandle);
+    fprintf(stderr, "new_dhandle %p\n", (void *)h->dhandle);
 
-    fprintf(stderr, "btreeblk_handle bhanlde %p\n", h->bhandle);
+    fprintf(stderr, "btreeblk_handle bhanlde %p\n", (void *)h->bhandle);
     fprintf(stderr, "bhandle: nodesize %d\n", h->bhandle->nodesize);
     fprintf(stderr, "bhandle: nnodeperblock %d\n", h->bhandle->nnodeperblock);
-    fprintf(stderr, "bhandle: nlivenodes %llu\n", h->bhandle->nlivenodes);
+    fprintf(stderr, "bhandle: nlivenodes %" _F64 "\n", h->bhandle->nlivenodes);
     fprintf(stderr, "bhandle: file %s\n", h->bhandle->file->filename);
     fprintf(stderr, "bhandle: nsb %d\n", h->bhandle->nsb);
 
     fprintf(stderr, "multi_kv_instances: %d\n", h->config.multi_kv_instances);
-    fprintf(stderr, "prefetch_duration: %llu\n", h->config.prefetch_duration);
-    fprintf(stderr, "cur_header_revnum: %llu\n", h->cur_header_revnum);
-    fprintf(stderr, "last_hdr_bid: %llu\n", h->last_hdr_bid);
-    fprintf(stderr, "last_wal_flush_hdr_bid: %llu\n",
+    fprintf(stderr, "prefetch_duration: %" _F64"\n",
+            h->config.prefetch_duration);
+    fprintf(stderr, "cur_header_revnum: %" _F64 "\n", h->cur_header_revnum);
+    fprintf(stderr, "last_hdr_bid: %" _F64 "\n", h->last_hdr_bid);
+    fprintf(stderr, "last_wal_flush_hdr_bid: %" _F64 "\n",
            h->last_wal_flush_hdr_bid);
-    fprintf(stderr, "kv_info_offset: %llu\n", h->kv_info_offset);
+    fprintf(stderr, "kv_info_offset: %" _F64 "\n", h->kv_info_offset);
 
-    fprintf(stderr, "snap_handle: %p\n", h->shandle);
+    fprintf(stderr, "snap_handle: %p\n", (void *)h->shandle);
     if (h->shandle) {
         fprintf(stderr, "shandle: ref_cnt %d\n", h->shandle->ref_cnt);
         fprintf(stderr, "shandle: type %d\n", h->shandle->type);
-        fprintf(stderr, "shandle: kvs_stat: nlivenodes %llu\n",
+        fprintf(stderr, "shandle: kvs_stat: nlivenodes %" _F64 "\n",
                h->shandle->stat.nlivenodes);
-        fprintf(stderr, "shandle: kvs_stat: ndocs %llu\n",
+        fprintf(stderr, "shandle: kvs_stat: ndocs %" _F64 "\n",
                h->shandle->stat.ndocs);
-        fprintf(stderr, "shandle: kvs_stat: datasize %llu\n",
+        fprintf(stderr, "shandle: kvs_stat: datasize %" _F64 "\n",
                h->shandle->stat.datasize);
-        fprintf(stderr, "shandle: kvs_stat: wal_ndocs %llu\n",
+        fprintf(stderr, "shandle: kvs_stat: wal_ndocs %" _F64 "\n",
                h->shandle->stat.wal_ndocs);
-        fprintf(stderr, "shandle: kvs_stat: wal_ndeletes %llu\n",
+        fprintf(stderr, "shandle: kvs_stat: wal_ndeletes %" _F64 "\n",
                h->shandle->stat.wal_ndeletes);
     }
-    fprintf(stderr, "seqnum: %llu\n", h->seqnum);
-    fprintf(stderr, "max_seqnum: %llu\n", h->max_seqnum);
+    fprintf(stderr, "seqnum: %" _F64 "\n", h->seqnum);
+    fprintf(stderr, "max_seqnum: %" _F64 "\n", h->max_seqnum);
 
-    fprintf(stderr, "txn: %p\n", h->txn);
+    fprintf(stderr, "txn: %p\n", (void *)h->txn);
     if (h->txn) {
-        fprintf(stderr, "txn: handle %p\n", h->txn->handle);
-        fprintf(stderr, "txn: prev_hdr_bid %llu\n", h->txn->prev_hdr_bid);
+        fprintf(stderr, "txn: handle %p\n", (void *)h->txn->handle);
+        fprintf(stderr, "txn: prev_hdr_bid %" _F64" \n", h->txn->prev_hdr_bid);
         fprintf(stderr, "txn: isolation %d\n", h->txn->isolation);
     }
     fprintf(stderr, "dirty_updates %d\n", h->dirty_updates);
@@ -5940,7 +5949,7 @@ void _fdb_dump_handles(void) {
     while(h) {
         fdb_kvs_handle *handle = _get_entry(h, fdb_kvs_handle, avl_trace);
         n++;
-        fprintf(stderr, "--------%d-Dumping Handle %p----------\n", n, handle);
+        fprintf(stderr, "--------%d-Dumping Handle %p---------\n", n, handle);
         _fdb_dump_handle(handle);
         h = avl_next(h);
     }

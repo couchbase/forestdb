@@ -50,7 +50,7 @@ struct hbtrie_meta {
     void *prefix;
 };
 
-#define _l2c(trie, len) ( ( (len) + ((trie)->chunksize-1) ) / (trie)->chunksize )
+#define _l2c(trie, len) (( (len) + ((trie)->chunksize-1) ) / (trie)->chunksize)
 
 // MUST return same value to '_get_nchunk(_hbtrie_reform_key(RAWKEY))'
 INLINE int _get_nchunk_raw(struct hbtrie *trie, void *rawkey, int rawkeylen)
@@ -148,7 +148,7 @@ void hbtrie_init(struct hbtrie *trie, int chunksize, int valuelen,
     btree_leaf_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
 
     fdb_assert(valuelen == 8, valuelen, trie);
-    fdb_assert(chunksize >= sizeof(void *), chunksize, trie);
+    fdb_assert((size_t)chunksize >= sizeof(void *), chunksize, trie);
 
     if (chunksize == 8 && valuelen == 8){
         btree_kv_ops = btree_kv_get_kb64_vb64(btree_kv_ops);
@@ -552,7 +552,8 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
             //       dummy chunk will be a zero-filled value, and it is used
             //       as a key in the next level of B+tree. Hence, there will be
             //       no problem to assign the dummy chunk to the 'chunk' variable.
-            if ( (item_new->chunkno+1) * trie->chunksize <= it->keylen) {
+            if ( (unsigned)((item_new->chunkno+1) * trie->chunksize) <=
+                 it->keylen) {
                 // happen only once for the first call (for each level of b-trees)
                 chunk = (uint8_t*)it->curkey +
                         item_new->chunkno*trie->chunksize;
@@ -832,7 +833,8 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             //       dummy chunk will be a zero-filled value, and it is used
             //       as a key in the next level of B+tree. Hence, there will be
             //       no problem to assign the dummy chunk to the 'chunk' variable.
-            if ( (item_new->chunkno+1) * trie->chunksize <= it->keylen) {
+            if ( (unsigned)((item_new->chunkno+1) * trie->chunksize)
+                 <= it->keylen) {
                 // happen only once for the first call (for each level of b-trees)
                 chunk = (uint8_t*)it->curkey +
                         item_new->chunkno*trie->chunksize;
@@ -1824,12 +1826,13 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             // Note: custom cmp function doesn't support key
             //       longer than a block size.
             newchunkno = curchunkno+1;
-            minchunkno = MIN(_l2c(trie, rawkeylen), _l2c(trie, docrawkeylen));
-            minrawkeylen = MIN(rawkeylen, docrawkeylen);
+            minchunkno = MIN(_l2c(trie, rawkeylen),
+                             _l2c(trie, (int)docrawkeylen));
+            minrawkeylen = MIN(rawkeylen, (int)docrawkeylen);
             diffchunkno = _hbtrie_find_diff_chunk(trie, rawkey, docrawkey,
                 curchunkno, minchunkno -
                             ((minrawkeylen%trie->chunksize == 0)?(0):(1)));
-            if (rawkeylen == docrawkeylen && diffchunkno+1 == minchunkno) {
+            if (rawkeylen == (int)docrawkeylen && diffchunkno+1 == minchunkno) {
                 if (!memcmp(rawkey, docrawkey, rawkeylen)) {
                     // same key
                     diffchunkno = minchunkno;
@@ -1874,7 +1877,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
         // different key
         while (trie->btree_nodesize > HBTRIE_HEADROOM &&
                (newchunkno - curchunkno) * trie->chunksize >
-                   trie->btree_nodesize - HBTRIE_HEADROOM) {
+                   (int)trie->btree_nodesize - HBTRIE_HEADROOM) {
             // prefix is too long .. we have to split it
             fdb_assert(opt == HBMETA_NORMAL, opt, trie);
             int midchunkno;

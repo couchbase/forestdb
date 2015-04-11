@@ -53,7 +53,8 @@ void docio_free(struct docio_handle *handle)
     FDB_RESULT_SUCCESS
 #endif
 
-INLINE fdb_status _docio_fill_zero(struct docio_handle *handle, bid_t bid, size_t pos)
+INLINE fdb_status _docio_fill_zero(struct docio_handle *handle, bid_t bid,
+                                   size_t pos)
 {
     // Fill next few bytes (sizeof(struct docio_length)) with zero
     // to avoid false positive docio_length checksum during file scanning.
@@ -292,7 +293,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 
 #ifdef _DOC_COMP
     int ret;
-    void *compbuf;
+    void *compbuf = NULL;
     uint32_t compbuf_len;
     if (doc->length.bodylen > 0 && handle->compress_document_body) {
         compbuf_len = snappy_max_compressed_length(length.bodylen);
@@ -317,6 +318,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
         docsize += compbuf_len;
     } else {
         docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;
+        compbuf_len = length.bodylen;
     }
 #else
     docsize = sizeof(struct docio_length) + length.keylen + length.metalen + length.bodylen;

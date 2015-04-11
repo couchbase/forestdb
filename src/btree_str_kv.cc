@@ -28,7 +28,7 @@
 typedef uint16_t key_len_t;
 
 /*
-n-byte  keylen   vsize   ...
+n-byte  keylen    vsize   ...
 [keylen][key ...][value][keylen][key ...][value]
 */
 
@@ -78,9 +78,9 @@ static void _set_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
 {
     int ksize, vsize, i;
     void *key_ptr, *ptr;
-    key_len_t keylen, keylen_ins, keylen_idx;
+    key_len_t keylen, keylen_ins, keylen_idx = 0;
     key_len_t _keylen, _keylen_ins;
-    size_t offset, offset_idx, offset_next, next_len;
+    size_t offset = 0, offset_idx, offset_next = 0, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
     ksize = sizeof(void *);
@@ -130,7 +130,7 @@ static void _ins_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
     void *key_ptr, *ptr;
     key_len_t keylen, keylen_ins;
     key_len_t _keylen, _keylen_ins;
-    size_t offset, offset_idx, offset_next = 0, next_len;
+    size_t offset = 0, offset_idx, offset_next = 0, next_len;
 
     _get_kvsize(node->kvsize, ksize, vsize);
     ksize = sizeof(void *);
@@ -202,6 +202,7 @@ static void _copy_str_kv(struct bnode *node_dst,
     if (node_dst == node_src) return;
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
+    (void)ksize;
 
     ptr_src = node_src->data;
     ptr_dst = node_dst->data;
@@ -251,9 +252,9 @@ static size_t _get_str_kv_size(struct btree *tree, void *key, void *value)
 static size_t _get_str_data_size(
     struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)
 {
-    int ksize, vsize, i;
+    int ksize, vsize;
     void *ptr, *key_ptr;
-    size_t offset, size;
+    size_t offset, size, i;
     key_len_t keylen, _keylen;
 
     _get_kvsize(node->kvsize, ksize, vsize);

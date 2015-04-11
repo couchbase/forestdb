@@ -709,7 +709,7 @@ void * btreeblk_enlarge_node(void *voidhandle,
                              size_t req_size,
                              bid_t *new_bid)
 {
-    int i;
+    uint32_t i;
     bid_t bid;
     size_t src_sb, src_idx, src_nitems;
     size_t dst_sb, dst_idx, dst_nitems;
@@ -1149,9 +1149,10 @@ struct btree_blk_ops *btreeblk_get_ops()
     return &btreeblk_ops;
 }
 
-void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nodesize)
+void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file,
+                   uint32_t nodesize)
 {
-    int i;
+    uint32_t i;
     uint32_t _nodesize;
 
     handle->file = file;
@@ -1198,7 +1199,7 @@ void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file, int nod
 
 void btreeblk_reset_subblock_info(struct btreeblk_handle *handle)
 {
-    int i;
+    uint32_t i;
     // initialize each subblock set
     for (i=0;i<handle->nsb;++i){
         handle->sb[i].bid = BLK_NOT_FOUND;
@@ -1257,7 +1258,7 @@ void btreeblk_free(struct btreeblk_handle *handle)
 #endif
 
 #ifdef __BTREEBLK_SUBBLOCK
-    int i;
+    uint32_t i;
     for (i=0;i<handle->nsb;++i){
         free(handle->sb[i].bitmap);
     }

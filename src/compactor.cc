@@ -77,7 +77,7 @@ static volatile uint8_t compactor_terminate_signal = 0;
 
 static struct avl_tree openfiles;
 
-// cursor of openfiles_elem that is currently being compacted.
+// cursor of openfiles_elem that's currently being compacted.
 // set to NULL if no file is being compacted.
 static struct avl_node *target_cursor;
 
@@ -344,7 +344,7 @@ void * compactor_thread(void *voidargs)
     fdb_config config;
     fdb_status fs;
     struct avl_node *a;
-    struct openfiles_elem *elem, *target;
+    struct openfiles_elem *elem;
 
     // Sleep for 10 secs by default to allow applications to warm up their data.
     // TODO: Need to implement more flexible way of scheduling the compaction
@@ -354,7 +354,6 @@ void * compactor_thread(void *voidargs)
     mutex_unlock(&sync_mutex);
 
     while (1) {
-        target = NULL;
 
         spin_lock(&cpt_lock);
         a = avl_first(&openfiles);
@@ -617,7 +616,7 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
     if (fd_meta >= 0) {
         // metafile exists .. read metadata
         ret = ops->pread(fd_meta, buf, sizeof(struct compactor_meta), 0);
-        if (ret < sizeof(struct compactor_meta)) {
+        if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
             ops->close(fd_meta);
             return NULL;
         }
@@ -669,7 +668,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
         ret = ops->pwrite(fd_meta, &meta, sizeof(struct compactor_meta), 0);
         ops->fsync(fd_meta);
         ops->close(fd_meta);
-        if (ret < sizeof(struct compactor_meta)) {
+        if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
             return FDB_RESULT_WRITE_FAIL;
         }
     } else {

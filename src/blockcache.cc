@@ -514,11 +514,13 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
 #endif
             if (o_direct) {
                 if (count > 0 && !consecutive_blocks) {
+                    size_t bytes_written;
                     // Note that this path can be only executed in flush_all case.
-                    ret = fname_item->curfile->ops->pwrite(fname_item->curfile->fd,
-                                                           buf, count * bcache_blocksize,
-                                                           start_bid * bcache_blocksize);
-                    if (ret != count * bcache_blocksize) {
+                    bytes_written = (size_t)fname_item->curfile->ops->pwrite(
+                                              fname_item->curfile->fd,
+                                              buf, count * bcache_blocksize,
+                                              start_bid * bcache_blocksize);
+                    if (bytes_written != count * bcache_blocksize) {
                         count = 0;
                         status = FDB_RESULT_WRITE_FAIL;
                         break;

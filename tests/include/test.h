@@ -70,7 +70,7 @@ extern "C" {
 #endif
 
 #if defined(WIN32) || defined(_WIN32)
-#define SHELL_DEL "del "
+#define SHELL_DEL "del /f "
 #define SHELL_COPY "copy "
 #define SHELL_MOVE "move "
 #define SHELL_MKDIR "mkdir "
