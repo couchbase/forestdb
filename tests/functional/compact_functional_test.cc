@@ -2374,12 +2374,90 @@ void compact_upto_overwrite_test(int opt)
     }
     TEST_RESULT(cmd);
 }
+static int compaction_cb_get(fdb_file_handle *fhandle,
+                         fdb_compaction_status status,
+                         fdb_doc *doc, uint64_t old_offset,
+                         uint64_t new_offset, void *ctx)
+{
+    TEST_INIT();
+    int n = 100000;
+    fdb_status s;
+    struct cb_args *args = (struct cb_args *)ctx;
+    fdb_kvs_handle *snap_db;
+    s = fdb_snapshot_open(args->handle, &snap_db, n);
+    TEST_CHK(s==FDB_RESULT_SUCCESS);
+    s = fdb_kvs_close(snap_db);
+    TEST_CHK(s==FDB_RESULT_SUCCESS);
+    return 0;
+}
+
+void compact_with_snapshot_open_test()
+{
+  TEST_INIT();
+  memleak_start();
+
+  int i, r;
+  int n = 100000;
+  char keybuf[256], bodybuf[256];
+  fdb_file_handle *dbfile;
+  fdb_kvs_handle *db, *db2, *snap_db;
+  fdb_status s;
+  fdb_config fconfig = fdb_get_default_config();
+  fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+  struct cb_args cb_args;
+
+  memset(&cb_args, 0x0, sizeof(struct cb_args));
+  fconfig.wal_threshold = 1024;
+  fconfig.flags = FDB_OPEN_FLAG_CREATE;
+  fconfig.compaction_cb = compaction_cb_get;
+  fconfig.compaction_cb_ctx = &cb_args;
+  fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                               FDB_CS_MOVE_DOC |
+                               FDB_CS_FLUSH_WAL |
+                               FDB_CS_END;
+  // remove previous compact_test files
+  r = system(SHELL_DEL" compact_test* > errorlog.txt");
+  (void)r;
+
+  // open two handles for kvs
+  fdb_open(&dbfile, "./compact_test1", &fconfig);
+  fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+  fdb_kvs_open(dbfile, &db2, "db", &kvs_config);
+  for (i=0;i<n;++i){
+      sprintf(keybuf, "key%04d", i);
+      sprintf(bodybuf, "body%04d", i);
+      s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+  }
+
+
+  // commit
+  s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  // point compact callback handle to db2
+  cb_args.handle = db2;
+
+  // compact
+  s = fdb_compact(dbfile, NULL);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  // open compaction end
+  s = fdb_snapshot_open(db2, &snap_db, n);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+  fdb_kvs_close(snap_db);
+  s = fdb_close(dbfile);
+  s = fdb_shutdown();
+  TEST_RESULT("compact with snapshot_open test");
+}
 
 int main(){
     int i;
+
     for (i=0;i<4;++i) {
         compact_upto_overwrite_test(i);
     }
+    compact_with_snapshot_open_test();
     compact_upto_post_snapshot_test();
     compact_upto_twice_test();
     compaction_callback_test();
