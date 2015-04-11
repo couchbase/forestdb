@@ -3020,7 +3020,9 @@ int main(){
     basic_test();
     set_get_meta_test();
 #if !defined(WIN32) && !defined(_WIN32)
+#ifndef _MSC_VER
     long_filename_test(); // temporarily disable until windows is fixed
+#endif
 #endif
     error_to_str_test();
     seq_tree_exception_test();

@@ -68,7 +68,8 @@
     #endif
 
     #define malloc_align(addr, align, size) \
-        {int __ret__=0; __ret__=posix_memalign(&(addr), (align), (size));}
+        {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
+         (void)__ret__;}
     #define free_align(addr) free(addr)
 
     #ifndef spin_t
@@ -190,7 +191,8 @@
     #define _ARCH_O_DIRECT (O_DIRECT)
 
     #define malloc_align(addr, align, size) \
-        {int __ret__=0; __ret__=posix_memalign(&(addr), (align), (size));}
+        {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
+         (void)__ret__;}
     #define free_align(addr) free(addr)
 
     #ifndef spin_t
@@ -325,7 +327,7 @@
     #define _ARCH_O_DIRECT (0x0)
 
     #define malloc_align(addr, align, size) \
-        (addr = memalign((align), (size)))
+        (addr = (void *)memalign((align), (size)))
     #define free_align(addr) free(addr)
 
     #ifndef spin_t

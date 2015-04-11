@@ -198,7 +198,7 @@ void filemgr_init(struct filemgr_config *config)
             spin_init(&initial_lock);
             initial_lock_status = 2;
         } else {
-            // the others .. wait until initializing 'initial_lock' is done
+            // the others ... wait until initializing 'initial_lock' is done
             while (initial_lock_status != 2) {
                 Sleep(1);
             }
@@ -435,7 +435,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
             bcache_free_space *= args->file->blocksize;
 
             if (args->file->prefetch_status == FILEMGR_PREFETCH_ABORT ||
-                gap.tv_sec >= args->duration ||
+                gap.tv_sec >= (int64_t)args->duration ||
                 bcache_free_space < FILEMGR_PREFETCH_UNIT) {
                 // terminate thread when
                 // 1. got abort signal
@@ -1502,7 +1502,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
         r = file->ops->pwrite(file->fd, buf, len, pos);
         _log_errno_str(file->ops, log_callback, (fdb_status) r, "WRITE", file->filename);
-        if (r != len) {
+        if ((uint64_t)r != len) {
             return FDB_RESULT_READ_FAIL;
         }
     } // block cache check
@@ -2277,7 +2277,7 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
 
 void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id)
 {
-    int size_id = sizeof(fdb_kvs_id_t);
+    size_t size_id = sizeof(fdb_kvs_id_t);
     fdb_kvs_id_t temp;
 
     if (chunksize == size_id) {
@@ -2293,7 +2293,7 @@ void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id)
 
 void kvid2buf(size_t chunksize, fdb_kvs_id_t id, void *buf)
 {
-    int size_id = sizeof(fdb_kvs_id_t);
+    size_t size_id = sizeof(fdb_kvs_id_t);
     id = _endian_encode(id);
 
     if (chunksize == size_id) {

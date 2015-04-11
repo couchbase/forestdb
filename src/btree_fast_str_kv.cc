@@ -276,6 +276,8 @@ static void _copy_fast_str_kv(struct bnode *node_dst,
     assert(dst_idx == 0);
 
     _get_kvsize(node_src->kvsize, ksize, vsize);
+    (void)ksize;
+    (void)vsize;
 
     ptr_src = node_src->data;
     ptr_dst = node_dst->data;
@@ -337,9 +339,9 @@ static size_t _get_fast_str_kv_size(struct btree *tree, void *key, void *value)
 static size_t _get_fast_str_data_size(
     struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)
 {
-    int ksize, vsize, i;
+    int ksize, vsize;
     void *ptr, *key_ptr;
-    size_t size;
+    size_t size, i;
     key_len_t *_offset_arr;
     key_len_t keylen, _keylen;
 

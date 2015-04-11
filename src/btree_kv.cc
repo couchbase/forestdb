@@ -133,6 +133,7 @@ INLINE void _get_nth_splitter(struct bnode *prev_node, struct bnode *node, void 
     int ksize, vsize;
 
     _get_kvsize(node->kvsize, ksize, vsize);
+    (void)vsize;
     // always return the first key of the NODE
     memcpy(key, node->data, ksize);
 }

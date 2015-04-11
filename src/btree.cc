@@ -273,7 +273,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
     void *addr;
     void *ptr;
     metasize_t metasize, _metasize;
-    metasize_t old_metasize;
+    metasize_t old_metasize = (metasize_t)(-1);
     struct bnode *node;
 
     // read root node
@@ -731,7 +731,8 @@ static int _btree_split_node(
 {
     void *addr;
     size_t nnode = nsplitnode;
-    int j, *nentry = alca(int, nnode);
+    size_t j;
+    int *nentry = alca(int, nnode);
     bid_t _bid;
     bid_t *new_bid = alca(bid_t, nnode);
     idx_t *split_idx = alca(idx_t, nnode+1);
@@ -742,7 +743,7 @@ static int _btree_split_node(
 
     // allocate new block(s)
     new_node[0] = node[i];
-    for (j=1;j<nnode;++j){
+    for (j=1; j<nnode;++j){
         addr = btree->blk_ops->blk_alloc(btree->blk_handle, &new_bid[j]);
         new_node[j] = _btree_init_node(btree, new_bid[j], addr, 0x0,
                                        node[i]->level, NULL);
