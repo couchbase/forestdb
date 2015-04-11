@@ -839,36 +839,15 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
 
     if (!handle_in->shandle) {
         fdb_check_file_reopen(handle_in, &fstatus);
-        if (fstatus == FILE_COMPACT_OLD) { // If file is undergoing compaction
-            fdb_seqnum_t last_seqnum;
-            file = handle_in->file; // pick old_file for main index
-            // get old file's last seqnum
-            if (handle_in->kvs && handle_in->kvs->type == KVS_SUB) {
-                last_seqnum = fdb_kvs_get_seqnum(file, handle_in->kvs->id);
-            } else {
-                last_seqnum = filemgr_get_seqnum(file);
-            }
-            if (last_seqnum < seqnum) {
-                // As new docs are inserted into the old file during compaction,
-                // we don't need to set compaction_inprog flag.
-                // All unused codes related to this flag will be removed in a
-                // separate commit.
-                compaction_inprog = false;
-            }
-        } else { // in case compaction had completed, open new_file directly
-            fdb_link_new_file(handle_in);
-            fdb_sync_db_header(handle_in);
-            if (handle_in->new_file == NULL) {
-                file = handle_in->file;
-            } else {
-                file = handle_in->new_file;
-            }
-            if (handle_in->kvs && handle_in->kvs->type == KVS_SUB) {
-                handle_in->seqnum = fdb_kvs_get_seqnum(file,
-                                                       handle_in->kvs->id);
-            } else {
-                handle_in->seqnum = filemgr_get_seqnum(file);
-            }
+        fdb_link_new_file(handle_in);
+        fdb_sync_db_header(handle_in);
+        file = handle_in->file;
+
+        if (handle_in->kvs && handle_in->kvs->type == KVS_SUB) {
+            handle_in->seqnum = fdb_kvs_get_seqnum(file,
+                                                   handle_in->kvs->id);
+        } else {
+            handle_in->seqnum = filemgr_get_seqnum(file);
         }
     } else {
         file = handle_in->file;
