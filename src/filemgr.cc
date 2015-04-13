@@ -297,7 +297,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
         if (remain) {
             atomic_sub_uint64_t(&file->pos, remain);
             atomic_store_uint64_t(&file->last_commit, file->pos.val);
-            const char *msg = "Crash Detected: %llu non-block aligned bytes discarded "
+            const char *msg = "Crash Detected: %" _F64 " non-block aligned bytes discarded "
                 "from a database file '%s'\n";
             DBG(msg, remain, file->filename);
             fdb_log(log_callback, FDB_RESULT_READ_FAIL /* Need to add a better error code*/,
@@ -310,7 +310,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
             if (rv != file->blocksize) {
                 status = FDB_RESULT_READ_FAIL;
                 const char *msg = "Unable to read a database file '%s' with "
-                    "blocksize %llu\n";
+                    "blocksize %" _F64 "\n";
                 DBG(msg, file->filename, file->blocksize);
                 fdb_log(log_callback, status, msg, file->filename, file->blocksize);
                 break;
@@ -371,8 +371,8 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                     }
                 } else {
                     status = FDB_RESULT_FILE_CORRUPTION;
-                    const char *msg = "Crash Detected: Wrong Magic %llu != %llu "
-                        "in a database file '%s'\n";
+                    const char *msg = "Crash Detected: Wrong Magic %" _F64 " != %" _F64
+                        " in a database file '%s'\n";
                     DBG(msg, magic, FILEMGR_MAGIC, file->filename);
                     fdb_log(log_callback, status, msg, magic, FILEMGR_MAGIC,
                             file->filename);
@@ -465,8 +465,8 @@ static void *_filemgr_prefetch_thread(void *voidargs)
                         != FDB_RESULT_SUCCESS) {
                     // 4. read failure
                     fdb_log(args->log_callback, FDB_RESULT_READ_FAIL,
-                            "Prefetch thread failed to read a block with block id %llu "
-                            "from a database file '%s'", bid, args->file->filename);
+                            "Prefetch thread failed to read a block with block id %" _F64
+                            " from a database file '%s'", bid, args->file->filename);
                     terminate = true;
                     break;
                 }
@@ -843,7 +843,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
 
     if (status != FDB_RESULT_SUCCESS) {
         fdb_log(log_callback, status,
-                "Failed to read a database header with block id %llu in "
+                "Failed to read a database header with block id %" _F64 " in "
                 "a database file '%s'", bid, file->filename);
         _filemgr_release_temp_buf(_buf);
         return status;
@@ -853,7 +853,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
 
     if (marker[0] != BLK_MARKER_DBHEADER) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                "A block marker of the database header block id %llu in "
+                "A block marker of the database header block id %" _F64 " in "
                 "a database file '%s' is NOT matched to BLK_MARKER_DBHEADER!",
                 bid, file->filename);
         _filemgr_release_temp_buf(_buf);
@@ -865,7 +865,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     magic = _endian_decode(magic);
     if (magic != FILEMGR_MAGIC) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                "A block magic value of the database header block id %llu in "
+                "A block magic value of the database header block id %" _F64 " in "
                 "a database file '%s' is NOT matched to FILEMGR_MAGIC!",
                 bid, file->filename);
         _filemgr_release_temp_buf(_buf);
@@ -950,7 +950,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         fdb_status fs = filemgr_read(file, (bid_t)bid, _buf, log_callback);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
-                    "Failed to read a previous database header with block id %llu in "
+                    "Failed to read a previous database header with block id %" _F64 " in "
                     "a database file '%s'", bid, file->filename);
             break;
         }
@@ -960,7 +960,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         if (marker[0] != BLK_MARKER_DBHEADER) {
             // broken linked list
             fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                    "A block marker of the previous database header block id %llu in "
+                    "A block marker of the previous database header block id %" _F64 " in "
                     "a database file '%s' is NOT matched to BLK_MARKER_DBHEADER!",
                     bid, file->filename);
             break;
@@ -973,7 +973,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         if (magic != FILEMGR_MAGIC) {
             // broken linked list
             fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                    "A block magic value of the previous database header block id %llu in "
+                    "A block magic value of the previous database header block id %" _F64 " in "
                     "a database file '%s' is NOT matched to FILEMGR_MAGIC!",
                     bid, file->filename);
             break;
