@@ -96,7 +96,7 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 
 fdb_status wal_init(struct filemgr *file, int nbucket)
 {
-    int i, num_hash_buckets;
+    size_t i, num_hash_buckets;
     size_t num_all_shards;
 
     file->wal->flag = WAL_FLAG_INITIALIZED;
@@ -143,7 +143,7 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
     file->wal->key_seg.offset = 0;
     file->wal->key_seg.cur_maxsize = FDB_WAL_MIN_MMAP_FILESIZE;
 
-    DBG("wal item size %d\n", (int)sizeof(struct wal_item));
+    DBG("wal item size %" _F64 "\n", sizeof(struct wal_item));
     return FDB_RESULT_SUCCESS;
 }
 

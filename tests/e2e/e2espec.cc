@@ -402,7 +402,7 @@ void e2e_fdb_cancel_checkpoint(storage_t *st)
     status = fdb_abort_transaction(st->records);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    sprintf(rbuf, "revert to checkpoint[seqno:%llu]\n",chk->seqnum_all);
+    sprintf(rbuf, "revert to checkpoint[seqno:%" _F64 "]\n",chk->seqnum_all);
     TEST_RESULT(rbuf);
 }
 

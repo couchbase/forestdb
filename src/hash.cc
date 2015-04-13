@@ -26,7 +26,7 @@ static int _hash_cmp_wrap(struct avl_node *a, struct avl_node *b, void *aux)
 
 void hash_init(struct hash *hash, int nbuckets, hash_hash_func *hash_func, hash_cmp_func *cmp_func)
 {
-    int i;
+    size_t i;
     hash->nbuckets = nbuckets;
 #ifdef _HASH_TREE
     hash->buckets = (struct avl_tree *)malloc(sizeof(struct avl_tree) * hash->nbuckets);
@@ -121,7 +121,7 @@ struct hash_elem * hash_find_by_hash_val(struct hash *ht, struct hash_elem *e,
 
 void *hash_scan(struct hash *hash, hash_check_func *check_func, void *ctx)
 {
-    int i;
+    size_t i;
     void *ret = NULL;
 
 #ifdef _HASH_TREE
@@ -206,7 +206,7 @@ void hash_free(struct hash *hash)
 
 void hash_free_active(struct hash *hash, hash_free_func *free_func)
 {
-    int i;
+    size_t i;
 
 #ifdef _HASH_TREE
     struct avl_node *node;

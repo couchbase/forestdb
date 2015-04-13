@@ -77,7 +77,7 @@ void hbtrie_key_test()
 
 void _key_expand(char *key_ori, char *key_out, int rpt)
 {
-    int i;
+    size_t i;
     for (i=0;i<strlen(key_ori);++i){
         memset(key_out + i*rpt, *(key_ori + i), rpt-1);
         memset(key_out + (i+1)*rpt - 1, '_', 1);
@@ -598,7 +598,7 @@ void hbtrie_reverse_iterator_test()
     hbtrie_init(&trie, ksize, vsize, nodesize, BLK_NOT_FOUND,
         &bhandle, btreeblk_get_ops(), NULL, _readkey_wrap_memory_itr);
 
-    for (i=0;i<n;++i){
+    for (i=0;i<(uint64_t)n;++i){
         v = _endian_encode(i);
         sprintf(key, HB_KEYSTR, (int)i);
         hbtrie_insert(&trie, key, strlen(key), &v, &v_out);
@@ -612,7 +612,7 @@ void hbtrie_reverse_iterator_test()
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
-        TEST_CHK(v == c);
+        TEST_CHK(v == (uint64_t)c);
         c++;
     }
     btreeblk_end(&bhandle);
@@ -642,7 +642,7 @@ void hbtrie_reverse_iterator_test()
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)(n-c-1));
         TEST_CHK(!memcmp(key, key_temp, keylen));
-        TEST_CHK(v == n-c-1);
+        TEST_CHK(v == (uint64_t)n-c-1);
         c++;
     }
     btreeblk_end(&bhandle);
@@ -659,7 +659,7 @@ void hbtrie_reverse_iterator_test()
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)((n/2)-c));
         TEST_CHK(!memcmp(key, key_temp, keylen));
-        TEST_CHK(v == (n/2)-c);
+        TEST_CHK(v == (uint64_t)(n/2)-c);
         c++;
     }
     btreeblk_end(&bhandle);
@@ -676,7 +676,7 @@ void hbtrie_reverse_iterator_test()
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
-        TEST_CHK(v == c);
+        TEST_CHK(v == (uint64_t)c);
     }
     for (i=0;i<10;++i){
         c--;
@@ -686,7 +686,7 @@ void hbtrie_reverse_iterator_test()
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
-        TEST_CHK(v == c);
+        TEST_CHK(v == (uint64_t)c);
     }
     for (i=0;i<19;++i){
         c++;
@@ -696,7 +696,7 @@ void hbtrie_reverse_iterator_test()
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
-        TEST_CHK(v == c);
+        TEST_CHK(v == (uint64_t)c);
     }
     hr=hbtrie_next(&hit, key, &keylen, &v);
     btreeblk_end(&bhandle);
@@ -758,7 +758,7 @@ void hbtrie_partial_update_test()
     hbtrie_init(&trie, ksize, vsize, nodesize, BLK_NOT_FOUND,
         &bhandle, btreeblk_get_ops(), NULL, _key_wrap_partial_update);
 
-    for (i=0;i<n;++i) {
+    for (i=0;i<(uint64_t)n;++i) {
         v = _endian_encode(i);
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hbtrie_insert(&trie, key, strlen(key), &v, &v_out);
@@ -768,7 +768,7 @@ void hbtrie_partial_update_test()
     //printf("root: %lx\n", trie.root_bid);
 
     // retrieve check
-    for (i=0;i<n;++i) {
+    for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hbtrie_find(&trie, key, strlen(key), &v);
         btreeblk_end(&bhandle);
@@ -793,7 +793,7 @@ void hbtrie_partial_update_test()
     }
 
     // update: using value + 100 (will point to same key)
-    for (i=0;i<n;++i) {
+    for (i=0;i<(uint64_t)n;++i) {
         v = _endian_encode(i+100);
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hbtrie_insert(&trie, key, strlen(key), &v, &v_out);
@@ -810,7 +810,7 @@ void hbtrie_partial_update_test()
     filemgr_commit(file, NULL);
 
     // retrieve check
-    for (i=0;i<n;++i) {
+    for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hbtrie_find(&trie, key, strlen(key), &v);
         btreeblk_end(&bhandle);
@@ -819,7 +819,7 @@ void hbtrie_partial_update_test()
     }
 
     // update again: using value + 200 (will point to same key)
-    for (i=0;i<n;++i) {
+    for (i=0;i<(uint64_t)n;++i) {
         v = _endian_encode(i+200);
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hbtrie_insert(&trie, key, strlen(key), &v, &v_out);
@@ -836,7 +836,7 @@ void hbtrie_partial_update_test()
     filemgr_commit(file, NULL);
 
     // retrieve check
-    for (i=0;i<n;++i) {
+    for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hbtrie_find(&trie, key, strlen(key), &v);
         btreeblk_end(&bhandle);
@@ -857,7 +857,7 @@ void hbtrie_partial_update_test()
     filemgr_commit(file, NULL);
 
     // retrieve check
-    for (i=0;i<n;++i) {
+    for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hr = hbtrie_find(&trie, key, strlen(key), &v);
         btreeblk_end(&bhandle);

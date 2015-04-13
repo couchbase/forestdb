@@ -72,7 +72,9 @@ void basic_test()
 
     docsize = _set_doc(&doc, (char *) "this_is_key", (char *) "this_is_metadata",
                        (char *) "this_is_body_lawiefjaawleif");
+    (void)docsize;
     offset = docio_append_doc(&handle, &doc, 0, 0);
+    (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "this_is_key2", (char *) "this_is_metadata2",

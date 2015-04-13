@@ -36,6 +36,7 @@ void logCallbackFunc(int err_code,
             (char *) pCtxData, err_code, err_msg);
 }
 
+// callback context for test specific data
 typedef struct fail_ctx_t {
     int num_fails;
     int num_ops;

@@ -41,18 +41,23 @@ void basic_test()
     TEST_TIME();
 
     r1 = crc32_8(dummy, len, 0);
+    (void)r1;
 
     TEST_TIME();
 
     r2 = crc32_1(dummy, len, 0);
+    (void)r2;
 
     TEST_TIME();
 
     r3 = hash_djb2((uint8_t *)dummy, len);
+    (void)r3;
 
     TEST_TIME();
 
     r4 = adler32(1, (uint8_t*)dummy, len);
+    (void)r4;
+
 
     TEST_TIME();
 
@@ -93,6 +98,7 @@ void endian_test()
     r2 = crc32_8((void*)&a, 4, 0);
     r2 = crc32_8((void*)&b, 4, r2);
     r2 = crc32_8((void*)&c, 4, r2);
+    (void)r1;
 
     DBG("%u %u\n", r1,r2);
 

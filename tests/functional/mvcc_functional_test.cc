@@ -47,7 +47,7 @@ void multi_version_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous mvcc_test files
+    // remove all previous mvcc_test files
     r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
@@ -637,7 +637,7 @@ void snapshot_stats_test()
     fdb_get_kvs_info(snap_db, &kvs_info);
     TEST_CHK(kvs_info.last_seqnum == snap_seq);
 
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (size_t)n);
     TEST_CHK(kvs_info.file == dbfile);
 
     // close snapshot handle
@@ -651,7 +651,7 @@ void snapshot_stats_test()
     fdb_get_kvs_info(snap_db, &kvs_info);
     TEST_CHK(kvs_info.last_seqnum == snap_seq);
 
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (size_t)n);
     TEST_CHK(kvs_info.file == dbfile);
 
     // close snapshot handle
@@ -1126,7 +1126,7 @@ static int cb_inmem_snap(fdb_file_handle *fhandle,
 
             s = fdb_get_kvs_info(snap, &info);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
-            TEST_CHK(info.last_seqnum == args->n);
+            TEST_CHK(info.last_seqnum == (fdb_seqnum_t)args->n);
 
             s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1169,7 +1169,7 @@ static int cb_inmem_snap(fdb_file_handle *fhandle,
 
             s = fdb_get_kvs_info(snap, &info);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
-            TEST_CHK(info.last_seqnum == args->n+1);
+            TEST_CHK(info.last_seqnum == (fdb_seqnum_t)args->n+1);
 
             s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1294,7 +1294,7 @@ void in_memory_snapshot_compaction_test()
 
     s = fdb_get_kvs_info(snap, &info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(info.last_seqnum == n+1);
+    TEST_CHK(info.last_seqnum == (fdb_seqnum_t)n+1);
 
     s = fdb_iterator_init(snap, &fit, NULL, 0, NULL, 0, 0x0);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1721,14 +1721,16 @@ void snapshot_markers_in_file_test(bool multi_kv)
         TEST_CHK(num_markers == 4);
         for (r = 0; r < num_kvs; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == 1);
-            TEST_CHK(markers[r].kvs_markers[0].seqnum == (n - r*5));
+            TEST_CHK(markers[r].kvs_markers[0].seqnum
+                     == (fdb_seqnum_t)(n - r*5));
         }
     } else {
         TEST_CHK(num_markers == 8);
         for (r = 0; r < num_kvs; ++r) {
             TEST_CHK(markers[r].num_kvs_markers == num_kvs);
             for (i = 0; i < num_kvs; ++i) {
-                TEST_CHK(markers[r].kvs_markers[i].seqnum == (n - r*5));
+                TEST_CHK(markers[r].kvs_markers[i].seqnum
+                         == (fdb_seqnum_t)(n - r*5));
                 sprintf(kv_name, "kv%d", i);
                 TEST_CMP(markers[r].kvs_markers[i].kv_store_name, kv_name, 3);
             }
@@ -2734,7 +2736,7 @@ void rollback_prior_to_ops(bool walflush)
     // commit and save seqnum
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     fdb_get_kvs_info(kv1, &info);
-    TEST_CHK(info.doc_count == expected_doc_count);
+    TEST_CHK(info.doc_count == (size_t)expected_doc_count);
     rb_seqnum = info.last_seqnum;
 
     for (j=0;j<100;++j){
@@ -2763,9 +2765,9 @@ void rollback_prior_to_ops(bool walflush)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_get_kvs_info(kv1, &info);
-    TEST_CHK(info.doc_count == expected_doc_count);
+    TEST_CHK(info.doc_count == (size_t)expected_doc_count);
     fdb_get_kvs_info(mirror_kv1, &info);
-    TEST_CHK(info.doc_count == expected_doc_count);
+    TEST_CHK(info.doc_count == (size_t)expected_doc_count);
 
     status = fdb_iterator_sequence_init(mirror_kv1, &it, 0, 0, FDB_ITR_NONE);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2820,7 +2822,7 @@ static void _snapshot_check(fdb_kvs_handle *handle, int ndocs, int nupdates)
 
     // check last seqnum
     fdb_get_kvs_info(handle, &info);
-    TEST_CHK(info.last_seqnum == commit_term * nupdates);
+    TEST_CHK(info.last_seqnum == (fdb_seqnum_t)commit_term * nupdates);
 
     // open snapshot for every 'commit_term' seq numbers
     for (i=0; i<nupdates; i++) {
@@ -2944,8 +2946,10 @@ void snapshot_concurrent_compaction_test()
         sprintf(bodybuf, "body%04d_update%d", idx, j);
         s = fdb_set_kv(db, keybuf, strlen(keybuf)+1,
                            bodybuf, strlen(bodybuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         if ((i+1)%commit_term == 0) {
             s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+	    TEST_CHK(s == FDB_RESULT_SUCCESS);
         }
     }
     cb_args.ndocs = n;
@@ -2954,6 +2958,7 @@ void snapshot_concurrent_compaction_test()
     _snapshot_check(db, cb_args.ndocs, cb_args.nupdates);
 
     s = fdb_compact(dbfile, "./mvcc_test2");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     fdb_close(dbfile);
     fdb_shutdown();

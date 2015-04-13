@@ -629,8 +629,8 @@ void btree_reverse_iterator_test()
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
-        TEST_CHK(k == (c+10)*0x10);
-        TEST_CHK(v == (c+10)*0x100);
+        TEST_CHK(k == (uint64_t)(c+10)*0x10);
+        TEST_CHK(v == (uint64_t)(c+10)*0x100);
         c++;
     }
     btreeblk_end(&bhandle);
@@ -670,8 +670,8 @@ void btree_reverse_iterator_test()
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
-        TEST_CHK(k == (39-c)*0x10);
-        TEST_CHK(v == (39-c)*0x100);
+        TEST_CHK(k == (uint64_t)(39-c)*0x10);
+        TEST_CHK(v == (uint64_t)(39-c)*0x100);
         c++;
     }
     btreeblk_end(&bhandle);
@@ -686,8 +686,8 @@ void btree_reverse_iterator_test()
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
-        TEST_CHK(k == (0x17-c)*0x10);
-        TEST_CHK(v == (0x17-c)*0x100);
+        TEST_CHK(k == (uint64_t)(0x17-c)*0x10);
+        TEST_CHK(v == (uint64_t)(0x17-c)*0x100);
         c++;
     }
     btreeblk_end(&bhandle);
@@ -703,8 +703,8 @@ void btree_reverse_iterator_test()
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
-        TEST_CHK(k == c);
-        TEST_CHK(v == c*0x10);
+        TEST_CHK(k == (uint64_t)c);
+        TEST_CHK(v == (uint64_t)c*0x10);
     }
     for (i=0;i<7;++i){
         c -= 0x10;
@@ -713,8 +713,8 @@ void btree_reverse_iterator_test()
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
-        TEST_CHK(k == c);
-        TEST_CHK(v == c*0x10);
+        TEST_CHK(k == (uint64_t)c);
+        TEST_CHK(v == (uint64_t)c*0x10);
     }
     for (i=0;i<10;++i){
         c += 0x10;
@@ -723,8 +723,8 @@ void btree_reverse_iterator_test()
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
-        TEST_CHK(k == c);
-        TEST_CHK(v == c*0x10);
+        TEST_CHK(k == (uint64_t)c);
+        TEST_CHK(v == (uint64_t)c*0x10);
     }
     for (i=0;i<17;++i){
         c -= 0x10;
@@ -733,8 +733,8 @@ void btree_reverse_iterator_test()
         btreeblk_end(&bhandle);
         k = _endian_decode(k);
         v = _endian_decode(v);
-        TEST_CHK(k == c);
-        TEST_CHK(v == c*0x10);
+        TEST_CHK(k == (uint64_t)c);
+        TEST_CHK(v == (uint64_t)c*0x10);
     }
     br = btree_prev(&bi, &k, &v);
     btreeblk_end(&bhandle);

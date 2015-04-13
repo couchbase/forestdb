@@ -30,7 +30,7 @@ void kv_init_ops_test(int i)
     TEST_INIT();
     memleak_start();
 
-    btree_kv_ops *kv_ops, *kv_ops_copy;
+    btree_kv_ops *kv_ops = NULL, *kv_ops_copy;
     kv_ops_copy = NULL;
 
     if(i == 0){
@@ -500,7 +500,7 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
 
     // calculate datasize to extend empty node
     size = kv_ops->get_data_size(node, new_minkey, key, value, 2);
-    TEST_CHK(size == (2*(ksize + vsize)));
+    TEST_CHK(size == (size_t)(2*(ksize + vsize)));
 
     // set kvs
     for (i = 0; i < n; i++){
@@ -510,7 +510,7 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
     // cacluate datasize to extend node with n entries
     node->nentry = n;
     size = kv_ops->get_data_size(node, new_minkey, key, value, n);
-    TEST_CHK(size == 2*(n*(ksize+vsize)));
+    TEST_CHK(size == (size_t)(2*(n*(ksize+vsize))));
 
     free(node);
     memleak_end();
@@ -794,7 +794,7 @@ void kv_cmp_key_str_test(btree_kv_ops *kv_ops, int i)
     int n = 4;
     char **keys = alca(char*, n);
     void *tmp;
-    btree_kv_ops *kv_ops2;
+    btree_kv_ops *kv_ops2 = NULL;
 
     if (i == 0){
         kv_ops2 = btree_kv_get_kb64_vb64(NULL);
