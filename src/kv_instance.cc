@@ -107,7 +107,7 @@ void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
                                     char **kvs_names,
                                     fdb_custom_cmp_variable *functions)
 {
-    int i;
+    uint64_t i;
     struct cmp_func_node *node;
 
     if (n_func == 0 || !kvs_names || !functions) {
@@ -661,7 +661,7 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
                                void *data, size_t len)
 {
-    int i, offset = 0;
+    uint64_t i, offset = 0;
     uint16_t name_len, _name_len;
     uint64_t n_kv, _n_kv, kv_id, _kv_id, flags, _flags;
     uint64_t _nlivenodes, _ndocs, _datasize;

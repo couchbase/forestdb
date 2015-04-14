@@ -169,6 +169,7 @@ void verify_db(storage_t *st){
         // for debugging
         fdb_get_kvs_info(st->all_docs, &info);
         val1 = info.doc_count;
+        (void)val1;
         val2 = 0;
         fdb_iterator_init(st->index1, &it, NULL, 0,
                           NULL, 0, FDB_ITR_NONE);
@@ -331,7 +332,6 @@ void replay(storage_t *st)
     transaction_t *tx;
     checkpoint_t *chk;
     fdb_seqnum_t rollback_seqnum;
-    fdb_seqnum_t snap_seqnum;
 
     // create replay kvs
     status = fdb_open(&dbfile, E2EDB_RECORDS, &fconfig);
@@ -340,7 +340,6 @@ void replay(storage_t *st)
     e2e_fdb_commit(st->main, st->walflush);
     status = fdb_get_kvs_info(st->all_docs, &info);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    snap_seqnum = info.last_seqnum;
 
 
     // iterate over records kv and replay transactions

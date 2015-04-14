@@ -48,7 +48,7 @@ void iterator_test()
 
     char keybuf[256], metabuf[256], bodybuf[256], temp[256];
 
-    // remove previous iterator_test files
+    // remove  all previous iterator_test files
     r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
@@ -389,7 +389,7 @@ void iterator_with_concurrent_updates_test()
         status = fdb_iterator_get(itr, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         r++;
-        TEST_CHK(rdoc->seqnum == r);
+        TEST_CHK(rdoc->seqnum == (fdb_seqnum_t)r);
         fdb_doc_free(rdoc);
         rdoc = NULL;
     } while (fdb_iterator_next(itr) == FDB_RESULT_SUCCESS);
@@ -1623,7 +1623,7 @@ void iterator_set_del_docs_test()
         fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
         fdb_get_kvs_info(kv1, &info);
-        if(info.doc_count != expected_doc_count){
+        if(info.doc_count != (size_t)expected_doc_count){
             // test already failed further debugging check info
             fdb_iterator_init(kv1, &it, NULL, 0,
                               NULL, 0, FDB_ITR_NONE);
@@ -1638,7 +1638,7 @@ void iterator_set_del_docs_test()
             fdb_iterator_close(it);
             printf("dbdocs(%d) expected(%d)\n", val2, expected_doc_count);
         }
-        TEST_CHK(info.doc_count == expected_doc_count);
+        TEST_CHK(info.doc_count == (size_t)expected_doc_count);
 
         // preliminary cleanup
         for(i=0;i<n;++i){

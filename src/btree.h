@@ -99,6 +99,8 @@ struct btree {
 #endif
 };
 
+typedef int btree_cmp_func(void *key1, void *key2, void *aux);
+
 typedef struct {
     void *aux;
     uint8_t chunksize;
@@ -125,7 +127,7 @@ struct btree_kv_ops {
     //void (*get_nth_splitter)(struct bnode *node, idx_t num, idx_t den, void *key);
     void (*get_nth_splitter)(struct bnode *prev_node, struct bnode *node, void *key);
 
-    int (*cmp)(void *key1, void *key2, void* aux);
+    btree_cmp_func *cmp;
     bid_t (*value2bid)(void *value);
     voidref (*bid2value)(bid_t *bid);
 };

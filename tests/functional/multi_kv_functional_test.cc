@@ -298,13 +298,13 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     // info check
     s = fdb_get_file_info(dbfile, &file_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(file_info.doc_count == n*2);
+    TEST_CHK(file_info.doc_count == (uint64_t)n*2);
     s = fdb_get_kvs_info(db, &kvs_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (uint64_t)n);
     s = fdb_get_kvs_info(kv1, &kvs_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (uint64_t)n);
 
     s = fdb_kvs_close(kv1);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -332,23 +332,25 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
         s = fdb_free_block(value_out);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
 
         sprintf(value, valuestr_kv, i);
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
         s = fdb_free_block(value_out);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     // info check after reopen
     s = fdb_get_file_info(dbfile, &file_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(file_info.doc_count == n*2);
+    TEST_CHK(file_info.doc_count == (uint64_t)n*2);
     s = fdb_get_kvs_info(db, &kvs_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (uint64_t)n);
     s = fdb_get_kvs_info(kv1, &kvs_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (uint64_t)n);
 
     s = fdb_compact(dbfile, "./multi_kv_test2");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -370,13 +372,13 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     // info check after compaction
     s = fdb_get_file_info(dbfile, &file_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(file_info.doc_count == n*2);
+    TEST_CHK(file_info.doc_count == (uint64_t)n*2);
     s = fdb_get_kvs_info(db, &kvs_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (uint64_t)n);
     s = fdb_get_kvs_info(kv1, &kvs_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(kvs_info.doc_count == n);
+    TEST_CHK(kvs_info.doc_count == (uint64_t)n);
 
     // reopen using "default" KVS name
     fdb_kvs_close(db);
@@ -534,7 +536,7 @@ void multi_kv_iterator_key_test(uint8_t opt, size_t chunksize)
     }
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
-    // iterate in default KV instance
+    // iterate on default KV instance
     i = 0;
     s = fdb_iterator_init(db, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -546,7 +548,7 @@ void multi_kv_iterator_key_test(uint8_t opt, size_t chunksize)
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
-        TEST_CHK(doc->seqnum == r);
+        TEST_CHK(doc->seqnum == (fdb_seqnum_t)r);
         fdb_doc_free(doc);
         doc = NULL;
         i++;
@@ -566,7 +568,7 @@ void multi_kv_iterator_key_test(uint8_t opt, size_t chunksize)
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
-        TEST_CHK(doc->seqnum == r);
+        TEST_CHK(doc->seqnum == (fdb_seqnum_t)r);
         fdb_doc_free(doc);
         doc = NULL;
         i++;
@@ -583,7 +585,7 @@ void multi_kv_iterator_key_test(uint8_t opt, size_t chunksize)
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         r = ((i%2 == 0)?(i/2):(50+i/2)) +1;
-        TEST_CHK(doc->seqnum == r);
+        TEST_CHK(doc->seqnum == (fdb_seqnum_t)r);
         fdb_doc_free(doc);
         doc = NULL;
     } while (fdb_iterator_prev(it) == FDB_RESULT_SUCCESS);
@@ -1244,7 +1246,7 @@ void multi_kv_txn_test(uint8_t opt, size_t chunksize)
     s = fdb_get_kvs_name_list(dbfile, &kvs_name_list);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(kvs_name_list.num_kvs_names == 3);
-    for (i=0;i<kvs_name_list.num_kvs_names;++i){
+    for (i=0; (size_t)i<kvs_name_list.num_kvs_names;++i){
         TEST_CHK(!strcmp(kvs_name_list.kvs_names[i], kvs_names[i]));
     }
     fdb_free_kvs_name_list(&kvs_name_list);

@@ -145,6 +145,7 @@ void * worker(void *voidargs)
             TEST_CHK(ret == args->file->blocksize);
         }
         crc_file = crc32_8(buf, sizeof(uint64_t)*2, 0);
+        (void)crc_file;
         memcpy(&i, buf, sizeof(i));
         memcpy(&crc, buf + sizeof(uint64_t)*2, sizeof(crc));
         // Disable checking the CRC value at this time as pread and pwrite are
@@ -165,7 +166,7 @@ void * worker(void *voidargs)
 
         gettimeofday(&ts_cur, NULL);
         ts_gap = _utime_gap(ts_begin, ts_cur);
-        if (ts_gap.tv_sec >= args->time_sec) break;
+        if ((size_t)ts_gap.tv_sec >= args->time_sec) break;
 
         run_count++;
     }
@@ -209,7 +210,7 @@ void multi_thread_test(
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
-    for (i=0;i<nblocks;++i) {
+    for (i=0;i<(uint64_t)nblocks;++i) {
         memcpy(buf, &i, sizeof(i));
         j = 0;
         memcpy(buf + sizeof(i), &j, sizeof(j));
@@ -218,17 +219,17 @@ void multi_thread_test(
         bcache_write(file, (bid_t)i, buf, BCACHE_REQ_DIRTY);
     }
 
-    for (i=0;i<n;++i){
+    for (i=0;i<(uint64_t)n;++i){
         args[i].n = i;
         args[i].file = file;
-        args[i].writer = ((i<nwriters)?(1):(0));
+        args[i].writer = ((i<(uint64_t)nwriters)?(1):(0));
         args[i].nblocks = nblocks;
         args[i].time_sec = time_sec;
         thread_create(&tid[i], worker, &args[i]);
     }
 
     DBG("wait for %d seconds..\n", time_sec);
-    for (i=0;i<n;++i){
+    for (i=0;i<(uint64_t)n;++i){
         thread_join(tid[i], &ret[i]);
     }
 

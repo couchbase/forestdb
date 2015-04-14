@@ -104,31 +104,39 @@ void string_hash_test()
         }
         str[j] = 0;
         b = hash_djb2((uint8_t *)str, strlen(str));
+        (void)b;
         DBG("%s %10u %5u\n",str, b, b&0xfff);
     }
 
     for (i=0;i<16;++i){
         sprintf(str, "asdf%d.%d",i,random(100));
         b = hash_djb2((uint8_t *)str, strlen(str));
+        (void)b;
         DBG("%s %10u %5u\n",str, b, b&((unsigned)1023));
     }
 
     sprintf(str, "1234aaaaaaaa");
     a = hash_djb2((uint8_t *)str, strlen(str));
+    (void)a;
     sprintf(str, "5678aaaaaaaa");
     b = hash_djb2((uint8_t *)str, strlen(str));
+    (void)b;
     DBG("%u %u\n", a, b);
 
     sprintf(str, "1234aaaaaaaa");
     a = hash_djb2_last8((uint8_t *)str, strlen(str));
+    (void)a;
     sprintf(str, "5678aaaaaaaa");
     b = hash_djb2_last8((uint8_t *)str, strlen(str));
+    (void)b;
     DBG("%u %u\n", a, b);
 
     sprintf(str, "./dummy0");
     a = hash_djb2_last8((uint8_t *)str, strlen(str));
+    (void)a;
     sprintf(str, "./dummy01");
     b = hash_djb2_last8((uint8_t *)str, strlen(str));
+    (void)b;
     DBG("%u %u\n", a, b);
 
     TEST_RESULT("string hash test");

@@ -38,7 +38,7 @@
 
 struct shared_data {
     static mutex_t sync_mutex;
-    int inmem_snap_freq; // how often should snapshots be taken
+    int inmem_snap_freq; // how often should snapshots be taken?
     int num_inmem_snaps; // how many outstanding snapshots should be there
     fdb_kvs_handle **inmem_snaps;
     fdb_seqnum_t *inmem_seqnum;
@@ -195,6 +195,7 @@ void multi_file_write_with_inmem_snap(const char *test_name) {
     int num_inmem_snaps = 4;
     int inmem_snap_freq = 10;
     int num_docs = NUM_FRUITS*1000;
+    int r;
     fdb_status status;
     struct writer_thread_args *wargs = alca(struct writer_thread_args,
                                        num_writers);
@@ -203,7 +204,8 @@ void multi_file_write_with_inmem_snap(const char *test_name) {
     void **thread_ret = alca(void *, num_writers);
 
     // remove previous dummy files
-    system(SHELL_DEL TEST_FILENAME "* > errorlog.txt");
+    r = system(SHELL_DEL TEST_FILENAME "* > errorlog.txt");
+    (void) r;
 
     for (int i = num_writers - 1; i >= 0; --i) {
         // Writer Thread Config:

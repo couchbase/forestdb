@@ -108,7 +108,7 @@ void print_header(fdb_kvs_handle *db)
 
         if (db->config.multi_kv_instances) {
             // multi KV instance mode
-            int i;
+            uint64_t i;
             fdb_kvs_name_list name_list;
             struct kvs_node *node, query;
             struct avl_node *a;

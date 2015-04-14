@@ -46,7 +46,7 @@ void basic_test()
 
     char keybuf[256], metabuf[256], bodybuf[256];
 
-    // remove previous dummy files
+    // remove previous dummy test files
     r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
 
@@ -1002,7 +1002,7 @@ void *_worker_thread(void *voidargs)
     spin_unlock(args->filename_count_lock);
     do {
         spin_lock(args->filename_count_lock);
-        if (*args->n_opened == args->nthreads) {
+        if ((size_t)(*args->n_opened) == args->nthreads) {
             // all threads open the DB file
             spin_unlock(args->filename_count_lock);
             break;
@@ -1046,7 +1046,7 @@ void *_worker_thread(void *voidargs)
                     commit_count++;
                     fdb_file_info info;
                     fdb_get_file_info(dbfile, &info);
-                    if (args->compact_term == commit_count &&
+                    if (args->compact_term == (size_t)commit_count &&
                         args->compact_term > 0 &&
                         info.new_filename == NULL &&
                         args->tid == 0) {
@@ -1076,7 +1076,7 @@ void *_worker_thread(void *voidargs)
 
         gettimeofday(&ts_cur, NULL);
         ts_gap = _utime_gap(ts_begin, ts_cur);
-        if (ts_gap.tv_sec >= args->time_sec) break;
+        if ((size_t)ts_gap.tv_sec >= args->time_sec) break;
     }
 
     DBG("Thread #%d (%s) %d ops / %d seconds\n",
@@ -1144,7 +1144,7 @@ void multi_thread_test(
     gettimeofday(&ts_begin, NULL);
 
     // insert documents
-    for (i=0;i<ndocs;++i){
+    for (i = 0; (size_t)i < ndocs; ++i){
         _set_random_string_smallabt(temp, KSIZE - (IDX_DIGIT+1));
         sprintf(keybuf, "k%0" IDX_DIGIT_STR "d%s", i, temp);
 
@@ -1175,7 +1175,7 @@ void multi_thread_test(
     for (i=0;i<n;++i){
         args[i].tid = i;
         args[i].nthreads = n;
-        args[i].writer = ((i<nwriters)?(1):(0));
+        args[i].writer = (((size_t)i<nwriters)?(1):(0));
         args[i].ndocs = ndocs;
         args[i].doc = doc;
         args[i].time_sec = time_sec;
@@ -1197,7 +1197,7 @@ void multi_thread_test(
     }
 
     // free all documents
-    for (i=0;i<ndocs;++i){
+    for (i=0;(size_t)i<ndocs;++i){
         fdb_doc_free(doc[i]);
     }
 
@@ -1353,7 +1353,7 @@ void *multi_thread_kvs_client(void *args)
             // verify seqnum
             status = fdb_get_kvs_seqnum(db[i], &seqnum);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            TEST_CHK(seqnum == n);
+            TEST_CHK(seqnum == (fdb_seqnum_t)n);
 
             for (j=0; j<n; j++){
                 sprintf(keybuf, "key%d", j);
@@ -1675,7 +1675,7 @@ void custom_compare_variable_test()
             keybuf[j] = 'a' + rand()%('z'-'a');
         }
         sprintf(keybuf+2, "%06d", i);
-        for (j=8;j<keylen-1;++j){
+        for (j=8;(size_t)j<keylen-1;++j){
             keybuf[j] = 'a' + rand()%('z'-'a');
         }
         keybuf[keylen-1] = 0;
@@ -1713,7 +1713,7 @@ void custom_compare_variable_test()
         rdoc = NULL;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
-    TEST_CHK(count == n);
+    TEST_CHK(count == (uint64_t)n);
     fdb_iterator_close(iterator);
 
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
@@ -2911,7 +2911,7 @@ void long_key_test()
     memleak_start();
 
     int i, j, k, idx, r;
-    int l=3, n=100, m=10; // l: # length groups, n: # prefixes, m: # postfixes
+    int l=3, n=100, m=10;// l: # length groups, n: # prefixes, m: # postfixes
     int keylen_limit;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
@@ -2986,7 +2986,7 @@ void long_key_test()
 
     // doc count check
     fdb_get_file_info(dbfile, &info);
-    TEST_CHK(info.doc_count == l*n*m);
+    TEST_CHK(info.doc_count == (size_t)l*n*m);
 
     // retrieval check
     for (i=0;i<l*n*m;++i){
