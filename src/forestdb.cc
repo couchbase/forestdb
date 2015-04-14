@@ -43,6 +43,7 @@
 #include "compactor.h"
 #include "memleak.h"
 #include "time_utils.h"
+#include "get_memory_size.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB
@@ -627,6 +628,11 @@ fdb_status fdb_init(fdb_config *config)
     }
     spin_lock(&initial_lock);
     if (!fdb_initialized) {
+        double ram_size = (double) get_memory_size();
+        if (ram_size * BCACHE_MEMORY_THRESHOLD < (double) _config.buffercache_size) {
+            spin_unlock(&initial_lock);
+            return FDB_RESULT_TOO_BIG_BUFFER_CACHE;
+        }
         // initialize file manager and block cache
         f_config.blocksize = _config.blocksize;
         f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
@@ -691,10 +697,15 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
 
-    fdb_init(fconfig);
+    fdb_status fs = fdb_init(fconfig);
+    if (fs != FDB_RESULT_SUCCESS) {
+        free(handle);
+        free(fhandle);
+        return fs;
+    }
     fdb_file_handle_init(fhandle, handle);
 
-    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
+    fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -753,14 +764,19 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
 
-    fdb_init(fconfig);
+    fdb_status fs = fdb_init(fconfig);
+    if (fs != FDB_RESULT_SUCCESS) {
+        free(handle);
+        free(fhandle);
+        return fs;
+    }
     fdb_file_handle_init(fhandle, handle);
 
     // insert kvs_names and functions into fhandle's list
     fdb_file_handle_parse_cmp_func(fhandle, num_functions,
                                    kvs_names, functions);
 
-    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
+    fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {

@@ -271,6 +271,28 @@ void basic_test()
     TEST_RESULT("basic test");
 }
 
+void config_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    fdb_file_handle *dbfile;
+    fdb_status status;
+
+    // remove previous dummy test files
+    int r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.buffercache_size= (uint64_t) -1;
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_TOO_BIG_BUFFER_CACHE);
+
+    memleak_end();
+    TEST_RESULT("forestdb config test");
+}
+
 void set_get_meta_test()
 {
     TEST_INIT();
@@ -430,7 +452,7 @@ void error_to_str_test()
     int i;
     const char *err_msg;
 
-    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_FILE_NOT_OPEN; --i) {
+    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_TOO_BIG_BUFFER_CACHE; --i) {
         err_msg = fdb_error_msg((fdb_status)i);
         // Verify that all error codes have corresponding error messages
         TEST_CHK(strcmp(err_msg, "unknown error"));
@@ -3018,6 +3040,7 @@ void long_key_test()
 
 int main(){
     basic_test();
+    config_test();
     set_get_meta_test();
 #if !defined(WIN32) && !defined(_WIN32)
 #ifndef _MSC_VER

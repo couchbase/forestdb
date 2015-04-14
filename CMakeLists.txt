@@ -115,7 +115,8 @@ add_library(forestdb SHARED
             utils/adler32.cc
             utils/debug.cc
             utils/partiallock.cc
-            utils/time_utils.cc)
+            utils/time_utils.cc
+            utils/get_memory_size.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(forestdb_dump
@@ -154,7 +155,8 @@ add_executable(forestdb_dump
                utils/debug.cc
                utils/iniparser.cc
                utils/partiallock.cc
-               utils/time_utils.cc)
+               utils/time_utils.cc
+               utils/get_memory_size.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
@@ -194,7 +196,8 @@ add_executable(forestdb_hexamine
                utils/debug.cc
                utils/iniparser.cc
                utils/partiallock.cc
-               utils/time_utils.cc)
+               utils/time_utils.cc
+               utils/get_memory_size.cc)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
