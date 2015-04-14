@@ -343,7 +343,7 @@ fdb_custom_cmp_variable fdb_kvs_find_cmp_name(fdb_kvs_handle *handle,
     return NULL;
 }
 
-void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
+hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 {
     fdb_kvs_id_t kv_id;
     struct hbtrie *trie = (struct hbtrie *)aux;
@@ -370,11 +370,11 @@ void * fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 
         if (a) {
             node = _get_entry(a, struct kvs_node, avl_id);
-            return (void *)node->custom_cmp;
+            return (hbtrie_cmp_func *)node->custom_cmp;
         }
     } else {
         // root handle
-        return (void *)file->kv_header->default_kvs_cmp;
+        return (hbtrie_cmp_func *)file->kv_header->default_kvs_cmp;
     }
     return NULL;
 }

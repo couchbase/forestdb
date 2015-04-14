@@ -102,7 +102,7 @@ struct btree {
 typedef int btree_cmp_func(void *key1, void *key2, void *aux);
 
 typedef struct {
-    void *aux;
+    btree_cmp_func *aux;
     uint8_t chunksize;
 } btree_cmp_args ;
 
