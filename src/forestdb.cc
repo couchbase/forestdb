@@ -345,11 +345,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                     // if mode is NORMAL, restore all items
                                     // if mode is KV_INS, restore items matching ID
                                     wal_insert(&file->global_txn, file,
-                                               &wal_doc, doc_offset, 0, 0);
+                                               &wal_doc, doc_offset, 0);
                                 }
                             } else {
                                 wal_insert(&file->global_txn, file,
-                                           &wal_doc, doc_offset, 0, 0);
+                                           &wal_doc, doc_offset, 0);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -429,9 +429,6 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     }
 
     new_file = new_db.file;
-
-    // remove temporary wal_index files if exist
-    filemgr_scan_remove_keystr_files(new_file);
 
     if (new_file->old_filename &&
         !strncmp(new_file->old_filename, handle->file->filename,
@@ -2898,7 +2895,6 @@ INLINE uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
 LIBFDB_API
 fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 {
-    int mmap_alloc = 0;
     uint64_t offset;
     struct docio_object _doc;
     struct filemgr *file;
@@ -3019,19 +3015,14 @@ fdb_set_start:
     if (!txn) {
         txn = &file->global_txn;
     }
-    if (file == handle->new_file &&
-        filemgr_get_file_status(file) == FILE_COMPACT_NEW) {
-        // compaction is in progress
-        mmap_alloc = 1;
-    }
     if (handle->kvs) {
         // multi KV instance mode
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
-        wal_insert(txn, file, &kv_ins_doc, offset, 0, mmap_alloc);
+        wal_insert(txn, file, &kv_ins_doc, offset, 0);
     } else {
-        wal_insert(txn, file, doc, offset, 0, mmap_alloc);
+        wal_insert(txn, file, doc, offset, 0);
     }
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -3591,7 +3582,6 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     if (wal_flushed) {
         wal_release_flushed_items(new_file, &flush_items);
     }
-    wal_release_keystr_files(new_file);
 
     compactor_switch_file(old_file, new_file, &handle->log_callback);
     do { // Find all files pointing to old_file and redirect them to new file..
@@ -3792,7 +3782,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 // Note that there is no cuncurrent writer since
                 // filemgr_mutex is already being held by the caller function.
                 wal_insert(&new_file->global_txn,
-                           new_file, &wal_doc, new_offset, 0, 0);
+                           new_file, &wal_doc, new_offset, 0);
 
                 n_moved_docs++;
                 free(doc.key);
@@ -3983,7 +3973,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.offset = new_offset;
 
                         wal_insert(&new_file->global_txn,
-                                   new_file, &wal_doc, new_offset, 1, 0);
+                                   new_file, &wal_doc, new_offset, 1);
                         n_moved_docs++;
                         n_docs_in_wal++;
 
@@ -4102,7 +4092,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
         wal_insert(&new_file->global_txn, new_file, &wal_doc,
-                   doc_offset, 0, 0);
+                   doc_offset, 0);
 
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {

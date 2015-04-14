@@ -193,31 +193,6 @@ void _filemgr_win_get_errno_str(char *buf, size_t size)
     LocalFree(win_msg);
 }
 
-void *_filemgr_win_mmap(int fd, size_t length, void **aux)
-{
-    HANDLE file = handle_to_win(fd);
-    HANDLE map = CreateFileMapping(file, NULL, PAGE_READWRITE, 0, length, NULL);
-    if (map == NULL) {
-        return NULL;
-    }
-    void *addr = MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, length);
-    *aux = map;
-    return addr;
-}
-
-int _filemgr_win_munmap(void *addr, size_t length, void *aux)
-{
-    int ret;
-    ret = UnmapViewOfFile(addr);
-    if (ret) {
-        HANDLE map = aux;
-        CloseHandle(map);
-        return 0;
-    } else {
-        return -1;
-    }
-}
-
 struct filemgr_ops win_ops = {
     _filemgr_win_open,
     _filemgr_win_pwrite,
@@ -227,9 +202,7 @@ struct filemgr_ops win_ops = {
     _filemgr_win_file_size,
     _filemgr_win_fdatasync,
     _filemgr_win_fsync,
-    _filemgr_win_get_errno_str,
-    _filemgr_win_mmap,
-    _filemgr_win_munmap
+    _filemgr_win_get_errno_str
 };
 
 struct filemgr_ops * get_win_filemgr_ops()

@@ -23,8 +23,6 @@
 #include <stdarg.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
-#include <dirent.h>
-#include <unistd.h>
 #endif
 
 #include "filemgr.h"
@@ -73,15 +71,6 @@ struct temp_buf_item{
 };
 static struct list temp_buf;
 static spin_t temp_buf_lock;
-
-struct keystr_file {
-    char *filename;
-    uint64_t size;
-    int fd;
-    void *addr;
-    void *aux; // reserved for filemap handle in MSVC
-    struct list_elem le;
-};
 
 static void _filemgr_free_func(struct hash_elem *h);
 
@@ -731,8 +720,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     spin_init(&file->mutex);
 #endif
 
-    list_init(&file->keystr_files);
-    file->n_keystr_files = 0;
     // initialize WAL
     if (!wal_is_initialized(file)) {
         wal_init(file, FDB_WAL_NBUCKET);
@@ -1138,9 +1125,6 @@ static void _filemgr_free_func(struct hash_elem *h)
         free(file->wal->seq_shards);
     }
     free(file->wal);
-
-    // free mmap files if exist
-    filemgr_remove_keystr_files(file);
 
     // free filename and header
     free(file->filename);
@@ -1975,172 +1959,6 @@ void filemgr_set_dirty_root(struct filemgr *file,
 {
     atomic_store_uint64_t(&file->header.dirty_idtree_root, dirty_idtree_root);
     atomic_store_uint64_t(&file->header.dirty_seqtree_root, dirty_seqtree_root);
-}
-
-// Create keystr file and return mmapped address
-// Note that both filemgr_add_keystr_file() and filemgr_remove_keystr_files()
-// are protected by filemgr_mutex_lock, since they are called by update operations
-void *filemgr_add_keystr_file(struct filemgr *file, uint64_t size)
-{
-    struct keystr_file *keystr_file;
-    keystr_file = (struct keystr_file *)calloc(1, sizeof(struct keystr_file));
-
-    keystr_file->filename = (char*)malloc(file->filename_len + 32);
-    sprintf(keystr_file->filename, "%s.wal_index_%05d", file->filename, file->n_keystr_files);
-    keystr_file->fd = file->ops->open(keystr_file->filename,
-                                      O_CREAT | O_RDWR | O_TRUNC, 0644);
-    if (keystr_file->fd < 0) {
-        free(keystr_file->filename);
-        free(keystr_file);
-        return NULL;
-    }
-
-    // allocate file blocks
-    ssize_t r = file->ops->pwrite(keystr_file->fd, (void*)"x", 1, size-1);
-    if (r != 1) {
-        file->ops->close(keystr_file->fd);
-        free(keystr_file->filename);
-        free(keystr_file);
-        return NULL;
-    }
-
-    keystr_file->size = size;
-    keystr_file->addr = file->ops->mmap(keystr_file->fd, keystr_file->size,
-                                        &keystr_file->aux);
-    if (keystr_file->addr == NULL) {
-        file->ops->close(keystr_file->fd);
-        free(keystr_file->filename);
-        free(keystr_file);
-        return NULL;
-    }
-    list_push_front(&file->keystr_files, &keystr_file->le);
-    file->n_keystr_files++;
-
-    return keystr_file->addr;
-}
-
-// Close & unmap & remove all keystr files
-void filemgr_remove_keystr_files(struct filemgr *file)
-{
-    struct keystr_file *keystr_file;
-    struct list_elem *e;
-
-    e = list_begin(&file->keystr_files);
-    while (e) {
-        keystr_file = _get_entry(e, struct keystr_file, le);
-        e = list_remove(&file->keystr_files, &keystr_file->le);
-
-        if (file->ops->munmap(keystr_file->addr, keystr_file->size,
-                              keystr_file->aux) < 0) {
-            continue;
-        }
-        if (file->ops->close(keystr_file->fd) < 0) {
-            continue;
-        }
-        remove(keystr_file->filename);
-        free(keystr_file->filename);
-        free(keystr_file);
-    }
-}
-
-struct filename_item {
-    char *filename;
-    struct list_elem le;
-};
-
-// manually scan & remove all keystr files
-void filemgr_scan_remove_keystr_files(struct filemgr *file)
-{
-    int i;
-    int filename_len = file->filename_len;
-    int dirname_len = 0;
-    char *filename = file->filename;
-    char prefix[FDB_MAX_FILENAME_LEN];
-    char dirname[FDB_MAX_FILENAME_LEN];
-    struct list filelist;
-    struct filename_item *item;
-    struct list_elem *e;
-
-    list_init(&filelist);
-
-#if !defined(WIN32) && !defined(_WIN32)
-    // Posix
-    DIR *dir_info;
-    struct dirent *dir_entry;
-
-    for (i=filename_len-1; i>=0; --i){
-        if (filename[i] == '/') {
-            dirname_len = i+1;
-            break;
-        }
-    }
-
-    if (dirname_len > 0) {
-        strncpy(dirname, filename, dirname_len);
-        dirname[dirname_len] = 0;
-    } else {
-        strcpy(dirname, ".");
-    }
-    strcpy(prefix, filename + dirname_len);
-    strcat(prefix, ".wal_index");
-
-    dir_info = opendir(dirname);
-    if (dir_info != NULL) {
-        int prefix_size = strlen(prefix);
-        while ((dir_entry = readdir(dir_info))) {
-            if (!strncmp(dir_entry->d_name, prefix, prefix_size)) {
-                item = (struct filename_item*)calloc(1, sizeof(struct filename_item));
-                item->filename = (char*)malloc(strlen(dir_entry->d_name)+1);
-                strcpy(item->filename, dir_entry->d_name);
-                list_push_front(&filelist, &item->le);
-            }
-        }
-        closedir(dir_info);
-    }
-#else
-    // Windows
-    for (i=filename_len-1; i>=0; --i){
-        if (filename[i] == '/' || filename[i] == '\\') {
-            dirname_len = i+1;
-            break;
-        }
-    }
-
-    strcpy(prefix, filename + dirname_len);
-    strcat(prefix, ".wal_index");
-
-    WIN32_FIND_DATA filedata;
-    HANDLE hfind;
-    char query_str[FDB_MAX_FILENAME_LEN];
-
-    // find all files start with 'prefix'
-    int prefix_size = strlen(prefix);
-    sprintf(query_str, "%s*", prefix);
-    hfind = FindFirstFile(query_str, &filedata);
-    while (hfind != INVALID_HANDLE_VALUE) {
-        if (!strncmp(filedata.cFileName, prefix, prefix_size)) {
-            item = (struct filename_item*)calloc(1, sizeof(struct filename_item));
-            item->filename = (char*)malloc(strlen(filedata.cFileName)+1);
-            strcpy(item->filename, filedata.cFileName);
-            list_push_front(&filelist, &item->le);
-        }
-
-        if (!FindNextFile(hfind, &filedata)) {
-            FindClose(hfind);
-            hfind = INVALID_HANDLE_VALUE;
-        }
-    }
-#endif
-
-    // remove all file in list
-    e = list_begin(&filelist);
-    while (e) {
-        item = _get_entry(e, struct filename_item, le);
-        e = list_remove(&filelist, &item->le);
-        remove(item->filename);
-        free(item->filename);
-        free(item);
-    }
 }
 
 static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
