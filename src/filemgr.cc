@@ -304,6 +304,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                     msg, remain, file->filename);
         }
 
+        size_t block_counter = 0;
         do {
             ssize_t rv = file->ops->pread(file->fd, buf, file->blocksize,
                              file->pos.val - file->blocksize);
@@ -315,6 +316,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                 fdb_log(log_callback, status, msg, file->filename, file->blocksize);
                 break;
             }
+            ++block_counter;
             memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE,
                    BLK_MARKER_SIZE);
 
@@ -378,11 +380,13 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                             file->filename);
                 }
             } else {
-                status = FDB_RESULT_FILE_CORRUPTION;
-                const char *msg = "Crash Detected: Last Block not DBHEADER %0.01x "
-                    "in a database file '%s'\n";
-                DBG(msg, marker[0], file->filename);
-                fdb_log(log_callback, status, msg, marker[0], file->filename);
+                status = FDB_RESULT_NO_DB_HEADERS;
+                if (block_counter == 1) {
+                    const char *msg = "Crash Detected: Last Block not DBHEADER %0.01x "
+                                      "in a database file '%s'\n";
+                    DBG(msg, marker[0], file->filename);
+                    fdb_log(log_callback, status, msg, marker[0], file->filename);
+                }
             }
 
             atomic_sub_uint64_t(&file->pos, file->blocksize);
@@ -653,6 +657,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     cs_off_t offset = file->ops->goto_eof(file->fd);
     if (offset == FDB_RESULT_SEEK_FAIL) {
         _log_errno_str(file->ops, log_callback, FDB_RESULT_SEEK_FAIL, "SEEK_END", filename);
+        file->ops->close(file->fd);
         free(file->wal);
         free(file->filename);
         free(file->config);
@@ -675,6 +680,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     status = _filemgr_read_header(file, log_callback);
     if (status != FDB_RESULT_SUCCESS) {
         _log_errno_str(file->ops, log_callback, status, "READ", filename);
+        file->ops->close(file->fd);
         free(file->wal);
         free(file->filename);
         free(file->config);

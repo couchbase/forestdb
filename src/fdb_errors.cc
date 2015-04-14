@@ -139,6 +139,9 @@ const char* fdb_error_msg(fdb_status err_code)
             return "Buffer cache is too large to be configured and cannot "
                    "exceed 80% of physical memory";
 
+        case FDB_RESULT_NO_DB_HEADERS:
+            return "No commit headers found in a database file";
+
         default:
             return "unknown error";
     }

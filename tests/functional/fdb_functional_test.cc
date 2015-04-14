@@ -293,6 +293,63 @@ void config_test()
     TEST_RESULT("forestdb config test");
 }
 
+void large_batch_write_no_commit_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 500000;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = (fdb_doc **) malloc(sizeof(fdb_doc *) * n);
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    // open dbfile
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Write 500K docs to eject and flush some dirty pages into disk.
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%128d", i);
+        sprintf(metabuf, "meta%128d", i);
+        sprintf(bodybuf, "body%128d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+        fdb_doc_free(doc[i]);
+    }
+
+    // close without commit
+    status = fdb_kvs_close(db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_NO_DB_HEADERS ||
+             status == FDB_RESULT_SUCCESS); // No dirty pages are flushed into disk.
+    if (status == FDB_RESULT_SUCCESS) {
+        status = fdb_close(dbfile);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    free(doc);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("large batch write test with no commits");
+}
+
 void set_get_meta_test()
 {
     TEST_INIT();
@@ -452,7 +509,7 @@ void error_to_str_test()
     int i;
     const char *err_msg;
 
-    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_TOO_BIG_BUFFER_CACHE; --i) {
+    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_NO_DB_HEADERS; --i) {
         err_msg = fdb_error_msg((fdb_status)i);
         // Verify that all error codes have corresponding error messages
         TEST_CHK(strcmp(err_msg, "unknown error"));
@@ -3041,6 +3098,7 @@ void long_key_test()
 int main(){
     basic_test();
     config_test();
+    large_batch_write_no_commit_test();
     set_get_meta_test();
 #if !defined(WIN32) && !defined(_WIN32)
 #ifndef _MSC_VER
