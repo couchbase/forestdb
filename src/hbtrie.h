@@ -112,8 +112,7 @@ void hbtrie_free(struct hbtrie *trie);
 
 void hbtrie_set_flag(struct hbtrie *trie, uint8_t flag);
 void hbtrie_set_leaf_height_limit(struct hbtrie *trie, uint8_t limit);
-void hbtrie_set_leaf_cmp(struct hbtrie *trie,
-                         int (*cmp)(void *key1, void *key2, void* aux));
+void hbtrie_set_leaf_cmp(struct hbtrie *trie, btree_cmp_func *cmp);
 void hbtrie_set_map_function(struct hbtrie *trie,
                              hbtrie_cmp_map *map_func);
 

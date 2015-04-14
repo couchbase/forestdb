@@ -19,7 +19,7 @@ typedef uint16_t key_len_t;
 
 void freevars(void **vv, size_t n)
 {
-    for(int i = 0; i < n; i++){
+    for(size_t i = 0; i < n; i++){
         void *p = vv[i];
         free(p);
         p = NULL;
@@ -780,7 +780,7 @@ void kv_get_str_data_size_test()
 
     // calculate datasize to extend empty node
     size = kv_ops->get_data_size(node, new_minkey, key_ptrs, value_arr, 2);
-    TEST_CHK(size == (ksize_total + 2*vsize));
+    TEST_CHK(size == (size_t)(ksize_total + 2*vsize));
 
     // set kvs
     for (int i = 0; i < n; i++){
@@ -1220,7 +1220,7 @@ void kv_cmp_key_str_test()
 
     // compare strings diff length equal substrings
     cmp = kv_ops->cmp(&key_ptrs[2], &key_ptrs[3], NULL);
-    TEST_CHK( cmp == (strlen(keys[2]) - strlen(keys[3])) );
+    TEST_CHK(cmp == ((int)strlen(keys[2]) - (int)strlen(keys[3])) );
 
     // compare strings diff length diff substrings
     cmp = kv_ops->cmp(&key_ptrs[0], &key_ptrs[3], NULL);

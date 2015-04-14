@@ -61,7 +61,7 @@ INLINE void print_buf(fdb_kvs_handle *db, void *buf, size_t buflen, bool hex,
             printf("%.*s\n", (int)buflen, (char*)buf);
         } else {
             // hex dump
-            int i, j;
+            size_t i, j;
             printf("(hex)\n");
             for (i=0;i<buflen;i+=align) {
                 printf("        ");
@@ -250,7 +250,7 @@ int process_file(struct dump_option *opt)
 
     if (dbfile->root->config.multi_kv_instances) {
         fdb_get_kvs_name_list(dbfile, &name_list);
-        for (i=0; i<name_list.num_kvs_names; ++i) {
+        for (i=0; (uint64_t)i<name_list.num_kvs_names; ++i) {
             if (opt->one_kvs &&
                 strcmp(opt->one_kvs, name_list.kvs_names[i])) {
                 continue;
