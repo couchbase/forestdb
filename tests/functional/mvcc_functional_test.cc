@@ -3215,7 +3215,136 @@ void auto_compaction_snapshots_test()
     TEST_RESULT("auto compaction with snapshots test");
 }
 
+void *rollback_during_ops_test(void * args)
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    fdb_file_handle *file;
+    fdb_kvs_handle *kvs;
+    fdb_status status;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_kvs_info kvs_info;
+    fdb_seqnum_t rollback_to;
+    thread_t tid;
+    void *thread_ret;
+    bool walflush = true;
+    char str[15];
+    int i, r;
+    int n = 10000;
+
+    if (args == NULL)
+    { // parent
+
+        r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+        (void)r;
+
+        // Open Database File
+        config = fdb_get_default_config();
+        status = fdb_open(&file, "mvcc_test1", &config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Open KV Store
+        kvs_config = fdb_get_default_kvs_config();
+        status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // set with commits
+        for(i=1;i<=n;i++) {
+            sprintf(str, "%d", i);
+            status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            if(i%10==0){
+                walflush = !walflush;
+                if(walflush){
+                    fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+                } else {
+                    fdb_commit(file, FDB_COMMIT_NORMAL);
+                }
+            }
+        }
+
+        fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        fdb_get_kvs_info(kvs, &kvs_info);
+        TEST_CHK(kvs_info.last_seqnum==n);
+
+        // start rollback thread
+        thread_create(&tid, rollback_during_ops_test, (void *)&n);
+
+        // updates with commits
+        for(i=1;i<=10000;i++) {
+            sprintf(str, "%d", i);
+            status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+            if(status == FDB_RESULT_SUCCESS){ // set ok
+                status = fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+                if(status != FDB_RESULT_SUCCESS){
+                    TEST_CHK(status == FDB_RESULT_FAIL_BY_ROLLBACK);
+                }
+            } else {
+                TEST_CHK(status == FDB_RESULT_FAIL_BY_ROLLBACK);
+            }
+        }
+
+        // join rollback thread
+        thread_join(tid, &thread_ret);
+
+        // set a keys commit and save seqnum
+        status = fdb_set_kv(kvs,(void *)"key1", 4, (void*)"value", 5);
+        status = fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        fdb_get_kvs_info(kvs, &kvs_info);
+        rollback_to = kvs_info.last_seqnum;
+
+        // 2 more sets
+        status = fdb_set_kv(kvs,(void *)"key2", 4, (void*)"value", 5);
+        status = fdb_set_kv(kvs,(void *)"key3", 4, (void*)"value", 5);
+        status = fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // rollback to last saved seqnum
+        status = fdb_rollback(&kvs, rollback_to);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_get_kvs_info(kvs, &kvs_info);
+        TEST_CHK(kvs_info.last_seqnum == rollback_to);
+
+        fdb_close(file);
+        fdb_shutdown();
+
+        memleak_end();
+        TEST_RESULT("rollback during ops test");
+        return NULL;
+    }
+
+    // open new copy of dbfile and kvs
+    config = fdb_get_default_config();
+    status = fdb_open(&file, "mvcc_test1", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // reverse set with rollbacks
+    n = *((int *)args);
+    for(i=n;i>1;i--){
+        sprintf(str, "%d", i);
+        status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if(i%10 == 0){
+            status = fdb_rollback(&kvs, i);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    fdb_close(file);
+    // exit
+    thread_exit(0);
+    return NULL;
+
+}
+
 int main(){
+
     multi_version_test();
 #ifdef __CRC32
     crash_recovery_test();
@@ -3228,6 +3357,7 @@ int main(){
     snapshot_stats_test();
     snapshot_markers_in_file_test(true); // multi kv instance mode
     snapshot_markers_in_file_test(false); // single kv instance mode
+    rollback_during_ops_test(NULL);
     rollback_forward_seqnum();
     rollback_test(false); // single kv instance mode
     rollback_test(true); // multi kv instance mode
