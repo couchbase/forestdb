@@ -587,7 +587,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
 
         iterator->wal_tree = (struct avl_tree*)
                              malloc(sizeof(struct avl_tree));
-        avl_init(iterator->wal_tree, (void*)_fdb_seqnum_cmp);
+        avl_init(iterator->wal_tree, NULL);
 
         size_t i = 0;
         size_t num_shards = wal_file->wal->num_shards;

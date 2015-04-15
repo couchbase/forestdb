@@ -189,8 +189,7 @@ void hbtrie_set_leaf_height_limit(struct hbtrie *trie, uint8_t limit)
     trie->leaf_height_limit = limit;
 }
 
-void hbtrie_set_leaf_cmp(struct hbtrie *trie,
-                         int (*cmp)(void *key1, void *key2, void* aux))
+void hbtrie_set_leaf_cmp(struct hbtrie *trie, btree_cmp_func *cmp)
 {
     trie->btree_leaf_kv_ops->cmp = cmp;
 }
@@ -521,7 +520,7 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
             item_new = (struct btreeit_item *)
                        mempool_alloc(sizeof(struct btreeit_item));
             if (_is_leaf_btree(hbmeta.chunkno)) {
-                void *void_cmp;
+                hbtrie_cmp_func *void_cmp;
 
                 if (trie->map) { // custom cmp functions exist
                     if (!memcmp(trie->last_map_chunk, it->curkey, trie->chunksize)) {
@@ -802,7 +801,7 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             item_new = (struct btreeit_item *)
                        mempool_alloc(sizeof(struct btreeit_item));
             if (_is_leaf_btree(hbmeta.chunkno)) {
-                void *void_cmp;
+                hbtrie_cmp_func *void_cmp;
 
                 if (trie->map) { // custom cmp functions exist
                     if (!memcmp(trie->last_map_chunk, it->curkey, trie->chunksize)) {
@@ -1062,7 +1061,7 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
     uint8_t *buf = alca(uint8_t, trie->btree_nodesize);
     uint8_t *btree_value = alca(uint8_t, trie->valuelen);
     void *chunk = NULL;
-    void *void_cmp;
+    hbtrie_cmp_func *void_cmp;
     bid_t bid_new;
     nchunk = _get_nchunk(trie, key, keylen);
 
@@ -1544,7 +1543,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
     struct hbtrie_meta hbmeta;
     struct btree_meta meta;
     hbmeta_opt opt;
-    void *void_cmp;
+    hbtrie_cmp_func *void_cmp;
 
     nchunk = _get_nchunk_raw(trie, rawkey, rawkeylen);
 

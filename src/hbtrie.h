@@ -31,7 +31,8 @@ extern "C" {
 
 typedef size_t hbtrie_func_readkey(void *handle, uint64_t offset, void *buf);
 typedef int hbtrie_cmp_func(void *key1, void *key2, void* aux);
-typedef voidref hbtrie_cmp_map(void *chunk, void *aux);
+// a function pointer to a routine that returns a function pointer
+typedef hbtrie_cmp_func *hbtrie_cmp_map(void *chunk, void *aux);
 
 typedef enum {
     HBTRIE_RESULT_SUCCESS,
