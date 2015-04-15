@@ -3343,6 +3343,82 @@ void *rollback_during_ops_test(void * args)
 
 }
 
+void in_memory_snapshot_rollback_test()
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    char str[15];
+    fdb_file_handle *file;
+    fdb_kvs_handle *kvs, *snap_db;
+    fdb_iterator *iterator;
+    fdb_status status;
+    fdb_config config;
+    fdb_doc *rdoc;
+    fdb_kvs_config kvs_config;
+    fdb_kvs_info kvs_info;
+    fdb_seqnum_t c, rollback_to = 3;
+
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    status = fdb_open(&file, "mvcc_test1", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // set 3 keys commits
+    for(i=1;i<=3;i++) {
+        sprintf(str, "%d", i);
+        status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+    // commit  normal
+    fdb_commit(file, FDB_COMMIT_NORMAL);
+
+    // set 2 more and commit w/flush
+    status = fdb_set_kv(kvs, (void *)"key4", 4, (void*)"value", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_kv(kvs, (void *)"key5", 4, (void*)"value", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // rollback to 3
+    status = fdb_rollback(&kvs, rollback_to);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_get_kvs_info(kvs, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum == rollback_to);
+
+    // take a in-mem snapshot and iterate over kvs
+    status = fdb_snapshot_open(kvs, &snap_db, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    rdoc = NULL;
+    c = 0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+        c++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(c==rollback_to);
+
+    fdb_iterator_close(iterator);
+    fdb_kvs_close(snap_db);
+    fdb_close(file);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("in-memory snapshot rollback test");
+}
+
 int main(){
 
     multi_version_test();
@@ -3350,6 +3426,7 @@ int main(){
     crash_recovery_test();
 #endif
     snapshot_test();
+    in_memory_snapshot_rollback_test();
     in_memory_snapshot_test();
     in_memory_snapshot_on_dirty_hbtrie_test();
     in_memory_snapshot_compaction_test();
