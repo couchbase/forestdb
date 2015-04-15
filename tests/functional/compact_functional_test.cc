@@ -2487,7 +2487,7 @@ static int compaction_cb_markers(fdb_file_handle *fhandle,
                          uint64_t new_offset, void *ctx)
 {
     TEST_INIT();
-    int i, j;
+    uint64_t i, j;
     fdb_status s;
     fdb_kvs_handle *db, *snap_db;
     fdb_snapshot_info_t *markers;
@@ -2495,7 +2495,7 @@ static int compaction_cb_markers(fdb_file_handle *fhandle,
     fdb_seqnum_t seqno;
     uint64_t num_markers;
     struct cb_args *args = (struct cb_args *)ctx;
-    int n = args->n_moved_docs;
+    uint64_t n = (uint64_t) args->n_moved_docs;
 
     (void) status;
     (void) doc;
@@ -2511,7 +2511,7 @@ static int compaction_cb_markers(fdb_file_handle *fhandle,
 
     // snapshot open for each kvs for each marker
     for(j=0;j<num_markers;++j){
-        for (i=0;i<markers[j].num_kvs_markers;++i){
+        for (i=0;i<(uint64_t)markers[j].num_kvs_markers;++i){
             // open kv for this marker
             fdb_kvs_open(fhandle, &db,
                          markers[j].kvs_markers[i].kv_store_name, &kvs_config);
