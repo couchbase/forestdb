@@ -21,6 +21,7 @@
 
 #include "common.h"
 #include "btreeblock.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -402,10 +403,14 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
         dirty_block = _get_entry(dirty_avl, struct btreeblk_block, avl);
         memcpy(block->addr, dirty_block->addr, handle->file->blocksize);
     } else {
-        if (filemgr_read(handle->file, block->bid, block->addr,
-                         handle->log_callback) != FDB_RESULT_SUCCESS) {
+        fdb_status status = filemgr_read(handle->file, block->bid, block->addr,
+                                         handle->log_callback);
+        if (status != FDB_RESULT_SUCCESS) {
             _btreeblk_free_aligned_block(handle, block);
             mempool_free(block);
+            fdb_log(handle->log_callback, status,
+                    "Failed to read the B+-Tree block (block id: %" _F64
+                    ", block address: %p)", block->bid, block->addr);
             return NULL;
         }
     }
@@ -875,6 +880,11 @@ INLINE fdb_status _btreeblk_write_dirty_block(struct btreeblk_handle *handle,
     _btreeblk_encode(handle, block);
     status = filemgr_write(handle->file, block->bid, block->addr,
                            handle->log_callback);
+    if (status != FDB_RESULT_SUCCESS) {
+        fdb_log(handle->log_callback, status,
+                "Failed to write the B+-Tree block (block id: %" _F64
+                ", block address: %p)", block->bid, block->addr);
+    }
     _btreeblk_decode(handle, block);
     return status;
 }
@@ -1039,6 +1049,10 @@ fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
                          handle->log_callback)) != FDB_RESULT_SUCCESS) {
             free_align(block->addr);
             free(block);
+            fdb_log(handle->log_callback, fs,
+                    "Failed to read the dirty B+-Tree block (block id: %" _F64
+                    ", block address: %p) while creating an in-memory snapshot.",
+                    block->bid, block->addr);
             return fs;
         }
         // check if the block is for btree node

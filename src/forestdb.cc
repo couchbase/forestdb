@@ -43,6 +43,7 @@
 #include "compactor.h"
 #include "memleak.h"
 #include "time_utils.h"
+#include "get_memory_size.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB
@@ -344,11 +345,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                     // if mode is NORMAL, restore all items
                                     // if mode is KV_INS, restore items matching ID
                                     wal_insert(&file->global_txn, file,
-                                               &wal_doc, doc_offset, 0, 0);
+                                               &wal_doc, doc_offset, 0);
                                 }
                             } else {
                                 wal_insert(&file->global_txn, file,
-                                           &wal_doc, doc_offset, 0, 0);
+                                           &wal_doc, doc_offset, 0);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -428,9 +429,6 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     }
 
     new_file = new_db.file;
-
-    // remove temporary wal_index files if exist
-    filemgr_scan_remove_keystr_files(new_file);
 
     if (new_file->old_filename &&
         !strncmp(new_file->old_filename, handle->file->filename,
@@ -627,6 +625,11 @@ fdb_status fdb_init(fdb_config *config)
     }
     spin_lock(&initial_lock);
     if (!fdb_initialized) {
+        double ram_size = (double) get_memory_size();
+        if (ram_size * BCACHE_MEMORY_THRESHOLD < (double) _config.buffercache_size) {
+            spin_unlock(&initial_lock);
+            return FDB_RESULT_TOO_BIG_BUFFER_CACHE;
+        }
         // initialize file manager and block cache
         f_config.blocksize = _config.blocksize;
         f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
@@ -691,10 +694,15 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
 
-    fdb_init(fconfig);
+    fdb_status fs = fdb_init(fconfig);
+    if (fs != FDB_RESULT_SUCCESS) {
+        free(handle);
+        free(fhandle);
+        return fs;
+    }
     fdb_file_handle_init(fhandle, handle);
 
-    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
+    fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -753,14 +761,19 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
 
-    fdb_init(fconfig);
+    fdb_status fs = fdb_init(fconfig);
+    if (fs != FDB_RESULT_SUCCESS) {
+        free(handle);
+        free(fhandle);
+        return fs;
+    }
     fdb_file_handle_init(fhandle, handle);
 
     // insert kvs_names and functions into fhandle's list
     fdb_file_handle_parse_cmp_func(fhandle, num_functions,
                                    kvs_names, functions);
 
-    fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
+    fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
     } else {
@@ -1216,7 +1229,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     if (filename_mode == FDB_VFILENAME) {
         compactor_get_actual_filename(filename, actual_filename,
-                                      config->compaction_mode);
+                                      config->compaction_mode, &handle->log_callback);
     } else {
         strcpy(actual_filename, filename);
     }
@@ -1660,7 +1673,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
         config->compaction_mode == FDB_COMPACTION_AUTO) {
         status = compactor_register_file(handle->file, (fdb_config *)config,
-                                         handle->fhandle->cmp_func_list);
+                                         handle->fhandle->cmp_func_list,
+                                         &handle->log_callback);
     }
 
 #ifdef _TRACE_HANDLES
@@ -2108,7 +2122,8 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             if (!(config.flags & FDB_OPEN_FLAG_RDONLY) &&
                 config.compaction_mode == FDB_COMPACTION_AUTO) {
                 fs = compactor_register_file(handle->file, &config,
-                                             handle->fhandle->cmp_func_list);
+                                             handle->fhandle->cmp_func_list,
+                                             &handle->log_callback);
             }
 
         } else {
@@ -2880,7 +2895,6 @@ INLINE uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
 LIBFDB_API
 fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 {
-    int mmap_alloc = 0;
     uint64_t offset;
     struct docio_object _doc;
     struct filemgr *file;
@@ -3001,19 +3015,14 @@ fdb_set_start:
     if (!txn) {
         txn = &file->global_txn;
     }
-    if (file == handle->new_file &&
-        filemgr_get_file_status(file) == FILE_COMPACT_NEW) {
-        // compaction is in progress
-        mmap_alloc = 1;
-    }
     if (handle->kvs) {
         // multi KV instance mode
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
-        wal_insert(txn, file, &kv_ins_doc, offset, 0, mmap_alloc);
+        wal_insert(txn, file, &kv_ins_doc, offset, 0);
     } else {
-        wal_insert(txn, file, doc, offset, 0, mmap_alloc);
+        wal_insert(txn, file, doc, offset, 0);
     }
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -3573,9 +3582,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     if (wal_flushed) {
         wal_release_flushed_items(new_file, &flush_items);
     }
-    wal_release_keystr_files(new_file);
 
-    compactor_switch_file(old_file, new_file);
+    compactor_switch_file(old_file, new_file, &handle->log_callback);
     do { // Find all files pointing to old_file and redirect them to new file..
         very_old_file = filemgr_search_stale_links(old_file);
         if (very_old_file) {
@@ -3774,7 +3782,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 // Note that there is no cuncurrent writer since
                 // filemgr_mutex is already being held by the caller function.
                 wal_insert(&new_file->global_txn,
-                           new_file, &wal_doc, new_offset, 0, 0);
+                           new_file, &wal_doc, new_offset, 0);
 
                 n_moved_docs++;
                 free(doc.key);
@@ -3965,7 +3973,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.offset = new_offset;
 
                         wal_insert(&new_file->global_txn,
-                                   new_file, &wal_doc, new_offset, 1, 0);
+                                   new_file, &wal_doc, new_offset, 1);
                         n_moved_docs++;
                         n_docs_in_wal++;
 
@@ -4084,7 +4092,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
         wal_insert(&new_file->global_txn, new_file, &wal_doc,
-                   doc_offset, 0, 0);
+                   doc_offset, 0);
 
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {

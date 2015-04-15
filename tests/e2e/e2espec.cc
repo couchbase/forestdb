@@ -300,7 +300,7 @@ void start_checkpoint(storage_t *st)
 
 #ifdef __DEBUG_E2E
     char rbuf[256];
-    sprintf(rbuf, "start checkpoint[seqno:%llu]",chk->seqnum_all);
+    sprintf(rbuf, "start checkpoint[seqno:%" _F64 "]",chk->seqnum_all);
     TEST_RESULT(rbuf);
 #endif
 
@@ -347,7 +347,7 @@ void end_checkpoint(storage_t *st)
 
 #ifdef __DEBUG_E2E
     char rbuf[256];
-    sprintf(rbuf, "end checkpoint[seqno:%llu]",chk->seqnum_all);
+    sprintf(rbuf, "end checkpoint[seqno:%" _F64 "]",chk->seqnum_all);
     TEST_RESULT(rbuf);
 #endif
 

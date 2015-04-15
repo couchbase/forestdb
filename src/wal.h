@@ -41,7 +41,6 @@ struct wal_item_header{
     void *key;
     uint16_t keylen;
     uint8_t chunksize;
-    uint8_t mmap;
     struct list items;
     struct hash_elem he_key;
     struct list_elem list_elem;
@@ -99,12 +98,6 @@ struct wal_shard_by_seq {
     spin_t lock;
 };
 
-struct wal_keystr_seg {
-    void *cur_addr;
-    uint64_t offset;
-    uint64_t cur_maxsize;
-};
-
 struct wal {
     uint8_t flag;
     atomic_uint32_t size; // total # entries in WAL (uint32_t)
@@ -115,7 +108,6 @@ struct wal {
     struct wal_shard_by_key *key_shards;
     struct wal_shard_by_seq *seq_shards;
     size_t num_shards;
-    struct wal_keystr_seg key_seg;
     spin_t lock;
 };
 
@@ -126,13 +118,11 @@ struct wal_txn_wrapper {
 
 fdb_status wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
-void wal_release_keystr_files(struct filemgr *file);
 fdb_status wal_insert(fdb_txn *txn,
                       struct filemgr *file,
                       fdb_doc *doc,
                       uint64_t offset,
-                      int is_compactor,
-                      int mmap_alloc);
+                      int is_compactor);
 fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset);
 fdb_status wal_find_kv_id(fdb_txn *txn,
                           struct filemgr *file,

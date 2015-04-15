@@ -23,8 +23,6 @@
 #include <stdarg.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
-#include <dirent.h>
-#include <unistd.h>
 #endif
 
 #include "filemgr.h"
@@ -73,15 +71,6 @@ struct temp_buf_item{
 };
 static struct list temp_buf;
 static spin_t temp_buf_lock;
-
-struct keystr_file {
-    char *filename;
-    uint64_t size;
-    int fd;
-    void *addr;
-    void *aux; // reserved for filemap handle in MSVC
-    struct list_elem le;
-};
 
 static void _filemgr_free_func(struct hash_elem *h);
 
@@ -237,10 +226,11 @@ static void * _filemgr_get_temp_buf()
     e = list_pop_front(&temp_buf);
     if (e) {
         item = _get_entry(e, struct temp_buf_item, le);
-    }else{
+    } else {
         void *addr;
 
-        malloc_align(addr, FDB_SECTOR_SIZE, global_config.blocksize + sizeof(struct temp_buf_item));
+        malloc_align(addr, FDB_SECTOR_SIZE,
+                     global_config.blocksize + sizeof(struct temp_buf_item));
 
         item = (struct temp_buf_item *)((uint8_t *) addr + global_config.blocksize);
         item->addr = addr;
@@ -277,7 +267,8 @@ static void _filemgr_shutdown_temp_buf()
     spin_unlock(&temp_buf_lock);
 }
 
-static fdb_status _filemgr_read_header(struct filemgr *file)
+static fdb_status _filemgr_read_header(struct filemgr *file,
+                                       err_log_callback *log_callback)
 {
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
@@ -295,19 +286,26 @@ static fdb_status _filemgr_read_header(struct filemgr *file)
         if (remain) {
             atomic_sub_uint64_t(&file->pos, remain);
             atomic_store_uint64_t(&file->last_commit, file->pos.val);
-            DBG("Crash Detected: %llu non-block aligned bytes discarded\n",
-                remain);
+            const char *msg = "Crash Detected: %" _F64 " non-block aligned bytes discarded "
+                "from a database file '%s'\n";
+            DBG(msg, remain, file->filename);
+            fdb_log(log_callback, FDB_RESULT_READ_FAIL /* Need to add a better error code*/,
+                    msg, remain, file->filename);
         }
 
+        size_t block_counter = 0;
         do {
             ssize_t rv = file->ops->pread(file->fd, buf, file->blocksize,
                              file->pos.val - file->blocksize);
             if (rv != file->blocksize) {
                 status = FDB_RESULT_READ_FAIL;
-                DBG("Unable to read file %s blocksize %llu\n",
-                    file->filename, file->blocksize);
+                const char *msg = "Unable to read a database file '%s' with "
+                    "blocksize %" _F64 "\n";
+                DBG(msg, file->filename, file->blocksize);
+                fdb_log(log_callback, status, msg, file->filename, file->blocksize);
                 break;
             }
+            ++block_counter;
             memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE,
                    BLK_MARKER_SIZE);
 
@@ -356,18 +354,28 @@ static fdb_status _filemgr_read_header(struct filemgr *file)
                         return FDB_RESULT_SUCCESS;
                     } else {
                         status = FDB_RESULT_CHECKSUM_ERROR;
-                        DBG("Crash Detected: CRC on disk %u != %u\n",
-                                crc_file, crc);
+                        const char *msg = "Crash Detected: CRC on disk %u != %u "
+                            "in a database file '%s'\n";
+                        DBG(msg, crc_file, crc, file->filename);
+                        fdb_log(log_callback, status, msg, crc_file, crc,
+                                file->filename);
                     }
                 } else {
                     status = FDB_RESULT_FILE_CORRUPTION;
-                    DBG("Crash Detected: Wrong Magic %llu != %llu\n", magic,
-                            FILEMGR_MAGIC);
+                    const char *msg = "Crash Detected: Wrong Magic %" _F64 " != %" _F64
+                        " in a database file '%s'\n";
+                    DBG(msg, magic, FILEMGR_MAGIC, file->filename);
+                    fdb_log(log_callback, status, msg, magic, FILEMGR_MAGIC,
+                            file->filename);
                 }
             } else {
-                status = FDB_RESULT_FILE_CORRUPTION;
-                DBG("Crash Detected: Last Block not DBHEADER %0.01x\n",
-                        marker[0]);
+                status = FDB_RESULT_NO_DB_HEADERS;
+                if (block_counter == 1) {
+                    const char *msg = "Crash Detected: Last Block not DBHEADER %0.01x "
+                                      "in a database file '%s'\n";
+                    DBG(msg, marker[0], file->filename);
+                    fdb_log(log_callback, status, msg, marker[0], file->filename);
+                }
             }
 
             atomic_sub_uint64_t(&file->pos, file->blocksize);
@@ -401,6 +409,7 @@ size_t filemgr_get_ref_count(struct filemgr *file)
 struct filemgr_prefetch_args {
     struct filemgr *file;
     uint64_t duration;
+    err_log_callback *log_callback;
     void *aux;
 };
 
@@ -448,6 +457,9 @@ static void *_filemgr_prefetch_thread(void *voidargs)
                 if (filemgr_read(args->file, bid, buf, NULL)
                         != FDB_RESULT_SUCCESS) {
                     // 4. read failure
+                    fdb_log(args->log_callback, FDB_RESULT_READ_FAIL,
+                            "Prefetch thread failed to read a block with block id %" _F64
+                            " from a database file '%s'", bid, args->file->filename);
                     terminate = true;
                     break;
                 }
@@ -469,7 +481,8 @@ static void *_filemgr_prefetch_thread(void *voidargs)
 
 // prefetch the given DB file
 void filemgr_prefetch(struct filemgr *file,
-                      struct filemgr_config *config)
+                      struct filemgr_config *config,
+                      err_log_callback *log_callback)
 {
     uint64_t bcache_free_space;
 
@@ -486,6 +499,7 @@ void filemgr_prefetch(struct filemgr *file,
                calloc(1, sizeof(struct filemgr_prefetch_args));
         args->file = file;
         args->duration = config->prefetch_duration;
+        args->log_callback = log_callback;
 
         file->prefetch_status = FILEMGR_PREFETCH_RUNNING;
         thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
@@ -632,6 +646,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     cs_off_t offset = file->ops->goto_eof(file->fd);
     if (offset == FDB_RESULT_SEEK_FAIL) {
         _log_errno_str(file->ops, log_callback, FDB_RESULT_SEEK_FAIL, "SEEK_END", filename);
+        file->ops->close(file->fd);
         free(file->wal);
         free(file->filename);
         free(file->config);
@@ -651,9 +666,10 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint64_t(&file->header.bid, 0);
     atomic_init_uint64_t(&file->header.dirty_idtree_root, 0);
     atomic_init_uint64_t(&file->header.dirty_seqtree_root, 0);
-    status = _filemgr_read_header(file);
+    status = _filemgr_read_header(file, log_callback);
     if (status != FDB_RESULT_SUCCESS) {
         _log_errno_str(file->ops, log_callback, status, "READ", filename);
+        file->ops->close(file->fd);
         free(file->wal);
         free(file->filename);
         free(file->config);
@@ -704,8 +720,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     spin_init(&file->mutex);
 #endif
 
-    list_init(&file->keystr_files);
-    file->n_keystr_files = 0;
     // initialize WAL
     if (!wal_is_initialized(file)) {
         wal_init(file, FDB_WAL_NBUCKET);
@@ -728,7 +742,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     hash_insert(&hash, &file->e);
     if (config->prefetch_duration > 0) {
-        filemgr_prefetch(file, config);
+        filemgr_prefetch(file, config, log_callback);
     }
     spin_unlock(&filemgr_openlock);
 
@@ -785,17 +799,6 @@ void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum)
     file->header.seqnum = seqnum;
 }
 
-// LCOV_EXCL_START
-char* filemgr_get_filename_ptr(struct filemgr *file, char **filename, uint16_t *len)
-{
-    spin_lock(&file->lock);
-    *filename = file->filename;
-    *len = file->filename_len;
-    spin_unlock(&file->lock);
-    return *filename;
-}
-// LCOV_EXCL_STOP
-
 void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len)
 {
     spin_lock(&file->lock);
@@ -832,6 +835,9 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     status = filemgr_read(file, (bid_t)bid, _buf, log_callback);
 
     if (status != FDB_RESULT_SUCCESS) {
+        fdb_log(log_callback, status,
+                "Failed to read a database header with block id %" _F64 " in "
+                "a database file '%s'", bid, file->filename);
         _filemgr_release_temp_buf(_buf);
         return status;
     }
@@ -839,6 +845,10 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
             BLK_MARKER_SIZE);
 
     if (marker[0] != BLK_MARKER_DBHEADER) {
+        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                "A block marker of the database header block id %" _F64 " in "
+                "a database file '%s' is NOT matched to BLK_MARKER_DBHEADER!",
+                bid, file->filename);
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
@@ -847,6 +857,10 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
             sizeof(magic));
     magic = _endian_decode(magic);
     if (magic != FILEMGR_MAGIC) {
+        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                "A block magic value of the database header block id %" _F64 " in "
+                "a database file '%s' is NOT matched to FILEMGR_MAGIC!",
+                bid, file->filename);
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
@@ -926,8 +940,11 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         }
 
         // Read the prev header
-        if (filemgr_read(file, (bid_t)bid, _buf, log_callback)
-                != FDB_RESULT_SUCCESS) {
+        fdb_status fs = filemgr_read(file, (bid_t)bid, _buf, log_callback);
+        if (fs != FDB_RESULT_SUCCESS) {
+            fdb_log(log_callback, fs,
+                    "Failed to read a previous database header with block id %" _F64 " in "
+                    "a database file '%s'", bid, file->filename);
             break;
         }
 
@@ -935,6 +952,10 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                BLK_MARKER_SIZE);
         if (marker[0] != BLK_MARKER_DBHEADER) {
             // broken linked list
+            fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                    "A block marker of the previous database header block id %" _F64 " in "
+                    "a database file '%s' is NOT matched to BLK_MARKER_DBHEADER!",
+                    bid, file->filename);
             break;
         }
 
@@ -944,6 +965,10 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         magic = _endian_decode(magic);
         if (magic != FILEMGR_MAGIC) {
             // broken linked list
+            fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                    "A block magic value of the previous database header block id %" _F64 " in "
+                    "a database file '%s' is NOT matched to FILEMGR_MAGIC!",
+                    bid, file->filename);
             break;
         }
 
@@ -1100,9 +1125,6 @@ static void _filemgr_free_func(struct hash_elem *h)
         free(file->wal->seq_shards);
     }
     free(file->wal);
-
-    // free mmap files if exist
-    filemgr_remove_keystr_files(file);
 
     // free filename and header
     free(file->filename);
@@ -1266,7 +1288,7 @@ void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 }
 
 fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
-                  err_log_callback *log_callback)
+                        err_log_callback *log_callback)
 {
     size_t lock_no;
     ssize_t r;
@@ -1503,7 +1525,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         r = file->ops->pwrite(file->fd, buf, len, pos);
         _log_errno_str(file->ops, log_callback, (fdb_status) r, "WRITE", file->filename);
         if ((uint64_t)r != len) {
-            return FDB_RESULT_READ_FAIL;
+            return FDB_RESULT_WRITE_FAIL;
         }
     } // block cache check
     return FDB_RESULT_SUCCESS;
@@ -1532,7 +1554,7 @@ fdb_status filemgr_commit(struct filemgr *file,
         result = bcache_flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
-                           "WRITE", file->filename);
+                           "FLUSH", file->filename);
             return (fdb_status)result;
         }
     }
@@ -1620,7 +1642,7 @@ fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
         result = bcache_flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
-                           "WRITE", file->filename);
+                           "FLUSH", file->filename);
             return result;
         }
     }
@@ -1829,7 +1851,7 @@ fdb_status filemgr_destroy_file(char *filename,
                 return FDB_RESULT_SEEK_FAIL;
             } else { // Need to read DB header which contains old filename
                 atomic_store_uint64_t(&file->pos, offset);
-                status = _filemgr_read_header(file);
+                status = _filemgr_read_header(file, NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
                         hash_free(destroy_set);
@@ -1937,172 +1959,6 @@ void filemgr_set_dirty_root(struct filemgr *file,
 {
     atomic_store_uint64_t(&file->header.dirty_idtree_root, dirty_idtree_root);
     atomic_store_uint64_t(&file->header.dirty_seqtree_root, dirty_seqtree_root);
-}
-
-// Create keystr file and return mmapped address
-// Note that both filemgr_add_keystr_file() and filemgr_remove_keystr_files()
-// are protected by filemgr_mutex_lock, since they are called by update operations
-void *filemgr_add_keystr_file(struct filemgr *file, uint64_t size)
-{
-    struct keystr_file *keystr_file;
-    keystr_file = (struct keystr_file *)calloc(1, sizeof(struct keystr_file));
-
-    keystr_file->filename = (char*)malloc(file->filename_len + 32);
-    sprintf(keystr_file->filename, "%s.wal_index_%05d", file->filename, file->n_keystr_files);
-    keystr_file->fd = file->ops->open(keystr_file->filename,
-                                      O_CREAT | O_RDWR | O_TRUNC, 0644);
-    if (keystr_file->fd < 0) {
-        free(keystr_file->filename);
-        free(keystr_file);
-        return NULL;
-    }
-
-    // allocate file blocks
-    ssize_t r = file->ops->pwrite(keystr_file->fd, (void*)"x", 1, size-1);
-    if (r != 1) {
-        file->ops->close(keystr_file->fd);
-        free(keystr_file->filename);
-        free(keystr_file);
-        return NULL;
-    }
-
-    keystr_file->size = size;
-    keystr_file->addr = file->ops->mmap(keystr_file->fd, keystr_file->size,
-                                        &keystr_file->aux);
-    if (keystr_file->addr == NULL) {
-        file->ops->close(keystr_file->fd);
-        free(keystr_file->filename);
-        free(keystr_file);
-        return NULL;
-    }
-    list_push_front(&file->keystr_files, &keystr_file->le);
-    file->n_keystr_files++;
-
-    return keystr_file->addr;
-}
-
-// Close & unmap & remove all keystr files
-void filemgr_remove_keystr_files(struct filemgr *file)
-{
-    struct keystr_file *keystr_file;
-    struct list_elem *e;
-
-    e = list_begin(&file->keystr_files);
-    while (e) {
-        keystr_file = _get_entry(e, struct keystr_file, le);
-        e = list_remove(&file->keystr_files, &keystr_file->le);
-
-        if (file->ops->munmap(keystr_file->addr, keystr_file->size,
-                              keystr_file->aux) < 0) {
-            continue;
-        }
-        if (file->ops->close(keystr_file->fd) < 0) {
-            continue;
-        }
-        remove(keystr_file->filename);
-        free(keystr_file->filename);
-        free(keystr_file);
-    }
-}
-
-struct filename_item {
-    char *filename;
-    struct list_elem le;
-};
-
-// manually scan & remove all keystr files
-void filemgr_scan_remove_keystr_files(struct filemgr *file)
-{
-    int i;
-    int filename_len = file->filename_len;
-    int dirname_len = 0;
-    char *filename = file->filename;
-    char prefix[FDB_MAX_FILENAME_LEN];
-    char dirname[FDB_MAX_FILENAME_LEN];
-    struct list filelist;
-    struct filename_item *item;
-    struct list_elem *e;
-
-    list_init(&filelist);
-
-#if !defined(WIN32) && !defined(_WIN32)
-    // Posix
-    DIR *dir_info;
-    struct dirent *dir_entry;
-
-    for (i=filename_len-1; i>=0; --i){
-        if (filename[i] == '/') {
-            dirname_len = i+1;
-            break;
-        }
-    }
-
-    if (dirname_len > 0) {
-        strncpy(dirname, filename, dirname_len);
-        dirname[dirname_len] = 0;
-    } else {
-        strcpy(dirname, ".");
-    }
-    strcpy(prefix, filename + dirname_len);
-    strcat(prefix, ".wal_index");
-
-    dir_info = opendir(dirname);
-    if (dir_info != NULL) {
-        int prefix_size = strlen(prefix);
-        while ((dir_entry = readdir(dir_info))) {
-            if (!strncmp(dir_entry->d_name, prefix, prefix_size)) {
-                item = (struct filename_item*)calloc(1, sizeof(struct filename_item));
-                item->filename = (char*)malloc(strlen(dir_entry->d_name)+1);
-                strcpy(item->filename, dir_entry->d_name);
-                list_push_front(&filelist, &item->le);
-            }
-        }
-        closedir(dir_info);
-    }
-#else
-    // Windows
-    for (i=filename_len-1; i>=0; --i){
-        if (filename[i] == '/' || filename[i] == '\\') {
-            dirname_len = i+1;
-            break;
-        }
-    }
-
-    strcpy(prefix, filename + dirname_len);
-    strcat(prefix, ".wal_index");
-
-    WIN32_FIND_DATA filedata;
-    HANDLE hfind;
-    char query_str[FDB_MAX_FILENAME_LEN];
-
-    // find all files start with 'prefix'
-    int prefix_size = strlen(prefix);
-    sprintf(query_str, "%s*", prefix);
-    hfind = FindFirstFile(query_str, &filedata);
-    while (hfind != INVALID_HANDLE_VALUE) {
-        if (!strncmp(filedata.cFileName, prefix, prefix_size)) {
-            item = (struct filename_item*)calloc(1, sizeof(struct filename_item));
-            item->filename = (char*)malloc(strlen(filedata.cFileName)+1);
-            strcpy(item->filename, filedata.cFileName);
-            list_push_front(&filelist, &item->le);
-        }
-
-        if (!FindNextFile(hfind, &filedata)) {
-            FindClose(hfind);
-            hfind = INVALID_HANDLE_VALUE;
-        }
-    }
-#endif
-
-    // remove all file in list
-    e = list_begin(&filelist);
-    while (e) {
-        item = _get_entry(e, struct filename_item, le);
-        e = list_remove(&filelist, &item->le);
-        remove(item->filename);
-        free(item->filename);
-        free(item);
-    }
 }
 
 static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)

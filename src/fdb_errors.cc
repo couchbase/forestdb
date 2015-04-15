@@ -135,6 +135,13 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_FILE_NOT_OPEN:
             return "this operations needs an opened file handle";
 
+        case FDB_RESULT_TOO_BIG_BUFFER_CACHE:
+            return "Buffer cache is too large to be configured and cannot "
+                   "exceed 80% of physical memory";
+
+        case FDB_RESULT_NO_DB_HEADERS:
+            return "No commit headers found in a database file";
+
         default:
             return "unknown error";
     }

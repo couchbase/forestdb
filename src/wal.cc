@@ -139,10 +139,6 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
         spin_init(&file->wal->seq_shards[i].lock);
     }
 
-    file->wal->key_seg.cur_addr = NULL;
-    file->wal->key_seg.offset = 0;
-    file->wal->key_seg.cur_maxsize = FDB_WAL_MIN_MMAP_FILESIZE;
-
     DBG("wal item size %" _F64 "\n", sizeof(struct wal_item));
     return FDB_RESULT_SUCCESS;
 }
@@ -152,69 +148,11 @@ int wal_is_initialized(struct filemgr *file)
     return file->wal->flag & WAL_FLAG_INITIALIZED;
 }
 
-void *_wal_alloc_mmap(struct filemgr *file, size_t size)
-{
-    void *addr;
-
-    if (!file->wal->key_seg.cur_addr ||
-        file->wal->key_seg.offset + size >= file->wal->key_seg.cur_maxsize) {
-        if (file->wal->key_seg.cur_addr) {
-            // double the mmap file size for next allocation
-            file->wal->key_seg.cur_maxsize *= 2;
-            if (file->wal->key_seg.cur_maxsize > FDB_WAL_MAX_MMAP_FILESIZE) {
-                file->wal->key_seg.cur_maxsize = FDB_WAL_MAX_MMAP_FILESIZE;
-            }
-        }
-        file->wal->key_seg.cur_addr =
-            filemgr_add_keystr_file(file, file->wal->key_seg.cur_maxsize);
-        file->wal->key_seg.offset = 0;
-    }
-    addr = (uint8_t*)file->wal->key_seg.cur_addr + file->wal->key_seg.offset;
-    file->wal->key_seg.offset += size;
-
-    return addr;
-}
-
-void wal_release_keystr_files(struct filemgr *file)
-{
-    // Note that this function is protected by filemgr_mutex
-    size_t i = 0;
-    size_t num_shards = file->wal->num_shards;
-    void *old_ptr;
-    struct list_elem *e;
-    struct wal_item_header *header;
-
-    // convert all mmapped memory regions to malloc regions
-    for (; i < num_shards; ++i) {
-        spin_lock(&file->wal->key_shards[i].lock);
-        e = list_begin(&file->wal->key_shards[i].list);
-        while (e) {
-            header = _get_entry(e, struct wal_item_header, list_elem);
-            if (header->mmap) {
-                old_ptr = header->key;
-                header->key = (void *)malloc(header->keylen);
-                memcpy(header->key, old_ptr, header->keylen);
-                header->mmap = 0;
-            }
-            e = list_next(e);
-        }
-        spin_unlock(&file->wal->key_shards[i].lock);
-    }
-
-    if (file->wal->key_seg.cur_addr) {
-        filemgr_remove_keystr_files(file);
-        file->wal->key_seg.cur_addr = NULL;
-        file->wal->key_seg.offset = 0;
-        file->wal->key_seg.cur_maxsize = FDB_WAL_MIN_MMAP_FILESIZE;
-    }
-}
-
 fdb_status wal_insert(fdb_txn *txn,
                       struct filemgr *file,
                       fdb_doc *doc,
                       uint64_t offset,
-                      int is_compactor,
-                      int mmap_alloc)
+                      int is_compactor)
 {
     struct wal_item *item;
     struct wal_item_header query, *header;
@@ -339,14 +277,7 @@ fdb_status wal_insert(fdb_txn *txn,
         list_init(&header->items);
         header->chunksize = file->config->chunksize;
         header->keylen = keylen;
-        if (mmap_alloc) {
-            // alloc from mmap file
-            header->key = (void *)_wal_alloc_mmap(file, header->keylen);
-            header->mmap = 1;
-        } else {
-            header->key = (void *)malloc(header->keylen);
-            header->mmap = 0;
-        }
+        header->key = (void *)malloc(header->keylen);
         memcpy(header->key, key, header->keylen);
 
         hash_insert_by_hash_val(&file->wal->key_shards[shard_num].hash_bykey,
@@ -544,7 +475,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                     fdb_assert(item->txn != &old_file->global_txn,
                                (uint64_t)item->txn, 0);
                     // insert into new_file's WAL
-                    wal_insert(item->txn, new_file, &doc, offset, 0, 1);
+                    wal_insert(item->txn, new_file, &doc, offset, 0);
                     // remove from seq hash table
                     size_t shard_num = item->seqnum % num_shards;
                     spin_lock(&old_file->wal->seq_shards[shard_num].lock);
@@ -581,9 +512,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                 // remove from wal list
                 e1 = list_remove(&old_file->wal->key_shards[i].list, &header->list_elem);
                 // free key & header
-                if (!header->mmap) {
-                    free(header->key);
-                }
+                free(header->key);
                 free(header);
             } else {
                 e1 = list_next(e1);
@@ -782,9 +711,7 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
             // free header and remove from hash table & wal list
             list_remove(&file->wal->key_shards[shard_num].list, &item->header->list_elem);
             hash_remove(&file->wal->key_shards[shard_num].hash_bykey, &item->header->he_key);
-            if (!item->header->mmap) {
-                free(item->header->key);
-            }
+            free(item->header->key);
             free(item->header);
         }
 
@@ -999,9 +926,7 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
             list_remove(&file->wal->key_shards[shard_num].list,
                         &item->header->list_elem);
             // free key and header
-            if (!item->header->mmap) {
-                free(item->header->key);
-            }
+            free(item->header->key);
             free(item->header);
         }
         // remove from txn's list
@@ -1109,9 +1034,7 @@ static fdb_status _wal_close(struct filemgr *file,
                 // free header and remove from hash table & wal list
                 list_remove(&file->wal->key_shards[i].list, &header->list_elem);
                 hash_remove(&file->wal->key_shards[i].hash_bykey, &header->he_key);
-                if (!header->mmap) {
-                    free(header->key);
-                }
+                free(header->key);
                 free(header);
 
                 if (committed) {

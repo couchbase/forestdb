@@ -177,7 +177,17 @@ typedef enum {
     /**
      * DB file used in this operation has not been opened
      */
-    FDB_RESULT_FILE_NOT_OPEN = -36
+    FDB_RESULT_FILE_NOT_OPEN = -36,
+    /**
+     * Buffer cache is too big to be configured because it is greater than
+     * the physical memory available.
+     */
+    FDB_RESULT_TOO_BIG_BUFFER_CACHE = -37,
+    /**
+     * No commit headers in a database file.
+     */
+    FDB_RESULT_NO_DB_HEADERS = -38
+
 } fdb_status;
 
 #ifdef __cplusplus

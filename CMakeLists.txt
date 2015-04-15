@@ -29,7 +29,6 @@ if (COUCHBASE_SERVER_BUILD)
 else(COUCHBASE_SERVER_BUILD)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
     if (NOT WIN32)
-        set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wunused-variable")
         if (NOT(SNAPPY_OPTION STREQUAL "Disable"))
             LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
             INCLUDE(FindSnappy)
@@ -43,6 +42,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif(NOT CMAKE_BUILD_TYPE)
 
 if (NOT WIN32)
+    set ( CMAKE_CXX_FLAGS_DEBUG "-O0 -Wunused-variable -Wall -pedantic -std=c++11 -Wredundant-decls")
     set(PTHREAD_LIB pthread)
     set(LIBM m)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_linux.cc")
@@ -67,9 +67,9 @@ IF (_TRACK_HANDLES EQUAL 1)
 ENDIF()
 
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments -g -fomit-frame-pointer -pthread")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -Qunused-arguments -g -fomit-frame-pointer -pthread")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fomit-frame-pointer -pthread")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -g -fomit-frame-pointer -pthread")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
     if (COUCHBASE_SERVER_BUILD)
        # using /W0 cause msvc to print out a warning that it overrides
@@ -115,7 +115,8 @@ add_library(forestdb SHARED
             utils/adler32.cc
             utils/debug.cc
             utils/partiallock.cc
-            utils/time_utils.cc)
+            utils/time_utils.cc
+            utils/get_memory_size.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 
 add_executable(forestdb_dump
@@ -154,7 +155,8 @@ add_executable(forestdb_dump
                utils/debug.cc
                utils/iniparser.cc
                utils/partiallock.cc
-               utils/time_utils.cc)
+               utils/time_utils.cc
+               utils/get_memory_size.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
@@ -194,7 +196,8 @@ add_executable(forestdb_hexamine
                utils/debug.cc
                utils/iniparser.cc
                utils/partiallock.cc
-               utils/time_utils.cc)
+               utils/time_utils.cc
+               utils/get_memory_size.cc)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
