@@ -136,7 +136,8 @@ fdb_status wal_txn_migration(void *dbhandle,
                              struct filemgr *old_file,
                              struct filemgr *new_file,
                              wal_doc_move_func *move_doc);
-fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func);
+fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func,
+                      err_log_callback *log_callback);
 fdb_status wal_release_flushed_items(struct filemgr *file,
                                      struct avl_tree *flush_items);
 fdb_status wal_flush(struct filemgr *file,
