@@ -1872,8 +1872,11 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
             hbtrie_insert_partial(super_handle->trie,
                                   _kv_id, size_chunk,
                                   &id_root, &dummy);
-            btreeblk_end(super_handle->bhandle);
+        } else { // No Trie info in rollback header.
+                 // Erase kv store from super handle's main index.
+            hbtrie_remove_partial(super_handle->trie, _kv_id, size_chunk);
         }
+        btreeblk_end(super_handle->bhandle);
 
         // same as above for seq-trie
         _kv_id = alca(uint8_t, size_id);
@@ -1885,8 +1888,11 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
             hbtrie_insert_partial(super_handle->seqtrie,
                                   _kv_id, size_id,
                                   &seq_root, &dummy);
-            btreeblk_end(super_handle->bhandle);
+        } else { // No seqtrie info in rollback header.
+                 // Erase kv store from super handle's seqtrie index.
+            hbtrie_remove_partial(super_handle->seqtrie, _kv_id, size_id);
         }
+        btreeblk_end(super_handle->bhandle);
 
         old_seqnum = fdb_kvs_get_seqnum(handle_in->file,
                                         handle_in->kvs->id);
