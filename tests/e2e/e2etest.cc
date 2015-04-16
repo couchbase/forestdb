@@ -104,6 +104,7 @@ void update_index(storage_t *st){
     // change storage index range
     reset_storage_index(st);
 
+    start_checkpoint(st);
     status = fdb_iterator_init(st->index1, &it, mink, 12,
                                maxk, 12, FDB_ITR_NO_DELETES);
     if (status != FDB_RESULT_SUCCESS){
@@ -111,7 +112,6 @@ void update_index(storage_t *st){
         TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
     }
 
-    start_checkpoint(st);
     do {
         status = fdb_iterator_get(it, &rdoc);
         if (status == FDB_RESULT_SUCCESS){
