@@ -1042,9 +1042,29 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 if (file->in_place_compaction && orig_file_name) {
                     struct hash_elem *elem = NULL;
                     struct filemgr query;
+                    uint32_t old_file_refcount = 0;
+
                     query.filename = (char *)orig_file_name;
                     elem = hash_find(&hash, &query.e);
-                    if (!elem && rename(file->filename, orig_file_name) < 0) {
+
+                    if (file->old_filename) {
+                        struct hash_elem *elem_old = NULL;
+                        struct filemgr query_old;
+                        struct filemgr *old_file = NULL;
+
+                        // get old file's ref count if exists
+                        query_old.filename = file->old_filename;
+                        elem_old = hash_find(&hash, &query_old.e);
+                        if (elem_old) {
+                            old_file = _get_entry(elem_old, struct filemgr, e);
+                            old_file_refcount = old_file->ref_count;
+                        }
+                    }
+                    // If old file is opened by other handle, renaming should be
+                    // postponed. It will be renamed later by the handle referring
+                    // to the old file.
+                    if (!elem && old_file_refcount == 0 &&
+                        rename(file->filename, orig_file_name) < 0) {
                         // Note that the renaming failure is not a critical
                         // issue because the last compacted file will be automatically
                         // identified and opened in the next fdb_open call.
@@ -1921,6 +1941,15 @@ void filemgr_set_in_place_compaction(struct filemgr *file,
     spin_lock(&file->lock);
     file->in_place_compaction = in_place_compaction;
     spin_unlock(&file->lock);
+}
+
+bool filemgr_is_in_place_compaction_set(struct filemgr *file)
+{
+    bool ret = false;
+    spin_lock(&file->lock);
+    ret = file->in_place_compaction;
+    spin_unlock(&file->lock);
+    return ret;
 }
 
 void filemgr_mutex_openlock(struct filemgr_config *config)

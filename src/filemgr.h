@@ -243,6 +243,7 @@ void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
 
 void filemgr_set_in_place_compaction(struct filemgr *file,
                                      bool in_place_compaction);
+bool filemgr_is_in_place_compaction_set(struct filemgr *file);
 
 void filemgr_mutex_openlock(struct filemgr_config *config);
 void filemgr_mutex_openunlock(void);

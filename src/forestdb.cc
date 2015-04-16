@@ -1248,6 +1248,30 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         target_filename = virtual_filename;
     }
 
+    handle->fileops = get_filemgr_ops();
+    filemgr_open_result result = filemgr_open((char *)actual_filename,
+                                              handle->fileops,
+                                              &fconfig, &handle->log_callback);
+    if (result.rv != FDB_RESULT_SUCCESS) {
+        return (fdb_status) result.rv;
+    }
+
+    handle->file = result.file;
+    if (config->compaction_mode == FDB_COMPACTION_MANUAL &&
+        strcmp(filename, actual_filename)) {
+        // It is in-place compacted file if
+        // 1) compaction mode is manual, and
+        // 2) actual filename is different to the filename given by user.
+        // In this case, set the in-place compaction flag.
+        filemgr_set_in_place_compaction(handle->file, true);
+    }
+    if (filemgr_is_in_place_compaction_set(handle->file)) {
+        // This file was in-place compacted.
+        // set 'handle->filename' to the original filename to trigger file renaming
+        compactor_get_virtual_filename(filename, virtual_filename);
+        target_filename = virtual_filename;
+    }
+
     if (handle->filename) {
         handle->filename = (char *)realloc(handle->filename,
                                            strlen(target_filename)+1);
@@ -1256,17 +1280,6 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     }
     strcpy(handle->filename, target_filename);
 
-    handle->fileops = get_filemgr_ops();
-    filemgr_open_result result = filemgr_open((char *)actual_filename,
-                                              handle->fileops,
-                                              &fconfig, &handle->log_callback);
-    if (result.rv != FDB_RESULT_SUCCESS) {
-        free(handle->filename);
-        handle->filename = NULL;
-        return (fdb_status) result.rv;
-    }
-
-    handle->file = result.file;
     filemgr_mutex_lock(handle->file);
     // If cloning from a snapshot handle, fdb_snapshot_open would have already
     // set handle->last_hdr_bid to the block id of required header, so rewind..
