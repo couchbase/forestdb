@@ -840,7 +840,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
     fdb_status fs;
     filemgr *file;
     file_status_t fstatus = FILE_NORMAL;
-    bool compaction_inprog = false;
+
     if (!handle_in || !ptr_handle) {
         return FDB_RESULT_INVALID_ARGS;
     }
@@ -879,11 +879,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
     } // LCOV_EXCL_STOP
 
     handle->log_callback = handle_in->log_callback;
-    if (compaction_inprog) { // this is to prevent restoration of old_file's WAL
-        handle->max_seqnum = FDB_SNAPSHOT_INMEM; // pick new_file's WAL instead
-    } else {
-        handle->max_seqnum = seqnum;
-    }
+    handle->max_seqnum = seqnum;
     handle->fhandle = handle_in->fhandle;
 
     config.flags |= FDB_OPEN_FLAG_RDONLY;
@@ -922,87 +918,42 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
     }
 
     if (fs == FDB_RESULT_SUCCESS) {
-        if ((seqnum == FDB_SNAPSHOT_INMEM || compaction_inprog) &&
+        if (seqnum == FDB_SNAPSHOT_INMEM &&
             !handle_in->shandle) {
             fdb_seqnum_t upto_seq = seqnum;
-            if (compaction_inprog && seqnum != FDB_SNAPSHOT_INMEM) {
-                // Compaction in progress AND commit-based snapshot
-
-                // Persistent snapshot requested in the middle of compaction..
-                handle->shandle->type = FDB_SNAP_COMPACTION;
-                wal_snapshot(handle->file->new_file, (void *)handle->shandle,
-                             handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
-                // If new_file's WAL did have items, check to see that the
-                // highest number read corresponds to a committed sequence no
-                if (upto_seq && seqnum != upto_seq) {
-                    if (fdb_kvs_close(handle) != FDB_RESULT_SUCCESS) {
-                        free(handle);
-                    }
-                    *ptr_handle = NULL;
-                    return FDB_RESULT_NO_DB_INSTANCE;
-                }
-                // link new file for WAL
-                fdb_link_new_file_enforce(handle);
-                handle->max_seqnum = seqnum;
+            // In-memory snapshot
+            wal_snapshot(handle->file, (void *)handle->shandle,
+                         handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
+            // set seqnum based on handle type (multikv or default)
+            if (handle_in->kvs && handle_in->kvs->id > 0) {
+                handle->max_seqnum =
+                    _fdb_kvs_get_seqnum(handle->file->kv_header,
+                                        handle_in->kvs->id);
             } else {
-                // In-memory snapshot
+                handle->max_seqnum = filemgr_get_seqnum(handle->file);
+            }
 
-                if (compaction_inprog && handle->file->new_file) {
-                    // Compaction is in progress.
-                    // copy WAL entries in the new file
-                    handle->shandle->type = FDB_SNAP_COMPACTION;
-                    wal_snapshot(handle->file->new_file, (void *)handle->shandle,
-                                 handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
-                    fdb_link_new_file_enforce(handle);
-                    if (upto_seq) {
-                        // At least one WAL entry in the new file is copied
-                        handle->max_seqnum = upto_seq;
-                    } else {
-                        // no new entry in the new file .. get old file's seqnum
-                        if (handle_in->kvs && handle_in->kvs->id > 0) {
-                            handle->max_seqnum =
-                                _fdb_kvs_get_seqnum(handle->file->kv_header,
-                                                    handle_in->kvs->id);
+            // synchronize dirty root nodes if exist
+            if (filemgr_dirty_root_exist(handle->file)) {
+                bid_t dirty_idtree_root, dirty_seqtree_root;
+                filemgr_mutex_lock(handle->file);
+                filemgr_get_dirty_root(handle->file,
+                                       &dirty_idtree_root, &dirty_seqtree_root);
+                if (dirty_idtree_root != BLK_NOT_FOUND) {
+                    handle->trie->root_bid = dirty_idtree_root;
+                }
+                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                    if (dirty_seqtree_root != BLK_NOT_FOUND) {
+                        if (handle->kvs) {
+                            handle->seqtrie->root_bid = dirty_seqtree_root;
                         } else {
-                            handle->max_seqnum = filemgr_get_seqnum(handle->file);
+                            handle->seqtree->root_bid = dirty_seqtree_root;
                         }
                     }
-                } else {
-                    // No concurrent compaction
-                    wal_snapshot(handle->file, (void *)handle->shandle,
-                                 handle_in->txn, &upto_seq, _fdb_wal_snapshot_func);
-                    // set seqnum based on handle type (multikv or default)
-                    if (handle_in->kvs && handle_in->kvs->id > 0) {
-                        handle->max_seqnum =
-                            _fdb_kvs_get_seqnum(handle->file->kv_header,
-                                                handle_in->kvs->id);
-                    } else {
-                        handle->max_seqnum = filemgr_get_seqnum(handle->file);
-                    }
                 }
-
-                // synchronize dirty root nodes if exist
-                if (filemgr_dirty_root_exist(handle->file)) {
-                    bid_t dirty_idtree_root, dirty_seqtree_root;
-                    filemgr_mutex_lock(handle->file);
-                    filemgr_get_dirty_root(handle->file,
-                                           &dirty_idtree_root, &dirty_seqtree_root);
-                    if (dirty_idtree_root != BLK_NOT_FOUND) {
-                        handle->trie->root_bid = dirty_idtree_root;
-                    }
-                    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                        if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                            if (handle->kvs) {
-                                handle->seqtrie->root_bid = dirty_seqtree_root;
-                            } else {
-                                handle->seqtree->root_bid = dirty_seqtree_root;
-                            }
-                        }
-                    }
-                    btreeblk_discard_blocks(handle->bhandle);
-                    btreeblk_create_dirty_snapshot(handle->bhandle);
-                    filemgr_mutex_unlock(handle->file);
-                }
+                btreeblk_discard_blocks(handle->bhandle);
+                btreeblk_create_dirty_snapshot(handle->bhandle);
+                filemgr_mutex_unlock(handle->file);
             }
         } else if (handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
             // Snapshot is created on the other snapshot handle
@@ -2281,11 +2232,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        }else{
-            wal_file = handle->new_file;
-        }
+        wal_file = handle->file;
         dhandle = handle->dhandle;
 
         txn = handle->fhandle->root->txn;
@@ -2303,12 +2250,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         } else {
             wr = snap_find(handle->shandle, doc, &offset);
         }
-        if (wr != FDB_RESULT_SUCCESS ||
-            handle->shandle->type == FDB_SNAP_NORMAL) {
-            dhandle = handle->dhandle;
-        } else { // FDB_SNAP_COMPACTION
-            dhandle = handle->new_dhandle;
-        }
+        dhandle = handle->dhandle;
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
@@ -2327,10 +2269,6 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         if (locked) {
             // grab lock for writer if there are dirty updates
             filemgr_mutex_unlock(handle->file);
-        }
-    } else {
-        if (wal_file == handle->new_file && !handle->shandle) {
-            dhandle = handle->new_dhandle;
         }
     }
 
@@ -2409,11 +2347,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        }else{
-            wal_file = handle->new_file;
-        }
+        wal_file = handle->file;
         dhandle = handle->dhandle;
 
         txn = handle->fhandle->root->txn;
@@ -2431,12 +2365,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         } else {
             wr = snap_find(handle->shandle, doc, &offset);
         }
-        if (wr != FDB_RESULT_SUCCESS ||
-            handle->shandle->type == FDB_SNAP_NORMAL) {
-            dhandle = handle->dhandle;
-        } else { // FDB_SNAP_COMPACTION
-            dhandle = handle->new_dhandle;
-        }
+        dhandle = handle->dhandle;
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
@@ -2454,10 +2383,6 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
 
         if (locked) {
             filemgr_mutex_unlock(handle->file);
-        }
-    } else {
-        if (wal_file == handle->new_file && !handle->shandle) {
-            dhandle = handle->new_dhandle;
         }
     }
 
@@ -2523,11 +2448,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        }else{
-            wal_file = handle->new_file;
-        }
+        wal_file = handle->file;
         dhandle = handle->dhandle;
 
         txn = handle->fhandle->root->txn;
@@ -2545,12 +2466,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->keylen = key_len;
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
-        if (wr != FDB_RESULT_SUCCESS ||
-            handle->shandle->type == FDB_SNAP_NORMAL) {
-            dhandle = handle->dhandle;
-        } else { // FDB_SNAP_COMPACTION
-            dhandle = handle->new_dhandle;
-        }
+        dhandle = handle->dhandle;
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
@@ -2580,10 +2496,6 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 
         if (locked) {
             filemgr_mutex_unlock(handle->file);
-        }
-    } else {
-        if (wal_file == handle->new_file && !handle->shandle) {
-            dhandle = handle->new_dhandle;
         }
     }
 
@@ -2668,11 +2580,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
-        if (handle->new_file == NULL) {
-            wal_file = handle->file;
-        } else {
-            wal_file = handle->new_file;
-        }
+        wal_file = handle->file;
         dhandle = handle->dhandle;
 
         if (!txn) {
@@ -2689,12 +2597,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->keylen = key_len;
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
-        if (wr != FDB_RESULT_SUCCESS ||
-            handle->shandle->type == FDB_SNAP_NORMAL) {
-            dhandle = handle->dhandle;
-        } else { // FDB_SNAP_COMPACTION
-            dhandle = handle->new_dhandle;
-        }
+        dhandle = handle->dhandle;
     }
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
@@ -2724,10 +2627,6 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 
         if (locked) {
             filemgr_mutex_unlock(handle->file);
-        }
-    } else {
-        if (wal_file == handle->new_file && !handle->shandle) {
-            dhandle = handle->new_dhandle;
         }
     }
 
@@ -2822,44 +2721,14 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
 
     uint64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc);
     if (_offset == offset) {
-        if (handle->new_dhandle && !handle->shandle) {
-            // Look up the new file being compacted
-            _offset = docio_read_doc(handle->new_dhandle, offset, &_doc);
-            if (_offset == offset) {
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-            if (handle->kvs) {
-                _remove_kv_id(handle, &_doc);
-            }
-            if (!equal_docs(doc, &_doc)) {
-                free_docio_object(&_doc, 1, 1, 1);
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
-        } else {
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
+        return FDB_RESULT_KEY_NOT_FOUND;
     } else {
         if (handle->kvs) {
             _remove_kv_id(handle, &_doc);
         }
         if (!equal_docs(doc, &_doc)) {
             free_docio_object(&_doc, 1, 1, 1);
-            if (handle->new_dhandle && !handle->shandle) {
-                // Look up the new file being compacted
-                _offset = docio_read_doc(handle->new_dhandle, offset, &_doc);
-                if (_offset == offset) {
-                    return FDB_RESULT_KEY_NOT_FOUND;
-                }
-                if (handle->kvs) {
-                    _remove_kv_id(handle, &_doc);
-                }
-                if (!equal_docs(doc, &_doc)) {
-                    free_docio_object(&_doc, 1, 1, 1);
-                    return FDB_RESULT_KEY_NOT_FOUND;
-                }
-            } else {
-                return FDB_RESULT_KEY_NOT_FOUND;
-            }
+            return FDB_RESULT_KEY_NOT_FOUND;
         }
     }
 
@@ -2971,17 +2840,8 @@ fdb_set_start:
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
-    if (handle->new_file == NULL) {
-        file = handle->file;
-        dhandle = handle->dhandle;
-    } else {
-        // compaction is being performed and new file exists
-        // relay lock
-        filemgr_mutex_lock(handle->new_file);
-        filemgr_mutex_unlock(handle->file);
-        file = handle->new_file;
-        dhandle = handle->new_dhandle;
-    }
+    file = handle->file;
+    dhandle = handle->dhandle;
 
     fstatus = filemgr_get_file_status(file);
     if (fstatus == FILE_REMOVED_PENDING) {
@@ -3013,11 +2873,8 @@ fdb_set_start:
     if (txn) {
         txn_enabled = true;
     }
-    if (dhandle == handle->new_dhandle) {
-        offset = docio_append_doc_compact(dhandle, &_doc, doc->deleted, txn_enabled);
-    } else {
-        offset = docio_append_doc(dhandle, &_doc, doc->deleted, txn_enabled);
-    }
+
+    offset = docio_append_doc(dhandle, &_doc, doc->deleted, txn_enabled);
     if (offset == BLK_NOT_FOUND) {
         filemgr_mutex_unlock(file);
         return FDB_RESULT_WRITE_FAIL;
@@ -3319,11 +3176,7 @@ static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     struct docio_handle *dhandle;
 
-    if (handle->new_file) {
-        dhandle = handle->new_dhandle;
-    } else {
-        dhandle = handle->dhandle;
-    }
+    dhandle = handle->dhandle;
     if (docio_append_commit_mark(dhandle, offset) == BLK_NOT_FOUND) {
         return FDB_RESULT_WRITE_FAIL;
     }
@@ -3378,145 +3231,117 @@ fdb_commit_start:
         goto fdb_commit_start;
     }
 
-    if (handle->new_file) {
-        // HANDLE->FILE is undergoing compaction ..
-        // just do fsync to HANDLE->NEW_FILE
-
-        // relay lock
-        filemgr_mutex_lock(handle->new_file);
+    fs = btreeblk_end(handle->bhandle);
+    if (fs != FDB_RESULT_SUCCESS) {
         filemgr_mutex_unlock(handle->file);
-
-        if (txn) {
-            // transactional updates
-            wr = wal_commit(txn, handle->new_file, _fdb_append_commit_mark,
-                            &handle->log_callback);
-            if (wr != FDB_RESULT_SUCCESS) {
-                filemgr_mutex_unlock(handle->new_file);
-                return wr;
-            }
-        } else {
-            // non-transactional updates
-            wal_commit(&handle->new_file->global_txn, handle->new_file, NULL,
-                       &handle->log_callback);
-        }
-
-        fs = filemgr_sync(handle->new_file, &handle->log_callback);
-
-        filemgr_mutex_unlock(handle->new_file);
-    } else {
-        // normal case
-        fs = btreeblk_end(handle->bhandle);
-        if (fs != FDB_RESULT_SUCCESS) {
-            filemgr_mutex_unlock(handle->file);
-            return fs;
-        }
-
-        // commit wal
-        if (txn) {
-            // transactional updates
-            wr = wal_commit(txn, handle->file, _fdb_append_commit_mark,
-                            &handle->log_callback);
-            if (wr != FDB_RESULT_SUCCESS) {
-                filemgr_mutex_unlock(handle->file);
-                return wr;
-            }
-            if (wal_get_dirty_status(handle->file)== FDB_WAL_CLEAN) {
-                wal_set_dirty_status(handle->file, FDB_WAL_DIRTY);
-            }
-        } else {
-            // non-transactional updates
-            wal_commit(&handle->file->global_txn, handle->file, NULL,
-                       &handle->log_callback);
-        }
-
-        // sync dirty root nodes
-        filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
-                               &dirty_seqtree_root);
-        if (dirty_idtree_root != BLK_NOT_FOUND) {
-            handle->trie->root_bid = dirty_idtree_root;
-        }
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-            dirty_seqtree_root != BLK_NOT_FOUND) {
-            if (handle->kvs) {
-                handle->seqtrie->root_bid = dirty_seqtree_root;
-            } else {
-                handle->seqtree->root_bid = dirty_seqtree_root;
-            }
-        }
-
-        if (handle->dirty_updates) {
-            // discard all cached writable b+tree nodes
-            // to avoid data inconsistency with other writers
-            btreeblk_discard_blocks(handle->bhandle);
-        }
-
-        if (wal_get_num_flushable(handle->file) > _fdb_get_wal_threshold(handle) ||
-            wal_get_dirty_status(handle->file) == FDB_WAL_PENDING ||
-            opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
-            // wal flush when
-            // 1. wal size exceeds threshold
-            // 2. wal is already flushed before commit
-            //    (in this case, flush the rest of entries)
-            // 3. user forces to manually flush wal
-
-            wr = wal_flush(handle->file, (void *)handle,
-                      _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                      &flush_items);
-            if (wr != FDB_RESULT_SUCCESS) {
-                filemgr_mutex_unlock(handle->file);
-                return wr;
-            }
-            wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
-            wal_flushed = true;
-        }
-
-        // Note: Appending KVS header must be done after flushing WAL
-        //       because KVS stats info is updated during WAL flushing.
-        if (handle->kvs) {
-            // multi KV instance mode .. append up-to-date KV header
-            handle->kv_info_offset = fdb_kvs_header_append(handle->file,
-                                                           handle->dhandle);
-        }
-
-        // Note: Getting header BID must be done after
-        //       all other data are written into the file!!
-        //       Or, header BID inconsistency will occur (it will
-        //       point to wrong block).
-        handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
-        if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
-            earliest_txn = wal_earliest_txn(handle->file,
-                                            (txn)?(txn):(&handle->file->global_txn));
-            if (earliest_txn) {
-                // there exists other transaction that is not committed yet
-                if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
-                    handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
-                }
-            } else {
-                // there is no other transaction .. now WAL is empty
-                handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
-            }
-        }
-
-        fdb_assert(handle->last_wal_flush_hdr_bid == BLK_NOT_FOUND ||
-               handle->last_wal_flush_hdr_bid <= handle->last_hdr_bid,
-               handle->last_wal_flush_hdr_bid, handle->last_hdr_bid);
-
-        if (txn == NULL) {
-            // update global_txn's previous header BID
-            handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
-        }
-
-        handle->cur_header_revnum = fdb_set_file_header(handle);
-        fs = filemgr_commit(handle->file, &handle->log_callback);
-        if (wal_flushed) {
-            wal_release_flushed_items(handle->file, &flush_items);
-        }
-
-        btreeblk_reset_subblock_info(handle->bhandle);
-
-        handle->dirty_updates = 0;
-        filemgr_mutex_unlock(handle->file);
+        return fs;
     }
+
+    // commit wal
+    if (txn) {
+        // transactional updates
+        wr = wal_commit(txn, handle->file, _fdb_append_commit_mark,
+                        &handle->log_callback);
+        if (wr != FDB_RESULT_SUCCESS) {
+            filemgr_mutex_unlock(handle->file);
+            return wr;
+        }
+        if (wal_get_dirty_status(handle->file)== FDB_WAL_CLEAN) {
+            wal_set_dirty_status(handle->file, FDB_WAL_DIRTY);
+        }
+    } else {
+        // non-transactional updates
+        wal_commit(&handle->file->global_txn, handle->file, NULL,
+                   &handle->log_callback);
+    }
+
+    // sync dirty root nodes
+    filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
+                           &dirty_seqtree_root);
+    if (dirty_idtree_root != BLK_NOT_FOUND) {
+        handle->trie->root_bid = dirty_idtree_root;
+    }
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+        dirty_seqtree_root != BLK_NOT_FOUND) {
+        if (handle->kvs) {
+            handle->seqtrie->root_bid = dirty_seqtree_root;
+        } else {
+            handle->seqtree->root_bid = dirty_seqtree_root;
+        }
+    }
+
+    if (handle->dirty_updates) {
+        // discard all cached writable b+tree nodes
+        // to avoid data inconsistency with other writers
+        btreeblk_discard_blocks(handle->bhandle);
+    }
+
+    if (wal_get_num_flushable(handle->file) > _fdb_get_wal_threshold(handle) ||
+        wal_get_dirty_status(handle->file) == FDB_WAL_PENDING ||
+        opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
+        // wal flush when
+        // 1. wal size exceeds threshold
+        // 2. wal is already flushed before commit
+        //    (in this case, flush the rest of entries)
+        // 3. user forces to manually flush wal
+
+        wr = wal_flush(handle->file, (void *)handle,
+                  _fdb_wal_flush_func, _fdb_wal_get_old_offset,
+                  &flush_items);
+        if (wr != FDB_RESULT_SUCCESS) {
+            filemgr_mutex_unlock(handle->file);
+            return wr;
+        }
+        wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+        wal_flushed = true;
+    }
+
+    // Note: Appending KVS header must be done after flushing WAL
+    //       because KVS stats info is updated during WAL flushing.
+    if (handle->kvs) {
+        // multi KV instance mode .. append up-to-date KV header
+        handle->kv_info_offset = fdb_kvs_header_append(handle->file,
+                                                       handle->dhandle);
+    }
+
+    // Note: Getting header BID must be done after
+    //       all other data are written into the file!!
+    //       Or, header BID inconsistency will occur (it will
+    //       point to wrong block).
+    handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
+    if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
+        earliest_txn = wal_earliest_txn(handle->file,
+                                        (txn)?(txn):(&handle->file->global_txn));
+        if (earliest_txn) {
+            // there exists other transaction that is not committed yet
+            if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
+                handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
+            }
+        } else {
+            // there is no other transaction .. now WAL is empty
+            handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
+        }
+    }
+
+    fdb_assert(handle->last_wal_flush_hdr_bid == BLK_NOT_FOUND ||
+           handle->last_wal_flush_hdr_bid <= handle->last_hdr_bid,
+           handle->last_wal_flush_hdr_bid, handle->last_hdr_bid);
+
+    if (txn == NULL) {
+        // update global_txn's previous header BID
+        handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
+    }
+
+    handle->cur_header_revnum = fdb_set_file_header(handle);
+    fs = filemgr_commit(handle->file, &handle->log_callback);
+    if (wal_flushed) {
+        wal_release_flushed_items(handle->file, &flush_items);
+    }
+
+    btreeblk_reset_subblock_info(handle->bhandle);
+
+    handle->dirty_updates = 0;
+    filemgr_mutex_unlock(handle->file);
 
     return fs;
 }
@@ -5450,19 +5275,6 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
         return fs;
     }
     docio_free(handle->dhandle);
-    if (handle->new_file) {
-        fs = filemgr_close(handle->new_file,
-                           handle->config.cleanup_cache_onclose,
-                           handle->filename, &handle->log_callback);
-        if (fs != FDB_RESULT_SUCCESS) {
-            return fs;
-        }
-        docio_free(handle->new_dhandle);
-        free(handle->new_dhandle);
-        handle->new_file = NULL;
-        handle->new_dhandle = NULL;
-    }
-
     hbtrie_free(handle->trie);
     free(handle->trie);
 
@@ -5568,7 +5380,7 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
     fdb_link_new_file(handle);
     fdb_sync_db_header(handle);
 
-    file = (handle->new_file)?(handle->new_file):(handle->file);
+    file = handle->file;
 
     datasize = _kvs_stat_get_sum(file, KVS_STAT_DATASIZE);
     nlivenodes = _kvs_stat_get_sum(file, KVS_STAT_NLIVENODES);
@@ -5605,11 +5417,7 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
     if (handle->shandle) {
         // handle for snapshot
     } else {
-        if (handle->new_file) {
-            info->new_filename = handle->new_file->filename;
-        } else {
-            info->new_filename = NULL;
-        }
+        info->new_filename = NULL;
     }
 
     // Note that doc_count includes the number of WAL entries, which might
