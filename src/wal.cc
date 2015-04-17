@@ -545,7 +545,7 @@ fdb_status wal_txn_migration(void *dbhandle,
 }
 
 fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
-                      wal_commit_mark_func *func)
+                      wal_commit_mark_func *func, err_log_callback *log_callback)
 {
     int prev_commit;
     wal_item_action prev_action;
@@ -578,6 +578,9 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             if (func) {
                 status = func(txn->handle, item->offset);
                 if (status != FDB_RESULT_SUCCESS) {
+                    fdb_log(log_callback, status,
+                            "Error in appending a commit mark at offset %" _F64 " in "
+                            "a database file '%s'", item->offset, file->filename);
                     spin_unlock(&file->wal->key_shards[shard_num].lock);
                     return status;
                 }
@@ -800,6 +803,11 @@ static fdb_status _wal_flush(struct filemgr *file,
         if (item->flag & WAL_ITEM_FLUSH_READY) {
             fdb_status fs = flush_func(dbhandle, item);
             if (fs != FDB_RESULT_SUCCESS) {
+                fdb_kvs_handle *handle = (fdb_kvs_handle *) dbhandle;
+                fdb_log(&handle->log_callback, fs,
+                        "Failed to flush WAL item (key '%s') into a database file '%s'",
+                        (const char *) item->header->key, file->filename);
+
                 return fs;
             }
         }

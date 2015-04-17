@@ -392,7 +392,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     }
     // wal commit
     if (!handle->shandle) {
-        wal_commit(&file->global_txn, file, NULL);
+        wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
     }
     filemgr_mutex_unlock(file);
     handle->dhandle->log_callback = log_callback;
@@ -3076,7 +3076,7 @@ fdb_set_start:
             btreeblk_discard_blocks(handle->bhandle);
 
             // commit only for non-transactional WAL entries
-            wr = wal_commit(&file->global_txn, file, NULL);
+            wr = wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(file);
                 return wr;
@@ -3388,14 +3388,16 @@ fdb_commit_start:
 
         if (txn) {
             // transactional updates
-            wr = wal_commit(txn, handle->new_file, _fdb_append_commit_mark);
+            wr = wal_commit(txn, handle->new_file, _fdb_append_commit_mark,
+                            &handle->log_callback);
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(handle->new_file);
                 return wr;
             }
         } else {
             // non-transactional updates
-            wal_commit(&handle->new_file->global_txn, handle->new_file, NULL);
+            wal_commit(&handle->new_file->global_txn, handle->new_file, NULL,
+                       &handle->log_callback);
         }
 
         fs = filemgr_sync(handle->new_file, &handle->log_callback);
@@ -3412,7 +3414,8 @@ fdb_commit_start:
         // commit wal
         if (txn) {
             // transactional updates
-            wr = wal_commit(txn, handle->file, _fdb_append_commit_mark);
+            wr = wal_commit(txn, handle->file, _fdb_append_commit_mark,
+                            &handle->log_callback);
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(handle->file);
                 return wr;
@@ -3422,7 +3425,8 @@ fdb_commit_start:
             }
         } else {
             // non-transactional updates
-            wal_commit(&handle->file->global_txn, handle->file, NULL);
+            wal_commit(&handle->file->global_txn, handle->file, NULL,
+                       &handle->log_callback);
         }
 
         // sync dirty root nodes
@@ -3546,7 +3550,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         }
     }
 
-    wal_commit(&new_file->global_txn, new_file, NULL);
+    wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
     if (wal_get_num_flushable(new_file)) {
         // flush wal if not empty
         wal_flush(new_file, (void *)handle,
@@ -3821,7 +3825,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
         new_handle.dhandle = new_dhandle;
         new_handle.bhandle = new_bhandle;
 
-        wal_commit(&new_file->global_txn, new_file, NULL);
+        wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
         wal_flush(new_file, (void*)&new_handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                   &flush_items);
@@ -4123,7 +4127,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 
     // WAL flush
     struct avl_tree flush_items;
-    wal_commit(&new_file->global_txn, new_file, NULL);
+    wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
     wal_flush(new_file, (void*)new_handle,
               _fdb_wal_flush_func,
               _fdb_wal_get_old_offset,
@@ -4707,7 +4711,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     }
 
     // flush WAL and set DB header
-    wal_commit(&handle->file->global_txn, handle->file, NULL);
+    wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
     wal_flush(handle->file, (void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
@@ -4821,7 +4825,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // commit & flush those items. Now WAL contains only uncommitted
     // transactional items (or empty), so it is ready to migrate ongoing
     // transactions.
-    wal_commit(&handle->file->global_txn, handle->file, NULL);
+    wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
     wal_flush(handle->file, (void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
     btreeblk_end(handle->bhandle);
@@ -5205,7 +5209,7 @@ catch_up_compaction:
         }
 
         // flush WAL and set DB header
-        wal_commit(&new_file->global_txn, new_file, NULL);
+        wal_commit(&new_file->global_txn, new_file, NULL, &handle.log_callback);
         wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
         // Setup current handle to look just like a snapshot of the
         // old_file except that it is meant for the new_file

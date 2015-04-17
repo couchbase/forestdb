@@ -1462,8 +1462,8 @@ static void _hbtrie_extend_leaf_tree(struct hbtrie *trie,
     } else {
         if (smallest) {
             if (minchunkno > 0 &&
-                _get_nchunk_raw(trie, smallest->key, smallest->keylen) ==
-                    minchunkno) {
+               (size_t) _get_nchunk_raw(trie, smallest->key, smallest->keylen) ==
+                minchunkno) {
                 meta_value = smallest->value;
             } else {
                 smallest = NULL;

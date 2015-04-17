@@ -580,7 +580,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                     ret = fname_item->curfile->ops->pwrite(fname_item->curfile->fd,
                                                            buf, count * bcache_blocksize,
                                                            start_bid * bcache_blocksize);
-                    if (ret != count * bcache_blocksize) {
+                    if ((size_t)ret != count * bcache_blocksize) {
                         count = 0;
                         status = FDB_RESULT_WRITE_FAIL;
                         break;
@@ -601,7 +601,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
             ret = fname_item->curfile->ops->pwrite(fname_item->curfile->fd, buf,
                                                    count * bcache_blocksize,
                                                    start_bid * bcache_blocksize);
-            if (ret != count * bcache_blocksize) {
+            if ((size_t)ret != count * bcache_blocksize) {
                 status = FDB_RESULT_WRITE_FAIL;
             }
         }
@@ -753,7 +753,7 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
 
     fname_new->shards = (bcache_shard *)
         malloc(sizeof(struct bcache_shard) * fname_new->num_shards);
-    int i = 0;
+    size_t i = 0;
     for (; i < fname_new->num_shards; ++i) {
         // initialize tree
         avl_init(&fname_new->shards[i].tree, NULL);
@@ -1267,7 +1267,7 @@ uint64_t bcache_get_num_free_blocks()
 // LCOV_EXCL_START
 void bcache_print_items()
 {
-    int n=1;
+    size_t n=1;
     size_t sw=0;
     size_t nfiles, nitems, nfileitems, nclean, ndirty;
     size_t scores[100], i, scores_local[100];

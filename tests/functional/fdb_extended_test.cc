@@ -504,7 +504,7 @@ static void test_multi_readers(multi_reader_type reader_type,
     thread_t *tid = alca(thread_t, n_readers);
     void **thread_ret = alca(void *, n_readers);
     struct reader_thread_args *args = alca(struct reader_thread_args, n_readers);
-    for (int i = 0; i < n_readers; ++i){
+    for (size_t i = 0; i < n_readers; ++i){
         args[i].tid = i;
         args[i].ndocs = num_docs;
         args[i].doc = doc;
@@ -525,7 +525,7 @@ static void test_multi_readers(multi_reader_type reader_type,
     }
 
     // wait for thread termination
-    for (int i = 0; i < n_readers; ++i){
+    for (size_t i = 0; i < n_readers; ++i){
         thread_join(tid[i], &thread_ret[i]);
     }
 
@@ -581,7 +581,7 @@ static void test_writer_multi_readers(writer_type wtype,
     thread_t *tid = alca(thread_t, num_readers + 1);
     void **thread_ret = alca(void *, num_readers + 1);
     struct reader_thread_args *args = alca(struct reader_thread_args, num_readers);
-    int i = 0;
+    size_t i = 0;
     for (; i < num_readers; ++i){
         args[i].tid = i;
         args[i].ndocs = num_docs;
@@ -617,7 +617,7 @@ static void test_writer_multi_readers(writer_type wtype,
     thread_create(&tid[i], _writer_thread, &wargs);
 
     // wait for thread termination
-    for (int i = 0; i < (num_readers + 1); ++i) {
+    for (size_t i = 0; i < (num_readers + 1); ++i) {
         thread_join(tid[i], &thread_ret[i]);
     }
 
@@ -674,7 +674,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     void **thread_ret = alca(void *, n_readers);
     struct reader_thread_args *args = alca(struct reader_thread_args,
                                            n_readers);
-    for (int i = 0; i < n_readers; ++i){
+    for (size_t i = 0; i < n_readers; ++i){
         args[i].tid = i;
         args[i].ndocs = num_docs;
         args[i].doc = doc;
@@ -707,7 +707,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // wait for thread termination
-    for (int i = 0; i < n_readers; ++i){
+    for (size_t i = 0; i < n_readers; ++i){
         thread_join(tid[i], &thread_ret[i]);
     }
 
