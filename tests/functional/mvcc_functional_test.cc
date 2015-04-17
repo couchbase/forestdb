@@ -2877,6 +2877,7 @@ static void _snapshot_update_docs(fdb_file_handle *fhandle, struct cb_snapshot_a
         }
     }
     s = fdb_commit(fhandle, FDB_COMMIT_NORMAL);
+    (void) s;
     args->nupdates++;
 }
 
@@ -3268,7 +3269,7 @@ void *rollback_during_ops_test(void * args)
 
         fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
         fdb_get_kvs_info(kvs, &kvs_info);
-        TEST_CHK(kvs_info.last_seqnum==n);
+        TEST_CHK(kvs_info.last_seqnum == (uint64_t)n);
 
         // start rollback thread
         thread_create(&tid, rollback_during_ops_test, (void *)&n);

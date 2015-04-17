@@ -1714,7 +1714,7 @@ void custom_compare_variable_test()
 
     int i, j, r;
     int n = 1000;
-    uint64_t count;
+    int count;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *db2;
     fdb_doc **doc = alca(fdb_doc*, n);
@@ -1792,7 +1792,7 @@ void custom_compare_variable_test()
         rdoc = NULL;
         count++;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
-    TEST_CHK(count == (uint64_t)n);
+    TEST_CHK(count == n);
     fdb_iterator_close(iterator);
 
     fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
