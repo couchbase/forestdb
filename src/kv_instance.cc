@@ -924,11 +924,7 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
         fdb_sync_db_header(handle);
 
         struct filemgr *file;
-        if (handle->new_file) {
-            file = handle->new_file;
-        } else {
-            file = handle->file;
-        }
+        file = handle->file;
 
         if (handle->kvs == NULL ||
             handle->kvs->id == 0) {
@@ -1030,17 +1026,8 @@ fdb_kvs_create_start:
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
-    if (root_handle->new_file == NULL) {
-        file = root_handle->file;
-        dhandle = root_handle->dhandle;
-    } else {
-        // compaction is being performed and new file exists
-        // relay lock
-        filemgr_mutex_lock(root_handle->new_file);
-        filemgr_mutex_unlock(root_handle->file);
-        file = root_handle->new_file;
-        dhandle = root_handle->new_dhandle;
-    }
+    file = root_handle->file;
+    dhandle = root_handle->dhandle;
 
     file_status_t fstatus = filemgr_get_file_status(file);
     if (fstatus == FILE_REMOVED_PENDING) {
@@ -1282,24 +1269,9 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     fdb_check_file_reopen(root_handle, NULL);
     fdb_link_new_file(root_handle);
     fdb_sync_db_header(root_handle);
-    if (root_handle->new_file == NULL ||
-        filemgr_get_file_status(root_handle->file) == FILE_COMPACT_OLD) {
-        // If the file is being compacted, new_file is incomplete yet
-        // so that there is no DB header in the new_file.
-        // Hence, we should open the old file.
-        // Note: compaction recovery will not be triggered as the
-        //       file's status is FILE_COMPACT_OLD.
-        file = root_handle->file;
-        // even though we open 'file' due to ongoing compaction,
-        // KVS info should be retrieved from 'latest_file'.
-        if (root_handle->new_file) {
-            latest_file = root_handle->new_file;
-        } else {
-            latest_file = root_handle->file;
-        }
-    } else {
-        file = latest_file = root_handle->new_file;
-    }
+
+    file = root_handle->file;
+    latest_file = root_handle->file;
 
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
         // return the default KV store handle
@@ -1588,17 +1560,8 @@ fdb_kvs_remove_start:
         filemgr_mutex_lock(root_handle->file);
     }
 
-    if (root_handle->new_file == NULL) {
-        file = root_handle->file;
-        dhandle = root_handle->dhandle;
-    } else {
-        // compaction is being performed and new file exists
-        // relay lock
-        filemgr_mutex_lock(root_handle->new_file);
-        filemgr_mutex_unlock(root_handle->file);
-        file = root_handle->new_file;
-        dhandle = root_handle->new_dhandle;
-    }
+    file = root_handle->file;
+    dhandle = root_handle->dhandle;
 
     file_status_t fstatus = filemgr_get_file_status(file);
     if (fstatus == FILE_REMOVED_PENDING) {
@@ -1960,11 +1923,7 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         fdb_sync_db_header(handle);
     }
 
-    if (handle->new_file) {
-        file = handle->new_file;
-    } else {
-        file = handle->file;
-    }
+    file = handle->file;
 
     if (handle->kvs == NULL) {
         info->name = default_kvs_name;
@@ -2036,11 +1995,7 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
     }
 
     root_handle = fhandle->root;
-    if (root_handle->new_file) {
-        kv_header = root_handle->new_file->kv_header;
-    } else {
-        kv_header = root_handle->file->kv_header;
-    }
+    kv_header = root_handle->file->kv_header;
 
     spin_lock(&kv_header->lock);
     // sum all lengths of KVS names first
