@@ -73,7 +73,7 @@ void print_header(fdb_kvs_handle *db)
                 // sub-block
                 subbid2bid(trie_root_bid, &subblock_no, &idx, &bid);
                 printf("    HB+trie root BID: %" _F64 ", %d-byte subblock #%" _F64,
-                       bid, db->bhandle->sb[subblock_no].sb_size, idx);
+                       bid, db->bhandle->sb[subblock_no].sb_size, (uint64_t) idx);
                 printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", trie_root_bid,
                        bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
             }
@@ -90,7 +90,7 @@ void print_header(fdb_kvs_handle *db)
                 // sub-block
                 subbid2bid(seq_root_bid, &subblock_no, &idx, &bid);
                 printf("    Seq B+tree root BID: %" _F64 ", %d-byte subblock #%" _F64,
-                       bid, db->bhandle->sb[subblock_no].sb_size, idx);
+                       bid, db->bhandle->sb[subblock_no].sb_size, (uint64_t) idx);
                 printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", seq_root_bid,
                        bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
             }
