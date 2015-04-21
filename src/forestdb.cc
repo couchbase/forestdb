@@ -850,6 +850,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
         return FDB_RESULT_INVALID_CONFIG;
     }
 
+fdb_snapshot_open_start:
     if (!handle_in->shandle) {
         fdb_check_file_reopen(handle_in, &fstatus);
         fdb_link_new_file(handle_in);
@@ -983,6 +984,15 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
         *ptr_handle = NULL;
         snap_close(handle->shandle);
         free(handle);
+        // If compactor thread had finished compaction just before this routine
+        // calls _fdb_open, then it is possible that the snapshot's DB header
+        // is only present in the new_file. So we must retry the snapshot
+        // open attempt IFF _fdb_open indicates FDB_RESULT_NO_DB_INSTANCE..
+        if (fs == FDB_RESULT_NO_DB_INSTANCE && fstatus == FILE_COMPACT_OLD) {
+            if (filemgr_get_file_status(file) == FILE_REMOVED_PENDING) {
+                goto fdb_snapshot_open_start;
+            }
+        }
     }
     return fs;
 }
