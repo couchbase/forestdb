@@ -817,7 +817,7 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len)
 }
 
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
-                                void *buf, size_t *len,
+                                void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 err_log_callback *log_callback)
 {
     uint8_t *_buf;
@@ -871,6 +871,14 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
 
     memcpy(buf, _buf, hdr_len);
     *len = hdr_len;
+
+    if (seqnum) {
+        // copy default KVS's seqnum
+        fdb_seqnum_t _seqnum;
+        memcpy(&_seqnum, _buf + hdr_len + sizeof(filemgr_header_revnum_t),
+               sizeof(_seqnum));
+        *seqnum = _endian_decode(_seqnum);
+    }
 
     _filemgr_release_temp_buf(_buf);
 

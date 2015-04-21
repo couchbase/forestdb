@@ -170,6 +170,8 @@ fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle);
 
 fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
                                    fdb_kvs_id_t id);
+fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle);
+
 void fdb_kvs_set_seqnum(struct filemgr *file,
                            fdb_kvs_id_t id,
                            fdb_seqnum_t seqnum);

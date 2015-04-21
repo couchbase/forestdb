@@ -904,6 +904,68 @@ fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
     return _fdb_kvs_get_seqnum(file->kv_header, id);
 }
 
+fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
+{
+    uint8_t *buf;
+    uint64_t dummy64;
+    uint64_t kv_info_offset;
+    size_t len;
+    bid_t hdr_bid;
+    fdb_seqnum_t seqnum = SEQNUM_NOT_USED;
+    fdb_kvs_id_t id = 0;
+    char *compacted_filename = NULL;
+    struct filemgr *file = handle->file;
+
+    buf = alca(uint8_t, file->config->blocksize);
+
+    if (handle->kvs && handle->kvs->id > 0) {
+        id = handle->kvs->id;
+    }
+
+    hdr_bid = filemgr_get_header_bid(file);
+    if (hdr_bid == BLK_NOT_FOUND) {
+        // header doesn't exist
+        return 0;
+    }
+
+    // read header
+    filemgr_fetch_header(file, hdr_bid, buf, &len, &seqnum, &handle->log_callback);
+    if (id > 0) { // non-default KVS
+        // read last KVS header
+        fdb_fetch_header(buf, &dummy64,
+                         &dummy64, &dummy64, &dummy64,
+                         &dummy64, &dummy64,
+                         &kv_info_offset, &dummy64,
+                         &compacted_filename, NULL);
+        free(compacted_filename);
+
+        uint64_t doc_offset;
+        struct kvs_header *kv_header;
+        struct docio_object doc;
+
+        _fdb_kvs_header_create(&kv_header);
+        memset(&doc, 0, sizeof(struct docio_object));
+        doc_offset = docio_read_doc(handle->dhandle,
+                                    kv_info_offset, &doc);
+
+        if (doc_offset == kv_info_offset) {
+            // fail
+            _fdb_kvs_header_free(kv_header);
+            return 0;
+
+        } else {
+            _fdb_kvs_header_import(kv_header, doc.body,
+                                   doc.length.bodylen);
+            // get local sequence number for the KV instance
+            seqnum = _fdb_kvs_get_seqnum(kv_header,
+                                         handle->kvs->id);
+            _fdb_kvs_header_free(kv_header);
+            free_docio_object(&doc, 1, 1, 1);
+        }
+    }
+    return seqnum;
+}
+
 LIBFDB_API
 fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
 {
