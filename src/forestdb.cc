@@ -1614,7 +1614,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     if (compacted_filename &&
         filemgr_get_file_status(handle->file) == FILE_NORMAL &&
-        !handle->shandle) { // do not do compaction recovery on snapshots
+        !(config->flags & FDB_OPEN_FLAG_RDONLY)) { // do not recover read-only
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
