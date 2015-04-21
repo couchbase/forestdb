@@ -102,9 +102,11 @@ struct db_header {
     uint16_t new_filename_len;
     uint16_t old_filename_len;
 
-    char bytes[3961];
+    char bytes[3945];
 
 
+    uint64_t revnum;
+    uint64_t seqnum;
     uint64_t trie_root_bid;
     uint64_t trie_subblock_no;
     uint64_t trie_idx;
@@ -162,6 +164,10 @@ void decode_dblock(void *block) {
     _db->prev_hdr_bid = _endian_decode(_db->prev_hdr_bid);
     _db->magic_bytes = _endian_decode(_db->magic_bytes);
     _db->hdr_len = _endian_decode(_db->hdr_len);
+    _db->revnum = *(uint64_t*)((char*)block + _db->hdr_len);
+    _db->revnum = _endian_decode(_db->revnum);
+    _db->seqnum = *(uint64_t*)((char*)block + _db->hdr_len + sizeof(uint64_t));
+    _db->seqnum = _endian_decode(_db->seqnum);
 }
 
 dblock *db;
@@ -177,24 +183,26 @@ int process_file(struct input_option *opt)
     char *filename = opt->filename;
     uint64_t file_size;
     size_t num_blocks;
-    struct filemgr *file;
+    struct filemgr file;
     uint8_t block_buf[BLK_SIZE];
     fdb_status fs;
 
     config = fdb_get_default_config();
     config.buffercache_size = 0;
     config.flags = FDB_OPEN_FLAG_RDONLY;
-    fs = fdb_open(&dbfile, filename, &config);
-    if (fs != FDB_RESULT_SUCCESS) {
+    file.ops = get_filemgr_ops();
+    file.fd = file.ops->open(filename, O_RDWR, 0666);
+
+    if (file.fd < 0) {
         printf("\nUnable to open %s\n", filename);
         return -1;
     }
 
-    file = dbfile->root->file;
-    file_size = file->pos.val;
+    file_size = file.ops->file_size(filename);
     num_blocks = file_size / BLK_SIZE;
 
     if (opt->print_header) {
+        fs = fdb_open(&dbfile, filename, &config);
         print_header(dbfile->root);
     }
     if (file_size > opt->max_filesize) {
@@ -206,7 +214,7 @@ int process_file(struct input_option *opt)
 
     if (opt->headers_only) {
         for (uint64_t i = 0; i < num_blocks; ++i) {
-            ssize_t rv = file->ops->pread(file->fd, &block_buf, BLK_SIZE,
+            ssize_t rv = file.ops->pread(file.fd, &block_buf, BLK_SIZE,
                                           i * BLK_SIZE);
             if (rv != BLK_SIZE) {
                 fdb_close(dbfile);
@@ -250,7 +258,7 @@ int process_file(struct input_option *opt)
             return -1;
         }
         for (uint64_t i = 0; i < num_blocks; ++i) {
-            ssize_t rv = file->ops->pread(file->fd, &db[i], BLK_SIZE,
+            ssize_t rv = file.ops->pread(file.fd, &db[i], BLK_SIZE,
                     i * BLK_SIZE);
             if (rv != BLK_SIZE) {
                 fdb_close(dbfile);
