@@ -670,6 +670,148 @@ void snapshot_stats_test()
     TEST_RESULT("snapshot stats test");
 }
 
+void snapshot_with_uncomitted_data_test()
+{
+    TEST_INIT();
+
+    int n = 10, value_len=32;
+    int i, r, idx;
+    char cmd[256];
+    char key[256], *value;
+    char keystr[] = "key%06d";
+    char valuestr[] = "value%d";
+    fdb_file_handle *db_file;
+    fdb_kvs_handle *db0, *db1, *db2, *snap;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_kvs_info info;
+    fdb_seqnum_t seqnum;
+    fdb_status s; (void)s;
+
+    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    r = system(cmd);
+    (void)r;
+
+    memleak_start();
+
+    value = (char*)malloc(value_len);
+
+    srand(1234);
+    config = fdb_get_default_config();
+    config.seqtree_opt = FDB_SEQTREE_USE;
+    config.wal_flush_before_commit = true;
+    config.multi_kv_instances = true;
+    config.buffercache_size = 0*1024*1024;
+
+    kvs_config = fdb_get_default_kvs_config();
+
+    s = fdb_open(&db_file, "./dummy", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(db_file, &db0, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(db_file, &db1, "db1", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(db_file, &db2, "db2", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // insert docs in all KV stores
+    for (i=0;i<n;++i){
+        idx = i;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        s = fdb_set_kv(db0, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_set_kv(db1, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_set_kv(db2, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    // try to open snapshot before commit
+    s = fdb_get_kvs_info(db0, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_snapshot_open(db0, &snap, info.last_seqnum);
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+
+    s = fdb_get_kvs_info(db1, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_snapshot_open(db1, &snap, info.last_seqnum);
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+
+    s = fdb_get_kvs_info(db2, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_snapshot_open(db2, &snap, info.last_seqnum);
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+
+    s = fdb_commit(db_file, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_get_kvs_info(db1, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    seqnum = info.last_seqnum;
+
+    s = fdb_get_kvs_info(db2, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CHK(seqnum == info.last_seqnum);
+
+    s = fdb_get_kvs_info(db0, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CHK(seqnum == info.last_seqnum);
+
+    // now insert docs into default and db2 only, without commit
+    for (i=0;i<n;++i){
+        idx = i;
+        sprintf(key, keystr, idx);
+        memset(value, 'x', value_len);
+        memcpy(value + value_len - 6, "<end>", 6);
+        sprintf(value, valuestr, idx);
+        s = fdb_set_kv(db0, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_set_kv(db2, key, strlen(key)+1, value, value_len);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    // open snapshot on db1
+    s = fdb_get_kvs_info(db1, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // latest (comitted) seqnum
+    s = fdb_snapshot_open(db1, &snap, info.last_seqnum);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_close(snap);
+
+    // open snapshot on db2
+    s = fdb_get_kvs_info(db2, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // latest (uncomitted) seqnum
+    s = fdb_snapshot_open(db2, &snap, info.last_seqnum);
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+    // committed seqnum
+    s = fdb_snapshot_open(db2, &snap, seqnum);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_close(snap);
+
+    // open snapshot on default KVS
+    s = fdb_get_kvs_info(db0, &info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // latest (uncomitted) seqnum
+    s = fdb_snapshot_open(db0, &snap, info.last_seqnum);
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+    // committed seqnum
+    s = fdb_snapshot_open(db0, &snap, seqnum);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_close(snap);
+
+    s = fdb_close(db_file);
+    s = fdb_shutdown();
+    free(value);
+    memleak_end();
+
+    TEST_RESULT("snapshot with uncomitted data in other KVS test");
+}
+
 void in_memory_snapshot_test()
 {
     TEST_INIT();
@@ -3433,6 +3575,7 @@ int main(){
     in_memory_snapshot_compaction_test();
     snapshot_clone_test();
     snapshot_stats_test();
+    snapshot_with_uncomitted_data_test();
     snapshot_markers_in_file_test(true); // multi kv instance mode
     snapshot_markers_in_file_test(false); // single kv instance mode
     rollback_during_ops_test(NULL);

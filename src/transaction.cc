@@ -32,6 +32,7 @@ LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
 {
+    file_status_t fstatus;
     fdb_kvs_handle *handle = fhandle->root;
     struct filemgr *file;
 
@@ -46,26 +47,26 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         }
     }
 
-    fdb_check_file_reopen(handle, NULL);
-    filemgr_mutex_lock(handle->file);
-    fdb_sync_db_header(handle);
-    fdb_link_new_file(handle);
+    do { // repeat until file status is not REMOVED_PENDING
+        fdb_check_file_reopen(handle, NULL);
+        filemgr_mutex_lock(handle->file);
+        fdb_sync_db_header(handle);
+        fdb_link_new_file(handle);
 
-    if (filemgr_is_rollback_on(handle->file)) {
-        // deny beginning transaction during rollback
-        filemgr_mutex_unlock(handle->file);
-        return FDB_RESULT_FAIL_BY_ROLLBACK;
-    }
+        if (filemgr_is_rollback_on(handle->file)) {
+            // deny beginning transaction during rollback
+            filemgr_mutex_unlock(handle->file);
+            return FDB_RESULT_FAIL_BY_ROLLBACK;
+        }
 
-    if (handle->new_file == NULL) {
         file = handle->file;
-    } else {
-        // compaction is being performed and new file exists
-        // relay lock
-        filemgr_mutex_lock(handle->new_file);
-        filemgr_mutex_unlock(handle->file);
-        file = handle->new_file;
-    }
+        fstatus = filemgr_get_file_status(file);
+        if (fstatus == FILE_REMOVED_PENDING) {
+            // we must not create transaction on this file
+            // file status was changed by other thread .. start over
+            filemgr_mutex_unlock(file);
+        }
+    } while (fstatus == FILE_REMOVED_PENDING);
 
     handle->txn = (fdb_txn*)malloc(sizeof(fdb_txn));
     handle->txn->wrapper = (struct wal_txn_wrapper *)
@@ -99,6 +100,7 @@ fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
 
 fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
 {
+    file_status_t fstatus;
     struct filemgr *file;
 
     if (handle->txn == NULL) {
@@ -112,25 +114,21 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
         }
     }
 
-    fdb_check_file_reopen(handle, NULL);
-    if (handle->new_file == NULL) {
+    do { // repeat until file status is not REMOVED_PENDING
+        fdb_check_file_reopen(handle, NULL);
+
         file = handle->file;
         filemgr_mutex_lock(file);
         fdb_sync_db_header(handle);
         fdb_link_new_file(handle);
-        if (handle->new_file) {
-            // compaction is being performed and new file exists
-            // relay lock
-            filemgr_mutex_lock(handle->new_file);
-            filemgr_mutex_unlock(handle->file);
-            // reset FILE
-            file = handle->new_file;
+
+        fstatus = filemgr_get_file_status(file);
+        if (fstatus == FILE_REMOVED_PENDING) {
+            // we must not abort transaction on this file
+            // file status was changed by other thread .. start over
+            filemgr_mutex_unlock(file);
         }
-    } else {
-        file = handle->new_file;
-        filemgr_mutex_lock(file);
-        fdb_sync_db_header(handle);
-    }
+    } while (fstatus == FILE_REMOVED_PENDING);
 
     wal_discard(file, handle->txn);
     wal_remove_transaction(file, handle->txn);
@@ -149,6 +147,7 @@ LIBFDB_API
 fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
                                fdb_commit_opt_t opt)
 {
+    file_status_t fstatus;
     fdb_kvs_handle *handle = fhandle->root;
     struct filemgr *file;
 
@@ -169,25 +168,22 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
     }
 
     if (fs == FDB_RESULT_SUCCESS) {
-        fdb_check_file_reopen(handle, NULL);
-        if (handle->new_file == NULL) {
+
+        do { // repeat until file status is not REMOVED_PENDING
+            fdb_check_file_reopen(handle, NULL);
+
             file = handle->file;
             filemgr_mutex_lock(file);
             fdb_sync_db_header(handle);
             fdb_link_new_file(handle);
-            if (handle->new_file) {
-                // compaction is being performed and new file exists
-                // relay lock
-                filemgr_mutex_lock(handle->new_file);
-                filemgr_mutex_unlock(handle->file);
-                // reset FILE
-                file = handle->new_file;
+
+            fstatus = filemgr_get_file_status(file);
+            if (fstatus == FILE_REMOVED_PENDING) {
+                // we must not commit transaction on this file
+                // file status was changed by other thread .. start over
+                filemgr_mutex_unlock(file);
             }
-        } else {
-            file = handle->new_file;
-            filemgr_mutex_lock(file);
-            fdb_sync_db_header(handle);
-        }
+        } while (fstatus == FILE_REMOVED_PENDING);
 
         wal_remove_transaction(file, handle->txn);
 
