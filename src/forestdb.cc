@@ -4075,8 +4075,8 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                         c++;
                         offset = _offset;
 
-                        if (c >= FDB_COMP_MOVE_UNIT ||
-                            sum_docsize >= FDB_COMP_BATCHSIZE) {
+                        if (sum_docsize >= FDB_COMP_MOVE_UNIT ||
+                            c >= FDB_COMP_BATCHSIZE) {
                             // append batched docs & flush WAL
                             _fdb_append_batched_delta(handle, &new_handle,
                                                       new_file, new_trie,
