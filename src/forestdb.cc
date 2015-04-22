@@ -4586,9 +4586,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         return fs;
     }
 
-    // reset last_wal_flush_hdr_bid
-    handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
-
     // Mark new file as newly compacted
     filemgr_update_file_status(new_file, FILE_COMPACT_NEW, NULL);
     filemgr_mutex_unlock(handle->file);
@@ -4670,6 +4667,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
     btreeblk_end(handle->bhandle);
     wal_release_flushed_items(handle->file, &flush_items);
+    // reset last_wal_flush_hdr_bid
+    handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
 
     // copy old file's seqnum to new file (do this again due to delta)
     seqnum = filemgr_get_seqnum(handle->file);
