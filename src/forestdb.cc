@@ -1614,7 +1614,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     if (compacted_filename &&
         filemgr_get_file_status(handle->file) == FILE_NORMAL &&
-        !handle->shandle) { // do not do compaction recovery on snapshots
+        !(config->flags & FDB_OPEN_FLAG_RDONLY)) { // do not recover read-only
         _fdb_recover_compaction(handle, compacted_filename);
     }
 
@@ -4075,8 +4075,8 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                         c++;
                         offset = _offset;
 
-                        if (c >= FDB_COMP_MOVE_UNIT ||
-                            sum_docsize >= FDB_COMP_BATCHSIZE) {
+                        if (sum_docsize >= FDB_COMP_MOVE_UNIT ||
+                            c >= FDB_COMP_BATCHSIZE) {
                             // append batched docs & flush WAL
                             _fdb_append_batched_delta(handle, &new_handle,
                                                       new_file, new_trie,
