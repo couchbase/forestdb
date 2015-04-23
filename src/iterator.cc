@@ -227,7 +227,6 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         // If compaction is already done before this line,
         // handle->file needs to be replaced with handle->new_file.
         fdb_check_file_reopen(handle, NULL);
-        fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
     }
 
@@ -253,16 +252,11 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         // Since fdb_kvs_open doesn't assign handle->new_file automatically,
         // we need to call these functions again.
         fdb_check_file_reopen(iterator->handle, NULL);
-        fdb_link_new_file(iterator->handle);
         fdb_sync_db_header(iterator->handle);
     } else {
         // Snapshot handle exists
         // We don't need to open a new handle.. just point to the snapshot handle.
         iterator->handle = handle;
-        // link new file if wal_tree points to the new file
-        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
-            fdb_link_new_file_enforce(iterator->handle);
-        }
     }
     iterator->opt = opt;
 
@@ -492,7 +486,6 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
         // If compaction is already done before this line,
         // handle->file needs to be replaced with handle->new_file.
         fdb_check_file_reopen(handle, NULL);
-        fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
     }
 
@@ -520,16 +513,11 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
         // Since fdb_kvs_open doesn't assign handle->new_file automatically,
         // we need to call these functions again.
         fdb_check_file_reopen(iterator->handle, NULL);
-        fdb_link_new_file(iterator->handle);
         fdb_sync_db_header(iterator->handle);
     } else {
         // Snapshot handle exists
         // We don't need to open a new handle.. just point to the snapshot handle.
         iterator->handle = handle;
-        // link new file if wal_tree points to the new file
-        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
-            fdb_link_new_file_enforce(iterator->handle);
-        }
     }
     iterator->hbtrie_iterator = NULL;
     iterator->_key = NULL;

@@ -982,7 +982,6 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
         *seqnum = handle->max_seqnum;
     } else {
         fdb_check_file_reopen(handle, NULL);
-        fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
 
         struct filemgr *file;
@@ -1081,7 +1080,6 @@ fdb_kvs_create_start:
     fdb_check_file_reopen(root_handle, NULL);
     filemgr_mutex_lock(root_handle->file);
     fdb_sync_db_header(root_handle);
-    fdb_link_new_file(root_handle);
 
     if (filemgr_is_rollback_on(root_handle->file)) {
         filemgr_mutex_unlock(root_handle->file);
@@ -1329,7 +1327,6 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     }
 
     fdb_check_file_reopen(root_handle, NULL);
-    fdb_link_new_file(root_handle);
     fdb_sync_db_header(root_handle);
 
     file = root_handle->file;
@@ -1612,7 +1609,6 @@ fdb_kvs_remove_start:
         fdb_check_file_reopen(root_handle, NULL);
         filemgr_mutex_lock(root_handle->file);
         fdb_sync_db_header(root_handle);
-        fdb_link_new_file(root_handle);
 
         if (filemgr_is_rollback_on(root_handle->file)) {
             filemgr_mutex_unlock(root_handle->file);
@@ -1981,7 +1977,6 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
 
     if (!handle->shandle) { // snapshot handle should be immutable
         fdb_check_file_reopen(handle, NULL);
-        fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
     }
 
