@@ -1313,9 +1313,6 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     handle->config.seqtree_opt = seqtree_opt;
     handle->config.multi_kv_instances = multi_kv_instances;
 
-    handle->new_file = NULL;
-    handle->new_dhandle = NULL;
-
     if (handle->shandle && handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
         // Either an in-memory snapshot or cloning from an existing snapshot..
         filemgr_mutex_unlock(handle->file);
@@ -2021,112 +2018,30 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
         uint64_t kv_info_offset, header_flags;
         size_t header_len;
         char *new_filename;
-        char *prev_filename = NULL;
         uint8_t *buf = alca(uint8_t, handle->config.blocksize);
         bid_t trie_root_bid, seq_root_bid;
         fdb_config config = handle->config;
 
-        if (handle->new_file) {
-            // compacted new file is already opened
-            // close the old file
-            filemgr_close(handle->file, handle->config.cleanup_cache_onclose,
-                          handle->filename, &handle->log_callback);
-            // close old docio handle
-            docio_free(handle->dhandle);
-            free(handle->dhandle);
-            // close btree block handle
-            fs = btreeblk_end(handle->bhandle);
-            btreeblk_free(handle->bhandle);
-
-            // switch to new file & docio handle
-            handle->file = handle->new_file;
-            handle->new_file = NULL;
-            handle->dhandle = handle->new_dhandle;
-            handle->new_dhandle = NULL;
-
-            btreeblk_init(handle->bhandle, handle->file, handle->config.blocksize);
-
-            // read new file's header
-            handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
+        // close the current file and newly open the new file
+        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+            // compaction daemon mode .. just close and then open
+            char filename[FDB_MAX_FILENAME_LEN];
+            strcpy(filename, handle->filename);
+            fs = _fdb_close(handle);
+            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
+            fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
+            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
+        } else {
             filemgr_get_header(handle->file, buf, &header_len);
             fdb_fetch_header(buf,
                              &trie_root_bid, &seq_root_bid,
                              &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
                              &kv_info_offset, &header_flags,
-                             &new_filename, &prev_filename);
-
-            // reset trie (id-tree)
-            handle->trie->root_bid = trie_root_bid;
-            handle->trie->btreeblk_handle = handle->bhandle;
-            handle->trie->doc_handle = handle->dhandle;
-
-            // reset seq tree
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (handle->config.multi_kv_instances) {
-                    // multi KV instance mode
-                    handle->seqtrie->root_bid = seq_root_bid;
-                    handle->seqtrie->btreeblk_handle = handle->bhandle;
-                    handle->seqtrie->doc_handle = handle->dhandle;
-                } else {
-                    if (seq_root_bid != BLK_NOT_FOUND) {
-                        btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
-                                            handle->seqtree->blk_ops,
-                                            handle->seqtree->kv_ops,
-                                            handle->config.blocksize,
-                                            seq_root_bid);
-                    } else {
-                        btree_init(handle->seqtree, (void *)handle->bhandle,
-                                   handle->seqtree->blk_ops,
-                                   handle->seqtree->kv_ops,
-                                   handle->config.blocksize,
-                                   sizeof(fdb_seqnum_t),
-                                   OFFSET_SIZE, 0x0, NULL);
-                    }
-                }
-            }
-
-            // the others
-            handle->cur_header_revnum = filemgr_get_header_revnum(handle->file);
-            handle->last_wal_flush_hdr_bid = last_wal_flush_hdr_bid;
-            handle->kv_info_offset = kv_info_offset;
-            handle->dirty_updates = 0;
-
-            if (prev_filename) {
-                free(prev_filename);
-            }
-
-            // note that we don't need to call 'compactor_deregister_file'
-            // because the old file is already removed when compaction is complete.
-            if (!(config.flags & FDB_OPEN_FLAG_RDONLY) &&
-                config.compaction_mode == FDB_COMPACTION_AUTO) {
-                fs = compactor_register_file(handle->file, &config,
-                                             handle->fhandle->cmp_func_list,
-                                             &handle->log_callback);
-            }
-
-        } else {
-            // close the current file and newly open the new file
-            if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-                // compaction daemon mode .. just close and then open
-                char filename[FDB_MAX_FILENAME_LEN];
-                strcpy(filename, handle->filename);
-                fs = _fdb_close(handle);
-                fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
-                fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
-                fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
-
-            } else {
-                filemgr_get_header(handle->file, buf, &header_len);
-                fdb_fetch_header(buf,
-                                 &trie_root_bid, &seq_root_bid,
-                                 &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
-                                 &kv_info_offset, &header_flags,
-                                 &new_filename, NULL);
-                fs = _fdb_close(handle);
-                fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
-                fs = _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
-                fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
-            }
+                             &new_filename, NULL);
+            fs = _fdb_close(handle);
+            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
+            fs = _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
+            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
         }
     }
     if (status) {
@@ -4125,7 +4040,7 @@ fdb_status _fdb_compact_file_checks(fdb_kvs_handle *handle,
 {
     // if the file is already compacted by other thread
     if (filemgr_get_file_status(handle->file) != FILE_NORMAL ||
-        handle->new_file || handle->file->new_file) {
+        handle->file->new_file) {
         // update handle and return
         fdb_check_file_reopen(handle, NULL);
         fdb_sync_db_header(handle);
@@ -5658,8 +5573,6 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
            h->file->in_place_compaction);
     fprintf(stderr, "file: kvs_header: %" _F64 "\n",
             h->file->kv_header->id_counter);
-
-    fprintf(stderr, "new_file: %p\n", (void*)h->new_file);
 
     fprintf(stderr, "docio_handle: %p\n", (void*)h->dhandle);
     fprintf(stderr, "dhandle: file: filename %s\n",

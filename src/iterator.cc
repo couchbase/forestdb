@@ -771,9 +771,6 @@ start:
             // key[hb-trie] is stashed in iterator->_key for future call
             offset = snap_item->offset;
             iterator->status = FDB_ITR_WAL;
-            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                dhandle = iterator->handle->new_dhandle;
-            }
         }
         break;
     }
@@ -926,9 +923,6 @@ start:
             // key[hb-trie] is stashed in iterator->key for next call
             offset = snap_item->offset;
             iterator->status = FDB_ITR_WAL;
-            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                dhandle = iterator->handle->new_dhandle;
-            }
         }
         break;
     }
@@ -1353,11 +1347,7 @@ fetch_hbtrie:
                 iterator->_offset = iterator->_get_offset;
             }
             iterator->_get_offset = snap_item->offset;
-            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                iterator->_dhandle = iterator->handle->new_dhandle;
-            } else {
-                iterator->_dhandle = iterator->handle->dhandle;
-            }
+            iterator->_dhandle = iterator->handle->dhandle;
             // move to next WAL entry
             iterator->tree_cursor = avl_next(iterator->tree_cursor);
             iterator->status = FDB_ITR_WAL;
@@ -1574,9 +1564,6 @@ start_seq:
         iterator->_offset = offset; // WAL is not exhausted, ignore B-Tree
         iterator->_seqnum = snap_item->seqnum;
         iterator->status = FDB_ITR_WAL;
-        if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-            dhandle = iterator->handle->new_dhandle;
-        }
         break;
     }
 
@@ -1767,9 +1754,6 @@ start_seq:
                 iterator->_offset = offset; // stops b-tree lookups. favor wal
                 iterator->_seqnum = snap_item->seqnum;
                 iterator->status = FDB_ITR_WAL;
-                if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                    dhandle = iterator->handle->new_dhandle;
-                }
                 break;
             }
         }
