@@ -414,7 +414,6 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                     memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
                     snap_item->action = wal_item->action;
                     snap_item->offset = wal_item->offset;
-                    snap_item->flag = 0x0;
 
                     // insert into tree
                     avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
@@ -620,7 +619,6 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                         snap_item->seqnum = wal_item->seqnum;
                         snap_item->action = wal_item->action;
                         snap_item->offset = wal_item->offset;
-                        snap_item->flag = 0x0;
 
                         // insert into tree
                         avl_insert(iterator->wal_tree, &snap_item->avl_seq,

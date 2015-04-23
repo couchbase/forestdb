@@ -30,12 +30,10 @@
 extern "C" {
 #endif
 
-#define SNAP_ITEM_IN_NEW_FILE (0x1)
 struct snap_wal_entry {
     void *key;
     fdb_seqnum_t seqnum;
     wal_item_action action;
-    uint8_t flag;
     uint16_t keylen;
     uint64_t offset;
     struct avl_node avl;
