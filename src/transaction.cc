@@ -51,7 +51,6 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         fdb_check_file_reopen(handle, NULL);
         filemgr_mutex_lock(handle->file);
         fdb_sync_db_header(handle);
-        fdb_link_new_file(handle);
 
         if (filemgr_is_rollback_on(handle->file)) {
             // deny beginning transaction during rollback
@@ -120,7 +119,6 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
         file = handle->file;
         filemgr_mutex_lock(file);
         fdb_sync_db_header(handle);
-        fdb_link_new_file(handle);
 
         fstatus = filemgr_get_file_status(file);
         if (fstatus == FILE_REMOVED_PENDING) {
@@ -175,7 +173,6 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
             file = handle->file;
             filemgr_mutex_lock(file);
             fdb_sync_db_header(handle);
-            fdb_link_new_file(handle);
 
             fstatus = filemgr_get_file_status(file);
             if (fstatus == FILE_REMOVED_PENDING) {

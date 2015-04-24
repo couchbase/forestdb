@@ -227,7 +227,6 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         // If compaction is already done before this line,
         // handle->file needs to be replaced with handle->new_file.
         fdb_check_file_reopen(handle, NULL);
-        fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
     }
 
@@ -253,16 +252,11 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         // Since fdb_kvs_open doesn't assign handle->new_file automatically,
         // we need to call these functions again.
         fdb_check_file_reopen(iterator->handle, NULL);
-        fdb_link_new_file(iterator->handle);
         fdb_sync_db_header(iterator->handle);
     } else {
         // Snapshot handle exists
         // We don't need to open a new handle.. just point to the snapshot handle.
         iterator->handle = handle;
-        // link new file if wal_tree points to the new file
-        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
-            fdb_link_new_file_enforce(iterator->handle);
-        }
     }
     iterator->opt = opt;
 
@@ -420,7 +414,6 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                     memcpy(snap_item->key, wal_item_header->key, snap_item->keylen);
                     snap_item->action = wal_item->action;
                     snap_item->offset = wal_item->offset;
-                    snap_item->flag = 0x0;
 
                     // insert into tree
                     avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
@@ -492,7 +485,6 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
         // If compaction is already done before this line,
         // handle->file needs to be replaced with handle->new_file.
         fdb_check_file_reopen(handle, NULL);
-        fdb_link_new_file(handle);
         fdb_sync_db_header(handle);
     }
 
@@ -520,16 +512,11 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
         // Since fdb_kvs_open doesn't assign handle->new_file automatically,
         // we need to call these functions again.
         fdb_check_file_reopen(iterator->handle, NULL);
-        fdb_link_new_file(iterator->handle);
         fdb_sync_db_header(iterator->handle);
     } else {
         // Snapshot handle exists
         // We don't need to open a new handle.. just point to the snapshot handle.
         iterator->handle = handle;
-        // link new file if wal_tree points to the new file
-        if (handle->shandle->type == FDB_SNAP_COMPACTION) {
-            fdb_link_new_file_enforce(iterator->handle);
-        }
     }
     iterator->hbtrie_iterator = NULL;
     iterator->_key = NULL;
@@ -632,7 +619,6 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                         snap_item->seqnum = wal_item->seqnum;
                         snap_item->action = wal_item->action;
                         snap_item->offset = wal_item->offset;
-                        snap_item->flag = 0x0;
 
                         // insert into tree
                         avl_insert(iterator->wal_tree, &snap_item->avl_seq,
@@ -783,9 +769,6 @@ start:
             // key[hb-trie] is stashed in iterator->_key for future call
             offset = snap_item->offset;
             iterator->status = FDB_ITR_WAL;
-            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                dhandle = iterator->handle->new_dhandle;
-            }
         }
         break;
     }
@@ -938,9 +921,6 @@ start:
             // key[hb-trie] is stashed in iterator->key for next call
             offset = snap_item->offset;
             iterator->status = FDB_ITR_WAL;
-            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                dhandle = iterator->handle->new_dhandle;
-            }
         }
         break;
     }
@@ -1365,11 +1345,7 @@ fetch_hbtrie:
                 iterator->_offset = iterator->_get_offset;
             }
             iterator->_get_offset = snap_item->offset;
-            if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                iterator->_dhandle = iterator->handle->new_dhandle;
-            } else {
-                iterator->_dhandle = iterator->handle->dhandle;
-            }
+            iterator->_dhandle = iterator->handle->dhandle;
             // move to next WAL entry
             iterator->tree_cursor = avl_next(iterator->tree_cursor);
             iterator->status = FDB_ITR_WAL;
@@ -1586,9 +1562,6 @@ start_seq:
         iterator->_offset = offset; // WAL is not exhausted, ignore B-Tree
         iterator->_seqnum = snap_item->seqnum;
         iterator->status = FDB_ITR_WAL;
-        if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-            dhandle = iterator->handle->new_dhandle;
-        }
         break;
     }
 
@@ -1779,9 +1752,6 @@ start_seq:
                 iterator->_offset = offset; // stops b-tree lookups. favor wal
                 iterator->_seqnum = snap_item->seqnum;
                 iterator->status = FDB_ITR_WAL;
-                if (snap_item->flag & SNAP_ITEM_IN_NEW_FILE) {
-                    dhandle = iterator->handle->new_dhandle;
-                }
                 break;
             }
         }

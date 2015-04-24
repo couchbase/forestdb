@@ -31,6 +31,7 @@ static const char E2EKV_INDEX2[] = "e2ekv_index2";
 static const char E2EKV_RECORDS[] = "e2ekv_rtx";
 static const char E2EKV_CHECKPOINTS[] = "e2ekv_chk";
 static const char RECORD_DOCKEY[] = "e2edoc_records";
+static const int KEYSPACE_LEN = 6;
 
 typedef uint16_t tx_type_t;
 enum {
@@ -48,6 +49,7 @@ typedef struct {
     char city[256];
     char state[256];
     char desc[1024];
+    char keyspace[KEYSPACE_LEN];
     int age;
 }person_t;
 
@@ -88,6 +90,8 @@ typedef struct {
     fdb_kvs_handle *chk;
     checkpoint_t *v_chk;
     idx_prams_t *index_params;
+
+    char keyspace[KEYSPACE_LEN];
     bool walflush;
 
 }storage_t;

@@ -204,17 +204,9 @@ struct _fdb_kvs_handle {
      */
     struct filemgr *file;
     /**
-     * New file manager instance created during compaction.
-     */
-    struct filemgr *new_file;
-    /**
      * Doc IO handle instance.
      */
     struct docio_handle *dhandle;
-    /**
-     * New doc IO handle instance created during compaction.
-     */
-    struct docio_handle *new_dhandle;
     /**
      * B+-Tree handle instance.
      */
