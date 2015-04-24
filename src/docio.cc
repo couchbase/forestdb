@@ -473,19 +473,6 @@ bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset)
     return ret_offset;
 }
 
-bid_t docio_append_doc_compact(struct docio_handle *handle, struct docio_object *doc,
-                               uint8_t deleted, uint8_t txn_enabled)
-{
-    doc->length.flag = DOCIO_COMPACT;
-    if (deleted) {
-        doc->length.flag |= DOCIO_DELETED;
-    }
-    if (txn_enabled) {
-        doc->length.flag |= DOCIO_TXN_DIRTY;
-    }
-    return _docio_append_doc(handle, doc);
-}
-
 bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
                        uint8_t deleted, uint8_t txn_enabled)
 {
@@ -1200,12 +1187,4 @@ int docio_check_buffer(struct docio_handle *handle, bid_t bid)
     _docio_read_through_buffer(handle, bid, log_callback);
     return _docio_check_buffer(handle);
 }
-
-int docio_check_compact_doc(struct docio_handle *handle,
-                            struct docio_object *doc)
-{
-    if (doc->length.flag & DOCIO_COMPACT) return 1;
-    else return 0;
-}
-
 

@@ -398,25 +398,16 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     handle->dhandle->log_callback = log_callback;
 }
 
-// restore the documents in NEW_FILENAME (corrupted file during compaction)
-// into the file referred by HANDLE
 INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
                                           const char *new_filename)
 {
-    uint64_t offset = 0;
-    uint32_t blocksize = handle->config.blocksize;
     fdb_kvs_handle new_db;
     fdb_config config = handle->config;
     struct filemgr *new_file;
-    struct docio_handle dhandle;
 
     memset(&new_db, 0, sizeof(new_db));
     new_db.log_callback.callback = handle->log_callback.callback;
     new_db.log_callback.ctx_data = handle->log_callback.ctx_data;
-    // Disable the error logging callback as there are false positive
-    // checksum errors in docio_read_doc.
-    // TODO: Need to adapt docio_read_doc to separate false checksum errors.
-    dhandle.log_callback = NULL;
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     new_db.fhandle = handle->fhandle;
     new_db.kvs_config = handle->kvs_config;
@@ -487,98 +478,10 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
         free(new_db.filename);
         return FDB_RESULT_FAIL_BY_COMPACTION;
     }
-    docio_init(&dhandle, new_file, config.compress_document_body);
 
-    for (offset = 0; offset < filemgr_get_pos(new_file);
-        offset = ((offset/blocksize)+1) * blocksize) {
-
-        if (!docio_check_buffer(&dhandle, offset/blocksize)) {
-            // this block is not for documents
-            continue;
-
-        } else {
-            do {
-                struct docio_object doc;
-                uint64_t _offset;
-                uint64_t doc_offset;
-                memset(&doc, 0, sizeof(doc));
-                _offset = docio_read_doc(&dhandle, offset, &doc);
-                if ((doc.key || (doc.length.flag & DOCIO_TXN_COMMITTED)) &&
-                    docio_check_compact_doc(&dhandle, &doc)) {
-                    // Check if the doc is transactional or contains system info.
-                    if (!(doc.length.flag & DOCIO_TXN_DIRTY) &&
-                        !(doc.length.flag & DOCIO_SYSTEM)) {
-                        if (doc.length.flag & DOCIO_TXN_COMMITTED) {
-                            // commit mark .. read doc offset
-                            doc_offset = doc.doc_offset;
-                            // read the previously skipped doc
-                            docio_read_doc(handle->dhandle, doc_offset, &doc);
-                            if (doc.key == NULL) {
-                                // doc read error
-                                if (doc.key) free(doc.key);
-                                if (doc.meta) free(doc.meta);
-                                if (doc.body) free(doc.body);
-                                offset = _offset;
-                                continue;
-                            }
-                        }
-
-                        // this document was interleaved during compaction
-                        fdb_doc wal_doc;
-                        wal_doc.keylen = doc.length.keylen;
-                        wal_doc.metalen = doc.length.metalen;
-                        wal_doc.bodylen = doc.length.bodylen;
-                        wal_doc.key = doc.key;
-                        wal_doc.seqnum = doc.seqnum;
-
-                        wal_doc.meta = doc.meta;
-                        wal_doc.body = doc.body;
-                        wal_doc.deleted = doc.length.flag & DOCIO_DELETED;
-
-                        fdb_set(handle, &wal_doc);
-
-                        free(doc.key);
-                        free(doc.meta);
-                        free(doc.body);
-                        offset = _offset;
-                    } else {
-                        if (doc.length.flag & DOCIO_SYSTEM) {
-                            // KV instances header
-                            // free existing KV header of handle->file
-                            if (handle->file->kv_header) {
-                                handle->file->free_kv_header(handle->file);
-                            }
-                            fdb_kvs_header_create(handle->file);
-                            // read from 'dhandle' (new file),
-                            // and import into 'handle->file' (old_file)
-                            fdb_kvs_header_read(handle->file, &dhandle, offset);
-                            // write KV header in 'handle->file'
-                            // using 'handle->dhandle'
-                            fdb_kvs_header_append(handle->file, handle->dhandle);
-                        }
-                        // otherwise, skip but do not break.. read next doc
-                        free(doc.key);
-                        free(doc.meta);
-                        free(doc.body);
-                        offset = _offset;
-                    }
-                } else {
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    offset = _offset;
-                    break;
-                }
-            } while (offset + sizeof(struct docio_length) < filemgr_get_pos(new_file));
-        }
-    }
-
-    docio_free(&dhandle);
-    if (new_db.kvs) {
-        fdb_kvs_info_free(&new_db);
-    }
+    // As the new file is partially compacted, it should be removed upon close.
+    filemgr_remove_pending(new_db.file, NULL);
     _fdb_close(&new_db);
-    _fdb_commit(handle, FDB_COMMIT_NORMAL);
 
     return FDB_RESULT_SUCCESS;
 }
