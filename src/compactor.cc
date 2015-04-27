@@ -376,7 +376,7 @@ void * compactor_thread(void *voidargs)
                                             elem->cmp_func_list);
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(filename, new_filename);
-                    fdb_compact_file(fhandle, new_filename, false);
+                    fdb_compact_file(fhandle, new_filename, false, (bid_t) -1);
 
                     spin_lock(&cpt_lock);
                     a = avl_next(target_cursor);

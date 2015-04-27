@@ -268,6 +268,8 @@ INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
             file->header.dirty_seqtree_root.val != BLK_NOT_FOUND);
 }
 
+bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);
+
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,
                    struct kvs_stat stat);

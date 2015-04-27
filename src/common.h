@@ -65,17 +65,15 @@ typedef uint8_t file_status_t;
 enum{
     // No compaction now or before or in progress
     FILE_NORMAL = 0,
-    // fdb_compact_upto() begun but not reached latest header - use old_file
-    FILE_COMPACT_INPROG = 1,
     // fdb_compact has begun - switch to using the new_file for new fdb_set()s
-    FILE_COMPACT_OLD = 2,
+    FILE_COMPACT_OLD = 1,
     // this is a new file in the compaction process
-    FILE_COMPACT_NEW = 3,
+    FILE_COMPACT_NEW = 2,
     // all open handles on the file has been closed
-    FILE_CLOSED = 4,
+    FILE_CLOSED = 3,
     // compaction completed successfully, and file needs to be removed once all
     // open handles refering to this file are closed or switched to new_file
-    FILE_REMOVED_PENDING = 5,
+    FILE_REMOVED_PENDING = 4,
 };
 
 #define BLK_MARKER_BNODE (0xff)
