@@ -152,7 +152,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             fdb_assert(begin == handle->curblock + 1, begin, handle->curblock+1);
 
             fs = _add_blk_marker(handle->file, handle->curblock, blocksize,
-                                 marker, log_callback)
+                                 marker, log_callback);
             if (fs != FDB_RESULT_SUCCESS) {
                 fdb_log(log_callback, fs,
                         "Error in appending a doc block marker for a block id %" _F64
