@@ -3177,10 +3177,70 @@ void iterator_concurrent_compaction()
     TEST_RESULT("iterator with concurrent compaction test");
 }
 
+void iterator_and_create_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, j, r, n = 100;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle  *kv;
+    char keybuf[256], bodybuf[256];
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc = NULL;
+    fdb_iterator *it;
+
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // open db
+    fdb_open(&dbfile, "./iterator_test", &fconfig);
+    fdb_kvs_open(dbfile, &kv, "all_docs",  &kvs_config);
+
+    for (j=0;j<n*10;++j){
+
+        // insert docs to kv
+        for (i=0;i<n;++i){
+            sprintf(keybuf, "key%04d%03d", j, i);
+            sprintf(bodybuf, "body%04d%03d", j, i);
+            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf), NULL, 0,
+                           (void*)bodybuf, strlen(bodybuf));
+            fdb_set(kv, doc[i]);
+        }
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+        // iterate over entire kv
+        fdb_iterator_init(kv, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
+        do {
+            fdb_iterator_get(it, &rdoc);
+            fdb_doc_free(rdoc);
+            rdoc=NULL;
+        } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
+        fdb_iterator_close(it);
+
+        for (i=0;i<n;++i){
+            fdb_doc_free(doc[i]);
+        }
+    }
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("iterator and create test");
+}
+
 int main(){
     int i, j;
 
     iterator_test();
+    iterator_and_create_test();
     iterator_with_concurrent_updates_test();
     iterator_compact_uncommitted_db();
     iterator_seek_test();
