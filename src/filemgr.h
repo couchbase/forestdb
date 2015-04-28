@@ -77,6 +77,7 @@ struct filemgr_header{
     atomic_uint64_t bid;
     atomic_uint64_t dirty_idtree_root; // for wal_flush_before_commit option
     atomic_uint64_t dirty_seqtree_root; // for wal_flush_before_commit option
+    struct kvs_ops_stat op_stat; // op stats for default KVS
     struct kvs_stat stat; // stats for the default KVS
     void *data;
 };
@@ -222,6 +223,10 @@ void filemgr_set_compaction_state(struct filemgr *old_file,
                                   struct filemgr *new_file,
                                   file_status_t status);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
+
+struct kvs_ops_stat *filemgr_migrate_op_stats(struct filemgr *old_file,
+                                              struct filemgr *new_file,
+                                              struct kvs_info *kvs);
 fdb_status filemgr_destroy_file(char *filename,
                                 struct filemgr_config *config,
                                 struct hash *destroy_set);
@@ -287,6 +292,15 @@ int _kvs_stat_get(struct filemgr *file,
                   struct kvs_stat *stat);
 uint64_t _kvs_stat_get_sum(struct filemgr *file,
                            kvs_stat_attr_t attr);
+int _kvs_ops_stat_get_kv_header(struct kvs_header *kv_header,
+                                fdb_kvs_id_t kv_id,
+                                struct kvs_ops_stat *stat);
+int _kvs_ops_stat_get(struct filemgr *file,
+                      fdb_kvs_id_t kv_id,
+                      struct kvs_ops_stat *stat);
+
+struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
+                                          struct kvs_info *info);
 
 #ifdef __cplusplus
 }

@@ -1468,6 +1468,10 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
     }
 
+    // initialize pointer to the global operational stats of this KV store
+    handle->op_stats = filemgr_get_ops_stats(handle->file, handle->kvs);
+    fdb_assert(handle->op_stats, 0, 0);
+
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
     hbtrie_init(handle->trie, config->chunksize, OFFSET_SIZE,
                 handle->file->blocksize, trie_root_bid,
@@ -2064,6 +2068,8 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         dhandle = handle->dhandle;
     }
 
+    atomic_incr_uint64_t(&handle->op_stats->num_gets);
+
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = _fdb_sync_dirty_root(handle);
 
@@ -2186,6 +2192,8 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         dhandle = handle->dhandle;
     }
 
+    atomic_incr_uint64_t(&handle->op_stats->num_gets);
+
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = _fdb_sync_dirty_root(handle);
 
@@ -2293,6 +2301,8 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         wr = snap_find(handle->shandle, doc, &offset);
         dhandle = handle->dhandle;
     }
+
+    atomic_incr_uint64_t(&handle->op_stats->num_gets);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = _fdb_sync_dirty_root(handle);
@@ -2433,6 +2443,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         dhandle = handle->dhandle;
     }
 
+    atomic_incr_uint64_t(&handle->op_stats->num_gets);
+
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         bool locked = _fdb_sync_dirty_root(handle);
 
@@ -2557,6 +2569,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
         return FDB_RESULT_HANDLE_BUSY;
     }
 
+    atomic_incr_uint64_t(&handle->op_stats->num_gets);
     memset(&_doc, 0, sizeof(struct docio_object));
 
     uint64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc);
@@ -2824,6 +2837,10 @@ fdb_set_start:
 
     filemgr_mutex_unlock(file);
 
+    if (!doc->deleted) {
+        atomic_incr_uint64_t(&handle->op_stats->num_sets);
+    }
+
     if (wal_flushed && handle->config.auto_commit) {
         fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
         return fdb_commit(handle->fhandle, FDB_COMMIT_NORMAL);
@@ -2853,6 +2870,9 @@ fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
     _doc = *doc;
     _doc.bodylen = 0;
     _doc.body = NULL;
+
+    atomic_incr_uint64_t(&handle->op_stats->num_dels);
+
     return fdb_set(handle, &_doc);
 }
 
@@ -3197,6 +3217,7 @@ fdb_commit_start:
     handle->dirty_updates = 0;
     filemgr_mutex_unlock(handle->file);
 
+    atomic_incr_uint64_t(&handle->op_stats->num_commits);
     return fs;
 }
 
@@ -3298,6 +3319,11 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     // Note that a file deletion will be pended until there is no handle
     // referring the file.
     filemgr_remove_pending(old_file, new_file);
+    // Migrate the operational statistics to the new_file, because
+    // from this point onward all callers will re-open new_file
+    handle->op_stats = filemgr_migrate_op_stats(old_file, new_file, handle->kvs);
+    fdb_assert(handle->op_stats, 0, 0);
+
     // This mutex was acquired by the caller (i.e., _fdb_compact_file()).
     filemgr_mutex_unlock(old_file);
 
@@ -3306,6 +3332,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
 
     filemgr_mutex_unlock(new_file);
+
+    atomic_incr_uint64_t(&handle->op_stats->num_compacts);
     return status;
 }
 

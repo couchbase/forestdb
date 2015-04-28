@@ -988,6 +988,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
         return FDB_RESULT_HANDLE_BUSY;
     }
 
+    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves);
+
     if (iterator->handle->kvs) {
         seek_keylen_kv = seek_keylen + size_chunk;
         seek_key_kv = alca(uint8_t, seek_keylen_kv);
@@ -1885,6 +1887,7 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
     }
 
     fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0), 1, 0);
+    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves);
     return result;
 }
 
@@ -1927,6 +1930,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
     }
 
     fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0), 1, 0);
+    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves);
     return result;
 }
 
@@ -2024,6 +2028,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     (*doc)->offset = offset;
 
     fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0), 1, 0);
+    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets);
     return ret;
 }
 
@@ -2112,6 +2117,7 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 
     fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
                1, 0);
+    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets);
     return ret;
 }
 

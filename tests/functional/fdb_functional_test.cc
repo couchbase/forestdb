@@ -1074,6 +1074,159 @@ void db_destroy_test()
     TEST_RESULT("Database destroy test");
 }
 
+
+void operational_stats_test(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    int num_kv = 4;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle*, num_kv);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc real_doc;
+    fdb_doc *rdoc = &real_doc;
+    fdb_status status;
+    fdb_iterator *iterator;
+    fdb_kvs_ops_info info, rinfo;
+
+    char keybuf[256], bodybuf[256];
+    memset(&info, 0, sizeof(fdb_kvs_ops_info));
+    memset(&real_doc, 0, sizeof(fdb_doc));
+    real_doc.key = &keybuf;
+    real_doc.body = &bodybuf;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
+    r = 0;
+
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    if (multi_kv) {
+        num_kv = 4;
+        for (r = num_kv - 1; r >= 0; --r) {
+            char tmp[16];
+            sprintf(tmp, "kv%d", r);
+            status = fdb_kvs_open(dbfile, &db[r], tmp, &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                          (void *) "operational_stats_test");
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    } else {
+        num_kv = 1;
+        status = fdb_kvs_open_default(dbfile, &db[r], &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                (void *) "operational_stats_test");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    for (i = 0; i < n; ++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf) + 1, NULL, 0,
+            (void*)bodybuf, strlen(bodybuf)+1);
+        for (r = num_kv - 1; r >= 0; --r) {
+            status = fdb_set(db[r], doc[i]);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_get_kvs_ops_info(db[r], &rinfo);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            info.num_sets = i + 1;
+            TEST_CMP(&rinfo, &info, sizeof(fdb_kvs_ops_info));
+        }
+    }
+
+    for (r = num_kv - 1; r >= 0; --r) {
+        // range scan (before flushing WAL)
+        fdb_iterator_init(db[r], &iterator, NULL, 0, NULL, 0, 0x0);
+        i = 0;
+        do {
+            status = fdb_iterator_get(iterator, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+            status = fdb_get_kvs_ops_info(db[r], &rinfo);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            ++info.num_iterator_gets;
+            ++info.num_iterator_moves;
+            TEST_CMP(&rinfo, &info, sizeof(fdb_kvs_ops_info));
+            ++i;
+        } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+        ++info.num_iterator_moves; // account for the last move that failed
+        fdb_iterator_close(iterator);
+
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        ++info.num_commits;
+
+        status = fdb_get_kvs_ops_info(db[r], &rinfo);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(&rinfo, &info, sizeof(fdb_kvs_ops_info));
+
+        if (r) {
+            info.num_iterator_gets = 0;
+            info.num_iterator_moves = 0;
+        }
+    }
+
+    ++info.num_compacts;
+    // do compaction
+    fdb_compact(dbfile, (char *) "./dummy2");
+
+    status = fdb_get_kvs_ops_info(db[0], &rinfo);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(&rinfo, &info, sizeof(fdb_kvs_ops_info));
+
+    for (i = 0; i < n; ++i){
+        sprintf(keybuf, "key%d", i);
+        for (r = num_kv - 1; r >= 0; --r) {
+            if (i % 2 == 0) {
+                if (i % 4 == 0) {
+                    status = fdb_get_metaonly(db[r], rdoc);
+                } else {
+                    rdoc->seqnum = i + 1;
+                    status = fdb_get_byseq(db[r], rdoc);
+                }
+            } else {
+                status = fdb_get(db[r], rdoc);
+            }
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_get_kvs_ops_info(db[r], &rinfo);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            info.num_gets = i + 1;
+            TEST_CMP(&rinfo, &info, sizeof(fdb_kvs_ops_info));
+        }
+    }
+
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf,"Operational stats test %s", multi_kv ?
+            "multiple kv instances" : "single kv instance");
+    TEST_RESULT(bodybuf);
+}
+
 struct work_thread_args{
     int tid;
     size_t nthreads;
@@ -1541,8 +1694,6 @@ void *multi_thread_kvs_client(void *args)
     return NULL;
 }
 
-
-
 void incomplete_block_test()
 {
     TEST_INIT();
@@ -1619,7 +1770,6 @@ void incomplete_block_test()
 
     TEST_RESULT("incomplete block test");
 }
-
 
 
 static int _cmp_double(void *key1, size_t keylen1, void *key2, size_t keylen2)
@@ -1942,7 +2092,6 @@ void custom_compare_variable_test()
 
     TEST_RESULT("custom compare function for variable length key test");
 }
-
 
 
 void doc_compression_test()
@@ -2360,8 +2509,6 @@ void purge_logically_deleted_doc_test()
     TEST_RESULT("purge logically deleted doc test");
 }
 
-
-
 void api_wrapper_test()
 {
     TEST_INIT();
@@ -2453,7 +2600,6 @@ void api_wrapper_test()
 
     TEST_RESULT("API wrapper test");
 }
-
 
 
 void flush_before_commit_test()
@@ -3280,6 +3426,7 @@ void open_multi_files_kvs_test()
 
     fdb_shutdown();
     memleak_end();
+
     TEST_RESULT("open multi files kvs test");
 }
 
@@ -3313,6 +3460,8 @@ int main(){
     multi_thread_client_shutdown(NULL);
     multi_thread_kvs_client(NULL);
     purge_logically_deleted_doc_test();
+    operational_stats_test(false);
+    operational_stats_test(true);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
     open_multi_files_kvs_test();
 

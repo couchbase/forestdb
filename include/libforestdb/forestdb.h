@@ -657,6 +657,16 @@ LIBFDB_API
 fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info);
 
 /**
+ * Return the information about operational counters in a ForestDB KV store.
+ *
+ * @param handle Pointer to ForestDB KV store handle.
+ * @param info Pointer to KV Store Ops Info instance.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info);
+
+/**
  * Get the current sequence number of a ForestDB KV store instance.
  *
  * @param handle Pointer to ForestDB KV store handle.

@@ -514,6 +514,40 @@ typedef struct {
 } fdb_kvs_info;
 
 /**
+ * Information about a ForestDB KV store's operational counters
+ */
+typedef struct {
+    /**
+     * Number of fdb_set operations.
+     */
+    uint64_t num_sets;
+    /**
+     * Number of fdb_del operations.
+     */
+    uint64_t num_dels;
+    /**
+     * Number of fdb_commit operations.
+     */
+    uint64_t num_commits;
+    /**
+     * Number of fdb_compact operations on underlying file.
+     */
+    uint64_t num_compacts;
+    /**
+     * Number of fdb_get* (includes metaonly, byseq etc) operations.
+     */
+    uint64_t num_gets;
+    /**
+     * Number of fdb_iterator_get* (includes meta_only) operations.
+     */
+    uint64_t num_iterator_gets;
+    /**
+     * Number of fdb_iterator_moves (includes next,prev,seek) operations.
+     */
+    uint64_t num_iterator_moves;
+} fdb_kvs_ops_info;
+
+/**
  * List of ForestDB KV store names
  */
 typedef struct {

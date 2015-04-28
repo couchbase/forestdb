@@ -560,6 +560,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         node_new = _get_entry(aa, struct kvs_node, avl_id);
         node_new->custom_cmp = node_old->custom_cmp;
         node_new->seqnum = node_old->seqnum;
+        node_new->op_stat = node_old->op_stat;
         a = avl_next(a);
     }
     spin_unlock(&new_file->kv_header->lock);
@@ -2064,6 +2065,54 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
 }
 
 LIBFDB_API
+fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
+{
+    fdb_kvs_id_t kv_id;
+    struct filemgr *file;
+    struct kvs_ops_stat stat;
+    struct kvs_ops_stat root_stat;
+    fdb_kvs_handle *root_handle = handle->fhandle->root;
+
+    if (!handle || !info) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    // for snapshot handle do not reopen new file as user is interested in
+    // reader stats from the old file
+    if (!handle->shandle) {
+        // always get stats from the latest file
+        fdb_check_file_reopen(handle, NULL);
+        fdb_sync_db_header(handle);
+    }
+
+    file = handle->file;
+
+    if (handle->kvs == NULL) {
+        kv_id = 0;
+    } else {
+        kv_id = handle->kvs->id;
+    }
+
+    _kvs_ops_stat_get(file, kv_id, &stat);
+
+    if (root_handle != handle) {
+        _kvs_ops_stat_get(file, 0, &root_stat);
+    } else {
+        root_stat = stat;
+    }
+
+    info->num_sets = stat.num_sets.val;
+    info->num_dels = stat.num_dels.val;
+    info->num_gets = stat.num_gets.val;
+    info->num_iterator_gets = stat.num_iterator_gets.val;
+    info->num_iterator_gets = stat.num_iterator_gets.val;
+    info->num_iterator_moves = stat.num_iterator_moves.val;
+
+    info->num_commits = root_stat.num_commits.val;
+    info->num_compacts = root_stat.num_compacts.val;
+    return FDB_RESULT_SUCCESS;
+}
+
 fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
                                  fdb_kvs_name_list *kvs_name_list)
 {

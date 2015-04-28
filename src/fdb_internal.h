@@ -28,39 +28,6 @@
 extern "C" {
 #endif
 
-// global KV store header for each file
-struct kvs_header {
-    fdb_kvs_id_t id_counter;    // increasing counter for KV store ID
-    fdb_custom_cmp_variable default_kvs_cmp;
-    struct avl_tree *idx_name;
-    struct avl_tree *idx_id;
-    uint8_t custom_cmp_enabled;
-    spin_t lock;
-};
-
-// mapping data for each KV store
-// (global & permanent data: written into DB file)
-#define KVS_FLAG_CUSTOM_CMP (0x1)
-struct kvs_node {
-    char *kvs_name;
-    fdb_kvs_id_t id;
-    fdb_seqnum_t seqnum;
-    uint64_t flags;
-    fdb_custom_cmp_variable custom_cmp; // in-memory attribute
-    struct kvs_stat stat;
-    struct avl_node avl_name;
-    struct avl_node avl_id;
-};
-
-typedef enum {
-    FDB_VFILENAME = 0,
-    FDB_AFILENAME = 1,
-} fdb_filename_mode_t;
-
-#define FDB_FLAG_SEQTREE_USE (0x1)
-#define FDB_FLAG_ROOT_INITIALIZED (0x2)
-#define FDB_FLAG_ROOT_CUSTOM_CMP (0x4)
-
 void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id);
 void kvid2buf(size_t chunksize, fdb_kvs_id_t id, void *buf);
 void buf2buf(size_t chunksize_src, void *buf_src,

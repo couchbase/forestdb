@@ -22,6 +22,7 @@
 
 #include "libforestdb/fdb_types.h"
 #include "common.h"
+#include "atomic.h"
 #include "avltree.h"
 #include "atomic.h"
 
@@ -124,6 +125,40 @@ struct kvs_stat {
     uint64_t wal_ndeletes;
 };
 
+/**
+ * Atomic counters of operational statistics in ForestDB KV store.
+ */
+struct kvs_ops_stat {
+    /**
+     * Number of fdb_set operations.
+     */
+    atomic_uint64_t num_sets;
+    /**
+     * Number of fdb_del operations.
+     */
+    atomic_uint64_t num_dels;
+    /**
+     * Number of fdb_commit operations.
+     */
+    atomic_uint64_t num_commits;
+    /**
+     * Number of fdb_compact operations on underlying file.
+     */
+    atomic_uint64_t num_compacts;
+    /**
+     * Number of fdb_get* (includes metaonly, byseq etc) operations.
+     */
+    atomic_uint64_t num_gets;
+    /**
+     * Number of fdb_iterator_get* (includes meta_only) operations.
+     */
+    atomic_uint64_t num_iterator_gets;
+    /**
+     * Number of fdb_iterator_moves (includes next,prev,seek) operations.
+     */
+    atomic_uint64_t num_iterator_moves;
+};
+
 #define FHANDLE_ROOT_OPENED (0x1)
 #define FHANDLE_ROOT_INITIALIZED (0x2)
 #define FHANDLE_ROOT_CUSTOM_CMP (0x4)
@@ -180,6 +215,10 @@ struct _fdb_kvs_handle {
      * KV store information. (Please retain as second struct member)
      */
     struct kvs_info *kvs;
+    /**
+     * Operational statistics for this kv store.
+     */
+    struct kvs_ops_stat *op_stats;
     /**
      * Pointer to the corresponding file handle.
      */
@@ -449,6 +488,96 @@ struct _fdb_transaction {
      */
     struct wal_txn_wrapper *wrapper;
 };
+
+/* Global KV store header for each file
+ */
+struct kvs_header {
+    /**
+     * Monotonically increasing counter to generate KV store IDs.
+     */
+    fdb_kvs_id_t id_counter;
+    /**
+     * The custom comparison function if set by user.
+     */
+    fdb_custom_cmp_variable default_kvs_cmp;
+    /**
+     * A tree linking all KV stores in a file by their KV store name.
+     */
+    struct avl_tree *idx_name;
+    /**
+     * A tree linking all KV stores in file by their ID.
+     */
+    struct avl_tree *idx_id;
+    /**
+     * Boolean to determine if custom compare function for a KV store is set.
+     */
+    uint8_t custom_cmp_enabled;
+    /**
+     * lock to protect access to the idx_name and idx_id trees above
+     */
+    spin_t lock;
+};
+
+/** Mapping data for each KV store in DB file.
+ * (global & most fields are persisted in the DB file)
+ */
+#define KVS_FLAG_CUSTOM_CMP (0x1)
+struct kvs_node {
+    /**
+     * Name of the KV store as given by user.
+     */
+    char *kvs_name;
+    /**
+     * Unique KV Store ID generated and permanently assigned.
+     */
+    fdb_kvs_id_t id;
+    /**
+     * Highest sequence number seen in this KV store.
+     */
+    fdb_seqnum_t seqnum;
+    /**
+     * Flags indicating various states of the KV store.
+     */
+    uint64_t flags;
+    /**
+     * Custom compare function set by user (in-memory only).
+     */
+    fdb_custom_cmp_variable custom_cmp;
+    /**
+     * Operational CRUD statistics for this KV store (in-memory only).
+     */
+    struct kvs_ops_stat op_stat;
+    /**
+     * Persisted KV store statistics.
+     */
+    struct kvs_stat stat;
+    /**
+     * Link to the global list of KV stores indexed by store name.
+     */
+    struct avl_node avl_name;
+    /**
+     * Link to the global list of KV stores indexed by store ID.
+     */
+    struct avl_node avl_id;
+};
+
+/**
+ * Type of filename in use.
+ */
+typedef enum {
+    /**
+     * Filename used is a virtual filename (typically in auto compaction).
+     */
+    FDB_VFILENAME = 0,
+    /**
+     * Filename used is the actual filename (typically in manual compaction).
+     */
+    FDB_AFILENAME = 1,
+} fdb_filename_mode_t;
+
+#define FDB_FLAG_SEQTREE_USE (0x1)
+#define FDB_FLAG_ROOT_INITIALIZED (0x2)
+#define FDB_FLAG_ROOT_CUSTOM_CMP (0x4)
 
 #ifdef __cplusplus
 }
