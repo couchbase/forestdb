@@ -207,8 +207,8 @@ void verify_db(storage_t *st){
 #ifdef __DEBUG_E2E
     printf("[%s] db_ndix(%d) == exp_nidx(%d)\n", st->keyspace, db_nidx, exp_nidx);
 #endif
-    //TEST_CHK(db_nidx==exp_nidx);
-    //TEST_CHK(db_suma==exp_suma);
+    TEST_CHK(db_nidx==exp_nidx);
+    TEST_CHK(db_suma==exp_suma);
 
     sprintf(rbuf, "[%s] verifydb: ndocs(%d=%d), nidx(%d=%d), sumage(%d=%d)\n",
             st->keyspace,
