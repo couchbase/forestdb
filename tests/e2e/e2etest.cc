@@ -163,7 +163,6 @@ void verify_db(storage_t *st){
     TEST_INIT();
 
     checkpoint_t *db_checkpoint = create_checkpoint(st, END_CHECKPOINT);
-    int val1, val2;
     int db_ndocs = db_checkpoint->ndocs;
     int exp_ndocs = st->v_chk->ndocs;
     int exp_nidx = st->v_chk->num_indexed;
@@ -171,14 +170,16 @@ void verify_db(storage_t *st){
     int db_suma = db_checkpoint->sum_age_indexed;
     int exp_suma = st->v_chk->sum_age_indexed;
     fdb_kvs_info info;
-    fdb_iterator *it;
-    fdb_doc *rdoc = NULL;
     char rbuf[256];
 
     e2e_fdb_commit(st->main, st->walflush);
 
     fdb_get_kvs_info(st->index1, &info);
 
+#ifdef __DEBUG_E2E
+    int val1, val2;
+    fdb_iterator *it;
+    fdb_doc *rdoc = NULL;
     if (db_ndocs != exp_ndocs){
         // for debugging: currently inaccurate for concurrency patterns
         fdb_get_kvs_info(st->all_docs, &info);
@@ -195,18 +196,15 @@ void verify_db(storage_t *st){
             fdb_doc_free(rdoc);
             rdoc=NULL;
         } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
-#ifdef __DEBUG_E2E
         printf("ndocs_debug: kvs_info(%d) == exp_ndocs(%d) ?\n", val1,exp_ndocs);
         printf("ndocs_debug: kvs_info(%d) == itr_count(%d) ?\n", val1, val2);
-#endif
         fdb_iterator_close(it);
     }
+    printf("[%s] db_ndix(%d) == exp_nidx(%d)\n", st->keyspace, db_nidx, exp_nidx);
+#endif
 
     free(db_checkpoint);
     db_checkpoint=NULL;
-#ifdef __DEBUG_E2E
-    printf("[%s] db_ndix(%d) == exp_nidx(%d)\n", st->keyspace, db_nidx, exp_nidx);
-#endif
     TEST_CHK(db_nidx==exp_nidx);
     TEST_CHK(db_suma==exp_suma);
 
