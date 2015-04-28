@@ -96,7 +96,7 @@ void update_index(storage_t *st, bool checkpointing){
     TEST_INIT();
 
     fdb_iterator *it;
-    person_t *p;
+    person_t *p = NULL;
     fdb_doc *rdoc = NULL;
     fdb_status status;
     int n = 0;
