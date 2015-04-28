@@ -1998,6 +1998,14 @@ void filemgr_set_dirty_root(struct filemgr *file,
     atomic_store_uint64_t(&file->header.dirty_seqtree_root, dirty_seqtree_root);
 }
 
+bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
+{
+    uint8_t marker[BLK_MARKER_SIZE];
+    marker[0] = *(((uint8_t *)head_buffer)
+                 + blocksize - BLK_MARKER_SIZE);
+    return (marker[0] == BLK_MARKER_DBHEADER);
+}
+
 static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct kvs_node *aa, *bb;

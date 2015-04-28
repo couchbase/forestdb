@@ -537,7 +537,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         fdb_kvs_header_create(new_file);
         // read from 'handle->dhandle', and import into 'new_file'
         fdb_kvs_header_read(new_file, handle->dhandle,
-                               handle->kv_info_offset);
+                            handle->kv_info_offset, false);
         // write KV header in 'new_file' using 'new_dhandle'
         handle->kv_info_offset = fdb_kvs_header_append(new_file,
                                                           new_dhandle);
@@ -687,7 +687,7 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
 }
 
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
-                               void *data, size_t len)
+                            void *data, size_t len, bool only_seq_nums)
 {
     uint64_t i, offset = 0;
     uint16_t name_len, _name_len;
@@ -711,23 +711,34 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     kv_header->id_counter = id_counter;
 
     for (i=0;i<n_kv;++i){
-        node = (struct kvs_node *)calloc(1, sizeof(struct kvs_node));
-
-        // nname length
+        // name length
+        uint64_t name_offset;
         memcpy(&_name_len, (uint8_t*)data + offset, sizeof(_name_len));
         offset += sizeof(_name_len);
+        name_offset = offset;
         name_len = _endian_decode(_name_len);
 
         // name
-        node->kvs_name = (char *)malloc(name_len);
-        memcpy(node->kvs_name, (uint8_t*)data + offset, name_len);
         offset += name_len;
 
         // KV ID
         memcpy(&_kv_id, (uint8_t*)data + offset, sizeof(_kv_id));
         offset += sizeof(_kv_id);
         kv_id = _endian_decode(_kv_id);
-        node->id = kv_id;
+
+        // Search if a given KV header node exists or not.
+        struct kvs_node query;
+        query.id = kv_id;
+        struct avl_node *a = avl_search(kv_header->idx_id, &query.avl_id,
+                                        _kvs_cmp_id);
+        if (a) {
+            node = _get_entry(a, struct kvs_node, avl_id);
+        } else {
+            node = (struct kvs_node *)calloc(1, sizeof(struct kvs_node));
+            node->kvs_name = (char *)malloc(name_len);
+            memcpy(node->kvs_name, (uint8_t*)data + name_offset, name_len);
+            node->id = kv_id;
+        }
 
         // seq number
         memcpy(&_seqnum, (uint8_t*)data + offset, sizeof(_seqnum));
@@ -738,29 +749,32 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
         // # live index nodes
         memcpy(&_nlivenodes, (uint8_t*)data + offset, sizeof(_nlivenodes));
         offset += sizeof(_nlivenodes);
-        node->stat.nlivenodes = _endian_decode(_nlivenodes);
 
         // # docs
         memcpy(&_ndocs, (uint8_t*)data + offset, sizeof(_ndocs));
         offset += sizeof(_ndocs);
-        node->stat.ndocs = _endian_decode(_ndocs);
 
         // datasize
         memcpy(&_datasize, (uint8_t*)data + offset, sizeof(_datasize));
         offset += sizeof(_datasize);
-        node->stat.datasize = _endian_decode(_datasize);
 
         // flags
         memcpy(&_flags, (uint8_t*)data + offset, sizeof(_flags));
         offset += sizeof(_flags);
         flags = _endian_decode(_flags);
-        node->flags = flags;
 
-        // custom cmp function (in-memory attr)
-        node->custom_cmp = NULL;
+        if (!only_seq_nums) {
+            node->stat.nlivenodes = _endian_decode(_nlivenodes);
+            node->stat.ndocs = _endian_decode(_ndocs);
+            node->stat.datasize = _endian_decode(_datasize);
+            node->flags = flags;
+            node->custom_cmp = NULL;
+        }
 
-        avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
-        avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
+        if (!a) { // Insert a new KV header node if not exist.
+            avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
+            avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
+        }
     }
     spin_unlock(&kv_header->lock);
 }
@@ -850,7 +864,8 @@ uint64_t fdb_kvs_header_append(struct filemgr *file,
 
 void fdb_kvs_header_read(struct filemgr *file,
                          struct docio_handle *dhandle,
-                         uint64_t kv_info_offset)
+                         uint64_t kv_info_offset,
+                         bool only_seq_nums)
 {
     uint64_t offset;
     struct docio_object doc;
@@ -865,7 +880,8 @@ void fdb_kvs_header_read(struct filemgr *file,
         return;
     }
 
-    _fdb_kvs_header_import(file->kv_header, doc.body, doc.length.bodylen);
+    _fdb_kvs_header_import(file->kv_header, doc.body, doc.length.bodylen,
+                           only_seq_nums);
     free_docio_object(&doc, 1, 1, 1);
 }
 
@@ -937,7 +953,6 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
                          &dummy64, &dummy64,
                          &kv_info_offset, &dummy64,
                          &compacted_filename, NULL);
-        free(compacted_filename);
 
         uint64_t doc_offset;
         struct kvs_header *kv_header;
@@ -955,7 +970,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
 
         } else {
             _fdb_kvs_header_import(kv_header, doc.body,
-                                   doc.length.bodylen);
+                                   doc.length.bodylen, false);
             // get local sequence number for the KV instance
             seqnum = _fdb_kvs_get_seqnum(kv_header,
                                          handle->kvs->id);
@@ -974,6 +989,10 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
     }
     if (!seqnum) {
         return FDB_RESULT_INVALID_ARGS;
+    }
+
+    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
     }
 
     if (handle->shandle) {
@@ -996,6 +1015,7 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
             *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id);
         }
     }
+    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -1822,7 +1842,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     // TODO: Find a better way of waiting for the compaction abortion.
     unsigned int sleep_time = 10000; // 10 ms.
     file_status_t fstatus = filemgr_get_file_status(handle_in->file);
-    while (fstatus == FILE_COMPACT_OLD || fstatus == FILE_COMPACT_INPROG) {
+    while (fstatus == FILE_COMPACT_OLD) {
         filemgr_mutex_unlock(handle_in->file);
         decaying_usleep(&sleep_time, 1000000);
         filemgr_mutex_lock(handle_in->file);
@@ -1975,6 +1995,10 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
     if (!handle->shandle) { // snapshot handle should be immutable
         fdb_check_file_reopen(handle, NULL);
         fdb_sync_db_header(handle);
@@ -2028,10 +2052,14 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
 
     info->space_used = datasize;
     info->space_used += nlivenodes * handle->config.blocksize;
+    info->file = handle->fhandle;
 
+    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+
+    // This is another LIBFDB_API call, so handle is marked as free
+    // in the line above before making this call
     fdb_get_kvs_seqnum(handle, &info->last_seqnum);
 
-    info->file = handle->fhandle;
     return FDB_RESULT_SUCCESS;
 }
 

@@ -186,8 +186,12 @@ typedef enum {
     /**
      * No commit headers in a database file.
      */
-    FDB_RESULT_NO_DB_HEADERS = -38
-
+    FDB_RESULT_NO_DB_HEADERS = -38,
+    /**
+     * DB handle is being used by another thread. Forestdb handles must not be
+     * shared among multiple threads.
+     */
+    FDB_RESULT_HANDLE_BUSY = -39
 } fdb_status;
 
 #ifdef __cplusplus

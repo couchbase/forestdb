@@ -203,7 +203,7 @@ void multi_file_write_with_inmem_snap(const char *test_name) {
     thread_t *tid = alca(thread_t, num_writers);
     void **thread_ret = alca(void *, num_writers);
 
-    // remove previous dummy files
+    // remove previous test files
     r = system(SHELL_DEL TEST_FILENAME "* > errorlog.txt");
     (void) r;
 

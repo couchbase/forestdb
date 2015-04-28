@@ -104,7 +104,8 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
 
 fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                             const char *new_filename,
-                            bool in_place_compaction);
+                            bool in_place_compaction,
+                            bid_t marker_bid);
 
 fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle);
 
@@ -135,8 +136,9 @@ void fdb_kvs_header_create(struct filemgr *file);
 uint64_t fdb_kvs_header_append(struct filemgr *file,
                                   struct docio_handle *dhandle);
 void fdb_kvs_header_read(struct filemgr *file,
-                            struct docio_handle *dhandle,
-                            uint64_t kv_info_offset);
+                         struct docio_handle *dhandle,
+                         uint64_t kv_info_offset,
+                         bool only_seq_nums);
 void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle,
@@ -146,7 +148,7 @@ struct kvs_header;
 void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file);
 void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
-                               void *data, size_t len);
+                            void *data, size_t len, bool only_seq_nums);
 fdb_status _fdb_kvs_get_snap_info(void *data,
                                   fdb_snapshot_info_t *snap_info);
 void _fdb_kvs_header_free(struct kvs_header *kv_header);

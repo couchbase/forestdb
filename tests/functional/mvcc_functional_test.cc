@@ -688,7 +688,7 @@ void snapshot_with_uncomitted_data_test()
     fdb_seqnum_t seqnum;
     fdb_status s; (void)s;
 
-    sprintf(cmd, SHELL_DEL " dummy* > errorlog.txt");
+    sprintf(cmd, SHELL_DEL " mvcc_test* > errorlog.txt");
     r = system(cmd);
     (void)r;
 
@@ -705,7 +705,7 @@ void snapshot_with_uncomitted_data_test()
 
     kvs_config = fdb_get_default_kvs_config();
 
-    s = fdb_open(&db_file, "./dummy", &config);
+    s = fdb_open(&db_file, "./mvcc_test9", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(db_file, &db0, NULL, &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);

@@ -142,6 +142,9 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_NO_DB_HEADERS:
             return "No commit headers found in a database file";
 
+        case FDB_RESULT_HANDLE_BUSY:
+            return "Forestdb Handle is being used by another thread";
+
         default:
             return "unknown error";
     }

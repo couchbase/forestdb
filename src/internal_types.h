@@ -23,6 +23,7 @@
 #include "libforestdb/fdb_types.h"
 #include "common.h"
 #include "avltree.h"
+#include "atomic.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -263,6 +264,10 @@ struct _fdb_kvs_handle {
      * Transaction handle.
      */
     fdb_txn *txn;
+    /**
+     * Atomic flag to detect if handles are being shared among threads.
+     */
+    atomic_uint8_t handle_busy;
     /**
      * Flag that indicates whether this handle made dirty updates or not.
      */

@@ -28,6 +28,7 @@
 #include "libforestdb/forestdb.h"
 #include "test.h"
 #include "filemgr_anomalous_ops.h"
+#include "internal_types.h"
 
 void logCallbackFunc(int err_code,
                      const char *err_msg,
@@ -317,10 +318,167 @@ void read_failure_test()
     TEST_RESULT(temp);
 }
 
+struct shared_data {
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_iterator *iterator;
+    bool test_handle_busy;
+};
+
+void *bad_thread(void *voidargs) {
+    struct shared_data *data = (struct shared_data *)voidargs;
+    fdb_kvs_handle *db = data->db;
+    fdb_file_handle *dbfile = data->dbfile;
+    fdb_iterator *itr = data->iterator;
+    fdb_status s;
+    fdb_doc doc;
+    TEST_INIT();
+
+    memset(&doc, 0, sizeof(fdb_doc));
+    doc.key = &doc; // some non-null value
+    doc.keylen = 2; // some non-zero value
+    doc.body = &doc; // some non-null value
+    doc.bodylen = 2; // some non-zero value
+
+    if (!itr) {
+        // since the parent thread is hung in the fdb_set callback
+        // all the forestdb apis calls on the same handle must return failure
+        s = fdb_set(db, &doc);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_del(db, &doc);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_get(db, &doc);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_get_metaonly(db, &doc);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_get_byseq(db, &doc);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_get_metaonly_byseq(db, &doc);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        doc.offset = 5000; // some random non-zero value
+        s = fdb_get_byoffset(db, &doc);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+    } else {
+        s = fdb_iterator_next(itr);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_iterator_prev(itr);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_iterator_seek_to_min(itr);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_iterator_seek_to_max(itr);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_iterator_seek(itr, doc.key, doc.keylen, 0);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+    }
+
+    return NULL;
+}
+
+// Calling apis from a callback simulates concurrent access from multiple
+// threads
+ssize_t pwrite_hang_cb(void *ctx) {
+    struct shared_data *data = (struct shared_data *)ctx;
+    if (data->test_handle_busy) {
+        bad_thread(ctx);
+    }
+    return (ssize_t)FDB_RESULT_SUCCESS;
+}
+
+void handle_busy_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int n = 32;
+    int i = 0, r;
+
+    char keybuf[16], metabuf[16], bodybuf[16];
+    fdb_doc **doc = alca(fdb_doc *, n);
+    struct shared_data data;
+    fdb_kvs_handle *db;
+    fdb_iterator *itr;
+    fdb_status status;
+
+    // Get the default callbacks which result in normal operation for other ops
+    struct anomalous_callbacks *write_hang_cb = get_default_anon_cbs();
+
+    // Modify the pwrite callback to redirect to test-specific function
+    write_hang_cb->pwrite_cb = &pwrite_hang_cb;
+
+    // remove previous anomaly_test files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
+    (void)r;
+
+    memset(&data, 0, sizeof(struct shared_data));
+
+    // Create anomalous behavior with shared handle for the callback ctx
+    filemgr_ops_anomalous_init(write_hang_cb, &data);
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    status = fdb_open(&data.dbfile, "anomaly_test5", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(data.dbfile, &data.db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    db = data.db;
+
+    // insert documents
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf) + 1,
+            (void*)metabuf, strlen(metabuf) + 1, (void*)bodybuf,
+            strlen(bodybuf) + 1);
+        status = fdb_set(db, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // commit
+    status = fdb_commit(data.dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_iterator_init(db, &itr, NULL, 0, NULL, 0,
+                               FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Set callback context to call bad_thread() and do a set invoking callback
+    data.test_handle_busy = 1;
+    status = fdb_set(db, doc[0]);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Test iterator callbacks by attemping a set call on the iterator handle..
+    data.iterator = itr;
+    status = fdb_set(itr->handle, doc[0]);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_close(data.dbfile);
+
+    for (i = n - 1; i >=0; --i) {
+        fdb_doc_free(doc[i]);
+    }
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("Handle Busy Test");
+}
+
 int main(){
 
     write_failure_test();
     read_failure_test();
+    handle_busy_test();
 
     return 0;
 }
