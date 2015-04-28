@@ -980,8 +980,12 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     if (!iterator || !seek_key || !iterator->_key ||
         seek_keylen > FDB_MAX_KEYLEN ||
         (iterator->handle->kvs_config.custom_cmp &&
-            seek_keylen > iterator->handle->config.blocksize - HBTRIE_HEADROOM)) {
+         seek_keylen > iterator->handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
+    }
+
+    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
     }
 
     if (iterator->handle->kvs) {
@@ -1005,6 +1009,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
             next_op = -1;
         }
         if (cmp < 0) {
+            fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                       1, 0);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     }
@@ -1021,6 +1027,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
             next_op = 1;
         }
         if (cmp > 0) {
+            fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                       1, 0);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     }
@@ -1353,14 +1361,22 @@ fetch_hbtrie:
     }
 
     if (!iterator->_dhandle) {
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
     if (next_op < 0) {
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return fdb_iterator_prev(iterator);
     } else if (next_op > 0) {
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return fdb_iterator_next(iterator);
     } else {
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return FDB_RESULT_SUCCESS;
     }
 }
@@ -1835,6 +1851,10 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
 
+    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
     if (iterator->hbtrie_iterator) {
         while ((result = _fdb_iterator_prev(iterator)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
@@ -1864,12 +1884,17 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
         }
     }
 
+    fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0), 1, 0);
     return result;
 }
 
 fdb_status fdb_iterator_next(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
+
+    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
 
     if (iterator->hbtrie_iterator) {
         while ((result = _fdb_iterator_next(iterator)) ==
@@ -1901,6 +1926,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
         }
     }
 
+    fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0), 1, 0);
     return result;
 }
 
@@ -1924,11 +1950,17 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
+    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
     offset = iterator->_get_offset;
 
     if (*doc == NULL) {
         ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
         if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+            fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                       1, 0);
             return ret;
         } // LCOV_EXCL_STOP
         _doc.key = NULL;
@@ -1949,6 +1981,8 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 
     uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
     if (_offset == offset) {
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
     if (_doc.length.flag & DOCIO_DELETED &&
@@ -1962,6 +1996,8 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
         if (alloced_body) {
             free(_doc.body);
         }
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
 
@@ -1987,6 +2023,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
     (*doc)->offset = offset;
 
+    fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0), 1, 0);
     return ret;
 }
 
@@ -2009,11 +2046,17 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
+    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
     offset = iterator->_get_offset;
 
     if (*doc == NULL) {
         ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
         if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
+            fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                       1, 0);
             return ret;
         } // LCOV_EXCL_STOP
         _doc.key = NULL;
@@ -2032,6 +2075,8 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 
     _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
     if (_offset == offset) {
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
     if (_doc.length.flag & DOCIO_DELETED &&
@@ -2042,6 +2087,8 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
         if (alloced_meta) {
             free(_doc.meta);
         }
+        fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+                   1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
 
@@ -2063,6 +2110,8 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
     (*doc)->offset = offset;
 
+    fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
+               1, 0);
     return ret;
 }
 
@@ -2133,6 +2182,5 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
 
     free(iterator->_key);
     free(iterator);
-
     return FDB_RESULT_SUCCESS;
 }
