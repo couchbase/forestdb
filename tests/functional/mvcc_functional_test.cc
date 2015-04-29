@@ -178,6 +178,9 @@ void crash_recovery_test(bool walflush)
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
+    fdb_file_info file_info;
+    uint64_t bid;
+    const char *test_file = "./mvcc_test2";
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -194,7 +197,7 @@ void crash_recovery_test(bool walflush)
     fconfig.compaction_threshold = 0;
 
     // reopen db
-    fdb_open(&dbfile, "./mvcc_test2", &fconfig);
+    fdb_open(&dbfile, test_file, &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
@@ -212,10 +215,16 @@ void crash_recovery_test(bool walflush)
 
     // commit
     if(walflush){
-        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     } else {
-        fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
+
+    status = fdb_get_file_info(dbfile, &file_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    bid = file_info.file_size / fconfig.blocksize;
 
     // close the db
     fdb_kvs_close(db);
@@ -224,19 +233,25 @@ void crash_recovery_test(bool walflush)
     // Shutdown forest db in the middle of the test to simulate crash
     fdb_shutdown();
 
+    sprintf(bodybuf,
+            "dd if=/dev/zero bs=%d of=%s oseek=%d count=2 >> errorlog.txt",
+            (int)fconfig.blocksize, test_file, (int)bid);
     // Now append garbage at the end of the file for a few blocks
-    r = system(
-       "dd if=/dev/zero bs=4096 of=./mvcc_test2 oseek=3 count=2 >> errorlog.txt");
+    r = system(bodybuf);
     (void)r;
     // Write 1024 bytes of non-block aligned garbage to end of file
-    r = system(
-       "dd if=/dev/zero bs=1024 of=./mvcc_test2 oseek=20 count=1 >> errorlog.txt");
+    sprintf(bodybuf,
+            "dd if=/dev/zero bs=%d of=%s oseek=%d count=1 >> errorlog.txt",
+            (int)fconfig.blocksize/4, test_file, (int)(bid + 2)*4);
+    r = system(bodybuf);
     (void)r;
 
 
     // reopen the same file
-    fdb_open(&dbfile, "./mvcc_test2", &fconfig);
-    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_open(&dbfile, test_file, &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -3731,8 +3746,8 @@ int main(){
 
     multi_version_test();
 #ifdef __CRC32
-    crash_recovery_test(false);
     crash_recovery_test(true);
+    crash_recovery_test(false);
 #endif
     snapshot_test();
     in_memory_snapshot_rollback_test();
