@@ -166,7 +166,7 @@ void multi_version_test()
     TEST_RESULT("multi version test");
 }
 
-void crash_recovery_test()
+void crash_recovery_test(bool walflush)
 {
     TEST_INIT();
 
@@ -211,7 +211,11 @@ void crash_recovery_test()
     }
 
     // commit
-    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    if(walflush){
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    } else {
+        fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    }
 
     // close the db
     fdb_kvs_close(db);
@@ -278,7 +282,11 @@ void crash_recovery_test()
 
     memleak_end();
 
-    TEST_RESULT("crash recovery test");
+    if(walflush){
+        TEST_RESULT("crash recovery test - walflush");
+    } else {
+        TEST_RESULT("crash recovery test - normal flush");
+    }
 }
 
 void snapshot_test()
@@ -3723,7 +3731,8 @@ int main(){
 
     multi_version_test();
 #ifdef __CRC32
-    crash_recovery_test();
+    crash_recovery_test(false);
+    crash_recovery_test(true);
 #endif
     snapshot_test();
     in_memory_snapshot_rollback_test();
