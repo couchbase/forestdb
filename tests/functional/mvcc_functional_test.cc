@@ -3742,6 +3742,125 @@ void rollback_drop_multi_files_kvs_test()
     TEST_RESULT("open multi files kvs test");
 }
 
+void tx_crash_recover_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    char str[15];
+    void *val;
+    size_t vallen;
+
+    fdb_file_handle *file;
+    fdb_kvs_handle *kvs;
+    fdb_status status;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_file_info file_info;
+    uint64_t bid;
+    const char *test_file = "./mvcc_test2";
+    const char *test_file_c = "./mvcc_test3";
+    char bodybuf[256];
+
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    status = fdb_open(&file, test_file, &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // set keys in transaction
+    status = fdb_begin_transaction(file, FDB_ISOLATION_READ_UNCOMMITTED);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    for(i=0;i<10;i++){
+        sprintf(str, "key%d", i);
+        status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+    status = fdb_end_transaction(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // custom compact
+    fdb_compact(file, test_file_c);
+
+    // begin a tx to delete keys
+    status = fdb_begin_transaction(file, FDB_ISOLATION_READ_UNCOMMITTED);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    for(i=0;i<10;i++){
+        sprintf(str, "key%d", i);
+        status = fdb_del_kv(kvs, str, strlen(str));
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_get_file_info(file, &file_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    bid = file_info.file_size / config.blocksize;
+
+    // simulate crash
+    fdb_close(file);
+    fdb_shutdown();
+
+    // append garbage
+    sprintf(bodybuf,
+            "dd if=/dev/zero bs=%d of=%s oseek=%d count=2 >> errorlog.txt",
+            (int)config.blocksize, test_file_c, (int)bid);
+    // Now append garbage at the end of the file for a few blocks
+    r = system(bodybuf);
+    (void)r;
+    // Write 1024 bytes of non-block aligned garbage to end of file
+    sprintf(bodybuf,
+            "dd if=/dev/zero bs=%d of=%s oseek=%d count=1 >> errorlog.txt",
+            (int)config.blocksize/4, test_file_c, (int)(bid + 2)*4);
+    r = system(bodybuf);
+    (void)r;
+
+    // write garbage to old compact file
+    sprintf(bodybuf,
+            "dd if=/dev/zero bs=%d of=%s oseek=%d count=1 >> errorlog.txt",
+            (int)config.blocksize/4, test_file, (int)(bid + 2)*4);
+    r = system(bodybuf);
+    (void)r;
+
+    // reopen
+    status = fdb_open(&file, test_file_c, &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+
+
+    // restart tx to delete keys
+    status = fdb_begin_transaction(file, FDB_ISOLATION_READ_UNCOMMITTED);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    for(i=0;i<10;i++){
+        sprintf(str, "key%d", i);
+        status = fdb_del_kv(kvs, str, strlen(str));
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // abort tx
+    fdb_abort_transaction(file);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // keys from original tx should be recoverable
+    for(i=0;i<10;i++){
+       sprintf(str, "key%d", i);
+       status = fdb_get_kv(kvs, str, strlen(str), &val, &vallen);
+       TEST_CHK(status == FDB_RESULT_SUCCESS);
+       free(val);
+    }
+
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_close(file);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("crash recover test");
+}
+
 int main(){
 
     multi_version_test();
@@ -3773,6 +3892,7 @@ int main(){
     rollback_to_zero_test(true); // multi kv instance mode
     rollback_to_zero_test(false); // single kv instance mode
     rollback_drop_multi_files_kvs_test();
+    tx_crash_recover_test();
     auto_compaction_snapshots_test(); // test snapshots with auto-compaction
 
     return 0;
