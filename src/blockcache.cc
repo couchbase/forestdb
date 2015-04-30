@@ -49,7 +49,7 @@ static size_t fnames;
 static struct hash fnamedic;
 
 // free block list
-static size_t freelist_count=0;
+static volatile size_t freelist_count;
 static struct list freelist;
 static spin_t freelist_lock;
 
@@ -314,7 +314,9 @@ static struct bcache_item *_bcache_alloc_freeblock()
 
     spin_lock(&freelist_lock);
     e = list_pop_front(&freelist);
-    if (e) freelist_count--;
+    if (e) {
+        freelist_count--;
+    }
     spin_unlock(&freelist_lock);
 
     if (e) {
@@ -1239,6 +1241,7 @@ void bcache_init(int nblock, int blocksize)
     spin_init(&freelist_lock);
     spin_init(&filelist_lock);
     fnames = 0;
+    freelist_count = 0;
 
     for (i=0;i<nblock;++i){
         item = (struct bcache_item *)malloc(sizeof(struct bcache_item));
@@ -1423,6 +1426,7 @@ void bcache_shutdown()
     while(e) {
         item = _get_entry(e, struct bcache_item, list_elem);
         e = list_remove(&freelist, e);
+        freelist_count--;
         free(item->addr);
         free(item);
     }

@@ -166,7 +166,7 @@ void multi_version_test()
     TEST_RESULT("multi version test");
 }
 
-void crash_recovery_test()
+void crash_recovery_test(bool walflush)
 {
     TEST_INIT();
 
@@ -178,6 +178,9 @@ void crash_recovery_test()
     fdb_kvs_handle *db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc;
+    fdb_file_info file_info;
+    uint64_t bid;
+    const char *test_file = "./mvcc_test2";
     fdb_status status;
 
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -194,7 +197,7 @@ void crash_recovery_test()
     fconfig.compaction_threshold = 0;
 
     // reopen db
-    fdb_open(&dbfile, "./mvcc_test2", &fconfig);
+    fdb_open(&dbfile, test_file, &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
@@ -211,7 +214,17 @@ void crash_recovery_test()
     }
 
     // commit
-    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    if(walflush){
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    } else {
+        status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_get_file_info(dbfile, &file_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    bid = file_info.file_size / fconfig.blocksize;
 
     // close the db
     fdb_kvs_close(db);
@@ -220,19 +233,25 @@ void crash_recovery_test()
     // Shutdown forest db in the middle of the test to simulate crash
     fdb_shutdown();
 
+    sprintf(bodybuf,
+            "dd if=/dev/zero bs=%d of=%s oseek=%d count=2 >> errorlog.txt",
+            (int)fconfig.blocksize, test_file, (int)bid);
     // Now append garbage at the end of the file for a few blocks
-    r = system(
-       "dd if=/dev/zero bs=4096 of=./mvcc_test2 oseek=3 count=2 >> errorlog.txt");
+    r = system(bodybuf);
     (void)r;
     // Write 1024 bytes of non-block aligned garbage to end of file
-    r = system(
-       "dd if=/dev/zero bs=1024 of=./mvcc_test2 oseek=20 count=1 >> errorlog.txt");
+    sprintf(bodybuf,
+            "dd if=/dev/zero bs=%d of=%s oseek=%d count=1 >> errorlog.txt",
+            (int)fconfig.blocksize/4, test_file, (int)(bid + 2)*4);
+    r = system(bodybuf);
     (void)r;
 
 
     // reopen the same file
-    fdb_open(&dbfile, "./mvcc_test2", &fconfig);
-    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_open(&dbfile, test_file, &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "crash_recovery_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -278,7 +297,11 @@ void crash_recovery_test()
 
     memleak_end();
 
-    TEST_RESULT("crash recovery test");
+    if(walflush){
+        TEST_RESULT("crash recovery test - walflush");
+    } else {
+        TEST_RESULT("crash recovery test - normal flush");
+    }
 }
 
 void snapshot_test()
@@ -3562,11 +3585,169 @@ void in_memory_snapshot_rollback_test()
     TEST_RESULT("in-memory snapshot rollback test");
 }
 
+void rollback_drop_multi_files_kvs_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, j, r;
+    int vb;
+    int n = 10;
+    int n_files = 8;
+    int n_kvs = 128;
+    char keybuf[256], bodybuf[256];
+    char fname[256];
+
+    fdb_file_handle **dbfiles = alca(fdb_file_handle*, n_files);
+    fdb_kvs_handle **kvs = alca(fdb_kvs_handle*, n_files*n_kvs);
+    fdb_iterator *iterator;
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    // remove previous dummy test files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    fconfig.durability_opt = FDB_DRB_ASYNC;
+
+    // 1024 kvs via 128 per dbfile
+    for(j=0;j<n_files;++j){
+        sprintf(fname, "dummy%d", j);
+        status = fdb_open(&dbfiles[j], fname, &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        for(i=0;i<n_kvs;++i){
+            vb = j*n_kvs+i;
+            sprintf(fname, "kvs%d", vb);
+            status = fdb_kvs_open(dbfiles[j], &kvs[vb], fname, &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    // load across all kvs
+    vb = n_files*n_kvs;
+    for(i=0;i<vb;++i){
+        for(j=0;j<n;++j){
+            sprintf(keybuf, "key%08d", j);
+            sprintf(bodybuf, "value%08d", j);
+            status = fdb_set_kv(kvs[i], keybuf, strlen(keybuf)+1, bodybuf, strlen(bodybuf)+1);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    // commit
+    for(j=0;j<n_files;++j){
+        if((j%2)==0){
+            status = fdb_commit(dbfiles[j], FDB_COMMIT_NORMAL);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            status = fdb_commit(dbfiles[j], FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    // delete all keys
+    vb = n_files*n_kvs;
+    for(i=0;i<vb;++i){
+        for(j=0;j<n;++j){
+            sprintf(keybuf, "key%08d", j);
+            status = fdb_del_kv(kvs[i], keybuf, strlen(keybuf)+1);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+
+    // commit again
+    for(j=0;j<n_files;++j){
+        if((j%2)==0){
+            status = fdb_commit(dbfiles[j], FDB_COMMIT_NORMAL);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            status = fdb_commit(dbfiles[j], FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    // rollback some kvs to pre-delete commit
+    for(i=0;i<vb;i+=64){
+        status = fdb_rollback(&kvs[i], n);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // drop some of the kvs
+    for(j=0;j<n_files;++j){
+        for(i=0;i<n_kvs;i+=n_kvs){
+            vb = j*n_kvs+i;
+            status = fdb_kvs_close(kvs[vb]);
+            sprintf(fname, "kvs%d", vb);
+            status = fdb_kvs_remove(dbfiles[j], fname);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    // commit
+    for(j=0;j<n_files;++j){
+        if((j%2)==0){
+            status = fdb_commit(dbfiles[j], FDB_COMMIT_NORMAL);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        } else {
+            status = fdb_commit(dbfiles[j], FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    // custom compact
+    for(j=0;j<n_files;++j){
+        sprintf(fname, "dummy_compact%d", j);
+        status = fdb_compact(dbfiles[j], fname);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+
+    // iterate specifically over dbs that have been rolled back but not dropped
+    rdoc = NULL;
+    for(i=0;i<vb;i+=64){
+        if((vb%n_kvs)==0){ continue; }
+
+        j=0;
+        fdb_iterator_init(kvs[i], &iterator, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
+        do {
+            // verify keys
+            status = fdb_iterator_get(iterator, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            sprintf(keybuf, "key%08d", j);
+            TEST_CHK(!strcmp(keybuf, (char *)rdoc->key));
+            j++;
+        } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+        fdb_iterator_close(iterator);
+
+        // should still get all keys
+        TEST_CHK(j==n);
+    }
+    fdb_doc_free(rdoc);
+
+
+
+    // cleanup
+    for(j=0;j<n_files;++j){
+        status = fdb_close(dbfiles[j]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("open multi files kvs test");
+}
+
 int main(){
 
     multi_version_test();
 #ifdef __CRC32
-    crash_recovery_test();
+    crash_recovery_test(true);
+    crash_recovery_test(false);
 #endif
     snapshot_test();
     in_memory_snapshot_rollback_test();
@@ -3591,6 +3772,7 @@ int main(){
     snapshot_concurrent_compaction_test();
     rollback_to_zero_test(true); // multi kv instance mode
     rollback_to_zero_test(false); // single kv instance mode
+    rollback_drop_multi_files_kvs_test();
     auto_compaction_snapshots_test(); // test snapshots with auto-compaction
 
     return 0;

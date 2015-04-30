@@ -77,6 +77,7 @@ struct filemgr_header{
     atomic_uint64_t bid;
     atomic_uint64_t dirty_idtree_root; // for wal_flush_before_commit option
     atomic_uint64_t dirty_seqtree_root; // for wal_flush_before_commit option
+    struct kvs_ops_stat op_stat; // op stats for default KVS
     struct kvs_stat stat; // stats for the default KVS
     void *data;
 };
@@ -92,6 +93,12 @@ enum {
 struct wal;
 struct fnamedic_item;
 struct kvs_header;
+
+typedef struct {
+    mutex_t mutex;
+    bool locked;
+} mutex_lock_t;
+
 struct filemgr {
     char *filename; // Current file name.
     uint32_t ref_count;
@@ -131,12 +138,8 @@ struct filemgr {
     spin_t data_spinlock[DLOCK_MAX];
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-    // spin lock for race condition between separate writer
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_t mutex;
-#else
-    spin_t mutex;
-#endif
+    // mutex for synchronization among multiple writers.
+    mutex_lock_t writer_lock;
 };
 
 typedef struct {
@@ -145,6 +148,8 @@ typedef struct {
 } filemgr_open_result;
 
 void filemgr_init(struct filemgr_config *config);
+
+uint64_t filemgr_get_bcache_used_space(void);
 
 size_t filemgr_get_ref_count(struct filemgr *file);
 filemgr_open_result filemgr_open(char *filename,
@@ -220,6 +225,10 @@ void filemgr_set_compaction_state(struct filemgr *old_file,
                                   struct filemgr *new_file,
                                   file_status_t status);
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
+
+struct kvs_ops_stat *filemgr_migrate_op_stats(struct filemgr *old_file,
+                                              struct filemgr *new_file,
+                                              struct kvs_info *kvs);
 fdb_status filemgr_destroy_file(char *filename,
                                 struct filemgr_config *config,
                                 struct hash *destroy_set);
@@ -248,7 +257,9 @@ bool filemgr_is_in_place_compaction_set(struct filemgr *file);
 
 void filemgr_mutex_openlock(struct filemgr_config *config);
 void filemgr_mutex_openunlock(void);
+
 void filemgr_mutex_lock(struct filemgr *file);
+bool filemgr_mutex_trylock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);
 
 void filemgr_set_dirty_root(struct filemgr *file,
@@ -285,6 +296,15 @@ int _kvs_stat_get(struct filemgr *file,
                   struct kvs_stat *stat);
 uint64_t _kvs_stat_get_sum(struct filemgr *file,
                            kvs_stat_attr_t attr);
+int _kvs_ops_stat_get_kv_header(struct kvs_header *kv_header,
+                                fdb_kvs_id_t kv_id,
+                                struct kvs_ops_stat *stat);
+int _kvs_ops_stat_get(struct filemgr *file,
+                      fdb_kvs_id_t kv_id,
+                      struct kvs_ops_stat *stat);
+
+struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
+                                          struct kvs_info *info);
 
 #ifdef __cplusplus
 }

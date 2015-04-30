@@ -88,6 +88,8 @@
         #define mutex_t pthread_mutex_t
         #define mutex_init(arg) pthread_mutex_init(arg, NULL)
         #define mutex_lock(arg) pthread_mutex_lock(arg)
+        #define mutex_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define mutex_unlock(arg) pthread_mutex_unlock(arg)
         #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
         #define mutex_destroy(arg) pthread_mutex_destroy(arg)
@@ -146,6 +148,8 @@
         #define mutex_t pthread_mutex_t
         #define mutex_init(arg) pthread_mutex_init(arg, NULL)
         #define mutex_lock(arg) pthread_mutex_lock(arg)
+        #define mutex_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define mutex_unlock(arg) pthread_mutex_unlock(arg)
         #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
         #define mutex_destroy(arg) pthread_mutex_destroy(arg)
@@ -211,6 +215,8 @@
         #define mutex_t pthread_mutex_t
         #define mutex_init(arg) pthread_mutex_init(arg, NULL)
         #define mutex_lock(arg) pthread_mutex_lock(arg)
+        #define mutex_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define mutex_unlock(arg) pthread_mutex_unlock(arg)
         #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
         #define mutex_destroy(arg) pthread_mutex_destroy(arg)
@@ -287,6 +293,7 @@
         #define mutex_t CRITICAL_SECTION
         #define mutex_init(arg) InitializeCriticalSection(arg)
         #define mutex_lock(arg) EnterCriticalSection(arg)
+        #define mutex_trylock(arg) TryEnterCriticalSection(arg)
         #define mutex_unlock(arg) LeaveCriticalSection(arg)
         #define mutex_destroy(arg) DeleteCriticalSection(arg)
     #endif
@@ -346,6 +353,8 @@
         #define mutex_t pthread_mutex_t
         #define mutex_init(arg) pthread_mutex_init(arg, NULL)
         #define mutex_lock(arg) pthread_mutex_lock(arg)
+        #define mutex_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define mutex_unlock(arg) pthread_mutex_unlock(arg)
         #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
         #define mutex_destroy(arg) pthread_mutex_destroy(arg)
@@ -413,6 +422,8 @@
         #define mutex_t pthread_mutex_t
         #define mutex_init(arg) pthread_mutex_init(arg, NULL)
         #define mutex_lock(arg) pthread_mutex_lock(arg)
+        #define mutex_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define mutex_unlock(arg) pthread_mutex_unlock(arg)
         #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
         #define mutex_destroy(arg) pthread_mutex_destroy(arg)

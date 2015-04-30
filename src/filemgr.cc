@@ -106,6 +106,21 @@ static void mutex_unlock_wrap(void *lock) {
     mutex_unlock((mutex_t*)lock);
 }
 
+static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct kvs_node *aa, *bb;
+    aa = _get_entry(a, struct kvs_node, avl_id);
+    bb = _get_entry(b, struct kvs_node, avl_id);
+
+    if (aa->id < bb->id) {
+        return -1;
+    } else if (aa->id > bb->id) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 static int _block_is_overlapped(void *pbid1, void *pis_writer1,
                                 void *pbid2, void *pis_writer2,
                                 void *aux)
@@ -404,6 +419,17 @@ size_t filemgr_get_ref_count(struct filemgr *file)
     ret = file->ref_count;
     spin_unlock(&file->lock);
     return ret;
+}
+
+uint64_t filemgr_get_bcache_used_space(void)
+{
+    uint64_t bcache_free_space = 0;
+    if (global_config.ncacheblock) { // If buffer cache is indeed configured
+        bcache_free_space = bcache_get_num_free_blocks();
+        bcache_free_space = (global_config.ncacheblock - bcache_free_space)
+                          * global_config.blocksize;
+    }
+    return bcache_free_space;
 }
 
 struct filemgr_prefetch_args {
@@ -714,11 +740,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     }
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_init(&file->mutex);
-#else
-    spin_init(&file->mutex);
-#endif
+    mutex_init(&file->writer_lock.mutex);
+    file->writer_lock.locked = false;
 
     // initialize WAL
     if (!wal_is_initialized(file)) {
@@ -1177,11 +1200,7 @@ static void _filemgr_free_func(struct hash_elem *h)
     }
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_destroy(&file->mutex);
-#else
-    spin_destroy(&file->mutex);
-#endif
+    mutex_destroy(&file->writer_lock.mutex);
 
     // free file structure
     free(file->config);
@@ -1790,6 +1809,21 @@ void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
     }
 }
 
+// migrate default kv store stats over to new_file
+struct kvs_ops_stat *filemgr_migrate_op_stats(struct filemgr *old_file,
+                                              struct filemgr *new_file,
+                                              struct kvs_info *kvs)
+{
+    kvs_ops_stat *ret = NULL;
+    fdb_assert(new_file, new_file, old_file);
+
+    spin_lock(&old_file->lock);
+    new_file->header.op_stat = old_file->header.op_stat;
+    ret = &new_file->header.op_stat;
+    spin_unlock(&old_file->lock);
+    return ret;
+}
+
 // Note: filemgr_openlock should be held before calling this function.
 fdb_status filemgr_destroy_file(char *filename,
                                 struct filemgr_config *config,
@@ -1974,20 +2008,24 @@ void filemgr_mutex_openunlock(void)
 
 void filemgr_mutex_lock(struct filemgr *file)
 {
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_lock(&file->mutex);
-#else
-    spin_lock(&file->mutex);
-#endif
+    mutex_lock(&file->writer_lock.mutex);
+    file->writer_lock.locked = true;
+}
+
+bool filemgr_mutex_trylock(struct filemgr *file) {
+    if (mutex_trylock(&file->writer_lock.mutex)) {
+        file->writer_lock.locked = true;
+        return true;
+    }
+    return false;
 }
 
 void filemgr_mutex_unlock(struct filemgr *file)
 {
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_unlock(&file->mutex);
-#else
-    spin_unlock(&file->mutex);
-#endif
+    if (file->writer_lock.locked) {
+        file->writer_lock.locked = false;
+        mutex_unlock(&file->writer_lock.mutex);
+    }
 }
 
 void filemgr_set_dirty_root(struct filemgr *file,
@@ -2004,21 +2042,6 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
     marker[0] = *(((uint8_t *)head_buffer)
                  + blocksize - BLK_MARKER_SIZE);
     return (marker[0] == BLK_MARKER_DBHEADER);
-}
-
-static int _kvs_stat_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
-    struct kvs_node *aa, *bb;
-    aa = _get_entry(a, struct kvs_node, avl_id);
-    bb = _get_entry(b, struct kvs_node, avl_id);
-
-    if (aa->id < bb->id) {
-        return -1;
-    } else if (aa->id > bb->id) {
-        return 1;
-    } else {
-        return 0;
-    }
 }
 
 void _kvs_stat_set(struct filemgr *file,
@@ -2174,6 +2197,68 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
     }
 
     return ret;
+}
+
+int _kvs_ops_stat_get_kv_header(struct kvs_header *kv_header,
+                                fdb_kvs_id_t kv_id,
+                                struct kvs_ops_stat *stat)
+{
+    int ret = 0;
+    struct avl_node *a;
+    struct kvs_node query, *node;
+
+    query.id = kv_id;
+    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        *stat = node->op_stat;
+    } else {
+        ret = -1;
+    }
+    return ret;
+}
+
+int _kvs_ops_stat_get(struct filemgr *file,
+                      fdb_kvs_id_t kv_id,
+                      struct kvs_ops_stat *stat)
+{
+    int ret = 0;
+
+    if (kv_id == 0) {
+        spin_lock(&file->lock);
+        *stat = file->header.op_stat;
+        spin_unlock(&file->lock);
+    } else {
+        struct kvs_header *kv_header = file->kv_header;
+
+        spin_lock(&kv_header->lock);
+        ret = _kvs_ops_stat_get_kv_header(kv_header, kv_id, stat);
+        spin_unlock(&kv_header->lock);
+    }
+
+    return ret;
+}
+
+struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
+                                           struct kvs_info *kvs)
+{
+    struct kvs_ops_stat *stat = NULL;
+    if (!kvs || (kvs && kvs->id == 0)) {
+        return &file->header.op_stat;
+    } else {
+        struct kvs_header *kv_header = file->kv_header;
+        struct avl_node *a;
+        struct kvs_node query, *node;
+        spin_lock(&kv_header->lock);
+        query.id = kvs->id;
+        a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+        if (a) {
+            node = _get_entry(a, struct kvs_node, avl_id);
+            stat = &node->op_stat;
+        }
+        spin_unlock(&kv_header->lock);
+    }
+    return stat;
 }
 
 void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id)
