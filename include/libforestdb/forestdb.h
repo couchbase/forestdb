@@ -619,11 +619,10 @@ fdb_status fdb_compact_upto(fdb_file_handle *fhandle,
  * Note that this does not include space in WAL, hash tables and other
  * in-memory data structures allocated by ForestDB api
  *
- * @param cache_in_use Pointer to variable to return the size of buffer cache used.
- * @return FDB_RESULT_SUCCESS on success.
+ * @return Size of buffer cache currently used.
  */
 LIBFDB_API
-fdb_status fdb_get_buffer_cache_used(uint64_t *cache_in_use);
+size_t fdb_get_buffer_cache_used();
 
 /**
  * Return the overall disk space actively used by a ForestDB file.
@@ -631,7 +630,7 @@ fdb_status fdb_get_buffer_cache_used(uint64_t *cache_in_use);
  * and docs.
  *
  * @param fhandle Pointer to ForestDB file handle.
- * @return FDB_RESULT_SUCCESS on success.
+ * @return Disk space actively used by a ForestDB file.
  */
 LIBFDB_API
 size_t fdb_estimate_space_used(fdb_file_handle *fhandle);
