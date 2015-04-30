@@ -406,6 +406,17 @@ size_t filemgr_get_ref_count(struct filemgr *file)
     return ret;
 }
 
+uint64_t filemgr_get_bcache_used_space(void)
+{
+    uint64_t bcache_free_space = 0;
+    if (global_config.ncacheblock) { // If buffer cache is indeed configured
+        bcache_free_space = bcache_get_num_free_blocks();
+        bcache_free_space = (global_config.ncacheblock - bcache_free_space)
+                          * global_config.blocksize;
+    }
+    return bcache_free_space;
+}
+
 struct filemgr_prefetch_args {
     struct filemgr *file;
     uint64_t duration;

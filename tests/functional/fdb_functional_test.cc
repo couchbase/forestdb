@@ -278,16 +278,65 @@ void config_test()
     memleak_start();
 
     fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
     fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    int nfiles = 4;
+    int i;
+    uint64_t bcache_space_used;
+    char fname[256];
 
     // remove previous dummy test files
     int r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
 
-    fdb_config fconfig = fdb_get_default_config();
+    status = fdb_get_buffer_cache_used(NULL);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    status = fdb_get_buffer_cache_used(&bcache_space_used);
+    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+
+    fconfig = fdb_get_default_config();
     fconfig.buffercache_size= (uint64_t) -1;
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_TOO_BIG_BUFFER_CACHE);
+
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    for (i = nfiles; i; --i) {
+        sprintf(fname, "dummy%d", i);
+        status = fdb_open(&dbfile, fname, &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open(dbfile, &db, "justonekv", &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        status = fdb_get_buffer_cache_used(&bcache_space_used);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Ensure just one block is used from the buffercache to store KV name
+        // DB header and it does not change since files are duly closed
+        TEST_CHK(bcache_space_used == fconfig.blocksize);
+
+        status = fdb_close(dbfile);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_open(&dbfile, fname, &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open(dbfile, &db, "justonekv", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_kv(db, (void*)"key", 3, (void*)"body", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_buffer_cache_used(&bcache_space_used);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Two blocks must be used - 1 by DB header created earlier and
+    // One for the document block created by the fdb_set_kv
+    TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
+
+    fdb_close(dbfile);
 
     memleak_end();
     TEST_RESULT("forestdb config test");

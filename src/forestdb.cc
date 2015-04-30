@@ -5348,6 +5348,20 @@ fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size) {
 }
 
 LIBFDB_API
+fdb_status fdb_get_buffer_cache_used(uint64_t *cache_in_use) {
+    if (!cache_in_use) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    if (!fdb_initialized) {
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    *cache_in_use = filemgr_get_bcache_used_space();
+    return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
 fdb_status fdb_shutdown()
 {
     if (fdb_initialized) {
