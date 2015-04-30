@@ -3177,70 +3177,142 @@ void iterator_concurrent_compaction()
     TEST_RESULT("iterator with concurrent compaction test");
 }
 
-void iterator_and_create_test()
+void iterator_offset_access_test()
 {
     TEST_INIT();
     memleak_start();
 
-    int i, j, r, n = 100;
-    fdb_file_handle *dbfile;
-    fdb_kvs_handle  *kv;
+
+    int i, r;
+    int n = 1000;
     char keybuf[256], bodybuf[256];
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *o_db;
     fdb_doc **doc = alca(fdb_doc*, n);
     fdb_doc *rdoc = NULL;
+    fdb_status s;
     fdb_iterator *it;
 
-    // remove previous iterator_test files
+    // remove  all previous iterator_test files
     r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    fconfig.wal_threshold = 1024;
+    fconfig.wal_threshold = 512;
+    fconfig.buffercache_size = 4096;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
 
     // open db
-    fdb_open(&dbfile, "./iterator_test", &fconfig);
-    fdb_kvs_open(dbfile, &kv, "all_docs",  &kvs_config);
+    s = fdb_open(&dbfile, "./iterator_test1", &fconfig);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(dbfile, &db, "DB", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_kvs_open(dbfile, &o_db,"ODB", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    for (j=0;j<n*10;++j){
+    // set docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            NULL, 0, (void*)bodybuf, strlen(bodybuf));
+        s = fdb_set(db, doc[i]);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-        // insert docs to kv
-        for (i=0;i<n;++i){
-            sprintf(keybuf, "key%04d%03d", j, i);
-            sprintf(bodybuf, "body%04d%03d", j, i);
-            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf), NULL, 0,
-                           (void*)bodybuf, strlen(bodybuf));
-            fdb_set(kv, doc[i]);
-        }
-        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
-
-        // iterate over entire kv
-        fdb_iterator_init(kv, &it, NULL, 0, NULL, 0, FDB_ITR_NONE);
-        do {
-            fdb_iterator_get(it, &rdoc);
-            fdb_doc_free(rdoc);
-            rdoc=NULL;
-        } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
-        fdb_iterator_close(it);
-
-        for (i=0;i<n;++i){
-            fdb_doc_free(doc[i]);
-        }
+        // set in offset verification index
+        s = fdb_set_kv(o_db, keybuf, strlen(keybuf),
+                        &doc[i]->offset, sizeof(uint64_t *));
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
 
+    s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // delete some
+     for (i=n/4;i<n/2;++i){
+        sprintf(keybuf, "key%d", i);
+        s = fdb_del_kv(db, (void*)keybuf, strlen(keybuf));
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    // update initial n/4 docs
+    for (i=0;i<n/4;++i){
+        sprintf(keybuf, "k0y%d", i);
+        sprintf(bodybuf, "b0dy%d", i);
+        fdb_doc_free(doc[i]);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            NULL, 0, (void*)bodybuf, strlen(bodybuf));
+        s = fdb_set(db, doc[i]);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // create iterator with no deletes
+    fdb_iterator_init(o_db, &it, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
+
+    // only 2nd half of docs should exist at original offset
+    for (i=n/2;i<n;i+=10){
+
+        // get by offset
+        s = fdb_get_byoffset(db, doc[i]);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+        // seek to in verificaiton db
+        s = fdb_iterator_seek(it, doc[i]->key, doc[i]->keylen, 0);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_iterator_get(it, &rdoc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CHK(*((uint64_t *)rdoc->body) == doc[i]->offset);
+
+        // delete
+        s = fdb_del(db, doc[i]);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+        // track new offset storing in doc[i]
+        fdb_get_metaonly(db, doc[i]);
+    }
+
+    fdb_iterator_close(it);
+    s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // do some sets passed recorded offset
+    for (i=0;i<n/4;++i){
+        sprintf(keybuf, "k1y%d", i);
+        sprintf(bodybuf, "b1dy%d", i);
+        s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    // known offsets exist between n/2 - n
+    for (i=n/2;i<n;i+=10){
+
+        // verify can get by offset from main db
+        s = fdb_get_byoffset(db, doc[i]);
+
+        // should be deleted now at new offset
+        TEST_CHK(doc[i]->deleted == true);
+    }
+
+    for(i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    fdb_doc_free(rdoc);
     fdb_close(dbfile);
     fdb_shutdown();
 
     memleak_end();
-    TEST_RESULT("iterator and create test");
+    TEST_RESULT("iterator offset access test");
 }
 
 int main(){
     int i, j;
 
     iterator_test();
-    iterator_and_create_test();
     iterator_with_concurrent_updates_test();
     iterator_compact_uncommitted_db();
     iterator_seek_test();
@@ -3262,6 +3334,7 @@ int main(){
     iterator_after_wal_threshold();
     iterator_manual_wal_flush();
     iterator_concurrent_compaction();
+    iterator_offset_access_test();
 
     return 0;
 }
