@@ -3549,8 +3549,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                          struct btree *new_idtree,
                                          struct btree *new_seqtree,
                                          struct docio_handle *new_dhandle,
-                                         struct btreeblk_handle *new_bhandle,
-                                         bool got_lock)
+                                         struct btreeblk_handle *new_bhandle)
 {
     uint8_t deleted;
     uint64_t window_size;
@@ -3664,10 +3663,17 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                          n_buf < FDB_COMP_BATCHSIZE       &&
                          i < c);
 
+                // Note that we don't need to grab a lock on the new file
+                // during the compaction because the new file is only accessed
+                // by the compactor.
+                // However, we intentionally try to grab a lock on the old file
+                // here to have the compactor and normal writer interleave together
+                // through the old file's lock and make sure that the compactor can
+                // catch up with the normal writer. This is a short-term approach
+                // and we plan to address this issue without sacrificing the writer's
+                // performance soon.
+                bool locked = filemgr_mutex_trylock(handle->file);
                 // === write docs into the new file ===
-                if (!got_lock) {
-                    filemgr_mutex_lock(new_file);
-                }
                 for (j=0; j<n_buf; ++j) {
                     // compare timestamp
                     deleted = doc[j].length.flag & DOCIO_DELETED;
@@ -3702,25 +3708,24 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
                         if (handle->config.compaction_cb &&
                             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                            if (!got_lock) {
-                                filemgr_mutex_unlock(new_file);
+                            if (locked) {
+                                filemgr_mutex_unlock(handle->file);
                             }
                             handle->config.compaction_cb(
                                 handle->fhandle, FDB_CS_MOVE_DOC,
                                 &wal_doc, old_offset, new_offset,
                                 handle->config.compaction_cb_ctx);
-                            if (!got_lock) {
-                                filemgr_mutex_lock(new_file);
-                            }
+                            locked = filemgr_mutex_trylock(handle->file);
                         }
                     }
                     free(doc[j].key);
                     free(doc[j].meta);
                     free(doc[j].body);
                 }
-                if (!got_lock) {
-                    filemgr_mutex_unlock(new_file);
+                if (locked) {
+                    filemgr_mutex_unlock(handle->file);
                 }
+
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
                     handle->config.compaction_cb(handle->fhandle,
@@ -3795,8 +3800,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
                                    struct btreeblk_handle *new_bhandle,
                                    bid_t marker_bid,
                                    bid_t last_hdr_bid,
-                                   fdb_seqnum_t last_seq,
-                                   bool got_lock)
+                                   fdb_seqnum_t last_seq)
 {
     size_t header_len = 0;
     bid_t old_hdr_bid = 0;
@@ -3809,8 +3813,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     } else if (last_hdr_bid == marker_bid) {
         // compact_upto marker is the same as the latest commit header.
         return _fdb_compact_move_docs(rhandle, new_file, new_trie, new_idtree,
-                                      new_seqtree, new_dhandle, new_bhandle,
-                                      got_lock);
+                                      new_seqtree, new_dhandle, new_bhandle);
     }
 
     old_hdr_bid = last_hdr_bid;
@@ -3885,8 +3888,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
 
     // Move all docs from old file to new file
     fs = _fdb_compact_move_docs(&handle, new_file, new_trie, new_idtree,
-                                new_seqtree, new_dhandle, new_bhandle,
-                                got_lock);
+                                new_seqtree, new_dhandle, new_bhandle);
     if (fs != FDB_RESULT_SUCCESS) {
         btreeblk_end(handle.bhandle);
         _fdb_close(&handle);
@@ -3959,10 +3961,21 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
                                       struct btreeblk_handle *new_bhandle,
                                       struct docio_object *doc,
                                       uint64_t *old_offset_array,
-                                      uint64_t n_buf)
+                                      uint64_t n_buf,
+                                      bool got_lock)
 {
     uint64_t i;
     uint64_t doc_offset = 0;
+    bool locked = false;
+
+    if (!got_lock) {
+        // We intentionally try to grab a lock on the old file here to have
+        // the compactor and normal writer interleave together through the
+        // old file's lock and make sure that the compactor can catch up with
+        // the normal writer. This is a short-term approach and we plan to address
+        // this issue without sacrificing the writer's performance soon.
+        locked = filemgr_mutex_trylock(handle->file);
+    }
 
     for (i=0; i<n_buf; ++i) {
         // append into the new file
@@ -3983,10 +3996,16 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+            if (!got_lock && locked) {
+                filemgr_mutex_unlock(handle->file);
+            }
             handle->config.compaction_cb(
                 handle->fhandle, FDB_CS_MOVE_DOC,
                 &wal_doc, old_offset_array[i], doc_offset,
                 handle->config.compaction_cb_ctx);
+            if (!got_lock) {
+                locked = filemgr_mutex_trylock(handle->file);
+            }
         }
 
         // free
@@ -4004,6 +4023,10 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
               &flush_items);
     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
     wal_release_flushed_items(new_file, &flush_items);
+
+    if (!got_lock && locked) {
+        filemgr_mutex_unlock(handle->file);
+    }
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
@@ -4114,7 +4137,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                               new_file, new_trie,
                                               new_idtree, new_seqtree,
                                               new_dhandle, new_bhandle, doc,
-                                              old_offset_array, c);
+                                              old_offset_array, c, got_lock);
                     c = sum_docsize = 0;
                 }
                 btreeblk_end(handle->bhandle);
@@ -4178,7 +4201,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                                       new_file, new_trie,
                                                       new_idtree, new_seqtree,
                                                       new_dhandle, new_bhandle, doc,
-                                                      old_offset_array, c);
+                                                      old_offset_array, c, got_lock);
                             c = sum_docsize = 0;
                         }
 
@@ -4208,7 +4231,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                   new_file, new_trie,
                                   new_idtree, new_seqtree,
                                   new_dhandle, new_bhandle, doc,
-                                  old_offset_array, c);
+                                  old_offset_array, c, got_lock);
     }
 
     if (handle->config.compaction_cb &&
@@ -4706,20 +4729,19 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         fs = _fdb_compact_move_docs_upto_marker(handle, new_file, new_trie, new_idtree,
                                                 target_seqtree, new_dhandle,
                                                 new_bhandle, marker_bid,
-                                                handle->last_hdr_bid, seqnum,
-                                                false /* not got file lock*/);
+                                                handle->last_hdr_bid, seqnum);
         cur_hdr = marker_bid; // Move delta documents from the compaction marker.
     } else {
         fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
                                     target_seqtree, new_dhandle,
-                                    new_bhandle, false /* not got file lock*/);
+                                    new_bhandle);
         cur_hdr = handle->last_hdr_bid;
     }
 
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
 
-        _fdb_cleanup_compact_err(handle, new_file, false, false, new_bhandle,
+        _fdb_cleanup_compact_err(handle, new_file, true, false, new_bhandle,
                                  new_dhandle, new_trie, new_seqtrie,
                                  new_seqtree);
         return fs;
@@ -4738,6 +4760,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         fdb_sync_db_header(handle);
         cur_hdr = handle->last_hdr_bid;
 
+        bool got_lock = false;
         if (last_hdr == cur_hdr) {
             // All *committed* delta documents are synchronized.
             // However, there can be uncommitted documents written after the
@@ -4745,6 +4768,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
             // But at this time, we should grab the old file's lock to prevent
             // any additional updates on it.
             filemgr_mutex_lock(handle->file);
+            got_lock = true;
 
             bid_t last_bid;
             last_bid = (filemgr_get_pos(handle->file) / handle->config.blocksize) - 1;
@@ -4760,8 +4784,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         fs = _fdb_compact_move_delta(handle, new_file, new_trie, new_idtree,
                                      target_seqtree, new_dhandle,
                                      new_bhandle, last_hdr, cur_hdr,
-                                     compact_upto,
-                                     false /* not got file lock*/);
+                                     compact_upto, got_lock);
         if (escape) {
             break;
         }

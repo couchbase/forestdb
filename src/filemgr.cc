@@ -740,11 +740,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     }
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_init(&file->mutex);
-#else
-    spin_init(&file->mutex);
-#endif
+    mutex_init(&file->writer_lock.mutex);
+    file->writer_lock.locked = false;
 
     // initialize WAL
     if (!wal_is_initialized(file)) {
@@ -1203,11 +1200,7 @@ static void _filemgr_free_func(struct hash_elem *h)
     }
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_destroy(&file->mutex);
-#else
-    spin_destroy(&file->mutex);
-#endif
+    mutex_destroy(&file->writer_lock.mutex);
 
     // free file structure
     free(file->config);
@@ -2015,20 +2008,24 @@ void filemgr_mutex_openunlock(void)
 
 void filemgr_mutex_lock(struct filemgr *file)
 {
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_lock(&file->mutex);
-#else
-    spin_lock(&file->mutex);
-#endif
+    mutex_lock(&file->writer_lock.mutex);
+    file->writer_lock.locked = true;
+}
+
+bool filemgr_mutex_trylock(struct filemgr *file) {
+    if (mutex_trylock(&file->writer_lock.mutex)) {
+        file->writer_lock.locked = true;
+        return true;
+    }
+    return false;
 }
 
 void filemgr_mutex_unlock(struct filemgr *file)
 {
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_unlock(&file->mutex);
-#else
-    spin_unlock(&file->mutex);
-#endif
+    if (file->writer_lock.locked) {
+        file->writer_lock.locked = false;
+        mutex_unlock(&file->writer_lock.mutex);
+    }
 }
 
 void filemgr_set_dirty_root(struct filemgr *file,

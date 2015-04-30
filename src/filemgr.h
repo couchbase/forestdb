@@ -93,6 +93,12 @@ enum {
 struct wal;
 struct fnamedic_item;
 struct kvs_header;
+
+typedef struct {
+    mutex_t mutex;
+    bool locked;
+} mutex_lock_t;
+
 struct filemgr {
     char *filename; // Current file name.
     uint32_t ref_count;
@@ -132,12 +138,8 @@ struct filemgr {
     spin_t data_spinlock[DLOCK_MAX];
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-    // spin lock for race condition between separate writer
-#ifdef __FILEMGR_MUTEX_LOCK
-    mutex_t mutex;
-#else
-    spin_t mutex;
-#endif
+    // mutex for synchronization among multiple writers.
+    mutex_lock_t writer_lock;
 };
 
 typedef struct {
@@ -255,7 +257,9 @@ bool filemgr_is_in_place_compaction_set(struct filemgr *file);
 
 void filemgr_mutex_openlock(struct filemgr_config *config);
 void filemgr_mutex_openunlock(void);
+
 void filemgr_mutex_lock(struct filemgr *file);
+bool filemgr_mutex_trylock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);
 
 void filemgr_set_dirty_root(struct filemgr *file,
