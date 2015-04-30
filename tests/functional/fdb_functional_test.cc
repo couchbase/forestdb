@@ -284,18 +284,15 @@ void config_test()
     fdb_kvs_config kvs_config;
     int nfiles = 4;
     int i;
-    uint64_t bcache_space_used;
+    size_t bcache_space_used;
     char fname[256];
 
     // remove previous dummy test files
     int r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
 
-    status = fdb_get_buffer_cache_used(NULL);
-    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
-
-    status = fdb_get_buffer_cache_used(&bcache_space_used);
-    TEST_CHK(status == FDB_RESULT_NO_DB_INSTANCE);
+    bcache_space_used = fdb_get_buffer_cache_used();
+    TEST_CHK(bcache_space_used == 0);
 
     fconfig = fdb_get_default_config();
     fconfig.buffercache_size= (uint64_t) -1;
@@ -311,8 +308,7 @@ void config_test()
         status = fdb_kvs_open(dbfile, &db, "justonekv", &kvs_config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        status = fdb_get_buffer_cache_used(&bcache_space_used);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        bcache_space_used = fdb_get_buffer_cache_used();
 
         // Ensure just one block is used from the buffercache to store KV name
         // DB header and it does not change since files are duly closed
@@ -329,8 +325,7 @@ void config_test()
     status = fdb_set_kv(db, (void*)"key", 3, (void*)"body", 5);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_get_buffer_cache_used(&bcache_space_used);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    bcache_space_used = fdb_get_buffer_cache_used();
 
     // Two blocks must be used - 1 by DB header created earlier and
     // One for the document block created by the fdb_set_kv

@@ -5191,7 +5191,7 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
     struct filemgr *file;
 
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return 0;
     }
 
     handle = fhandle->root;
@@ -5399,17 +5399,12 @@ fdb_status fdb_free_snap_markers(fdb_snapshot_info_t *markers, uint64_t size) {
 }
 
 LIBFDB_API
-fdb_status fdb_get_buffer_cache_used(uint64_t *cache_in_use) {
-    if (!cache_in_use) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
+size_t fdb_get_buffer_cache_used() {
     if (!fdb_initialized) {
-        return FDB_RESULT_NO_DB_INSTANCE;
+        return 0;
     }
 
-    *cache_in_use = filemgr_get_bcache_used_space();
-    return FDB_RESULT_SUCCESS;
+    return (size_t) filemgr_get_bcache_used_space();
 }
 
 LIBFDB_API
