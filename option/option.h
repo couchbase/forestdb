@@ -64,6 +64,10 @@
 #define FDB_COMP_BUF_MAXSIZE (1073741824) // 1 GB, 128M offsets
 #define FDB_COMP_BATCHSIZE (131072) // 128K docs
 #define FDB_COMP_MOVE_UNIT (134217728) // 128 MB
+#define FDB_COMP_RATIO_MIN (40) // 40% (writer speed / compactor speed)
+#define FDB_COMP_RATIO_MAX (60) // 60% (writer speed / compactor speed)
+#define FDB_COMP_PROB_UNIT_INC (5) // 5% (probability delta unit for increase)
+#define FDB_COMP_PROB_UNIT_DEC (5) // 5% (probability delta unit for decrease)
 #define FDB_COMPACTOR_SLEEP_DURATION (15)
 #define FDB_DEFAULT_COMPACTION_THRESHOLD (30)
 
