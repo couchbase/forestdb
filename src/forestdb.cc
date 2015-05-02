@@ -3556,7 +3556,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     uint64_t offset, _offset;
     uint64_t old_offset, new_offset;
     uint64_t *offset_array, *old_offset_array;
-    uint64_t n_moved_docs, n_buf, n_docs_in_wal;
+    uint64_t n_moved_docs, n_buf;
     uint64_t sum_docsize;
     size_t i, j, c, count;
     size_t offset_array_max;
@@ -3639,7 +3639,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
             // 1) read all documents in offset_array, and
             // 2) move them into the new file.
             // 3) flush WAL periodically
-            n_moved_docs = n_docs_in_wal = i = 0;
+            n_moved_docs = i = 0;
             do {
                 // === read docs from the old file ===
                 sum_docsize = n_buf = 0;
@@ -3672,7 +3672,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 // catch up with the normal writer. This is a short-term approach
                 // and we plan to address this issue without sacrificing the writer's
                 // performance soon.
-                bool locked = filemgr_mutex_trylock(handle->file);
+                filemgr_mutex_lock(handle->file);
                 // === write docs into the new file ===
                 for (j=0; j<n_buf; ++j) {
                     // compare timestamp
@@ -3704,26 +3704,20 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_insert(&new_file->global_txn,
                                    new_file, &wal_doc, new_offset, 1);
                         n_moved_docs++;
-                        n_docs_in_wal++;
 
                         if (handle->config.compaction_cb &&
                             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                            if (locked) {
-                                filemgr_mutex_unlock(handle->file);
-                            }
+                            filemgr_mutex_unlock(handle->file);
                             handle->config.compaction_cb(
                                 handle->fhandle, FDB_CS_MOVE_DOC,
                                 &wal_doc, old_offset, new_offset,
                                 handle->config.compaction_cb_ctx);
-                            locked = filemgr_mutex_trylock(handle->file);
+                            filemgr_mutex_lock(handle->file);
                         }
                     }
                     free(doc[j].key);
                     free(doc[j].meta);
                     free(doc[j].body);
-                }
-                if (locked) {
-                    filemgr_mutex_unlock(handle->file);
                 }
 
                 if (handle->config.compaction_cb &&
@@ -3735,11 +3729,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 }
 
                 // === flush WAL entries by compactor ===
-                // flush WAL when
-                // 1) # docs in WAL exceeds the threshold, OR
-                // 2) there is no more offset in offset_array
-                if ( (n_docs_in_wal > FDB_COMP_WAL_FLUSH || i >= c)  &&
-                      wal_get_num_flushable(new_file) > 0 ) {
+                if (wal_get_num_flushable(new_file) > 0) {
 
                     struct avl_tree flush_items;
                     wal_flush_by_compactor(new_file, (void*)&new_handle,
@@ -3748,16 +3738,18 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                            &flush_items);
                     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                     wal_release_flushed_items(new_file, &flush_items);
-                    n_docs_in_wal = 0;
 
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+                        filemgr_mutex_unlock(handle->file);
                         handle->config.compaction_cb(handle->fhandle,
                                                      FDB_CS_FLUSH_WAL, NULL,
                                                      old_offset, new_offset,
                                                      handle->config.compaction_cb_ctx);
+                        filemgr_mutex_lock(handle->file);
                     }
                 }
+                filemgr_mutex_unlock(handle->file);
 
                 // If the rollback operation is issued, abort the compaction task.
                 if (filemgr_is_rollback_on(handle->file)) {
@@ -3966,7 +3958,6 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 {
     uint64_t i;
     uint64_t doc_offset = 0;
-    bool locked = false;
 
     if (!got_lock) {
         // We intentionally try to grab a lock on the old file here to have
@@ -3974,7 +3965,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         // old file's lock and make sure that the compactor can catch up with
         // the normal writer. This is a short-term approach and we plan to address
         // this issue without sacrificing the writer's performance soon.
-        locked = filemgr_mutex_trylock(handle->file);
+        filemgr_mutex_lock(handle->file);
     }
 
     for (i=0; i<n_buf; ++i) {
@@ -3996,7 +3987,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-            if (!got_lock && locked) {
+            if (!got_lock) {
                 filemgr_mutex_unlock(handle->file);
             }
             handle->config.compaction_cb(
@@ -4004,7 +3995,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
                 &wal_doc, old_offset_array[i], doc_offset,
                 handle->config.compaction_cb_ctx);
             if (!got_lock) {
-                locked = filemgr_mutex_trylock(handle->file);
+                filemgr_mutex_lock(handle->file);
             }
         }
 
@@ -4024,7 +4015,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
     wal_release_flushed_items(new_file, &flush_items);
 
-    if (!got_lock && locked) {
+    if (!got_lock) {
         filemgr_mutex_unlock(handle->file);
     }
 
