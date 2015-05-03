@@ -333,6 +333,8 @@ void config_test()
 
     fdb_close(dbfile);
 
+    fdb_shutdown();
+
     memleak_end();
     TEST_RESULT("forestdb config test");
 }
