@@ -4837,6 +4837,15 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         compact_upto = true;
     }
 
+    if (!prob) {
+        // If the current probability is zero after the first phase of compaction,
+        // then start the second phase of compaction with 20% of probability to allow
+        // compaciton to catch up with the writer in case their throughputs remains
+        // the same approximately during the entire compaction period. Otherwise,
+        // the compaction might not be able to catch up and run forever.
+        prob = 20;
+    }
+
     do {
         last_hdr = cur_hdr;
         // get up-to-date header BID of the old file
