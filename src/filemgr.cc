@@ -692,6 +692,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint64_t(&file->header.bid, 0);
     atomic_init_uint64_t(&file->header.dirty_idtree_root, 0);
     atomic_init_uint64_t(&file->header.dirty_seqtree_root, 0);
+    _init_op_stats(&file->header.op_stat);
     status = _filemgr_read_header(file, log_callback);
     if (status != FDB_RESULT_SUCCESS) {
         _log_errno_str(file->ops, log_callback, status, "READ", filename);
@@ -2237,6 +2238,16 @@ int _kvs_ops_stat_get(struct filemgr *file,
     }
 
     return ret;
+}
+
+void _init_op_stats(struct kvs_ops_stat *stat) {
+    atomic_init_uint64_t(&stat->num_sets, 0);
+    atomic_init_uint64_t(&stat->num_dels, 0);
+    atomic_init_uint64_t(&stat->num_commits, 0);
+    atomic_init_uint64_t(&stat->num_compacts, 0);
+    atomic_init_uint64_t(&stat->num_gets, 0);
+    atomic_init_uint64_t(&stat->num_iterator_gets, 0);
+    atomic_init_uint64_t(&stat->num_iterator_moves, 0);
 }
 
 struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,

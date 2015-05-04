@@ -303,9 +303,9 @@ int _kvs_ops_stat_get(struct filemgr *file,
                       fdb_kvs_id_t kv_id,
                       struct kvs_ops_stat *stat);
 
+void _init_op_stats(struct kvs_ops_stat *stat);
 struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
                                           struct kvs_info *info);
-
 #ifdef __cplusplus
 }
 #endif
