@@ -4237,8 +4237,19 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 new_handle.last_hdr_bid = filemgr_get_next_alloc_block(new_file);
                 new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
                 new_handle.cur_header_revnum = fdb_set_file_header(&new_handle);
+                // If synchrouns commit is enabled, then disable it temporarily for each
+                // commit header as synchronous commit is not required in the new file
+                // during the compaction.
+                bool sync_enabled = false;
+                if (new_file->fflags & FILEMGR_SYNC) {
+                    new_file->fflags &= ~FILEMGR_SYNC;
+                    sync_enabled = true;
+                }
                 // Commit a new file.
                 fs = filemgr_commit(new_file, log_callback);
+                if (sync_enabled) {
+                    new_file->fflags |= FILEMGR_SYNC;
+                }
                 if (fs != FDB_RESULT_SUCCESS) {
                     free(doc);
                     free(old_offset_array);
