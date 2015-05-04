@@ -3575,6 +3575,25 @@ INLINE void _fdb_adjust_prob(size_t cur_ratio, size_t *prob)
     }
 }
 
+INLINE void _fdb_update_block_distance(bid_t writer_curr_bid,
+                                       bid_t compactor_curr_bid,
+                                       bid_t *writer_prev_bid,
+                                       bid_t *compactor_prev_bid,
+                                       size_t *prob)
+{
+    bid_t writer_bid_gap = writer_curr_bid - (*writer_prev_bid);
+    bid_t compactor_bid_gap = compactor_curr_bid - (*compactor_prev_bid);
+
+    if (compactor_bid_gap) {
+        // throughput ratio of writer / compactor (percentage)
+        size_t cur_ratio = writer_bid_gap*100 / compactor_bid_gap;
+        // adjust probability
+        _fdb_adjust_prob(cur_ratio, prob);
+    }
+    *writer_prev_bid = writer_curr_bid;
+    *compactor_prev_bid = compactor_curr_bid;
+}
+
 static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                          struct filemgr *new_file,
                                          struct hbtrie *new_trie,
@@ -3602,13 +3621,13 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     timestamp_t cur_timestamp;
     fdb_status fs = FDB_RESULT_SUCCESS;
 
-    bid_t newfile_bid, oldfile_bid;
-    bid_t newfile_bid_prev, oldfile_bid_prev;
-    bid_t newfile_bid_gap, oldfile_bid_gap;
+    bid_t compactor_curr_bid, writer_curr_bid;
+    bid_t compactor_prev_bid, writer_prev_bid;
     bool locked = false;
 
-    newfile_bid_prev = 0;
-    oldfile_bid_prev = filemgr_get_header_bid(handle->file);
+    compactor_prev_bid = 0;
+    writer_prev_bid = filemgr_get_pos(handle->file) /
+                      handle->file->config->blocksize;
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
@@ -3811,21 +3830,12 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     }
                 }
 
-                oldfile_bid = filemgr_get_pos(handle->file) /
-                              handle->file->config->blocksize;
-                newfile_bid = filemgr_get_pos(new_file) / new_file->config->blocksize;
-                oldfile_bid_gap = oldfile_bid - oldfile_bid_prev;
-                newfile_bid_gap = newfile_bid - newfile_bid_prev;
-
-                if (newfile_bid_gap) {
-                    // throughput ratio of writer / compactor (percentage)
-                    size_t cur_ratio = oldfile_bid_gap*100 / newfile_bid_gap;
-                    // adjust probability
-                    _fdb_adjust_prob(cur_ratio, prob);
-                }
-
-                oldfile_bid_prev = oldfile_bid;
-                newfile_bid_prev = newfile_bid;
+                writer_curr_bid = filemgr_get_pos(handle->file) /
+                                  handle->file->config->blocksize;
+                compactor_curr_bid = filemgr_get_pos(new_file) / new_file->config->blocksize;
+                _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
+                                           &writer_prev_bid, &compactor_prev_bid,
+                                           prob);
 
                 if (locked) {
                     filemgr_mutex_unlock(handle->file);
@@ -4026,12 +4036,6 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
 
 INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
                                       fdb_kvs_handle *new_handle,
-                                      struct filemgr *new_file,
-                                      struct hbtrie *new_trie,
-                                      struct btree *new_idtree,
-                                      struct btree *new_seqtree,
-                                      struct docio_handle *new_dhandle,
-                                      struct btreeblk_handle *new_bhandle,
                                       struct docio_object *doc,
                                       uint64_t *old_offset_array,
                                       uint64_t n_buf,
@@ -4057,8 +4061,8 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 
     for (i=0; i<n_buf; ++i) {
         // append into the new file
-        doc_offset = docio_append_doc(new_dhandle, &doc[i],
-                         doc[i].length.flag & DOCIO_DELETED, 0);
+        doc_offset = docio_append_doc(new_handle->dhandle, &doc[i],
+                                      doc[i].length.flag & DOCIO_DELETED, 0);
         // insert into the new file's WAL
         fdb_doc wal_doc;
         wal_doc.keylen = doc[i].length.keylen;
@@ -4069,7 +4073,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
-        wal_insert(&new_file->global_txn, new_file, &wal_doc,
+        wal_insert(&new_handle->file->global_txn, new_handle->file, &wal_doc,
                    doc_offset, 0);
 
         if (handle->config.compaction_cb &&
@@ -4094,13 +4098,13 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 
     // WAL flush
     struct avl_tree flush_items;
-    wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
-    wal_flush(new_file, (void*)new_handle,
+    wal_commit(&new_handle->file->global_txn, new_handle->file, NULL, &handle->log_callback);
+    wal_flush(new_handle->file, (void*)new_handle,
               _fdb_wal_flush_func,
               _fdb_wal_get_old_offset,
               &flush_items);
-    wal_set_dirty_status(new_file, FDB_WAL_PENDING);
-    wal_release_flushed_items(new_file, &flush_items);
+    wal_set_dirty_status(new_handle->file, FDB_WAL_PENDING);
+    wal_release_flushed_items(new_handle->file, &flush_items);
 
     if (locked) {
         filemgr_mutex_unlock(handle->file);
@@ -4132,7 +4136,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     uint64_t sum_docsize;;
     uint64_t *old_offset_array;
     size_t c;
-    size_t blocksize = handle->config.blocksize;
+    size_t blocksize = handle->file->config->blocksize;
     struct timeval tv;
     struct docio_object *doc;
     fdb_kvs_handle new_handle;
@@ -4140,6 +4144,10 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     fdb_status fs = FDB_RESULT_SUCCESS;
     err_log_callback *log_callback;
     uint8_t *hdr_buf = alca(uint8_t, blocksize);
+
+    bid_t compactor_bid_prev, writer_bid_prev;
+    bid_t compactor_curr_bid, writer_curr_bid;
+    bool distance_updated = false;
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
@@ -4173,6 +4181,9 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     c = old_offset = new_offset = sum_docsize = 0;
     offset = (begin_hdr+1) * blocksize;
     offset_end = (end_hdr+1) * blocksize;
+
+    compactor_bid_prev = offset / blocksize;
+    writer_bid_prev = (filemgr_get_pos(handle->file) / blocksize);
 
     for (; offset < offset_end;
         offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
@@ -4212,10 +4223,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 // As this block is a commit header, flush the WAL and write
                 // the commit header to the new file.
                 if (c) {
-                    _fdb_append_batched_delta(handle, &new_handle,
-                                              new_file, new_trie,
-                                              new_idtree, new_seqtree,
-                                              new_dhandle, new_bhandle, doc,
+                    _fdb_append_batched_delta(handle, &new_handle, doc,
                                               old_offset_array, c, got_lock, prob);
                     c = sum_docsize = 0;
                 }
@@ -4276,12 +4284,15 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                         if (sum_docsize >= FDB_COMP_MOVE_UNIT ||
                             c >= FDB_COMP_BATCHSIZE) {
                             // append batched docs & flush WAL
-                            _fdb_append_batched_delta(handle, &new_handle,
-                                                      new_file, new_trie,
-                                                      new_idtree, new_seqtree,
-                                                      new_dhandle, new_bhandle, doc,
+                            _fdb_append_batched_delta(handle, &new_handle, doc,
                                                       old_offset_array, c, got_lock, prob);
                             c = sum_docsize = 0;
+                            writer_curr_bid = filemgr_get_pos(handle->file) / blocksize;
+                            compactor_curr_bid = offset / blocksize;
+                            _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
+                                                       &writer_bid_prev, &compactor_bid_prev,
+                                                       prob);
+                            distance_updated = true;
                         }
 
                     } else {
@@ -4306,11 +4317,17 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
     // final append & WAL flush
     if (c) {
-        _fdb_append_batched_delta(handle, &new_handle,
-                                  new_file, new_trie,
-                                  new_idtree, new_seqtree,
-                                  new_dhandle, new_bhandle, doc,
+        _fdb_append_batched_delta(handle, &new_handle, doc,
                                   old_offset_array, c, got_lock, prob);
+        if (!distance_updated) {
+            // Probability was not updated since the amount of delta was not big enough.
+            // We need to update it at least once for each iteration.
+            writer_curr_bid = filemgr_get_pos(handle->file) / blocksize;
+            compactor_curr_bid = offset / blocksize;
+            _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
+                                       &writer_bid_prev, &compactor_bid_prev,
+                                       prob);
+        }
     }
 
     if (handle->config.compaction_cb &&
@@ -4798,7 +4815,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // now compactor & another writer can be interleaved
     bid_t last_hdr = 0;
     bid_t cur_hdr = 0;
-    bid_t gap = 0, gap_prev = 0;
     // probability variable for blocking writer thread
     // value range: 0 (do not block writer) to 100 (always block writer)
     size_t prob = 0;
@@ -4852,10 +4868,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         fdb_sync_db_header(handle);
         cur_hdr = handle->last_hdr_bid;
 
-        gap_prev = gap;
-        gap = ((filemgr_get_pos(handle->file) / handle->config.blocksize) - 1) -
-              last_hdr;
-
         bool got_lock = false;
         if (last_hdr == cur_hdr) {
             // All *committed* delta documents are synchronized.
@@ -4875,13 +4887,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
             } else {
                 break;
             }
-        }
-
-        if (gap_prev) {
-            // throughput ratio of writer / compactor (percentage)
-            size_t cur_ratio = gap * 100 / gap_prev;
-            // adjust probability
-            _fdb_adjust_prob(cur_ratio, &prob);
         }
 
         fs = _fdb_compact_move_delta(handle, new_file, new_trie, new_idtree,
