@@ -3933,6 +3933,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     handle.max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
     handle.shandle = &shandle;
     handle.fhandle = rhandle->fhandle;
+    atomic_init_uint8_t(&handle.handle_busy, 0);
     if (rhandle->kvs) {
         handle.kvs = &kvs;
         _fdb_kvs_init_root(&handle, file);

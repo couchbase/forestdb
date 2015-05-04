@@ -739,6 +739,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
             node->kvs_name = (char *)malloc(name_len);
             memcpy(node->kvs_name, (uint8_t*)data + name_offset, name_len);
             node->id = kv_id;
+            _init_op_stats(&node->op_stat);
         }
 
         // seq number
@@ -1138,6 +1139,7 @@ fdb_kvs_create_start:
     node->id = kv_header->id_counter++;
     node->seqnum = 0;
     node->flags = 0x0;
+    _init_op_stats(&node->op_stat);
     // search fhandle's custom cmp func list first
     node->custom_cmp = fdb_kvs_find_cmp_name(root_handle,
                                              (char *)kvs_name);
@@ -1396,6 +1398,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             spin_unlock(&fhandle->lock);
             handle = (fdb_kvs_handle*)calloc(1, sizeof(fdb_kvs_handle));
             handle->kvs_config = config_local;
+            atomic_init_uint8_t(&handle->handle_busy, 0);
 
             if (root_handle->file->kv_header) {
                 spin_lock(&root_handle->file->kv_header->lock);
@@ -1452,6 +1455,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
+    atomic_init_uint8_t(&handle->handle_busy, 0);
     handle->fhandle = fhandle;
     fs = _fdb_kvs_open(root_handle, &config, &config_local,
                        latest_file, file->filename, kvs_name, handle);
@@ -1873,6 +1877,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     handle->max_seqnum = seqnum;
     handle->log_callback = handle_in->log_callback;
     handle->fhandle = fhandle;
+    atomic_init_uint8_t(&handle->handle_busy, 0);
 
     if (handle_in->kvs->type == KVS_SUB) {
         fs = _fdb_kvs_open(handle_in->kvs->root,
