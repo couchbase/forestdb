@@ -375,6 +375,16 @@ typedef struct {
      * This is a local config to each ForestDB file.
      */
     void *compaction_cb_ctx;
+    /**
+     * Maximum probability (range: 20% ~ 100%) for the compactor to grab
+     * the writer's lock during each batch write in case the writer's throughput
+     * is faster than the compactor, to make sure that the compactor can keep
+     * pace with the writer and eventually complete the compaction.
+     * Note that we plan to reduce the compaction overhead significantly soon
+     * and deprecate this parameter when it is not needed anymore.
+     * This is a local config to each ForestDB file.
+     */
+    size_t max_writer_lock_prob;
 } fdb_config;
 
 typedef struct {
