@@ -1791,6 +1791,15 @@ fdb_kvs_remove_start:
     return fs;
 }
 
+bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
+{
+    bool ret;
+    spin_lock(&fhandle->lock);
+    ret = (list_begin(fhandle->handles) != NULL);
+    spin_unlock(&fhandle->lock);
+    return ret;
+}
+
 fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
 {
     fdb_config config;

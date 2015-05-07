@@ -226,11 +226,6 @@ void fdb_fetch_header(void *header_buf,
 
 INLINE size_t _fdb_get_docsize(struct docio_length len);
 
-typedef enum {
-    FDB_RESTORE_NORMAL,
-    FDB_RESTORE_KV_INS,
-} fdb_restore_mode_t;
-
 INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                              fdb_restore_mode_t mode,
                              bid_t hdr_bid,
@@ -1031,6 +1026,134 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     return fs;
 }
 
+LIBFDB_API
+fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
+                            fdb_snapshot_marker_t marker)
+{
+#ifdef _MEMPOOL
+    mempool_init();
+#endif
+
+    fdb_config config;
+    fdb_kvs_handle *super_handle;
+    fdb_kvs_handle rhandle;
+    fdb_kvs_handle *handle = &rhandle;
+    struct filemgr *file;
+    fdb_kvs_config kvs_config;
+    fdb_status fs;
+    err_log_callback log_callback;
+    struct kvs_info *kvs;
+    struct snap_handle shandle; // dummy snap handle
+
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    super_handle = fhandle->root;
+    kvs = super_handle->kvs;
+
+    // fdb_rollback_all cannot be allowed when there are kv store instances
+    // still open, because we do not have means of invalidating open kv handles
+    // which may not be present in the rollback point
+    if (kvs && _fdb_kvs_is_busy(fhandle)) {
+        return FDB_RESULT_KV_STORE_BUSY;
+    }
+    file = super_handle->file;
+    config = super_handle->config;
+    kvs_config = super_handle->kvs_config;
+    log_callback = super_handle->log_callback;
+
+    // Sequence trees are a must for rollback
+    if (super_handle->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+
+    if (super_handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
+        return fdb_log(&super_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
+                       "Warning: Rollback is not allowed on the read-only DB file '%s'.",
+                       super_handle->file->filename);
+    }
+
+    filemgr_mutex_lock(super_handle->file);
+    filemgr_set_rollback(super_handle->file, 1); // disallow writes operations
+    // All transactions should be closed before rollback
+    if (wal_txn_exists(super_handle->file)) {
+        filemgr_set_rollback(super_handle->file, 0);
+        filemgr_mutex_unlock(super_handle->file);
+        return FDB_RESULT_FAIL_BY_TRANSACTION;
+    }
+
+    // If compaction is running, wait until it is aborted.
+    // TODO: Find a better way of waiting for the compaction abortion.
+    unsigned int sleep_time = 10000; // 10 ms.
+    file_status_t fstatus = filemgr_get_file_status(super_handle->file);
+    while (fstatus == FILE_COMPACT_OLD) {
+        filemgr_mutex_unlock(super_handle->file);
+        decaying_usleep(&sleep_time, 1000000);
+        filemgr_mutex_lock(super_handle->file);
+        fstatus = filemgr_get_file_status(super_handle->file);
+    }
+    if (fstatus == FILE_REMOVED_PENDING) {
+        filemgr_mutex_unlock(super_handle->file);
+        fdb_check_file_reopen(super_handle, NULL);
+        fdb_sync_db_header(super_handle);
+    } else {
+        filemgr_mutex_unlock(super_handle->file);
+    }
+
+    // Shutdown WAL discarding entries from all KV Stores..
+    fs = wal_shutdown(super_handle->file);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
+
+    memset(handle, 0, sizeof(fdb_kvs_handle));
+    memset(&shandle, 0, sizeof(struct snap_handle));
+    handle->log_callback = log_callback;
+    handle->fhandle = fhandle;
+    handle->last_hdr_bid = (bid_t)marker; // Fast rewind on open
+    handle->max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
+    handle->shandle = &shandle; // a dummy handle to prevent WAL restore
+    if (kvs) {
+        fdb_kvs_header_free(file); //_open will recreate the header
+        handle->kvs = kvs; // re-use super_handle's kvs info
+        handle->kvs_config = kvs_config;
+    }
+
+    fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
+
+    filemgr_set_rollback(file, 0); // allow mutations
+    handle->shandle = NULL; // just a dummy handle never allocated
+
+    if (fs == FDB_RESULT_SUCCESS) {
+        fdb_seqnum_t old_seqnum;
+        // Restore WAL for all KV instances...
+        _fdb_restore_wal(handle, FDB_RESTORE_NORMAL, (bid_t)marker, 0);
+
+        // rollback the file's sequence number
+        filemgr_mutex_lock(file);
+        old_seqnum = filemgr_get_seqnum(file);
+        filemgr_set_seqnum(file, handle->seqnum);
+        filemgr_mutex_unlock(file);
+
+        fs = _fdb_commit(handle, FDB_COMMIT_NORMAL);
+        if (fs == FDB_RESULT_SUCCESS) {
+            _fdb_close(super_handle);
+            *super_handle = *handle;
+        } else {
+            filemgr_mutex_lock(file);
+            filemgr_set_seqnum(file, old_seqnum);
+            filemgr_mutex_unlock(file);
+        }
+    } else { // Rollback failed, restore KV header
+        fdb_kvs_header_create(file);
+        fdb_kvs_header_read(file, super_handle->dhandle,
+                            super_handle->kv_info_offset, false);
+    }
+
+    return fs;
+}
+
 static void _fdb_init_file_config(const fdb_config *config,
                                   struct filemgr_config *fconfig) {
     fconfig->blocksize = config->blocksize;
@@ -1162,7 +1285,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     // set handle->last_hdr_bid to the block id of required header, so rewind..
     if (handle->shandle && handle->last_hdr_bid) {
         status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
-                                      header_buf, &header_len, NULL,
+                                      header_buf, &header_len, &seqnum,
                                       &handle->log_callback);
         if (status != FDB_RESULT_SUCCESS) {
             filemgr_mutex_unlock(handle->file);
@@ -1209,7 +1332,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 seqnum = 0;
             }
         } else {
-            seqnum = filemgr_get_seqnum(handle->file);
+            if (!seqnum) {
+                seqnum = filemgr_get_seqnum(handle->file);
+            }
         }
         // other flags
         if (header_flags & FDB_FLAG_ROOT_INITIALIZED) {

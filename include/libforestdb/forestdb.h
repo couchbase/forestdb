@@ -392,6 +392,20 @@ LIBFDB_API
 fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t rollback_seqnum);
 
 /**
+ * Rollback all the KV stores in a file to a specified point represented by
+ * a file-level snapshot marker returned by fdb_get_all_snap_markers api.
+ *
+ * @param fhandle ForestDB file handle.
+ * @param marker file level marker or the rollback point of all KV stores
+ * @return FDB_RESULT_SUCCESS on success.
+ *         FDB_RESULT_HANDLE_BUSY if there are multiple kv stores used whose
+ *                                handles have not yet been closed
+ */
+LIBFDB_API
+fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
+                            fdb_snapshot_marker_t marker);
+
+/**
  * Create an iterator to traverse a ForestDB KV store snapshot by key range
  *
  * @param handle Pointer to ForestDB KV store handle.
