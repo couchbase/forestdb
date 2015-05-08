@@ -54,7 +54,7 @@ static struct list freelist;
 static spin_t freelist_lock;
 
 // file structure list
-static struct list file_lru, file_empty;
+static struct list file_lru, file_empty, file_zombies;
 static spin_t filelist_lock;
 
 //static struct list cleanlist, dirtylist;
@@ -97,6 +97,7 @@ struct fnamedic_item {
     // hash elem for FNAMEDIC
     struct hash_elem hash_elem;
 
+    atomic_uint32_t ref_count;
     spin_t lock;
     atomic_uint64_t nvictim;
     atomic_uint64_t nitems;
@@ -194,25 +195,28 @@ INLINE int _bcache_cmp(struct hash_elem *a, struct hash_elem *b)
     #endif
 }
 
-static void _bcache_move_fname_list(struct fnamedic_item *fname, struct list *list)
+static void _bcache_move_fname_list(struct fnamedic_item *fname,
+                                    struct list *list)
 {
     spin_lock(&filelist_lock);
 
-    if (fname->curlist != list) {
-        if (list == &file_lru) {
-            fnames++;
-        } else {
-            fnames--;
+    if (fname->curlist != &file_zombies) { // zombie list is one-way path
+        if (fname->curlist != list) {
+            if (list == &file_lru) {
+                fnames++;
+            } else {
+                fnames--;
+            }
         }
-    }
 
-    if (fname->curlist) {
-        list_remove(fname->curlist, &fname->le);
+        if (fname->curlist) {
+            list_remove(fname->curlist, &fname->le);
+        }
+        if (list) {
+            list_push_front(list, &fname->le);
+        }
+        fname->curlist = list;
     }
-    if (list) {
-        list_push_front(list, &fname->le);
-    }
-    fname->curlist = list;
 
     spin_unlock(&filelist_lock);
 }
@@ -260,6 +264,7 @@ INLINE bool _shard_empty(struct bcache_shard *bshard) {
 struct fnamedic_item *_bcache_get_victim()
 {
     struct list_elem *e = NULL, *prev;
+    struct fnamedic_item *ret = NULL;
 
     spin_lock(&filelist_lock);
 
@@ -299,12 +304,13 @@ struct fnamedic_item *_bcache_get_victim()
         }
     }
 
+    if (e) {
+        ret = _get_entry(e, struct fnamedic_item, le);
+        atomic_incr_uint32_t(&ret->ref_count);
+    }
     spin_unlock(&filelist_lock);
 
-    if (e) {
-        return _get_entry(e, struct fnamedic_item, le);
-    }
-    return NULL;
+    return ret;
 }
 
 static struct bcache_item *_bcache_alloc_freeblock()
@@ -334,6 +340,35 @@ static void _bcache_release_freeblock(struct bcache_item *item)
     list_push_front(&freelist, &item->list_elem);
     freelist_count++;
     spin_unlock(&freelist_lock);
+}
+
+static struct fnamedic_item *_next_dead_fname_zombie(void) {
+    struct list_elem *e;
+    struct fnamedic_item *fname_item = NULL;
+    spin_lock(&filelist_lock);
+    e = list_begin(&file_zombies);
+    while (e) {
+        fname_item = _get_entry(e, struct fnamedic_item, le);
+        if (fname_item->ref_count.val == 0) {
+            list_remove(&file_zombies, e);
+            break;
+        } else {
+            e = list_next(e);
+        }
+    }
+    spin_unlock(&filelist_lock);
+    return fname_item;
+}
+
+static void _fname_free(struct fnamedic_item *fname);
+
+static void _garbage_collect_zombie_fnames(void) {
+    struct fnamedic_item *fname_item = _next_dead_fname_zombie();
+    while (fname_item) {
+        _fname_free(fname_item);
+        free(fname_item);
+        fname_item = _next_dead_fname_zombie();
+    }
 }
 
 struct dirty_bid {
@@ -641,6 +676,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
                 // another thread right before moving the file to the empty set
                 // because the file can be the eviction target again.
                 _bcache_move_fname_list(victim, &file_empty);
+                atomic_decr_uint32_t(&victim->ref_count);
                 victim = NULL;
             }
         }
@@ -671,6 +707,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
                 // When the victim shard has no clean block, evict some dirty blocks
                 // from shards.
                 if (_flush_dirty_blocks(victim, true, false) != FDB_RESULT_SUCCESS) {
+                    atomic_decr_uint32_t(&victim->ref_count);
                     return NULL;
                 }
                 continue; // Select a victim shard again.
@@ -698,6 +735,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
             // attempts.
             // The file is *likely* empty. Note that it is OK to return NULL
             // even if the file is not empty because the caller will retry again.
+            atomic_decr_uint32_t(&victim->ref_count);
             return NULL;
         }
 
@@ -723,6 +761,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
         _bcache_move_fname_list(victim, &file_empty);
     }
 
+    atomic_decr_uint32_t(&victim->ref_count);
     return &item->list_elem;
 }
 
@@ -730,6 +769,8 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     // TODO: we MUST NOT directly read file sturcture
 
     struct fnamedic_item *fname_new;
+    // Before we create a new filename entry, garbage collect zombies
+    _garbage_collect_zombie_fnames();
     fname_new = (struct fnamedic_item *)malloc(sizeof(struct fnamedic_item));
 
     fname_new->filename_len = strlen(file->filename);
@@ -745,6 +786,7 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->curfile = file;
     atomic_init_uint64_t(&fname_new->nvictim, 0);
     atomic_init_uint64_t(&fname_new->nitems, 0);
+    atomic_init_uint32_t(&fname_new->ref_count, 0);
     if (file->config->num_bcache_shards) {
         fname_new->num_shards = file->config->num_bcache_shards;
     } else {
@@ -775,13 +817,35 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     return fname_new;
 }
 
+static bool _fname_try_free(struct fnamedic_item *fname)
+{
+    bool ret = true;
+    // remove from empty list
+    spin_lock(&filelist_lock);
+
+    if (fname->curlist) {
+        if (fname->curlist == &file_lru) {
+            fnames--;
+        }
+        list_remove(fname->curlist, &fname->le);
+    }
+
+    if (fname->ref_count.val != 0) {
+        // This item is a victim by another thread's _bcache_evict()
+        fname->curlist = &file_zombies;
+        list_push_front(&file_zombies, &fname->le);
+        ret = false; // Delay deletion
+    }
+
+    spin_unlock(&filelist_lock);
+    return ret;
+}
+
 static void _fname_free(struct fnamedic_item *fname)
 {
-    // remove from corresponding list
-    _bcache_move_fname_list(fname, NULL);
-
     // file must be empty
     fdb_assert(_file_empty(fname), false, true);
+    fdb_assert(fname->ref_count.val == 0, 0, fname->ref_count.val);
 
     // free hash
     size_t i = 0;
@@ -1184,6 +1248,8 @@ void bcache_remove_file(struct filemgr *file)
 {
     struct fnamedic_item *fname_item;
 
+    // Before proceeding with deletion, garbage collect zombie files
+    _garbage_collect_zombie_fnames();
     fname_item = file->bcache;
 
     if (fname_item) {
@@ -1199,8 +1265,10 @@ void bcache_remove_file(struct filemgr *file)
         // We don't need to grab the file buffer cache's partition locks
         // at once because this function is only invoked when there are
         // no database handles that access the file.
-        _fname_free(fname_item);
-        free(fname_item);
+        if (_fname_try_free(fname_item)) {
+            _fname_free(fname_item); // no other callers accessing this file
+            free(fname_item);
+        } // else fnamedic_item is in use by _bcache_evict. Deletion delayed
     }
 }
 
@@ -1231,6 +1299,7 @@ void bcache_init(int nblock, int blocksize)
     list_init(&freelist);
     list_init(&file_lru);
     list_init(&file_empty);
+    list_init(&file_zombies);
 
     hash_init(&fnamedic, BCACHE_NDICBUCKET, _fname_hash, _fname_cmp);
 
@@ -1429,6 +1498,15 @@ void bcache_shutdown()
         freelist_count--;
         free(item->addr);
         free(item);
+    }
+
+    // Force clean zombies if any
+    e = list_begin(&file_zombies);
+    while (e) {
+        struct fnamedic_item *fname = _get_entry(e, struct fnamedic_item, le);
+        e = list_remove(&file_zombies, e);
+        _fname_free(fname);
+        free(fname);
     }
 
     spin_lock(&bcache_lock);
