@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdlib.h>
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && !defined(__FreeBSD__)
 #include <malloc.h>
 #endif
 

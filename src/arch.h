@@ -450,6 +450,74 @@
         #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
     #endif
 
+#elif __FreeBSD__
+    #include <inttypes.h>
+
+    #define INLINE __inline
+
+    #define _X64 PRIx64
+    #define _F64 PRIu64
+    #define _FSEC "ld"
+    #define _FUSEC "ld"
+
+    /* Solaris don't have flag to open to set direct io, but
+       rather use directio() afterwards to enable it. lets look
+       into that later on.
+    */
+    #define _ARCH_O_DIRECT (0)
+
+    #define malloc_align(addr, align, size) \
+        {int __ret__=0; __ret__=posix_memalign(&(addr), (align), (size));}
+    #define free_align(addr) free(addr)
+
+    #ifndef spin_t
+        // spinlock
+        // There isn't much point of keeping a separate
+        // spinlock datatype, because the mutexes on
+        // solaris is adaptive anyway and will spin
+        // initially.
+        #include <pthread.h>
+        #define spin_t pthread_mutex_t
+        #define spin_init(arg) pthread_mutex_init(arg, NULL)
+        #define spin_lock(arg) pthread_mutex_lock(arg)
+        #define spin_unlock(arg) pthread_mutex_unlock(arg)
+        #define spin_destroy(arg) pthread_mutex_destroy(arg)
+        #define SPIN_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+    #endif
+    #ifndef mutex_t
+        // mutex
+        #include <pthread.h>
+        #define mutex_t pthread_mutex_t
+        #define mutex_init(arg) pthread_mutex_init(arg, NULL)
+        #define mutex_lock(arg) pthread_mutex_lock(arg)
+        #define mutex_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
+        #define mutex_unlock(arg) pthread_mutex_unlock(arg)
+        #define MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+        #define mutex_destroy(arg) pthread_mutex_destroy(arg)
+    #endif
+    #ifndef thread_t
+        // thread
+        #include <pthread.h>
+        #define thread_t pthread_t
+        #define thread_cond_t pthread_cond_t
+        #define thread_create(tid, func, args) \
+            pthread_create((tid), NULL, (func), (args))
+        #define thread_join(tid, ret) pthread_join(tid, ret)
+        #define thread_cancel(tid) pthread_cancel(tid)
+        #define thread_exit(code) pthread_exit(code)
+        #define thread_cond_init(cond) pthread_cond_init(cond, NULL)
+        #define thread_cond_destroy(cond) pthread_cond_destroy(cond)
+        #define thread_cond_wait(cond, mutex) pthread_cond_wait(cond, mutex)
+        #define thread_cond_timedwait(cond, mutex, ms) \
+            { \
+            struct timespec ts = convert_reltime_to_abstime(ms); \
+            pthread_cond_timedwait(cond, mutex, &ts); \
+            }
+        #define thread_cond_signal(cond) pthread_cond_signal(cond)
+        #define thread_cond_broadcast(cond) pthread_cond_broadcast(cond)
+    #endif
+
 
 #else
 #pragma error "Unknown architecture"
