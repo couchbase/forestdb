@@ -300,6 +300,11 @@ void config_test()
     TEST_CHK(status == FDB_RESULT_TOO_BIG_BUFFER_CACHE);
 
     fconfig = fdb_get_default_config();
+    fconfig.max_writer_lock_prob = 120;
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_CONFIG);
+
+    fconfig = fdb_get_default_config();
     kvs_config = fdb_get_default_kvs_config();
     for (i = nfiles; i; --i) {
         sprintf(fname, "dummy%d", i);

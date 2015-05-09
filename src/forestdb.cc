@@ -3668,7 +3668,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     return fs;
 }
 
-INLINE void _fdb_adjust_prob(size_t cur_ratio, size_t *prob)
+INLINE void _fdb_adjust_prob(size_t cur_ratio, size_t *prob, size_t max_prob)
 {
     if (cur_ratio < FDB_COMP_RATIO_MIN) {
         // writer is slower than the minimum speed
@@ -3694,8 +3694,8 @@ INLINE void _fdb_adjust_prob(size_t cur_ratio, size_t *prob)
             (*prob) += FDB_COMP_PROB_UNIT_INC;
         }
 
-        if (*prob > 100) {
-            *prob = 100;
+        if (*prob > max_prob) {
+            *prob = max_prob;
         }
     }
 }
@@ -3704,7 +3704,8 @@ INLINE void _fdb_update_block_distance(bid_t writer_curr_bid,
                                        bid_t compactor_curr_bid,
                                        bid_t *writer_prev_bid,
                                        bid_t *compactor_prev_bid,
-                                       size_t *prob)
+                                       size_t *prob,
+                                       size_t max_prob)
 {
     bid_t writer_bid_gap = writer_curr_bid - (*writer_prev_bid);
     bid_t compactor_bid_gap = compactor_curr_bid - (*compactor_prev_bid);
@@ -3713,7 +3714,7 @@ INLINE void _fdb_update_block_distance(bid_t writer_curr_bid,
         // throughput ratio of writer / compactor (percentage)
         size_t cur_ratio = writer_bid_gap*100 / compactor_bid_gap;
         // adjust probability
-        _fdb_adjust_prob(cur_ratio, prob);
+        _fdb_adjust_prob(cur_ratio, prob, max_prob);
     }
     *writer_prev_bid = writer_curr_bid;
     *compactor_prev_bid = compactor_curr_bid;
@@ -3960,7 +3961,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 compactor_curr_bid = filemgr_get_pos(new_file) / new_file->config->blocksize;
                 _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
                                            &writer_prev_bid, &compactor_prev_bid,
-                                           prob);
+                                           prob, handle->config.max_writer_lock_prob);
 
                 if (locked) {
                     filemgr_mutex_unlock(handle->file);
@@ -4428,7 +4429,8 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                             compactor_curr_bid = offset / blocksize;
                             _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
                                                        &writer_bid_prev, &compactor_bid_prev,
-                                                       prob);
+                                                       prob,
+                                                       handle->config.max_writer_lock_prob);
                             distance_updated = true;
                         }
 
@@ -4463,7 +4465,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
             compactor_curr_bid = offset / blocksize;
             _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
                                        &writer_bid_prev, &compactor_bid_prev,
-                                       prob);
+                                       prob, handle->config.max_writer_lock_prob);
         }
     }
 
