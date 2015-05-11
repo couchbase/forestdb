@@ -3432,11 +3432,76 @@ void open_multi_files_kvs_test()
     TEST_RESULT("open multi files kvs test");
 }
 
+void get_byoffset_diff_kvs_test()
+{
+    TEST_INIT();
+    memleak_start();
+    int r;
+    uint64_t offset1, offset2;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *db2;
+    fdb_doc *rdoc;
+    fdb_status status;
+    char keybuf[256], bodybuf[256];
+
+    // remove previous dummy test files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open(dbfile, &db2, "db2", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    sprintf(keybuf, "key%d", 0);
+    sprintf(bodybuf, "body%d", 0);
+    fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, bodybuf, strlen(bodybuf));
+
+    // set kv
+    status = fdb_set(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // set kv2
+    sprintf((char *)rdoc->body, "bOdy%d", 0);
+    status = fdb_set(db2, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // save offsets
+    status = fdb_get_metaonly(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    offset1=rdoc->offset;
+    status = fdb_get_metaonly(db2, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    offset2=rdoc->offset;
+
+    // attempt to get key by offset belonging to different kvs
+    rdoc->offset = offset2;
+    status = fdb_get_byoffset(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+
+    fdb_close(dbfile);
+    fdb_doc_free(rdoc);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("get byoffset diff kvs");
+}
+
 int main(){
     basic_test();
     config_test();
     large_batch_write_no_commit_test();
     set_get_meta_test();
+    get_byoffset_diff_kvs_test();
 #if !defined(WIN32) && !defined(_WIN32)
 #ifndef _MSC_VER
     long_filename_test(); // temporarily disable until windows is fixed
