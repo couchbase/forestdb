@@ -2703,6 +2703,13 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
         return FDB_RESULT_KEY_NOT_FOUND;
     } else {
         if (handle->kvs) {
+            fdb_kvs_id_t kv_id;
+            buf2kvid(handle->config.chunksize, _doc.key, &kv_id);
+            if (kv_id != handle->kvs->id) {
+                fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+                free_docio_object(&_doc, 1, 1, 1);
+                return FDB_RESULT_KEY_NOT_FOUND;
+            }
             _remove_kv_id(handle, &_doc);
         }
         if (!equal_docs(doc, &_doc)) {
