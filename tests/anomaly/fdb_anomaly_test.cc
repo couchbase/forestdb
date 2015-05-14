@@ -28,6 +28,7 @@
 #include "libforestdb/forestdb.h"
 #include "test.h"
 #include "filemgr_anomalous_ops.h"
+#include "filemgr.h"
 #include "internal_types.h"
 
 void logCallbackFunc(int err_code,
@@ -44,7 +45,9 @@ typedef struct fail_ctx_t {
     int start_failing_after;
 } fail_ctx_t;
 
-ssize_t pwrite_failure_cb(void *ctx) {
+ssize_t pwrite_failure_cb(void *ctx, struct filemgr_ops *normal_ops,
+                          int fd, void *buf, size_t count, cs_off_t offset)
+{
     fail_ctx_t *wctx = (fail_ctx_t *)ctx;
     wctx->num_ops++;
     if (wctx->num_ops > wctx->start_failing_after) {
@@ -52,7 +55,7 @@ ssize_t pwrite_failure_cb(void *ctx) {
         errno = -2;
         return (ssize_t)FDB_RESULT_WRITE_FAIL;
     }
-    return (ssize_t)FDB_RESULT_SUCCESS;
+    return normal_ops->pwrite(fd, buf, count, offset);
 }
 
 void write_failure_test()
@@ -177,7 +180,9 @@ void write_failure_test()
     TEST_RESULT(temp);
 }
 
-ssize_t pread_failure_cb(void *ctx) {
+ssize_t pread_failure_cb(void *ctx, struct filemgr_ops *normal_ops,
+                         int fd, void *buf, size_t count, cs_off_t offset)
+{
     fail_ctx_t *wctx = (fail_ctx_t *)ctx;
     wctx->num_ops++;
     if (wctx->num_ops > wctx->start_failing_after) {
@@ -185,7 +190,7 @@ ssize_t pread_failure_cb(void *ctx) {
         errno = -2;
         return (ssize_t)FDB_RESULT_READ_FAIL;
     }
-    return (ssize_t)FDB_RESULT_SUCCESS;
+    return normal_ops->pread(fd, buf, count, offset);
 }
 
 void read_failure_test()
@@ -378,12 +383,14 @@ void *bad_thread(void *voidargs) {
 
 // Calling apis from a callback simulates concurrent access from multiple
 // threads
-ssize_t pwrite_hang_cb(void *ctx) {
+ssize_t pwrite_hang_cb(void *ctx, struct filemgr_ops *normal_ops,
+                       int fd, void *buf, size_t count, cs_off_t offset)
+{
     struct shared_data *data = (struct shared_data *)ctx;
     if (data->test_handle_busy) {
         bad_thread(ctx);
     }
-    return (ssize_t)FDB_RESULT_SUCCESS;
+    return normal_ops->pwrite(fd, buf, count, offset);
 }
 
 void handle_busy_test()

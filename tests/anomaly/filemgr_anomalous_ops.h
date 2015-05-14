@@ -29,14 +29,20 @@ void filemgr_ops_set_anomalous(int behavior);
 // If these return 0, then normal operation will happen,
 // If these return a non-zero value, then the file ops will return the same result
 struct anomalous_callbacks {
-    int (*open_cb)(void *ctx);
-    ssize_t (*pwrite_cb)(void *ctx);
-    ssize_t (*pread_cb)(void *ctx);
-    int (*close_cb)(void *ctx);
-    cs_off_t (*goto_eof_cb)(void *ctx);
-    cs_off_t (*file_size_cb)(void *ctx);
-    int (*fdatasync_cb)(void *ctx);
-    int (*fsync_cb)(void *ctx);
+    int (*open_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                   const char *pathname, int flags, mode_t mode);
+    ssize_t (*pwrite_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                         int fd, void *buf, size_t count, cs_off_t offset);
+    ssize_t (*pread_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                        int fd, void *buf, size_t count, cs_off_t offset);
+    int (*close_cb)(void *ctx, struct filemgr_ops *normal_ops, int fd);
+    cs_off_t (*goto_eof_cb)(void *ctx, struct filemgr_ops *normal_ops, int fd);
+    cs_off_t (*file_size_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                             const char *filename);
+    int (*fdatasync_cb)(void *ctx, struct filemgr_ops *normal_ops, int fd);
+    int (*fsync_cb)(void *ctx, struct filemgr_ops *normal_ops, int fd);
+    void (*get_errno_str_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                             char *buf, size_t size);
 };
 
 struct anomalous_callbacks * get_default_anon_cbs();

@@ -60,34 +60,58 @@ static struct anomalous_callbacks *anon_cbs;
 static void *anon_ctx;
 
 // Callbacks default behavior..
-int _open_cb(void *ctx) {
-    return 0;
-}
-ssize_t _pwrite_cb(void *ctx) {
-    return 0;
-}
-
-ssize_t _pread_cb(void *ctx) {
-    return 0;
-}
-int _close_cb(void *ctx) {
-    return 0;
+int _open_cb(void *ctx, struct filemgr_ops *normal_ops,
+             const char *pathname, int flags, mode_t mode)
+{
+    return normal_ops->open(pathname, flags, mode);
 }
 
-cs_off_t _goto_eof_cb(void *ctx) {
-    return 0;
+ssize_t _pwrite_cb(void *ctx, struct filemgr_ops *normal_ops,
+                   int fd, void *buf, size_t count, cs_off_t offset)
+{
+    return normal_ops->pwrite(fd, buf, count, offset);
 }
 
-cs_off_t _file_size_cb(void *ctx) {
-    return 0;
+ssize_t _pread_cb(void *ctx, struct filemgr_ops *normal_ops,
+                  int fd, void *buf, size_t count, cs_off_t offset)
+{
+    return normal_ops->pread(fd, buf, count, offset);
 }
 
-int _fdatasync_cb(void *ctx) {
-    return 0;
+int _close_cb(void *ctx, struct filemgr_ops *normal_ops,
+              int fd)
+{
+    return normal_ops->close(fd);
 }
 
-int _fsync_cb(void *ctx) {
-    return 0;
+cs_off_t _goto_eof_cb(void *ctx, struct filemgr_ops *normal_ops,
+                      int fd)
+{
+    return normal_ops->goto_eof(fd);
+}
+
+cs_off_t _file_size_cb(void *ctx, struct filemgr_ops *normal_ops,
+                       const char *filename)
+{
+    return normal_ops->file_size(filename);
+}
+
+int _fdatasync_cb(void *ctx, struct filemgr_ops *normal_ops,
+                  int fd)
+{
+    return normal_ops->fdatasync(fd);
+}
+
+int _fsync_cb(void *ctx, struct filemgr_ops *normal_ops,
+              int fd)
+{
+    return normal_ops->fsync(fd);
+}
+
+void _get_errno_str(void *ctx, struct filemgr_ops *normal_ops,
+                    char *buf, size_t size)
+{
+    normal_ops->get_errno_str(buf, size);
 }
 
 struct anomalous_callbacks default_callbacks = {
@@ -98,7 +122,8 @@ struct anomalous_callbacks default_callbacks = {
     _goto_eof_cb,
     _file_size_cb,
     _fdatasync_cb,
-    _fsync_cb
+    _fsync_cb,
+    _get_errno_str
 };
 
 struct anomalous_callbacks * get_default_anon_cbs() {
@@ -120,79 +145,51 @@ void filemgr_ops_anomalous_init(struct anomalous_callbacks *cbs, void *ctx) {
 
 int _filemgr_anomalous_open(const char *pathname, int flags, mode_t mode)
 {
-    int ret = anon_cbs->open_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-    return normal_filemgr_ops->open(pathname, flags, mode);
+    return anon_cbs->open_cb(anon_ctx, normal_filemgr_ops, pathname, flags,
+                             mode);
 }
 
-ssize_t _filemgr_anomalous_pwrite(int fd, void *buf, size_t count, cs_off_t offset)
+ssize_t _filemgr_anomalous_pwrite(int fd, void *buf, size_t count,
+                                  cs_off_t offset)
 {
-    ssize_t ret = anon_cbs->pwrite_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-
-    return normal_filemgr_ops->pwrite(fd, buf, count, offset);
+    return anon_cbs->pwrite_cb(anon_ctx, normal_filemgr_ops, fd, buf, count,
+                               offset);
 }
 
-ssize_t _filemgr_anomalous_pread(int fd, void *buf, size_t count, cs_off_t offset)
+ssize_t _filemgr_anomalous_pread(int fd, void *buf, size_t count,
+                                 cs_off_t offset)
 {
-    ssize_t ret = anon_cbs->pread_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-    return normal_filemgr_ops->pread(fd, buf, count, offset);
+    return anon_cbs->pread_cb(anon_ctx, normal_filemgr_ops, fd, buf, count,
+                              offset);
 }
 
 int _filemgr_anomalous_close(int fd)
 {
-    int ret = anon_cbs->close_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-    return normal_filemgr_ops->close(fd);
+    return anon_cbs->close_cb(anon_ctx, normal_filemgr_ops, fd);
 }
 
 cs_off_t _filemgr_anomalous_goto_eof(int fd)
 {
-    cs_off_t ret = anon_cbs->goto_eof_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-    return normal_filemgr_ops->goto_eof(fd);
+    return anon_cbs->goto_eof_cb(anon_ctx, normal_filemgr_ops, fd);
 }
 
 cs_off_t _filemgr_anomalous_file_size(const char *filename)
 {
-    cs_off_t ret = anon_cbs->file_size_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-    return normal_filemgr_ops->file_size(filename);
+    return anon_cbs->file_size_cb(anon_ctx, normal_filemgr_ops, filename);
 }
 
 int _filemgr_anomalous_fsync(int fd)
 {
-    int ret = anon_cbs->fsync_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-    return normal_filemgr_ops->fsync(fd);
+    return anon_cbs->fsync_cb(anon_ctx, normal_filemgr_ops, fd);
 }
 
 int _filemgr_anomalous_fdatasync(int fd)
 {
-    int ret = anon_cbs->fdatasync_cb(anon_ctx);
-    if (ret) {
-        return ret;
-    }
-    return normal_filemgr_ops->fdatasync(fd);
+    return anon_cbs->fdatasync_cb(anon_ctx, normal_filemgr_ops, fd);
 }
 
 void _filemgr_anomalous_get_errno_str(char *buf, size_t size) {
-    return normal_filemgr_ops->get_errno_str(buf, size);
+    return anon_cbs->get_errno_str_cb(anon_ctx, normal_filemgr_ops, buf, size);
 }
 
 struct filemgr_ops anomalous_ops = {
