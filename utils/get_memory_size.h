@@ -18,11 +18,13 @@
 #ifndef _GET_MEMORY_SIZE_H
 #define _GET_MEMORY_SIZE_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-size_t get_memory_size(void);
+int64_t get_memory_size(void);
 
 #ifdef __cplusplus
 }
