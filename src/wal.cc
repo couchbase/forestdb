@@ -781,10 +781,18 @@ static fdb_status _wal_flush(struct filemgr *file,
                     // if WAL_ITEM_FLUSH_READY flag is set,
                     // this item becomes immutable, so that
                     // no other concurrent thread modifies it.
-                    spin_unlock(&file->wal->key_shards[i].lock);
-                    item->old_offset = get_old_offset(dbhandle, item);
-                    avl_insert(tree, &item->avl, _wal_flush_cmp);
-                    spin_lock(&file->wal->key_shards[i].lock);
+                    if (by_compactor) {
+                        // During the first phase of compaction, we don't need to retrieve
+                        // the old offsets of WAL items because they are all new insertions
+                        // into the new file's hbtrie index.
+                        item->old_offset = 0;
+                        avl_insert(tree, &item->avl, _wal_flush_cmp);
+                    } else {
+                        spin_unlock(&file->wal->key_shards[i].lock);
+                        item->old_offset = get_old_offset(dbhandle, item);
+                        avl_insert(tree, &item->avl, _wal_flush_cmp);
+                        spin_lock(&file->wal->key_shards[i].lock);
+                    }
                 }
                 ee = list_prev(ee);
             }
