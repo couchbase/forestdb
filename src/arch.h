@@ -460,11 +460,7 @@
     #define _FSEC "ld"
     #define _FUSEC "ld"
 
-    /* Solaris don't have flag to open to set direct io, but
-       rather use directio() afterwards to enable it. lets look
-       into that later on.
-    */
-    #define _ARCH_O_DIRECT (0)
+    #define _ARCH_O_DIRECT (O_DIRECT)
 
     #define malloc_align(addr, align, size) \
         {int __ret__=0; __ret__=posix_memalign(&(addr), (align), (size));}
@@ -472,10 +468,6 @@
 
     #ifndef spin_t
         // spinlock
-        // There isn't much point of keeping a separate
-        // spinlock datatype, because the mutexes on
-        // solaris is adaptive anyway and will spin
-        // initially.
         #include <pthread.h>
         #define spin_t pthread_mutex_t
         #define spin_init(arg) pthread_mutex_init(arg, NULL)
