@@ -22,6 +22,13 @@
 #include <sys/stat.h>
 #include <stdint.h>
 
+#ifdef _ASYNC_IO
+#if !defined(WIN32) && !defined(_WIN32)
+#include <libaio.h>
+#include <sys/time.h>
+#endif
+#endif
+
 #include "libforestdb/fdb_errors.h"
 
 #include "internal_types.h"
@@ -49,6 +56,21 @@ struct filemgr_config {
     uint16_t num_bcache_shards;
 };
 
+struct async_io_handle {
+#ifdef _ASYNC_IO
+#if !defined(WIN32) && !defined(_WIN32)
+    struct iocb **ioq;
+    struct io_event *events;
+    io_context_t ioctx;
+#endif
+#endif
+    uint8_t *aio_buf;
+    uint64_t *offset_array;
+    size_t queue_depth;
+    size_t block_size;
+    int fd;
+};
+
 struct filemgr_ops {
     int (*open)(const char *pathname, int flags, mode_t mode);
     ssize_t (*pwrite)(int fd, void *buf, size_t count, cs_off_t offset);
@@ -59,6 +81,15 @@ struct filemgr_ops {
     int (*fdatasync)(int fd);
     int (*fsync)(int fd);
     void (*get_errno_str)(char *buf, size_t size);
+
+    // Async I/O operations
+    int (*aio_init)(struct async_io_handle *aio_handle);
+    int (*aio_prep_read)(struct async_io_handle *aio_handle, size_t aio_idx,
+                         size_t read_size, uint64_t offset);
+    int (*aio_submit)(struct async_io_handle *aio_handle, int num_subs);
+    int (*aio_getevents)(struct async_io_handle *aio_handle, int min,
+                         int max, unsigned int timeout);
+    int (*aio_destroy)(struct async_io_handle *aio_handle);
 };
 
 struct filemgr_buffer{
@@ -194,8 +225,9 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
 void filemgr_invalidate_block(struct filemgr *file, bid_t bid);
 
 fdb_status filemgr_read(struct filemgr *file,
-                  bid_t bid, void *buf,
-                  err_log_callback *log_callback);
+                        bid_t bid, void *buf,
+                        err_log_callback *log_callback,
+                        bool read_on_cache_miss);
 
 fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
                           uint64_t len, void *buf, err_log_callback *log_callback);

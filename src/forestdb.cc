@@ -224,8 +224,6 @@ void fdb_fetch_header(void *header_buf,
     }
 }
 
-INLINE size_t _fdb_get_docsize(struct docio_length len);
-
 typedef enum {
     FDB_RESTORE_NORMAL,
     FDB_RESTORE_KV_INS,
@@ -277,7 +275,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                 uint64_t _offset;
                 uint64_t doc_offset;
                 memset(&doc, 0, sizeof(doc));
-                _offset = docio_read_doc(handle->dhandle, offset, &doc);
+                _offset = docio_read_doc(handle->dhandle, offset, &doc, true);
                 if (_offset == offset) { // reached unreadable doc, skip block
                     break;
                 }
@@ -290,7 +288,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                             // commit mark .. read doc offset
                             doc_offset = doc.doc_offset;
                             // read the previously skipped doc
-                            docio_read_doc(handle->dhandle, doc_offset, &doc);
+                            docio_read_doc(handle->dhandle, doc_offset, &doc, true);
                             if (doc.key == NULL) { // doc read error
                                 free(doc.meta);
                                 free(doc.body);
@@ -1298,7 +1296,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 _fdb_kvs_header_create(&kv_header);
                 memset(&doc, 0, sizeof(struct docio_object));
                 doc_offset = docio_read_doc(handle->dhandle,
-                                            kv_info_offset, &doc);
+                                            kv_info_offset, &doc, true);
 
                 if (doc_offset == kv_info_offset) {
                     header_len = 0; // fail
@@ -1703,25 +1701,6 @@ fdb_status fdb_doc_free(fdb_doc *doc)
     return FDB_RESULT_SUCCESS;
 }
 
-INLINE size_t _fdb_get_docsize(struct docio_length len)
-{
-    size_t ret =
-        len.keylen +
-        len.metalen +
-        len.bodylen_ondisk +
-        sizeof(struct docio_length);
-
-    ret += sizeof(timestamp_t);
-
-    ret += sizeof(fdb_seqnum_t);
-
-#ifdef __CRC32
-    ret += sizeof(uint32_t);
-#endif
-
-    return ret;
-}
-
 INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
                                         struct wal_item *item)
 {
@@ -2105,7 +2084,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        _offset = docio_read_doc(dhandle, offset, &_doc);
+        _offset = docio_read_doc(dhandle, offset, &_doc, true);
         if (_offset == offset) {
             fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -2349,7 +2328,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        _offset = docio_read_doc(dhandle, offset, &_doc);
+        _offset = docio_read_doc(dhandle, offset, &_doc, true);
         if (_offset == offset) {
             fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -2572,7 +2551,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
     atomic_incr_uint64_t(&handle->op_stats->num_gets);
     memset(&_doc, 0, sizeof(struct docio_object));
 
-    uint64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc);
+    uint64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc, true);
     if (_offset == offset) {
         fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
@@ -3410,7 +3389,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 struct docio_object doc;
                 uint64_t _offset;
                 memset(&doc, 0, sizeof(doc));
-                _offset = docio_read_doc(handle->dhandle, offset, &doc);
+                _offset = docio_read_doc(handle->dhandle, offset, &doc, true);
                 if (!doc.key && !(doc.length.flag & DOCIO_TXN_COMMITTED)) {
                     // No more documents in this block, break go to next block
                     free(doc.key);
@@ -3433,7 +3412,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 }
                 if (doc.length.flag & DOCIO_TXN_COMMITTED) {
                     // commit mark .. read the previously skipped doc
-                    docio_read_doc(handle->dhandle, doc.doc_offset, &doc);
+                    docio_read_doc(handle->dhandle, doc.doc_offset, &doc, true);
                     if (doc.key == NULL) { // doc read error
                         free(doc.meta);
                         free(doc.body);
@@ -3613,11 +3592,10 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 {
     uint8_t deleted;
     uint64_t window_size;
-    uint64_t offset, _offset;
+    uint64_t offset;
     uint64_t old_offset, new_offset;
-    uint64_t *offset_array, *old_offset_array;
-    uint64_t n_moved_docs, n_buf;
-    uint64_t sum_docsize;
+    uint64_t *offset_array;
+    uint64_t n_moved_docs;
     size_t i, j, c, count, rv;
     size_t offset_array_max;
     hbtrie_result hr;
@@ -3636,6 +3614,16 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     compactor_prev_bid = 0;
     writer_prev_bid = filemgr_get_pos(handle->file) /
                       handle->file->config->blocksize;
+
+    // Init AIO buffer, callback, event instances.
+    struct async_io_handle *aio_handle_ptr = NULL;
+    struct async_io_handle aio_handle;
+    aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
+    aio_handle.block_size = handle->file->config->blocksize;
+    aio_handle.fd = handle->file->fd;
+    if (handle->file->ops->aio_init(&aio_handle) == FDB_RESULT_SUCCESS) {
+        aio_handle_ptr = &aio_handle;
+    }
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
@@ -3671,8 +3659,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
 
     doc = (struct docio_object *)
-          malloc(sizeof(struct docio_object) * FDB_COMP_BATCHSIZE);
-    old_offset_array = (uint64_t*)malloc(sizeof(uint64_t) * FDB_COMP_BATCHSIZE);
+        calloc(FDB_COMP_BATCHSIZE, sizeof(struct docio_object));
     c = count = n_moved_docs = old_offset = new_offset = 0;
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
@@ -3682,11 +3669,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         hr = hbtrie_next_value_only(&it, (void*)&offset);
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
-            hbtrie_iterator_free(&it);
-            free(offset_array);
-            free(old_offset_array);
-            free(doc);
-            return fs;
+            break;
         }
         offset = _endian_decode(offset);
 
@@ -3701,7 +3684,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         // sort and move the documents in the array
         if (c >= offset_array_max ||
             (c > 0 && hr == HBTRIE_RESULT_FAIL)) {
-            // quick sort
+            // Sort offsets to minimize random accesses.
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
 
             // 1) read all documents in offset_array, and
@@ -3710,26 +3693,17 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
             n_moved_docs = i = 0;
             do {
                 // === read docs from the old file ===
-                sum_docsize = n_buf = 0;
-                do {
-                    offset = offset_array[i++];
-                    memset(&doc[n_buf], 0x0, sizeof(struct docio_object));
-
-                    _offset = docio_read_doc(handle->dhandle, offset, &doc[n_buf]);
-                    if (_offset == offset) {
-                        // read fail, skip this doc
-                        continue;
-                    }
-                    old_offset_array[n_buf] = offset;
-                    sum_docsize += _fdb_get_docsize(doc[n_buf].length);
-                    n_buf++;
-                    // escape when
-                    // 1) sum of doc size exceeds the move unit, OR
-                    // 2) # docs exceeds the batch size, OR
-                    // 3) no more offset in the offset_array
-                } while (sum_docsize < FDB_COMP_MOVE_UNIT &&
-                         n_buf < FDB_COMP_BATCHSIZE       &&
-                         i < c);
+                size_t start_idx = i;
+                size_t num_batch_reads =
+                    docio_batch_read_docs(handle->dhandle, &offset_array[start_idx],
+                                          doc, c - start_idx,
+                                          FDB_COMP_MOVE_UNIT, FDB_COMP_BATCHSIZE,
+                                          aio_handle_ptr);
+                if (num_batch_reads == (size_t) -1) {
+                    fs = FDB_RESULT_COMPACTION_FAIL;
+                    break;
+                }
+                i += num_batch_reads;
 
                 // Note that we don't need to grab a lock on the new file
                 // during the compaction because the new file is only accessed
@@ -3748,7 +3722,10 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     locked = false;
                 }
                 // === write docs into the new file ===
-                for (j=0; j<n_buf; ++j) {
+                for (j=0; j<num_batch_reads; ++j) {
+                    if (!doc[j].key) {
+                        continue;
+                    }
                     // compare timestamp
                     deleted = doc[j].length.flag & DOCIO_DELETED;
                     if (!deleted ||
@@ -3761,7 +3738,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         //    its timestamp isn't overdue
                         new_offset = docio_append_doc(new_dhandle, &doc[j],
                                                       deleted, 0);
-                        old_offset = old_offset_array[j];
+                        old_offset = offset_array[start_idx + j];
 
                         wal_doc.keylen = doc[j].length.keylen;
                         wal_doc.metalen = doc[j].length.metalen;
@@ -3796,6 +3773,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     free(doc[j].key);
                     free(doc[j].meta);
                     free(doc[j].body);
+                    doc[j].key = doc[j].meta = doc[j].body = NULL;
                 }
 
                 if (handle->config.compaction_cb &&
@@ -3860,15 +3838,18 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
             // reset offset_array
             c = 0;
         }
-        if (fs == FDB_RESULT_FAIL_BY_ROLLBACK) {
+        if (fs != FDB_RESULT_SUCCESS) {
             break;
         }
     }
 
     hbtrie_iterator_free(&it);
     free(offset_array);
-    free(old_offset_array);
     free(doc);
+
+    if (aio_handle_ptr) {
+        handle->file->ops->aio_destroy(aio_handle_ptr);
+    }
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
@@ -4274,7 +4255,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 uint64_t _offset;
                 uint64_t doc_offset;
                 memset(&doc[c], 0, sizeof(struct docio_object));
-                _offset = docio_read_doc(handle->dhandle, offset, &doc[c]);
+                _offset = docio_read_doc(handle->dhandle, offset, &doc[c], true);
                 if (_offset == offset) { // reached unreadable doc, skip block
                     break;
                 }
@@ -4287,7 +4268,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                             // commit mark .. read doc offset
                             doc_offset = doc[c].doc_offset;
                             // read the previously skipped doc
-                            docio_read_doc(handle->dhandle, doc_offset, &doc[c]);
+                            docio_read_doc(handle->dhandle, doc_offset, &doc[c], true);
                             if (doc[c].key == NULL) { // doc read error
                                 free(doc[c].meta);
                                 free(doc[c].body);
@@ -4382,7 +4363,7 @@ static uint64_t _fdb_doc_move(void *dbhandle,
     doc.key = NULL;
     doc.meta = NULL;
     doc.body = NULL;
-    docio_read_doc(handle->dhandle, item->offset, &doc);
+    docio_read_doc(handle->dhandle, item->offset, &doc, true);
 
     // append doc into new file
     deleted = doc.length.flag & DOCIO_DELETED;
@@ -5477,7 +5458,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
             uint64_t doc_offset;
             struct docio_object doc;
             memset(&doc, 0, sizeof(struct docio_object));
-            doc_offset = docio_read_doc(handle->dhandle, kv_info_offset, &doc);
+            doc_offset = docio_read_doc(handle->dhandle, kv_info_offset, &doc, true);
             if (doc_offset == kv_info_offset) {
                 fdb_free_snap_markers(markers, i);
                 return FDB_RESULT_READ_FAIL;

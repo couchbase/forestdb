@@ -104,7 +104,16 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle,
                                  struct docio_object *doc);
 uint64_t docio_read_doc(struct docio_handle *handle,
                         uint64_t offset,
-                        struct docio_object *doc);
+                        struct docio_object *doc,
+                        bool read_on_cache_miss);
+
+size_t docio_batch_read_docs(struct docio_handle *handle,
+                             uint64_t *offset_array,
+                             struct docio_object *doc_array,
+                             size_t array_size,
+                             size_t data_size_threshold,
+                             size_t batch_size_threshold,
+                             struct async_io_handle *aio_handle);
 
 int docio_check_buffer(struct docio_handle *dhandle, bid_t check_bid);
 

@@ -23,6 +23,8 @@ CHECK_INCLUDE_FILES("atomic.h" HAVE_ATOMIC_H)
 CONFIGURE_FILE (${CMAKE_CURRENT_SOURCE_DIR}/src/config.cmake.h
                 ${CMAKE_CURRENT_BINARY_DIR}/src/config.h)
 
+LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
+
 if (COUCHBASE_SERVER_BUILD)
     ADD_DEFINITIONS(-D_DOC_COMP=1)
     include_directories(AFTER ${SNAPPY_INCLUDE_DIR})
@@ -30,12 +32,13 @@ else(COUCHBASE_SERVER_BUILD)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
     if (NOT WIN32)
         if (NOT(SNAPPY_OPTION STREQUAL "Disable"))
-            LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
             INCLUDE(FindSnappy)
             ADD_DEFINITIONS(-D_DOC_COMP=1)
         endif (NOT(SNAPPY_OPTION STREQUAL "Disable"))
     endif(NOT WIN32)
 endif(COUCHBASE_SERVER_BUILD)
+
+INCLUDE(FindAsyncIOLib)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
@@ -117,7 +120,8 @@ add_library(forestdb SHARED
             utils/partiallock.cc
             utils/time_utils.cc
             utils/get_memory_size.cc)
-target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
+target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
+                      ${ASYNC_IO_LIB})
 
 add_executable(forestdb_dump
                tools/dump_common.cc
@@ -157,7 +161,8 @@ add_executable(forestdb_dump
                utils/partiallock.cc
                utils/time_utils.cc
                utils/get_memory_size.cc)
-target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
+target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
+                      ${ASYNC_IO_LIB})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_hexamine
@@ -198,7 +203,8 @@ add_executable(forestdb_hexamine
                utils/partiallock.cc
                utils/time_utils.cc
                utils/get_memory_size.cc)
-target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES})
+target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
+                      ${ASYNC_IO_LIB})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))
@@ -220,14 +226,12 @@ INSTALL(TARGETS forestdb_dump
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Coverage")
     if ((NOT COUCHBASE_SERVER_BUILD) AND (NOT WIN32))
-        LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
         INCLUDE(CodeCoverage)
         SETUP_TARGET_FOR_COVERAGE(test_coverage ctest ${PROJECT_SOURCE_DIR}/coverage)
     endif((NOT COUCHBASE_SERVER_BUILD) AND (NOT WIN32))
 endif()
 
 if (("${CMAKE_BUILD_TYPE}" STREQUAL "Valgrind") AND (NOT WIN32))
-    LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR})
     INCLUDE(MemoryCheck)
     SETUP_TARGET_FOR_MEMCHECK(test_valgrind ${PROJECT_BINARY_DIR}/fdb_functional_test)
 endif()

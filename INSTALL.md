@@ -5,7 +5,7 @@ Please visit [Snappy site](https://code.google.com/p/snappy/) for more details.
 
 * **Ubuntu**
 
-    `sudo apt-get install libsnappy-dev`.
+    `sudo apt-get install libsnappy-dev`
 
 * **CentOS**
 
@@ -20,6 +20,17 @@ Please visit [Snappy site](https://code.google.com/p/snappy/) for more details.
 * **OS X**
 
     `sudo brew install snappy`
+
+We also use the asynchronous I/O library libaio to submit multiple I/O requests at once to speed up fetching non-resident blocks from disk. As of this time, we use libaio to read data blocks from the old file during the compaction.
+
+* **Ubuntu**
+
+    `sudo apt-get install libaio-devel`
+
+* **CentOS**
+    `sudo yum install libaio-devel`
+
+We plan to support asynchronous I/O in other operating systems such as Windows and OS X, soon.
 
 ## Compilation and Build
 

@@ -480,7 +480,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
                 break;
             } else {
                 bid = i / args->file->blocksize;
-                if (filemgr_read(args->file, bid, buf, NULL)
+                if (filemgr_read(args->file, bid, buf, NULL, true)
                         != FDB_RESULT_SUCCESS) {
                     // 4. read failure
                     fdb_log(args->log_callback, FDB_RESULT_READ_FAIL,
@@ -856,7 +856,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     }
     _buf = (uint8_t *)_filemgr_get_temp_buf();
 
-    status = filemgr_read(file, (bid_t)bid, _buf, log_callback);
+    status = filemgr_read(file, (bid_t)bid, _buf, log_callback, true);
 
     if (status != FDB_RESULT_SUCCESS) {
         fdb_log(log_callback, status,
@@ -933,7 +933,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         // Get prev_bid from the current header.
         // Since the current header is already cached during the previous
         // operation, no disk I/O will be triggered.
-        if (filemgr_read(file, (bid_t)bid, _buf, log_callback)
+        if (filemgr_read(file, (bid_t)bid, _buf, log_callback, true)
                 != FDB_RESULT_SUCCESS) {
             break;
         }
@@ -972,7 +972,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         }
 
         // Read the prev header
-        fdb_status fs = filemgr_read(file, (bid_t)bid, _buf, log_callback);
+        fdb_status fs = filemgr_read(file, (bid_t)bid, _buf, log_callback, true);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
                     "Failed to read a previous database header with block id %" _F64 " in "
@@ -1336,7 +1336,8 @@ void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 }
 
 fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
-                        err_log_callback *log_callback)
+                        err_log_callback *log_callback,
+                        bool read_on_cache_miss)
 {
     size_t lock_no;
     ssize_t r;
@@ -1370,6 +1371,19 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         r = bcache_read(file, bid, buf);
         if (r == 0) {
             // cache miss
+            if (!read_on_cache_miss) {
+                if (locked) {
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+                    plock_unlock(&file->plock, plock_entry);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+                    mutex_unlock(&file->data_mutex[lock_no]);
+#else
+                    spin_unlock(&file->data_spinlock[lock_no]);
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
+                return FDB_RESULT_READ_FAIL;
+            }
+
             // if normal file, just read a block
             r = file->ops->pread(file->fd, buf, file->blocksize, pos);
             if (r != file->blocksize) {
@@ -1429,6 +1443,10 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
         }
     } else {
+        if (!read_on_cache_miss) {
+            return FDB_RESULT_READ_FAIL;
+        }
+
         r = file->ops->pread(file->fd, buf, file->blocksize, pos);
         if (r != file->blocksize) {
             _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",

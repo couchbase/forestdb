@@ -109,4 +109,7 @@
 #define DEFAULT_NUM_BCACHE_PARTITIONS (11) // a prime number
 #define MAX_NUM_BCACHE_PARTITIONS (512)
 
+// Asynchronous I/O queue depth
+#define ASYNC_IO_QUEUE_DEPTH (64)
+
 #endif

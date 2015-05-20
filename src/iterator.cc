@@ -1983,7 +1983,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
         alloced_body = _doc.body ? false : true;
     }
 
-    uint64_t _offset = docio_read_doc(dhandle, offset, &_doc);
+    uint64_t _offset = docio_read_doc(dhandle, offset, &_doc, true);
     if (_offset == offset) {
         fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
                    1, 0);

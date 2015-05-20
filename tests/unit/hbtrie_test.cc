@@ -163,7 +163,7 @@ void basic_test()
 
                 memcpy(&offset, valuebuf, 8);
                 offset = _endian_decode(offset);
-                docio_read_doc(&dhandle, offset, &doc);
+                docio_read_doc(&dhandle, offset, &doc, true);
                 sprintf(meta, "metadata_%03d", i);
                 sprintf(body, "body_%03d", i);
                 TEST_CHK(!memcmp(doc.key, key[i], doc.length.keylen));
@@ -182,7 +182,7 @@ void basic_test()
         r = hbtrie_next(&it, (void*)keybuf, &keylen, (void*)&offset);
         if (r==HBTRIE_RESULT_FAIL) break;
         offset = _endian_decode(offset);
-        docio_read_doc(&dhandle, offset, &doc);
+        docio_read_doc(&dhandle, offset, &doc, true);
         keybuf[keylen] = 0;
         DBG("%s\n", keybuf);
     }
@@ -316,7 +316,7 @@ void large_test()
 
         if (r != HBTRIE_RESULT_FAIL) {
             memcpy(&_offset, valuebuf, 8);
-            docio_read_doc(&dhandle, _offset, &doc);
+            docio_read_doc(&dhandle, _offset, &doc, true);
 
             sprintf(meta, "me");
             sprintf(body, "body2_%3d", i);
@@ -335,7 +335,7 @@ void large_test()
         r = hbtrie_next(&it, (void*)keybuf, &keylen, (void*)&_offset);
         TEST_CHK(r != HBTRIE_RESULT_FAIL);
         btreeblk_end(&bhandle);
-        docio_read_doc(&dhandle, _offset, &doc);
+        docio_read_doc(&dhandle, _offset, &doc, true);
         /*
         keybuf[keylen] = 0;
         DBG("%s\n", keybuf);*/

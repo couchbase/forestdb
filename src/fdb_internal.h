@@ -23,6 +23,7 @@
 #include "internal_types.h"
 #include "avltree.h"
 #include "hbtrie.h"
+#include "docio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -144,6 +145,25 @@ void fdb_kvs_set_seqnum(struct filemgr *file,
                            fdb_seqnum_t seqnum);
 
 fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum);
+
+INLINE size_t _fdb_get_docsize(struct docio_length len)
+{
+    size_t ret =
+        len.keylen +
+        len.metalen +
+        len.bodylen_ondisk +
+        sizeof(struct docio_length);
+
+    ret += sizeof(timestamp_t);
+
+    ret += sizeof(fdb_seqnum_t);
+
+#ifdef __CRC32
+    ret += sizeof(uint32_t);
+#endif
+
+    return ret;
+}
 
 #ifdef __cplusplus
 }
