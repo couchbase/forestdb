@@ -2040,9 +2040,18 @@ void filemgr_set_dirty_root(struct filemgr *file,
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
 {
     uint8_t marker[BLK_MARKER_SIZE];
+    filemgr_magic_t magic;
     marker[0] = *(((uint8_t *)head_buffer)
                  + blocksize - BLK_MARKER_SIZE);
-    return (marker[0] == BLK_MARKER_DBHEADER);
+    if (marker[0] != BLK_MARKER_DBHEADER) {
+        return false;
+    }
+
+    memcpy(&magic, (uint8_t *) head_buffer
+            + blocksize - BLK_MARKER_SIZE - sizeof(magic), sizeof(magic));
+    magic = _endian_decode(magic);
+
+    return (magic == FILEMGR_MAGIC);
 }
 
 void _kvs_stat_set(struct filemgr *file,
