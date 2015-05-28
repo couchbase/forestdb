@@ -90,7 +90,7 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_MANUAL_COMPACTION_FAIL:
             return "manual compaction failed";
 
-       case FDB_RESULT_INVALID_COMPACTION_MODE:
+        case FDB_RESULT_INVALID_COMPACTION_MODE:
             return "invalid compaction mode";
 
         case FDB_RESULT_FILE_IS_BUSY:
@@ -144,6 +144,18 @@ const char* fdb_error_msg(fdb_status err_code)
 
         case FDB_RESULT_HANDLE_BUSY:
             return "Forestdb Handle is being used by another thread";
+
+        case FDB_RESULT_AIO_NOT_SUPPORTED:
+            return "Asynchronous I/O is not supported in the current OS";
+
+        case FDB_RESULT_AIO_INIT_FAIL:
+            return "Asynchronous I/O init fails";
+
+        case FDB_RESULT_AIO_SUBMIT_FAIL:
+            return "Asynchronous I/O init fails";
+
+        case FDB_RESULT_AIO_GETEVENTS_FAIL:
+            return "Fail to read asynchronous I/O events from the completion queue";
 
         default:
             return "unknown error";

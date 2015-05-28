@@ -494,17 +494,20 @@ bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *
 
 INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
                                              bid_t bid,
-                                             err_log_callback *log_callback)
+                                             err_log_callback *log_callback,
+                                             bool read_on_cache_miss)
 {
     fdb_status status = FDB_RESULT_SUCCESS;
     // to reduce the overhead from memcpy the same block
     if (handle->lastbid != bid) {
         status = filemgr_read(handle->file, bid, handle->readbuffer,
-                              log_callback);
+                              log_callback, read_on_cache_miss);
         if (status != FDB_RESULT_SUCCESS) {
-            fdb_log(log_callback, status,
-                    "Error in reading a doc block with id %" _F64 " from "
-                    "a database file '%s'", bid, handle->file->filename);
+            if (read_on_cache_miss) {
+                fdb_log(log_callback, status,
+                        "Error in reading a doc block with id %" _F64 " from "
+                        "a database file '%s'", bid, handle->file->filename);
+            }
             return status;
         }
 
@@ -530,7 +533,8 @@ INLINE int _docio_check_buffer(struct docio_handle *handle)
 static uint64_t _docio_read_length(struct docio_handle *handle,
                                    uint64_t offset,
                                    struct docio_length *length,
-                                   err_log_callback *log_callback)
+                                   err_log_callback *log_callback,
+                                   bool read_on_cache_miss)
 {
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
@@ -555,11 +559,14 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
 
     restsize = blocksize - pos;
     // read length structure
-    fdb_status fs = _docio_read_through_buffer(handle, bid, log_callback);
+    fdb_status fs = _docio_read_through_buffer(handle, bid, log_callback,
+                                               read_on_cache_miss);
     if (fs != FDB_RESULT_SUCCESS) {
-        fdb_log(log_callback, fs,
-                "Error in reading a doc length from a block with block id %" _F64
-                " from a database file '%s'", bid, handle->file->filename);
+        if (read_on_cache_miss) {
+            fdb_log(log_callback, fs,
+                    "Error in reading a doc length from a block with block id %" _F64
+                    " from a database file '%s'", bid, handle->file->filename);
+        }
         return offset;
     }
     if (!_docio_check_buffer(handle)) {
@@ -574,7 +581,7 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
         memcpy(length, (uint8_t *)buf + pos, restsize);
         // read additional block
         bid++;
-        fs = _docio_read_through_buffer(handle, bid, log_callback);
+        fs = _docio_read_through_buffer(handle, bid, log_callback, true);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
                     "Error in reading a doc length from an additional block "
@@ -616,7 +623,7 @@ static uint64_t _docio_read_doc_component(struct docio_handle *handle,
     rest_len = len;
 
     while(rest_len > 0) {
-        fs = _docio_read_through_buffer(handle, bid, log_callback);
+        fs = _docio_read_through_buffer(handle, bid, log_callback, true);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, FDB_RESULT_READ_FAIL,
                     "Error in reading a doc block with block id %" _F64 " from "
@@ -699,7 +706,7 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     struct docio_length length, _length;
     err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback, true);
     if (_offset == offset) {
         length.keylen = 0;
         return length;
@@ -747,7 +754,7 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     struct docio_length length, _length;
     err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback, true);
     if (_offset == offset) {
         fdb_log(log_callback, FDB_RESULT_READ_FAIL,
                 "Error in reading the doc length metadata with offset %" _F64 " from "
@@ -832,7 +839,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     struct docio_length _length;
     err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback, true);
     if (_offset == offset) {
         fdb_log(log_callback, FDB_RESULT_READ_FAIL,
                 "Error in reading the doc length metadata with offset %" _F64 " from "
@@ -935,7 +942,8 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
 }
 
 uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
-                        struct docio_object *doc)
+                        struct docio_object *doc,
+                        bool read_on_cache_miss)
 {
     uint8_t checksum;
     uint64_t _offset;
@@ -948,12 +956,15 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     struct docio_length _length;
     err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback,
+                                 read_on_cache_miss);
     if (_offset == offset) {
-        fdb_log(log_callback, FDB_RESULT_READ_FAIL,
-                "Error in reading the doc length metadata with offset %" _F64 " from "
-                "a database file '%s'",
-                offset, handle->file->filename);
+        if (read_on_cache_miss) {
+            fdb_log(log_callback, FDB_RESULT_READ_FAIL,
+                    "Error in reading the doc length metadata with offset %" _F64 " from "
+                    "a database file '%s'",
+                    offset, handle->file->filename);
+        }
         return offset;
     }
 
@@ -1181,10 +1192,164 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     return _offset;
 }
 
+static int _submit_async_io_requests(struct docio_handle *handle,
+                                     struct docio_object *doc_array,
+                                     size_t doc_idx,
+                                     struct async_io_handle *aio_handle,
+                                     int size,
+                                     size_t *sum_doc_size)
+{
+#ifdef _ASYNC_IO
+#if !defined(WIN32) && !defined(_WIN32)
+    struct io_event* io_evt = NULL;
+    uint8_t *buf = NULL;
+    uint64_t offset = 0, _offset = 0;
+    int num_events = 0;
+
+    int num_sub = handle->file->ops->aio_submit(aio_handle, size);
+    if (num_sub < 0) {
+        // Error loggings
+        char errno_msg[512];
+        handle->file->ops->get_errno_str(errno_msg, 512);
+        fdb_log(handle->log_callback, (fdb_status) num_sub,
+                "Error in submitting async I/O requests to a file '%s', errno msg: %s",
+                handle->file->filename, errno_msg);
+        return num_sub;
+    }
+    fdb_assert(num_sub == size, num_sub, size);
+
+    while (num_sub > 0) {
+        num_events = handle->file->ops->aio_getevents(aio_handle, 1,
+                                                      num_sub, (unsigned int) -1);
+        if (num_events < 0) {
+            // Error loggings
+            char errno_msg[512];
+            handle->file->ops->get_errno_str(errno_msg, 512);
+            fdb_log(handle->log_callback, (fdb_status) num_sub,
+                    "Error in getting async I/O events from the completion queue "
+                    "for a file '%s', errno msg: %s", handle->file->filename, errno_msg);
+            return num_events;
+        }
+        num_sub -= num_events;
+        for (io_evt = aio_handle->events; num_events > 0; --num_events, ++io_evt) {
+            buf = (uint8_t *) io_evt->obj->u.c.buf;
+            offset = *((uint64_t *) io_evt->data); // Original offset.
+
+            // Set the docio handle's buffer to the AIO buffer to read
+            // a doc from the AIO buffer. If adddtional blocks need to be
+            // read, then they will be sequentially read through the synchronous
+            // I/O path (i.e., buffer cache -> disk read if cache miss).
+            // As these additional blocks are sequential reads, we don't expect
+            // asynchronous I/O to give us performance boost.
+            void *tmp_buffer = handle->readbuffer;
+            handle->readbuffer = buf;
+            handle->lastbid = offset / aio_handle->block_size;
+            memset(&doc_array[doc_idx], 0x0, sizeof(struct docio_object));
+            _offset = docio_read_doc(handle, offset, &doc_array[doc_idx], true);
+            if (_offset == offset) {
+                ++doc_idx;
+                handle->readbuffer = tmp_buffer;
+                handle->lastbid = BLK_NOT_FOUND;
+                continue;
+            }
+            handle->readbuffer = tmp_buffer;
+            handle->lastbid = BLK_NOT_FOUND;
+
+            (*sum_doc_size) += _fdb_get_docsize(doc_array[doc_idx].length);
+            ++doc_idx;
+        }
+    }
+    return size;
+#else // Plan to implement async I/O in other OSs (e.g., Windows, OSx)
+    return 0;
+#endif
+#else // Async I/O is not supported in the current OS.
+    return 0;
+#endif
+}
+
+size_t docio_batch_read_docs(struct docio_handle *handle,
+                             uint64_t *offset_array,
+                             struct docio_object *doc_array,
+                             size_t array_size,
+                             size_t data_size_threshold,
+                             size_t batch_size_threshold,
+                             struct async_io_handle *aio_handle)
+{
+    size_t i = 0;
+    size_t sum_doc_size = 0;
+    size_t doc_idx = 0;
+    size_t block_size = handle->file->blocksize;
+    uint64_t _offset = 0;
+    int aio_size = 0;
+    bool read_fail = false;
+    bool read_on_cache_miss = true;
+
+    if (aio_handle) {
+        // If async I/O is supported, we will then read non-resident docs from disk
+        // by using async I/O operations.
+        read_on_cache_miss = false;
+    }
+
+    for (i = 0; i < array_size && i < batch_size_threshold &&
+           sum_doc_size < data_size_threshold; ++i) {
+        memset(&doc_array[doc_idx], 0x0, sizeof(struct docio_object));
+        _offset = docio_read_doc(handle, offset_array[i], &doc_array[doc_idx],
+                                 read_on_cache_miss);
+        if (_offset == offset_array[i]) {
+            if (aio_handle) {
+                // The page is not resident in the cache. Prepare and perform Async I/O
+                handle->file->ops->aio_prep_read(aio_handle, aio_size,
+                                                 block_size, offset_array[i]);
+                if (++aio_size == (int) aio_handle->queue_depth) {
+                    int num_sub = _submit_async_io_requests(handle, doc_array, doc_idx,
+                                                            aio_handle, aio_size,
+                                                            &sum_doc_size);
+                    if (num_sub < 0) {
+                        read_fail = true;
+                        break;
+                    }
+                    fdb_assert(num_sub == aio_size, num_sub, aio_size);
+                    aio_size = 0;
+                    doc_idx += num_sub;
+                }
+            } else {
+                ++doc_idx; // Error in reading a doc.
+            }
+        } else {
+            sum_doc_size += _fdb_get_docsize(doc_array[doc_idx].length);
+            ++doc_idx;
+        }
+    }
+
+    if (aio_size && !read_fail) {
+        int num_sub = _submit_async_io_requests(handle, doc_array, doc_idx,
+                                                aio_handle, aio_size,
+                                                &sum_doc_size);
+        if (num_sub < 0) {
+            read_fail = true;
+        } else {
+            doc_idx += num_sub;
+        }
+    }
+
+    if (read_fail) {
+        for (i = 0; i < batch_size_threshold; ++i) {
+            free(doc_array[i].key);
+            free(doc_array[i].meta);
+            free(doc_array[i].body);
+            doc_array[i].key = doc_array[i].meta = doc_array[i].body = NULL;
+        }
+        return (size_t) -1;
+    }
+
+    return doc_idx;
+}
+
 int docio_check_buffer(struct docio_handle *handle, bid_t bid)
 {
     err_log_callback *log_callback = handle->log_callback;
-    _docio_read_through_buffer(handle, bid, log_callback);
+    _docio_read_through_buffer(handle, bid, log_callback, true);
     return _docio_check_buffer(handle);
 }
 

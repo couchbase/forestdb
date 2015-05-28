@@ -191,7 +191,23 @@ typedef enum {
      * DB handle is being used by another thread. Forestdb handles must not be
      * shared among multiple threads.
      */
-    FDB_RESULT_HANDLE_BUSY = -39
+    FDB_RESULT_HANDLE_BUSY = -39,
+    /**
+     * Asynchronous I/O is not supported in the current OS version.
+     */
+    FDB_RESULT_AIO_NOT_SUPPORTED = -40,
+    /**
+     * Asynchronous I/O init fails.
+     */
+    FDB_RESULT_AIO_INIT_FAIL = -41,
+    /**
+     * Asynchronous I/O submit fails.
+     */
+    FDB_RESULT_AIO_SUBMIT_FAIL = -42,
+    /**
+     * Fail to read asynchronous I/O events from the completion queue.
+     */
+    FDB_RESULT_AIO_GETEVENTS_FAIL = -43
 } fdb_status;
 
 #ifdef __cplusplus

@@ -873,7 +873,7 @@ void fdb_kvs_header_read(struct filemgr *file,
     struct docio_object doc;
 
     memset(&doc, 0, sizeof(struct docio_object));
-    offset = docio_read_doc(dhandle, kv_info_offset, &doc);
+    offset = docio_read_doc(dhandle, kv_info_offset, &doc, true);
 
     if (offset == kv_info_offset) {
         fdb_log(dhandle->log_callback, FDB_RESULT_READ_FAIL,
@@ -963,7 +963,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
         _fdb_kvs_header_create(&kv_header);
         memset(&doc, 0, sizeof(struct docio_object));
         doc_offset = docio_read_doc(handle->dhandle,
-                                    kv_info_offset, &doc);
+                                    kv_info_offset, &doc, true);
 
         if (doc_offset == kv_info_offset) {
             // fail

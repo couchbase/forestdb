@@ -193,6 +193,33 @@ void _filemgr_win_get_errno_str(char *buf, size_t size)
     LocalFree(win_msg);
 }
 
+int _filemgr_aio_init(struct async_io_handle *aio_handle)
+{
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+}
+
+int _filemgr_aio_prep_read(struct async_io_handle *aio_handle, size_t aio_idx,
+                            size_t read_size, uint64_t offset)
+{
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+}
+
+int _filemgr_aio_submit(struct async_io_handle *aio_handle, int num_subs)
+{
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+}
+
+int _filemgr_aio_getevents(struct async_io_handle *aio_handle, int min,
+                           int max, unsigned int timeout)
+{
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+}
+
+int _filemgr_aio_destroy(struct async_io_handle *aio_handle)
+{
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+}
+
 struct filemgr_ops win_ops = {
     _filemgr_win_open,
     _filemgr_win_pwrite,
@@ -202,7 +229,13 @@ struct filemgr_ops win_ops = {
     _filemgr_win_file_size,
     _filemgr_win_fdatasync,
     _filemgr_win_fsync,
-    _filemgr_win_get_errno_str
+    _filemgr_win_get_errno_str,
+    // Async I/O operations
+    _filemgr_aio_init,
+    _filemgr_aio_prep_read,
+    _filemgr_aio_submit,
+    _filemgr_aio_getevents,
+    _filemgr_aio_destroy
 };
 
 struct filemgr_ops * get_win_filemgr_ops()

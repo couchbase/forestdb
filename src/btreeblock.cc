@@ -404,7 +404,7 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
         memcpy(block->addr, dirty_block->addr, handle->file->blocksize);
     } else {
         fdb_status status = filemgr_read(handle->file, block->bid, block->addr,
-                                         handle->log_callback);
+                                         handle->log_callback, true);
         if (status != FDB_RESULT_SUCCESS) {
             _btreeblk_free_aligned_block(handle, block);
             mempool_free(block);
@@ -1046,7 +1046,7 @@ fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
         // read block from file (most dirty blocks may be cached)
         block->bid = cur_bid;
         if ((fs = filemgr_read(handle->file, block->bid, block->addr,
-                         handle->log_callback)) != FDB_RESULT_SUCCESS) {
+                               handle->log_callback, true)) != FDB_RESULT_SUCCESS) {
             free_align(block->addr);
             free(block);
             fdb_log(handle->log_callback, fs,

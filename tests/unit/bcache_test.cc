@@ -56,16 +56,16 @@ void basic_test()
     }
     filemgr_commit(file, NULL);
 
-    filemgr_read(file, 8, buf, NULL);
-    filemgr_read(file, 9, buf, NULL);
+    filemgr_read(file, 8, buf, NULL, true);
+    filemgr_read(file, 9, buf, NULL, true);
 
-    filemgr_read(file, 1, buf, NULL);
-    filemgr_read(file, 2, buf, NULL);
-    filemgr_read(file, 3, buf, NULL);
+    filemgr_read(file, 1, buf, NULL, true);
+    filemgr_read(file, 2, buf, NULL, true);
+    filemgr_read(file, 3, buf, NULL, true);
 
-    filemgr_read(file, 7, buf, NULL);
-    filemgr_read(file, 1, buf, NULL);
-    filemgr_read(file, 9, buf, NULL);
+    filemgr_read(file, 7, buf, NULL, true);
+    filemgr_read(file, 1, buf, NULL, true);
+    filemgr_read(file, 9, buf, NULL, true);
 
     filemgr_alloc(file, NULL);
     filemgr_write(file, 10, buf, NULL);

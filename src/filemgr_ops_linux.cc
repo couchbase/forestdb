@@ -157,6 +157,134 @@ void _filemgr_linux_get_errno_str(char *buf, size_t size) {
     }
 }
 
+int _filemgr_aio_init(struct async_io_handle *aio_handle)
+{
+#ifdef _ASYNC_IO
+    if (!aio_handle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    if (!aio_handle->queue_depth || aio_handle->queue_depth > 512) {
+        aio_handle->queue_depth =  ASYNC_IO_QUEUE_DEPTH;
+    }
+    if (!aio_handle->block_size) {
+        aio_handle->block_size = FDB_BLOCKSIZE;
+    }
+
+    void *buf;
+    malloc_align(buf, FDB_SECTOR_SIZE,
+                 aio_handle->block_size * aio_handle->queue_depth);
+    aio_handle->aio_buf = (uint8_t *) buf;
+    aio_handle->offset_array = (uint64_t*)
+        malloc(sizeof(uint64_t) * aio_handle->queue_depth);
+
+    aio_handle->ioq = (struct iocb**)
+        malloc(sizeof(struct iocb*) * aio_handle->queue_depth);
+    aio_handle->events = (struct io_event *)
+        calloc(aio_handle->queue_depth, sizeof(struct io_event));
+
+    for (size_t k = 0; k < aio_handle->queue_depth; ++k) {
+        aio_handle->ioq[k] = (struct iocb*) malloc(sizeof(struct iocb));
+    }
+    memset(&aio_handle->ioctx, 0, sizeof(io_context_t));
+
+    int rc = io_queue_init(aio_handle->queue_depth, &aio_handle->ioctx);
+    if (rc < 0) {
+        return FDB_RESULT_AIO_INIT_FAIL;
+    }
+    return FDB_RESULT_SUCCESS;
+#else
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+#endif
+}
+
+int _filemgr_aio_prep_read(struct async_io_handle *aio_handle, size_t aio_idx,
+                           size_t read_size, uint64_t offset)
+{
+#ifdef _ASYNC_IO
+    if (!aio_handle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    io_prep_pread(aio_handle->ioq[aio_idx], aio_handle->fd,
+                  aio_handle->aio_buf + (aio_idx * aio_handle->block_size),
+                  aio_handle->block_size,
+                  (offset / aio_handle->block_size) * aio_handle->block_size);
+    // Record the original offset.
+    aio_handle->offset_array[aio_idx] = offset;
+    aio_handle->ioq[aio_idx]->data = &aio_handle->offset_array[aio_idx];
+    return FDB_RESULT_SUCCESS;
+#else
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+#endif
+}
+
+int _filemgr_aio_submit(struct async_io_handle *aio_handle, int num_subs)
+{
+#ifdef _ASYNC_IO
+    if (!aio_handle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    int rc = io_submit(aio_handle->ioctx, num_subs, aio_handle->ioq);
+    if (rc < 0) {
+        return FDB_RESULT_AIO_SUBMIT_FAIL;
+    }
+    return rc; // 'rc' should be equal to 'num_subs' upon succcess.
+#else
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+#endif
+}
+
+int _filemgr_aio_getevents(struct async_io_handle *aio_handle, int min,
+                           int max, unsigned int timeout)
+{
+#ifdef _ASYNC_IO
+    if (!aio_handle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    // Passing max timeout (ms) means that it waits until at least 'min' events
+    // have been seen.
+    bool wait_for_min = true;
+    struct timespec ts;
+    if (timeout < (unsigned int) -1) {
+        ts.tv_sec = timeout / 1000;
+        timeout %= 1000;
+        ts.tv_nsec = timeout * 1000000;
+        wait_for_min = false;
+    }
+
+    int num_events = io_getevents(aio_handle->ioctx, min, max, aio_handle->events,
+                                  wait_for_min ? NULL : &ts);
+    if (num_events < 0) {
+        return FDB_RESULT_AIO_GETEVENTS_FAIL;
+    }
+    return num_events;
+#else
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+#endif
+}
+
+int _filemgr_aio_destroy(struct async_io_handle *aio_handle)
+{
+#ifdef _ASYNC_IO
+    if (!aio_handle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    io_queue_release(aio_handle->ioctx);
+    for(size_t k = 0; k < aio_handle->queue_depth; ++k)
+    {
+        free(aio_handle->ioq[k]);
+    }
+    free(aio_handle->ioq);
+    free(aio_handle->events);
+    free_align(aio_handle->aio_buf);
+    free(aio_handle->offset_array);
+    return FDB_RESULT_SUCCESS;
+#else
+    return FDB_RESULT_AIO_NOT_SUPPORTED;
+#endif
+}
+
 struct filemgr_ops linux_ops = {
     _filemgr_linux_open,
     _filemgr_linux_pwrite,
@@ -166,7 +294,13 @@ struct filemgr_ops linux_ops = {
     _filemgr_linux_file_size,
     _filemgr_linux_fdatasync,
     _filemgr_linux_fsync,
-    _filemgr_linux_get_errno_str
+    _filemgr_linux_get_errno_str,
+    // Async I/O operations
+    _filemgr_aio_init,
+    _filemgr_aio_prep_read,
+    _filemgr_aio_submit,
+    _filemgr_aio_getevents,
+    _filemgr_aio_destroy
 };
 
 struct filemgr_ops * get_linux_filemgr_ops()

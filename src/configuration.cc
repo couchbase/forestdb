@@ -65,7 +65,7 @@ fdb_config get_default_config(void) {
     fconfig.compaction_cb = NULL;
     fconfig.compaction_cb_mask = 0x0;
     fconfig.compaction_cb_ctx = NULL;
-    fconfig.max_writer_lock_prob = 75;
+    fconfig.max_writer_lock_prob = 100;
 
     return fconfig;
 }

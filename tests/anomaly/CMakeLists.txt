@@ -35,7 +35,7 @@ add_executable(fdb_anomaly_test
                ${ROOT_UTILS}/time_utils.cc
                ${ROOT_UTILS}/get_memory_size.cc)
 target_link_libraries(fdb_anomaly_test ${PTHREAD_LIB} ${LIBM}
-                      ${SNAPPY_LIBRARIES})
+                      ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB})
 set_target_properties(fdb_anomaly_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 
