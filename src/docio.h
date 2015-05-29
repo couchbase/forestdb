@@ -101,7 +101,8 @@ void docio_read_doc_key(struct docio_handle *handle,
                         void *keybuf);
 uint64_t docio_read_doc_key_meta(struct docio_handle *handle,
                                  uint64_t offset,
-                                 struct docio_object *doc);
+                                 struct docio_object *doc,
+                                 bool read_on_cache_miss);
 uint64_t docio_read_doc(struct docio_handle *handle,
                         uint64_t offset,
                         struct docio_object *doc,
@@ -113,7 +114,8 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
                              size_t array_size,
                              size_t data_size_threshold,
                              size_t batch_size_threshold,
-                             struct async_io_handle *aio_handle);
+                             struct async_io_handle *aio_handle,
+                             bool keymeta_only);
 
 int docio_check_buffer(struct docio_handle *dhandle, bid_t check_bid);
 

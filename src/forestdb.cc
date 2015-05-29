@@ -112,7 +112,8 @@ size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
     memset(&doc, 0, sizeof(struct docio_object));
 
     offset = _endian_decode(offset);
-    docio_read_doc_key_meta((struct docio_handle *)handle, offset, &doc);
+    docio_read_doc_key_meta((struct docio_handle *)handle, offset, &doc,
+                            true);
     buf2buf(size_chunk, doc.key, size_id, buf);
     _seqnum = _endian_encode(doc.seqnum);
     memcpy((uint8_t*)buf + size_id, &_seqnum, size_seq);
@@ -2327,7 +2328,8 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
-        uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
+                                                       true);
         if (body_offset == offset){
             fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -2589,7 +2591,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
-        uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
+                                                       true);
         if (body_offset == offset) {
             fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -3823,7 +3826,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     docio_batch_read_docs(handle->dhandle, &offset_array[start_idx],
                                           doc, c - start_idx,
                                           FDB_COMP_MOVE_UNIT, FDB_COMP_BATCHSIZE,
-                                          aio_handle_ptr);
+                                          aio_handle_ptr, false);
                 if (num_batch_reads == (size_t) -1) {
                     fs = FDB_RESULT_COMPACTION_FAIL;
                     break;
