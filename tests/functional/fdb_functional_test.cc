@@ -271,6 +271,55 @@ void basic_test()
     TEST_RESULT("basic test");
 }
 
+void set_get_max_keylen()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    static const int len = FDB_MAX_KEYLEN;
+    char keybuf[len];
+    void *rvalue;
+    size_t rvalue_len;
+    static const char *achar = "a";
+
+    fdb_status status;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.chunksize = 16;
+
+
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    for (int i = 0; i < len; ++i) {
+        keybuf[i] = *achar;
+    }
+    keybuf[len-1] = '\0';
+
+    // open db
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // set kv
+    status = fdb_set_kv(db, keybuf, strlen(keybuf), NULL, 0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // get kv
+    status = fdb_get_kv(db, keybuf, strlen(keybuf), &rvalue, &rvalue_len);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("set get max keylen");
+}
+
 void config_test()
 {
     TEST_INIT();
@@ -3498,6 +3547,7 @@ void get_byoffset_diff_kvs_test()
 
 int main(){
     basic_test();
+    set_get_max_keylen();
     config_test();
     large_batch_write_no_commit_test();
     set_get_meta_test();
