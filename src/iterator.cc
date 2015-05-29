@@ -706,7 +706,8 @@ start:
             }
             // deletion check
             memset(&_doc, 0x0, sizeof(struct docio_object));
-            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset, &_doc);
+            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset,
+                                              &_doc, true);
             if (_offset == iterator->_offset) { // read fail
                 continue; // get prev doc
             }
@@ -857,7 +858,8 @@ start:
             }
             // deletion check
             memset(&_doc, 0x0, sizeof(struct docio_object));
-            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset, &_doc);
+            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset, &_doc,
+                                              true);
             if (_offset == iterator->_offset) { // read fail
                 continue; // get next doc
             }
@@ -1067,7 +1069,8 @@ fetch_hbtrie:
                 fetch_next = false;
                 memset(&_doc, 0x0, sizeof(struct docio_object));
                 _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
-                                                  iterator->_offset, &_doc);
+                                                  iterator->_offset, &_doc,
+                                                  true);
                 if (_offset == iterator->_offset) { // read fail
                     fetch_next = true; // get next
                 } else if (_doc.length.flag & DOCIO_DELETED) { // deleted doc
@@ -1110,7 +1113,8 @@ fetch_hbtrie:
                 fetch_next = false;
                 memset(&_doc, 0x0, sizeof(struct docio_object));
                 _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
-                                                  iterator->_offset, &_doc);
+                                                  iterator->_offset, &_doc,
+                                                  true);
                 if (_offset == iterator->_offset) { // read fail
                     fetch_next = true; // get prev
                 } else if (_doc.length.flag & DOCIO_DELETED) { // deleted doc
@@ -1591,7 +1595,8 @@ start_seq:
         _doc.length.keylen = 0;
         _doc.meta = NULL;
         _doc.body = NULL;
-        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
+                                                   true);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -1634,7 +1639,8 @@ start_seq:
             _hbdoc.key = _doc.key;
             _hbdoc.meta = NULL;
             hboffset = _endian_decode(hboffset);
-            _offset = docio_read_doc_key_meta(iterator->handle->dhandle, hboffset, &_hbdoc);
+            _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
+                                              hboffset, &_hbdoc, true);
             if (_offset == hboffset) {
                 free(_doc.key);
                 free(_doc.meta);
@@ -1782,7 +1788,8 @@ start_seq:
         _doc.length.keylen = 0;
         _doc.meta = NULL;
         _doc.body = NULL;
-        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+        uint64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
+                                                   true);
         if (_offset == offset) {
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -1824,7 +1831,8 @@ start_seq:
             _hbdoc.meta = NULL;
             hboffset = _endian_decode(hboffset);
             _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
-                                              hboffset, &_hbdoc);
+                                              hboffset, &_hbdoc,
+                                              true);
             if (_offset == hboffset) {
                 free(_doc.key);
                 free(_doc.meta);
@@ -2078,7 +2086,7 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
         alloced_meta = _doc.meta ? false : true;
     }
 
-    _offset = docio_read_doc_key_meta(dhandle, offset, &_doc);
+    _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
     if (_offset == offset) {
         fdb_assert(atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0),
                    1, 0);

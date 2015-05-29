@@ -828,7 +828,8 @@ void free_docio_object(struct docio_object *doc, uint8_t key_alloc,
 }
 
 uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
-                                 struct docio_object *doc)
+                                 struct docio_object *doc,
+                                 bool read_on_cache_miss)
 {
     uint8_t checksum;
     uint64_t _offset;
@@ -839,12 +840,15 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     struct docio_length _length;
     err_log_callback *log_callback = handle->log_callback;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback, true);
+    _offset = _docio_read_length(handle, offset, &_length, log_callback,
+                                 read_on_cache_miss);
     if (_offset == offset) {
-        fdb_log(log_callback, FDB_RESULT_READ_FAIL,
-                "Error in reading the doc length metadata with offset %" _F64 " from "
-                "a database file '%s'",
-                offset, handle->file->filename);
+        if (read_on_cache_miss) {
+            fdb_log(log_callback, FDB_RESULT_READ_FAIL,
+                    "Error in reading the doc length metadata with offset %" _F64 " from "
+                    "a database file '%s'",
+                    offset, handle->file->filename);
+        }
         return offset;
     }
 
@@ -1197,7 +1201,8 @@ static int _submit_async_io_requests(struct docio_handle *handle,
                                      size_t doc_idx,
                                      struct async_io_handle *aio_handle,
                                      int size,
-                                     size_t *sum_doc_size)
+                                     size_t *sum_doc_size,
+                                     bool keymeta_only)
 {
 #ifdef _ASYNC_IO
 #if !defined(WIN32) && !defined(_WIN32)
@@ -1245,7 +1250,13 @@ static int _submit_async_io_requests(struct docio_handle *handle,
             handle->readbuffer = buf;
             handle->lastbid = offset / aio_handle->block_size;
             memset(&doc_array[doc_idx], 0x0, sizeof(struct docio_object));
-            _offset = docio_read_doc(handle, offset, &doc_array[doc_idx], true);
+            if (keymeta_only) {
+                _offset = docio_read_doc_key_meta(handle, offset,
+                                                  &doc_array[doc_idx], true);
+            } else {
+                _offset = docio_read_doc(handle, offset, &doc_array[doc_idx],
+                                         true);
+            }
             if (_offset == offset) {
                 ++doc_idx;
                 handle->readbuffer = tmp_buffer;
@@ -1274,7 +1285,8 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
                              size_t array_size,
                              size_t data_size_threshold,
                              size_t batch_size_threshold,
-                             struct async_io_handle *aio_handle)
+                             struct async_io_handle *aio_handle,
+                             bool keymeta_only)
 {
     size_t i = 0;
     size_t sum_doc_size = 0;
@@ -1294,8 +1306,13 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
     for (i = 0; i < array_size && i < batch_size_threshold &&
            sum_doc_size < data_size_threshold; ++i) {
         memset(&doc_array[doc_idx], 0x0, sizeof(struct docio_object));
-        _offset = docio_read_doc(handle, offset_array[i], &doc_array[doc_idx],
-                                 read_on_cache_miss);
+        if (keymeta_only) {
+            _offset = docio_read_doc_key_meta(handle, offset_array[i], &doc_array[doc_idx],
+                                              read_on_cache_miss);
+        } else {
+            _offset = docio_read_doc(handle, offset_array[i], &doc_array[doc_idx],
+                                     read_on_cache_miss);
+        }
         if (_offset == offset_array[i]) {
             if (aio_handle) {
                 // The page is not resident in the cache. Prepare and perform Async I/O
@@ -1304,7 +1321,8 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
                 if (++aio_size == (int) aio_handle->queue_depth) {
                     int num_sub = _submit_async_io_requests(handle, doc_array, doc_idx,
                                                             aio_handle, aio_size,
-                                                            &sum_doc_size);
+                                                            &sum_doc_size,
+                                                            keymeta_only);
                     if (num_sub < 0) {
                         read_fail = true;
                         break;
@@ -1325,7 +1343,7 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
     if (aio_size && !read_fail) {
         int num_sub = _submit_async_io_requests(handle, doc_array, doc_idx,
                                                 aio_handle, aio_size,
-                                                &sum_doc_size);
+                                                &sum_doc_size, keymeta_only);
         if (num_sub < 0) {
             read_fail = true;
         } else {
