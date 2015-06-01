@@ -1227,27 +1227,50 @@ void filemgr_remove_file(struct filemgr *file)
 }
 // LCOV_EXCL_STOP
 
-void filemgr_shutdown()
+static
+void *_filemgr_is_closed(struct hash_elem *h, void *ctx) {
+    struct filemgr *file = _get_entry(h, struct filemgr, e);
+    void *ret;
+    spin_lock(&file->lock);
+    if (file->ref_count != 0) {
+        ret = (void *)file;
+    } else {
+        ret = NULL;
+    }
+    spin_unlock(&file->lock);
+    return ret;
+}
+
+fdb_status filemgr_shutdown()
 {
+    fdb_status ret = FDB_RESULT_SUCCESS;
+    void *open_file;
     if (filemgr_initialized) {
         spin_lock(&initial_lock);
 
-        hash_free_active(&hash, _filemgr_free_func);
-        if (global_config.ncacheblock > 0) {
-            bcache_shutdown();
-        }
-        filemgr_initialized = 0;
+        open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
+        if (!open_file) {
+            hash_free_active(&hash, _filemgr_free_func);
+            if (global_config.ncacheblock > 0) {
+                bcache_shutdown();
+            }
+            filemgr_initialized = 0;
 #ifndef SPIN_INITIALIZER
-        initial_lock_status = 0;
+            initial_lock_status = 0;
 #else
-        initial_lock = SPIN_INITIALIZER;
+            initial_lock = SPIN_INITIALIZER;
 #endif
-        _filemgr_shutdown_temp_buf();
-        spin_unlock(&initial_lock);
+            _filemgr_shutdown_temp_buf();
+            spin_unlock(&initial_lock);
 #ifndef SPIN_INITIALIZER
-        spin_destroy(&initial_lock);
+            spin_destroy(&initial_lock);
 #endif
+        } else {
+            spin_unlock(&initial_lock);
+            ret = FDB_RESULT_FILE_IS_BUSY;
+        }
     }
+    return ret;
 }
 
 bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback)

@@ -250,7 +250,7 @@ fdb_status filemgr_commit(struct filemgr *file,
 fdb_status filemgr_sync(struct filemgr *file,
                         err_log_callback *log_callback);
 
-void filemgr_shutdown();
+fdb_status filemgr_shutdown();
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,
                                 char *old_filename);
 void filemgr_set_compaction_state(struct filemgr *old_file,

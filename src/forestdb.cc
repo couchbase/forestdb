@@ -5648,6 +5648,7 @@ size_t fdb_get_buffer_cache_used() {
 LIBFDB_API
 fdb_status fdb_shutdown()
 {
+    fdb_status ret = FDB_RESULT_SUCCESS;
     if (fdb_initialized) {
         spin_lock(&initial_lock);
         if (fdb_open_inprog) {
@@ -5655,15 +5656,21 @@ fdb_status fdb_shutdown()
             return FDB_RESULT_FILE_IS_BUSY;
         }
         compactor_shutdown();
-        filemgr_shutdown();
+        ret = filemgr_shutdown();
+        if (ret == FDB_RESULT_SUCCESS) {
 #ifdef _MEMPOOL
-        mempool_shutdown();
+            mempool_shutdown();
 #endif
-
-        fdb_initialized = 0;
-        spin_unlock(&initial_lock);
+            fdb_initialized = 0;
+            spin_unlock(&initial_lock);
+#ifndef SPIN_INITIALIZER
+            spin_destroy(&initial_lock);
+#endif
+        } else { // some file may be still open...
+            spin_unlock(&initial_lock);
+        }
     }
-    return FDB_RESULT_SUCCESS;
+    return ret;
 }
 
 void _fdb_dump_handle(fdb_kvs_handle *h) {
