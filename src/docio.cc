@@ -1267,6 +1267,9 @@ static int _submit_async_io_requests(struct docio_handle *handle,
             handle->lastbid = BLK_NOT_FOUND;
 
             (*sum_doc_size) += _fdb_get_docsize(doc_array[doc_idx].length);
+            if (keymeta_only) {
+                (*sum_doc_size) -= doc_array[doc_idx].length.bodylen_ondisk;
+            }
             ++doc_idx;
         }
     }
@@ -1336,6 +1339,9 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
             }
         } else {
             sum_doc_size += _fdb_get_docsize(doc_array[doc_idx].length);
+            if (keymeta_only) {
+                sum_doc_size -= doc_array[doc_idx].length.bodylen_ondisk;
+            }
             ++doc_idx;
         }
     }

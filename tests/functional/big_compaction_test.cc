@@ -151,6 +151,7 @@ void multi_writers(const char *test_name) {
     fconfig = fdb_get_default_config();
     fconfig.multi_kv_instances = MULTI_KV;
     fconfig.buffercache_size = BUFFERCACHE_SIZE;
+    fconfig.durability_opt = FDB_DRB_ODIRECT;
     status = fdb_open(&dbfile, TEST_FILENAME, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 

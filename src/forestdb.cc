@@ -3749,7 +3749,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                                           size_t *prob)
 {
     uint8_t deleted;
-    uint64_t window_size;
     uint64_t offset, _offset;
     uint64_t old_offset, new_offset;
     uint64_t *offset_array;
@@ -3760,7 +3759,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     size_t i, c, rv;
     size_t offset_array_max;
     hbtrie_result hr;
-    struct docio_object doc;
+    struct docio_object doc, *_doc;
     struct hbtrie_iterator it;
     struct timeval tv;
     fdb_doc wal_doc;
@@ -3781,6 +3780,15 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     writer_prev_bid = filemgr_get_pos(handle->file) /
                       handle->file->config->blocksize;
 
+    // Init AIO buffer, callback, event instances.
+    struct async_io_handle *aio_handle_ptr = NULL;
+    struct async_io_handle aio_handle;
+    aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
+    aio_handle.block_size = handle->file->config->blocksize;
+    aio_handle.fd = handle->file->fd;
+    if (handle->file->ops->aio_init(&aio_handle) == FDB_RESULT_SUCCESS) {
+        aio_handle_ptr = &aio_handle;
+    }
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
         handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, 0, 0,
@@ -3802,13 +3810,8 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     new_handle.dhandle = new_dhandle;
     new_handle.bhandle = new_bhandle;
 
-    window_size = handle->config.buffercache_size / 10;
-    if (window_size < FDB_COMP_BUF_MINSIZE) {
-        window_size = FDB_COMP_BUF_MINSIZE;
-    } else if (window_size > FDB_COMP_BUF_MAXSIZE) {
-        window_size = FDB_COMP_BUF_MAXSIZE;
-    }
-
+    _doc = (struct docio_object *)
+        calloc(FDB_COMP_BATCHSIZE, sizeof(struct docio_object));
     offset_array_max = FDB_COMP_BATCHSIZE / sizeof(uint64_t);
     offset_array = (uint64_t*)malloc(sizeof(uint64_t) * offset_array_max);
 
@@ -3844,6 +3847,17 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
             // probabilistic locking (short-term approach)
             rv = (size_t)random(100);
 
+            size_t num_batch_reads =
+            docio_batch_read_docs(handle->dhandle, &offset_array[0],
+                    _doc, c, FDB_COMP_MOVE_UNIT,
+                    (size_t) (-1), // We are not reading the value portion
+                    aio_handle_ptr, true);
+            if (num_batch_reads == (size_t) -1) {
+                fs = FDB_RESULT_COMPACTION_FAIL;
+                break;
+            } else {
+                fdb_assert(num_batch_reads == c, num_batch_reads, c);
+            }
             src_bid = offset_array[0] / blocksize;
             n_buf = 0;
             contiguous_bid = src_bid;
@@ -3859,18 +3873,12 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
             // 2) flush WAL periodically
             for (i = 0; i < c; ++i) {
                 uint64_t _bid;
+                doc = _doc[i];
                 // === read docs from the old file ===
                 offset = offset_array[i];
                 _bid = offset / blocksize;
-                memset(&doc, 0x0, sizeof(struct docio_object));
-
-                _offset = docio_read_doc_key_meta(handle->dhandle, offset,
-                                                  &doc, true);
-                if (_offset == offset) {
-                    // read fail, skip this doc
-                    continue;
-                }
                 _offset = offset + _fdb_get_docsize(doc.length);
+
                 // compare timestamp
                 deleted = doc.length.flag & DOCIO_DELETED;
                 // clone doc document to new file when
