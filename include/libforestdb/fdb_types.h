@@ -34,7 +34,7 @@
 /**
  * Maximum key length supported.
  */
-#define FDB_MAX_KEYLEN (65512) // 2^16 - 24
+#define FDB_MAX_KEYLEN (65408) // 2^16 - 64*2 (64: max chunk size)
 /**
  * Maximum metadata length supported.
  */
