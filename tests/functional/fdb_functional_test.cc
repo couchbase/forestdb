@@ -2144,6 +2144,108 @@ void custom_compare_variable_test()
     TEST_RESULT("custom compare function for variable length key test");
 }
 
+/*
+ * custom compare test with commit and compact
+ *    eqkeys:  boolean to toggle whether bytes in
+ *             comparision range are equal
+ */
+void custom_compare_commit_compact(bool eqkeys)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, r;
+    int count;
+    int n = 10;
+    static const int len = 1024;
+    char keybuf[len];
+    static const char *achar = "a";
+    fdb_doc *rdoc = NULL;
+    fdb_status status;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_iterator *iterator;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = true;
+
+    kvs_config.custom_cmp = _cmp_variable;
+
+
+
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+
+    // open db
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+
+    for (i=0;i<n;++i){
+        if(eqkeys){
+            sprintf(keybuf, "%d", i);
+            for (j=1;j<len;++j) {
+                keybuf[j] = *achar;
+            }
+        } else {
+            sprintf(keybuf, "000%d", i);
+            for (j=4;j<len;++j) {
+                keybuf[j] = *achar;
+            }
+        }
+        keybuf[len-1] = '\0';
+        // set kv
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), NULL, 0);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // compact pre & post commit
+    fdb_compact(dbfile, NULL);
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    fdb_compact(dbfile, NULL);
+
+    // scan after flush
+    count = 0;
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, 0x0);
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+        count++;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+
+    if (eqkeys) {
+        // since the custom cmp function compares only 3rd~8th bytes,
+        // all keys are identified as the same key.
+        TEST_CHK(count == 1);
+    } else {
+        TEST_CHK(count == n);
+    }
+
+    fdb_iterator_close(iterator);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("custom compare commit compact");
+
+}
+
 
 void doc_compression_test()
 {
@@ -3563,6 +3665,8 @@ int main(){
     incomplete_block_test();
     custom_compare_primitive_test();
     custom_compare_variable_test();
+    custom_compare_commit_compact(false);
+    custom_compare_commit_compact(true);
     db_close_and_remove();
     db_drop_test();
     db_destroy_test();
