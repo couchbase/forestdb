@@ -134,6 +134,8 @@ void update_index(storage_t *st, bool checkpointing){
             }
             free(p);
             p=NULL;
+            fdb_doc_free(rdoc);
+            rdoc=NULL;
         }
     } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
     if (checkpointing){
@@ -141,8 +143,6 @@ void update_index(storage_t *st, bool checkpointing){
     }
 
     fdb_iterator_close(it);
-    fdb_doc_free(rdoc);
-    rdoc=NULL;
 
     // reset verification chkpoint
     st->v_chk->num_indexed = 0;
@@ -452,12 +452,16 @@ void *iterate_thread(void *args){
         do {
             status = fdb_iterator_get(it, &rdoc);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
+            fdb_doc_free(rdoc);
+            rdoc = NULL;
         } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
         // reverse and seek ahead
         for (j = 0; j < 10; j++) {
             while (fdb_iterator_prev(it) != FDB_RESULT_ITERATOR_FAIL){
                 status = fdb_iterator_get(it, &rdoc);
                 TEST_CHK(status == FDB_RESULT_SUCCESS);
+                fdb_doc_free(rdoc);
+                rdoc = NULL;
             }
             gen_person(&p);
 
@@ -476,6 +480,7 @@ void *iterate_thread(void *args){
     }
 
     fdb_doc_free(rdoc);
+    rdoc = NULL;
     fdb_close(dbfile);
     return NULL;
 }
@@ -510,6 +515,7 @@ void e2e_async_compact_pattern(int n_checkpoints, fdb_config fconfig, bool delet
     fdb_status status;
     thread_t tid;
     void *thread_ret;
+    n_checkpoints = n_checkpoints * LOAD_FACTOR;
 
     memleak_start();
 
@@ -567,6 +573,7 @@ void e2e_kvs_index_pattern(int n_checkpoints, fdb_config fconfig, bool deletes, 
     checkpoint_t verification_checkpoint;
     idx_prams_t index_params;
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    n_checkpoints = n_checkpoints * LOAD_FACTOR;
 
     memleak_start();
 
@@ -700,6 +707,7 @@ void e2e_robust_pattern(fdb_config fconfig)
             thread_create(&tid_wr[i], writer_thread, (void*)st[i]);
         }
 
+
         // start scanner threads
         for (i=0;i<n_scanners;++i) {
             scan_kv[i] = scan(st2[i], NULL);
@@ -755,6 +763,7 @@ void e2e_concurrent_scan_pattern(int n_checkpoints, int n_scanners, int n_writer
     thread_t *tid_wr = alca(thread_t, n_writers);
     void **thread_ret_wr = alca(void *, n_writers);
     fdb_kvs_handle **scan_kv = alca(fdb_kvs_handle *, n_scanners);
+    n_checkpoints = n_checkpoints * LOAD_FACTOR;
 
     memleak_start();
 
