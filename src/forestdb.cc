@@ -944,13 +944,6 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                        handle_in->file->filename);
     }
 
-    // if the max sequence number seen by this handle is lower than the
-    // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current fdb_kvs_handle
-    if (seqnum > handle_in->seqnum) {
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-
     if (!atomic_cas_uint8_t(&handle_in->handle_busy, 0, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
@@ -978,9 +971,19 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     if (fstatus == FILE_REMOVED_PENDING) {
         filemgr_mutex_unlock(handle_in->file);
         fdb_check_file_reopen(handle_in, NULL);
-        fdb_sync_db_header(handle_in);
     } else {
         filemgr_mutex_unlock(handle_in->file);
+    }
+
+    fdb_sync_db_header(handle_in);
+
+    // if the max sequence number seen by this handle is lower than the
+    // requested snapshot marker, it means the snapshot is not yet visible
+    // even via the current fdb_kvs_handle
+    if (seqnum > handle_in->seqnum) {
+        filemgr_set_rollback(handle_in->file, 0); // allow mutations
+        fdb_assert(atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0), 1, 0);
+        return FDB_RESULT_NO_DB_INSTANCE;
     }
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
@@ -1907,6 +1910,14 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
 
             handle->cur_header_revnum = cur_revnum;
             handle->dirty_updates = 0;
+            if (handle->kvs) {
+                // multiple KV instance mode AND sub handle
+                handle->seqnum = fdb_kvs_get_seqnum(handle->file,
+                                                    handle->kvs->id);
+            } else {
+                // super handle OR single KV instance mode
+                handle->seqnum = filemgr_get_seqnum(handle->file);
+            }
         }
         if (header_buf) {
             free(header_buf);
@@ -2716,7 +2727,7 @@ fdb_set_start:
         handle->seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id) + 1;
         fdb_kvs_set_seqnum(file, handle->kvs->id, handle->seqnum);
     } else {
-        // super handle OR single KV instnace mode
+        // super handle OR single KV instance mode
         handle->seqnum = filemgr_get_seqnum(file) + 1;
         filemgr_set_seqnum(file, handle->seqnum);
     }
