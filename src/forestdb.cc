@@ -3755,7 +3755,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     uint64_t src_bid, dst_bid, contiguous_bid;
     uint64_t clone_len;
     uint32_t blocksize;
-    uint64_t n_buf; // number of docs moved into new file
     size_t i, c, rv;
     size_t offset_array_max;
     hbtrie_result hr;
@@ -3859,7 +3858,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                 fdb_assert(num_batch_reads == c, num_batch_reads, c);
             }
             src_bid = offset_array[0] / blocksize;
-            n_buf = 0;
             contiguous_bid = src_bid;
             clone_len = 0;
             docio_reset(new_dhandle);

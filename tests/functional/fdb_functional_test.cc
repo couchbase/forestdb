@@ -3486,7 +3486,7 @@ void get_byoffset_diff_kvs_test()
     TEST_INIT();
     memleak_start();
     int r;
-    uint64_t offset1, offset2;
+    uint64_t offset2;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *db2;
     fdb_doc *rdoc;
@@ -3527,7 +3527,6 @@ void get_byoffset_diff_kvs_test()
     // save offsets
     status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    offset1=rdoc->offset;
     status = fdb_get_metaonly(db2, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     offset2=rdoc->offset;
