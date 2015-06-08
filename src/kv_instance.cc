@@ -1199,7 +1199,12 @@ fdb_kvs_create_start:
         if (root_handle->kvs) {
             root_handle->seqtrie->root_bid = dirty_seqtree_root;
         } else {
-            root_handle->seqtree->root_bid = dirty_seqtree_root;
+            btree_init_from_bid(root_handle->seqtree,
+                                root_handle->seqtree->blk_handle,
+                                root_handle->seqtree->blk_ops,
+                                root_handle->seqtree->kv_ops,
+                                root_handle->seqtree->blksize,
+                                dirty_seqtree_root);
         }
     }
 
@@ -1757,7 +1762,12 @@ fdb_kvs_remove_start:
         if (root_handle->kvs) {
             root_handle->seqtrie->root_bid = dirty_seqtree_root;
         } else {
-            root_handle->seqtree->root_bid = dirty_seqtree_root;
+            btree_init_from_bid(root_handle->seqtree,
+                                root_handle->seqtree->blk_handle,
+                                root_handle->seqtree->blk_ops,
+                                root_handle->seqtree->kv_ops,
+                                root_handle->seqtree->blksize,
+                                dirty_seqtree_root);
         }
     }
 
