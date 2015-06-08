@@ -40,16 +40,21 @@ void gen_random(char *s, const int len) {
 
 void gen_person(person_t *p){
 
+    int klen = rand() % MAXKEY_LEN - 1;
+    if(klen<=MAXITR_LEN){
+        klen=MAXITR_LEN+1;
+    }
     p->age = rand() % 100;
-    gen_random(p->key, 64);
-    gen_random(p->name, 128);
+    gen_random(p->key, klen);
+    gen_random(p->name, klen);
     gen_random(p->city, 12);
     gen_random(p->state, 2);
     gen_random(p->desc, 512);
+
 }
 
 void gen_index_params(idx_prams_t *params){
-    const int len = 12;
+    const int len = MAXITR_LEN;
     char min[len], max[len], tmp[len];
 
     // generate some random range
@@ -130,7 +135,7 @@ void save_tx(storage_t *st, void *key, size_t keylen, tx_type_t type){
 
     TEST_INIT();
     char txkey[12];
-    transaction_t *tx;
+    transaction_t *tx = NULL;
     fdb_status status;
 
     gen_random(txkey, 12);
@@ -173,13 +178,13 @@ void e2e_fdb_set_person(storage_t *st, person_t *p){
 
     TEST_INIT();
     fdb_status status;
-    fdb_doc *doc;
+    fdb_doc *doc = NULL;
     bool indexed;
     bool existed;
 
     strcpy(p->keyspace, st->keyspace);
     fdb_doc_create(&doc, p->key, strlen(p->key),
-                   NULL, 0, p, sizeof(person_t));
+                   NULL, 0, (void *)p, sizeof(person_t));
     status = fdb_get(st->all_docs, doc);
     existed = (status == FDB_RESULT_SUCCESS);
 
@@ -520,7 +525,7 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
     char *mink = st->index_params->min;
     char *maxk = st->index_params->max;
     size_t vallen;
-    person_t *p;
+    person_t *p = NULL;
     checkpoint_t *chk = (checkpoint_t *)malloc(sizeof(checkpoint_t));
     memset(chk, 0, sizeof(checkpoint_t));
     status = fdb_get_kvs_info(st->chk, &info);
@@ -579,6 +584,8 @@ checkpoint_t* create_checkpoint(storage_t *st, tx_type_t type)
                     free(p);
                     p=NULL;
                 }
+                fdb_doc_free(rdoc);
+                rdoc = NULL;
             }
 
         } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);

@@ -32,6 +32,10 @@ static const char E2EKV_RECORDS[] = "e2ekv_rtx";
 static const char E2EKV_CHECKPOINTS[] = "e2ekv_chk";
 static const char RECORD_DOCKEY[] = "e2edoc_records";
 static const int KEYSPACE_LEN = 6;
+static const int MAXKEY_LEN = 1024;
+static const int MAXITR_LEN = 12;
+
+static const int LOAD_FACTOR = 1;
 
 typedef uint16_t tx_type_t;
 enum {
@@ -44,8 +48,8 @@ enum {
 };
 
 typedef struct {
-    char key[128];
-    char name[256];
+    char key[MAXKEY_LEN];
+    char name[MAXKEY_LEN];
     char city[256];
     char state[256];
     char desc[1024];
@@ -54,19 +58,19 @@ typedef struct {
 }person_t;
 
 typedef struct {
-    char min[12];
-    char max[12];
+    char min[MAXITR_LEN];
+    char max[MAXITR_LEN];
 }idx_prams_t;
 
 typedef struct {
     int amount;
-    char refkey[128];
+    char refkey[MAXKEY_LEN];
     size_t refkey_len;
     tx_type_t type;
 }transaction_t;
 
 typedef struct {
-    char key[128];
+    char key[MAXKEY_LEN];
     int ndocs;
     int num_indexed;
     int sum_age_indexed;
