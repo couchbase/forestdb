@@ -33,7 +33,7 @@ add_executable(bcache_test
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM}
-                      ${ASYNC_IO_LIB})
+                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 
 add_executable(atomic_test
                atomic_test.cc
@@ -62,7 +62,7 @@ add_executable(filemgr_test
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(filemgr_test ${PTHREAD_LIB} ${LIBM}
-                      ${ASYNC_IO_LIB})
+                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 
 add_executable(btreeblock_test
                btreeblock_test.cc
@@ -88,7 +88,7 @@ add_executable(btreeblock_test
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM}
-                      ${ASYNC_IO_LIB})
+                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 
 add_executable(docio_test
                docio_test.cc
@@ -112,7 +112,7 @@ add_executable(docio_test
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB})
+                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 
 add_executable(hbtrie_test
                hbtrie_test.cc
@@ -141,7 +141,7 @@ add_executable(hbtrie_test
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB})
+                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 
 add_executable(crc_test
                crc_test.cc

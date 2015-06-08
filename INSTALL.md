@@ -33,6 +33,8 @@ We also use the asynchronous I/O library `libaio` on Linux if it is available, t
 
 We plan to support asynchronous I/O in other operating systems such as Windows and OS X, soon.
 
+For better memory fragmentation and concurrency management, jemalloc can be linked to ForestDB if available on the host environment. Please visit [jemalloc site](http://www.canonware.com/jemalloc/) for more information and install guideline.
+
 ## Compilation and Build
 
 We use [CMake](http://www.cmake.org/cmake/) to provide the build support for a wide range of platforms. Please follow the instructions below to install CMake in your target platform.
@@ -72,6 +74,8 @@ Once CMake is installed, please follow the instructions below to compile and bui
 `cmake ../`
 
 (The default value of `CMAKE_BUILD_TYPE` is `RelWithDebInfo`. If you want to build with optimizations disabled for debugging, type `cmake -DCMAKE_BUILD_TYPE=Debug ../` instead.)
+
+`_JEMALLOC` variable can be optionally set to 1 and passed to link jemalloc to ForestDB (`cmake -D_JEMALLOC=1 ../`)
 
 `make all`
 
