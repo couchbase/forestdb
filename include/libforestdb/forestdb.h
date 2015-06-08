@@ -608,6 +608,29 @@ LIBFDB_API
 fdb_status fdb_compact(fdb_file_handle *fhandle,
                        const char *new_filename);
 /**
+ * Compact the database file by sharing valid document blocks from
+ * the old file.
+ *
+ * Currently this API works only on Btrfs (B-tree file system) having the
+ * copy-file-range support that allows physical pages to be shared across files
+ * through the copy-on-write (CoW) nature of Btrfs.
+ *
+ *  WARNING: Currently this API performs best only in the offline compaction mode.
+ *  NOTE: Only one compaction will be allowed per file, and any other calls made
+ *        while the first call is in-progress will fail.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param new_filename Name of a new compacted file. The semantics are the same
+ *                     as that of fdb_compact() call described above.
+ * @return FDB_RESULT_SUCCESS on success or an error indicating either
+ *         temporary failure like FDB_RESULT_FAIL_BY_COMPACTION, or permanent
+ *         failure such as FDB_RESULT_COMPACTION_FAIL if not supported.
+ */
+LIBFDB_API
+fdb_status fdb_compact_with_cow(fdb_file_handle *fhandle,
+                                const char *new_filename);
+
+/**
  * Compact the database file by retaining the stale data up to a given file-level
  * snapshot marker.
  *
@@ -628,6 +651,32 @@ LIBFDB_API
 fdb_status fdb_compact_upto(fdb_file_handle *fhandle,
                             const char *new_filename,
                             fdb_snapshot_marker_t marker);
+/**
+ * Compact the database file by retaining the stale data upto a given file-level
+ * snapshot marker and sharing valid document blocks from the old file.
+ *
+ * Currently this API works only on Btrfs (B-tree file system) having the
+ * copy-file-range support that allows physical pages to be shared across files
+ * through the copy-on-write (CoW) nature of Btrfs.
+ *
+ *  WARNING: Currently this API performs best only in the offline compaction mode.
+ *  NOTE: Only one compaction will be allowed per file, and any other calls made
+ *        while the first call is in-progress will fail.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param new_filename Name of a new compacted file. The semantics are the same
+ *                     as that of fdb_compact() call described above.
+ * @param marker Snapshot marker retrieved from fdb_get_all_snap_markers() API,
+ *               indicating the stale data up to a given snapshot marker will be
+ *               retained.
+ * @return FDB_RESULT_SUCCESS on success or an error indicating either
+ *         temporary failure like FDB_RESULT_FAIL_BY_COMPACTION, or permanent
+ *         failure such as FDB_RESULT_COMPACTION_FAIL if not supported.
+ */
+LIBFDB_API
+fdb_status fdb_compact_upto_with_cow(fdb_file_handle *fhandle,
+                                     const char *new_filename,
+                                     fdb_snapshot_marker_t marker);
 /**
  * Return the overall buffer cache space actively used by all ForestDB files.
  * Note that this does not include space in WAL, hash tables and other

@@ -69,6 +69,9 @@ IF (_TRACK_HANDLES EQUAL 1)
     ADD_DEFINITIONS(-D_TRACE_HANDLES=1)
 ENDIF()
 
+# Comment the line below to disable compiling Copy-On-Write (COW) optimizations
+ADD_DEFINITIONS (-D_COW_COMPACTION=1)
+
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -Qunused-arguments -g -fomit-frame-pointer -pthread")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")

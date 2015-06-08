@@ -90,6 +90,9 @@ struct filemgr_ops {
     int (*aio_getevents)(struct async_io_handle *aio_handle, int min,
                          int max, unsigned int timeout);
     int (*aio_destroy)(struct async_io_handle *aio_handle);
+    int (*is_cow_support)(int src_fd, int dst_fd);
+    int (*copy_file_range)(int src_fd, int dst_fd, uint64_t src_off,
+                           uint64_t dst_off, uint64_t len);
 };
 
 struct filemgr_buffer{
@@ -280,6 +283,11 @@ INLINE uint64_t filemgr_get_pos(struct filemgr *file)
     return file->pos.val;
 }
 
+fdb_status filemgr_copy_file_range(struct filemgr *src_file,
+                                   struct filemgr *dst_file,
+                                   bid_t src_bid, bid_t dst_bid,
+                                   bid_t clone_len);
+
 bool filemgr_is_rollback_on(struct filemgr *file);
 void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
 
@@ -312,6 +320,8 @@ INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
 }
 
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);
+
+bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

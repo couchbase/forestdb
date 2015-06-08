@@ -1744,6 +1744,24 @@ fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
     return result;
 }
 
+fdb_status filemgr_copy_file_range(struct filemgr *src_file,
+                                   struct filemgr *dst_file,
+                                   bid_t src_bid, bid_t dst_bid,
+                                   bid_t clone_len)
+{
+    uint32_t blocksize = src_file->blocksize;
+    fdb_status fs = (fdb_status)dst_file->ops->copy_file_range(src_file->fd,
+                                            dst_file->fd,
+                                            src_bid * blocksize,
+                                            dst_bid * blocksize,
+                                            clone_len * blocksize);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return fs;
+    }
+    atomic_store_uint64_t(&dst_file->pos, (dst_bid + clone_len) * blocksize);
+    return FDB_RESULT_SUCCESS;
+}
+
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,
                                 char *old_filename)
 {
@@ -2093,6 +2111,15 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
     magic = _endian_decode(magic);
 
     return (magic == FILEMGR_MAGIC);
+}
+
+bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
+{
+    if (src->ops->is_cow_support(src->fd, dst->fd) == FDB_RESULT_SUCCESS) {
+        return true;
+    }
+
+    return false;
 }
 
 void _kvs_stat_set(struct filemgr *file,

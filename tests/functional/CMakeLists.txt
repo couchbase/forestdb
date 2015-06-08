@@ -285,6 +285,48 @@ target_link_libraries(big_concurrency_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(big_concurrency_test PROPERTIES COMPILE_FLAGS
                       "-D_FDB_TOOLS")
 
+add_executable(big_compaction_test
+               ${ROOT_SRC}/atomic.cc
+               ${ROOT_SRC}/api_wrapper.cc
+               ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/btree.cc
+               ${ROOT_SRC}/btree_kv.cc
+               ${ROOT_SRC}/btree_str_kv.cc
+               ${ROOT_SRC}/btree_fast_str_kv.cc
+               ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/compactor.cc
+               ${ROOT_SRC}/configuration.cc
+               ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/filemgr.cc
+               ${ROOT_SRC}/filemgr_ops.cc
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${ROOT_SRC}/forestdb.cc
+               ${ROOT_SRC}/fdb_errors.cc
+               ${ROOT_SRC}/hash_functions.cc
+               ${ROOT_SRC}/hbtrie.cc
+               ${ROOT_SRC}/iterator.cc
+               ${ROOT_SRC}/list.cc
+               ${ROOT_SRC}/hash.cc
+               ${ROOT_SRC}/wal.cc
+               ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/transaction.cc
+               ${ROOT_SRC}/kv_instance.cc
+               ${ROOT_UTILS}/memleak.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/adler32.cc
+               ${ROOT_UTILS}/debug.cc
+               ${ROOT_UTILS}/partiallock.cc
+               big_compaction_test.cc
+               ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/get_memory_size.cc
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(big_compaction_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB})
+set_target_properties(big_compaction_test PROPERTIES COMPILE_FLAGS
+                      "-D_FDB_TOOLS")
+
+
 # add test target
 add_test(fdb_functional_test fdb_functional_test)
 add_test(fdb_extended_test fdb_extended_test)

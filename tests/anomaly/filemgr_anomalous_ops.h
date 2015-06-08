@@ -43,6 +43,24 @@ struct anomalous_callbacks {
     int (*fsync_cb)(void *ctx, struct filemgr_ops *normal_ops, int fd);
     void (*get_errno_str_cb)(void *ctx, struct filemgr_ops *normal_ops,
                              char *buf, size_t size);
+    int (*aio_init_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                       struct async_io_handle *aio_handle);
+    int (*aio_prep_read_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                            struct async_io_handle *aio_handle,
+                            size_t aio_idx, size_t read_size, uint64_t offset);
+    int (*aio_submit_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                         struct async_io_handle *aio_handle,
+                         int num_subs);
+    int (*aio_getevents_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                            struct async_io_handle *aio_handle,
+                            int min, int max, unsigned int timeout);
+    int (*aio_destroy_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                          struct async_io_handle *aio_handle);
+    int (*is_cow_support_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                             int src_fd, int dst_fd);
+    int (*copy_file_range_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                              int src_fd, int dst_fd, uint64_t src_off,
+                              uint64_t dst_off, uint64_t len);
 };
 
 struct anomalous_callbacks * get_default_anon_cbs();

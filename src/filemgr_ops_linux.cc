@@ -285,6 +285,108 @@ int _filemgr_aio_destroy(struct async_io_handle *aio_handle)
 #endif
 }
 
+#ifdef __APPLE__
+#include <sys/mount.h>
+#else
+#include <sys/vfs.h>
+#endif
+
+#ifndef BTRFS_SUPER_MAGIC
+#define BTRFS_SUPER_MAGIC 0x9123683E
+#endif
+
+int _filemgr_linux_is_cow_support(int src_fd, int dst_fd)
+{
+    int ret;
+    struct statfs sfs;
+    ret = fstatfs(src_fd, &sfs);
+    if (ret != 0) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    if (sfs.f_type != BTRFS_SUPER_MAGIC) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    ret = fstatfs(dst_fd, &sfs);
+    if (ret != 0) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    if (sfs.f_type != BTRFS_SUPER_MAGIC) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    return FDB_RESULT_SUCCESS;
+}
+
+#ifdef HAVE_BTRFS_IOCTL_H
+#include <btrfs/ioctl.h>
+#else
+#include <sys/ioctl.h>
+#ifndef BTRFS_IOCTL_MAGIC
+#define BTRFS_IOCTL_MAGIC 0x94
+#endif //BTRFS_IOCTL_MAGIC
+
+struct btrfs_ioctl_clone_range_args {
+    int64_t src_fd;
+    uint64_t src_offset;
+    uint64_t src_length;
+    uint64_t dest_offset;
+};
+
+#define _IOC_NRBITS     8
+#define _IOC_TYPEBITS   8
+
+#ifndef _IOC_SIZEBITS
+# define _IOC_SIZEBITS  14
+#endif
+
+#ifndef _IOC_DIRBITS
+# define _IOC_DIRBITS   2
+#endif
+
+#define _IOC_NRSHIFT    0
+#define _IOC_TYPESHIFT  (_IOC_NRSHIFT+_IOC_NRBITS)
+#define _IOC_SIZESHIFT  (_IOC_TYPESHIFT+_IOC_TYPEBITS)
+#define _IOC_DIRSHIFT   (_IOC_SIZESHIFT+_IOC_SIZEBITS)
+
+#ifndef _IOC_WRITE
+# define _IOC_WRITE     1U
+#endif
+
+#ifndef _IOC
+#define _IOC(dir,type,nr,size) \
+        (((dir)  << _IOC_DIRSHIFT) | \
+        ((type) << _IOC_TYPESHIFT) | \
+        ((nr)   << _IOC_NRSHIFT) | \
+        ((size) << _IOC_SIZESHIFT))
+#endif // _IOC
+
+#define _IOC_TYPECHECK(t) (sizeof(t))
+#ifndef _IOW
+#define _IOW(type,nr,size) _IOC(_IOC_WRITE,(type),(nr),\
+                          (_IOC_TYPECHECK(size)))
+#endif //_IOW
+
+#define BTRFS_IOC_CLONE_RANGE _IOW(BTRFS_IOCTL_MAGIC, 13, \
+                              struct btrfs_ioctl_clone_range_args)
+#endif // HAVE_BTRFS_IOCTL_H
+
+int _filemgr_linux_copy_file_range(int src_fd, int dst_fd, uint64_t src_off,
+                                   uint64_t dst_off, uint64_t len)
+{
+    struct btrfs_ioctl_clone_range_args cr_args;
+    int ret;
+
+    memset(&cr_args, 0, sizeof(cr_args));
+    cr_args.src_fd = src_fd;
+    cr_args.src_offset = src_off;
+    cr_args.src_length = len;
+    cr_args.dest_offset = dst_off;
+    ret = ioctl(dst_fd, BTRFS_IOC_CLONE_RANGE, &cr_args);
+    if (ret != 0) { // LCOV_EXCL_START
+        ret = errno;
+    }              // LCOV_EXCL_STOP
+    return ret;
+}
+
 struct filemgr_ops linux_ops = {
     _filemgr_linux_open,
     _filemgr_linux_pwrite,
@@ -300,7 +402,9 @@ struct filemgr_ops linux_ops = {
     _filemgr_aio_prep_read,
     _filemgr_aio_submit,
     _filemgr_aio_getevents,
-    _filemgr_aio_destroy
+    _filemgr_aio_destroy,
+    _filemgr_linux_is_cow_support,
+    _filemgr_linux_copy_file_range
 };
 
 struct filemgr_ops * get_linux_filemgr_ops()

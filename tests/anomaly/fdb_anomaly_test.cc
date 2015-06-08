@@ -481,8 +481,243 @@ void handle_busy_test()
     TEST_RESULT("Handle Busy Test");
 }
 
+int is_cow_support_cb(void *ctx, struct filemgr_ops *normal_ops,
+                       int srcfd, int dstfd)
+{
+    return FDB_RESULT_SUCCESS;
+}
+
+struct cb_cmp_args {
+    fdb_kvs_handle *handle;
+    int ndocs;
+    int nmoves;
+};
+
+static int cb_compact(fdb_file_handle *fhandle,
+                      fdb_compaction_status status,
+                      fdb_doc *doc, uint64_t old_offset,
+                      uint64_t new_offset, void *ctx)
+{
+    TEST_INIT();
+    struct cb_cmp_args *args = (struct cb_cmp_args *)ctx;
+    fdb_status fs;
+    (void) fhandle;
+    (void) doc;
+    (void) old_offset;
+    (void) new_offset;
+
+    if (status == FDB_CS_MOVE_DOC) {
+        args->nmoves++;
+        if (args->nmoves == args->ndocs - 1) {
+            char key[256], value[256];
+            // phase 3 of compaction - uncommitted docs in old_file
+            sprintf(key, "key%250d", args->ndocs);
+            sprintf(value, "body%250d", args->ndocs);
+            fs = fdb_set_kv(args->handle, key, 253, value, 254);
+            TEST_CHK(fs == FDB_RESULT_SUCCESS);
+            fs = fdb_commit(args->handle->fhandle, FDB_COMMIT_NORMAL);
+            TEST_CHK(fs == FDB_RESULT_SUCCESS);
+
+            sprintf(key, "zzz%250d", args->ndocs);
+            fs = fdb_set_kv(args->handle, key, 253, value, 254);
+            TEST_CHK(fs == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    return 0;
+}
+
+static void append_batch_delta(void)
+{
+    TEST_INIT();
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+    int N = 5000;
+    int start = N/2;
+    int i;
+
+    char key[256], value[256];
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    // open db
+    status = fdb_open(&dbfile, "anomaly_test1a", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // phase 2 of compaction...
+    // insert docs
+    for (i=start;i<N;++i){
+        sprintf(key, "key%250d", i);
+        sprintf(value, "body%250d", i);
+        status = fdb_set_kv(db, key, 253, value, 254);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if (i == start + start/2) {
+            status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+}
+
+static int copy_file_range_cb(void *ctx, struct filemgr_ops *normal_ops,
+                        int src, int dst, uint64_t src_off,
+                        uint64_t dst_off, uint64_t len)
+{
+    uint8_t *buf = alca(uint8_t, len);
+    bool *append_delta = (bool *)ctx;
+
+    TEST_INIT();
+    TEST_CHK(src_off % 4096 == 0);
+    TEST_CHK(dst_off % 4096 == 0);
+    TEST_CHK(len && len % 4096 == 0);
+    printf("File Range Copy src bid - %" _F64
+           " to dst bid = %" _F64 ", %" _F64" blocks\n",
+           src_off / 4096, dst_off / 4096, (len / 4096) + 1);
+    normal_ops->pread(src, buf, len, src_off);
+    normal_ops->pwrite(dst, buf, len, dst_off);
+    if (*append_delta) {
+        // While the compactor is stuck doing compaction append more documents
+        append_batch_delta();
+        *append_delta = false;
+    }
+    return FDB_RESULT_SUCCESS;
+}
+
+void copy_file_range_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int N = 5000; // total docs after append batch delta
+    int n = N/2;
+    bool append_delta = true;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+
+    char key[256], value[256];
+    void *value_out;
+    size_t valuelen;
+    struct cb_cmp_args cb_args;
+
+    // Get the default callbacks which result in normal operation for other ops
+    struct anomalous_callbacks *cow_compact_cb = get_default_anon_cbs();
+    cow_compact_cb->is_cow_support_cb = &is_cow_support_cb;
+    cow_compact_cb->copy_file_range_cb = &copy_file_range_cb;
+
+    memset(&cb_args, 0x0, sizeof(struct cb_cmp_args));
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" anomaly_test1a anomaly_test1b > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.compaction_cb = cb_compact;
+    fconfig.compaction_cb_ctx = &cb_args;
+    fconfig.compaction_cb_mask = FDB_CS_BEGIN |
+                                 FDB_CS_END | FDB_CS_MOVE_DOC;
+
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    // Create anomalous behavior with shared handle for the callback ctx
+    filemgr_ops_anomalous_init(cow_compact_cb, &append_delta);
+
+    // open db
+    status = fdb_open(&dbfile, "anomaly_test1a", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    cb_args.handle = db;
+    cb_args.ndocs = N;
+
+    // insert docs
+    for (i=0;i<n;++i){
+        sprintf(key, "key%250d", i);
+        sprintf(value, "body%250d", i);
+        status = fdb_set_kv(db, key, 253, value, 254);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // update docs making half the docs stale
+    for (i=n/2; i<n; ++i){
+        sprintf(key, "key%250d", i);
+        sprintf(value, "BODY%250d", i);
+        status = fdb_set_kv(db, key, 253, value, 254);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_compact_with_cow(dbfile, "anomaly_test1b");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // retrieve check again
+    for (i=0; i<n; ++i){
+        sprintf(key, "key%250d", i);
+        if (i < n/2) {
+            sprintf(value, "body%250d", i);
+        } else {
+            sprintf(value, "BODY%250d", i);
+        }
+        status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(value_out, value, valuelen);
+        status = fdb_free_block(value_out);
+    }
+
+    // retrieve docs after append batched delta
+    for (; i<N; ++i){
+        sprintf(key, "key%250d", i);
+        sprintf(value, "body%250d", i);
+        status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(value_out, value, valuelen);
+        status = fdb_free_block(value_out);
+    }
+
+    // check on phase 3 inserted documents..
+    sprintf(key, "key%250d", i);
+    sprintf(value, "body%250d", i);
+    status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(value_out, value, valuelen);
+    status = fdb_free_block(value_out);
+
+    sprintf(key, "zzz%250d", i);
+    status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(value_out, value, valuelen);
+    status = fdb_free_block(value_out);
+
+    // free all resources
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("copy file range test");
+}
+
 int main(){
 
+    copy_file_range_test();
     write_failure_test();
     read_failure_test();
     handle_busy_test();

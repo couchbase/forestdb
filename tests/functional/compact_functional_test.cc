@@ -179,7 +179,7 @@ void compaction_callback_test()
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test6");
     TEST_CHK(cb_args.n_moved_docs == 0);
-    TEST_CHK(cb_args.n_batch_move && cb_args.n_batch_move < n);
+    TEST_CHK(cb_args.n_batch_move && cb_args.n_batch_move <= n);
     TEST_CHK(!cb_args.begin);
     TEST_CHK(!cb_args.end);
     TEST_CHK(!cb_args.wal_flush);

@@ -73,7 +73,8 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
 fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                             const char *new_filename,
                             bool in_place_compaction,
-                            bid_t marker_bid);
+                            bid_t marker_bid,
+                            bool clone_docs);
 
 fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle);
 
