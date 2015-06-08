@@ -849,7 +849,12 @@ fdb_snapshot_open_start:
                         if (handle->kvs) {
                             handle->seqtrie->root_bid = dirty_seqtree_root;
                         } else {
-                            handle->seqtree->root_bid = dirty_seqtree_root;
+                            btree_init_from_bid(handle->seqtree,
+                                                handle->seqtree->blk_handle,
+                                                handle->seqtree->blk_ops,
+                                                handle->seqtree->kv_ops,
+                                                handle->seqtree->blksize,
+                                                dirty_seqtree_root);
                         }
                     }
                 }
@@ -2107,7 +2112,12 @@ static bool _fdb_sync_dirty_root(fdb_kvs_handle *handle)
                 if (handle->kvs) {
                     handle->seqtrie->root_bid = dirty_seqtree_root;
                 } else {
-                    handle->seqtree->root_bid = dirty_seqtree_root;
+                    btree_init_from_bid(handle->seqtree,
+                                        handle->seqtree->blk_handle,
+                                        handle->seqtree->blk_ops,
+                                        handle->seqtree->kv_ops,
+                                        handle->seqtree->blksize,
+                                        dirty_seqtree_root);
                 }
             }
         }
@@ -2897,7 +2907,12 @@ fdb_set_start:
             if (handle->kvs) {
                 handle->seqtrie->root_bid = dirty_seqtree_root;
             } else {
-                handle->seqtree->root_bid = dirty_seqtree_root;
+                btree_init_from_bid(handle->seqtree,
+                                    handle->seqtree->blk_handle,
+                                    handle->seqtree->blk_ops,
+                                    handle->seqtree->kv_ops,
+                                    handle->seqtree->blksize,
+                                    dirty_seqtree_root);
             }
         }
 
@@ -3254,7 +3269,12 @@ fdb_commit_start:
         if (handle->kvs) {
             handle->seqtrie->root_bid = dirty_seqtree_root;
         } else {
-            handle->seqtree->root_bid = dirty_seqtree_root;
+            btree_init_from_bid(handle->seqtree,
+                                handle->seqtree->blk_handle,
+                                handle->seqtree->blk_ops,
+                                handle->seqtree->kv_ops,
+                                handle->seqtree->blksize,
+                                dirty_seqtree_root);
         }
     }
 
@@ -3360,7 +3380,12 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         if (handle->kvs) {
             handle->seqtrie->root_bid = dirty_seqtree_root;
         } else {
-            handle->seqtree->root_bid = dirty_seqtree_root;
+            btree_init_from_bid(handle->seqtree,
+                                handle->seqtree->blk_handle,
+                                handle->seqtree->blk_ops,
+                                handle->seqtree->kv_ops,
+                                handle->seqtree->blksize,
+                                dirty_seqtree_root);
         }
     }
 
@@ -4897,7 +4922,12 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         if (handle->kvs) {
             handle->seqtrie->root_bid = dirty_seqtree_root;
         } else {
-            handle->seqtree->root_bid = dirty_seqtree_root;
+            btree_init_from_bid(handle->seqtree,
+                                handle->seqtree->blk_handle,
+                                handle->seqtree->blk_ops,
+                                handle->seqtree->kv_ops,
+                                handle->seqtree->blksize,
+                                dirty_seqtree_root);
         }
     }
 

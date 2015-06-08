@@ -180,7 +180,12 @@ static void _fdb_itr_sync_dirty_root(fdb_iterator *iterator,
                 if (iterator->handle->kvs) {
                     iterator->handle->seqtrie->root_bid = dirty_seqtree_root;
                 } else {
-                    iterator->handle->seqtree->root_bid = dirty_seqtree_root;
+                    btree_init_from_bid(iterator->handle->seqtree,
+                                        iterator->handle->seqtree->blk_handle,
+                                        iterator->handle->seqtree->blk_ops,
+                                        iterator->handle->seqtree->kv_ops,
+                                        iterator->handle->seqtree->blksize,
+                                        dirty_seqtree_root);
                 }
             }
         }

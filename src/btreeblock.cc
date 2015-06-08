@@ -406,11 +406,11 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
         fdb_status status = filemgr_read(handle->file, block->bid, block->addr,
                                          handle->log_callback, true);
         if (status != FDB_RESULT_SUCCESS) {
-            _btreeblk_free_aligned_block(handle, block);
-            mempool_free(block);
             fdb_log(handle->log_callback, status,
                     "Failed to read the B+-Tree block (block id: %" _F64
                     ", block address: %p)", block->bid, block->addr);
+            _btreeblk_free_aligned_block(handle, block);
+            mempool_free(block);
             return NULL;
         }
     }
@@ -1047,12 +1047,12 @@ fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
         block->bid = cur_bid;
         if ((fs = filemgr_read(handle->file, block->bid, block->addr,
                                handle->log_callback, true)) != FDB_RESULT_SUCCESS) {
-            free_align(block->addr);
-            free(block);
             fdb_log(handle->log_callback, fs,
                     "Failed to read the dirty B+-Tree block (block id: %" _F64
                     ", block address: %p) while creating an in-memory snapshot.",
                     block->bid, block->addr);
+            free_align(block->addr);
+            free(block);
             return fs;
         }
         // check if the block is for btree node
