@@ -1846,13 +1846,6 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                        handle_in->file->filename);
     }
 
-    // if the max sequence number seen by this handle is lower than the
-    // requested snapshot marker, it means the snapshot is not yet visible
-    // even via the current fdb_kvs_handle
-    if (seqnum > handle_in->seqnum) {
-        return FDB_RESULT_NO_DB_INSTANCE;
-    }
-
     filemgr_mutex_lock(handle_in->file);
     filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
     // All transactions should be closed before rollback
@@ -1875,9 +1868,18 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     if (fstatus == FILE_REMOVED_PENDING) {
         filemgr_mutex_unlock(handle_in->file);
         fdb_check_file_reopen(handle_in, NULL);
-        fdb_sync_db_header(handle_in);
     } else {
         filemgr_mutex_unlock(handle_in->file);
+    }
+
+    fdb_sync_db_header(handle_in);
+
+    // if the max sequence number seen by this handle is lower than the
+    // requested snapshot marker, it means the snapshot is not yet visible
+    // even via the current fdb_kvs_handle
+    if (seqnum > handle_in->seqnum) {
+        filemgr_set_rollback(super_handle->file, 0); // allow mutations
+        return FDB_RESULT_NO_DB_INSTANCE;
     }
 
     kvs_name = _fdb_kvs_get_name(handle_in, handle_in->file);
