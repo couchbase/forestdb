@@ -1103,11 +1103,11 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     if (fstatus == FILE_REMOVED_PENDING) {
         filemgr_mutex_unlock(super_handle->file);
         fdb_check_file_reopen(super_handle, NULL);
-        fdb_sync_db_header(super_handle);
     } else {
         filemgr_mutex_unlock(super_handle->file);
     }
 
+    fdb_sync_db_header(super_handle);
     // Shutdown WAL discarding entries from all KV Stores..
     fs = wal_shutdown(super_handle->file);
     if (fs != FDB_RESULT_SUCCESS) {
