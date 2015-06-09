@@ -30,6 +30,62 @@
 #include "internal_types.h"
 #include "functional_util.h"
 
+void rollback_secondary_kvs()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    void *value_out;
+    size_t valuelen_out;
+
+    fdb_status status;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *kv1, *kv2;
+
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &kv1, &kvs_config);
+    fdb_kvs_open_default(dbfile, &kv2, &kvs_config);
+
+    // seq:2
+    status = fdb_set_kv(kv1, (void *) "a", 1, (void *)"val-a", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_kv(kv1, (void *) "b", 1, (void *)"val-b", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // seq:3
+    status = fdb_set_kv(kv1, (void *) "b", 1, (void *)"val-v", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // seq:4
+    status = fdb_del_kv(kv1, (void *)"a", 1);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // get 'a' via kv2
+    status = fdb_get_kv(kv2, (void *)"b", 1, &value_out, &valuelen_out);
+    free(value_out);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // rollback seq:3 via kv2
+    status = fdb_rollback(&kv2, 3);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("rollback secondary kv");
+}
+
+
 void multi_version_test()
 {
     TEST_INIT();
@@ -4052,8 +4108,11 @@ void tx_crash_recover_test()
     TEST_RESULT("crash recover test");
 }
 
+
+
 int main(){
 
+    rollback_secondary_kvs();
     multi_version_test();
 #ifdef __CRC32
     crash_recovery_test(true);

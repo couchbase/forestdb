@@ -4186,22 +4186,6 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 }
                 i += num_batch_reads;
 
-                // Note that we don't need to grab a lock on the new file
-                // during the compaction because the new file is only accessed
-                // by the compactor.
-                // However, we intentionally try to grab a lock on the old file
-                // here to have the compactor and normal writer interleave together
-                // through the old file's lock and make sure that the compactor can
-                // catch up with the normal writer. This is a short-term approach
-                // and we plan to address this issue without sacrificing the writer's
-                // performance soon.
-                rv = (size_t)random(100);
-                if (rv < *prob) {
-                    filemgr_mutex_lock(handle->file);
-                    locked = true;
-                } else {
-                    locked = false;
-                }
                 // === write docs into the new file ===
                 for (j=0; j<num_batch_reads; ++j) {
                     if (!doc[j].key) {
@@ -4239,16 +4223,10 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
                         if (handle->config.compaction_cb &&
                             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                            if (locked) {
-                                filemgr_mutex_unlock(handle->file);
-                            }
                             handle->config.compaction_cb(
                                 handle->fhandle, FDB_CS_MOVE_DOC,
                                 &wal_doc, old_offset, new_offset,
                                 handle->config.compaction_cb_ctx);
-                            if (locked) {
-                                filemgr_mutex_lock(handle->file);
-                            }
                         }
                     }
                     free(doc[j].key);
@@ -4259,21 +4237,30 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
-                    if (locked) {
-                        filemgr_mutex_unlock(handle->file);
-                    }
                     handle->config.compaction_cb(handle->fhandle,
                                                  FDB_CS_BATCH_MOVE, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
-                    if (locked) {
-                        filemgr_mutex_lock(handle->file);
-                    }
                 }
 
                 // === flush WAL entries by compactor ===
                 if (wal_get_num_flushable(new_file) > 0) {
-
+                    // Note that we don't need to grab a lock on the new file
+                    // during the compaction because the new file is only accessed
+                    // by the compactor.
+                    // However, we intentionally try to grab a lock on the old file
+                    // here to have the compactor and normal writer interleave together
+                    // through the old file's lock and make sure that the compactor can
+                    // catch up with the normal writer. This is a short-term approach
+                    // and we plan to address this issue without sacrificing the writer's
+                    // performance soon.
+                    rv = (size_t)random(100);
+                    if (rv < *prob) {
+                        filemgr_mutex_lock(handle->file);
+                        locked = true;
+                    } else {
+                        locked = false;
+                    }
                     struct avl_tree flush_items;
                     wal_flush_by_compactor(new_file, (void*)&new_handle,
                                            _fdb_wal_flush_func,
@@ -4281,19 +4268,16 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                            &flush_items);
                     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                     wal_release_flushed_items(new_file, &flush_items);
+                    if (locked) {
+                        filemgr_mutex_unlock(handle->file);
+                    }
 
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
-                        if (locked) {
-                            filemgr_mutex_unlock(handle->file);
-                        }
                         handle->config.compaction_cb(handle->fhandle,
                                                      FDB_CS_FLUSH_WAL, NULL,
                                                      old_offset, new_offset,
                                                      handle->config.compaction_cb_ctx);
-                        if (locked) {
-                            filemgr_mutex_lock(handle->file);
-                        }
                     }
                 }
 
@@ -4303,10 +4287,6 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
                                            &writer_prev_bid, &compactor_prev_bid,
                                            prob, handle->config.max_writer_lock_prob);
-
-                if (locked) {
-                    filemgr_mutex_unlock(handle->file);
-                }
 
                 // If the rollback operation is issued, abort the compaction task.
                 if (filemgr_is_rollback_on(handle->file)) {
@@ -4673,19 +4653,6 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     }
 #endif // _COW_COMPACTION
 
-    if (!got_lock) {
-        // We intentionally try to grab a lock on the old file here to have
-        // the compactor and normal writer interleave together through the
-        // old file's lock and make sure that the compactor can catch up with
-        // the normal writer. This is a short-term approach and we plan to address
-        // this issue without sacrificing the writer's performance soon.
-        size_t rv = (size_t)random(100);
-        if (rv < *prob) {
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-        }
-    }
-
     for (i=0; i<n_buf; ++i) {
         // append into the new file
         doc_offset = docio_append_doc(new_handle->dhandle, &doc[i],
@@ -4705,14 +4672,14 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-            if (locked) {
+            if (got_lock) {
                 filemgr_mutex_unlock(handle->file);
             }
             handle->config.compaction_cb(
                 handle->fhandle, FDB_CS_MOVE_DOC,
                 &wal_doc, old_offset_array[i], doc_offset,
                 handle->config.compaction_cb_ctx);
-            if (locked) {
+            if (got_lock) {
                 filemgr_mutex_lock(handle->file);
             }
         }
@@ -4721,6 +4688,19 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         free(doc[i].key);
         free(doc[i].meta);
         free(doc[i].body);
+    }
+
+    if (!got_lock) {
+        // We intentionally try to grab a lock on the old file here to have
+        // the compactor and normal writer interleave together through the
+        // old file's lock and make sure that the compactor can catch up with
+        // the normal writer. This is a short-term approach and we plan to address
+        // this issue without sacrificing the writer's performance soon.
+        size_t rv = (size_t)random(100);
+        if (rv < *prob) {
+            filemgr_mutex_lock(handle->file);
+            locked = true;
+        }
     }
 
     // WAL flush
