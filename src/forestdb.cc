@@ -43,7 +43,7 @@
 #include "compactor.h"
 #include "memleak.h"
 #include "time_utils.h"
-#include "get_memory_size.h"
+#include "system_resource_stats.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB

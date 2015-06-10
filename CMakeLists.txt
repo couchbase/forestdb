@@ -123,7 +123,7 @@ add_library(forestdb SHARED
             utils/debug.cc
             utils/partiallock.cc
             utils/time_utils.cc
-            utils/get_memory_size.cc)
+            utils/system_resource_stats.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 
@@ -164,7 +164,7 @@ add_executable(forestdb_dump
                utils/iniparser.cc
                utils/partiallock.cc
                utils/time_utils.cc
-               utils/get_memory_size.cc)
+               utils/system_resource_stats.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
@@ -206,7 +206,7 @@ add_executable(forestdb_hexamine
                utils/iniparser.cc
                utils/partiallock.cc
                utils/time_utils.cc
-               utils/get_memory_size.cc)
+               utils/system_resource_stats.cc)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
