@@ -285,7 +285,7 @@ int _filemgr_aio_destroy(struct async_io_handle *aio_handle)
 #endif
 }
 
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/mount.h>
 #else
 #include <sys/vfs.h>
