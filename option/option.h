@@ -112,4 +112,8 @@
 // Asynchronous I/O queue depth
 #define ASYNC_IO_QUEUE_DEPTH (64)
 
+// Number of daemon compactor threads
+#define DEFAULT_NUM_COMPACTOR_THREADS (4)
+#define MAX_NUM_COMPACTOR_THREADS (128)
+
 #endif

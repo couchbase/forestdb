@@ -1276,6 +1276,11 @@ void compaction_daemon_test(size_t time_sec)
     fconfig.compaction_threshold = compaction_threshold;
     fconfig.compactor_sleep_duration = 1; // for quick test
 
+    fconfig.num_compactor_threads = 0;
+    status = fdb_open(&dbfile, "compact_test", &fconfig);
+    TEST_CHK(status == FDB_RESULT_INVALID_CONFIG);
+
+    fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
     // open db
     fdb_open(&dbfile, "compact_test", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);

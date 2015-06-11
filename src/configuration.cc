@@ -66,6 +66,8 @@ fdb_config get_default_config(void) {
     fconfig.compaction_cb_mask = 0x0;
     fconfig.compaction_cb_ctx = NULL;
     fconfig.max_writer_lock_prob = 100;
+    // 4 daemon compactor threads by default
+    fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
 
     return fconfig;
 }
@@ -128,6 +130,10 @@ bool validate_fdb_config(fdb_config *fconfig) {
     }
     if (fconfig->max_writer_lock_prob < 20 ||
         fconfig->max_writer_lock_prob > 100) {
+        return false;
+    }
+    if (fconfig->num_compactor_threads < 1 ||
+        fconfig->num_compactor_threads > MAX_NUM_COMPACTOR_THREADS) {
         return false;
     }
 

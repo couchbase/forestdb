@@ -385,6 +385,14 @@ typedef struct {
      * This is a local config to each ForestDB file.
      */
     size_t max_writer_lock_prob;
+    /**
+     * Number of daemon compactor threads. It is set to 4 threads by default.
+     * If many files are opened and accessed concurrently, then it is
+     * recommended to increase this value if the host machine has enough cores
+     * and disk I/O bandwidth.
+     * This is a global config that is configured across all ForestDB files.
+     */
+    size_t num_compactor_threads;
 } fdb_config;
 
 typedef struct {
