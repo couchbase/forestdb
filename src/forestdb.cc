@@ -5561,6 +5561,7 @@ fdb_status fdb_shutdown()
             spin_unlock(&initial_lock);
 #ifndef SPIN_INITIALIZER
             spin_destroy(&initial_lock);
+            initial_lock_status = 0;
 #endif
         } else { // some file may be still open...
             spin_unlock(&initial_lock);
