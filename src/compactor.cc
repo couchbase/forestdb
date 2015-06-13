@@ -70,6 +70,7 @@ static volatile uint8_t compactor_terminate_signal = 0;
 static struct avl_tree openfiles;
 
 struct openfiles_elem {
+    char filename[MAX_FNAMELEN];
     struct filemgr *file;
     fdb_config config;
     uint32_t register_count;
@@ -136,7 +137,7 @@ int _compactor_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     struct compactor_args_t *args = (struct compactor_args_t *)aux;
     aa = _get_entry(a, struct openfiles_elem, avl);
     bb = _get_entry(b, struct openfiles_elem, avl);
-    return strncmp(aa->file->filename, bb->file->filename, args->strcmp_len);
+    return strncmp(aa->filename, bb->filename, args->strcmp_len);
 }
 
 INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
@@ -304,8 +305,8 @@ bool compactor_switch_compaction_flag(struct filemgr *file, bool flag)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
+    strcpy(query.filename, file->filename);
     mutex_lock(&cpt_lock);
-    query.file = file;
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         // found
@@ -327,16 +328,12 @@ bool compactor_switch_compaction_flag(struct filemgr *file, bool flag)
 
 void * compactor_thread(void *voidargs)
 {
-    char filename[MAX_FNAMELEN];
     char vfilename[MAX_FNAMELEN];
     char new_filename[MAX_FNAMELEN];
     fdb_file_handle *fhandle;
-    fdb_config config;
     fdb_status fs;
     struct avl_node *a;
     struct openfiles_elem *elem;
-    struct filemgr query_file;
-    struct filemgr *file = &query_file;
     struct openfiles_elem query;
 
     // Sleep for 10 secs by default to allow applications to warm up their data.
@@ -352,27 +349,31 @@ void * compactor_thread(void *voidargs)
         a = avl_first(&openfiles);
         while(a) {
             elem = _get_entry(a, struct openfiles_elem, avl);
+            if (!elem->file) {
+                a = avl_next(a);
+                avl_remove(&openfiles, &elem->avl);
+                free(elem);
+                continue;
+            }
 
             if (_compactor_is_threshold_satisfied(elem)) {
-                // perform compaction
-                strcpy(filename, elem->file->filename);
-                _compactor_get_vfilename(filename, vfilename);
-                config = elem->config;
                 elem->daemon_compact_in_progress = true;
                 // set compaction flag
                 elem->compaction_flag = true;
                 mutex_unlock(&cpt_lock);
+                // Once 'daemon_compact_in_progress' is set to true, then it is safe to
+                // read the variables of 'elem' until the compaction is completed.
+                _compactor_get_vfilename(elem->filename, vfilename);
 
-                fs = fdb_open_for_compactor(&fhandle, vfilename, &config,
+                fs = fdb_open_for_compactor(&fhandle, vfilename, &elem->config,
                                             elem->cmp_func_list);
                 if (fs == FDB_RESULT_SUCCESS) {
-                    compactor_get_next_filename(filename, new_filename);
+                    compactor_get_next_filename(elem->filename, new_filename);
                     fdb_compact_file(fhandle, new_filename, false, (bid_t) -1);
                     fdb_close(fhandle);
 
+                    strcpy(query.filename, new_filename);
                     mutex_lock(&cpt_lock);
-                    file->filename = new_filename;
-                    query.file = file;
                     // Search the next file for compaction.
                     a = avl_search_greater(&openfiles, &query.avl, _compactor_cmp);
                 } else {
@@ -506,9 +507,9 @@ fdb_status compactor_register_file(struct filemgr *file,
         return fs;
     }
 
+    strcpy(query.filename, file->filename);
     // first search the existing file
     mutex_lock(&cpt_lock);
-    query.file = file;
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a == NULL) {
         // doesn't exist
@@ -517,6 +518,7 @@ fdb_status compactor_register_file(struct filemgr *file,
         struct compactor_meta meta;
 
         elem = (struct openfiles_elem *)malloc(sizeof(struct openfiles_elem));
+        strcpy(elem->filename, file->filename);
         elem->file = file;
         elem->config = *config;
         elem->register_count = 1;
@@ -536,6 +538,9 @@ fdb_status compactor_register_file(struct filemgr *file,
     } else {
         // already exists
         elem = _get_entry(a, struct openfiles_elem, avl);
+        if (!elem->file) {
+            elem->file = file;
+        }
         elem->register_count++;
         mutex_unlock(&cpt_lock);
     }
@@ -547,8 +552,8 @@ void compactor_deregister_file(struct filemgr *file)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
+    strcpy(query.filename, file->filename);
     mutex_lock(&cpt_lock);
-    query.file = file;
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
@@ -558,7 +563,10 @@ void compactor_deregister_file(struct filemgr *file)
                 // This file is waiting for compaction by compactor (but not opened
                 // yet). Do not remove 'elem' for now. The 'elem' will be automatically
                 // replaced after the compaction is done by calling
-                // 'compactor_switch_file()'.
+                // 'compactor_switch_file()'. However, elem->file should be set to NULL
+                // in order to be removed from the AVL tree in case of the compaction
+                // failure.
+                elem->file = NULL;
             } else {
                 // remove from the tree
                 avl_remove(&openfiles, &elem->avl);
@@ -574,8 +582,8 @@ void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
+    strcpy(query.filename, file->filename);
     mutex_lock(&cpt_lock);
-    query.file = file;
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
@@ -699,8 +707,8 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
     struct openfiles_elem query, *elem;
     struct compactor_meta meta;
 
+    strcpy(query.filename, old_file->filename);
     mutex_lock(&cpt_lock);
-    query.file = old_file;
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         char metafile[MAX_FNAMELEN];
@@ -708,6 +716,7 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
 
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openfiles, a);
+        strcpy(elem->filename, new_file->filename);
         elem->file = new_file;
         elem->register_count = 1;
         elem->daemon_compact_in_progress = false;
@@ -1011,8 +1020,6 @@ fdb_status compactor_destroy_file(char *filename,
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
-    struct filemgr query_file;
-    struct filemgr *file = &query_file;
     size_t strcmp_len;
     fdb_status status = FDB_RESULT_SUCCESS;
     compactor_config c_config;
@@ -1021,13 +1028,12 @@ fdb_status compactor_destroy_file(char *filename,
     filename[strcmp_len] = '.'; // add a . suffix in place
     strcmp_len++;
     filename[strcmp_len] = '\0';
-    file->filename = filename;
+    strcpy(query.filename, filename);
 
     c_config.sleep_duration = config->compactor_sleep_duration;
     compactor_init(&c_config);
 
     mutex_lock(&cpt_lock);
-    query.file = file;
     compactor_args.strcmp_len = strcmp_len; // Do prefix match for all vers
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -1047,7 +1053,7 @@ fdb_status compactor_destroy_file(char *filename,
                              // deletions doesn't require strict synchronization.
     filename[strcmp_len - 1] = '\0'; // restore the filename
     if (status == FDB_RESULT_SUCCESS) {
-        status = _compactor_search_n_destroy(file->filename);
+        status = _compactor_search_n_destroy(filename);
     }
 
     return status;
