@@ -34,17 +34,17 @@ void basic_test()
     atomic_init_uint64_t(&counter_64, val_64);
     val_64 = 100;
     atomic_store_uint64_t(&counter_64, val_64);
-    TEST_CHK(counter_64.val == 100);
+    TEST_CHK(atomic_get_uint64_t(&counter_64) == 100);
     atomic_cas_uint64_t(&counter_64, val_64, val_64_new);
-    TEST_CHK(counter_64.val == 200);
+    TEST_CHK(atomic_get_uint64_t(&counter_64) == 200);
     atomic_incr_uint64_t(&counter_64);
-    TEST_CHK(counter_64.val == 201);
+    TEST_CHK(atomic_get_uint64_t(&counter_64) == 201);
     atomic_decr_uint64_t(&counter_64);
-    TEST_CHK(counter_64.val == 200);
+    TEST_CHK(atomic_get_uint64_t(&counter_64) == 200);
     atomic_add_uint64_t(&counter_64, delta_64);
-    TEST_CHK(counter_64.val = 210);
+    TEST_CHK(atomic_get_uint64_t(&counter_64) == 210);
     atomic_sub_uint64_t(&counter_64, delta_64);
-    TEST_CHK(counter_64.val == 200);
+    TEST_CHK(atomic_get_uint64_t(&counter_64) == 200);
     atomic_destroy_uint64_t(&counter_64);
 
     atomic_uint32_t counter_32;
@@ -53,17 +53,17 @@ void basic_test()
     atomic_init_uint32_t(&counter_32, val_32);
     val_32 = 100;
     atomic_store_uint32_t(&counter_32, val_32);
-    TEST_CHK(counter_32.val == 100);
+    TEST_CHK(atomic_get_uint32_t(&counter_32) == 100);
     atomic_cas_uint32_t(&counter_32, val_32, val_32_new);
-    TEST_CHK(counter_32.val == 200);
+    TEST_CHK(atomic_get_uint32_t(&counter_32) == 200);
     atomic_incr_uint32_t(&counter_32);
-    TEST_CHK(counter_32.val == 201);
+    TEST_CHK(atomic_get_uint32_t(&counter_32) == 201);
     atomic_decr_uint32_t(&counter_32);
-    TEST_CHK(counter_32.val == 200);
+    TEST_CHK(atomic_get_uint32_t(&counter_32) == 200);
     atomic_add_uint32_t(&counter_32, delta_32);
-    TEST_CHK(counter_32.val = 210);
+    TEST_CHK(atomic_get_uint32_t(&counter_32) == 210);
     atomic_sub_uint32_t(&counter_32, delta_32);
-    TEST_CHK(counter_32.val == 200);
+    TEST_CHK(atomic_get_uint32_t(&counter_32) == 200);
     atomic_destroy_uint32_t(&counter_32);
 
     atomic_uint16_t counter_16;
@@ -72,17 +72,17 @@ void basic_test()
     atomic_init_uint16_t(&counter_16, val_16);
     val_16 = 100;
     atomic_store_uint16_t(&counter_16, val_16);
-    TEST_CHK(counter_16.val == 100);
+    TEST_CHK(atomic_get_uint16_t(&counter_16) == 100);
     atomic_cas_uint16_t(&counter_16, val_16, val_16_new);
-    TEST_CHK(counter_16.val == 200);
+    TEST_CHK(atomic_get_uint16_t(&counter_16) == 200);
     atomic_incr_uint16_t(&counter_16);
-    TEST_CHK(counter_16.val == 201);
+    TEST_CHK(atomic_get_uint16_t(&counter_16) == 201);
     atomic_decr_uint16_t(&counter_16);
-    TEST_CHK(counter_16.val == 200);
+    TEST_CHK(atomic_get_uint16_t(&counter_16) == 200);
     atomic_add_uint16_t(&counter_16, delta_16);
-    TEST_CHK(counter_16.val = 210);
+    TEST_CHK(atomic_get_uint16_t(&counter_16) == 210);
     atomic_sub_uint16_t(&counter_16, delta_16);
-    TEST_CHK(counter_16.val == 200);
+    TEST_CHK(atomic_get_uint16_t(&counter_16) == 200);
     atomic_destroy_uint16_t(&counter_16);
 
     atomic_uint8_t counter_8;
@@ -91,17 +91,17 @@ void basic_test()
     atomic_init_uint8_t(&counter_8, val_8);
     val_8 = 50;
     atomic_store_uint8_t(&counter_8, val_8);
-    TEST_CHK(counter_8.val == 50);
+    TEST_CHK(atomic_get_uint8_t(&counter_8) == 50);
     atomic_cas_uint8_t(&counter_8, val_8, val_8_new);
-    TEST_CHK(counter_8.val == 100);
+    TEST_CHK(atomic_get_uint8_t(&counter_8) == 100);
     atomic_incr_uint8_t(&counter_8);
-    TEST_CHK(counter_8.val == 101);
+    TEST_CHK(atomic_get_uint8_t(&counter_8) == 101);
     atomic_decr_uint8_t(&counter_8);
-    TEST_CHK(counter_8.val == 100);
+    TEST_CHK(atomic_get_uint8_t(&counter_8) == 100);
     atomic_add_uint8_t(&counter_8, delta_8);
-    TEST_CHK(counter_8.val = 110);
+    TEST_CHK(atomic_get_uint8_t(&counter_8) == 110);
     atomic_sub_uint8_t(&counter_8, delta_8);
-    TEST_CHK(counter_8.val == 100);
+    TEST_CHK(atomic_get_uint8_t(&counter_8) == 100);
     atomic_destroy_uint8_t(&counter_8);
 
     TEST_RESULT("basic test");
@@ -184,10 +184,10 @@ void multi_thread_test(int num_threads)
         thread_join(tid[i], &ret[i]);
     }
 
-    TEST_CHK(counter_64.val == 0);
-    TEST_CHK(counter_32.val == 0);
-    TEST_CHK(counter_16.val == 0);
-    TEST_CHK(counter_8.val == 0);
+    TEST_CHK(atomic_get_uint64_t(&counter_64) == 0);
+    TEST_CHK(atomic_get_uint32_t(&counter_32) == 0);
+    TEST_CHK(atomic_get_uint16_t(&counter_16) == 0);
+    TEST_CHK(atomic_get_uint8_t(&counter_8) == 0);
 
     atomic_destroy_uint64_t(&counter_64);
     atomic_destroy_uint32_t(&counter_32);

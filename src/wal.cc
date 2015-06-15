@@ -1094,7 +1094,7 @@ fdb_status wal_close_kv_ins(struct filemgr *file,
 
 size_t wal_get_size(struct filemgr *file)
 {
-    return file->wal->size.val;
+    return atomic_get_uint32_t(&file->wal->size);
 }
 
 size_t wal_get_num_all_shards(struct filemgr *file)
@@ -1106,7 +1106,7 @@ size_t wal_get_num_all_shards(struct filemgr *file)
 
 size_t wal_get_num_flushable(struct filemgr *file)
 {
-    return file->wal->num_flushable.val;
+    return atomic_get_uint32_t(&file->wal->num_flushable);
 }
 
 size_t wal_get_num_docs(struct filemgr *file) {
@@ -1119,7 +1119,7 @@ size_t wal_get_num_deletes(struct filemgr *file) {
 
 size_t wal_get_datasize(struct filemgr *file)
 {
-    return file->wal->datasize.val;
+    return atomic_get_uint64_t(&file->wal->datasize);
 }
 
 void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status)

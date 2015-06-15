@@ -2118,15 +2118,15 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
         root_stat = stat;
     }
 
-    info->num_sets = stat.num_sets.val;
-    info->num_dels = stat.num_dels.val;
-    info->num_gets = stat.num_gets.val;
-    info->num_iterator_gets = stat.num_iterator_gets.val;
-    info->num_iterator_gets = stat.num_iterator_gets.val;
-    info->num_iterator_moves = stat.num_iterator_moves.val;
+    info->num_sets = atomic_get_uint64_t(&stat.num_sets);
+    info->num_dels = atomic_get_uint64_t(&stat.num_dels);
+    info->num_gets = atomic_get_uint64_t(&stat.num_gets);
+    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets);
+    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets);
+    info->num_iterator_moves = atomic_get_uint64_t(&stat.num_iterator_moves);
 
-    info->num_commits = root_stat.num_commits.val;
-    info->num_compacts = root_stat.num_compacts.val;
+    info->num_commits = atomic_get_uint64_t(&root_stat.num_commits);
+    info->num_compacts = atomic_get_uint64_t(&root_stat.num_compacts);
     return FDB_RESULT_SUCCESS;
 }
 

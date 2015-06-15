@@ -297,7 +297,7 @@ struct fnamedic_item *_bcache_get_victim()
         while (e) {
             struct fnamedic_item *fname;
             fname = _get_entry(e, struct fnamedic_item, le);
-            if (fname->nitems.val) {
+            if (atomic_get_uint64_t(&fname->nitems)) {
                 break;
             }
             e = list_next(e);
@@ -349,7 +349,7 @@ static struct fnamedic_item *_next_dead_fname_zombie(void) {
     e = list_begin(&file_zombies);
     while (e) {
         fname_item = _get_entry(e, struct fnamedic_item, le);
-        if (fname_item->ref_count.val == 0) {
+        if (atomic_get_uint32_t(&fname_item->ref_count) == 0) {
             list_remove(&file_zombies, e);
             break;
         } else {
@@ -667,7 +667,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
         victim = _bcache_get_victim();
         while(victim) {
             // check whether this file has at least one block to be evictied
-            if (victim->nitems.val) {
+            if (atomic_get_uint64_t(&victim->nitems)) {
                 // select this file as victim
                 break;
             } else {
@@ -748,13 +748,13 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
 
         spin_unlock(&bshard->lock);
 
-        if (victim->nitems.val == 0) {
+        if (atomic_get_uint64_t(&victim->nitems) == 0) {
             break;
         }
     }
 
     // check whether the victim file has no cached block
-    if (victim->nitems.val == 0) {
+    if (atomic_get_uint64_t(&victim->nitems) == 0) {
         // Remove from FILE_LRU and insert into FILE_EMPTY.
         // It is okay to have a race issue here because
         // the file can be the eviction target again.
@@ -830,7 +830,7 @@ static bool _fname_try_free(struct fnamedic_item *fname)
         list_remove(fname->curlist, &fname->le);
     }
 
-    if (fname->ref_count.val != 0) {
+    if (atomic_get_uint32_t(&fname->ref_count) != 0) {
         // This item is a victim by another thread's _bcache_evict()
         fname->curlist = &file_zombies;
         list_push_front(&file_zombies, &fname->le);
@@ -845,7 +845,8 @@ static void _fname_free(struct fnamedic_item *fname)
 {
     // file must be empty
     fdb_assert(_file_empty(fname), false, true);
-    fdb_assert(fname->ref_count.val == 0, 0, fname->ref_count.val);
+    uint32_t ref_count = atomic_get_uint32_t(&fname->ref_count);
+    fdb_assert(ref_count == 0, 0, ref_count);
 
     // free hash
     size_t i = 0;
@@ -973,7 +974,7 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
                 _bcache_release_freeblock(item);
 
                 // check whether the victim file has no cached block
-                if (!fname->nitems.val) {
+                if (!atomic_get_uint64_t(&fname->nitems)) {
                     // remove from FILE_LRU and insert into FILE_EMPTY
                     _bcache_move_fname_list(fname, &file_empty);
                 }
@@ -1426,7 +1427,8 @@ scan:
 
         printf("%3d %20s (%6d)(%6d)(c%6d d%6d)",
                (int)nfiles+1, fname->filename,
-               (int)fname->nitems.val, (int)fname->nvictim.val,
+               (int)atomic_get_uint64_t(&fname->nitems),
+               (int)atomic_get_uint64_t(&fname->nvictim),
                (int)nclean, (int)ndirty);
         printf("%6d%6d", (int)docs_local, (int)bnodes_local);
         for (i=0;i<=n;++i){
