@@ -197,7 +197,8 @@ void e2e_fdb_set_person(storage_t *st, person_t *p){
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // index person.name -> person age
-    status = fdb_set_kv(st->index2, p->name, strlen(p->name), (void *)&p->age, sizeof(int));
+    status = fdb_set_kv(st->index2, p->name, strlen(p->name), (void *)&p->age,
+                        sizeof(int));
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // update transaction db
@@ -209,6 +210,10 @@ void e2e_fdb_set_person(storage_t *st, person_t *p){
             // update verification checkpoint
             st->v_chk->num_indexed++;
             st->v_chk->sum_age_indexed+=p->age;
+            free(doc->body);
+            doc->body = NULL;
+            status = fdb_get(st->all_docs, doc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
         }
         st->v_chk->ndocs += 1;
     }
