@@ -1824,18 +1824,46 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             // optimization mode
             // Note: custom cmp function doesn't support key
             //       longer than a block size.
+
+            // newchunkno doesn't matter to leaf B+tree,
+            // since leaf B+tree can't create sub-tree.
             newchunkno = curchunkno+1;
             minchunkno = MIN(_l2c(trie, rawkeylen),
                              _l2c(trie, (int)docrawkeylen));
             minrawkeylen = MIN(rawkeylen, (int)docrawkeylen);
-            diffchunkno = _hbtrie_find_diff_chunk(trie, rawkey, docrawkey,
-                curchunkno, minchunkno -
-                            ((minrawkeylen%trie->chunksize == 0)?(0):(1)));
-            if (rawkeylen == (int)docrawkeylen && diffchunkno+1 == minchunkno) {
-                if (!memcmp(rawkey, docrawkey, rawkeylen)) {
+
+            if (curchunkno == 0) {
+                // root B+tree
+                diffchunkno = _hbtrie_find_diff_chunk(trie, rawkey, docrawkey,
+                    curchunkno, minchunkno -
+                                ((minrawkeylen%trie->chunksize == 0)?(0):(1)));
+                if (rawkeylen == (int)docrawkeylen && diffchunkno+1 == minchunkno) {
+                    if (!memcmp(rawkey, docrawkey, rawkeylen)) {
+                        // same key
+                        diffchunkno = minchunkno;
+                    }
+                }
+            } else {
+                // diffchunkno also doesn't matter to leaf B+tree,
+                // since leaf B+tree is not based on a lexicographical key order.
+                // Hence, we set diffchunkno to minchunkno iff two keys are
+                // identified as the same key by the custom compare function.
+                // Otherwise, diffchunkno is always set to curchunkno.
+                uint8_t *k_doc = alca(uint8_t, trie->chunksize);
+                _set_leaf_key(k, chunk,
+                              rawkeylen - curchunkno*trie->chunksize);
+                _set_leaf_key(k_doc, (uint8_t*)docrawkey + curchunkno*trie->chunksize,
+                              docrawkeylen - curchunkno*trie->chunksize);
+                if (trie->btree_leaf_kv_ops->cmp(k, k_doc, trie->aux) == 0) {
                     // same key
                     diffchunkno = minchunkno;
+                    docnchunk = nchunk;
+                } else {
+                    // different key
+                    diffchunkno = curchunkno;
                 }
+                _free_leaf_key(k);
+                _free_leaf_key(k_doc);
             }
             opt = HBMETA_LEAF;
             kv_ops = trie->btree_leaf_kv_ops;

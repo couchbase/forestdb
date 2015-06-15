@@ -43,7 +43,7 @@
 #include "compactor.h"
 #include "memleak.h"
 #include "time_utils.h"
-#include "get_memory_size.h"
+#include "system_resource_stats.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB
@@ -6163,6 +6163,7 @@ fdb_status fdb_shutdown()
             spin_unlock(&initial_lock);
 #ifndef SPIN_INITIALIZER
             spin_destroy(&initial_lock);
+            initial_lock_status = 0;
 #endif
         } else { // some file may be still open...
             spin_unlock(&initial_lock);

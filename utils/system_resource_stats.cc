@@ -16,7 +16,7 @@
 #endif
 #endif
 
-#include "get_memory_size.h"
+#include "system_resource_stats.h"
 
 /**
  * Returns the size of physical memory (RAM) in bytes.
@@ -88,4 +88,17 @@ int64_t get_memory_size(void)
 #endif /* sysctl and sysconf variants */
 
 #endif
+}
+
+size_t get_num_cores(void) {
+    size_t num_cores;
+#if defined(WIN32) || defined(_WIN32)
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    num_cores = (size_t)sysinfo.dwNumberOfProcessors;
+#else
+    num_cores = (size_t)sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+
+    return num_cores;
 }

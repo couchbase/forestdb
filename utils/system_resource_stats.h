@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-#ifndef _GET_MEMORY_SIZE_H
-#define _GET_MEMORY_SIZE_H
+#ifndef _SYSTEM_RESOURCE_STATS_H
+#define _SYSTEM_RESOURCE_STATS_H
 
 #include <stdint.h>
 
@@ -25,6 +25,8 @@ extern "C" {
 #endif
 
 int64_t get_memory_size(void);
+
+size_t get_num_cores(void);
 
 #ifdef __cplusplus
 }

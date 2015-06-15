@@ -349,24 +349,25 @@ static size_t _get_fast_str_data_size(
     ksize = sizeof(void *);
 
     ptr = node->data;
+    size = 0;
 
-    if (node->nentry == 0) return 0;
+    if (node->nentry) {
+        // get offset array
+        _offset_arr = (key_len_t*)ptr;
 
-    // get offset array
-    _offset_arr = (key_len_t*)ptr;
+        // get size from the last offset
+        size = _endian_decode(_offset_arr[node->nentry]);
 
-    // get size from the last offset
-    size = _endian_decode(_offset_arr[node->nentry]);
-
-    // if new_minkey exists
-    if (new_minkey) {
-        // subtract the length of the smallest key-value pair
-        size -= _endian_decode(_offset_arr[1]) - _endian_decode(_offset_arr[0]);
-        // get the length of 'new_minkey'
-        memcpy(&key_ptr, new_minkey, ksize);
-        memcpy(&_keylen, key_ptr, sizeof(key_len_t));
-        keylen = _endian_decode(_keylen);
-        size += keylen + vsize;
+        // if new_minkey exists
+        if (new_minkey) {
+            // subtract the length of the smallest key-value pair
+            size -= _endian_decode(_offset_arr[1]) - _endian_decode(_offset_arr[0]);
+            // get the length of 'new_minkey'
+            memcpy(&key_ptr, new_minkey, ksize);
+            memcpy(&_keylen, key_ptr, sizeof(key_len_t));
+            keylen = _endian_decode(_keylen);
+            size += keylen + vsize;
+        }
     }
 
     if (key_arr && value_arr && len > 0) {
