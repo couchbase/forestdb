@@ -54,38 +54,28 @@
 
 // variables for initialization
 static volatile uint8_t compactor_initialized = 0;
-#ifdef SPIN_INITIALIZER
-static spin_t cpt_lock = SPIN_INITIALIZER;
-#else
-static volatile unsigned int init_lock_status = 0;
-static spin_t cpt_lock;
-#endif
+mutex_t cpt_lock;
 
-static thread_t compactor_tid;
+static size_t num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
+static thread_t *compactor_tids = NULL;
+
+
 static size_t sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
 
 static mutex_t sync_mutex;
 static thread_cond_t sync_cond;
 
-typedef uint8_t compactor_status_t;
-enum{
-    CPT_IDLE = 0,
-    CPT_WORKING = 1,
-};
-static compactor_status_t compactor_status;
 static volatile uint8_t compactor_terminate_signal = 0;
 
 static struct avl_tree openfiles;
 
-// cursor of openfiles_elem that's currently being compacted.
-// set to NULL if no file is being compacted.
-static struct avl_node *target_cursor;
-
 struct openfiles_elem {
+    char filename[MAX_FNAMELEN];
     struct filemgr *file;
     fdb_config config;
     uint32_t register_count;
     bool compaction_flag; // set when the file is being compacted
+    bool daemon_compact_in_progress;
     struct list *cmp_func_list; // pointer to fhandle's list
     struct avl_node avl;
 };
@@ -147,7 +137,7 @@ int _compactor_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     struct compactor_args_t *args = (struct compactor_args_t *)aux;
     aa = _get_entry(a, struct openfiles_elem, avl);
     bb = _get_entry(b, struct openfiles_elem, avl);
-    return strncmp(aa->file->filename, bb->file->filename, args->strcmp_len);
+    return strncmp(aa->filename, bb->filename, args->strcmp_len);
 }
 
 INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
@@ -173,14 +163,15 @@ INLINE int _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
     uint64_t active_data;
     int threshold;
 
-    if (filemgr_is_rollback_on(elem->file)) {
-        // do not perform compaction during rollback
+    if (elem->compaction_flag || filemgr_is_rollback_on(elem->file)) {
+        // do not perform compaction if the file is already being compacted or
+        // in rollback.
         return 0;
     }
 
     threshold = elem->config.compaction_threshold;
     if (elem->config.compaction_mode == FDB_COMPACTION_AUTO &&
-        threshold > 0 && !elem->compaction_flag)
+        threshold > 0)
         {
         filesize = filemgr_get_pos(elem->file);
         active_data = _compactor_estimate_space(elem);
@@ -314,37 +305,36 @@ bool compactor_switch_compaction_flag(struct filemgr *file, bool flag)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    spin_lock(&cpt_lock);
-    query.file = file;
+    strcpy(query.filename, file->filename);
+    mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         // found
         elem = _get_entry(a, struct openfiles_elem, avl);
         if (elem->compaction_flag == flag) {
             // already switched by other thread .. return false
-            spin_unlock(&cpt_lock);
+            mutex_unlock(&cpt_lock);
             return false;
         }
         // switch
         elem->compaction_flag = flag;
-        spin_unlock(&cpt_lock);
+        mutex_unlock(&cpt_lock);
         return true;
     }
     // file doesn't exist .. already compacted or deregistered
-    spin_unlock(&cpt_lock);
+    mutex_unlock(&cpt_lock);
     return false;
 }
 
 void * compactor_thread(void *voidargs)
 {
-    char filename[MAX_FNAMELEN];
     char vfilename[MAX_FNAMELEN];
     char new_filename[MAX_FNAMELEN];
     fdb_file_handle *fhandle;
-    fdb_config config;
     fdb_status fs;
     struct avl_node *a;
     struct openfiles_elem *elem;
+    struct openfiles_elem query;
 
     // Sleep for 10 secs by default to allow applications to warm up their data.
     // TODO: Need to implement more flexible way of scheduling the compaction
@@ -355,49 +345,46 @@ void * compactor_thread(void *voidargs)
 
     while (1) {
 
-        spin_lock(&cpt_lock);
+        mutex_lock(&cpt_lock);
         a = avl_first(&openfiles);
         while(a) {
             elem = _get_entry(a, struct openfiles_elem, avl);
+            if (!elem->file) {
+                a = avl_next(a);
+                avl_remove(&openfiles, &elem->avl);
+                free(elem);
+                continue;
+            }
 
             if (_compactor_is_threshold_satisfied(elem)) {
-                // perform compaction
-                strcpy(filename, elem->file->filename);
-                _compactor_get_vfilename(filename, vfilename);
-                config = elem->config;
-                compactor_status = CPT_WORKING;
-                // set target_cursor to avoid deregistering of the 'elem'
-                target_cursor = &elem->avl;
+                elem->daemon_compact_in_progress = true;
                 // set compaction flag
                 elem->compaction_flag = true;
-                spin_unlock(&cpt_lock);
+                mutex_unlock(&cpt_lock);
+                // Once 'daemon_compact_in_progress' is set to true, then it is safe to
+                // read the variables of 'elem' until the compaction is completed.
+                _compactor_get_vfilename(elem->filename, vfilename);
 
-                fs = fdb_open_for_compactor(&fhandle, vfilename, &config,
+                fs = fdb_open_for_compactor(&fhandle, vfilename, &elem->config,
                                             elem->cmp_func_list);
                 if (fs == FDB_RESULT_SUCCESS) {
-                    compactor_get_next_filename(filename, new_filename);
+                    compactor_get_next_filename(elem->filename, new_filename);
                     fdb_compact_file(fhandle, new_filename, false, (bid_t) -1,
                                      false);
-
-                    spin_lock(&cpt_lock);
-                    a = avl_next(target_cursor);
-                    // we have to set cursor to NULL before fdb_close
-                    target_cursor = NULL;
-                    spin_unlock(&cpt_lock);
-
                     fdb_close(fhandle);
 
-                    spin_lock(&cpt_lock);
-                    compactor_status = CPT_IDLE;
+                    strcpy(query.filename, new_filename);
+                    mutex_lock(&cpt_lock);
+                    // Search the next file for compaction.
+                    a = avl_search_greater(&openfiles, &query.avl, _compactor_cmp);
                 } else {
                     fdb_log(&fhandle->root->log_callback, fs,
                             "Failed to open the file '%s' for auto daemon "
                             "compaction.\n", vfilename);
                     // fail to open file
-                    spin_lock(&cpt_lock);
-                    compactor_status = CPT_IDLE;
-                    a = avl_next(target_cursor);
-                    target_cursor = NULL;
+                    mutex_lock(&cpt_lock);
+                    a = avl_next(&elem->avl);
+                    elem->daemon_compact_in_progress = false;
                     // clear compaction flag
                     elem->compaction_flag = false;
                 }
@@ -405,11 +392,11 @@ void * compactor_thread(void *voidargs)
                 a = avl_next(a);
             }
             if (compactor_terminate_signal) {
-                spin_unlock(&cpt_lock);
+                mutex_unlock(&cpt_lock);
                 return NULL;
             }
         }
-        spin_unlock(&cpt_lock);
+        mutex_unlock(&cpt_lock);
 
         mutex_lock(&sync_mutex);
         if (compactor_terminate_signal) {
@@ -429,26 +416,14 @@ void * compactor_thread(void *voidargs)
 void compactor_init(struct compactor_config *config)
 {
     if (!compactor_initialized) {
-#ifndef SPIN_INITIALIZER
-        // Note that only Windows passes through this routine
-        if (InterlockedCompareExchange(&init_lock_status, 1, 0) == 0) {
-            // atomically initialize spin lock only once
-            spin_init(&cpt_lock);
-            init_lock_status = 2;
-        } else {
-            // the others .. wait until initializing 'cpt_lock' is done
-            while (init_lock_status != 2) {
-                Sleep(1);
-            }
-        }
-#endif
+        // Note that this function is synchronized by the spin lock in fdb_init API.
+        mutex_init(&cpt_lock);
 
-        spin_lock(&cpt_lock);
+        mutex_lock(&cpt_lock);
         if (!compactor_initialized) {
             // initialize
             compactor_args.strcmp_len = MAX_FNAMELEN;
             avl_init(&openfiles, &compactor_args);
-            target_cursor = NULL;
 
             if (config) {
                 if (config->sleep_duration > 0) {
@@ -456,18 +431,21 @@ void compactor_init(struct compactor_config *config)
                 }
             }
 
-            compactor_status = CPT_IDLE;
             compactor_terminate_signal = 0;
 
             mutex_init(&sync_mutex);
             thread_cond_init(&sync_cond);
 
-            // create worker thread
-            thread_create(&compactor_tid, compactor_thread, NULL);
+            // create worker threads
+            num_compactor_threads = config->num_threads;
+            compactor_tids = (thread_t *) calloc(num_compactor_threads, sizeof(thread_t));
+            for (size_t i = 0; i < num_compactor_threads; ++i) {
+                thread_create(&compactor_tids[i], compactor_thread, NULL);
+            }
 
             compactor_initialized = 1;
         }
-        spin_unlock(&cpt_lock);
+        mutex_unlock(&cpt_lock);
     }
 }
 
@@ -480,12 +458,15 @@ void compactor_shutdown()
     // set terminate signal
     mutex_lock(&sync_mutex);
     compactor_terminate_signal = 1;
-    thread_cond_signal(&sync_cond);
+    thread_cond_broadcast(&sync_cond);
     mutex_unlock(&sync_mutex);
 
-    thread_join(compactor_tid, &ret);
+    for (size_t i = 0; i < num_compactor_threads; ++i) {
+        thread_join(compactor_tids[i], &ret);
+    }
+    free(compactor_tids);
 
-    spin_lock(&cpt_lock);
+    mutex_lock(&cpt_lock);
     // free all elems in the tree
     a = avl_first(&openfiles);
     while (a) {
@@ -500,14 +481,9 @@ void compactor_shutdown()
     compactor_initialized = 0;
     mutex_destroy(&sync_mutex);
     thread_cond_destroy(&sync_cond);
-    spin_unlock(&cpt_lock);
+    mutex_unlock(&cpt_lock);
 
-#ifndef SPIN_INITIALIZER
-    spin_destroy(&cpt_lock);
-    init_lock_status = 0;
-#else
-    cpt_lock = SPIN_INITIALIZER;
-#endif
+    mutex_destroy(&cpt_lock);
 }
 
 static fdb_status _compactor_store_metafile(char *metafile,
@@ -532,9 +508,9 @@ fdb_status compactor_register_file(struct filemgr *file,
         return fs;
     }
 
+    strcpy(query.filename, file->filename);
     // first search the existing file
-    spin_lock(&cpt_lock);
-    query.file = file;
+    mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a == NULL) {
         // doesn't exist
@@ -543,12 +519,18 @@ fdb_status compactor_register_file(struct filemgr *file,
         struct compactor_meta meta;
 
         elem = (struct openfiles_elem *)malloc(sizeof(struct openfiles_elem));
+        strcpy(elem->filename, file->filename);
         elem->file = file;
         elem->config = *config;
         elem->register_count = 1;
         elem->compaction_flag = false;
+        elem->daemon_compact_in_progress = false;
         elem->cmp_func_list = cmp_func_list;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
+        mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
+                                 // subsequent registration attempts for the same file
+                                 // will be simply processed by incrementing its
+                                 // counter below.
 
         // store in metafile
         _compactor_convert_dbfile_to_metafile(file->filename, path);
@@ -557,9 +539,12 @@ fdb_status compactor_register_file(struct filemgr *file,
     } else {
         // already exists
         elem = _get_entry(a, struct openfiles_elem, avl);
+        if (!elem->file) {
+            elem->file = file;
+        }
         elem->register_count++;
+        mutex_unlock(&cpt_lock);
     }
-    spin_unlock(&cpt_lock);
     return fs;
 }
 
@@ -568,18 +553,21 @@ void compactor_deregister_file(struct filemgr *file)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    spin_lock(&cpt_lock);
-    query.file = file;
+    strcpy(query.filename, file->filename);
+    mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
         if ((--elem->register_count) == 0) {
             // if no handle refers this file
-            if (target_cursor == &elem->avl) {
+            if (elem->daemon_compact_in_progress) {
                 // This file is waiting for compaction by compactor (but not opened
                 // yet). Do not remove 'elem' for now. The 'elem' will be automatically
                 // replaced after the compaction is done by calling
-                // 'compactor_switch_file()'.
+                // 'compactor_switch_file()'. However, elem->file should be set to NULL
+                // in order to be removed from the AVL tree in case of the compaction
+                // failure.
+                elem->file = NULL;
             } else {
                 // remove from the tree
                 avl_remove(&openfiles, &elem->avl);
@@ -587,7 +575,7 @@ void compactor_deregister_file(struct filemgr *file)
             }
         }
     }
-    spin_unlock(&cpt_lock);
+    mutex_unlock(&cpt_lock);
 }
 
 void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
@@ -595,14 +583,14 @@ void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    spin_lock(&cpt_lock);
-    query.file = file;
+    strcpy(query.filename, file->filename);
+    mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
         elem->config.compaction_threshold = new_threshold;
     }
-    spin_unlock(&cpt_lock);
+    mutex_unlock(&cpt_lock);
 }
 
 struct compactor_meta * _compactor_read_metafile(char *metafile,
@@ -720,29 +708,34 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
     struct openfiles_elem query, *elem;
     struct compactor_meta meta;
 
-    spin_lock(&cpt_lock);
-    query.file = old_file;
+    strcpy(query.filename, old_file->filename);
+    mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         char metafile[MAX_FNAMELEN];
+        fdb_compaction_mode_t comp_mode;
 
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openfiles, a);
+        strcpy(elem->filename, new_file->filename);
         elem->file = new_file;
         elem->register_count = 1;
+        elem->daemon_compact_in_progress = false;
         // clear compaction flag
         elem->compaction_flag = false;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
+        comp_mode = elem->config.compaction_mode;
+        mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as we don't
+                                 // expect more than one compaction task completion for
+                                 // the same file.
 
-        if (elem->config.compaction_mode == FDB_COMPACTION_AUTO) {
+        if (comp_mode == FDB_COMPACTION_AUTO) {
             _compactor_convert_dbfile_to_metafile(new_file->filename, metafile);
             _strcpy_fname(meta.filename, new_file->filename);
             _compactor_store_metafile(metafile, &meta, log_callback);
         }
-        spin_unlock(&cpt_lock);
-
     } else {
-        spin_unlock(&cpt_lock);
+        mutex_unlock(&cpt_lock);
     }
 }
 
@@ -1028,8 +1021,6 @@ fdb_status compactor_destroy_file(char *filename,
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
-    struct filemgr query_file;
-    struct filemgr *file = &query_file;
     size_t strcmp_len;
     fdb_status status = FDB_RESULT_SUCCESS;
     compactor_config c_config;
@@ -1038,19 +1029,18 @@ fdb_status compactor_destroy_file(char *filename,
     filename[strcmp_len] = '.'; // add a . suffix in place
     strcmp_len++;
     filename[strcmp_len] = '\0';
-    file->filename = filename;
+    strcpy(query.filename, filename);
 
     c_config.sleep_duration = config->compactor_sleep_duration;
     compactor_init(&c_config);
 
-    spin_lock(&cpt_lock); // TODO: use mutex as we are doing I/O
-    query.file = file;
+    mutex_lock(&cpt_lock);
     compactor_args.strcmp_len = strcmp_len; // Do prefix match for all vers
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
         // if no handle refers this file
-        if (target_cursor == &elem->avl) {
+        if (elem->daemon_compact_in_progress) {
             // This file is waiting for compaction by compactor
             // Return a temporary failure, user must retry after sometime
             status = FDB_RESULT_IN_USE_BY_COMPACTOR;
@@ -1058,12 +1048,14 @@ fdb_status compactor_destroy_file(char *filename,
             status = FDB_RESULT_FILE_IS_BUSY;
         }
     }
+
     compactor_args.strcmp_len = MAX_FNAMELEN; // restore for normal compare
+    mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as file
+                             // deletions doesn't require strict synchronization.
     filename[strcmp_len - 1] = '\0'; // restore the filename
     if (status == FDB_RESULT_SUCCESS) {
-        status = _compactor_search_n_destroy(file->filename);
+        status = _compactor_search_n_destroy(filename);
     }
-    spin_unlock(&cpt_lock);
 
     return status;
 }

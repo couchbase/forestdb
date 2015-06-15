@@ -42,7 +42,7 @@
 
 LIBFDB_API
 fdb_status fdb_get_kv(fdb_kvs_handle *handle,
-                      void *key, size_t keylen,
+                      const void *key, size_t keylen,
                       void **value_out, size_t *valuelen_out)
 {
     fdb_doc *doc = NULL;
@@ -85,8 +85,8 @@ fdb_status fdb_get_kv(fdb_kvs_handle *handle,
 
 LIBFDB_API
 fdb_status fdb_set_kv(fdb_kvs_handle *handle,
-                      void *key, size_t keylen,
-                      void *value, size_t valuelen)
+                      const void *key, size_t keylen,
+                      const void *value, size_t valuelen)
 {
     fdb_doc *doc;
     fdb_status fs;
@@ -122,7 +122,7 @@ fdb_status fdb_set_kv(fdb_kvs_handle *handle,
 
 LIBFDB_API
 fdb_status fdb_del_kv(fdb_kvs_handle *handle,
-                      void *key, size_t keylen)
+                      const void *key, size_t keylen)
 {
     fdb_doc *doc;
     fdb_status fs;

@@ -534,6 +534,7 @@ fdb_status fdb_init(fdb_config *config)
 
         // initialize compaction daemon
         c_config.sleep_duration = _config.compactor_sleep_duration;
+        c_config.num_threads = _config.num_compactor_threads;
         compactor_init(&c_config);
 
         fdb_initialized = 1;

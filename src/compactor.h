@@ -28,6 +28,7 @@ extern "C" {
 
 struct compactor_config{
     size_t sleep_duration;
+    size_t num_threads;
 };
 
 void compactor_init(struct compactor_config *config);
