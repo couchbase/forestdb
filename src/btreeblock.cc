@@ -1032,9 +1032,9 @@ fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
     avl_init(handle->dirty_snapshot, NULL);
 
     // get last dirty block BID
-    dirty_bid = (handle->file->pos.val / handle->file->blocksize) - 1;
+    dirty_bid = (atomic_get_uint64_t(&handle->file->pos) / handle->file->blocksize) - 1;
     // get the BID of the right next block of the last committed block
-    commit_bid = (handle->file->last_commit.val / handle->file->blocksize);
+    commit_bid = (atomic_get_uint64_t(&handle->file->last_commit) / handle->file->blocksize);
 
     block = (struct btreeblk_block*)
             calloc(1, sizeof(struct btreeblk_block));

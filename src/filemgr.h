@@ -199,7 +199,8 @@ void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
 
 INLINE bid_t filemgr_get_header_bid(struct filemgr *file)
 {
-    return ((file->header.size > 0) ? file->header.bid.val : BLK_NOT_FOUND);
+    return ((file->header.size > 0) ?
+            atomic_get_uint64_t(&file->header.bid) : BLK_NOT_FOUND);
 }
 bid_t _filemgr_get_header_bid(struct filemgr *file);
 void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len);
@@ -216,7 +217,7 @@ fdb_status filemgr_close(struct filemgr *file,
 
 INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
 {
-    return file->pos.val / file->blocksize;
+    return atomic_get_uint64_t(&file->pos) / file->blocksize;
 }
 bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback);
 void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
@@ -243,8 +244,8 @@ INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)
     // 1) both file->pos and file->last_commit are only incremented.
     // 2) file->last_commit is updated using the value of file->pos,
     //    and always equal to or smaller than file->pos.
-    return (pos <  file->pos.val &&
-            pos >= file->last_commit.val);
+    return (pos <  atomic_get_uint64_t(&file->pos) &&
+            pos >= atomic_get_uint64_t(&file->last_commit));
 }
 void filemgr_remove_file(struct filemgr *file);
 
@@ -276,11 +277,11 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                                 filemgr_redirect_hdr_func redirect_func);
 INLINE file_status_t filemgr_get_file_status(struct filemgr *file)
 {
-    return file->status.val;
+    return atomic_get_uint8_t(&file->status);
 }
 INLINE uint64_t filemgr_get_pos(struct filemgr *file)
 {
-    return file->pos.val;
+    return atomic_get_uint64_t(&file->pos);
 }
 
 fdb_status filemgr_copy_file_range(struct filemgr *src_file,
@@ -309,14 +310,14 @@ INLINE void filemgr_get_dirty_root(struct filemgr *file,
                                    bid_t *dirty_idtree_root,
                                    bid_t *dirty_seqtree_root)
 {
-    *dirty_idtree_root = file->header.dirty_idtree_root.val;
-    *dirty_seqtree_root = file->header.dirty_seqtree_root.val;
+    *dirty_idtree_root = atomic_get_uint64_t(&file->header.dirty_idtree_root);
+    *dirty_seqtree_root = atomic_get_uint64_t(&file->header.dirty_seqtree_root);
 }
 
 INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
 {
-    return (file->header.dirty_idtree_root.val  != BLK_NOT_FOUND ||
-            file->header.dirty_seqtree_root.val != BLK_NOT_FOUND);
+    return (atomic_get_uint64_t(&file->header.dirty_idtree_root)  != BLK_NOT_FOUND ||
+            atomic_get_uint64_t(&file->header.dirty_seqtree_root) != BLK_NOT_FOUND);
 }
 
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);

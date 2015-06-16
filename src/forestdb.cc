@@ -6236,8 +6236,8 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "file: fflags %x\n", h->file->fflags);
     fprintf(stderr, "file: blocksize %d\n", h->file->blocksize);
     fprintf(stderr, "file: fd %d\n", h->file->fd);
-    fprintf(stderr, "file: pos %" _F64"\n", h->file->pos.val);
-    fprintf(stderr, "file: status %d\n", h->file->status.val);
+    fprintf(stderr, "file: pos %" _F64"\n", atomic_get_uint64_t(&h->file->pos));
+    fprintf(stderr, "file: status %d\n", atomic_get_uint8_t(&h->file->status));
     fprintf(stderr, "file: config: blocksize %d\n", h->file->config->blocksize);
     fprintf(stderr, "file: config: ncacheblock %d\n",
            h->file->config->ncacheblock);

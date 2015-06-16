@@ -87,6 +87,38 @@ void atomic_destroy_uint32_t(atomic_uint32_t *atomic_val);
 void atomic_destroy_uint16_t(atomic_uint16_t *atomic_val);
 void atomic_destroy_uint8_t(atomic_uint8_t *atomic_val);
 
+INLINE uint64_t atomic_get_uint64_t(atomic_uint64_t *atomic_val) {
+#ifdef _MSC_VER
+    return atomic_val->val;
+#else
+    return fdb_sync_fetch_and_add_64(&atomic_val->val, 0);
+#endif
+}
+
+INLINE uint32_t atomic_get_uint32_t(atomic_uint32_t *atomic_val) {
+#ifdef _MSC_VER
+    return atomic_val->val;
+#else
+    return fdb_sync_fetch_and_add_32(&atomic_val->val, 0);
+#endif
+}
+
+INLINE uint16_t atomic_get_uint16_t(atomic_uint16_t *atomic_val) {
+#ifdef _MSC_VER
+    return atomic_val->val;
+#else
+    return fdb_sync_fetch_and_add_16(&atomic_val->val, 0);
+#endif
+}
+
+INLINE uint8_t atomic_get_uint8_t(atomic_uint8_t *atomic_val) {
+#ifdef _MSC_VER
+    return atomic_val->val;
+#else
+    return fdb_sync_fetch_and_add_8(&atomic_val->val, 0);
+#endif
+}
+
 void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val);
 void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val);
 void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val);
