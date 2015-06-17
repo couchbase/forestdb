@@ -393,6 +393,99 @@ void config_test()
     TEST_RESULT("forestdb config test");
 }
 
+void deleted_doc_get_api_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc _doc;
+    fdb_doc *doc = &_doc;
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    char keybuf[256], bodybuf[256];
+
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    memset(doc, 0, sizeof(fdb_doc));
+    doc->key = &keybuf[0];
+    doc->body = &bodybuf[0];
+
+    // open dbfile
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    sprintf(keybuf, "key");
+    sprintf(bodybuf, "body");
+    doc->keylen = strlen(keybuf);
+    doc->bodylen = strlen(bodybuf);
+    status = fdb_set(db, doc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Commit the doc so it goes into main index
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Delete the doc
+    status = fdb_del(db, doc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Commit the doc with wal flush so the delete is appended into the file
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+
+    fdb_doc_create(&rdoc, keybuf, doc->keylen, NULL, 0, NULL, 0);
+
+    // Deleted document should be accessible via fdb_get_metaonly()
+    status = fdb_get_metaonly(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(rdoc->deleted);
+    rdoc->deleted = false;
+
+    // Deleted document should be accessible via fdb_get_metaonly_byseq()
+    status = fdb_get_metaonly_byseq(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(rdoc->deleted);
+    rdoc->deleted = false;
+
+    // Deleted document should be accessible via fdb_get_byoffset()
+    // But the return code must be FDB_RESULT_KEY_NOT_FOUND!
+    status = fdb_get_byoffset(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    TEST_CHK(rdoc->deleted);
+    rdoc->deleted = false;
+
+    // Deleted document should NOT be accessible via fdb_get()
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    TEST_CHK(!rdoc->deleted);
+    rdoc->deleted = false;
+
+    status = fdb_get_byseq(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    TEST_CHK(!rdoc->deleted);
+
+    fdb_doc_free(rdoc);
+    // close without commit
+    status = fdb_kvs_close(db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("deleted doc get api test");
+}
+
 void large_batch_write_no_commit_test()
 {
     TEST_INIT();
@@ -3651,6 +3744,7 @@ int main(){
     basic_test();
     set_get_max_keylen();
     config_test();
+    deleted_doc_get_api_test();
     large_batch_write_no_commit_test();
     set_get_meta_test();
     get_byoffset_diff_kvs_test();

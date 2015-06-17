@@ -2092,6 +2092,8 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_SUCCESS || hr != HBTRIE_RESULT_FAIL) {
+        bool alloced_meta = doc->meta ? false : true;
+        bool alloced_body = doc->body ? false : true;
         if (handle->kvs) {
             _doc.key = doc_kv.key;
             _doc.length.keylen = doc_kv.keylen;
@@ -2113,6 +2115,13 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
+        if (_doc.length.keylen != doc_kv.keylen ||
+            _doc.length.flag & DOCIO_DELETED) {
+            free_docio_object(&_doc, 0, alloced_meta, alloced_body);
+            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
         doc->seqnum = _doc.seqnum;
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
@@ -2121,12 +2130,6 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
-
-        if (_doc.length.keylen != doc_kv.keylen ||
-            _doc.length.flag & DOCIO_DELETED) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
 
         fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
         return FDB_RESULT_SUCCESS;
@@ -2222,12 +2225,19 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
             _doc.key = doc->key;
             _doc.length.keylen = doc->keylen;
         }
+        bool alloced_meta = doc->meta ? false : true;
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
         uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
                                                        true);
         if (body_offset == offset){
+            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if (_doc.length.keylen != doc_kv.keylen) {
+            free_docio_object(&_doc, 0, alloced_meta, 0);
             fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -2240,11 +2250,6 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
-
-        if (_doc.length.keylen != doc_kv.keylen) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
 
         fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
         return FDB_RESULT_SUCCESS;
@@ -2338,13 +2343,18 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
+        bool alloc_key, alloc_meta, alloc_body;
         if (!handle->kvs) { // single KVS mode
             _doc.key = doc->key;
             _doc.length.keylen = doc->keylen;
+            alloc_key = doc->key ? false : true;
         } else {
             _doc.key = NULL;
+            alloc_key = true;
         }
+        alloc_meta = doc->meta ? false : true;
         _doc.meta = doc->meta;
+        alloc_body = doc->body ? false : true;
         _doc.body = doc->body;
 
         if (wr == FDB_RESULT_SUCCESS && doc->deleted) {
@@ -2355,6 +2365,12 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         _offset = docio_read_doc(dhandle, offset, &_doc, true);
         if (_offset == offset) {
             fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+
+        if (_doc.length.flag & DOCIO_DELETED) {
+            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            free_docio_object(&_doc, alloc_key, alloc_meta, alloc_body);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -2380,11 +2396,6 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->deleted = _doc.length.flag & DOCIO_DELETED;
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
-
-        if (_doc.length.flag & DOCIO_DELETED) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
 
         fdb_assert(doc->seqnum == _doc.seqnum, doc->seqnum, _doc.seqnum);
 

@@ -202,6 +202,9 @@ fdb_status fdb_get(fdb_kvs_handle *handle,
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, key, keylen, NULL, 0, NULL, 0) before using this API.
  *
+ * WARNING: If the document was deleted but not yet purged, then the metadata
+ *          will still be populated in the fdb_doc passed into the function.
+ *
  * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance whose metadata including the offset
  *        on disk is populated as a result of this API call.
@@ -232,6 +235,9 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle,
  * Note that FDB_DOC instance should be created by calling
  * fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0) before using this API.
  *
+ * WARNING: If the document was deleted but not yet purged, then the metadata
+ *          will still be populated in the fdb_doc passed into the function.
+ *
  * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance whose key and metadata including
  *        the offset on disk are populated as a result of this API call.
@@ -249,6 +255,10 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle,
  * by calling fdb_get_metaonly, fdb_get_metaonly_byseq, or
  * fdb_iterator_next_offset, which returns an offset to a doc. Then,
  * the FDB_DOC instance and the offset should be passed together to this API.
+ *
+ * WARNING: If the document was deleted but not yet purged, then the metadata
+ *          will still be populated in the fdb_doc passed into the function,
+ *          even though the return code is FDB_RESULT_KEY_NOT_FOUND.
  *
  * @param handle Pointer to ForestDB KV store handle.
  * @param doc Pointer to ForestDB doc instance that contains the offset to a doc

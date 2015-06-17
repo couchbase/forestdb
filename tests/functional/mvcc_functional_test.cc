@@ -3000,7 +3000,6 @@ void rollback_prior_to_ops(bool walflush)
                               rdoc->meta, rdoc->metalen,
                               rdoc->body, rdoc->bodylen);
         status = fdb_get(kv1, vdoc);
-        TEST_CHK(rdoc->deleted == vdoc->deleted);
         if (rdoc->deleted){
             TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         } else {
