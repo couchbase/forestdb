@@ -98,7 +98,6 @@ struct fnamedic_item {
     struct hash_elem hash_elem;
 
     atomic_uint32_t ref_count;
-    spin_t lock;
     atomic_uint64_t nvictim;
     atomic_uint64_t nitems;
     size_t num_shards;
@@ -781,7 +780,6 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     // calculate hash value
     fname_new->hash = chksum((void *)fname_new->filename,
                              fname_new->filename_len);
-    spin_init(&fname_new->lock);
     fname_new->curlist = NULL;
     fname_new->curfile = file;
     atomic_init_uint64_t(&fname_new->nvictim, 0);
@@ -857,7 +855,6 @@ static void _fname_free(struct fnamedic_item *fname)
 
     free(fname->shards);
     free(fname->filename);
-    spin_destroy(&fname->lock);
 }
 
 INLINE void _bcache_set_score(struct bcache_item *item)
@@ -1483,7 +1480,6 @@ INLINE void _bcache_free_fnamedic(struct hash_elem *h)
 
     free(item->shards);
     free(item->filename);
-    spin_destroy(&item->lock);
     free(item);
 }
 // LCOV_EXCL_STOP
