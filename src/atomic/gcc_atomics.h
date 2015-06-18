@@ -24,8 +24,14 @@
 extern "C" {
 #endif
 
-#define fdb_sync_lock_release(a) __sync_lock_release(a)
-#define fdb_sync_lock_test_and_set(a, b) __sync_lock_test_and_set(a, b)
+#define fdb_sync_lock_release_64(a) __sync_lock_release(a)
+#define fdb_sync_lock_release_32(a) __sync_lock_release(a)
+#define fdb_sync_lock_release_16(a) __sync_lock_release(a)
+#define fdb_sync_lock_release_8(a) __sync_lock_release(a)
+#define fdb_sync_lock_test_and_set_64(a, b) __sync_lock_test_and_set(a, b)
+#define fdb_sync_lock_test_and_set_32(a, b) __sync_lock_test_and_set(a, b)
+#define fdb_sync_lock_test_and_set_16(a, b) __sync_lock_test_and_set(a, b)
+#define fdb_sync_lock_test_and_set_8(a, b) __sync_lock_test_and_set(a, b)
 #define fdb_sync_synchronize() __sync_synchronize()
 
 #define fdb_sync_add_and_fetch_64(a, b) __sync_add_and_fetch(a, b);

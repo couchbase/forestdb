@@ -70,27 +70,39 @@ void atomic_destroy_uint8_t(atomic_uint8_t *atomic_val) {
 }
 
 void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val) {
-
+#ifdef _MSC_VER
     atomic_val->val = new_val;
     fdb_sync_synchronize();
+#else
+    fdb_sync_lock_test_and_set_64(&atomic_val->val, new_val);
+#endif
 }
 
 void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val) {
-
+#ifdef _MSC_VER
     atomic_val->val = new_val;
     fdb_sync_synchronize();
+#else
+    fdb_sync_lock_test_and_set_32(&atomic_val->val, new_val);
+#endif
 }
 
 void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val) {
-
+#ifdef _MSC_VER
     atomic_val->val = new_val;
     fdb_sync_synchronize();
+#else
+    fdb_sync_lock_test_and_set_16(&atomic_val->val, new_val);
+#endif
 }
 
 void atomic_store_uint8_t(atomic_uint8_t *atomic_val, uint8_t new_val) {
-
+#ifdef _MSC_VER
     atomic_val->val = new_val;
     fdb_sync_synchronize();
+#else
+    fdb_sync_lock_test_and_set_8(&atomic_val->val, new_val);
+#endif
 }
 
 bool atomic_cas_uint64_t(atomic_uint64_t *atomic_val,
