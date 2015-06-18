@@ -19,7 +19,11 @@
 #include <string.h>
 
 #include "configuration.h"
+#include "system_resource_stats.h"
 
+static ssize_t prime_size_table[] = {
+    11, 31, 47, 73, 97, 109, 211, 313, 419, 521, -1
+};
 
 fdb_config get_default_config(void) {
     fdb_config fconfig;
@@ -57,10 +61,22 @@ fdb_config get_default_config(void) {
     fconfig.multi_kv_instances = true;
     // 30 seconds by default
     fconfig.prefetch_duration = 30;
-    // 8 WAL partitions by default
-    fconfig.num_wal_partitions = DEFAULT_NUM_WAL_PARTITIONS;
-    // 8 buffer cache partitions by default
-    fconfig.num_bcache_partitions = DEFAULT_NUM_BCACHE_PARTITIONS;
+
+    // Determine the number of WAL and buffer cache partitions by considering the
+    // number of cores available in the host environment.
+    int i = 0;
+    ssize_t num_cores = (ssize_t) get_num_cores();
+    for (; prime_size_table[i] > 0 && prime_size_table[i] < num_cores; ++i) {
+        // Finding the smallest prime number that is greater than the number of cores.
+    }
+    if (prime_size_table[i] == -1) {
+        fconfig.num_wal_partitions = prime_size_table[i-1];
+        fconfig.num_bcache_partitions = prime_size_table[i-1];
+    } else {
+        fconfig.num_wal_partitions = prime_size_table[i];
+        fconfig.num_bcache_partitions = prime_size_table[i];
+    }
+
     // No compaction callback function by default
     fconfig.compaction_cb = NULL;
     fconfig.compaction_cb_mask = 0x0;
