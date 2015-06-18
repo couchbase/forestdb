@@ -1,5 +1,4 @@
 add_executable(fdb_functional_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
@@ -40,7 +39,6 @@ target_link_libraries(fdb_functional_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(fdb_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(fdb_extended_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
@@ -81,7 +79,6 @@ target_link_libraries(fdb_extended_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(fdb_extended_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(compact_functional_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
@@ -122,7 +119,6 @@ target_link_libraries(compact_functional_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(compact_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(iterator_functional_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
@@ -163,7 +159,6 @@ target_link_libraries(iterator_functional_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(iterator_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(mvcc_functional_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
@@ -204,7 +199,6 @@ target_link_libraries(mvcc_functional_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(mvcc_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(multi_kv_functional_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
@@ -245,7 +239,6 @@ target_link_libraries(multi_kv_functional_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(multi_kv_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(big_concurrency_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
@@ -286,7 +279,6 @@ set_target_properties(big_concurrency_test PROPERTIES COMPILE_FLAGS
                       "-D_FDB_TOOLS")
 
 add_executable(big_compaction_test
-               ${ROOT_SRC}/atomic.cc
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc

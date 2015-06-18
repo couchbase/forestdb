@@ -19,6 +19,7 @@ include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
 include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/src)
 
 CHECK_INCLUDE_FILES("atomic.h" HAVE_ATOMIC_H)
+CHECK_INCLUDE_FILES("sched.h" HAVE_SCHED_H)
 
 CONFIGURE_FILE (${CMAKE_CURRENT_SOURCE_DIR}/src/config.cmake.h
                 ${CMAKE_CURRENT_BINARY_DIR}/src/config.h)
@@ -90,7 +91,6 @@ endif()
 
 add_library(forestdb SHARED
             src/api_wrapper.cc
-            src/atomic.cc
             src/avltree.cc
             src/blockcache.cc
             src/btree.cc
@@ -130,7 +130,6 @@ add_executable(forestdb_dump
                tools/dump_common.cc
                tools/forestdb_dump.cc
                src/api_wrapper.cc
-               src/atomic.cc
                src/avltree.cc
                src/blockcache.cc
                src/btree.cc
@@ -172,7 +171,6 @@ add_executable(forestdb_hexamine
                tools/dump_common.cc
                tools/forestdb_hexamine.cc
                src/api_wrapper.cc
-               src/atomic.cc
                src/avltree.cc
                src/blockcache.cc
                src/btree.cc
