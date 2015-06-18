@@ -36,13 +36,12 @@ else(COUCHBASE_SERVER_BUILD)
             ADD_DEFINITIONS(-D_DOC_COMP=1)
         endif (NOT(SNAPPY_OPTION STREQUAL "Disable"))
     endif(NOT WIN32)
+    if (_JEMALLOC EQUAL 1)
+        INCLUDE(FindJemalloc)
+    endif(_JEMALLOC EQUAL 1)
 endif(COUCHBASE_SERVER_BUILD)
 
 INCLUDE(FindAsyncIOLib)
-
-IF (_JEMALLOC EQUAL 1)
-    INCLUDE(FindJemalloc)
-ENDIF()
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
@@ -125,7 +124,7 @@ add_library(forestdb SHARED
             utils/time_utils.cc
             utils/system_resource_stats.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES})
 
 add_executable(forestdb_dump
                tools/dump_common.cc
@@ -166,7 +165,7 @@ add_executable(forestdb_dump
                utils/time_utils.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_hexamine
@@ -208,7 +207,7 @@ add_executable(forestdb_hexamine
                utils/time_utils.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${JEMALLOC_LIB})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))

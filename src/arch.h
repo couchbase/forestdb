@@ -67,6 +67,19 @@
     #define _ALIGN_MEM_ACCESS
     #endif
 
+    #ifdef HAVE_JEMALLOC
+    #include <jemalloc/jemalloc.h>
+    #define malloc(size) je_malloc(size)
+    #define calloc(nmemb, size) je_calloc(nmemb, size)
+    #define realloc(ptr, size) je_realloc(ptr, size)
+    #define free(addr) je_free(addr)
+    #define posix_memalign(memptr, alignment, size)\
+                           je_posix_memalign(memptr, alignment, size)
+    #define memalign(alignment, size) je_memalign(alignment, size)
+    #define aligned_malloc(size, align) je_aligned_malloc(size, align)
+    #define aligned_free(addr) je_aligned_free(addr)
+    #endif //HAVE_JEMALLOC
+
     #define malloc_align(addr, align, size) \
         {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
          (void)__ret__;}
@@ -193,6 +206,19 @@
     #define _FUSEC "ld"
 
     #define _ARCH_O_DIRECT (O_DIRECT)
+
+    #ifdef HAVE_JEMALLOC
+    #include <jemalloc/jemalloc.h>
+    #define malloc(size) je_malloc(size)
+    #define calloc(nmemb, size) je_calloc(nmemb, size)
+    #define realloc(ptr, size) je_realloc(ptr, size)
+    #define free(addr) je_free(addr)
+    #define posix_memalign(memptr, alignment, size)\
+                           je_posix_memalign(memptr, alignment, size)
+    #define memalign(alignment, size) je_memalign(alignment, size)
+    #define aligned_malloc(size, align) je_aligned_malloc(size, align)
+    #define aligned_free(addr) je_aligned_free(addr)
+    #endif //HAVE_JEMALLOC
 
     #define malloc_align(addr, align, size) \
         {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
