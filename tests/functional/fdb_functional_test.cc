@@ -3723,6 +3723,7 @@ void get_byoffset_diff_kvs_test()
     status = fdb_get_metaonly(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     offset1=rdoc->offset;
+    (void)offset1;
     status = fdb_get_metaonly(db2, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     offset2=rdoc->offset;
