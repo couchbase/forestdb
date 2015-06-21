@@ -872,7 +872,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     if (marker[0] != BLK_MARKER_DBHEADER) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "A block marker of the database header block id %" _F64 " in "
-                "a database file '%s' is NOT matched to BLK_MARKER_DBHEADER!",
+                "a database file '%s' does NOT match BLK_MARKER_DBHEADER!",
                 bid, file->filename);
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
@@ -884,7 +884,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     if (magic != FILEMGR_MAGIC) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "A block magic value of the database header block id %" _F64 " in "
-                "a database file '%s' is NOT matched to FILEMGR_MAGIC!",
+                "a database file '%s' does NOT match FILEMGR_MAGIC!",
                 bid, file->filename);
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
@@ -984,11 +984,14 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
                BLK_MARKER_SIZE);
         if (marker[0] != BLK_MARKER_DBHEADER) {
-            // broken linked list
-            fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                    "A block marker of the previous database header block id %" _F64 " in "
-                    "a database file '%s' is NOT matched to BLK_MARKER_DBHEADER!",
-                    bid, file->filename);
+            if (bid) {
+                // broken linked list
+                fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
+                        "A block marker of the previous database header block id %"
+                        _F64 " in "
+                        "a database file '%s' does NOT match BLK_MARKER_DBHEADER!",
+                        bid, file->filename);
+            }
             break;
         }
 
@@ -1000,7 +1003,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
             // broken linked list
             fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                     "A block magic value of the previous database header block id %" _F64 " in "
-                    "a database file '%s' is NOT matched to FILEMGR_MAGIC!",
+                    "a database file '%s' does NOT match FILEMGR_MAGIC!",
                     bid, file->filename);
             break;
         }
