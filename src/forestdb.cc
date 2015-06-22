@@ -3697,13 +3697,22 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     new_handle.dhandle = new_dhandle;
     new_handle.bhandle = new_bhandle;
 
-    // 1/10 of the block cache size
+    // 1/10 of the block cache size or
     // if block cache is disabled, set to the minimum size
     window_size = handle->config.buffercache_size / 10;
     if (window_size < FDB_COMP_BUF_MINSIZE) {
         window_size = FDB_COMP_BUF_MINSIZE;
     } else if (window_size > FDB_COMP_BUF_MAXSIZE) {
         window_size = FDB_COMP_BUF_MAXSIZE;
+    }
+    fdb_file_info db_info;
+    if (fdb_get_file_info(handle->fhandle, &db_info) == FDB_RESULT_SUCCESS) {
+        uint64_t doc_offset_mem = db_info.doc_count * sizeof(uint64_t);
+        if (doc_offset_mem < window_size) {
+            // Offsets of all the docs can be sorted with the buffer whose size
+            // is num_of_docs * sizeof(offset)
+            window_size = doc_offset_mem;
+        }
     }
 
     offset_array_max = window_size / sizeof(uint64_t);
