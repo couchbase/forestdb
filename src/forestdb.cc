@@ -479,7 +479,9 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     }
 
     // As the new file is partially compacted, it should be removed upon close.
-    filemgr_remove_pending(new_db.file, NULL);
+    // Just in-case the new file gets opened before removal, point it to the old
+    // file to ensure availability of data.
+    filemgr_remove_pending(new_db.file, handle->file);
     _fdb_close(&new_db);
 
     return FDB_RESULT_SUCCESS;
