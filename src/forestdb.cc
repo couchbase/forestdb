@@ -3713,7 +3713,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         if (doc_offset_mem < window_size) {
             // Offsets of all the docs can be sorted with the buffer whose size
             // is num_of_docs * sizeof(offset)
-            window_size = doc_offset_mem;
+            window_size = doc_offset_mem ? doc_offset_mem : FDB_COMP_BUF_MINSIZE;
         }
     }
 
