@@ -344,17 +344,17 @@ void iterator_with_concurrent_updates_test()
 
     fdb_kvs_open_default(dbfile, &db1, &kvs_config);
     status = fdb_set_log_callback(db1, logCallbackFunc,
-                                  (void *) "iterator_seek_test");
+                                  (void *) "iterator_concurrent_update_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_kvs_open_default(dbfile, &db2, &kvs_config);
     status = fdb_set_log_callback(db2, logCallbackFunc,
-                                  (void *) "iterator_seek_test");
+                                  (void *) "iterator_concurrent_update_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_kvs_open_default(dbfile, &db3, &kvs_config);
     status = fdb_set_log_callback(db3, logCallbackFunc,
-                                  (void *) "iterator_seek_test");
+                                  (void *) "iterator_concurrent_update_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // insert docs using db1
@@ -744,6 +744,34 @@ void iterator_seek_test()
         fdb_doc_free(rdoc);
         rdoc = NULL;
     }
+
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // delete documents of even number so WAL only has deleted docs
+    for (i=0;i<n;i+=2){
+        status = fdb_del(db, doc[i]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+    // commit without WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // create an iterator for full range
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // seek forward to 2nd key ..
+    rdoc = NULL;
+    i=2;
+    status = fdb_iterator_seek(iterator, doc[i]->key, strlen(keybuf), 0);
+    TEST_CHK(status != FDB_RESULT_ITERATOR_FAIL);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
 
     status = fdb_iterator_close(iterator);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
