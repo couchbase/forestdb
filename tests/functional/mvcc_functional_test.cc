@@ -1827,6 +1827,154 @@ void snapshot_clone_test()
     TEST_RESULT("snapshot clone test");
 }
 
+struct parallel_clone_t {
+    fdb_doc **doc;
+    fdb_kvs_handle *snap_db;
+    int num_docs;
+};
+
+void *snap_clone_thread(void *args)
+{
+    struct parallel_clone_t *t = (struct parallel_clone_t *)args;
+    fdb_kvs_handle *clone_db;
+    fdb_iterator *iterator;
+    fdb_doc *rdoc = NULL;
+    fdb_doc **doc = t->doc;
+    int i;
+    int n = t->num_docs;
+    fdb_status status;
+    int count;
+    TEST_INIT();
+
+    status = fdb_snapshot_open(t->snap_db, &clone_db, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // create an iterator on the in-memory snapshot clone for full range
+    fdb_iterator_init(clone_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // repeat until fail
+    i=0;
+    count=0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+        i ++;
+        count++;
+    } while(fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
+
+    TEST_CHK(count==n/2); // Only unique items from the first half
+
+    fdb_iterator_close(iterator);
+
+    fdb_kvs_close(clone_db);
+    thread_exit(0);
+    return NULL;
+}
+
+void snapshot_parallel_clone_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int num_cloners = 30; // parallel snapshot clone operations
+    int n = 20480; // 10 dirty wal flushes at least
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_inmem;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    thread_t *tid = alca(thread_t, num_cloners);
+    void *thread_ret;
+    fdb_status status;
+    struct parallel_clone_t clone_data;
+
+    char keybuf[256], bodybuf[256];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "snapshot_parallel_clone_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // ------- Setup test ----------------------------------
+    for (i=0; i<n/2; i++){
+        sprintf(keybuf, "key%5d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            NULL, 0, (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // Initialize an in-memory snapshot Without a Commit...
+    // WAL items are not flushed...
+    status = fdb_snapshot_open(db, &snap_inmem, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    clone_data.doc = doc;
+    clone_data.num_docs = n;
+    clone_data.snap_db = snap_inmem;
+
+    for (int j = num_cloners - 1; j>=0; --j) {
+        thread_create(&tid[j], snap_clone_thread, &clone_data);
+    }
+
+    for (; i < n; i++){
+        sprintf(keybuf, "key%5d", i);
+        sprintf(bodybuf, "BODY%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            NULL, 0, (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // commit without a WAL flush (This WAL must not affect snapshot)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    for (int j = num_cloners - 1; j>=0; --j) {
+        thread_join(tid[j], &thread_ret);
+    }
+
+    // close db handle
+    fdb_kvs_close(db);
+    // close the in-memory snapshot handle
+    fdb_kvs_close(snap_inmem);
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("snapshot parallel clone test");
+}
+
 void snapshot_markers_in_file_test(bool multi_kv)
 {
     TEST_INIT();
@@ -3932,6 +4080,7 @@ int main(){
     in_memory_snapshot_on_dirty_hbtrie_test();
     in_memory_snapshot_compaction_test();
     snapshot_clone_test();
+    snapshot_parallel_clone_test();
     snapshot_stats_test();
     snapshot_with_uncomitted_data_test();
     snapshot_markers_in_file_test(true); // multi kv instance mode
