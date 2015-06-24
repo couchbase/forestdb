@@ -872,8 +872,8 @@ fdb_snapshot_open_start:
 
             if (seqnum == FDB_SNAPSHOT_INMEM) {
                 // in-memory snapshot
-                filemgr_mutex_lock(handle->file);
-                // copy dirty root nodes from the source snapshot
+                // Clone dirty root nodes from the source snapshot by incrementing
+                // their ref counters
                 handle->trie->root_bid = handle_in->trie->root_bid;
                 if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                     if (handle->kvs) {
@@ -885,7 +885,6 @@ fdb_snapshot_open_start:
                 btreeblk_discard_blocks(handle->bhandle);
                 btreeblk_clone_dirty_snapshot(handle->bhandle,
                                               handle_in->bhandle);
-                filemgr_mutex_unlock(handle->file);
             }
         }
         *ptr_handle = handle;

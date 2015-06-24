@@ -101,7 +101,13 @@ INLINE void atomic_destroy_uint8_t(atomic_uint8_t *atomic_val) {
 
 INLINE uint64_t atomic_get_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
-    return (uint64_t) InterlockedAdd64(&atomic_val->val, 0);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint64_t) InterlockedAdd64(&atomic_val->val, 0);
+    #else
+        // x86(-64) platform
+        return (uint64_t) InterlockedExchangeAdd64(&atomic_val->val, 0);
+    #endif
 #else
     return fdb_sync_fetch_and_add_64(&atomic_val->val, 0);
 #endif
@@ -109,7 +115,13 @@ INLINE uint64_t atomic_get_uint64_t(atomic_uint64_t *atomic_val) {
 
 INLINE uint32_t atomic_get_uint32_t(atomic_uint32_t *atomic_val) {
 #ifdef _MSC_VER
-    return (uint32_t) InterlockedAdd(&atomic_val->val, 0);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint32_t) InterlockedAdd(&atomic_val->val, 0);
+    #else
+        // x86(-64) platform
+        return (uint32_t) InterlockedExchangeAdd(&atomic_val->val, 0);
+    #endif
 #else
     return fdb_sync_fetch_and_add_32(&atomic_val->val, 0);
 #endif
@@ -118,7 +130,13 @@ INLINE uint32_t atomic_get_uint32_t(atomic_uint32_t *atomic_val) {
 INLINE uint16_t atomic_get_uint16_t(atomic_uint16_t *atomic_val) {
 #ifdef _MSC_VER
     // Windows doesn't have a separate atomic add for uint16_t
-    return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val, 0);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val, 0);
+    #else
+        // x86(-64) platform
+        return (uint16_t) InterlockedExchangeAdd((volatile LONG *) &atomic_val->val, 0);
+    #endif
 #else
     return fdb_sync_fetch_and_add_16(&atomic_val->val, 0);
 #endif
@@ -127,7 +145,13 @@ INLINE uint16_t atomic_get_uint16_t(atomic_uint16_t *atomic_val) {
 INLINE uint8_t atomic_get_uint8_t(atomic_uint8_t *atomic_val) {
 #ifdef _MSC_VER
     // Windows doesn't have a separate atomic add for uint8_t
-    return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val, 0);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val, 0);
+    #else
+        // x86(-64) platform
+        return (uint8_t) InterlockedExchangeAdd((volatile LONG *) &atomic_val->val, 0);
+    #endif
 #else
     return fdb_sync_fetch_and_add_8(&atomic_val->val, 0);
 #endif
@@ -335,7 +359,15 @@ INLINE uint8_t atomic_decr_uint8_t(atomic_uint8_t *atomic_val) {
 
 INLINE uint64_t atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increment) {
 #ifdef _MSC_VER
-    return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) increment);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) increment);
+    #else
+        // x86(-64) platform
+        return (uint64_t)
+               InterlockedExchangeAdd64(&atomic_val->val, (LONG64) increment)
+               + increment;
+    #endif
 #else
     return fdb_sync_add_and_fetch_64(&atomic_val->val, increment);
 #endif
@@ -343,7 +375,15 @@ INLINE uint64_t atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increme
 
 INLINE uint32_t atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increment) {
 #ifdef _MSC_VER
-    return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) increment);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) increment);
+    #else
+        // x86(-64) platform
+        return (uint32_t)
+               InterlockedExchangeAdd(&atomic_val->val, (LONG) increment)
+               + increment;
+    #endif
 #else
     return fdb_sync_add_and_fetch_32(&atomic_val->val, increment);
 #endif
@@ -352,7 +392,15 @@ INLINE uint32_t atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increme
 INLINE uint16_t atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increment) {
 #ifdef _MSC_VER
     // Windows doesn't have a separate atomic add for uint16_t
-    return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val, (SHORT) increment);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val, (SHORT) increment);
+    #else
+        // x86(-64) platform
+        return (uint16_t)
+               InterlockedExchangeAdd((volatile LONG *) &atomic_val->val, (SHORT) increment)
+               + increment;
+    #endif
 #else
     return fdb_sync_add_and_fetch_16(&atomic_val->val, increment);
 #endif
@@ -361,7 +409,15 @@ INLINE uint16_t atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increme
 INLINE uint8_t atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) {
 #ifdef _MSC_VER
     // Windows doesn't have a separate atomoic add for uint8_t
-    return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val, (SHORT) increment);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val, (SHORT) increment);
+    #else
+        // x86(-64) platform
+        return (uint8_t)
+               InterlockedExchangeAdd((volatile LONG *) &atomic_val->val, (SHORT) increment)
+               + increment;
+    #endif
 #else
     return fdb_sync_add_and_fetch_8(&atomic_val->val, increment);
 #endif
@@ -369,7 +425,15 @@ INLINE uint8_t atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) 
 
 INLINE uint64_t atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decrement) {
 #ifdef _MSC_VER
-    return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) decrement);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) -decrement);
+    #else
+        // x86(-64) platform
+        return (uint64_t)
+               InterlockedExchangeAdd64(&atomic_val->val, (LONG64) -decrement)
+               - decrement;
+    #endif
 #else
     return fdb_sync_add_and_fetch_64(&atomic_val->val, -decrement);
 #endif
@@ -377,7 +441,15 @@ INLINE uint64_t atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decreme
 
 INLINE uint32_t atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decrement) {
 #ifdef _MSC_VER
-    return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) decrement);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) -decrement);
+    #else
+        // x86(-64) platform
+        return (uint32_t)
+               InterlockedExchangeAdd(&atomic_val->val, (LONG) -decrement)
+               - decrement;
+    #endif
 #else
     return fdb_sync_add_and_fetch_32(&atomic_val->val, -decrement);
 #endif
@@ -386,8 +458,17 @@ INLINE uint32_t atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decreme
 INLINE uint16_t atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decrement) {
 #ifdef _MSC_VER
     // Windows doesn't have a separate atomic add for uint16_t
-    return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val,
-                                     (SHORT) decrement);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val,
+                                         (SHORT) -decrement);
+    #else
+        // x86(-64) platform
+        return (uint16_t)
+               InterlockedExchangeAdd((volatile LONG *)&atomic_val->val,
+                                      (SHORT) -decrement)
+               - decrement;
+    #endif
 #else
     return fdb_sync_add_and_fetch_16(&atomic_val->val, -decrement);
 #endif
@@ -396,8 +477,17 @@ INLINE uint16_t atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decreme
 INLINE uint8_t atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement) {
 #ifdef _MSC_VER
     // Windows doesn't have a separate atomoic add for uint8_t
-    return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val,
-                                    (SHORT) decrement);
+    #ifdef _M_IA64
+        // Itanium platform
+        return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val,
+                                        (SHORT) -decrement);
+    #else
+        // x86(-64) platform
+        return (uint8_t)
+               InterlockedExchangeAdd((volatile LONG *)&atomic_val->val,
+                                      (SHORT) -decrement)
+               - decrement;
+    #endif
 #else
     return fdb_sync_add_and_fetch_8(&atomic_val->val, -decrement);
 #endif
