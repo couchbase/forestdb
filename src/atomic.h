@@ -30,7 +30,7 @@
 #elif defined(HAVE_ATOMIC_H)
 #include "atomic/libatomic.h"
 #elif _MSC_VER
-#define fdb_sync_synchronize() MemoryBarrier()
+#include <Windows.h>
 #else
 #error "Don't know how to use atomics on your target system!"
 #endif
@@ -41,74 +41,67 @@ extern "C" {
 
 #ifdef _ALIGN_MEM_ACCESS
 typedef struct __attribute__((aligned(8))) {
-#ifdef _MSC_VER
-    // TODO: Need to figure out an atomic support without using lock.
-    spin_t lock;
-#endif
+#if _MSC_VER
+    volatile LONG64 val;
+#else
     volatile uint64_t val;
+#endif
 } atomic_uint64_t;
 #else
 typedef struct {
-#ifdef _MSC_VER
-    // TODO: Need to figure out an atomic support without using lock.
-    spin_t lock;
-#endif
+#if _MSC_VER
+    volatile LONG64 val;
+#else
     volatile uint64_t val;
+#endif
 } atomic_uint64_t;
 #endif
 
 typedef struct {
-#ifdef _MSC_VER
-    // TODO: Need to figure out an atomic support without using lock.
-    spin_t lock;
-#endif
+#if _MSC_VER
+    volatile LONG val;
+#else
     volatile uint32_t val;
+#endif
 } atomic_uint32_t;
 
 typedef struct {
-#ifdef _MSC_VER
-    // TODO: Need to figure out an atomic support without using lock.
-    spin_t lock;
-#endif
+#if _MSC_VER
+    volatile SHORT val;
+#else
     volatile uint16_t val;
+#endif
 } atomic_uint16_t;
 
 typedef struct {
 #ifdef _MSC_VER
-    // TODO: Need to figure out an atomic support without using lock.
-    spin_t lock;
-#endif
+    // Windows doesn't support atomic operations for uint8_t separately.
+    volatile SHORT val;
+#else
     volatile uint8_t val;
+#endif
 } atomic_uint8_t;
 
 
 INLINE void atomic_destroy_uint64_t(atomic_uint64_t *atomic_val) {
-#ifdef _MSC_VER
-    spin_destroy(&atomic_val->lock);
-#endif
+    (void) atomic_val;
 }
 
 INLINE void atomic_destroy_uint32_t(atomic_uint32_t *atomic_val) {
-#ifdef _MSC_VER
-    spin_destroy(&atomic_val->lock);
-#endif
+    (void) atomic_val;
 }
 
 INLINE void atomic_destroy_uint16_t(atomic_uint16_t *atomic_val) {
-#ifdef _MSC_VER
-    spin_destroy(&atomic_val->lock);
-#endif
+    (void) atomic_val;
 }
 
 INLINE void atomic_destroy_uint8_t(atomic_uint8_t *atomic_val) {
-#ifdef _MSC_VER
-    spin_destroy(&atomic_val->lock);
-#endif
+    (void) atomic_val;
 }
 
 INLINE uint64_t atomic_get_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
-    return atomic_val->val;
+    return (uint64_t) InterlockedAdd64(&atomic_val->val, 0);
 #else
     return fdb_sync_fetch_and_add_64(&atomic_val->val, 0);
 #endif
@@ -116,7 +109,7 @@ INLINE uint64_t atomic_get_uint64_t(atomic_uint64_t *atomic_val) {
 
 INLINE uint32_t atomic_get_uint32_t(atomic_uint32_t *atomic_val) {
 #ifdef _MSC_VER
-    return atomic_val->val;
+    return (uint32_t) InterlockedAdd(&atomic_val->val, 0);
 #else
     return fdb_sync_fetch_and_add_32(&atomic_val->val, 0);
 #endif
@@ -124,7 +117,8 @@ INLINE uint32_t atomic_get_uint32_t(atomic_uint32_t *atomic_val) {
 
 INLINE uint16_t atomic_get_uint16_t(atomic_uint16_t *atomic_val) {
 #ifdef _MSC_VER
-    return atomic_val->val;
+    // Windows doesn't have a separate atomic add for uint16_t
+    return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val, 0);
 #else
     return fdb_sync_fetch_and_add_16(&atomic_val->val, 0);
 #endif
@@ -132,7 +126,8 @@ INLINE uint16_t atomic_get_uint16_t(atomic_uint16_t *atomic_val) {
 
 INLINE uint8_t atomic_get_uint8_t(atomic_uint8_t *atomic_val) {
 #ifdef _MSC_VER
-    return atomic_val->val;
+    // Windows doesn't have a separate atomic add for uint8_t
+    return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val, 0);
 #else
     return fdb_sync_fetch_and_add_8(&atomic_val->val, 0);
 #endif
@@ -140,8 +135,7 @@ INLINE uint8_t atomic_get_uint8_t(atomic_uint8_t *atomic_val) {
 
 INLINE void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val) {
 #ifdef _MSC_VER
-    atomic_val->val = new_val;
-    fdb_sync_synchronize();
+    InterlockedExchange64(&atomic_val->val, (LONG64) new_val);
 #else
     fdb_sync_lock_test_and_set_64(&atomic_val->val, new_val);
 #endif
@@ -149,8 +143,7 @@ INLINE void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val)
 
 INLINE void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val) {
 #ifdef _MSC_VER
-    atomic_val->val = new_val;
-    fdb_sync_synchronize();
+    InterlockedExchange(&atomic_val->val, (LONG) new_val);
 #else
     fdb_sync_lock_test_and_set_32(&atomic_val->val, new_val);
 #endif
@@ -158,8 +151,7 @@ INLINE void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val)
 
 INLINE void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val) {
 #ifdef _MSC_VER
-    atomic_val->val = new_val;
-    fdb_sync_synchronize();
+    InterlockedExchange16(&atomic_val->val, (SHORT) new_val);
 #else
     fdb_sync_lock_test_and_set_16(&atomic_val->val, new_val);
 #endif
@@ -167,38 +159,26 @@ INLINE void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val)
 
 INLINE void atomic_store_uint8_t(atomic_uint8_t *atomic_val, uint8_t new_val) {
 #ifdef _MSC_VER
-    atomic_val->val = new_val;
-    fdb_sync_synchronize();
+    // Windows doesn't support atomic store for uint8_t
+    InterlockedExchange16(&atomic_val->val, (SHORT) new_val);
 #else
     fdb_sync_lock_test_and_set_8(&atomic_val->val, new_val);
 #endif
 }
 
 INLINE void atomic_init_uint64_t(atomic_uint64_t *atomic_val, uint64_t initial) {
-#ifdef _MSC_VER
-    spin_init(&atomic_val->lock);
-#endif
     atomic_store_uint64_t(atomic_val, initial);
 }
 
 INLINE void atomic_init_uint32_t(atomic_uint32_t *atomic_val, uint32_t initial) {
-#ifdef _MSC_VER
-    spin_init(&atomic_val->lock);
-#endif
     atomic_store_uint32_t(atomic_val, initial);
 }
 
 INLINE void atomic_init_uint16_t(atomic_uint16_t *atomic_val, uint16_t initial) {
-#ifdef _MSC_VER
-    spin_init(&atomic_val->lock);
-#endif
     atomic_store_uint16_t(atomic_val, initial);
 }
 
 INLINE void atomic_init_uint8_t(atomic_uint8_t *atomic_val, uint8_t initial) {
-#ifdef _MSC_VER
-    spin_init(&atomic_val->lock);
-#endif
     atomic_store_uint8_t(atomic_val, initial);
 }
 
@@ -207,12 +187,12 @@ INLINE bool atomic_cas_uint64_t(atomic_uint64_t *atomic_val,
     bool rv = false;
 
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    if (atomic_val->val == expected_val) {
-        atomic_val->val = new_val;
+    uint64_t oldval = (uint64_t) InterlockedCompareExchange64(&atomic_val->val,
+                                                              (LONG64) new_val,
+                                                              (LONG64) expected_val);
+    if (oldval == expected_val) {
         rv = true;
     }
-    spin_unlock(&atomic_val->lock);
 #else
     if (fdb_sync_bool_compare_and_swap_64(&atomic_val->val,
                                           expected_val, new_val)) {
@@ -228,12 +208,12 @@ INLINE bool atomic_cas_uint32_t(atomic_uint32_t *atomic_val,
     bool rv = false;
 
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    if (atomic_val->val == expected_val) {
-        atomic_val->val = new_val;
+    uint32_t oldval = (uint32_t) InterlockedCompareExchange(&atomic_val->val,
+                                                            (LONG) new_val,
+                                                            (LONG) expected_val);
+    if (oldval == expected_val) {
         rv = true;
     }
-    spin_unlock(&atomic_val->lock);
 #else
     if (fdb_sync_bool_compare_and_swap_32(&atomic_val->val,
                                           expected_val, new_val)) {
@@ -249,12 +229,12 @@ INLINE bool atomic_cas_uint16_t(atomic_uint16_t *atomic_val,
     bool rv = false;
 
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    if (atomic_val->val == expected_val) {
-        atomic_val->val = new_val;
+    uint16_t oldval = (uint16_t) InterlockedCompareExchange16(&atomic_val->val,
+                                                              (SHORT) new_val,
+                                                              (SHORT) expected_val);
+    if (oldval == expected_val) {
         rv = true;
     }
-    spin_unlock(&atomic_val->lock);
 #else
     if (fdb_sync_bool_compare_and_swap_16(&atomic_val->val,
                                           expected_val, new_val)) {
@@ -270,12 +250,13 @@ INLINE bool atomic_cas_uint8_t(atomic_uint8_t *atomic_val,
     bool rv = false;
 
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    if (atomic_val->val == expected_val) {
-        atomic_val->val = new_val;
+    // Windows doesn't support atomic CAS for uint8_t
+    uint8_t oldval = (uint8_t) InterlockedCompareExchange16(&atomic_val->val,
+                                                            (SHORT) new_val,
+                                                            (SHORT) expected_val);
+    if (oldval == expected_val) {
         rv = true;
     }
-    spin_unlock(&atomic_val->lock);
 #else
     if (fdb_sync_bool_compare_and_swap_8(&atomic_val->val,
                                          expected_val, new_val)) {
@@ -288,10 +269,7 @@ INLINE bool atomic_cas_uint8_t(atomic_uint8_t *atomic_val,
 
 INLINE uint64_t atomic_incr_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint64_t val = ++atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint64_t) InterlockedIncrement64(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_64(&atomic_val->val, 1);
 #endif
@@ -299,10 +277,7 @@ INLINE uint64_t atomic_incr_uint64_t(atomic_uint64_t *atomic_val) {
 
 INLINE uint32_t atomic_incr_uint32_t(atomic_uint32_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint32_t val = ++atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint32_t) InterlockedIncrement(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_32(&atomic_val->val, 1);
 #endif
@@ -310,10 +285,7 @@ INLINE uint32_t atomic_incr_uint32_t(atomic_uint32_t *atomic_val) {
 
 INLINE uint16_t atomic_incr_uint16_t(atomic_uint16_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint16_t val = ++atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint16_t) InterlockedIncrement16(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_16(&atomic_val->val, 1);
 #endif
@@ -321,10 +293,8 @@ INLINE uint16_t atomic_incr_uint16_t(atomic_uint16_t *atomic_val) {
 
 INLINE uint8_t atomic_incr_uint8_t(atomic_uint8_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint8_t val = ++atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    // Windows doesn't have a separate atomic incr for uint8_t
+    return (uint8_t) InterlockedIncrement16(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_8(&atomic_val->val, 1);
 #endif
@@ -332,10 +302,7 @@ INLINE uint8_t atomic_incr_uint8_t(atomic_uint8_t *atomic_val) {
 
 INLINE uint64_t atomic_decr_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint64_t val = --atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint64_t) InterlockedDecrement64(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_64(&atomic_val->val, -1);
 #endif
@@ -343,10 +310,7 @@ INLINE uint64_t atomic_decr_uint64_t(atomic_uint64_t *atomic_val) {
 
 INLINE uint32_t atomic_decr_uint32_t(atomic_uint32_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint32_t val = --atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint32_t) InterlockedDecrement(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_32(&atomic_val->val, -1);
 #endif
@@ -354,10 +318,7 @@ INLINE uint32_t atomic_decr_uint32_t(atomic_uint32_t *atomic_val) {
 
 INLINE uint16_t atomic_decr_uint16_t(atomic_uint16_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint16_t val = --atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint16_t) InterlockedDecrement16(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_16(&atomic_val->val, -1);
 #endif
@@ -365,10 +326,8 @@ INLINE uint16_t atomic_decr_uint16_t(atomic_uint16_t *atomic_val) {
 
 INLINE uint8_t atomic_decr_uint8_t(atomic_uint8_t *atomic_val) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    uint8_t val = --atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    // Windows doesn't have a separate atomic decr for uint8_t
+    return (uint8_t) InterlockedDecrement16(&atomic_val->val);
 #else
     return fdb_sync_add_and_fetch_8(&atomic_val->val, -1);
 #endif
@@ -376,11 +335,7 @@ INLINE uint8_t atomic_decr_uint8_t(atomic_uint8_t *atomic_val) {
 
 INLINE uint64_t atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increment) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val += increment;
-    uint64_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) increment);
 #else
     return fdb_sync_add_and_fetch_64(&atomic_val->val, increment);
 #endif
@@ -388,11 +343,7 @@ INLINE uint64_t atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increme
 
 INLINE uint32_t atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increment) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val += increment;
-    uint32_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) increment);
 #else
     return fdb_sync_add_and_fetch_32(&atomic_val->val, increment);
 #endif
@@ -400,11 +351,8 @@ INLINE uint32_t atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increme
 
 INLINE uint16_t atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increment) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val += increment;
-    uint16_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    // Windows doesn't have a separate atomic add for uint16_t
+    return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val, (SHORT) increment);
 #else
     return fdb_sync_add_and_fetch_16(&atomic_val->val, increment);
 #endif
@@ -412,11 +360,8 @@ INLINE uint16_t atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increme
 
 INLINE uint8_t atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val += increment;
-    uint8_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    // Windows doesn't have a separate atomoic add for uint8_t
+    return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val, (SHORT) increment);
 #else
     return fdb_sync_add_and_fetch_8(&atomic_val->val, increment);
 #endif
@@ -424,11 +369,7 @@ INLINE uint8_t atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) 
 
 INLINE uint64_t atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decrement) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val -= decrement;
-    uint64_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) decrement);
 #else
     return fdb_sync_add_and_fetch_64(&atomic_val->val, -decrement);
 #endif
@@ -436,11 +377,7 @@ INLINE uint64_t atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decreme
 
 INLINE uint32_t atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decrement) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val -= decrement;
-    uint32_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) decrement);
 #else
     return fdb_sync_add_and_fetch_32(&atomic_val->val, -decrement);
 #endif
@@ -448,11 +385,9 @@ INLINE uint32_t atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decreme
 
 INLINE uint16_t atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decrement) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val -= decrement;
-    uint16_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    // Windows doesn't have a separate atomic add for uint16_t
+    return (uint16_t) InterlockedAdd((volatile LONG *) &atomic_val->val,
+                                     (SHORT) decrement);
 #else
     return fdb_sync_add_and_fetch_16(&atomic_val->val, -decrement);
 #endif
@@ -460,20 +395,25 @@ INLINE uint16_t atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decreme
 
 INLINE uint8_t atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement) {
 #ifdef _MSC_VER
-    spin_lock(&atomic_val->lock);
-    atomic_val->val -= decrement;
-    uint8_t val = atomic_val->val;
-    spin_unlock(&atomic_val->lock);
-    return val;
+    // Windows doesn't have a separate atomoic add for uint8_t
+    return (uint8_t) InterlockedAdd((volatile LONG *) &atomic_val->val,
+                                    (SHORT) decrement);
 #else
     return fdb_sync_add_and_fetch_8(&atomic_val->val, -decrement);
 #endif
 }
 
 // Reader-Writer spinlock
-#ifndef _MSC_VER // TODO: Need to implement reader-writer spinlock on Windows.
 
 typedef atomic_uint32_t rw_spin_t;
+
+INLINE void thread_yield() {
+#ifdef HAVE_SCHED_H
+    sched_yield();
+#elif _MSC_VER
+    SwitchToThread();
+#endif
+}
 
 INLINE void rw_spin_init(rw_spin_t *rw_lock) {
     atomic_store_uint32_t(rw_lock, 0);
@@ -487,7 +427,7 @@ INLINE void rw_spin_read_lock(rw_spin_t *rw_lock) {
     for(;;) {
         // Wait for active writer to release the lock
         while (rw_lock->val & 0xfff00000) {
-            sched_yield();
+            thread_yield();
         }
 
         if ((atomic_incr_uint32_t(rw_lock) & 0xfff00000) == 0) {
@@ -506,13 +446,13 @@ INLINE void rw_spin_write_lock(rw_spin_t *rw_lock) {
     for(;;) {
         // Wait for active writer to release the lock
         while (rw_lock->val & 0xfff00000) {
-            sched_yield();
+            thread_yield();
         }
 
         if((atomic_add_uint32_t(rw_lock, 0x100000) & 0xfff00000) == 0x100000) {
             // Wait until there's no more readers
             while (rw_lock->val & 0x000fffff) {
-                sched_yield();
+                thread_yield();
             }
             return;
         }
@@ -524,8 +464,6 @@ INLINE void rw_spin_write_lock(rw_spin_t *rw_lock) {
 INLINE void rw_spin_write_unlock(rw_spin_t *rw_lock) {
     atomic_sub_uint32_t(rw_lock, 0x100000);
 }
-
-#endif // Reader-Writer spinlock
 
 #ifdef __cplusplus
 }

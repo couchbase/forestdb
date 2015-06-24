@@ -63,11 +63,7 @@ static size_t num_files;
 static size_t file_array_capacity;
 static fnamedic_item ** file_list;
 static struct list file_zombies;
-#ifdef _MSC_VER
-static spin_t filelist_lock;
-#else
-static rw_spin_t filelist_lock; // Reader-Writer spinlock for non-Windows env.
-#endif
+static rw_spin_t filelist_lock; // Reader-Writer spinlock for the file list.
 
 //static struct list cleanlist, dirtylist;
 //static uint64_t nfree, nclean, ndirty;
@@ -253,11 +249,7 @@ struct fnamedic_item *_bcache_get_victim()
     int victim_idx;
     size_t num_attempts;
 
-#ifdef _MSC_VER
-    spin_lock(&filelist_lock);
-#else
     rw_spin_read_lock(&filelist_lock);
-#endif
     // Pick the victim that has the smallest access timestamp among files randomly selected.
     num_attempts = num_files / 10 + 1;
      if (num_attempts > MAX_VICTIM_SELECTIONS) {
@@ -280,11 +272,7 @@ struct fnamedic_item *_bcache_get_victim()
     if (ret) {
         atomic_incr_uint32_t(&ret->ref_count);
     }
-#ifdef _MSC_VER
-    spin_unlock(&filelist_lock);
-#else
     rw_spin_read_unlock(&filelist_lock);
-#endif
 
     return ret;
 }
@@ -321,11 +309,7 @@ static void _bcache_release_freeblock(struct bcache_item *item)
 static struct fnamedic_item *_next_dead_fname_zombie(void) {
     struct list_elem *e;
     struct fnamedic_item *fname_item = NULL;
-#ifdef _MSC_VER
-    spin_lock(&filelist_lock);
-#else
     rw_spin_write_lock(&filelist_lock);
-#endif
     e = list_begin(&file_zombies);
     while (e) {
         fname_item = _get_entry(e, struct fnamedic_item, le);
@@ -336,11 +320,7 @@ static struct fnamedic_item *_next_dead_fname_zombie(void) {
             e = list_next(e);
         }
     }
-#ifdef _MSC_VER
-    spin_unlock(&filelist_lock);
-#else
     rw_spin_write_unlock(&filelist_lock);
-#endif
     return fname_item;
 }
 
@@ -783,21 +763,13 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     hash_insert(&fnamedic, &fname_new->hash_elem);
     file->bcache = fname_new;
 
-#ifdef _MSC_VER
-    spin_lock(&filelist_lock);
-#else
     rw_spin_write_lock(&filelist_lock);
-#endif
     if (num_files == file_array_capacity) {
         file_array_capacity *= 2;
         file_list = (struct fnamedic_item **) realloc(file_list, file_array_capacity);
     }
     file_list[num_files++] = fname_new;
-#ifdef _MSC_VER
-    spin_unlock(&filelist_lock);
-#else
     rw_spin_write_unlock(&filelist_lock);
-#endif
 
     return fname_new;
 }
@@ -806,11 +778,7 @@ static bool _fname_try_free(struct fnamedic_item *fname)
 {
     bool ret = true;
 
-#ifdef _MSC_VER
-    spin_lock(&filelist_lock);
-#else
     rw_spin_write_lock(&filelist_lock);
-#endif
     // Remove from the file list array
     bool found = false;
     for (size_t i = 0; i < num_files; ++i) {
@@ -828,11 +796,7 @@ static bool _fname_try_free(struct fnamedic_item *fname)
         ret = false; // Delay deletion
     }
 
-#ifdef _MSC_VER
-    spin_unlock(&filelist_lock);
-#else
     rw_spin_write_unlock(&filelist_lock);
-#endif
     return ret;
 }
 
@@ -1299,11 +1263,7 @@ void bcache_init(int nblock, int blocksize)
     bcache_nblock = nblock;
     spin_init(&bcache_lock);
     spin_init(&freelist_lock);
-#ifdef _MSC_VER
-    spin_init(&filelist_lock);
-#else
     rw_spin_init(&filelist_lock);
-#endif
     freelist_count = 0;
 
     num_files = 0;
@@ -1508,10 +1468,6 @@ void bcache_shutdown()
 
     spin_destroy(&bcache_lock);
     spin_destroy(&freelist_lock);
-#ifdef _MSC_VER
-    spin_destroy(&filelist_lock);
-#else
     rw_spin_destroy(&filelist_lock);
-#endif
 }
 

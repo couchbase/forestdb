@@ -1201,7 +1201,7 @@ fetch_hbtrie:
                     continue;
                 }
                 break;
-            } while(1);
+            } while(iterator->tree_cursor);
         }
         if (!iterator->tree_cursor) {
             // seek_key is larger than the largest key
@@ -1248,7 +1248,7 @@ fetch_hbtrie:
                     continue;
                 }
                 break;
-            } while(1);
+            } while(iterator->tree_cursor);
         }
         iterator->tree_cursor_prev = iterator->tree_cursor;
         if (!iterator->tree_cursor) {

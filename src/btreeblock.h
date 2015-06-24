@@ -37,6 +37,12 @@ struct btreeblk_subblocks{
     uint8_t *bitmap;
 };
 
+struct dirty_snapshot_t {
+    spin_t lock;
+    int ref_cnt;
+    struct avl_tree *snap_tree;
+};
+
 struct btreeblk_handle{
     uint32_t nodesize;
     uint16_t nnodeperblock;
@@ -61,7 +67,7 @@ struct btreeblk_handle{
 
     uint32_t nsb;
     struct btreeblk_subblocks *sb;
-    struct avl_tree *dirty_snapshot;
+    struct dirty_snapshot_t *dirty_snapshot;
 };
 
 struct btree_blk_ops *btreeblk_get_ops();
