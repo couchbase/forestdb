@@ -1867,6 +1867,8 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     fdb_kvs_id_t kv_id;
     fdb_status fs = FDB_RESULT_SUCCESS;
     uint8_t *var_key = alca(uint8_t, handle->config.chunksize);
+    int size_id, size_seq;
+    uint8_t *kvid_seqnum;
     uint64_t old_offset, _offset;
     int delta, r;
     struct filemgr *file = handle->dhandle->file;
@@ -1907,8 +1909,6 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             _seqnum = _endian_encode(item->seqnum);
             if (handle->kvs) {
                 // multi KV instance mode .. HB+trie
-                int size_id, size_seq;
-                uint8_t *kvid_seqnum;
                 uint64_t old_offset_local;
 
                 size_id = sizeof(fdb_kvs_id_t);
@@ -1969,7 +1969,19 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             _seqnum = _endian_encode(item->seqnum);
-            btree_remove(handle->seqtree, (void*)&_seqnum);
+            if (handle->kvs) {
+                // multi KV instance mode .. HB+trie
+                size_id = sizeof(fdb_kvs_id_t);
+                size_seq = sizeof(fdb_seqnum_t);
+                kvid_seqnum = alca(uint8_t, size_id + size_seq);
+                kvid2buf(size_id, kv_id, kvid_seqnum);
+                memcpy(kvid_seqnum + size_id, &_seqnum, size_seq);
+
+                hbtrie_remove(handle->seqtrie, (void*)kvid_seqnum,
+                              size_id + size_seq);
+            } else {
+                btree_remove(handle->seqtree, (void*)&_seqnum);
+            }
             fs = btreeblk_end(handle->bhandle);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
