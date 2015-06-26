@@ -798,11 +798,13 @@ fdb_snapshot_open_start:
 
     // If cloning an existing snapshot handle, then rewind indexes
     // to its last DB header and point its avl tree to existing snapshot's tree
+    bool clone_snapshot = false;
     if (handle_in->shandle) {
         handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
         if (snap_clone(handle_in->shandle, handle_in->max_seqnum,
                    &handle->shandle, seqnum) == FDB_RESULT_SUCCESS) {
             handle->max_seqnum = FDB_SNAPSHOT_INMEM; // temp value to skip WAL
+            clone_snapshot = true;
         }
     }
 
@@ -817,14 +819,21 @@ fdb_snapshot_open_start:
 
     if (handle_in->kvs) {
         // sub-handle in multi KV instance mode
-        fs = _fdb_kvs_open(handle_in->kvs->root,
+        if (clone_snapshot) {
+            fs = _fdb_kvs_clone_snapshot(handle_in, handle);
+        } else {
+            fs = _fdb_kvs_open(handle_in->kvs->root,
                               &config, &kvs_config, file,
                               file->filename,
-                              _fdb_kvs_get_name(handle_in,
-                                                   file),
+                              _fdb_kvs_get_name(handle_in, file),
                               handle);
+        }
     } else {
-        fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
+        if (clone_snapshot) {
+            fs = _fdb_clone_snapshot(handle_in, handle);
+        } else {
+            fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
+        }
     }
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -870,7 +879,7 @@ fdb_snapshot_open_start:
                 btreeblk_create_dirty_snapshot(handle->bhandle);
                 filemgr_mutex_unlock(handle->file);
             }
-        } else if (handle->max_seqnum == FDB_SNAPSHOT_INMEM) {
+        } else if (clone_snapshot) {
             // Snapshot is created on the other snapshot handle
 
             handle->max_seqnum = handle_in->seqnum;
@@ -1066,6 +1075,104 @@ static void _fdb_init_file_config(const fdb_config *config,
     fconfig->prefetch_duration = config->prefetch_duration;
     fconfig->num_wal_shards = config->num_wal_partitions;
     fconfig->num_bcache_shards = config->num_bcache_partitions;
+}
+
+fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
+                               fdb_kvs_handle *handle_out)
+{
+    fdb_status status;
+
+    handle_out->config = handle_in->config;
+    handle_out->kvs_config = handle_in->kvs_config;
+    handle_out->fileops = handle_in->fileops;
+    handle_out->file = handle_in->file;
+    // Note that the file ref count will be decremented when the cloned snapshot
+    // is closed through filemgr_close().
+    filemgr_incr_ref_count(handle_out->file);
+
+    if (handle_out->filename) {
+        handle_out->filename = (char *)realloc(handle_out->filename,
+                                               strlen(handle_in->filename)+1);
+    } else {
+        handle_out->filename = (char*)malloc(strlen(handle_in->filename)+1);
+    }
+    strcpy(handle_out->filename, handle_in->filename);
+
+    // initialize the docio handle.
+    handle_out->dhandle = (struct docio_handle *)
+        calloc(1, sizeof(struct docio_handle));
+    handle_out->dhandle->log_callback = &handle_out->log_callback;
+    docio_init(handle_out->dhandle, handle_out->file,
+               handle_out->config.compress_document_body);
+
+    // initialize the btree block handle.
+    handle_out->btreeblkops = btreeblk_get_ops();
+    handle_out->bhandle = (struct btreeblk_handle *)
+        calloc(1, sizeof(struct btreeblk_handle));
+    handle_out->bhandle->log_callback = &handle_out->log_callback;
+    btreeblk_init(handle_out->bhandle, handle_out->file, handle_out->file->blocksize);
+
+    handle_out->dirty_updates = handle_in->dirty_updates;
+    handle_out->cur_header_revnum = handle_in->cur_header_revnum;
+    handle_out->last_wal_flush_hdr_bid = handle_in->last_wal_flush_hdr_bid;
+    handle_out->kv_info_offset = handle_in->kv_info_offset;
+    handle_out->shandle->stat = handle_in->shandle->stat;
+    handle_out->op_stats = handle_in->op_stats;
+
+    // initialize the trie handle
+    handle_out->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
+    hbtrie_init(handle_out->trie, handle_out->config.chunksize, OFFSET_SIZE,
+                handle_out->file->blocksize,
+                handle_in->trie->root_bid, // Source snapshot's trie root bid
+                (void *)handle_out->bhandle, handle_out->btreeblkops,
+                (void *)handle_out->dhandle, _fdb_readkey_wrap);
+    // set aux for cmp wrapping function
+    hbtrie_set_leaf_height_limit(handle_out->trie, 0xff);
+    hbtrie_set_leaf_cmp(handle_out->trie, _fdb_custom_cmp_wrap);
+
+    if (handle_out->kvs) {
+        hbtrie_set_map_function(handle_out->trie, fdb_kvs_find_cmp_chunk);
+    }
+
+    if (handle_out->config.seqtree_opt == FDB_SEQTREE_USE) {
+        handle_out->seqnum = handle_in->seqnum;
+
+        if (handle_out->config.multi_kv_instances) {
+            // multi KV instance mode .. HB+trie
+            handle_out->seqtrie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
+            hbtrie_init(handle_out->seqtrie, sizeof(fdb_kvs_id_t), OFFSET_SIZE,
+                        handle_out->file->blocksize,
+                        handle_in->seqtrie->root_bid, // Source snapshot's seqtrie root bid
+                        (void *)handle_out->bhandle, handle_out->btreeblkops,
+                        (void *)handle_out->dhandle, _fdb_readseq_wrap);
+
+        } else {
+            // single KV instance mode .. normal B+tree
+            struct btree_kv_ops *seq_kv_ops =
+                (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
+            seq_kv_ops = btree_kv_get_kb64_vb64(seq_kv_ops);
+            seq_kv_ops->cmp = _cmp_uint64_t_endian_safe;
+
+            handle_out->seqtree = (struct btree*)malloc(sizeof(struct btree));
+            // Init the seq tree using the root bid of the source snapshot.
+            btree_init_from_bid(handle_out->seqtree, (void *)handle_out->bhandle,
+                                handle_out->btreeblkops, seq_kv_ops,
+                                handle_out->config.blocksize,
+                                handle_in->seqtree->root_bid);
+        }
+    } else{
+        handle_out->seqtree = NULL;
+    }
+
+    status = btreeblk_end(handle_out->bhandle);
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, handle_out);
+
+#ifdef _TRACE_HANDLES
+    spin_lock(&open_handle_lock);
+    avl_insert(&open_handles, &handle_out->avl_trace, _fdb_handle_cmp);
+    spin_unlock(&open_handle_lock);
+#endif
+    return status;
 }
 
 fdb_status _fdb_open(fdb_kvs_handle *handle,

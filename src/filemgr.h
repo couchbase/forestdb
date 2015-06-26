@@ -183,6 +183,13 @@ void filemgr_init(struct filemgr_config *config);
 uint64_t filemgr_get_bcache_used_space(void);
 
 size_t filemgr_get_ref_count(struct filemgr *file);
+
+INLINE void filemgr_incr_ref_count(struct filemgr *file) {
+    spin_lock(&file->lock);
+    ++file->ref_count;
+    spin_unlock(&file->lock);
+}
+
 filemgr_open_result filemgr_open(char *filename,
                                  struct filemgr_ops *ops,
                                  struct filemgr_config *config,

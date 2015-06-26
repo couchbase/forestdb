@@ -1237,15 +1237,52 @@ char* _fdb_kvs_get_name(fdb_kvs_handle *handle, struct filemgr *file)
     if (query.id == 0) { // default KV instance
         return NULL;
     }
-    filemgr_mutex_lock(file);
+    spin_lock(&file->kv_header->lock);
     a = avl_search(file->kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
     if (a) {
         node = _get_entry(a, struct kvs_node, avl_id);
-        filemgr_mutex_unlock(file);
+        spin_unlock(&file->kv_header->lock);
         return node->kvs_name;
     }
-    filemgr_mutex_unlock(file);
+    spin_unlock(&file->kv_header->lock);
     return NULL;
+}
+
+fdb_status _fdb_kvs_clone_snapshot(fdb_kvs_handle *handle_in,
+                                   fdb_kvs_handle *handle_out)
+{
+    fdb_status fs;
+    fdb_kvs_handle *root_handle = handle_in->kvs->root;
+
+    if (!handle_out->kvs) {
+        // create kvs_info
+        handle_out->kvs = (struct kvs_info*)calloc(1, sizeof(struct kvs_info));
+        handle_out->kvs->type = handle_in->kvs->type;
+        handle_out->kvs->id = handle_in->kvs->id;
+        handle_out->kvs->root = root_handle;
+        handle_out->kvs_config.custom_cmp = handle_in->kvs_config.custom_cmp;
+
+        struct kvs_opened_node *opened_node = (struct kvs_opened_node *)
+            calloc(1, sizeof(struct kvs_opened_node));
+        opened_node->handle = handle_out;
+        handle_out->node = opened_node;
+
+        spin_lock(&root_handle->fhandle->lock);
+        list_push_back(root_handle->fhandle->handles, &opened_node->le);
+        spin_unlock(&root_handle->fhandle->lock);
+    }
+
+    fs = _fdb_clone_snapshot(handle_in, handle_out);
+    if (fs != FDB_RESULT_SUCCESS) {
+        if (handle_out->node) {
+            spin_lock(&root_handle->fhandle->lock);
+            list_remove(root_handle->fhandle->handles, &handle_out->node->le);
+            spin_unlock(&root_handle->fhandle->lock);
+            free(handle_out->node);
+        }
+        free(handle_out->kvs);
+    }
+    return fs;
 }
 
 // 1) allocate memory & create 'handle->kvs'
