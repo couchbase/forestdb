@@ -41,6 +41,9 @@ int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux);
 fdb_status fdb_log(err_log_callback *callback,
                    fdb_status status,
                    const char *format, ...);
+
+fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
+                               fdb_kvs_handle *handle_out);
 fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const char *filename,
                      fdb_filename_mode_t filename_mode,
@@ -139,6 +142,8 @@ void fdb_kvs_header_free(struct filemgr *file);
 
 char* _fdb_kvs_get_name(fdb_kvs_handle *kv_ins, struct filemgr *file);
 
+fdb_status _fdb_kvs_clone_snapshot(fdb_kvs_handle *handle_in,
+                                   fdb_kvs_handle *handle_out);
 fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
