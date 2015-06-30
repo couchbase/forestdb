@@ -1702,6 +1702,7 @@ void iterator_del_next_test()
     rdoc->key = keybuf;
     rdoc->meta = metabuf;
     rdoc->body = bodybuf;
+    rdoc->flags = 0;
 
     // remove previous iterator_test files
     r = system(SHELL_DEL" iterator_test* > errorlog.txt");

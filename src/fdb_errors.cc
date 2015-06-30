@@ -157,6 +157,10 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_AIO_GETEVENTS_FAIL:
             return "Fail to read asynchronous I/O events from the completion queue";
 
+        case FDB_RESULT_INVALID_SEQNUM:
+            return "Custom sequence number is lower or equal to the highest "
+                   "sequence number in the kvstore";
+
         default:
             return "unknown error";
     }

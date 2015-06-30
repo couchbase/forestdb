@@ -415,6 +415,7 @@ void deleted_doc_get_api_test()
     memset(doc, 0, sizeof(fdb_doc));
     doc->key = &keybuf[0];
     doc->body = &bodybuf[0];
+    doc->seqnum = SEQNUM_NOT_USED;
 
     // open dbfile
     fconfig = fdb_get_default_config();
@@ -702,7 +703,7 @@ void error_to_str_test()
     int i;
     const char *err_msg;
 
-    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_AIO_GETEVENTS_FAIL; --i) {
+    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_INVALID_SEQNUM; --i) {
         err_msg = fdb_error_msg((fdb_status)i);
         // Verify that all error codes have corresponding error messages
         TEST_CHK(strcmp(err_msg, "unknown error"));
@@ -2339,6 +2340,143 @@ void custom_compare_commit_compact(bool eqkeys)
 
 }
 
+void custom_seqnum_test(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    int num_kv = 4;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle*, num_kv);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc real_doc;
+    fdb_doc *rdoc = &real_doc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], bodybuf[256];
+    memset(&real_doc, 0, sizeof(fdb_doc));
+    real_doc.key = &keybuf;
+    real_doc.body = &bodybuf;
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
+    r = 0;
+
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    if (multi_kv) {
+        num_kv = 4;
+        for (r = num_kv - 1; r >= 0; --r) {
+            char tmp[16];
+            sprintf(tmp, "kv%d", r);
+            status = fdb_kvs_open(dbfile, &db[r], tmp, &kvs_config);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                          (void *) "custom_seqnum_test");
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    } else {
+        num_kv = 1;
+        status = fdb_kvs_open_default(dbfile, &db[r], &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                (void *) "custom_seqnum_test");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    for (i = 0; i < n/2; ++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf) + 1, NULL, 0,
+            (void*)bodybuf, strlen(bodybuf)+1);
+        for (r = num_kv - 1; r >= 0; --r) {
+            status = fdb_set(db[r], doc[i]);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    for (r = num_kv - 1; r >= 0; --r) {
+        i = 0;
+        fdb_doc_set_seqnum(doc[i], 2); // set a lower sequence number
+        status = fdb_set(db[r], doc[i]);
+        TEST_CHK(status == FDB_RESULT_INVALID_SEQNUM);
+        TEST_CHK((doc[i]->flags & FDB_CUSTOM_SEQNUM) == 0);
+    }
+
+    for (i = n/2; i < n; ++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf) + 1, NULL, 0,
+            (void*)bodybuf, strlen(bodybuf)+1);
+        for (r = num_kv - 1; r >= 0; --r) {
+            fdb_doc_set_seqnum(doc[i], (i+1)*2); // double seqnum instead of ++
+            status = fdb_set(db[r], doc[i]);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    for (r = num_kv - 1; r >= 0; --r) {
+        // range scan (before flushing WAL)
+        fdb_iterator_init(db[r], &iterator, NULL, 0, NULL, 0, 0x0);
+        i = 0;
+        do {
+            status = fdb_iterator_get(iterator, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+            TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+            ++i;
+            if (i <= n/2) {
+                TEST_CHK(rdoc->seqnum == i);
+            } else {
+                TEST_CHK(rdoc->seqnum == i*2);
+            }
+        } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+        fdb_iterator_close(iterator);
+
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    }
+
+    // do compaction
+    fdb_compact(dbfile, (char *) "./dummy2");
+
+    for (i = n/2; i < n; ++i){
+        sprintf(keybuf, "key%d", i);
+        for (r = num_kv - 1; r >= 0; --r) {
+            rdoc->seqnum = (i + 1)*2;
+            status = fdb_get_byseq(db[r], rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf,"Custom sequence number test %s", multi_kv ?
+            "multiple kv instances" : "single kv instance");
+    TEST_RESULT(bodybuf);
+}
 
 void doc_compression_test()
 {
@@ -3744,7 +3882,6 @@ int main(){
     set_get_max_keylen();
     config_test();
     deleted_doc_get_api_test();
-    large_batch_write_no_commit_test();
     set_get_meta_test();
     get_byoffset_diff_kvs_test();
 #if !defined(WIN32) && !defined(_WIN32)
@@ -3760,6 +3897,8 @@ int main(){
     custom_compare_variable_test();
     custom_compare_commit_compact(false);
     custom_compare_commit_compact(true);
+    custom_seqnum_test(true); // multi-kv
+    custom_seqnum_test(false); // single kv mode
     db_close_and_remove();
     db_drop_test();
     db_destroy_test();
@@ -3771,6 +3910,7 @@ int main(){
     auto_commit_test();
     last_wal_flush_header_test();
     long_key_test();
+    large_batch_write_no_commit_test();
     multi_thread_client_shutdown(NULL);
     multi_thread_kvs_client(NULL);
     purge_logically_deleted_doc_test();

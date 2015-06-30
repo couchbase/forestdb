@@ -203,6 +203,14 @@ typedef struct fdb_doc_struct {
      * Is a doc deleted?
      */
     bool deleted;
+    /**
+     * Flags for miscellaneous doc properties.
+     */
+     uint32_t flags;
+    /**
+     * Use the seqnum set by user instead of auto-generating.
+     */
+#define FDB_CUSTOM_SEQNUM 0x01
 } fdb_doc;
 
 /**

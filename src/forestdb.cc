@@ -1885,9 +1885,6 @@ fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
         (*doc)->bodylen = 0;
     }
 
-    (*doc)->size_ondisk = 0;
-    (*doc)->deleted = false;
-
     return FDB_RESULT_SUCCESS;
 }
 
@@ -1928,7 +1925,20 @@ fdb_status fdb_doc_update(fdb_doc **doc,
         (*doc)->bodylen = bodylen;
     }
 
+    (*doc)->seqnum = SEQNUM_NOT_USED;
     return FDB_RESULT_SUCCESS;
+}
+
+LIBFDB_API
+void fdb_doc_set_seqnum(fdb_doc *doc,
+                        const fdb_seqnum_t seqnum)
+{
+    doc->seqnum = seqnum;
+    if (seqnum != SEQNUM_NOT_USED) {
+        doc->flags |= FDB_CUSTOM_SEQNUM; // fdb_set will now use above seqnum
+    } else { // reset custom seqnum flag, fdb_set will now generate new seqnum
+        doc->flags &= ~FDB_CUSTOM_SEQNUM;
+    }
 }
 
 // doc MUST BE allocated by malloc
@@ -2984,11 +2994,40 @@ fdb_set_start:
 
     if (sub_handle) {
         // multiple KV instance mode AND sub handle
-        handle->seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id) + 1;
+        fdb_seqnum_t seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id);
+        if (doc->seqnum != SEQNUM_NOT_USED &&
+            doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
+            doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
+            if (doc->seqnum <= seqnum) { // Input doc's seqnum is not
+                filemgr_mutex_unlock(file); // monotonically increasing
+                fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0),
+                           1, 0);
+                return FDB_RESULT_INVALID_SEQNUM;
+            }
+            seqnum = doc->seqnum; // Accept input doc's seqnum
+        } else {
+            seqnum = seqnum + 1;
+        }
+        handle->seqnum = seqnum;
         fdb_kvs_set_seqnum(file, handle->kvs->id, handle->seqnum);
     } else {
         // super handle OR single KV instance mode
-        handle->seqnum = filemgr_get_seqnum(file) + 1;
+        fdb_seqnum_t seqnum = filemgr_get_seqnum(file);
+        if (doc->seqnum != SEQNUM_NOT_USED &&
+            doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
+            doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
+            if (doc->seqnum <= seqnum) { // Input doc's seqnum is not
+                filemgr_mutex_unlock(file); // monotonically increasing
+                fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0),
+                           1, 0);
+                return FDB_RESULT_INVALID_SEQNUM;
+            }
+            seqnum = doc->seqnum; // Accept input doc's seqnum
+        } else {
+            seqnum = seqnum + 1;
+        }
+
+        handle->seqnum = seqnum;
         filemgr_set_seqnum(file, handle->seqnum);
     }
     _doc.seqnum = doc->seqnum = handle->seqnum;
