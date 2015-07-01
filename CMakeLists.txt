@@ -76,18 +76,21 @@ ENDIF()
 # Comment the line below to disable compiling Copy-On-Write (COW) optimizations
 ADD_DEFINITIONS (-D_COW_COMPACTION=1)
 
-if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -Qunused-arguments -g -fomit-frame-pointer -pthread")
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -g -fomit-frame-pointer -pthread")
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    if (COUCHBASE_SERVER_BUILD)
+if (COUCHBASE_SERVER_BUILD)
+    if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
        # using /W0 cause msvc to print out a warning that it overrides
        # previous settings (/W3 is added by default).
        # Let's just disable the ones we're "violating"
        # (we should probably fix them at some point?)
        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4716 /wd4244 /wd4267 /wd4101 /wd4800 /wd4700 /wd4018 /wd4102")
-    else(COUCHBASE_SERVER_BUILD)
+   endif()
+else()
+  # If building outside CB server build, set required flags for the selected compiler.
+    if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -Qunused-arguments -g -fomit-frame-pointer -pthread")
+    elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -g -fomit-frame-pointer -pthread")
+    elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4716 /W0")
     endif(COUCHBASE_SERVER_BUILD)
 endif()
