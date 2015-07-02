@@ -4007,6 +4007,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
         hr = hbtrie_next_value_only(&it, (void*)&offset);
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
+            free(_doc);
             hbtrie_iterator_free(&it);
             free(offset_array);
             return fs;
@@ -4207,6 +4208,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
         }
     } // end of while (hr != HBTRIE_RESULT_FAIL) (forall items in trie)
 
+    free(_doc);
     hbtrie_iterator_free(&it);
     free(offset_array);
 
