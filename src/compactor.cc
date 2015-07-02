@@ -1031,6 +1031,7 @@ fdb_status compactor_destroy_file(char *filename,
     strcpy(query.filename, filename);
 
     c_config.sleep_duration = config->compactor_sleep_duration;
+    c_config.num_threads = config->num_compactor_threads;
     compactor_init(&c_config);
 
     mutex_lock(&cpt_lock);
