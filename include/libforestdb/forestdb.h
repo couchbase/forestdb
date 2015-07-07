@@ -180,12 +180,12 @@ fdb_status fdb_doc_update(fdb_doc **doc,
  * Note that this API does not update an item in the ForestDB KV store, but
  * instead simply updates a given FDB_DOC instance only.
  *
+ * WARNING: It is upto the caller to ensure that sequence numbers are unique
+ *          and monotonically increasing based on the order of mutations.
+ *
  * @param doc Pointer to a FDB_DOC instance to be updated.
  * @param seqnum The value of the custom sequence number for this mutation.
  *
- * NOTE: FDB_RESULT_INVALID_SEQNUM will be returned on fdb_set() if the
- *       sequence number was either lower or equal to the highest sequence
- *       number seen in the KV Store.
  */
 LIBFDB_API
 void fdb_doc_set_seqnum(fdb_doc *doc,

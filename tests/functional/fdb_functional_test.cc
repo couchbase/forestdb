@@ -703,7 +703,7 @@ void error_to_str_test()
     int i;
     const char *err_msg;
 
-    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_INVALID_SEQNUM; --i) {
+    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_AIO_GETEVENTS_FAIL; --i) {
         err_msg = fdb_error_msg((fdb_status)i);
         // Verify that all error codes have corresponding error messages
         TEST_CHK(strcmp(err_msg, "unknown error"));
@@ -2406,14 +2406,6 @@ void custom_seqnum_test(bool multi_kv)
             status = fdb_set(db[r], doc[i]);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
         }
-    }
-
-    for (r = num_kv - 1; r >= 0; --r) {
-        i = 0;
-        fdb_doc_set_seqnum(doc[i], 2); // set a lower sequence number
-        status = fdb_set(db[r], doc[i]);
-        TEST_CHK(status == FDB_RESULT_INVALID_SEQNUM);
-        TEST_CHK((doc[i]->flags & FDB_CUSTOM_SEQNUM) == 0);
     }
 
     for (i = n/2; i < n; ++i){

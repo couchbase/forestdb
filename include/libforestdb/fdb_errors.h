@@ -207,12 +207,7 @@ typedef enum {
     /**
      * Fail to read asynchronous I/O events from the completion queue.
      */
-    FDB_RESULT_AIO_GETEVENTS_FAIL = -43,
-    /**
-     * Custom sequence number of fdb_doc is lower than or equal to
-     * the highest sequence number already seen in the KV store handle.
-     */
-    FDB_RESULT_INVALID_SEQNUM = -44
+    FDB_RESULT_AIO_GETEVENTS_FAIL = -43
 } fdb_status;
 
 #ifdef __cplusplus
