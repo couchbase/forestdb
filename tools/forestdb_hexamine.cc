@@ -178,7 +178,7 @@ void gdb_sleep(void) {
 
 int process_file(struct input_option *opt)
 {
-    fdb_file_handle *dbfile;
+    fdb_file_handle *dbfile = NULL;
     fdb_config config;
     char *filename = opt->filename;
     uint64_t file_size;
@@ -203,6 +203,10 @@ int process_file(struct input_option *opt)
 
     if (opt->print_header) {
         fs = fdb_open(&dbfile, filename, &config);
+        if (fs != FDB_RESULT_SUCCESS) {
+            printf("\nUnable to open %s\n", filename);
+            return -1;
+        }
         print_header(dbfile->root);
     }
     if (file_size > opt->max_filesize) {

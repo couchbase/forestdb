@@ -79,26 +79,36 @@ void basic_test()
 
     docsize = _set_doc(&doc, (char *) "this_is_key2", (char *) "this_is_metadata2",
                        (char *) "hello_world");
+    (void)docsize;
     offset = docio_append_doc(&handle, &doc, 0, 0);
+    (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "key3", (char *) "a", (char *) "b");
+    (void)docsize;
     offset = docio_append_doc(&handle, &doc, 0, 0);
+    (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "key4", (char *) "a", (char *) "b");
+    (void)docsize;
     offset = docio_append_doc(&handle, &doc, 0, 0);
+    (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "key5", (char *) "a", (char *) "b");
+    (void)docsize;
     offset = docio_append_doc(&handle, &doc, 0, 0);
+    (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     doc.length.keylen = 1;
     doc.length.metalen = 1;
     doc.length.bodylen = 190;
     docsize = 12 + 182;
+    (void)docsize;
     offset = docio_append_doc(&handle, &doc, 0, 0);
+    (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     keylen_t keylen;

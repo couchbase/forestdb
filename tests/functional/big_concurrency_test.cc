@@ -155,6 +155,7 @@ static void *_writer_thread(void *voidargs)
 
         gen_key_back(j, bigKeyBuf);
         status = fdb_set(db, doc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         // Commit based on batch-size set..
         if (j && j % args->batch_size == 0) {

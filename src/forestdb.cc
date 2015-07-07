@@ -5061,6 +5061,19 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                                      target_seqtree, new_dhandle,
                                      new_bhandle, last_hdr, cur_hdr,
                                      compact_upto, got_lock, &prob);
+        if (fs != FDB_RESULT_SUCCESS) {
+            filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
+
+            if (got_lock) {
+                filemgr_mutex_unlock(handle->file);
+            }
+            _fdb_cleanup_compact_err(handle, new_file, true, false,
+                                     new_bhandle, new_dhandle, new_trie,
+                                     new_seqtrie, new_seqtree);
+            return fs;
+        }
+
+
         if (escape) {
             break;
         }
@@ -5304,6 +5317,9 @@ LIBFDB_API
 fdb_status fdb_close(fdb_file_handle *fhandle)
 {
     fdb_status fs;
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
 
     if (fhandle->root->config.auto_commit &&
         filemgr_get_ref_count(fhandle->root->file) == 1) {
