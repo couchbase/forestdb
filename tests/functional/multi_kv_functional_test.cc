@@ -118,7 +118,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
@@ -178,7 +178,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
@@ -219,7 +219,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
@@ -260,7 +260,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
 
         // metaonly by key
         fdb_doc_create(&doc, key, strlen(key)+1, NULL, 0, NULL, 0);
@@ -361,13 +361,13 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
 
         sprintf(value, valuestr_kv, i);
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
     }
     // info check after compaction
     s = fdb_get_file_info(dbfile, &file_info);
@@ -390,7 +390,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
     }
 
     s = fdb_kvs_remove(dbfile, "kv1");
@@ -424,7 +424,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
         s = fdb_get_kv(db, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, value_out, valuelen);
-        s = fdb_free_block(value_out);
+        fdb_free_block(value_out);
 
         s = fdb_get_kv(kv1, key, strlen(key)+1, &value_out, &valuelen);
         TEST_CHK(s != FDB_RESULT_SUCCESS);

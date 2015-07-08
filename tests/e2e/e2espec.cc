@@ -354,6 +354,7 @@ void end_checkpoint(storage_t *st)
     } else {
         status = fdb_end_transaction(st->records, FDB_COMMIT_NORMAL);
     }
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // save checkpoint doc
     status = fdb_set(st->chk, chk_doc);
@@ -371,7 +372,6 @@ void end_checkpoint(storage_t *st)
     chk=NULL;
 
 }
-
 
 /*
  * cancel checkpoint currently in progress

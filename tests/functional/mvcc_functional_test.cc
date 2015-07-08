@@ -858,6 +858,7 @@ void snapshot_with_uncomitted_data_test()
     s = fdb_snapshot_open(db1, &snap, info.last_seqnum);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_close(snap);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // open snapshot on db2
     s = fdb_get_kvs_info(db2, &info);
@@ -870,6 +871,7 @@ void snapshot_with_uncomitted_data_test()
     s = fdb_snapshot_open(db2, &snap, seqnum);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_close(snap);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // open snapshot on default KVS
     s = fdb_get_kvs_info(db0, &info);
@@ -882,9 +884,12 @@ void snapshot_with_uncomitted_data_test()
     s = fdb_snapshot_open(db0, &snap, seqnum);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_close(snap);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_close(db_file);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     free(value);
     memleak_end();
 
@@ -1127,6 +1132,7 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     kvs_config = fdb_get_default_kvs_config();
 
     s = fdb_open(&db_file, "./mvcc_test", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -1198,7 +1204,7 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         c++;
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
     TEST_CHK(c == n);
 
@@ -1233,14 +1239,14 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         c++;
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
 
         doc = NULL;
         s = fdb_iterator_get(fit, &doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
 
         if (c == n/5) {
             // insert new docs in the middle of iteration
@@ -1288,7 +1294,7 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         c++;
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     } while(fdb_iterator_next(fit_normal) == FDB_RESULT_SUCCESS);
     TEST_CHK(c == n);
 
@@ -1302,7 +1308,9 @@ void in_memory_snapshot_on_dirty_hbtrie_test()
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_close(db_file);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     free(value);
 
     memleak_end();
@@ -1481,6 +1489,7 @@ void in_memory_snapshot_compaction_test()
     kvs_config = fdb_get_default_kvs_config();
 
     s = fdb_open(&db_file, "./mvcc_test", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -1508,6 +1517,7 @@ void in_memory_snapshot_compaction_test()
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_compact(db_file, "./mvcc_test2");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // open in-memory snapshot
     s = fdb_snapshot_open(db, &snap, FDB_SNAPSHOT_INMEM);
@@ -1559,7 +1569,9 @@ void in_memory_snapshot_compaction_test()
     fdb_kvs_close(snap);
 
     s = fdb_close(db_file);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     free(value);
 
     memleak_end();
@@ -2975,7 +2987,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        status = fdb_free_block(value);
+        fdb_free_block(value);
 
         // txn1
         sprintf(keybuf, "key%d", i);
@@ -2983,7 +2995,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db_txn1, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        status = fdb_free_block(value);
+        fdb_free_block(value);
 
         // txn2
         sprintf(keybuf, "key%d", i);
@@ -2991,7 +3003,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        status = fdb_free_block(value);
+        fdb_free_block(value);
     }
 
     // commit txn1
@@ -3004,6 +3016,7 @@ void transaction_simple_api_test()
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
         status = fdb_free_block(value);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
 
         // txn2
         sprintf(keybuf, "key%d", i);
@@ -3011,7 +3024,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db_txn2, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        status = fdb_free_block(value);
+        fdb_free_block(value);
     }
 
     // commit txn2
@@ -3023,7 +3036,7 @@ void transaction_simple_api_test()
         status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        status = fdb_free_block(value);
+        fdb_free_block(value);
     }
 
     // close db file
@@ -3212,7 +3225,7 @@ static void _snapshot_check(fdb_kvs_handle *handle, int ndocs, int nupdates)
                            (void**)&value, &valuelen);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
             TEST_CMP(value, bodybuf, valuelen);
-            s = fdb_free_block(value);
+            fdb_free_block(value);
         }
 
         s = fdb_kvs_close(snap);
@@ -3225,6 +3238,7 @@ static void _snapshot_update_docs(fdb_file_handle *fhandle, struct cb_snapshot_a
     int i;
     char keybuf[256], bodybuf[256];
     fdb_status s;
+    TEST_INIT();
 
     // update (half) docs
     if (args->nupdates % 2 == 0) {
@@ -3234,18 +3248,19 @@ static void _snapshot_update_docs(fdb_file_handle *fhandle, struct cb_snapshot_a
             sprintf(bodybuf, "body%04d_update%d", i, args->nupdates);
             s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
                            bodybuf, strlen(bodybuf)+1);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
         }
     } else {
         // latter half
         for (i=args->ndocs/2 ; i<args->ndocs; ++i) {
             sprintf(keybuf, "key%04d", i);
             sprintf(bodybuf, "body%04d_update%d", i, args->nupdates);
-            s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
+            fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
                            bodybuf, strlen(bodybuf)+1);
         }
     }
     s = fdb_commit(fhandle, FDB_COMMIT_NORMAL);
-    (void) s;
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     args->nupdates++;
 }
 
@@ -3452,7 +3467,7 @@ void rollback_to_zero_test(bool multi_kv)
         TEST_CHK(info.doc_count == 0);
         TEST_CHK(info.space_used == 0);
         status = fdb_get(db[0], doc[0]);
-        TEST_CHK(status = FDB_RESULT_KEY_NOT_FOUND);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         status = fdb_set(db[0], doc[0]);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
     } else {
@@ -3465,7 +3480,7 @@ void rollback_to_zero_test(bool multi_kv)
             TEST_CHK(info.doc_count == 0);
             TEST_CHK(info.space_used == 0);
             status = fdb_get(db[r], doc[0]);
-            TEST_CHK(status = FDB_RESULT_KEY_NOT_FOUND);
+            TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
             // test normal operation after rollback
             status = fdb_set(db[r], doc[0]);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -3852,13 +3867,17 @@ void *rollback_during_ops_test(void * args)
 
         // set a keys commit and save seqnum
         status = fdb_set_kv(kvs,(void *)"key1", 4, (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_get_kvs_info(kvs, &kvs_info);
         rollback_to = kvs_info.last_seqnum;
 
         // 2 more sets
         status = fdb_set_kv(kvs,(void *)"key2", 4, (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_set_kv(kvs,(void *)"key3", 4, (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_commit(file, FDB_COMMIT_MANUAL_WAL_FLUSH);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -4076,6 +4095,7 @@ void rollback_drop_multi_files_kvs_test()
         for(i=0;i<n_kvs;i+=n_kvs){
             vb = j*n_kvs+i;
             status = fdb_kvs_close(kvs[vb]);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
             sprintf(fname, "kvs%d", vb);
             status = fdb_kvs_remove(dbfiles[j], fname);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -4224,7 +4244,7 @@ void tx_crash_recover_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     kvs_config = fdb_get_default_kvs_config();
     status = fdb_kvs_open_default(file, &kvs, &kvs_config);
-
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // restart tx to delete keys
     status = fdb_begin_transaction(file, FDB_ISOLATION_READ_UNCOMMITTED);

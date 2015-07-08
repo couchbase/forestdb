@@ -99,6 +99,7 @@ void endian_test()
     r2 = crc32_8((void*)&b, 4, r2);
     r2 = crc32_8((void*)&c, 4, r2);
     (void)r1;
+    (void)r2;
 
     DBG("%u %u\n", r1,r2);
 

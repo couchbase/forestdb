@@ -3170,7 +3170,9 @@ void iterator_concurrent_compaction()
     fdb_compact(dbfile, "./iterator_test2");
 
     status = fdb_iterator_init(db2, &it_id, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_iterator_sequence_init(db, &it_seq, 0, 0, 0x0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // retrieve docs
     // now handle's header is updated
@@ -3321,6 +3323,7 @@ void iterator_offset_access_test()
 
         // verify can get by offset from main db
         s = fdb_get_byoffset(db, doc[i]);
+        TEST_CHK(s == FDB_RESULT_KEY_NOT_FOUND);
 
         // should be deleted now at new offset
         TEST_CHK(doc[i]->deleted == true);

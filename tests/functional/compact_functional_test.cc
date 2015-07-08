@@ -115,6 +115,7 @@ void compaction_callback_test()
         sprintf(keybuf, "key%04d", i);
         sprintf(bodybuf, "body%04d", i);
         s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -136,6 +137,7 @@ void compaction_callback_test()
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test3");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(cb_args.n_moved_docs == 0);
     TEST_CHK(cb_args.begin);
     TEST_CHK(cb_args.end);
@@ -151,6 +153,7 @@ void compaction_callback_test()
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test4");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(cb_args.begin);
     TEST_CHK(cb_args.end);
@@ -165,6 +168,7 @@ void compaction_callback_test()
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test5");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(cb_args.n_moved_docs == n);
     TEST_CHK(!cb_args.begin);
     TEST_CHK(!cb_args.end);
@@ -178,6 +182,7 @@ void compaction_callback_test()
     fdb_kvs_open(dbfile, &db, "db", &kvs_config);
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test6");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(cb_args.n_moved_docs == 0);
     TEST_CHK(cb_args.n_batch_move && cb_args.n_batch_move <= n);
     TEST_CHK(!cb_args.begin);
@@ -1731,6 +1736,7 @@ void auto_compaction_with_custom_cmp_function()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_get_file_info(file, &file_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     old_filesize = file_info.file_size;
 
     printf("wait for max 10 seconds..\n");
@@ -1738,6 +1744,7 @@ void auto_compaction_with_custom_cmp_function()
         sleep(1);
 
         status = fdb_get_file_info(file, &file_info);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         if (file_info.file_size < old_filesize) {
             break;
         }
@@ -1839,12 +1846,15 @@ void compaction_with_concurrent_transaction_test()
         sprintf(bodybuf, "body%04d", i);
         s = fdb_set_kv(db, keybuf, strlen(keybuf)+1,
                            bodybuf, strlen(bodybuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     cb_args.ndocs = n;
     cb_args.nupdates = 2;
 
     s = fdb_compact(dbfile, "./compact_test2");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // insert new docs through transaction
     for (i=n/2;i<n;++i){
@@ -1852,6 +1862,7 @@ void compaction_with_concurrent_transaction_test()
         sprintf(bodybuf, "txn_body%04d", i);
         s = fdb_set_kv(txn, keybuf, strlen(keybuf)+1,
                             bodybuf, strlen(bodybuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     // all txn docs should be retrieved
     for (i=0;i<n;++i){
@@ -1861,12 +1872,14 @@ void compaction_with_concurrent_transaction_test()
                             &value, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        s = fdb_free_block(value);
+        fdb_free_block(value);
     }
     s = fdb_end_transaction(txn_file, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     fdb_close(txn_file);
 
     s = fdb_compact(dbfile, "./compact_test3");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     fdb_close(dbfile);
     fdb_shutdown();
@@ -1912,7 +1925,9 @@ static int cb_upt(fdb_file_handle *fhandle,
                 sprintf(bodybuf, valuestr, i);
                 s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
                                              bodybuf, strlen(bodybuf)+1);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
                 s = fdb_commit(args->file, FDB_COMMIT_NORMAL);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
 
                 for (j=0; j<=i; ++j){
                     void *v_out;
@@ -1922,7 +1937,7 @@ static int cb_upt(fdb_file_handle *fhandle,
                     s = fdb_get_kv(args->handle2, keybuf, strlen(keybuf)+1,
                         &v_out, &vlen_out);
                     TEST_CHK(s == FDB_RESULT_SUCCESS);
-                    s = fdb_free_block(v_out);
+                    fdb_free_block(v_out);
                 }
             }
             args->done = 1;
@@ -1934,7 +1949,9 @@ static int cb_upt(fdb_file_handle *fhandle,
                 sprintf(bodybuf, "xxxvalue%d", i);
                 s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
                                              bodybuf, strlen(bodybuf)+1);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
                 s = fdb_commit(args->file, FDB_COMMIT_NORMAL);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
             }
             args->done = 2;
         }
@@ -1946,6 +1963,7 @@ static int cb_upt(fdb_file_handle *fhandle,
                 sprintf(bodybuf, "zzzvalue%d", i);
                 s = fdb_set_kv(args->handle, keybuf, strlen(keybuf)+1,
                                              bodybuf, strlen(bodybuf)+1);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
             }
             args->done = 3;
         }
@@ -2003,8 +2021,10 @@ void compaction_with_concurrent_update_test()
         sprintf(bodybuf, "body%04d", i);
         s = fdb_set_kv(db, keybuf, strlen(keybuf)+1,
                            bodybuf, strlen(bodybuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     cb_args.ndocs = n;
     cb_args.nupdates = 2;
     cb_args.nmoves = 0;
@@ -2018,6 +2038,7 @@ void compaction_with_concurrent_update_test()
         sprintf(bodybuf, "new_body%04d", i);
         s = fdb_set_kv(db2, keybuf, strlen(keybuf)+1,
                             bodybuf, strlen(bodybuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
     // all interleaved docs should be retrieved
     // 1. inserted during the first phase of the compaction
@@ -2028,7 +2049,7 @@ void compaction_with_concurrent_update_test()
                             &value, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        s = fdb_free_block(value);
+        fdb_free_block(value);
     }
     // 2. inserted during the second phase of the compaction
     for (i=0; i<2; ++i) {
@@ -2038,7 +2059,7 @@ void compaction_with_concurrent_update_test()
                             &value, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        s = fdb_free_block(value);
+        fdb_free_block(value);
 
         sprintf(keybuf, "zzz%d", i);
         sprintf(bodybuf, "zzzvalue%d", i);
@@ -2046,7 +2067,7 @@ void compaction_with_concurrent_update_test()
                             &value, &valuelen);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(value, bodybuf, valuelen);
-        s = fdb_free_block(value);
+        fdb_free_block(value);
     }
 
     fdb_close(dbfile2);
@@ -2070,7 +2091,9 @@ void compaction_with_concurrent_update_test()
     sprintf(keybuf, "last");
     sprintf(bodybuf, "last_value");
     s = fdb_set_kv(db, keybuf, strlen(keybuf)+1, bodybuf, strlen(bodybuf)+1);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     fdb_close(dbfile);
     fdb_shutdown();
@@ -2207,6 +2230,7 @@ void compact_upto_post_snapshot_test()
     // iterate over snapshot
     status = fdb_iterator_init(snap_db,
                                &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     i = 0;
     do {
         status = fdb_iterator_get(iterator, &rdoc);
@@ -2278,6 +2302,7 @@ void compact_upto_overwrite_test(int opt)
     kvs_config = fdb_get_default_kvs_config();
 
     s = fdb_open(&db_file, "./compact_test", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_kvs_open(db_file, &db, "db", &kvs_config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -2310,9 +2335,11 @@ void compact_upto_overwrite_test(int opt)
     }
 
     s = fdb_get_all_snap_markers(db_file, &markers, &n_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     int upto = n/2;
     s = fdb_compact_upto(db_file, "./compact_test2", markers[upto].marker);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     // iterating using snapshots with various seqnums
     for (i=n_markers-1; i>=0; --i) {
@@ -2346,9 +2373,10 @@ void compact_upto_overwrite_test(int opt)
             TEST_CMP(doc->key, key, doc->keylen);
             TEST_CMP(doc->body, value, doc->bodylen);
             c++;
-            s = fdb_doc_free(doc);
+            fdb_doc_free(doc);
         } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
         s = fdb_iterator_close(fit);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CHK(c == (n/2));
 
         s = fdb_kvs_close(snap);
@@ -2371,15 +2399,19 @@ void compact_upto_overwrite_test(int opt)
         TEST_CMP(doc->key, key, doc->keylen);
         TEST_CMP(doc->body, value, doc->bodylen);
         c++;
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
     s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(c == (n/2));
 
     s = fdb_free_snap_markers(markers, n_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     free(value);
     s = fdb_close(db_file);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     memleak_end();
 
@@ -2462,6 +2494,7 @@ void compact_with_snapshot_open_test()
       sprintf(keybuf, "key%04d", i);
       sprintf(bodybuf, "body%04d", i);
       s = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+      TEST_CHK(s == FDB_RESULT_SUCCESS);
   }
 
 
@@ -2482,7 +2515,9 @@ void compact_with_snapshot_open_test()
 
   fdb_kvs_close(snap_db);
   s = fdb_close(dbfile);
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
   s = fdb_shutdown();
+  TEST_CHK(s == FDB_RESULT_SUCCESS);
   TEST_RESULT("compact with snapshot_open test");
 }
 
@@ -2592,7 +2627,9 @@ void compact_with_snapshot_open_multi_kvs_test()
     }
 
     s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_RESULT("compact with snapshot_open multi kvs test");
 }
 
