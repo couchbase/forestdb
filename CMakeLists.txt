@@ -92,7 +92,7 @@ else()
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -g -fomit-frame-pointer -pthread")
     elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4716 /W0")
-    endif(COUCHBASE_SERVER_BUILD)
+    endif()
 endif()
 
 add_library(forestdb SHARED
