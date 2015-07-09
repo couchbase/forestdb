@@ -947,7 +947,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
     }
 
     // read header
-    filemgr_fetch_header(file, hdr_bid, buf, &len, &seqnum, &handle->log_callback);
+    filemgr_fetch_header(file, hdr_bid, buf, &len, &seqnum, NULL, &handle->log_callback);
     if (id > 0) { // non-default KVS
         // read last KVS header
         fdb_fetch_header(buf, &dummy64,

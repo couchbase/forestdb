@@ -835,7 +835,9 @@ void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum)
     file->header.seqnum = seqnum;
 }
 
-void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len)
+void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
+                         bid_t *header_bid, fdb_seqnum_t *seqnum,
+                         filemgr_header_revnum_t *header_revnum)
 {
     spin_lock(&file->lock);
 
@@ -845,7 +847,20 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len)
         }
         memcpy(buf, file->header.data, file->header.size);
     }
-    *len = file->header.size;
+
+    if (len) {
+        *len = file->header.size;
+    }
+    if (header_bid) {
+        *header_bid = ((file->header.size > 0) ?
+                       atomic_get_uint64_t(&file->header.bid) : BLK_NOT_FOUND);
+    }
+    if (seqnum) {
+        *seqnum = file->header.seqnum;
+    }
+    if (header_revnum) {
+        *header_revnum = file->header.revnum;
+    }
 
     spin_unlock(&file->lock);
 
@@ -854,6 +869,7 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len)
 
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
+                                filemgr_header_revnum_t *header_revnum,
                                 err_log_callback *log_callback)
 {
     uint8_t *_buf;
@@ -908,6 +924,12 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     memcpy(buf, _buf, hdr_len);
     *len = hdr_len;
 
+    if (header_revnum) {
+        // copy the DB header revnum
+        filemgr_header_revnum_t _revnum;
+        memcpy(&_revnum, _buf + hdr_len, sizeof(_revnum));
+        *header_revnum = _endian_decode(_revnum);
+    }
     if (seqnum) {
         // copy default KVS's seqnum
         fdb_seqnum_t _seqnum;
