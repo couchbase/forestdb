@@ -481,10 +481,9 @@ void handle_busy_test()
     TEST_RESULT("Handle Busy Test");
 }
 
-int is_cow_support_cb(void *ctx, struct filemgr_ops *normal_ops,
-                       int srcfd, int dstfd)
+int get_fs_type_cb(void *ctx, struct filemgr_ops *normal_ops, int srcfd)
 {
-    return FDB_RESULT_SUCCESS;
+    return FILEMGR_FS_EXT4_WITH_COW;
 }
 
 struct cb_cmp_args {
@@ -568,8 +567,8 @@ static void append_batch_delta(void)
 }
 
 static int copy_file_range_cb(void *ctx, struct filemgr_ops *normal_ops,
-                        int src, int dst, uint64_t src_off,
-                        uint64_t dst_off, uint64_t len)
+                              int fstype, int src, int dst,
+                              uint64_t src_off, uint64_t dst_off, uint64_t len)
 {
     uint8_t *buf = alca(uint8_t, len);
     bool *append_delta = (bool *)ctx;
@@ -612,7 +611,7 @@ void copy_file_range_test()
 
     // Get the default callbacks which result in normal operation for other ops
     struct anomalous_callbacks *cow_compact_cb = get_default_anon_cbs();
-    cow_compact_cb->is_cow_support_cb = &is_cow_support_cb;
+    cow_compact_cb->get_fs_type_cb = &get_fs_type_cb;
     cow_compact_cb->copy_file_range_cb = &copy_file_range_cb;
 
     memset(&cb_args, 0x0, sizeof(struct cb_cmp_args));

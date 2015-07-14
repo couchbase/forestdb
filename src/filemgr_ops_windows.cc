@@ -220,13 +220,14 @@ int _filemgr_aio_destroy(struct async_io_handle *aio_handle)
     return FDB_RESULT_AIO_NOT_SUPPORTED;
 }
 
-int _filemgr_win_is_cow_support(int src_fd, int dst_fd)
+int _filemgr_win_get_fs_type(int src_fd)
 {
-    return FDB_RESULT_INVALID_ARGS;
+    return FILEMGR_FS_NO_COW;
 }
 
-int _filemgr_win_copy_file_range(int src_fd, int dst_fd, uint64_t src_off,
-                                 uint64_t dst_off, uint64_t len)
+int _filemgr_win_copy_file_range(int fstype, int src_fd, int dst_fd,
+                                 uint64_t src_off, uint64_t dst_off,
+                                 uint64_t len)
 {
     return FDB_RESULT_INVALID_ARGS;
 }
@@ -247,7 +248,7 @@ struct filemgr_ops win_ops = {
     _filemgr_aio_submit,
     _filemgr_aio_getevents,
     _filemgr_aio_destroy,
-    _filemgr_win_is_cow_support,
+    _filemgr_win_get_fs_type,
     _filemgr_win_copy_file_range
 };
 

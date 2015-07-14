@@ -295,27 +295,6 @@ int _filemgr_aio_destroy(struct async_io_handle *aio_handle)
 #define BTRFS_SUPER_MAGIC 0x9123683E
 #endif
 
-int _filemgr_linux_is_cow_support(int src_fd, int dst_fd)
-{
-    int ret;
-    struct statfs sfs;
-    ret = fstatfs(src_fd, &sfs);
-    if (ret != 0) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    if (sfs.f_type != BTRFS_SUPER_MAGIC) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    ret = fstatfs(dst_fd, &sfs);
-    if (ret != 0) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    if (sfs.f_type != BTRFS_SUPER_MAGIC) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-    return FDB_RESULT_SUCCESS;
-}
-
 #ifdef HAVE_BTRFS_IOCTL_H
 #include <btrfs/ioctl.h>
 #else
@@ -369,21 +348,86 @@ struct btrfs_ioctl_clone_range_args {
                               struct btrfs_ioctl_clone_range_args)
 #endif // HAVE_BTRFS_IOCTL_H
 
-int _filemgr_linux_copy_file_range(int src_fd, int dst_fd, uint64_t src_off,
+#ifndef EXT4_SUPER_MAGIC
+#define EXT4_SUPER_MAGIC 0xEF53
+#endif
+
+#ifndef EXT4_IOC_TRANFER_BLK_OWNERSHIP
+/* linux/fs/ext4/ext4.h */
+#define EXT4_IOC_TRANFER_BLK_OWNERSHIP  _IOWR('f', 22, struct tranfer_blk_ownership)
+
+struct tranfer_blk_ownership {
+    int32_t dest_fd;           /* destination file decriptor */
+    uint64_t src_start;        /* logical start offset in block for src */
+    uint64_t dest_start;       /* logical start offset in block for dest */
+    uint64_t len;              /* block length to be onwership-transfered */
+};
+#endif // EXT4_IOC_TRANSFER_BLK_OWNERSHIP
+
+static
+int _filemgr_linux_ext4_share_blks(int src_fd, int dst_fd, uint64_t src_off,
                                    uint64_t dst_off, uint64_t len)
 {
-    struct btrfs_ioctl_clone_range_args cr_args;
-    int ret;
+    int err;
+    struct tranfer_blk_ownership tbo;
+    tbo.dest_fd = dst_fd;
+    tbo.src_start = src_off;
+    tbo.dest_start = dst_off;
+    tbo.len = len;
+    err = ioctl(src_fd, EXT4_IOC_TRANFER_BLK_OWNERSHIP, &tbo);
+    if (err) {
+        return errno;
+    }
+    return err;
+}
 
-    memset(&cr_args, 0, sizeof(cr_args));
-    cr_args.src_fd = src_fd;
-    cr_args.src_offset = src_off;
-    cr_args.src_length = len;
-    cr_args.dest_offset = dst_off;
-    ret = ioctl(dst_fd, BTRFS_IOC_CLONE_RANGE, &cr_args);
-    if (ret != 0) { // LCOV_EXCL_START
-        ret = errno;
-    }              // LCOV_EXCL_STOP
+int _filemgr_linux_get_fs_type(int src_fd)
+{
+    int ret;
+    struct statfs sfs;
+    ret = fstatfs(src_fd, &sfs);
+    if (ret != 0) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    switch (sfs.f_type) {
+        case EXT4_SUPER_MAGIC:
+            ret = _filemgr_linux_ext4_share_blks(src_fd, src_fd, 0, 0, 0);
+            if (ret == 0) {
+                ret = FILEMGR_FS_EXT4_WITH_COW;
+            } else {
+                ret = FILEMGR_FS_NO_COW;
+            }
+            break;
+        case BTRFS_SUPER_MAGIC:
+            ret = FILEMGR_FS_BTRFS;
+            break;
+        default:
+            ret = FILEMGR_FS_NO_COW;
+    }
+    return ret;
+}
+
+int _filemgr_linux_copy_file_range(int fs_type,
+                                   int src_fd, int dst_fd, uint64_t src_off,
+                                   uint64_t dst_off, uint64_t len)
+{
+    int ret = (int)FDB_RESULT_INVALID_ARGS;
+    if (fs_type == FILEMGR_FS_BTRFS) {
+        struct btrfs_ioctl_clone_range_args cr_args;
+
+        memset(&cr_args, 0, sizeof(cr_args));
+        cr_args.src_fd = src_fd;
+        cr_args.src_offset = src_off;
+        cr_args.src_length = len;
+        cr_args.dest_offset = dst_off;
+        ret = ioctl(dst_fd, BTRFS_IOC_CLONE_RANGE, &cr_args);
+        if (ret != 0) { // LCOV_EXCL_START
+            ret = errno;
+        }              // LCOV_EXCL_STOP
+    } else if (fs_type == FILEMGR_FS_EXT4_WITH_COW) {
+        ret = _filemgr_linux_ext4_share_blks(src_fd, dst_fd, src_off,
+                                             dst_off, len);
+    }
     return ret;
 }
 
@@ -403,7 +447,7 @@ struct filemgr_ops linux_ops = {
     _filemgr_aio_submit,
     _filemgr_aio_getevents,
     _filemgr_aio_destroy,
-    _filemgr_linux_is_cow_support,
+    _filemgr_linux_get_fs_type,
     _filemgr_linux_copy_file_range
 };
 

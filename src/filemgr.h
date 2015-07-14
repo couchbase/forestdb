@@ -71,6 +71,15 @@ struct async_io_handle {
     int fd;
 };
 
+typedef int filemgr_fs_type_t;
+enum {
+    FILEMGR_FS_NO_COW = 0x01,
+    FILEMGR_FS_EXT4_WITH_COW = 0x02,
+    FILEMGR_FS_BTRFS = 0x03
+};
+
+// Note: Please try to ensure that the following filemgr ops also have
+// equivalent test/filemgr_anomalous_ops.h/cc test apis for failure testing
 struct filemgr_ops {
     int (*open)(const char *pathname, int flags, mode_t mode);
     ssize_t (*pwrite)(int fd, void *buf, size_t count, cs_off_t offset);
@@ -90,9 +99,9 @@ struct filemgr_ops {
     int (*aio_getevents)(struct async_io_handle *aio_handle, int min,
                          int max, unsigned int timeout);
     int (*aio_destroy)(struct async_io_handle *aio_handle);
-    int (*is_cow_support)(int src_fd, int dst_fd);
-    int (*copy_file_range)(int src_fd, int dst_fd, uint64_t src_off,
-                           uint64_t dst_off, uint64_t len);
+    int (*get_fs_type)(int src_fd);
+    int (*copy_file_range)(int fs_type, int src_fd, int dst_fd,
+                           uint64_t src_off, uint64_t dst_off, uint64_t len);
 };
 
 struct filemgr_buffer{
@@ -153,6 +162,7 @@ struct filemgr {
     struct fnamedic_item *bcache;
     fdb_txn global_txn;
     bool in_place_compaction;
+    filemgr_fs_type_t fs_type;
     struct kvs_header *kv_header;
     void (*free_kv_header)(struct filemgr *file); // callback function
 

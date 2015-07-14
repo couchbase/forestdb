@@ -1761,7 +1761,9 @@ fdb_status filemgr_copy_file_range(struct filemgr *src_file,
                                    bid_t clone_len)
 {
     uint32_t blocksize = src_file->blocksize;
-    fdb_status fs = (fdb_status)dst_file->ops->copy_file_range(src_file->fd,
+    fdb_status fs = (fdb_status)dst_file->ops->copy_file_range(
+                                            src_file->fs_type,
+                                            src_file->fd,
                                             dst_file->fd,
                                             src_bid * blocksize,
                                             dst_bid * blocksize,
@@ -2127,10 +2129,17 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
 
 bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
 {
-    if (src->ops->is_cow_support(src->fd, dst->fd) == FDB_RESULT_SUCCESS) {
+    src->fs_type = src->ops->get_fs_type(src->fd);
+    if (src->fs_type < 0) {
+        return false;
+    }
+    dst->fs_type = dst->ops->get_fs_type(dst->fd);
+    if (dst->fs_type < 0) {
+        return false;
+    }
+    if (src->fs_type == dst->fs_type && src->fs_type != FILEMGR_FS_NO_COW) {
         return true;
     }
-
     return false;
 }
 

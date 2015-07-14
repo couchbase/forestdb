@@ -146,17 +146,16 @@ int _aio_destroy_cb(void *ctx, struct filemgr_ops *normal_ops,
     return normal_ops->aio_destroy(aio_handle);
 }
 
-int _is_cow_support_cb(void *ctx, struct filemgr_ops *normal_ops,
-                       int src, int dst)
+int _get_fs_type_cb(void *ctx, struct filemgr_ops *normal_ops, int src)
 {
-    return normal_ops->is_cow_support(src, dst);
+    return normal_ops->get_fs_type(src);
 }
 
 int _copy_file_range_cb(void *ctx, struct filemgr_ops *normal_ops,
-                        int src, int dst, uint64_t src_off,
+                        int fstype, int src, int dst, uint64_t src_off,
                         uint64_t dst_off, uint64_t len)
 {
-    return normal_ops->copy_file_range(src, dst, src_off, dst_off, len);
+    return normal_ops->copy_file_range(fstype, src, dst, src_off, dst_off, len);
 }
 
 struct anomalous_callbacks default_callbacks = {
@@ -174,7 +173,7 @@ struct anomalous_callbacks default_callbacks = {
     _aio_submit_cb,
     _aio_getevents_cb,
     _aio_destroy_cb,
-    _is_cow_support_cb,
+    _get_fs_type_cb,
     _copy_file_range_cb
 };
 
@@ -275,18 +274,17 @@ int _filemgr_anomalous_aio_destroy(struct async_io_handle *aio_handle)
     return anon_cbs->aio_destroy_cb(anon_ctx, normal_filemgr_ops, aio_handle);
 }
 
-int _filemgr_anomalous_is_cow_support(int src_fd, int dst_fd)
+int _filemgr_anomalous_get_fs_type(int src_fd)
 {
-    return anon_cbs->is_cow_support_cb(anon_ctx, normal_filemgr_ops, src_fd,
-                                       dst_fd);
+    return anon_cbs->get_fs_type_cb(anon_ctx, normal_filemgr_ops, src_fd);
 }
 
-int _filemgr_anomalous_copy_file_range(int src_fd, int dst_fd,
+int _filemgr_anomalous_copy_file_range(int fs_type, int src_fd, int dst_fd,
                                        uint64_t src_off, uint64_t dst_off,
                                        uint64_t len)
 {
-    return anon_cbs->copy_file_range_cb(anon_ctx, normal_filemgr_ops, src_fd,
-                                        dst_fd, src_off, dst_off, len);
+    return anon_cbs->copy_file_range_cb(anon_ctx, normal_filemgr_ops, fs_type,
+                                        src_fd, dst_fd, src_off, dst_off, len);
 }
 
 struct filemgr_ops anomalous_ops = {
@@ -304,7 +302,7 @@ struct filemgr_ops anomalous_ops = {
     _filemgr_anomalous_aio_submit,
     _filemgr_anomalous_aio_getevents,
     _filemgr_anomalous_aio_destroy,
-    _filemgr_anomalous_is_cow_support,
+    _filemgr_anomalous_get_fs_type,
     _filemgr_anomalous_copy_file_range
 };
 

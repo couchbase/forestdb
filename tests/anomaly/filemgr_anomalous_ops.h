@@ -56,11 +56,11 @@ struct anomalous_callbacks {
                             int min, int max, unsigned int timeout);
     int (*aio_destroy_cb)(void *ctx, struct filemgr_ops *normal_ops,
                           struct async_io_handle *aio_handle);
-    int (*is_cow_support_cb)(void *ctx, struct filemgr_ops *normal_ops,
-                             int src_fd, int dst_fd);
+    int (*get_fs_type_cb)(void *ctx, struct filemgr_ops *normal_ops,
+                          int src_fd);
     int (*copy_file_range_cb)(void *ctx, struct filemgr_ops *normal_ops,
-                              int src_fd, int dst_fd, uint64_t src_off,
-                              uint64_t dst_off, uint64_t len);
+                              int fs_type, int src_fd, int dst_fd,
+                              uint64_t src_off, uint64_t dst_off, uint64_t len);
 };
 
 struct anomalous_callbacks * get_default_anon_cbs();
