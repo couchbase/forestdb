@@ -97,7 +97,7 @@ typedef struct {
 
     char keyspace[KEYSPACE_LEN];
     bool walflush;
-
+    bool verify_set;
 }storage_t;
 
 // generators

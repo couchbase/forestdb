@@ -86,6 +86,7 @@ storage_t *init_storage(fdb_config *m_fconfig,
     st->v_chk = v_chk;
     st->index_params = idxp;
     st->walflush = walflush;
+    st->verify_set = true;
     gen_random(st->keyspace, KEYSPACE_LEN);
 
     // init dbs
@@ -212,8 +213,10 @@ void e2e_fdb_set_person(storage_t *st, person_t *p){
             st->v_chk->sum_age_indexed+=p->age;
             free(doc->body);
             doc->body = NULL;
-            status = fdb_get(st->all_docs, doc);
-            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            if (st->verify_set) {
+                status = fdb_get(st->all_docs, doc);
+                TEST_CHK(status == FDB_RESULT_SUCCESS);
+            }
         }
         st->v_chk->ndocs += 1;
     }
