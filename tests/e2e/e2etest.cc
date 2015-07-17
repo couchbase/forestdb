@@ -704,6 +704,7 @@ void e2e_robust_pattern(fdb_config fconfig)
     for (n=0;n<10;++n) {
         // start writer threads
         for (i=0;i<n_writers-1;++i) {
+            st[i]->verify_set = false;
             thread_create(&tid_wr[i], writer_thread, (void*)st[i]);
         }
 

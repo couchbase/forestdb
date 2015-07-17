@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include "time_utils.h"
 
 #define N_DBG_SWITCH (256)
 
@@ -46,8 +47,17 @@ int _dbg_is_sw_set(int n)
 }
 
 void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected) {
+    char *hang_process;
      fprintf(stderr, "Assertion in %p != %p in %s:%d\n",
             (void *)val, (void *)expected, file, line);
+     hang_process = getenv("HANG_ON_ASSERTION");
+     if (hang_process) {
+         fprintf(stderr, "Hanging process...");
+         fprintf(stderr, "\n");
+         while (1) {
+             usleep(1000);
+         }
+     }
 }
 // LCOV_EXCL_STOP
 
