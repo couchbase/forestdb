@@ -5705,6 +5705,13 @@ fdb_status fdb_shutdown()
     fdb_status ret = FDB_RESULT_SUCCESS;
     if (fdb_initialized) {
         spin_lock(&initial_lock);
+        if (!fdb_initialized) {
+            // ForestDB is already shut down
+#ifdef SPIN_INITIALIZER
+            spin_unlock(&initial_lock);
+#endif
+            return ret;
+        }
         if (fdb_open_inprog) {
             spin_unlock(&initial_lock);
             return FDB_RESULT_FILE_IS_BUSY;

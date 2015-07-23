@@ -1658,7 +1658,6 @@ void *multi_thread_client_shutdown(void *args)
 {
 
     TEST_INIT();
-    memleak_start();
 
     int i, r;
     int nclients;
@@ -1671,6 +1670,7 @@ void *multi_thread_client_shutdown(void *args)
 
     if (args == NULL)
     { // parent
+        memleak_start();
 
         r = system(SHELL_DEL" dummy* > errorlog.txt");
         (void)r;

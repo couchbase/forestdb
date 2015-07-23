@@ -1251,6 +1251,13 @@ fdb_status filemgr_shutdown()
     void *open_file;
     if (filemgr_initialized) {
         spin_lock(&initial_lock);
+        if (!filemgr_initialized) {
+            // filemgr is already shut down
+#ifdef SPIN_INITIALIZER
+            spin_unlock(&initial_lock);
+#endif
+            return ret;
+        }
 
         open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
         if (!open_file) {
