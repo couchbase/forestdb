@@ -2431,9 +2431,9 @@ void custom_seqnum_test(bool multi_kv)
             TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
             ++i;
             if (i <= n/2) {
-                TEST_CHK(rdoc->seqnum == i);
+                TEST_CHK(rdoc->seqnum == (fdb_seqnum_t)i);
             } else {
-                TEST_CHK(rdoc->seqnum == i*2);
+                TEST_CHK(rdoc->seqnum == (fdb_seqnum_t)i*2);
             }
         } while(fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
         fdb_iterator_close(iterator);
