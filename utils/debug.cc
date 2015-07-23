@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "time_utils.h"
+#if !defined(WIN32) && !defined(_WIN32)
+#include <execinfo.h>
+#endif // !defined(WIN32) && !defined(_WIN32)
 
 #define N_DBG_SWITCH (256)
 
@@ -50,6 +53,18 @@ void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected) {
     char *hang_process;
      fprintf(stderr, "Assertion in %p != %p in %s:%d\n",
             (void *)val, (void *)expected, file, line);
+
+#if !defined(WIN32) && !defined(_WIN32)
+     void *callstack[10];
+     char **backtrace_buf;
+     int frames = backtrace(callstack, 10);
+     backtrace_buf = backtrace_symbols(callstack, frames);
+     if (backtrace_buf) {
+         for (int i = 0; i < frames; ++i) {
+             fprintf(stderr, "%d : %s\n", i, backtrace_buf[i]);
+         } // (no need to free memory as process is crashing)
+     }
+#endif // !defined(WIN32) && !defined(_WIN32)
      hang_process = getenv("HANG_ON_ASSERTION");
      if (hang_process) {
          fprintf(stderr, "Hanging process...");
