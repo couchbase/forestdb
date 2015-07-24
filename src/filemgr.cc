@@ -1250,7 +1250,19 @@ fdb_status filemgr_shutdown()
     fdb_status ret = FDB_RESULT_SUCCESS;
     void *open_file;
     if (filemgr_initialized) {
+
+#ifndef SPIN_INITIALIZER
+        // Windows: check if spin lock is already destroyed.
+        if (InterlockedCompareExchange(&initial_lock_status, 1, 2) == 2) {
+            spin_lock(&initial_lock);
+        } else {
+            // filemgr is already shut down
+            return ret;
+        }
+#else
         spin_lock(&initial_lock);
+#endif
+
         if (!filemgr_initialized) {
             // filemgr is already shut down
 #ifdef SPIN_INITIALIZER
