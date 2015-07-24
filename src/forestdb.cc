@@ -6326,7 +6326,26 @@ fdb_status fdb_shutdown()
 {
     fdb_status ret = FDB_RESULT_SUCCESS;
     if (fdb_initialized) {
+
+#ifndef SPIN_INITIALIZER
+        // Windows: check if spin lock is already destroyed.
+        if (InterlockedCompareExchange(&initial_lock_status, 1, 2) == 2) {
+            spin_lock(&initial_lock);
+        } else {
+            // ForestDB is already shut down
+            return ret;
+        }
+#else
         spin_lock(&initial_lock);
+#endif
+
+        if (!fdb_initialized) {
+            // ForestDB is already shut down
+#ifdef SPIN_INITIALIZER
+            spin_unlock(&initial_lock);
+#endif
+            return ret;
+        }
         if (fdb_open_inprog) {
             spin_unlock(&initial_lock);
             return FDB_RESULT_FILE_IS_BUSY;
