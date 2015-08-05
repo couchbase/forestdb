@@ -41,16 +41,18 @@
 extern "C" {
 #endif
 
+#define FILEMGR_SYNC 0x01
+#define FILEMGR_READONLY 0x02
+#define FILEMGR_ROLLBACK_IN_PROG 0x04
+#define FILEMGR_CREATE 0x08
+#define FILEMGR_REMOVAL_IN_PROG 0x10
+
 struct filemgr_config {
     int blocksize;
     int ncacheblock;
     int flag;
     int chunksize;
     uint8_t options;
-#define FILEMGR_SYNC 0x01
-#define FILEMGR_READONLY 0x02
-#define FILEMGR_ROLLBACK_IN_PROG 0x04
-#define FILEMGR_CREATE 0x08
     uint64_t prefetch_duration;
     uint16_t num_wal_shards;
     uint16_t num_bcache_shards;
@@ -173,12 +175,19 @@ struct filemgr {
     mutex_lock_t writer_lock;
 };
 
+typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
+                                                 err_log_callback *log_callback);
+typedef bool (*check_file_removal_func)(const char *filename);
+
 typedef struct {
     struct filemgr *file;
     int rv;
 } filemgr_open_result;
 
 void filemgr_init(struct filemgr_config *config);
+void filemgr_set_lazy_file_deletion(bool enable,
+                                    register_file_removal_func regis_func,
+                                    check_file_removal_func check_func);
 
 uint64_t filemgr_get_bcache_used_space(void);
 
@@ -218,6 +227,7 @@ fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
                          const char *orig_file_name,
                          err_log_callback *log_callback);
+void _filemgr_free_func(struct hash_elem *h);
 
 INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
 {
