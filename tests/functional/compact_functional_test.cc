@@ -691,6 +691,165 @@ void compact_reopen_with_iterator()
     TEST_RESULT("compact reopen with iterator");
 }
 
+void estimate_space_upto_test(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, r;
+    int n = 300;
+    int num_kvs = 4; // keep this the same as number of fdb_commit() calls
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+    fdb_snapshot_info_t *markers;
+    uint64_t num_markers;
+    size_t space_used;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    char kv_name[8];
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 50;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
+    if (multi_kv) {
+        for (r = 0; r < num_kvs; ++r) {
+            sprintf(kv_name, "kv%d", r);
+            fdb_kvs_open(dbfile, &db[r], kv_name, &kvs_config);
+        }
+    } else {
+        num_kvs = 1;
+        fdb_kvs_open_default(dbfile, &db[0], &kvs_config);
+    }
+
+   // ------- Setup test ----------------------------------
+   // insert first quarter of documents
+    for (i=0; i<n/4; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert second quarter of documents
+    for (; i < n/2; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // Update first quarter of documents again..
+    for (j = 0; j < n/4; j++){
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[j]);
+        }
+    }
+    // Update first quarter of documents again overwriting previous update..
+    for (j = 0; j < n/4; j++){
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[j]);
+        }
+    }
+
+    // commit again without a WAL flush (some of these docs remain in WAL)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // insert third quarter of documents
+    for (; i < (n/2 + n/4); i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // manually flush WAL & commit (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // insert fourth quarter of documents
+    for (; i < n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+    // commit without a WAL flush (some of these docs remain in the WAL)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                      (void *) "estimate_space_upto_test");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    if (!multi_kv) {
+        size_t space_used2;
+        TEST_CHK(num_markers == 4);
+        space_used = fdb_estimate_space_used_from(dbfile, markers[1].marker);
+        space_used2 = fdb_estimate_space_used_from(dbfile, markers[2].marker);
+        TEST_CHK(space_used2 > space_used); // greater than space used by just 1
+    } else {
+        size_t space_used2;
+        TEST_CHK(num_markers == 8);
+        space_used = fdb_estimate_space_used_from(dbfile, markers[1].marker);
+        space_used2 = fdb_estimate_space_used_from(dbfile, markers[2].marker);
+        TEST_CHK(space_used2 > space_used); // greater than space used by just 1
+    }
+
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf, "estimate space upto marker in file test %s", multi_kv ?
+                                                           "multiple kv mode:"
+                                                         : "single kv mode:");
+    TEST_RESULT(bodybuf);
+}
 
 void compact_upto_test(bool multi_kv)
 {
@@ -2636,6 +2795,8 @@ void compact_with_snapshot_open_multi_kvs_test()
 int main(){
     int i;
 
+    compact_upto_test(false); // single kv instance in file
+    compact_upto_test(true); // multiple kv instance in file
     for (i=0;i<4;++i) {
         compact_upto_overwrite_test(i);
     }
@@ -2648,8 +2809,8 @@ int main(){
     compact_with_reopen_test();
     compact_reopen_with_iterator();
     compact_reopen_named_kvs();
-    compact_upto_test(false); // single kv instance in file
-    compact_upto_test(true); // multiple kv instance in file
+    estimate_space_upto_test(false); // single kv instance in file
+    estimate_space_upto_test(true); // multiple kv instance in file
     auto_recover_compact_ok_test();
     db_compact_overwrite();
     db_compact_during_doc_delete(NULL);

@@ -726,6 +726,22 @@ LIBFDB_API
 size_t fdb_estimate_space_used(fdb_file_handle *fhandle);
 
 /**
+ * Return the overall disk space actively used by all snapshots starting from
+ * a given snapshot marker.
+ * Note that this doesn't include the disk space used by stale btree nodes
+ * and docs.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param marker Snapshot marker returned by fdb_get_all_snap_markers()
+ * @return Disk space actively used by all snapshots starting from a given
+ *         snapshot marker. fdb_log used internally to log errors.
+ *
+ */
+LIBFDB_API
+size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
+                                    fdb_snapshot_marker_t marker);
+
+/**
  * Return the information about a ForestDB file.
  *
  * @param fhandle Pointer to ForestDB file handle.

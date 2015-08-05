@@ -180,6 +180,7 @@ INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
     list_push_back(&handle->alc_list, &block->le);
 
     handle->nlivenodes++;
+    handle->ndeltanodes++;
 
     return block->addr;
 }
@@ -477,7 +478,9 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
             // move
             memcpy(new_addr, old_addr, (handle->nodesize));
 
-            filemgr_invalidate_block(handle->file, _bid);
+            if (filemgr_invalidate_block(handle->file, _bid)) {
+                handle->ndeltanodes--;
+            }
             return (uint8_t*)new_addr + handle->sb[sb].sb_size * idx;
         } else {
             //2 case 2
@@ -549,13 +552,17 @@ void btreeblk_remove(void *voidhandle, bid_t bid)
             if (nitems == 0) {
                 handle->sb[sb].bid = BLK_NOT_FOUND;
                 handle->nlivenodes--;
-                filemgr_invalidate_block(handle->file, _bid);
+                if (filemgr_invalidate_block(handle->file, _bid)) {
+                    handle->ndeltanodes--;
+                }
             }
         }
     } else {
         // normal block
         handle->nlivenodes--;
-        filemgr_invalidate_block(handle->file, bid);
+        if (filemgr_invalidate_block(handle->file, bid)) {
+            handle->ndeltanodes--;
+        }
     }
 }
 // LCOV_EXCL_STOP
@@ -1177,6 +1184,7 @@ void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file,
     handle->nodesize = nodesize;
     handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
     handle->nlivenodes = 0;
+    handle->ndeltanodes = 0;
     handle->dirty_snapshot = NULL;
 
     list_init(&handle->alc_list);

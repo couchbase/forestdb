@@ -1165,7 +1165,8 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     } else { // Rollback failed, restore KV header
         fdb_kvs_header_create(file);
         fdb_kvs_header_read(file, super_handle->dhandle,
-                            super_handle->kv_info_offset, false);
+                            super_handle->kv_info_offset, FILEMGR_MAGIC_V2,
+                            false);
     }
 
     return fs;
@@ -1313,6 +1314,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     uint64_t datasize = 0;
     uint64_t last_wal_flush_hdr_bid = BLK_NOT_FOUND;
     uint64_t kv_info_offset = BLK_NOT_FOUND;
+    uint64_t version;
     uint64_t header_flags = 0;
     uint8_t header_buf[FDB_BLOCKSIZE];
     char *compacted_filename = NULL;
@@ -1401,7 +1403,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (handle->shandle && handle->last_hdr_bid) {
         status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                       header_buf, &header_len, &seqnum,
-                                      &header_revnum,
+                                      &header_revnum, NULL, &version,
                                       &handle->log_callback);
         if (status != FDB_RESULT_SUCCESS) {
             free(handle->filename);
@@ -1439,7 +1441,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     fdb_kvs_header_create(handle->file);
                     // KV header already exists but not loaded .. read & import
                     fdb_kvs_header_read(handle->file, handle->dhandle,
-                                        kv_info_offset, false);
+                                        kv_info_offset, version, false);
                 }
                 seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
                                              handle->kvs->id);
@@ -1499,7 +1501,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             while (header_len && seqnum != handle->max_seqnum) {
                 hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                           header_buf, &header_len, &seqnum,
-                                          &handle->log_callback);
+                                          NULL, &version, &handle->log_callback);
                 if (header_len == 0) {
                     continue; // header doesn't exist
                 }
@@ -1538,7 +1540,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     _fdb_kvs_header_free(kv_header);
                 } else {
                     _fdb_kvs_header_import(kv_header, doc.body,
-                                           doc.length.bodylen, false);
+                                           doc.length.bodylen, version, false);
                     // get local sequence number for the KV instance
                     seqnum = _fdb_kvs_get_seqnum(kv_header,
                                                  handle->kvs->id);
@@ -1650,7 +1652,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         } else if (handle->file->kv_header == NULL) {
             // KV header already exists but not loaded .. read & import
             fdb_kvs_header_create(handle->file);
-            fdb_kvs_header_read(handle->file, handle->dhandle, kv_info_offset, false);
+            fdb_kvs_header_read(handle->file, handle->dhandle, kv_info_offset,
+                                version, false);
         }
         filemgr_mutex_unlock(handle->file);
 
@@ -1999,6 +2002,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             return FDB_RESULT_SUCCESS;
         }
         handle->bhandle->nlivenodes = stat.nlivenodes;
+        handle->bhandle->ndeltanodes = stat.nlivenodes;
 
         hr = hbtrie_insert(handle->trie,
                            item->header->key,
@@ -2037,6 +2041,9 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
         delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
         _kvs_stat_update_attr(file, kv_id, KVS_STAT_NLIVENODES, delta);
+        delta = (int)handle->bhandle->ndeltanodes - (int)stat.nlivenodes;
+        delta *= handle->config.blocksize;
+        _kvs_stat_update_attr(file, kv_id, KVS_STAT_DELTASIZE, delta);
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
             if (item->action == WAL_ACT_INSERT) {
@@ -2044,8 +2051,9 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             }
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE,
                                   item->doc_size);
-        } else {
-            // update or logical delete
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_DELTASIZE,
+                                  item->doc_size);
+        } else { // update or logical delete
             struct docio_length len;
             // This block is already cached when we call HBTRIE_INSERT.
             // No additional block access.
@@ -2063,6 +2071,13 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
             delta = (int)item->doc_size - (int)_fdb_get_docsize(len);
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
+            if (handle->last_hdr_bid * handle->config.blocksize < old_offset) {
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_DELTASIZE,
+                                      delta);
+            } else {
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_DELTASIZE,
+                                      (int)item->doc_size);
+            }
         }
     } else {
         // Immediate remove
@@ -2099,6 +2114,10 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
             delta = -(int)item->doc_size;
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
+            if (handle->last_hdr_bid * handle->config.blocksize < item->offset) {
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_DELTASIZE,
+                                      delta);
+            }
         }
         // LCOV_EXCL_STOP
     }
@@ -3210,8 +3229,11 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
           if the header structure is changed:
 
         _fdb_redirect_header() in forestdb.cc
-        filemgr_destory_file() in filemgr.cc
+        filemgr_destroy_file() in filemgr.cc
+        print_header() in dump_common.cc
+        decode_dblock() and dblock in forestdb_hexamine.cc
     */
+
     uint8_t *buf = alca(uint8_t, handle->config.blocksize);
     uint16_t new_filename_len = 0;
     uint16_t old_filename_len = 0;
@@ -4503,6 +4525,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     bid_t old_hdr_bid = 0;
     fdb_seqnum_t old_seqnum = 0;
     err_log_callback *log_callback = &rhandle->log_callback;
+    uint64_t version;
     fdb_status fs;
 
     if (last_hdr_bid < marker_bid) {
@@ -4520,7 +4543,8 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     while (marker_bid < old_hdr_bid) {
         old_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
                                                 old_hdr_bid, NULL, &header_len,
-                                                &old_seqnum, log_callback);
+                                                &old_seqnum, NULL, &version,
+                                                log_callback);
         if (!header_len) { // LCOV_EXCL_START
             return FDB_RESULT_READ_FAIL;
         } // LCOV_EXCL_STOP
@@ -4580,7 +4604,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     if (rhandle->kvs) {
         // Copy the old file's sequence numbers to the new file.
         fdb_kvs_header_read(new_file, handle.dhandle,
-                            handle.kv_info_offset, true);
+                            handle.kv_info_offset, version, true);
         // Reset KV stats as they are updated while moving documents below.
         fdb_kvs_header_reset_all_stats(new_file);
     }
@@ -4964,9 +4988,10 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 // Read the KV sequence numbers from the old file's commit header
                 // and copy them into the new_file.
                 size_t len = 0;
+                uint64_t version;
                 fdb_seqnum_t seqnum = 0;
                 fs = filemgr_fetch_header(handle->file, offset / blocksize, hdr_buf,
-                                          &len, &seqnum, NULL, NULL);
+                                          &len, &seqnum, NULL, NULL, &version, NULL);
                 if (fs != FDB_RESULT_SUCCESS) {
                     // Invalid and corrupted header.
                     free(doc);
@@ -4988,7 +5013,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                      &kv_info_offset, &dummy64,
                                      &compacted_filename, NULL);
                     fdb_kvs_header_read(new_file, handle->dhandle,
-                                        kv_info_offset, true);
+                                        kv_info_offset, version, true);
                 }
 
                 // As this block is a commit header, flush the WAL and write
@@ -6126,6 +6151,106 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
 }
 
 LIBFDB_API
+size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
+                                    fdb_snapshot_marker_t marker)
+{
+    uint64_t deltasize;
+    size_t ret = 0;
+    fdb_kvs_handle *handle;
+    struct filemgr *file;
+    bid_t hdr_bid = BLK_NOT_FOUND, prev_bid;
+    size_t header_len;
+    uint8_t header_buf[FDB_BLOCKSIZE];
+    bid_t trie_root_bid = BLK_NOT_FOUND;
+    bid_t seq_root_bid = BLK_NOT_FOUND;
+    uint64_t ndocs;
+    uint64_t nlivenodes;
+    uint64_t datasize;
+    uint64_t last_wal_flush_hdr_bid;
+    uint64_t kv_info_offset;
+    uint64_t header_flags;
+    uint64_t version;
+    char *compacted_filename;
+    fdb_seqnum_t seqnum;
+    file_status_t fstatus;
+    fdb_status status;
+
+    if (!fhandle || !marker) {
+        return 0;
+    }
+    handle = fhandle->root;
+    if (!handle->file) {
+        fdb_log(&handle->log_callback, FDB_RESULT_FILE_NOT_OPEN,
+                "File not open.");
+        return 0;
+    }
+
+    fdb_check_file_reopen(handle, &fstatus);
+    fdb_sync_db_header(handle);
+
+    // Start loading from current header
+    file = handle->file;
+    header_len = handle->file->header.size;
+
+    // Reverse scan the file only summing up the delta.....
+    while (marker <= hdr_bid) {
+        if (hdr_bid == BLK_NOT_FOUND) {
+            hdr_bid = handle->last_hdr_bid;
+            status = filemgr_fetch_header(file, hdr_bid,
+                                          header_buf, &header_len, NULL, NULL,
+                                          &deltasize, &version,
+                                          &handle->log_callback);
+        } else {
+            prev_bid = filemgr_fetch_prev_header(file, hdr_bid,
+                                                 header_buf, &header_len,
+                                                 &seqnum, &deltasize, &version,
+                                                 &handle->log_callback);
+            hdr_bid = prev_bid;
+        }
+        if (status != FDB_RESULT_SUCCESS) {
+            fdb_log(&handle->log_callback, status,
+                    "Failure to fetch DB header.");
+            return 0;
+        }
+        if (header_len == 0) {
+            status = FDB_RESULT_KV_STORE_NOT_FOUND; // can't work without header
+            fdb_log(&handle->log_callback, status, "Failure to find DB header.");
+            return 0;
+        }
+
+        fdb_fetch_header(header_buf, &trie_root_bid, &seq_root_bid, &ndocs,
+                         &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
+                         &kv_info_offset, &header_flags, &compacted_filename,
+                         NULL);
+        if (marker == hdr_bid) { // for the oldest header, sum up full values
+            ret += datasize;
+            ret += nlivenodes * handle->config.blocksize;
+            break;
+        } else { // for headers upto oldest header, sum up only deltas..
+            ret += deltasize; // root kv store or single kv instance mode
+            if (kv_info_offset != BLK_NOT_FOUND) { // Multi kv instance mode..
+                uint64_t doc_offset;
+                struct docio_object doc;
+                memset(&doc, 0, sizeof(struct docio_object));
+                doc_offset = docio_read_doc(handle->dhandle, kv_info_offset,
+                                            &doc, true);
+                if (doc_offset == kv_info_offset) {
+                    fdb_log(&handle->log_callback, FDB_RESULT_READ_FAIL,
+                            "Read failure estimate_space_used.");
+                    return 0;
+                }
+                ret += _kvs_stat_get_sum_attr(doc.body, version,
+                                              KVS_STAT_DELTASIZE);
+
+                free_docio_object(&doc, 1, 1, 1);
+            }
+        }
+    }
+
+    return ret;
+}
+
+LIBFDB_API
 fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
 {
     uint64_t ndocs;
@@ -6195,6 +6320,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     uint64_t last_wal_flush_hdr_bid;
     uint64_t kv_info_offset;
     uint64_t header_flags;
+    uint64_t version;
     char *compacted_filename;
     fdb_seqnum_t seqnum;
     fdb_snapshot_info_t *markers;
@@ -6233,11 +6359,15 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     // Reverse scan the file to locate the DB header with seqnum marker
     for (i = 0; header_len; ++i, ++size) {
         if (i == 0 ) {
-            filemgr_get_header(handle->file, header_buf, &header_len, NULL, NULL, NULL);
+            status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
+                                          header_buf, &header_len, NULL,
+                                          NULL, NULL, &version,
+                                          &handle->log_callback);
         } else {
             hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                                 header_buf, &header_len,
-                                                &seqnum, &handle->log_callback);
+                                                &seqnum, NULL, &version,
+                                                &handle->log_callback);
         }
         if (header_len == 0) {
             continue; // header doesn't exist, terminate iteration
@@ -6262,12 +6392,14 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
             uint64_t doc_offset;
             struct docio_object doc;
             memset(&doc, 0, sizeof(struct docio_object));
-            doc_offset = docio_read_doc(handle->dhandle, kv_info_offset, &doc, true);
+            doc_offset = docio_read_doc(handle->dhandle, kv_info_offset, &doc,
+                                        true);
             if (doc_offset == kv_info_offset) {
                 fdb_free_snap_markers(markers, i);
                 return FDB_RESULT_READ_FAIL;
             }
-            status = _fdb_kvs_get_snap_info(doc.body, &markers[i]);
+            status = _fdb_kvs_get_snap_info(doc.body, version,
+                                            &markers[i]);
             if (status != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
                 fdb_free_snap_markers(markers, i);
                 return status;

@@ -537,7 +537,8 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         fdb_kvs_header_create(new_file);
         // read from 'handle->dhandle', and import into 'new_file'
         fdb_kvs_header_read(new_file, handle->dhandle,
-                            handle->kv_info_offset, false);
+                            handle->kv_info_offset,
+                            FILEMGR_MAGIC_V2, false);
         // write KV header in 'new_file' using 'new_dhandle'
         handle->kv_info_offset = fdb_kvs_header_append(new_file,
                                                           new_dhandle);
@@ -583,7 +584,13 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
      * [# docs]:                8 bytes
      * [data size]:             8 bytes
      * [flags]:                 8 bytes
+     * [delta size]:            8 bytes
      * ...
+     *    Please note that if the above format is changed, please also change...
+     *    _fdb_kvs_get_snap_info()
+     *    _fdb_kvs_header_import()
+     *    _kvs_stat_get_sum_doc()
+     *
      */
 
     int size = 0;
@@ -592,6 +599,7 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
     uint64_t c = 0;
     uint64_t _n_kv, _kv_id, _flags;
     uint64_t _nlivenodes, _ndocs, _datasize;
+    int64_t _deltasize;
     fdb_kvs_id_t _id_counter;
     fdb_seqnum_t _seqnum;
     struct kvs_node *node;
@@ -620,6 +628,7 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
         size += sizeof(node->stat.ndocs); // # docs
         size += sizeof(node->stat.datasize); // data size
         size += sizeof(node->flags); // flags
+        size += sizeof(node->stat.deltasize); // delta size since commit
         a = avl_next(a);
     }
 
@@ -679,6 +688,11 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
         memcpy((uint8_t*)*data + offset, &_flags, sizeof(_flags));
         offset += sizeof(_flags);
 
+        // # delta index nodes + docsize created after last commit
+        _deltasize = _endian_encode(node->stat.deltasize);
+        memcpy((uint8_t*)*data + offset, &_deltasize, sizeof(_deltasize));
+        offset += sizeof(_deltasize);
+
         a = avl_next(a);
     }
 
@@ -688,12 +702,15 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
 }
 
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
-                            void *data, size_t len, bool only_seq_nums)
+                            void *data, size_t len, uint64_t version,
+                            bool only_seq_nums)
 {
     uint64_t i, offset = 0;
     uint16_t name_len, _name_len;
     uint64_t n_kv, _n_kv, kv_id, _kv_id, flags, _flags;
     uint64_t _nlivenodes, _ndocs, _datasize;
+    int64_t _deltasize;
+    bool is_deltasize;
     fdb_kvs_id_t id_counter, _id_counter;
     fdb_seqnum_t seqnum, _seqnum;
     struct kvs_node *node;
@@ -710,6 +727,14 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
 
     spin_lock(&kv_header->lock);
     kv_header->id_counter = id_counter;
+
+    // Version control
+    if (version == FILEMGR_MAGIC_V1) {
+        is_deltasize = false;
+        _deltasize = 0;
+    } else {
+        is_deltasize = true;
+    }
 
     for (i=0;i<n_kv;++i){
         // name length
@@ -765,10 +790,18 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
         offset += sizeof(_flags);
         flags = _endian_decode(_flags);
 
+        if (is_deltasize) {
+            // delta document + index size since previous commit
+            memcpy(&_deltasize, (uint8_t*)data + offset,
+                   sizeof(_deltasize));
+            offset += sizeof(_deltasize);
+        }
+
         if (!only_seq_nums) {
             node->stat.nlivenodes = _endian_decode(_nlivenodes);
             node->stat.ndocs = _endian_decode(_ndocs);
             node->stat.datasize = _endian_decode(_datasize);
+            node->stat.deltasize = _endian_decode(_deltasize);
             node->flags = flags;
             node->custom_cmp = NULL;
         }
@@ -781,13 +814,20 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     spin_unlock(&kv_header->lock);
 }
 
-fdb_status _fdb_kvs_get_snap_info(void *data,
+fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
                                   fdb_snapshot_info_t *snap_info)
 {
     int i, offset = 0, sizeof_skipped_segments;
     uint16_t name_len, _name_len;
     int64_t n_kv, _n_kv;
+    bool is_deltasize;
     fdb_seqnum_t _seqnum;
+    // Version control
+    if (version == FILEMGR_MAGIC_V1) {
+        is_deltasize = false;
+    } else {
+        is_deltasize = true;
+    }
 
     // # KV instances
     memcpy(&_n_kv, (uint8_t*)data + offset, sizeof(_n_kv));
@@ -811,6 +851,9 @@ fdb_status _fdb_kvs_get_snap_info(void *data,
                             + sizeof(uint64_t) // skip over ndocs
                             + sizeof(uint64_t) // skip over datasize
                             + sizeof(uint64_t); // skip over flags
+    if (is_deltasize) {
+        sizeof_skipped_segments += sizeof(uint64_t); // skip over deltasize
+    }
 
     for (i = 0; i < n_kv-1; ++i){
         fdb_kvs_commit_marker_t *info = &snap_info->kvs_markers[i];
@@ -836,6 +879,71 @@ fdb_status _fdb_kvs_get_snap_info(void *data,
     }
 
     return FDB_RESULT_SUCCESS;
+}
+
+uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
+                                kvs_stat_attr_t attr)
+{
+    uint64_t ret = 0;
+    int i, offset = 0;
+    uint16_t name_len, _name_len;
+    int64_t n_kv, _n_kv;
+    bool is_deltasize;
+    uint64_t nlivenodes, ndocs, datasize, flags;
+    int64_t deltasize;
+
+    // Version control
+    if (version == FILEMGR_MAGIC_V1) {
+        is_deltasize = false;
+    } else {
+        is_deltasize = true;
+    }
+
+    // # KV instances
+    memcpy(&_n_kv, (uint8_t*)data + offset, sizeof(_n_kv));
+    offset += sizeof(_n_kv);
+    // since n_kv doesn't count the default KVS, increase it by 1.
+    n_kv = _endian_decode(_n_kv) + 1;
+    assert(n_kv); // Must have at least one kv instance
+
+    // Skip over ID counter
+    offset += sizeof(fdb_kvs_id_t);
+
+    for (i = 0; i < n_kv-1; ++i){
+        // Read the kv store name length and skip over the length
+        memcpy(&_name_len, (uint8_t*)data + offset, sizeof(_name_len));
+        offset += sizeof(_name_len);
+        name_len = _endian_decode(_name_len);
+
+        // Skip over the KV Store name
+        offset += name_len;
+
+        // Skip over KV ID
+        offset += sizeof(uint64_t);
+
+        // Skip over KV store seqnum
+        offset += sizeof(uint64_t);
+
+        // pick just the attribute requested, skipping over rest..
+        if (attr == KVS_STAT_NLIVENODES) {
+            memcpy(&nlivenodes, (uint8_t *)data + offset, sizeof(nlivenodes));
+            ret += _endian_decode(nlivenodes);
+            // skip over nlivenodes just read
+            offset += sizeof(nlivenodes);
+            // skip over ndocs, datasize, flags (and deltasize)
+            offset += sizeof(nlivenodes) + sizeof(ndocs) + sizeof(datasize)
+                   + sizeof(flags) + (is_deltasize ? sizeof(deltasize) : 0);
+        } else if (attr == KVS_STAT_DATASIZE) {
+            offset += sizeof(nlivenodes) + sizeof(ndocs);
+            memcpy(&datasize, (uint8_t *)data + offset, sizeof(datasize));
+            ret += _endian_decode(datasize);
+            // skip over datasize, flags (and deltasize)
+            offset += sizeof(datasize) + sizeof(flags)
+                   + (is_deltasize ? sizeof(deltasize) : 0);
+        } // todo: implement for other stats if needed in future..
+    }
+
+    return ret;
 }
 
 uint64_t fdb_kvs_header_append(struct filemgr *file,
@@ -867,6 +975,7 @@ uint64_t fdb_kvs_header_append(struct filemgr *file,
 void fdb_kvs_header_read(struct filemgr *file,
                          struct docio_handle *dhandle,
                          uint64_t kv_info_offset,
+                         uint64_t version,
                          bool only_seq_nums)
 {
     uint64_t offset;
@@ -883,7 +992,7 @@ void fdb_kvs_header_read(struct filemgr *file,
     }
 
     _fdb_kvs_header_import(file->kv_header, doc.body, doc.length.bodylen,
-                           only_seq_nums);
+                           version, only_seq_nums);
     free_docio_object(&doc, 1, 1, 1);
 }
 
@@ -926,6 +1035,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
 {
     uint8_t *buf;
     uint64_t dummy64;
+    uint64_t version;
     uint64_t kv_info_offset;
     size_t len;
     bid_t hdr_bid;
@@ -947,7 +1057,8 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
     }
 
     // read header
-    filemgr_fetch_header(file, hdr_bid, buf, &len, &seqnum, NULL, &handle->log_callback);
+    filemgr_fetch_header(file, hdr_bid, buf, &len, &seqnum, NULL, NULL,
+                         &version, &handle->log_callback);
     if (id > 0) { // non-default KVS
         // read last KVS header
         fdb_fetch_header(buf, &dummy64,
@@ -972,7 +1083,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
 
         } else {
             _fdb_kvs_header_import(kv_header, doc.body,
-                                   doc.length.bodylen, false);
+                                   doc.length.bodylen, version, false);
             // get local sequence number for the KV instance
             seqnum = _fdb_kvs_get_seqnum(kv_header,
                                          handle->kvs->id);
@@ -1732,6 +1843,8 @@ fdb_kvs_remove_start:
         file->header.stat.ndocs = 0;
         file->header.stat.nlivenodes = 0;
         file->header.stat.datasize = 0;
+        file->header.stat.deltasize = 0;
+
         // reset seqnum
         filemgr_set_seqnum(file, 0);
         spin_unlock(&root_handle->fhandle->lock);
@@ -1779,6 +1892,7 @@ fdb_kvs_remove_start:
             node->stat.ndocs = 0;
             node->stat.nlivenodes = 0;
             node->stat.datasize = 0;
+            node->stat.deltasize = 0;
             node->seqnum = 0;
             spin_unlock(&kv_header->lock);
             spin_unlock(&root_handle->fhandle->lock);

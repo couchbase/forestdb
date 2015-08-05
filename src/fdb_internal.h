@@ -115,10 +115,11 @@ void fdb_kvs_info_free(fdb_kvs_handle *handle);
 void fdb_kvs_header_reset_all_stats(struct filemgr *file);
 void fdb_kvs_header_create(struct filemgr *file);
 uint64_t fdb_kvs_header_append(struct filemgr *file,
-                                  struct docio_handle *dhandle);
+                               struct docio_handle *dhandle);
 void fdb_kvs_header_read(struct filemgr *file,
                          struct docio_handle *dhandle,
                          uint64_t kv_info_offset,
+                         uint64_t version,
                          bool only_seq_nums);
 void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
@@ -129,12 +130,15 @@ struct kvs_header;
 void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file);
 void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
-                            void *data, size_t len, bool only_seq_nums);
-fdb_status _fdb_kvs_get_snap_info(void *data,
+                            void *data, size_t len, uint64_t version,
+                            bool only_seq_nums);
+fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
                                   fdb_snapshot_info_t *snap_info);
 void _fdb_kvs_header_free(struct kvs_header *kv_header);
 fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
-                                    fdb_kvs_id_t id);
+                                 fdb_kvs_id_t id);
+uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
+                                kvs_stat_attr_t attr);
 
 bool _fdb_kvs_is_busy(fdb_file_handle *fhandle);
 
@@ -154,12 +158,12 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
 fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle);
 
 fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
-                                   fdb_kvs_id_t id);
+                                fdb_kvs_id_t id);
 fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle);
 
 void fdb_kvs_set_seqnum(struct filemgr *file,
-                           fdb_kvs_id_t id,
-                           fdb_seqnum_t seqnum);
+                        fdb_kvs_id_t id,
+                        fdb_seqnum_t seqnum);
 
 fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum);
 

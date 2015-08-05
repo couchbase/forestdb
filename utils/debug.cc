@@ -75,4 +75,3 @@ void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected) {
      }
 }
 // LCOV_EXCL_STOP
-

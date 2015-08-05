@@ -52,6 +52,7 @@
  *   seqtree_root_bid = 56
  *   seqtree_subblock_no = 0
  *   seqtree_idx = 1
+ *   delta_size = 40
  *   prev_hdr_bid = 3
  *   hdr_len = 72
  *  = (magic_bytes = 16045704242864832239, magic = void * = 0xdeadcafebeefbeef)
@@ -102,9 +103,9 @@ struct db_header {
     uint16_t new_filename_len;
     uint16_t old_filename_len;
 
-    char bytes[3945];
+    char bytes[3937];
 
-
+    // The variables below are pseudo variables for debugging & not in header..
     uint64_t revnum;
     uint64_t seqnum;
     uint64_t trie_root_bid;
@@ -113,6 +114,9 @@ struct db_header {
     uint64_t seqtree_root_bid;
     uint64_t seqtree_subblock_no;
     uint64_t seqtree_idx;
+
+    // The ones below are real variables defined in the DB header...
+    uint64_t delta_size;
     uint64_t prev_hdr_bid;
     uint16_t hdr_len;
     union {
@@ -161,6 +165,7 @@ void decode_dblock(void *block) {
         _db->seqtree_subblock_no = subblock_no;
         _db->seqtree_idx = idx;
     }
+    _db->delta_size = _endian_decode(_db->delta_size);
     _db->prev_hdr_bid = _endian_decode(_db->prev_hdr_bid);
     _db->magic_bytes = _endian_decode(_db->magic_bytes);
     _db->hdr_len = _endian_decode(_db->hdr_len);
@@ -247,6 +252,7 @@ int process_file(struct input_option *opt)
                 printf("\nseqtree_subblock_no = %" _F64,
                                                  db->seqtree_subblock_no);
                 printf("\nseqtree_idx = %" _F64, db->seqtree_idx);
+                printf("\ndelta size = %" _F64, db->delta_size);
                 printf("\nprev_hdr_bid = %" _F64, db->prev_hdr_bid);
                 printf("\nhdr_len = %d", db->hdr_len);
                 printf("\nmagic = %p", db->magic);

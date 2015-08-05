@@ -47,6 +47,7 @@ struct btreeblk_handle{
     uint32_t nodesize;
     uint16_t nnodeperblock;
     uint64_t nlivenodes;
+    int64_t ndeltanodes;
     struct list alc_list;
     struct list read_list;
     struct filemgr *file;

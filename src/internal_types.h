@@ -96,7 +96,8 @@ typedef enum {
     KVS_STAT_NDOCS,
     KVS_STAT_DATASIZE,
     KVS_STAT_WAL_NDOCS,
-    KVS_STAT_WAL_NDELETES
+    KVS_STAT_WAL_NDELETES,
+    KVS_STAT_DELTASIZE
 } kvs_stat_attr_t;
 
 /**
@@ -123,7 +124,16 @@ struct kvs_stat {
      * The number of deleted documents in WAL.
      */
     uint64_t wal_ndeletes;
+    /**
+     * The amount of space occupied by documents+index since last commit.
+     */
+    int64_t deltasize;
 };
+
+// Versioning information...
+// Version 2 - added delta size to DB header
+#define FILEMGR_MAGIC_V2 (UINT64_C(0xdeadcafebeefc001))
+#define FILEMGR_MAGIC_V1 (UINT64_C(0xdeadcafebeefbeef))
 
 /**
  * Atomic counters of operational statistics in ForestDB KV store.

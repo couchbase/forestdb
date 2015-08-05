@@ -49,7 +49,6 @@
 
 // NBUCKET must be power of 2
 #define NBUCKET (1024)
-#define FILEMGR_MAGIC (UINT64_C(0xdeadcafebeefbeef))
 
 // global static variables
 #ifdef SPIN_INITIALIZER
@@ -331,7 +330,9 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                        sizeof(magic));
                 magic = _endian_decode(magic);
 
-                if (magic == FILEMGR_MAGIC) {
+                //TODO: Need to refactor this part to support the file format
+                //TODO:.. versioning in a more efficient way
+                if (magic == FILEMGR_MAGIC_V1 || magic == FILEMGR_MAGIC_V2) {
                     memcpy(&len,
                            buf + file->blocksize - BLK_MARKER_SIZE -
                            sizeof(magic) - sizeof(len),
@@ -379,8 +380,8 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                     status = FDB_RESULT_FILE_CORRUPTION;
                     const char *msg = "Crash Detected: Wrong Magic %" _F64 " != %" _F64
                         " in a database file '%s'\n";
-                    DBG(msg, magic, FILEMGR_MAGIC, file->filename);
-                    fdb_log(log_callback, status, msg, magic, FILEMGR_MAGIC,
+                    DBG(msg, magic, FILEMGR_MAGIC_V2, file->filename);
+                    fdb_log(log_callback, status, msg, magic, FILEMGR_MAGIC_V2,
                             file->filename);
                 }
             } else {
@@ -859,11 +860,13 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
+                                uint64_t *deltasize, uint64_t *version,
                                 err_log_callback *log_callback)
 {
     uint8_t *_buf;
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_header_len_t hdr_len;
+    uint64_t _deltasize;
     filemgr_magic_t magic;
     fdb_status status = FDB_RESULT_SUCCESS;
 
@@ -897,11 +900,12 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
             _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
             sizeof(magic));
     magic = _endian_decode(magic);
-    if (magic != FILEMGR_MAGIC) {
+    if (magic != FILEMGR_MAGIC_V1 && magic != FILEMGR_MAGIC_V2) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                "A block magic value of the database header block id %" _F64 " in "
-                "a database file '%s' does NOT match FILEMGR_MAGIC!",
-                bid, file->filename);
+                "A block magic value of %" _F64 " in the database header block"
+                "id %" _F64 " in a database file '%s'"
+                "does NOT match FILEMGR_MAGIC %" _F64 "!",
+                magic, bid, file->filename, FILEMGR_MAGIC_V2);
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
@@ -912,6 +916,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
 
     memcpy(buf, _buf, hdr_len);
     *len = hdr_len;
+    *version = magic;
 
     if (header_revnum) {
         // copy the DB header revnum
@@ -927,6 +932,12 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
         *seqnum = _endian_decode(_seqnum);
     }
 
+    if (deltasize && magic == FILEMGR_MAGIC_V2) {
+        memcpy(&_deltasize, _buf + file->blocksize - BLK_MARKER_SIZE
+               - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
+               - sizeof(_deltasize), sizeof(_deltasize));
+        *deltasize = _endian_decode(_deltasize);
+    }
     _filemgr_release_temp_buf(_buf);
 
     return status;
@@ -934,6 +945,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
 
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
+                                   uint64_t *deltasize, uint64_t *version,
                                    err_log_callback *log_callback)
 {
     uint8_t *_buf;
@@ -943,6 +955,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     filemgr_header_len_t hdr_len;
     filemgr_magic_t magic;
     bid_t _prev_bid, prev_bid;
+    uint64_t _deltasize;
     int found = 0;
 
     if (!bid || bid == BLK_NOT_FOUND) {
@@ -969,7 +982,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         magic = _endian_decode(magic);
 
         if (marker[0] != BLK_MARKER_DBHEADER ||
-            magic != FILEMGR_MAGIC) {
+            (magic != FILEMGR_MAGIC_V1 && magic != FILEMGR_MAGIC_V2)) {
             // not a header block
             // this happens when this function is invoked between
             // fdb_set() call and fdb_commit() call, so the last block
@@ -998,7 +1011,8 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         fdb_status fs = filemgr_read(file, (bid_t)bid, _buf, log_callback, true);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
-                    "Failed to read a previous database header with block id %" _F64 " in "
+                    "Failed to read a previous database header with block id %"
+                    _F64 " in "
                     "a database file '%s'", bid, file->filename);
             break;
         }
@@ -1021,12 +1035,14 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
                sizeof(magic));
         magic = _endian_decode(magic);
-        if (magic != FILEMGR_MAGIC) {
+        if (magic != FILEMGR_MAGIC_V1 && magic != FILEMGR_MAGIC_V2) {
             // broken linked list
             fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                    "A block magic value of the previous database header block id %" _F64 " in "
-                    "a database file '%s' does NOT match FILEMGR_MAGIC!",
-                    bid, file->filename);
+                    "A block magic value of %" _F64
+                    " of the previous database header block id %" _F64 " in "
+                    "a database file '%s' does NOT match FILEMGR_MAGIC %"
+                    _F64"!", magic,
+                    bid, file->filename, FILEMGR_MAGIC_V2);
             break;
         }
 
@@ -1043,8 +1059,17 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         memcpy(&_seqnum,
                _buf + hdr_len + sizeof(filemgr_header_revnum_t),
                sizeof(fdb_seqnum_t));
+        if (deltasize && magic == FILEMGR_MAGIC_V2) {
+            memcpy(&_deltasize,
+                   _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
+                   sizeof(hdr_len) - sizeof(prev_bid) - sizeof(_deltasize),
+                   sizeof(_deltasize));
+            *deltasize = _endian_decode(_deltasize);
+        }
+
         *seqnum = _endian_decode(_seqnum);
         *len = hdr_len;
+        *version = magic;
         found = 1;
         break;
     } while (false); // no repetition
@@ -1399,11 +1424,18 @@ INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
 }
 #endif
 
-void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
+bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 {
+    bool ret;
+    if (atomic_get_uint64_t(&file->last_commit) < bid * file->blocksize) {
+        ret = true; // block invalidated was allocated recently (uncommitted)
+    } else {
+        ret = false; // a block from the past is invalidated (committed)
+    }
     if (global_config.ncacheblock > 0) {
         bcache_invalidate_block(file, bid);
     }
+    return ret;
 }
 
 fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
@@ -1682,11 +1714,15 @@ fdb_status filemgr_commit(struct filemgr *file,
 {
     uint16_t header_len = file->header.size;
     uint16_t _header_len;
+    struct avl_node *a;
+    struct kvs_node *node;
+    struct kvs_header *kv_header = file->kv_header;
     bid_t _prev_bid;
+    uint64_t _deltasize;
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
-    filemgr_magic_t magic = FILEMGR_MAGIC;
+    filemgr_magic_t magic = FILEMGR_MAGIC_V2;
     filemgr_magic_t _magic;
 
     if (global_config.ncacheblock > 0) {
@@ -1710,6 +1746,7 @@ fdb_status filemgr_commit(struct filemgr *file,
         // ...                                            |
         // (empty)                                    blocksize
         // ...                                            |
+        // [Delta size]:         8 bytes                  |
         // [prev header bid]:    8 bytes                  |
         // [header length]:      2 bytes                  |
         // [magic number]:       8 bytes                  |
@@ -1725,6 +1762,24 @@ fdb_status filemgr_commit(struct filemgr *file,
         _seqnum = _endian_encode(file->header.seqnum);
         memcpy((uint8_t *)buf + header_len + sizeof(filemgr_header_revnum_t),
                &_seqnum, sizeof(fdb_seqnum_t));
+
+        // delta size since prior commit
+        _deltasize = _endian_encode(file->header.stat.deltasize //index+data
+                                  + wal_get_datasize(file)); // wal datasize
+        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+               - sizeof(header_len) - sizeof(_prev_bid)*2 - BLK_MARKER_SIZE),
+               &_deltasize, sizeof(_deltasize));
+
+        // Reset in-memory delta size of the header for next commit...
+        file->header.stat.deltasize = 0; // single kv store header
+        if (kv_header) { // multi kv store stats
+            a = avl_first(kv_header->idx_id);
+            while (a) {
+                node = _get_entry(a, struct kvs_node, avl_id);
+                a = avl_next(&node->avl_id);
+                node->stat.deltasize = 0;
+            }
+        }
 
         // prev header bid
         _prev_bid = _endian_encode(atomic_get_uint64_t(&file->header.bid));
@@ -2165,7 +2220,7 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
             + blocksize - BLK_MARKER_SIZE - sizeof(magic), sizeof(magic));
     magic = _endian_decode(magic);
 
-    return (magic == FILEMGR_MAGIC);
+    return (magic == FILEMGR_MAGIC_V1 || magic == FILEMGR_MAGIC_V2);
 }
 
 bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
@@ -2248,6 +2303,8 @@ void _kvs_stat_update_attr(struct filemgr *file,
         stat->wal_ndeletes += delta;
     } else if (attr == KVS_STAT_WAL_NDOCS) {
         stat->wal_ndocs += delta;
+    } else if (attr == KVS_STAT_DELTASIZE) {
+        stat->deltasize += delta;
     }
     spin_unlock(lock);
 }
@@ -2311,6 +2368,8 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
         ret += file->header.stat.wal_ndeletes;
     } else if (attr == KVS_STAT_WAL_NDOCS) {
         ret += file->header.stat.wal_ndocs;
+    } else if (attr == KVS_STAT_DELTASIZE) {
+        ret += file->header.stat.deltasize;
     }
     spin_unlock(&file->lock);
 
@@ -2331,6 +2390,8 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
                 ret += node->stat.wal_ndeletes;
             } else if (attr == KVS_STAT_WAL_NDOCS) {
                 ret += node->stat.wal_ndocs;
+            } else if (attr == KVS_STAT_DELTASIZE) {
+                ret += node->stat.deltasize;
             }
         }
         spin_unlock(&kv_header->lock);

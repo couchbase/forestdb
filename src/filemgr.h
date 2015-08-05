@@ -226,9 +226,11 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
+                                uint64_t *deltasize, uint64_t *version,
                                 err_log_callback *log_callback);
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
+                                   uint64_t *deltasize, uint64_t *version,
                                    err_log_callback *log_callback);
 fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
@@ -246,7 +248,8 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
                                   bid_t *begin, bid_t *end,
                                   err_log_callback *log_callback);
 
-void filemgr_invalidate_block(struct filemgr *file, bid_t bid);
+// Returns true if the block invalidated is from recent uncommited blocks
+bool filemgr_invalidate_block(struct filemgr *file, bid_t bid);
 
 fdb_status filemgr_read(struct filemgr *file,
                         bid_t bid, void *buf,
