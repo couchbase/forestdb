@@ -3834,7 +3834,8 @@ void get_byoffset_diff_kvs_test()
 
     sprintf(keybuf, "key%d", 0);
     sprintf(bodybuf, "body%d", 0);
-    fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0, bodybuf, strlen(bodybuf));
+    fdb_doc_create(&rdoc, keybuf, strlen(keybuf), NULL, 0,
+                   bodybuf, strlen(bodybuf)+1);
 
     // set kv
     status = fdb_set(db, rdoc);
@@ -3860,7 +3861,6 @@ void get_byoffset_diff_kvs_test()
     rdoc->offset = offset2;
     status = fdb_get_byoffset(db, rdoc);
     TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
-
 
     fdb_close(dbfile);
     fdb_doc_free(rdoc);
