@@ -532,6 +532,9 @@ fdb_status fdb_init(fdb_config *config)
         f_config.blocksize = _config.blocksize;
         f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
         filemgr_init(&f_config);
+        filemgr_set_lazy_file_deletion(true,
+                                       compactor_register_file_removing,
+                                       compactor_is_file_removed);
 
         // initialize compaction daemon
         c_config.sleep_duration = _config.compactor_sleep_duration;

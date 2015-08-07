@@ -71,7 +71,9 @@ struct temp_buf_item{
 static struct list temp_buf;
 static spin_t temp_buf_lock;
 
-static void _filemgr_free_func(struct hash_elem *h);
+static bool lazy_file_deletion_enabled = false;
+static register_file_removal_func register_file_removal = NULL;
+static check_file_removal_func is_file_removed = NULL;
 
 static void spin_init_wrap(void *lock) {
     spin_init((spin_t*)lock);
@@ -229,6 +231,15 @@ void filemgr_init(struct filemgr_config *config)
         }
         spin_unlock(&initial_lock);
     }
+}
+
+void filemgr_set_lazy_file_deletion(bool enable,
+                                    register_file_removal_func regis_func,
+                                    check_file_removal_func check_func)
+{
+    lazy_file_deletion_enabled = enable;
+    register_file_removal = regis_func;
+    is_file_removed = check_func;
 }
 
 static void * _filemgr_get_temp_buf()
@@ -1110,14 +1121,35 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         rv = file->ops->close(file->fd);
         if (atomic_get_uint8_t(&file->status) == FILE_REMOVED_PENDING) {
             _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
-            // remove file
-            remove(file->filename);
+
+            bool foreground_deletion = false;
+
+            // immediately remove file if background remove function is not set
+            if (!lazy_file_deletion_enabled ||
+                (file->new_file && file->new_file->in_place_compaction)) {
+                // TODO: to avoid the scenario below, we prevent background
+                //       deletion of in-place compacted files at this time.
+                // 1) In-place compacted from 'A' to 'A.1'.
+                // 2) Request to delete 'A'.
+                // 3) Close 'A.1'; since 'A' is not deleted yet, 'A.1' is not renamed.
+                // 4) User opens DB file using its original name 'A', not 'A.1'.
+                // 5) Old file 'A' is opened, and then background thread deletes 'A'.
+                // 6) Crash!
+                remove(file->filename);
+                foreground_deletion = true;
+            }
+
             // we can release lock becuase no one will open this file
             spin_unlock(&file->lock);
             struct hash_elem *ret = hash_remove(&hash, &file->e);
             fdb_assert(ret, 0, 0);
             spin_unlock(&filemgr_openlock);
-            _filemgr_free_func(&file->e);
+
+            if (foreground_deletion) {
+                _filemgr_free_func(&file->e);
+            } else {
+                register_file_removal(file, log_callback);
+            }
             return (fdb_status) rv;
         } else {
             if (cleanup_cache_onclose) {
@@ -1143,16 +1175,21 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                             old_file_refcount = old_file->ref_count;
                         }
                     }
+
                     // If old file is opened by other handle, renaming should be
                     // postponed. It will be renamed later by the handle referring
                     // to the old file.
                     if (!elem && old_file_refcount == 0 &&
-                        rename(file->filename, orig_file_name) < 0) {
-                        // Note that the renaming failure is not a critical
-                        // issue because the last compacted file will be automatically
-                        // identified and opened in the next fdb_open call.
-                        _log_errno_str(file->ops, log_callback, FDB_RESULT_FILE_RENAME_FAIL,
-                                       "CLOSE", file->filename);
+                        is_file_removed(orig_file_name)) {
+                        // If background file removal is not done yet, we postpone
+                        // file renaming at this time.
+                        if (rename(file->filename, orig_file_name) < 0) {
+                            // Note that the renaming failure is not a critical
+                            // issue because the last compacted file will be automatically
+                            // identified and opened in the next fdb_open call.
+                            _log_errno_str(file->ops, log_callback, FDB_RESULT_FILE_RENAME_FAIL,
+                                           "CLOSE", file->filename);
+                        }
                     }
                 }
                 spin_unlock(&file->lock);
@@ -1175,7 +1212,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     return (fdb_status) rv;
 }
 
-static void _filemgr_free_func(struct hash_elem *h)
+void _filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
 
@@ -1274,7 +1311,12 @@ void filemgr_remove_file(struct filemgr *file)
     fdb_assert(ret, ret, NULL);
     spin_unlock(&filemgr_openlock);
 
-    _filemgr_free_func(&file->e);
+    if (!lazy_file_deletion_enabled ||
+        (file->new_file && file->new_file->in_place_compaction)) {
+        _filemgr_free_func(&file->e);
+    } else {
+        register_file_removal(file, NULL);
+    }
 }
 // LCOV_EXCL_STOP
 
@@ -1973,7 +2015,11 @@ void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
         // immediatly remove
         // LCOV_EXCL_START
         spin_unlock(&old_file->lock);
-        remove(old_file->filename);
+
+        if (!lazy_file_deletion_enabled ||
+            (old_file->new_file && old_file->new_file->in_place_compaction)) {
+            remove(old_file->filename);
+        }
         filemgr_remove_file(old_file);
         // LCOV_EXCL_STOP
     }

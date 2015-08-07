@@ -795,6 +795,7 @@ void e2e_concurrent_scan_pattern(int n_checkpoints, int n_scanners, int n_writer
 
         // start writer threads
         for (i=0;i<n_writers;++i){
+            st[i]->verify_set = false;
             start_checkpoint(st[i]);
             thread_create(&tid_wr[i], writer_thread, (void*)st[i]);
         }

@@ -38,6 +38,11 @@ fdb_status compactor_register_file(struct filemgr *file,
                                    fdb_config *config,
                                    struct list *cmp_func_list,
                                    err_log_callback *log_callback);
+
+fdb_status compactor_register_file_removing(struct filemgr *file,
+                                            err_log_callback *log_callback);
+bool compactor_is_file_removed(const char *filename);
+
 void compactor_deregister_file(struct filemgr *file);
 void compactor_change_threshold(struct filemgr *file, size_t new_threshold);
 void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
