@@ -214,13 +214,6 @@ int process_file(struct input_option *opt)
         }
         print_header(dbfile->root);
     }
-    if (file_size > opt->max_filesize) {
-        printf("\n File %s size %" _F64" exceeds max size of %" _F64" \n",
-               filename, file_size, opt->max_filesize);
-        fdb_close(dbfile);
-        return -1;
-    }
-
     if (opt->headers_only) {
         for (uint64_t i = 0; i < num_blocks; ++i) {
             ssize_t rv = file.ops->pread(file.fd, &block_buf, BLK_SIZE,
@@ -260,18 +253,33 @@ int process_file(struct input_option *opt)
         }
 
     } else {
+        if (file_size > opt->max_filesize) {
+            printf("\n File %s size %" _F64" exceeds max size of %" _F64" \n",
+                    filename, file_size, opt->max_filesize);
+
+            if (opt->print_header) {
+                fdb_close(dbfile);
+            }
+            return -1;
+        }
+
         db = (dblock *) malloc(file_size);
         if (!db) {
             printf("\nUnable to allocate memory of %" _F64" bytes\n",
             file_size);
-            fdb_close(dbfile);
+
+            if (opt->print_header) {
+                fdb_close(dbfile);
+            }
             return -1;
         }
         for (uint64_t i = 0; i < num_blocks; ++i) {
             ssize_t rv = file.ops->pread(file.fd, &db[i], BLK_SIZE,
                     i * BLK_SIZE);
             if (rv != BLK_SIZE) {
-                fdb_close(dbfile);
+                if (opt->print_header) {
+                    fdb_close(dbfile);
+                }
                 free(db);
                 return FDB_RESULT_READ_FAIL;
             }
@@ -289,11 +297,15 @@ int process_file(struct input_option *opt)
         free(db);
     }
 
-    fs = fdb_close(dbfile);
-    if (fs != FDB_RESULT_SUCCESS) {
-        printf("\nUnable to close %s\n", filename);
-        return -4;
+    if (opt->print_header) {
+        fs = fdb_close(dbfile);
+        if (fs != FDB_RESULT_SUCCESS) {
+            printf("\nUnable to close %s\n", filename);
+            return -4;
+        }
     }
+
+    file.ops->close(file.fd);
 
     return -1;
 }
