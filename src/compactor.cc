@@ -76,6 +76,8 @@ struct openfiles_elem {
     uint32_t register_count;
     bool compaction_flag; // set when the file is being compacted
     bool daemon_compact_in_progress;
+    bool removal_activated;
+    err_log_callback *log_callback;
     struct list *cmp_func_list; // pointer to fhandle's list
     struct avl_node avl;
 };
@@ -184,6 +186,33 @@ INLINE int _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
     } else {
         return 0;
     }
+}
+
+// check if the file is waiting for being removed
+INLINE bool _compactor_check_file_removal(struct openfiles_elem *elem)
+{
+    if (elem->file->fflags & FILEMGR_REMOVAL_IN_PROG &&
+        !elem->removal_activated) {
+        return true;
+    }
+    return false;
+}
+
+// check if background file deletion is done
+bool compactor_is_file_removed(const char *filename)
+{
+    struct avl_node *a;
+    struct openfiles_elem query;
+
+    strcpy(query.filename, filename);
+    mutex_lock(&cpt_lock);
+    a = avl_search(&openfiles, &query.avl, _compactor_cmp);
+    mutex_unlock(&cpt_lock);
+    if (a) {
+        // exist .. old file is not removed yet
+        return false;
+    }
+    return true;
 }
 
 // return the location of '.'
@@ -357,6 +386,7 @@ void * compactor_thread(void *voidargs)
             }
 
             if (_compactor_is_threshold_satisfied(elem)) {
+
                 elem->daemon_compact_in_progress = true;
                 // set compaction flag
                 elem->compaction_flag = true;
@@ -387,8 +417,41 @@ void * compactor_thread(void *voidargs)
                     // clear compaction flag
                     elem->compaction_flag = false;
                 }
-            } else {
+
+            } else if (_compactor_check_file_removal(elem)) {
+
+                // remove file
+                int ret;
+
+                // set activation flag to prevent other compactor threads attempt
+                // to remove the same file and double free the 'elem' structure,
+                // during 'cpt_lock' is released.
+                elem->removal_activated = true;
+
+                mutex_unlock(&cpt_lock);
+                ret = remove(elem->file->filename);
+                mutex_lock(&cpt_lock);
+
+                if (elem->log_callback && ret != 0) {
+                    char errno_msg[512];
+                    elem->file->ops->get_errno_str(errno_msg, 512);
+                    fdb_log(elem->log_callback, (fdb_status)ret,
+                            "Error in REMOVE on a database file '%s', %s",
+                            elem->file->filename, errno_msg);
+                }
+
+                // free filemgr structure
+                _filemgr_free_func(&elem->file->e);
+                // remove & free elem
                 a = avl_next(a);
+                avl_remove(&openfiles, &elem->avl);
+                free(elem);
+
+            } else {
+
+                // next
+                a = avl_next(a);
+
             }
             if (compactor_terminate_signal) {
                 mutex_unlock(&cpt_lock);
@@ -472,6 +535,12 @@ void compactor_shutdown()
         elem = _get_entry(a, struct openfiles_elem, avl);
         a = avl_next(a);
 
+        if (_compactor_check_file_removal(elem)) {
+            // remove file if removal is pended.
+            remove(elem->file->filename);
+            _filemgr_free_func(&elem->file->e);
+        }
+
         avl_remove(&openfiles, &elem->avl);
         free(elem);
     }
@@ -517,14 +586,16 @@ fdb_status compactor_register_file(struct filemgr *file,
         char path[MAX_FNAMELEN];
         struct compactor_meta meta;
 
-        elem = (struct openfiles_elem *)malloc(sizeof(struct openfiles_elem));
+        elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
         strcpy(elem->filename, file->filename);
         elem->file = file;
         elem->config = *config;
         elem->register_count = 1;
         elem->compaction_flag = false;
         elem->daemon_compact_in_progress = false;
+        elem->removal_activated = false;
         elem->cmp_func_list = cmp_func_list;
+        elem->log_callback = NULL;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
                                  // subsequent registration attempts for the same file
@@ -575,6 +646,52 @@ void compactor_deregister_file(struct filemgr *file)
         }
     }
     mutex_unlock(&cpt_lock);
+}
+
+fdb_status compactor_register_file_removing(struct filemgr *file,
+                                            err_log_callback *log_callback)
+{
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    struct avl_node *a = NULL;
+    struct openfiles_elem query, *elem;
+
+    strcpy(query.filename, file->filename);
+    // first search the existing file
+    mutex_lock(&cpt_lock);
+    a = avl_search(&openfiles, &query.avl, _compactor_cmp);
+    if (a == NULL) {
+        // doesn't exist
+        // create a fake & temporary element for the file to be removed.
+        elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
+        strcpy(elem->filename, file->filename);
+
+        // set flag
+        file->fflags |= FILEMGR_REMOVAL_IN_PROG;
+
+        elem->file = file;
+        elem->register_count = 1;
+        // to prevent this element to be compacted, set all flags
+        elem->compaction_flag = true;
+        elem->daemon_compact_in_progress = true;
+        elem->removal_activated = false;
+        elem->cmp_func_list = NULL;
+        elem->log_callback = log_callback;
+        avl_insert(&openfiles, &elem->avl, _compactor_cmp);
+        mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
+                                 // subsequent registration attempts for the same file
+                                 // will be simply processed by incrementing its
+                                 // counter below.
+
+        // wake up any sleeping thread
+        mutex_lock(&sync_mutex);
+        thread_cond_signal(&sync_cond);
+        mutex_unlock(&sync_mutex);
+
+    } else {
+        // already exists .. just ignore
+        mutex_unlock(&cpt_lock);
+    }
+    return fs;
 }
 
 void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
