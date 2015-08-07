@@ -749,9 +749,11 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
         meta.crc = _endian_decode(meta.crc);
         ops->close(fd_meta);
 
-        // CRC check
-        crc = chksum(buf, sizeof(struct compactor_meta) - sizeof(crc));
-        if (crc != meta.crc) {
+        // CRC check, mode UNKNOWN means all modes are checked.
+        if (perform_integrity_check(buf,
+                                    sizeof(struct compactor_meta) - sizeof(crc),
+                                    meta.crc,
+                                    CRC_UNKNOWN)) {
             fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                     "Checksum mismatch in the meta file '%s'\n", metafile);
             return NULL;
@@ -789,7 +791,8 @@ static fdb_status _compactor_store_metafile(char *metafile,
     if (fd_meta >= 0){
         meta.version = _endian_encode(COMPACTOR_META_VERSION);
         strcpy(meta.filename, metadata->filename);
-        crc = chksum((void*)&meta, sizeof(struct compactor_meta) - sizeof(crc));
+        crc = get_checksum(reinterpret_cast<const uint8_t*>(&meta),
+                           sizeof(struct compactor_meta) - sizeof(crc));
         meta.crc = _endian_encode(crc);
 
         char errno_msg[512];

@@ -315,12 +315,11 @@ INLINE struct docio_length _docio_length_decode(struct docio_length length)
 #define _docio_length_decode(a)
 #endif
 
-INLINE uint8_t _docio_length_checksum(struct docio_length length)
+INLINE uint8_t _docio_length_checksum(struct docio_length length, struct docio_handle* handle)
 {
-    return (uint8_t)(
-        chksum(&length,
-               sizeof(keylen_t) + sizeof(uint16_t) + sizeof(uint32_t)*2)
-        & 0xff);
+    return uint8_t(get_checksum(reinterpret_cast<const uint8_t*>(&length),
+                                sizeof(keylen_t) + sizeof(uint16_t) + sizeof(uint32_t)*2,
+                                handle->file->crc_mode) & 0xff);
 }
 
 INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object *doc)
@@ -386,7 +385,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     _length = _docio_length_encode(length);
 
     // calculate checksum of LENGTH using crc
-    _length.checksum = _docio_length_checksum(_length);
+    _length.checksum = _docio_length_checksum(_length, handle);
 
     memcpy((uint8_t *)buf + offset, &_length, sizeof(struct docio_length));
     offset += sizeof(struct docio_length);
@@ -430,7 +429,9 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     }
 
 #ifdef __CRC32
-    crc = chksum(buf, docsize - sizeof(crc));
+    crc = get_checksum(reinterpret_cast<const uint8_t*>(buf),
+                       docsize - sizeof(crc),
+                       handle->file->crc_mode);
     memcpy((uint8_t *)buf + offset, &crc, sizeof(crc));
 #endif
 
@@ -458,7 +459,7 @@ bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset)
     _length = _docio_length_encode(length);
 
     // calculate checksum of LENGTH using crc
-    _length.checksum = _docio_length_checksum(_length);
+    _length.checksum = _docio_length_checksum(_length, handle);
 
     memcpy((uint8_t *)buf + offset, &_length, sizeof(struct docio_length));
     offset += sizeof(struct docio_length);
@@ -713,7 +714,7 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     }
 
     // checksum check
-    checksum = _docio_length_checksum(_length);
+    checksum = _docio_length_checksum(_length, handle);
     if (checksum != _length.checksum) {
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "doc_length checksum mismatch error in a database file '%s'",
@@ -765,7 +766,7 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     }
 
     // checksum check
-    checksum = _docio_length_checksum(_length);
+    checksum = _docio_length_checksum(_length, handle);
     if (checksum != _length.checksum) {
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "doc_length checksum mismatch error in a database file '%s'",
@@ -853,7 +854,7 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     }
 
     // checksum check
-    checksum = _docio_length_checksum(_length);
+    checksum = _docio_length_checksum(_length, handle);
     if (checksum != _length.checksum) {
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "doc_length checksum mismatch error in a database file '%s'",
@@ -973,7 +974,7 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
     }
 
     // checksum check
-    checksum = _docio_length_checksum(_length);
+    checksum = _docio_length_checksum(_length, handle);
     if (checksum != _length.checksum) {
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "doc_length checksum mismatch error in a database file '%s'",
@@ -1167,18 +1168,39 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         return offset;
     }
 
-    crc = chksum((void *)&_length, sizeof(_length));
-    crc = chksum_scd(doc->key, doc->length.keylen, crc);
-    crc = chksum_scd((void *)&_timestamp, sizeof(timestamp_t), crc);
-    crc = chksum_scd((void *)&_seqnum, sizeof(fdb_seqnum_t), crc);
-    crc = chksum_scd(doc->meta, doc->length.metalen, crc);
+    crc = get_checksum(reinterpret_cast<const uint8_t*>(&_length),
+                       sizeof(_length),
+                       handle->file->crc_mode);
+    crc = get_checksum(reinterpret_cast<const uint8_t*>(doc->key),
+                       doc->length.keylen,
+                       crc,
+                       handle->file->crc_mode);
+    crc = get_checksum(reinterpret_cast<const uint8_t*>(&_timestamp),
+                       sizeof(timestamp_t),
+                       crc,
+                       handle->file->crc_mode);
+    crc = get_checksum(reinterpret_cast<const uint8_t*>(&_seqnum),
+                       sizeof(fdb_seqnum_t),
+                       crc,
+                       handle->file->crc_mode);
+    crc = get_checksum(reinterpret_cast<const uint8_t*>(doc->meta),
+                       doc->length.metalen,
+                       crc,
+                       handle->file->crc_mode);
+
     if (doc->length.flag & DOCIO_COMPRESSED) {
-        crc = chksum_scd(comp_body, doc->length.bodylen_ondisk, crc);
+        crc = get_checksum(reinterpret_cast<const uint8_t*>(comp_body),
+                           doc->length.bodylen_ondisk,
+                           crc,
+                           handle->file->crc_mode);
         if (comp_body) {
             free(comp_body);
         }
     } else {
-        crc = chksum_scd(doc->body, doc->length.bodylen, crc);
+        crc = get_checksum(reinterpret_cast<const uint8_t*>(doc->body),
+                           doc->length.bodylen,
+                           crc,
+                           handle->file->crc_mode);
     }
     if (crc != crc_file) {
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,

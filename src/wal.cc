@@ -43,7 +43,8 @@
 INLINE uint32_t _wal_hash_bykey(struct hash *hash, struct hash_elem *e)
 {
     struct wal_item_header *item = _get_entry(e, struct wal_item_header, he_key);
-    return chksum((uint8_t*)item->key, item->keylen) % ((uint64_t)hash->nbuckets);
+    return get_checksum((uint8_t*)item->key, item->keylen) %
+                        ((uint64_t)hash->nbuckets);
 }
 
 INLINE int _wal_cmp_bykey(struct hash_elem *a, struct hash_elem *b)
@@ -169,8 +170,7 @@ fdb_status wal_insert(fdb_txn *txn,
     }
     query.key = key;
     query.keylen = keylen;
-
-    chk_sum = chksum((uint8_t*)key, keylen);
+    chk_sum = get_checksum((uint8_t*)key, keylen);
     shard_num = chk_sum % file->wal->num_shards;
     if (!is_compactor) {
         spin_lock(&file->wal->key_shards[shard_num].lock);
@@ -345,7 +345,7 @@ static fdb_status _wal_find(fdb_txn *txn,
     size_t keylen = doc->keylen;
 
     if (doc->seqnum == SEQNUM_NOT_USED || (key && keylen>0)) {
-        size_t chk_sum = chksum((uint8_t*)key, keylen);
+        size_t chk_sum = get_checksum((uint8_t*)key, keylen);
         // _wal_find() doesn't care compactor's shard
         size_t shard_num = chk_sum % file->wal->num_shards;
         spin_lock(&file->wal->key_shards[shard_num].lock);
@@ -554,8 +554,9 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
         item = _get_entry(e1, struct wal_item, list_elem_txn);
         assert(item->txn == txn);
         // Grab the WAL key shard lock.
-        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
-            file->wal->num_shards;
+        shard_num = get_checksum((uint8_t*)item->header->key,
+                                 item->header->keylen) %
+                                 file->wal->num_shards;
         spin_lock(&file->wal->key_shards[shard_num].lock);
 
         if (!(item->flag & WAL_ITEM_COMMITTED)) {
@@ -677,8 +678,9 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
         avl_remove(tree, &item->avl);
 
         // Grab the WAL key shard lock.
-        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
-                           file->wal->num_shards;
+        shard_num = get_checksum((uint8_t*)item->header->key,
+                                 item->header->keylen) %
+                                 file->wal->num_shards;
         spin_lock(&file->wal->key_shards[shard_num].lock);
 
         // get KVS ID
@@ -898,8 +900,9 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
     e = list_begin(txn->items);
     while(e) {
         item = _get_entry(e, struct wal_item, list_elem_txn);
-        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
-            file->wal->num_shards;
+        shard_num = get_checksum((uint8_t*)item->header->key,
+                                 item->header->keylen) %
+                                 file->wal->num_shards;
         spin_lock(&file->wal->key_shards[shard_num].lock);
 
         // remove from seq hash table

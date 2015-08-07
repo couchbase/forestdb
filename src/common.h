@@ -32,8 +32,6 @@
 #include "arch.h"
 #include "debug.h"
 #include "bitwise_utils.h"
-#include "crc32.h"
-#include "adler32.h"
 
 #ifndef _MEMPOOL
     #define mempool_alloc malloc
@@ -47,16 +45,6 @@
 #define seq_memcpy(dest, src, size, offset_var) \
     memcpy(dest, src, size); \
     offset_var += size
-
-#ifdef __CHECKSUM_ADLER32
-#define chksum(data, len) adler32(1, (uint8_t*)(data), len)
-#define chksum_scd(data, len, prev) adler32(prev, (uint8_t*)(data), len)
-#define chksum_last8(data, len) adler32_last8(1, (uint8_t*)(data), len)
-#else
-#define chksum(data, len) crc32_8((void*)(data), len, 0)
-#define chksum_scd(data, len, prev) crc32_8((void*)(data), len, prev)
-#define chksum_last8(data, len) crc32_8_last8((void*)(data), len, 0)
-#endif
 
 typedef uint64_t bid_t;
 #define BLK_NOT_FOUND (UINT64_C(0xffffffffffffffff))

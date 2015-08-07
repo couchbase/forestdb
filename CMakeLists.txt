@@ -28,8 +28,12 @@ CONFIGURE_FILE (${CMAKE_CURRENT_SOURCE_DIR}/src/config.cmake.h
 LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}")
 
 if (COUCHBASE_SERVER_BUILD)
-    ADD_DEFINITIONS(-D_DOC_COMP=1)
+    ADD_DEFINITIONS(-D_DOC_COMP=1 -D_CRC32C=1)
     include_directories(AFTER ${SNAPPY_INCLUDE_DIR})
+    include_directories(AFTER ${Platform_SOURCE_DIR}/include)
+    set(PLATFORM_LIBRARY platform)
+    set(DIRUTILS_LIBRARY dirutils)
+    set(GTEST_LIBRARY gtest)
 else(COUCHBASE_SERVER_BUILD)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
     if (NOT WIN32)
@@ -111,6 +115,7 @@ add_library(forestdb SHARED
             src/btree_str_kv.cc
             src/btree_fast_str_kv.cc
             src/btreeblock.cc
+            src/checksum.cc
             src/compactor.cc
             src/configuration.cc
             src/docio.cc
@@ -131,14 +136,13 @@ add_library(forestdb SHARED
             src/kv_instance.cc
             utils/memleak.cc
             utils/crc32.cc
-            utils/adler32.cc
             utils/debug.cc
             utils/partiallock.cc
             utils/time_utils.cc
             utils/system_resource_stats.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${BACKTRACE_LIBRARIES})
+                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 
 add_executable(forestdb_dump
                tools/dump_common.cc
@@ -151,6 +155,7 @@ add_executable(forestdb_dump
                src/btree_str_kv.cc
                src/btree_fast_str_kv.cc
                src/btreeblock.cc
+               src/checksum.cc
                src/compactor.cc
                src/configuration.cc
                src/docio.cc
@@ -171,14 +176,14 @@ add_executable(forestdb_dump
                src/kv_instance.cc
                utils/memleak.cc
                utils/crc32.cc
-               utils/adler32.cc
                utils/debug.cc
                utils/iniparser.cc
                utils/partiallock.cc
                utils/time_utils.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
+                      ${PLATFORM_LIBRARY})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_hexamine
@@ -192,6 +197,7 @@ add_executable(forestdb_hexamine
                src/btree_str_kv.cc
                src/btree_fast_str_kv.cc
                src/btreeblock.cc
+               src/checksum.cc
                src/compactor.cc
                src/configuration.cc
                src/docio.cc
@@ -212,14 +218,14 @@ add_executable(forestdb_hexamine
                src/kv_instance.cc
                utils/memleak.cc
                utils/crc32.cc
-               utils/adler32.cc
                utils/debug.cc
                utils/iniparser.cc
                utils/partiallock.cc
                utils/time_utils.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
+                      ${PLATFORM_LIBRARY})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))

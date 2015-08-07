@@ -509,7 +509,9 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                 // b-tree node .. calculate crc32 and put it into the block
                 memset((uint8_t *)(ptr) + BTREE_CRC_OFFSET,
                        0xff, BTREE_CRC_FIELD_LEN);
-                uint32_t crc = chksum(ptr, bcache_blocksize);
+                uint32_t crc = get_checksum(reinterpret_cast<const uint8_t*>(ptr),
+                                            bcache_blocksize,
+                                            fname_item->curfile->crc_mode);
                 crc = _endian_encode(crc);
                 memcpy((uint8_t *)(ptr) + BTREE_CRC_OFFSET, &crc, sizeof(crc));
             }
@@ -731,8 +733,9 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->filename[fname_new->filename_len] = 0;
 
     // calculate hash value
-    fname_new->hash = chksum((void *)fname_new->filename,
-                             fname_new->filename_len);
+    fname_new->hash = get_checksum(reinterpret_cast<const uint8_t*>(fname_new->filename),
+                                   fname_new->filename_len,
+                                   file->crc_mode);
     fname_new->curfile = file;
     atomic_init_uint64_t(&fname_new->nvictim, 0);
     atomic_init_uint64_t(&fname_new->nitems, 0);

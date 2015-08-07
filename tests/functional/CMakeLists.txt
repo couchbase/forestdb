@@ -7,6 +7,7 @@ add_executable(fdb_functional_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -26,7 +27,6 @@ add_executable(fdb_functional_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                fdb_functional_test.cc
@@ -36,7 +36,7 @@ add_executable(fdb_functional_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(fdb_functional_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 set_target_properties(fdb_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(fdb_extended_test
@@ -48,6 +48,7 @@ add_executable(fdb_extended_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -67,7 +68,6 @@ add_executable(fdb_extended_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                fdb_extended_test.cc
@@ -77,7 +77,7 @@ add_executable(fdb_extended_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(fdb_extended_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 set_target_properties(fdb_extended_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(compact_functional_test
@@ -89,6 +89,7 @@ add_executable(compact_functional_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -108,7 +109,6 @@ add_executable(compact_functional_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                compact_functional_test.cc
@@ -118,7 +118,7 @@ add_executable(compact_functional_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(compact_functional_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 set_target_properties(compact_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(iterator_functional_test
@@ -130,6 +130,7 @@ add_executable(iterator_functional_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -149,7 +150,6 @@ add_executable(iterator_functional_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                iterator_functional_test.cc
@@ -159,7 +159,7 @@ add_executable(iterator_functional_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(iterator_functional_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 set_target_properties(iterator_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(mvcc_functional_test
@@ -171,6 +171,7 @@ add_executable(mvcc_functional_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -190,7 +191,6 @@ add_executable(mvcc_functional_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                mvcc_functional_test.cc
@@ -200,7 +200,7 @@ add_executable(mvcc_functional_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(mvcc_functional_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 set_target_properties(mvcc_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(multi_kv_functional_test
@@ -212,6 +212,7 @@ add_executable(multi_kv_functional_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -231,7 +232,6 @@ add_executable(multi_kv_functional_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                multi_kv_functional_test.cc
@@ -241,7 +241,7 @@ add_executable(multi_kv_functional_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(multi_kv_functional_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 set_target_properties(multi_kv_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(big_concurrency_test
@@ -253,6 +253,7 @@ add_executable(big_concurrency_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -272,7 +273,6 @@ add_executable(big_concurrency_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                big_concurrency_test.cc
@@ -281,7 +281,7 @@ add_executable(big_concurrency_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(big_concurrency_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 set_target_properties(big_concurrency_test PROPERTIES COMPILE_FLAGS
                       "-D_FDB_TOOLS")
 
@@ -294,6 +294,7 @@ add_executable(big_compaction_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -313,7 +314,6 @@ add_executable(big_compaction_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                big_compaction_test.cc
@@ -322,9 +322,29 @@ add_executable(big_compaction_test
                ${GETTIMEOFDAY_VS})
 target_link_libraries(big_compaction_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
+                      ${PLATFORM_LIBRARY})
 set_target_properties(big_compaction_test PROPERTIES COMPILE_FLAGS
                       "-D_FDB_TOOLS")
+
+if (COUCHBASE_SERVER_BUILD)
+add_executable(crc_migration_test
+               crc_migration.cc
+               ${ROOT_SRC}/checksum.cc
+               ${ROOT_UTILS}/crc32.cc
+               ${ROOT_UTILS}/debug.cc)
+target_link_libraries(crc_migration_test
+                      ${DIRUTILS_LIBRARY}
+                      ${PLATFORM_LIBRARY}
+                      ${GTEST_LIBRARY}
+                      ${BACKTRACE_LIBRARIES}
+                      forestdb)
+target_include_directories(crc_migration_test
+                           PUBLIC
+                           ${gtest_SOURCE_DIR}/include)
+
+add_test(crc_migration_test crc_migration_test)
+endif(COUCHBASE_SERVER_BUILD)
 
 
 # add test target
@@ -334,6 +354,8 @@ add_test(compact_functional_test compact_functional_test)
 add_test(iterator_functional_test iterator_functional_test)
 add_test(mvcc_functional_test mvcc_functional_test)
 add_test(multi_kv_functional_test multi_kv_functional_test)
+
+
 ADD_CUSTOM_TARGET(functional_tests
     COMMAND ctest
 )

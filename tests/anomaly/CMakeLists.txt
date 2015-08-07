@@ -7,6 +7,7 @@ add_executable(fdb_anomaly_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -28,14 +29,14 @@ add_executable(fdb_anomaly_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc
                ${ROOT_UTILS}/system_resource_stats.cc)
 target_link_libraries(fdb_anomaly_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
+                      ${PLATFORM_LIBRARY})
 set_target_properties(fdb_anomaly_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 

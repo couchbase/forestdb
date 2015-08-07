@@ -308,7 +308,7 @@ const uint32_t crc_lookup[8][256] =
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
-uint32_t crc32_1(void* data, size_t len, uint32_t prev_value)
+uint32_t crc32_1(const void* data, size_t len, uint32_t prev_value)
 {
     uint32_t crc = ~prev_value;
     const uint8_t* cur = (const uint8_t*) data;
@@ -319,7 +319,7 @@ uint32_t crc32_1(void* data, size_t len, uint32_t prev_value)
     return ~crc;
 }
 
-uint32_t crc32_8(void* data, size_t len, uint32_t prev_value)
+uint32_t crc32_8(const void* data, size_t len, uint32_t prev_value)
 {
     uint32_t *cur = (uint32_t*) data;
     uint32_t crc = ~prev_value;
@@ -360,7 +360,7 @@ uint32_t crc32_8(void* data, size_t len, uint32_t prev_value)
     return ~crc;
 }
 
-uint32_t crc32_8_last8(void *data, size_t len, uint32_t prev_value)
+uint32_t crc32_8_last8(const void *data, size_t len, uint32_t prev_value)
 {
     size_t min = MIN(len, 8);
     void *src = (char*)data + (len-min);

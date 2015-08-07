@@ -1384,6 +1384,11 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         target_filename = virtual_filename;
     }
 
+    // If the user is requesting legacy CRC pass that down to filemgr
+    if(config->flags & FDB_OPEN_WITH_LEGACY_CRC) {
+        fconfig.options |= FILEMGR_CREATE_CRC32;
+    }
+
     handle->fileops = get_filemgr_ops();
     filemgr_open_result result = filemgr_open((char *)actual_filename,
                                               handle->fileops,
@@ -3336,7 +3341,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     }
 
     // crc32
-    crc = chksum(buf, offset);
+    crc = get_checksum(buf, offset, handle->file->crc_mode);
     crc = _endian_encode(crc);
     seq_memcpy(buf + offset, &crc, sizeof(crc), offset);
 
@@ -3344,10 +3349,10 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
 }
 
 static
-char *_fdb_redirect_header(uint8_t *buf, char *new_filename,
-                                 uint16_t new_filename_len) {
+char *_fdb_redirect_header(uint8_t *buf, filemgr* new_file) {
     uint16_t old_compact_filename_len; // size of existing old_filename in buf
     uint16_t new_compact_filename_len; // size of existing new_filename in buf
+    uint16_t new_filename_len = strlen(new_file->filename) + 1;
     uint16_t new_filename_len_enc = _endian_encode(new_filename_len);
     uint32_t crc;
     size_t crc_offset;
@@ -3373,10 +3378,10 @@ char *_fdb_redirect_header(uint8_t *buf, char *new_filename,
                 old_compact_filename_len);
     }
     // Update the DB header's new_filename to the redirected one
-    memcpy(buf + 68, new_filename, new_filename_len);
+    memcpy(buf + 68, new_file->filename, new_filename_len);
     // Compute the DB header's new crc32 value
     crc_offset = 68 + new_filename_len + old_compact_filename_len;
-    crc = chksum(buf, crc_offset);
+    crc = get_checksum(buf, crc_offset, new_file->crc_mode);
     crc = _endian_encode(crc);
     // Update the DB header's new crc32 value
     memcpy(buf + crc_offset, &crc, sizeof(crc));

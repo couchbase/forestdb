@@ -62,7 +62,20 @@ enum {
      * Open a ForestDB file in read only mode, but
      * return an error if a file doesn't exist.
      */
-    FDB_OPEN_FLAG_RDONLY = 2
+    FDB_OPEN_FLAG_RDONLY = 2,
+
+    /**
+     * Open a ForestDB file with legacy CRC.
+     *
+     * This flag is intended to be used by upgrade tests.
+     *
+     * This flag is only valid if the file to be opened is a new file or an
+     * existing file with legacy CRC.
+     *
+     * Opening existing files which use CRC32C with this flag results
+     * in FDB_RESULT_INVALID_ARGS.
+     */
+    FDB_OPEN_WITH_LEGACY_CRC = 4
 };
 
 /**

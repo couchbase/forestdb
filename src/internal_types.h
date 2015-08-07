@@ -131,7 +131,7 @@ struct kvs_stat {
 };
 
 // Versioning information...
-// Version 2 - added delta size to DB header
+// Version 2 - added delta size to DB header and CRC-32C
 #define FILEMGR_MAGIC_V2 (UINT64_C(0xdeadcafebeefc001))
 #define FILEMGR_MAGIC_V1 (UINT64_C(0xdeadcafebeefbeef))
 

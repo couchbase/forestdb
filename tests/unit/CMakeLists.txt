@@ -16,6 +16,7 @@ add_executable(bcache_test
                bcache_test.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -26,14 +27,13 @@ add_executable(bcache_test
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
-
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 add_executable(atomic_test
                atomic_test.cc
                ${GETTIMEOFDAY_VS})
@@ -43,6 +43,7 @@ add_executable(filemgr_test
                filemgr_test.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -53,14 +54,13 @@ add_executable(filemgr_test
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(filemgr_test ${PTHREAD_LIB} ${LIBM}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${BACKTRACE_LIBRARIES})
+                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 
 add_executable(btreeblock_test
                btreeblock_test.cc
@@ -69,6 +69,7 @@ add_executable(btreeblock_test
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -79,19 +80,19 @@ add_executable(btreeblock_test
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${BACKTRACE_LIBRARIES})
+                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 
 add_executable(docio_test
                docio_test.cc
                ${ROOT_SRC}/avltree.cc
                ${ROOT_SRC}/blockcache.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/docio.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
@@ -103,14 +104,13 @@ add_executable(docio_test
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${BACKTRACE_LIBRARIES})
+                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 
 add_executable(hbtrie_test
                hbtrie_test.cc
@@ -120,6 +120,7 @@ add_executable(hbtrie_test
                ${ROOT_SRC}/btree_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/docio.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
@@ -132,24 +133,13 @@ add_executable(hbtrie_test
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
                ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/partiallock.cc
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
-
-add_executable(crc_test
-               crc_test.cc
-               ${ROOT_SRC}/avltree.cc
-               ${ROOT_SRC}/hash_functions.cc
-               ${GETTIMEOFDAY_VS}
-               ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/adler32.cc
-               ${ROOT_UTILS}/memleak.cc
-               ${ROOT_UTILS}/time_utils.cc)
-target_link_libraries(crc_test ${PTHREAD_LIB} ${LIBM} ${MALLOC_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY})
 
 add_executable(btree_str_kv_test
                btree_str_kv_test.cc
@@ -175,7 +165,6 @@ add_test(filemgr_test filemgr_test)
 add_test(btreeblock_test btreeblock_test)
 add_test(docio_test docio_test)
 add_test(hbtrie_test hbtrie_test)
-add_test(crc_test crc_test)
 add_test(btree_str_kv_test btree_str_kv_test)
 add_test(btree_kv_test btree_kv_test)
 ADD_CUSTOM_TARGET(unit_tests

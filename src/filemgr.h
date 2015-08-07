@@ -36,6 +36,7 @@
 #include "hash.h"
 #include "partiallock.h"
 #include "atomic.h"
+#include "checksum.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,6 +47,7 @@ extern "C" {
 #define FILEMGR_ROLLBACK_IN_PROG 0x04
 #define FILEMGR_CREATE 0x08
 #define FILEMGR_REMOVAL_IN_PROG 0x10
+#define FILEMGR_CREATE_CRC32 0x20 // Used in testing upgrade path
 
 struct filemgr_config {
     int blocksize;
@@ -190,6 +192,9 @@ struct filemgr {
 
     // mutex for synchronization among multiple writers.
     mutex_lock_t writer_lock;
+
+    // CRC the file is using.
+    crc_mode_e crc_mode;
 };
 
 typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
@@ -309,8 +314,8 @@ fdb_status filemgr_destroy_file(char *filename,
                                 struct hash *destroy_set);
 
 struct filemgr *filemgr_search_stale_links(struct filemgr *cur_file);
-typedef char *filemgr_redirect_hdr_func(uint8_t *buf, char *new_filename,
-                                       uint16_t new_filename_len);
+typedef char *filemgr_redirect_hdr_func(uint8_t *buf, struct filemgr *new_file);
+
 char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                                 struct filemgr *new_file,
                                 filemgr_redirect_hdr_func redirect_func);

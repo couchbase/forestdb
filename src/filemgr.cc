@@ -180,7 +180,9 @@ static uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
     struct filemgr *file = _get_entry(e, struct filemgr, e);
     int len = strlen(file->filename);
-    return chksum(file->filename, len) & ((unsigned)(NBUCKET-1));
+
+    return get_checksum(reinterpret_cast<const uint8_t*>(file->filename), len) &
+                        ((unsigned)(NBUCKET-1));
 }
 
 static int _file_cmp(struct hash_elem *a, struct hash_elem *b)
@@ -300,10 +302,19 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     filemgr_header_len_t len;
     uint8_t *buf;
     uint32_t crc, crc_file;
+    bool check_crc32_open_rule = false;
     fdb_status status = FDB_RESULT_SUCCESS;
 
     // get temp buffer
     buf = (uint8_t *) _filemgr_get_temp_buf();
+
+    // If a header is found crc_mode can change to reflect the file
+    if (file->config && file->config->options & FILEMGR_CREATE_CRC32) {
+        file->crc_mode = CRC32;
+        check_crc32_open_rule = true;
+    } else {
+        file->crc_mode = CRC_DEFAULT;
+    }
 
     if (atomic_get_uint64_t(&file->pos) > 0) {
         // Crash Recovery Test 1: unaligned last block write
@@ -341,8 +352,10 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                        sizeof(magic));
                 magic = _endian_decode(magic);
 
+
                 //TODO: Need to refactor this part to support the file format
                 //TODO:.. versioning in a more efficient way
+
                 if (magic == FILEMGR_MAGIC_V1 || magic == FILEMGR_MAGIC_V2) {
                     memcpy(&len,
                            buf + file->blocksize - BLK_MARKER_SIZE -
@@ -350,49 +363,75 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                            sizeof(len));
                     len = _endian_decode(len);
 
-                    crc = chksum(buf, len - sizeof(crc));
                     memcpy(&crc_file, buf + len - sizeof(crc), sizeof(crc));
                     crc_file = _endian_decode(crc_file);
-                    if (crc == crc_file) {
-                        file->header.data = (void *)malloc(len);
 
-                        memcpy(file->header.data, buf, len);
-                        memcpy(&file->header.revnum, buf + len,
-                               sizeof(filemgr_header_revnum_t));
-                        memcpy((void *) &file->header.seqnum,
-                                buf + len + sizeof(filemgr_header_revnum_t),
-                                sizeof(fdb_seqnum_t));
-                        file->header.revnum =
-                            _endian_decode(file->header.revnum);
-                        file->header.seqnum =
-                            _endian_decode(file->header.seqnum);
-                        file->header.size = len;
-                        atomic_store_uint64_t(&file->header.bid,
-                            (atomic_get_uint64_t(&file->pos) / file->blocksize) - 1);
-                        atomic_store_uint64_t(&file->header.dirty_idtree_root,
-                                              BLK_NOT_FOUND);
-                        atomic_store_uint64_t(&file->header.dirty_seqtree_root,
-                                              BLK_NOT_FOUND);
-                        memset(&file->header.stat, 0x0, sizeof(file->header.stat));
+                    // crc check and detect the crc_mode
+                    if (detect_and_check_crc(reinterpret_cast<const uint8_t*>(buf),
+                                             len - sizeof(crc),
+                                             crc_file,
+                                             &file->crc_mode)) {
+                        // crc mode is detected and known.
+                        // check the rules of opening legacy CRC
+                        if (check_crc32_open_rule && file->crc_mode != CRC32) {
+                            const char *msg = "Open of CRC32C file"
+                                              " with forced CRC32\n";
+                            status = FDB_RESULT_INVALID_ARGS;
+                            DBG(msg);
+                            fdb_log(log_callback, status, msg);
+                            break;
+                        } else {
+                            status = FDB_RESULT_SUCCESS;
 
-                        // release temp buffer
-                        _filemgr_release_temp_buf(buf);
+                            file->header.data = (void *)malloc(len);
 
-                        return FDB_RESULT_SUCCESS;
+                            memcpy(file->header.data, buf, len);
+                            memcpy(&file->header.revnum, buf + len,
+                                   sizeof(filemgr_header_revnum_t));
+                            memcpy((void *) &file->header.seqnum,
+                                    buf + len + sizeof(filemgr_header_revnum_t),
+                                    sizeof(fdb_seqnum_t));
+                            file->header.revnum =
+                                _endian_decode(file->header.revnum);
+                            file->header.seqnum =
+                                _endian_decode(file->header.seqnum);
+                            file->header.size = len;
+                            atomic_store_uint64_t(&file->header.bid,
+                                (atomic_get_uint64_t(&file->pos) / file->blocksize) - 1);
+                            atomic_store_uint64_t(&file->header.dirty_idtree_root,
+                                                  BLK_NOT_FOUND);
+                            atomic_store_uint64_t(&file->header.dirty_seqtree_root,
+                                                  BLK_NOT_FOUND);
+                            memset(&file->header.stat, 0x0, sizeof(file->header.stat));
+
+                            // release temp buffer
+                            _filemgr_release_temp_buf(buf);
+                        }
+
+                        return status;
                     } else {
                         status = FDB_RESULT_CHECKSUM_ERROR;
-                        const char *msg = "Crash Detected: CRC on disk %u != %u "
+                        uint32_t crc32 = 0, crc32c = 0;
+                        crc32 = get_checksum(reinterpret_cast<const uint8_t*>(buf),
+                                             len - sizeof(crc),
+                                             CRC32);
+#ifdef _CRC32C
+                        crc32c = get_checksum(reinterpret_cast<const uint8_t*>(buf),
+                                              len - sizeof(crc),
+                                              CRC32C);
+#endif
+                        const char *msg = "Crash Detected: CRC on disk %u != (%u | %u) "
                             "in a database file '%s'\n";
-                        DBG(msg, crc_file, crc, file->filename);
-                        fdb_log(log_callback, status, msg, crc_file, crc,
+                        DBG(msg, crc_file, crc32, crc32c, file->filename);
+                        fdb_log(log_callback, status, msg, crc_file, crc32, crc32c,
                                 file->filename);
                     }
                 } else {
                     status = FDB_RESULT_FILE_CORRUPTION;
-                    const char *msg = "Crash Detected: Wrong Magic %" _F64 " != %" _F64
-                        " in a database file '%s'\n";
-                    DBG(msg, magic, FILEMGR_MAGIC_V2, file->filename);
-                    fdb_log(log_callback, status, msg, magic, FILEMGR_MAGIC_V2,
+                    const char *msg = "Crash Detected: Wrong Magic %" _F64 " != (%" _F64
+                        " or %" _F64 ") in a database file '%s'\n";
+                    DBG(msg, magic, FILEMGR_MAGIC_V1, FILEMGR_MAGIC_V2, file->filename);
+                    fdb_log(log_callback, status, msg, magic, FILEMGR_MAGIC_V1, FILEMGR_MAGIC_V2,
                             file->filename);
                 }
             } else {
@@ -1477,12 +1516,14 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
 INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
 {
     if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
-        uint32_t crc_file, crc;
+        uint32_t crc_file = 0;
         memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
         crc_file = _endian_decode(crc_file);
         memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
-        crc = chksum(buf, file->blocksize);
-        if (crc != crc_file) {
+        if (!perform_integrity_check(reinterpret_cast<const uint8_t*>(buf),
+                                     file->blocksize,
+                                     crc_file,
+                                     file->crc_mode)) {
             return FDB_RESULT_CHECKSUM_ERROR;
         }
     }
@@ -1752,7 +1793,9 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
             uint8_t marker = *((uint8_t*)buf + file->blocksize - 1);
             if (marker == BLK_MARKER_BNODE) {
                 memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
-                uint32_t crc32 = chksum(buf, file->blocksize);
+                uint32_t crc32 = get_checksum(reinterpret_cast<const uint8_t*>(buf),
+                                              file->blocksize,
+                                              file->crc_mode);
                 crc32 = _endian_encode(crc32);
                 memcpy((uint8_t *)buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));
             }
@@ -2018,7 +2061,7 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     }
     very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
     past_filename = redirect_header_func((uint8_t *)very_old_file->header.data,
-            new_file->filename, new_filename_len + 1);//Update in-memory header
+                                         new_file);//Update in-memory header
     very_old_file->header.size = new_header_len;
     ++(very_old_file->header.revnum);
 
@@ -2138,6 +2181,7 @@ fdb_status filemgr_destroy_file(char *filename,
         file->ops = get_filemgr_ops();
         file->fd = file->ops->open(file->filename, O_RDWR, 0666);
         file->blocksize = global_config.blocksize;
+        file->config = NULL;
         if (file->fd < 0) {
             if (file->fd != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call
