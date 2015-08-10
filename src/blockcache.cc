@@ -308,20 +308,22 @@ static void _bcache_release_freeblock(struct bcache_item *item)
 
 static struct fnamedic_item *_next_dead_fname_zombie(void) {
     struct list_elem *e;
-    struct fnamedic_item *fname_item = NULL;
+    struct fnamedic_item *fname_item;
+    bool found = false;
     rw_spin_write_lock(&filelist_lock);
     e = list_begin(&file_zombies);
     while (e) {
         fname_item = _get_entry(e, struct fnamedic_item, le);
         if (atomic_get_uint32_t(&fname_item->ref_count) == 0) {
             list_remove(&file_zombies, e);
+            found = true;
             break;
         } else {
             e = list_next(e);
         }
     }
     rw_spin_write_unlock(&filelist_lock);
-    return fname_item;
+    return found ? fname_item : NULL;
 }
 
 static void _fname_free(struct fnamedic_item *fname);
@@ -789,6 +791,8 @@ static bool _fname_try_free(struct fnamedic_item *fname)
             file_list[i] = file_list[i+1];
         }
     }
+    fdb_assert(found, num_files, fname->ref_count.val);
+    file_list[num_files - 1] = NULL;
     --num_files;
     if (atomic_get_uint32_t(&fname->ref_count) != 0) {
         // This item is a victim by another thread's _bcache_evict()
