@@ -11,6 +11,7 @@ INCLUDE(CheckIncludeFiles)
 INCLUDE(CheckLibraryExists)
 INCLUDE(CheckSymbolExists)
 INCLUDE(CheckTypeSize)
+INCLUDE(CTest)
 
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/option)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/utils)
