@@ -601,7 +601,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     spin_unlock(&file->lock);
                     ret = hash_remove(&hash, &file->e);
                     fdb_assert(ret, 0, 0);
-                    _filemgr_free_func(&file->e);
+                    filemgr_free_func(&file->e);
                     if (!create) {
                         _log_errno_str(ops, log_callback,
                                 FDB_RESULT_NO_SUCH_FILE, "OPEN", filename);
@@ -1060,10 +1060,16 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
     if (--(file->ref_count) == 0) {
-        spin_unlock(&file->lock);
-        if (global_config.ncacheblock > 0) {
+        if (global_config.ncacheblock > 0 &&
+            atomic_get_uint8_t(&file->status) != FILE_REMOVED_PENDING) {
+            spin_unlock(&file->lock);
             // discard all dirty blocks belonged to this file
             bcache_remove_dirty_blocks(file);
+        } else {
+            // If the file is in pending removal (i.e., FILE_REMOVED_PENDING),
+            // then its dirty block entries will be cleaned up in either
+            // filemgr_free_func() or register_file_removal() below.
+            spin_unlock(&file->lock);
         }
 
         if (wal_is_initialized(file)) {
@@ -1099,7 +1105,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
-                _filemgr_free_func(&file->e);
+                filemgr_free_func(&file->e);
             } else {
                 register_file_removal(file, log_callback);
             }
@@ -1150,7 +1156,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 struct hash_elem *ret = hash_remove(&hash, &file->e);
                 fdb_assert(ret, file, 0);
                 spin_unlock(&filemgr_openlock);
-                _filemgr_free_func(&file->e);
+                filemgr_free_func(&file->e);
                 return (fdb_status) rv;
             } else {
                 atomic_store_uint8_t(&file->status, FILE_CLOSED);
@@ -1165,7 +1171,19 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     return (fdb_status) rv;
 }
 
-void _filemgr_free_func(struct hash_elem *h)
+void filemgr_remove_all_buffer_blocks(struct filemgr *file)
+{
+    // remove all cached blocks
+    if (global_config.ncacheblock > 0 && file->bcache) {
+        bcache_remove_dirty_blocks(file);
+        bcache_remove_clean_blocks(file);
+        if (bcache_remove_file(file)) {
+            file->bcache = NULL;
+        }
+    }
+}
+
+void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
 
@@ -1182,10 +1200,12 @@ void _filemgr_free_func(struct hash_elem *h)
     }
 
     // remove all cached blocks
-    if (global_config.ncacheblock > 0) {
+    if (global_config.ncacheblock > 0 && file->bcache) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
-        bcache_remove_file(file);
+        if (bcache_remove_file(file)) {
+            file->bcache = NULL;
+        }
     }
 
     if (file->kv_header) {
@@ -1266,7 +1286,7 @@ void filemgr_remove_file(struct filemgr *file)
 
     if (!lazy_file_deletion_enabled ||
         (file->new_file && file->new_file->in_place_compaction)) {
-        _filemgr_free_func(&file->e);
+        filemgr_free_func(&file->e);
     } else {
         register_file_removal(file, NULL);
     }
@@ -1315,7 +1335,7 @@ fdb_status filemgr_shutdown()
 
         open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
         if (!open_file) {
-            hash_free_active(&hash, _filemgr_free_func);
+            hash_free_active(&hash, filemgr_free_func);
             if (global_config.ncacheblock > 0) {
                 bcache_shutdown();
             }
@@ -2004,7 +2024,7 @@ fdb_status filemgr_destroy_file(char *filename,
         // Cleanup file from in-memory as well as on-disk
         e = hash_remove(&hash, &file->e);
         fdb_assert(e, e, 0);
-        _filemgr_free_func(&file->e);
+        filemgr_free_func(&file->e);
         if (filemgr_does_file_exist(filename) == FDB_RESULT_SUCCESS) {
             if (remove(filename)) {
                 status = FDB_RESULT_FILE_REMOVE_FAIL;

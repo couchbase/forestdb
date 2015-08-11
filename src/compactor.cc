@@ -430,6 +430,7 @@ void * compactor_thread(void *voidargs)
 
                 mutex_unlock(&cpt_lock);
                 ret = remove(elem->file->filename);
+                filemgr_remove_all_buffer_blocks(elem->file);
                 mutex_lock(&cpt_lock);
 
                 if (elem->log_callback && ret != 0) {
@@ -441,7 +442,7 @@ void * compactor_thread(void *voidargs)
                 }
 
                 // free filemgr structure
-                _filemgr_free_func(&elem->file->e);
+                filemgr_free_func(&elem->file->e);
                 // remove & free elem
                 a = avl_next(a);
                 avl_remove(&openfiles, &elem->avl);
@@ -538,7 +539,7 @@ void compactor_shutdown()
         if (_compactor_check_file_removal(elem)) {
             // remove file if removal is pended.
             remove(elem->file->filename);
-            _filemgr_free_func(&elem->file->e);
+            filemgr_free_func(&elem->file->e);
         }
 
         avl_remove(&openfiles, &elem->avl);

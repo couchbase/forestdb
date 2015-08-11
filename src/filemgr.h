@@ -227,7 +227,9 @@ fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
                          const char *orig_file_name,
                          err_log_callback *log_callback);
-void _filemgr_free_func(struct hash_elem *h);
+
+void filemgr_remove_all_buffer_blocks(struct filemgr *file);
+void filemgr_free_func(struct hash_elem *h);
 
 INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
 {

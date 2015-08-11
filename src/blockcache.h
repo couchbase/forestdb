@@ -36,7 +36,7 @@ int bcache_write(struct filemgr *file, bid_t bid, void *buf, bcache_dirty_t dirt
 int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf, size_t offset, size_t len);
 void bcache_remove_dirty_blocks(struct filemgr *file);
 void bcache_remove_clean_blocks(struct filemgr *file);
-void bcache_remove_file(struct filemgr *file);
+bool bcache_remove_file(struct filemgr *file);
 fdb_status bcache_flush(struct filemgr *file);
 void bcache_shutdown();
 uint64_t bcache_get_num_free_blocks();
