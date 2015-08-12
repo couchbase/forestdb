@@ -1303,9 +1303,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
 
     if (handle->kvs == NULL) {
         // create kvs_info
-        filemgr_mutex_lock(file);
         fdb_kvs_info_create(root_handle, handle, file, kvs_name);
-        filemgr_mutex_unlock(file);
     }
 
     if (handle->kvs == NULL) {
@@ -1327,9 +1325,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
             return FDB_RESULT_INVALID_KV_INSTANCE_NAME;
         }
         // create kvs_info again
-        filemgr_mutex_lock(file);
         fdb_kvs_info_create(root_handle, handle, file, kvs_name);
-        filemgr_mutex_unlock(file);
         if (handle->kvs == NULL) { // fail again
             return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
                            "Failed to create KV store '%s' because the KV store's handle "
