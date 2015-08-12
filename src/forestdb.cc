@@ -264,7 +264,9 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     log_callback = handle->dhandle->log_callback;
     handle->dhandle->log_callback = NULL;
 
-    filemgr_mutex_lock(file);
+    if (!handle->shandle) {
+        filemgr_mutex_lock(file);
+    }
     for (; offset < hdr_off;
         offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
         if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
@@ -391,8 +393,8 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     // wal commit
     if (!handle->shandle) {
         wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
+        filemgr_mutex_unlock(file);
     }
-    filemgr_mutex_unlock(file);
     handle->dhandle->log_callback = log_callback;
 }
 
