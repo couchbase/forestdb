@@ -1521,7 +1521,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         _kvs_stat_set(handle->file, 0, stat);
     }
 
-    if (handle->config.multi_kv_instances) {
+    if (handle->config.multi_kv_instances && !handle->shandle) {
         // multi KV instance mode
         filemgr_mutex_lock(handle->file);
         if (kv_info_offset == BLK_NOT_FOUND) {
