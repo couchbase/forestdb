@@ -31,14 +31,21 @@ struct timeval _utime_gap(struct timeval a, struct timeval b)
 }
 
 #if defined(WIN32) || defined(_WIN32)
-void usleep(unsigned int useconds)
+
+void usleep(unsigned int usec)
 {
-    unsigned int msec = useconds / 1000;
-    if (msec == 0) {
-        msec = 1;
-    }
-    Sleep(msec);
+    HANDLE timer;
+    LARGE_INTEGER ft;
+
+    // Convert to 100 nanosecond interval, negative value indicates relative time
+    ft.QuadPart = -(10*usec);
+
+    timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+    WaitForSingleObject(timer, INFINITE);
+    CloseHandle(timer);
 }
+
 #endif
 
 void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {

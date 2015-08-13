@@ -154,6 +154,7 @@ struct filemgr {
     bool in_place_compaction;
     struct kvs_header *kv_header;
     void (*free_kv_header)(struct filemgr *file); // callback function
+    atomic_uint32_t throttling_delay;
 
     // variables related to prefetching
     volatile filemgr_prefetch_status_t prefetch_status;
@@ -335,6 +336,9 @@ INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
 }
 
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);
+
+void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us);
+uint32_t filemgr_get_throttling_delay(struct filemgr *file);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

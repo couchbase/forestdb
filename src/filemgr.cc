@@ -694,6 +694,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     }
     atomic_init_uint64_t(&file->last_commit, offset);
     atomic_init_uint64_t(&file->pos, offset);
+    atomic_init_uint32_t(&file->throttling_delay, 0);
 
     file->bcache = NULL;
     file->in_place_compaction = false;
@@ -1285,6 +1286,10 @@ void filemgr_free_func(struct hash_elem *h)
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
     mutex_destroy(&file->writer_lock.mutex);
+
+    atomic_destroy_uint64_t(&file->pos);
+    atomic_destroy_uint64_t(&file->last_commit);
+    atomic_destroy_uint32_t(&file->throttling_delay);
 
     // free file structure
     free(file->config);
@@ -2212,6 +2217,16 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
     magic = _endian_decode(magic);
 
     return (magic == FILEMGR_MAGIC);
+}
+
+void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us)
+{
+    atomic_store_uint32_t(&file->throttling_delay, delay_us);
+}
+
+uint32_t filemgr_get_throttling_delay(struct filemgr *file)
+{
+    return atomic_get_uint32_t(&file->throttling_delay);
 }
 
 void _kvs_stat_set(struct filemgr *file,

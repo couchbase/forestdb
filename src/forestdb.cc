@@ -2831,6 +2831,12 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 
 fdb_set_start:
     fdb_check_file_reopen(handle, NULL);
+
+    size_t throttling_delay = filemgr_get_throttling_delay(handle->file);
+    if (throttling_delay) {
+        usleep(throttling_delay);
+    }
+
     filemgr_mutex_lock(handle->file);
     fdb_sync_db_header(handle);
 
@@ -3945,15 +3951,14 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     // Note that we don't need to grab a lock on the new file
                     // during the compaction because the new file is only accessed
                     // by the compactor.
-                    // However, we intentionally try to grab a lock on the old file
-                    // here to have the compactor and normal writer interleave together
-                    // through the old file's lock and make sure that the compactor can
-                    // catch up with the normal writer. This is a short-term approach
-                    // and we plan to address this issue without sacrificing the writer's
-                    // performance soon.
+                    // However, we intentionally try to slow down the normal writer if
+                    // the compactor can't catch up with the writer. This is a
+                    // short-term approach and we plan to address this issue without
+                    // sacrificing the writer's performance soon.
                     rv = (size_t)random(100);
                     if (rv < *prob) {
-                        filemgr_mutex_lock(handle->file);
+                        // Set the sleep time 1000 us for the normal writer.
+                        filemgr_set_throttling_delay(handle->file, 1000);
                         locked = true;
                     } else {
                         locked = false;
@@ -3966,7 +3971,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                     wal_release_flushed_items(new_file, &flush_items);
                     if (locked) {
-                        filemgr_mutex_unlock(handle->file);
+                        filemgr_set_throttling_delay(handle->file, 0);
                     }
 
                     if (handle->config.compaction_cb &&
@@ -4232,14 +4237,14 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     }
 
     if (!got_lock) {
-        // We intentionally try to grab a lock on the old file here to have
-        // the compactor and normal writer interleave together through the
-        // old file's lock and make sure that the compactor can catch up with
-        // the normal writer. This is a short-term approach and we plan to address
-        // this issue without sacrificing the writer's performance soon.
+        // We intentionally try to slow down the normal writer if
+        // the compactor can't catch up with the writer. This is a
+        // short-term approach and we plan to address this issue without
+        // sacrificing the writer's performance soon.
         size_t rv = (size_t)random(100);
         if (rv < *prob) {
-            filemgr_mutex_lock(handle->file);
+            // Set the sleep time 1000 us for the normal writer.
+            filemgr_set_throttling_delay(handle->file, 1000);
             locked = true;
         }
     }
@@ -4255,7 +4260,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     wal_release_flushed_items(new_handle->file, &flush_items);
 
     if (locked) {
-        filemgr_mutex_unlock(handle->file);
+        filemgr_set_throttling_delay(handle->file, 0);
     }
 
     if (handle->config.compaction_cb &&
