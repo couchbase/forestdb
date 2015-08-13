@@ -1200,9 +1200,8 @@ void filemgr_remove_all_buffer_blocks(struct filemgr *file)
     if (global_config.ncacheblock > 0 && file->bcache) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
-        if (bcache_remove_file(file)) {
-            file->bcache = NULL;
-        }
+        bcache_remove_file(file);
+        file->bcache = NULL;
     }
 }
 
@@ -1226,9 +1225,8 @@ void filemgr_free_func(struct hash_elem *h)
     if (global_config.ncacheblock > 0 && file->bcache) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
-        if (bcache_remove_file(file)) {
-            file->bcache = NULL;
-        }
+        bcache_remove_file(file);
+        file->bcache = NULL;
     }
 
     if (file->kv_header) {
