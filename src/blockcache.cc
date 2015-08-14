@@ -1206,8 +1206,9 @@ void bcache_remove_clean_blocks(struct filemgr *file)
 // remove file from filename dictionary
 // MUST sure that there is no dirty block belongs to this FILE
 // (or memory leak occurs)
-void bcache_remove_file(struct filemgr *file)
+bool bcache_remove_file(struct filemgr *file)
 {
+    bool rv = false;
     struct fnamedic_item *fname_item;
 
     // Before proceeding with deletion, garbage collect zombie files
@@ -1229,8 +1230,10 @@ void bcache_remove_file(struct filemgr *file)
         // no database handles that access the file.
         if (_fname_try_free(fname_item)) {
             _fname_free(fname_item); // no other callers accessing this file
+            rv = true;
         } // else fnamedic_item is in use by _bcache_evict. Deletion delayed
     }
+    return rv;
 }
 
 // flush and synchronize all dirty blocks of the FILE

@@ -167,10 +167,14 @@ struct filemgr {
     filemgr_fs_type_t fs_type;
     struct kvs_header *kv_header;
     void (*free_kv_header)(struct filemgr *file); // callback function
+    atomic_uint32_t throttling_delay;
 
     // variables related to prefetching
     volatile filemgr_prefetch_status_t prefetch_status;
     thread_t prefetch_tid;
+
+    // File format version
+    uint64_t version;
 
     // spin lock for small region
     spin_t lock;
@@ -245,7 +249,9 @@ fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
                          const char *orig_file_name,
                          err_log_callback *log_callback);
-void _filemgr_free_func(struct hash_elem *h);
+
+void filemgr_remove_all_buffer_blocks(struct filemgr *file);
+void filemgr_free_func(struct hash_elem *h);
 
 INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
 {
@@ -356,6 +362,9 @@ INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);
 
 bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst);
+
+void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us);
+uint32_t filemgr_get_throttling_delay(struct filemgr *file);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

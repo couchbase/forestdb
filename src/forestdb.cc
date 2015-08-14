@@ -259,7 +259,9 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     log_callback = handle->dhandle->log_callback;
     handle->dhandle->log_callback = NULL;
 
-    filemgr_mutex_lock(file);
+    if (!handle->shandle) {
+        filemgr_mutex_lock(file);
+    }
     for (; offset < hdr_off;
         offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
         if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
@@ -386,8 +388,8 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     // wal commit
     if (!handle->shandle) {
         wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
+        filemgr_mutex_unlock(file);
     }
-    filemgr_mutex_unlock(file);
     handle->dhandle->log_callback = log_callback;
 }
 
@@ -1135,12 +1137,20 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     handle->max_seqnum = FDB_SNAPSHOT_INMEM; // Prevent WAL restore on open
     handle->shandle = &shandle; // a dummy handle to prevent WAL restore
     if (kvs) {
-        fdb_kvs_header_free(file); //_open will recreate the header
+        fdb_kvs_header_free(file); // KV header will be recreated below.
         handle->kvs = kvs; // re-use super_handle's kvs info
         handle->kvs_config = kvs_config;
     }
 
     fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
+
+    if (handle->config.multi_kv_instances) {
+        filemgr_mutex_lock(handle->file);
+        fdb_kvs_header_create(handle->file);
+        fdb_kvs_header_read(handle->file, handle->dhandle, handle->kv_info_offset,
+                            handle->file->version, false);
+        filemgr_mutex_unlock(handle->file);
+    }
 
     filemgr_set_rollback(file, 0); // allow mutations
     handle->shandle = NULL; // just a dummy handle never allocated
@@ -1645,7 +1655,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         _kvs_stat_set(handle->file, 0, stat);
     }
 
-    if (handle->config.multi_kv_instances) {
+    if (handle->config.multi_kv_instances && !handle->shandle) {
         // multi KV instance mode
         filemgr_mutex_lock(handle->file);
         if (kv_info_offset == BLK_NOT_FOUND) {
@@ -2985,6 +2995,12 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 
 fdb_set_start:
     fdb_check_file_reopen(handle, NULL);
+
+    size_t throttling_delay = filemgr_get_throttling_delay(handle->file);
+    if (throttling_delay) {
+        usleep(throttling_delay);
+    }
+
     filemgr_mutex_lock(handle->file);
     fdb_sync_db_header(handle);
 
@@ -4436,15 +4452,14 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     // Note that we don't need to grab a lock on the new file
                     // during the compaction because the new file is only accessed
                     // by the compactor.
-                    // However, we intentionally try to grab a lock on the old file
-                    // here to have the compactor and normal writer interleave together
-                    // through the old file's lock and make sure that the compactor can
-                    // catch up with the normal writer. This is a short-term approach
-                    // and we plan to address this issue without sacrificing the writer's
-                    // performance soon.
+                    // However, we intentionally try to slow down the normal writer if
+                    // the compactor can't catch up with the writer. This is a
+                    // short-term approach and we plan to address this issue without
+                    // sacrificing the writer's performance soon.
                     rv = (size_t)random(100);
                     if (rv < *prob) {
-                        filemgr_mutex_lock(handle->file);
+                        // Set the sleep time 1000 us for the normal writer.
+                        filemgr_set_throttling_delay(handle->file, 1000);
                         locked = true;
                     } else {
                         locked = false;
@@ -4457,7 +4472,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                     wal_release_flushed_items(new_file, &flush_items);
                     if (locked) {
-                        filemgr_mutex_unlock(handle->file);
+                        filemgr_set_throttling_delay(handle->file, 0);
                     }
 
                     if (handle->config.compaction_cb &&
@@ -4881,14 +4896,14 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     }
 
     if (!got_lock) {
-        // We intentionally try to grab a lock on the old file here to have
-        // the compactor and normal writer interleave together through the
-        // old file's lock and make sure that the compactor can catch up with
-        // the normal writer. This is a short-term approach and we plan to address
-        // this issue without sacrificing the writer's performance soon.
+        // We intentionally try to slow down the normal writer if
+        // the compactor can't catch up with the writer. This is a
+        // short-term approach and we plan to address this issue without
+        // sacrificing the writer's performance soon.
         size_t rv = (size_t)random(100);
         if (rv < *prob) {
-            filemgr_mutex_lock(handle->file);
+            // Set the sleep time 1000 us for the normal writer.
+            filemgr_set_throttling_delay(handle->file, 1000);
             locked = true;
         }
     }
@@ -4904,7 +4919,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     wal_release_flushed_items(new_handle->file, &flush_items);
 
     if (locked) {
-        filemgr_mutex_unlock(handle->file);
+        filemgr_set_throttling_delay(handle->file, 0);
     }
 
     if (handle->config.compaction_cb &&

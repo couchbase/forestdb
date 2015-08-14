@@ -296,7 +296,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                                        err_log_callback *log_callback)
 {
     uint8_t marker[BLK_MARKER_SIZE];
-    filemgr_magic_t magic;
+    filemgr_magic_t magic = FILEMGR_MAGIC_V2;
     filemgr_header_len_t len;
     uint8_t *buf;
     uint32_t crc, crc_file;
@@ -421,6 +421,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     atomic_store_uint64_t(&file->header.dirty_idtree_root, BLK_NOT_FOUND);
     atomic_store_uint64_t(&file->header.dirty_seqtree_root, BLK_NOT_FOUND);
     memset(&file->header.stat, 0x0, sizeof(file->header.stat));
+    file->version = magic;
     return status;
 }
 
@@ -602,7 +603,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     spin_unlock(&file->lock);
                     ret = hash_remove(&hash, &file->e);
                     fdb_assert(ret, 0, 0);
-                    _filemgr_free_func(&file->e);
+                    filemgr_free_func(&file->e);
                     if (!create) {
                         _log_errno_str(ops, log_callback,
                                 FDB_RESULT_NO_SUCH_FILE, "OPEN", filename);
@@ -695,6 +696,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     }
     atomic_init_uint64_t(&file->last_commit, offset);
     atomic_init_uint64_t(&file->pos, offset);
+    atomic_init_uint32_t(&file->throttling_delay, 0);
 
     file->bcache = NULL;
     file->in_place_compaction = false;
@@ -1107,10 +1109,16 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
     if (--(file->ref_count) == 0) {
-        spin_unlock(&file->lock);
-        if (global_config.ncacheblock > 0) {
+        if (global_config.ncacheblock > 0 &&
+            atomic_get_uint8_t(&file->status) != FILE_REMOVED_PENDING) {
+            spin_unlock(&file->lock);
             // discard all dirty blocks belonged to this file
             bcache_remove_dirty_blocks(file);
+        } else {
+            // If the file is in pending removal (i.e., FILE_REMOVED_PENDING),
+            // then its dirty block entries will be cleaned up in either
+            // filemgr_free_func() or register_file_removal() below.
+            spin_unlock(&file->lock);
         }
 
         if (wal_is_initialized(file)) {
@@ -1146,7 +1154,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
-                _filemgr_free_func(&file->e);
+                filemgr_free_func(&file->e);
             } else {
                 register_file_removal(file, log_callback);
             }
@@ -1197,7 +1205,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 struct hash_elem *ret = hash_remove(&hash, &file->e);
                 fdb_assert(ret, file, 0);
                 spin_unlock(&filemgr_openlock);
-                _filemgr_free_func(&file->e);
+                filemgr_free_func(&file->e);
                 return (fdb_status) rv;
             } else {
                 atomic_store_uint8_t(&file->status, FILE_CLOSED);
@@ -1212,7 +1220,18 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     return (fdb_status) rv;
 }
 
-void _filemgr_free_func(struct hash_elem *h)
+void filemgr_remove_all_buffer_blocks(struct filemgr *file)
+{
+    // remove all cached blocks
+    if (global_config.ncacheblock > 0 && file->bcache) {
+        bcache_remove_dirty_blocks(file);
+        bcache_remove_clean_blocks(file);
+        bcache_remove_file(file);
+        file->bcache = NULL;
+    }
+}
+
+void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
 
@@ -1229,10 +1248,11 @@ void _filemgr_free_func(struct hash_elem *h)
     }
 
     // remove all cached blocks
-    if (global_config.ncacheblock > 0) {
+    if (global_config.ncacheblock > 0 && file->bcache) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
         bcache_remove_file(file);
+        file->bcache = NULL;
     }
 
     if (file->kv_header) {
@@ -1291,6 +1311,10 @@ void _filemgr_free_func(struct hash_elem *h)
 
     mutex_destroy(&file->writer_lock.mutex);
 
+    atomic_destroy_uint64_t(&file->pos);
+    atomic_destroy_uint64_t(&file->last_commit);
+    atomic_destroy_uint32_t(&file->throttling_delay);
+
     // free file structure
     free(file->config);
     free(file);
@@ -1313,7 +1337,7 @@ void filemgr_remove_file(struct filemgr *file)
 
     if (!lazy_file_deletion_enabled ||
         (file->new_file && file->new_file->in_place_compaction)) {
-        _filemgr_free_func(&file->e);
+        filemgr_free_func(&file->e);
     } else {
         register_file_removal(file, NULL);
     }
@@ -1362,7 +1386,7 @@ fdb_status filemgr_shutdown()
 
         open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
         if (!open_file) {
-            hash_free_active(&hash, _filemgr_free_func);
+            hash_free_active(&hash, filemgr_free_func);
             if (global_config.ncacheblock > 0) {
                 bcache_shutdown();
             }
@@ -1863,6 +1887,7 @@ fdb_status filemgr_commit(struct filemgr *file,
     }
     // race condition?
     atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
+    file->version = magic;
 
     spin_unlock(&file->lock);
 
@@ -2101,7 +2126,7 @@ fdb_status filemgr_destroy_file(char *filename,
         // Cleanup file from in-memory as well as on-disk
         e = hash_remove(&hash, &file->e);
         fdb_assert(e, e, 0);
-        _filemgr_free_func(&file->e);
+        filemgr_free_func(&file->e);
         if (filemgr_does_file_exist(filename) == FDB_RESULT_SUCCESS) {
             if (remove(filename)) {
                 status = FDB_RESULT_FILE_REMOVE_FAIL;
@@ -2283,6 +2308,16 @@ bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
         return true;
     }
     return false;
+}
+
+void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us)
+{
+    atomic_store_uint32_t(&file->throttling_delay, delay_us);
+}
+
+uint32_t filemgr_get_throttling_delay(struct filemgr *file)
+{
+    return atomic_get_uint32_t(&file->throttling_delay);
 }
 
 void _kvs_stat_set(struct filemgr *file,
