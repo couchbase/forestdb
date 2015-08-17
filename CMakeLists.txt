@@ -45,6 +45,12 @@ endif(COUCHBASE_SERVER_BUILD)
 
 INCLUDE(FindAsyncIOLib)
 
+FIND_LIBRARY(EXECINFO_LIBRARY
+        NAMES execinfo)
+if (EXECINFO_LIBRARY)
+    set(BACKTRACE_LIBRARIES "${EXECINFO_LIBRARY}")
+endif (EXECINFO_LIBRARY)
+
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
@@ -131,7 +137,8 @@ add_library(forestdb SHARED
             utils/time_utils.cc
             utils/system_resource_stats.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
+                      ${BACKTRACE_LIBRARIES})
 
 add_executable(forestdb_dump
                tools/dump_common.cc
@@ -171,7 +178,7 @@ add_executable(forestdb_dump
                utils/time_utils.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_hexamine
@@ -212,7 +219,7 @@ add_executable(forestdb_hexamine
                utils/time_utils.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))

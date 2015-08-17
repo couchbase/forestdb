@@ -2,7 +2,7 @@ add_executable(e2etest
                e2etest.cc
                e2espec.cc
                ${GETTIMEOFDAY_VS})
-target_link_libraries(e2etest forestdb)
+target_link_libraries(e2etest forestdb ${BACKTRACE_LIBRARIES})
 
 
 # add test target
