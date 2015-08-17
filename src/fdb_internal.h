@@ -86,10 +86,6 @@ typedef enum {
     FDB_RESTORE_KV_INS,
 } fdb_restore_mode_t;
 
-void _fdb_restore_wal(fdb_kvs_handle *handle,
-                      fdb_restore_mode_t mode,
-                      bid_t hdr_bid,
-                      fdb_kvs_id_t kv_id_req);
 void fdb_file_handle_init(fdb_file_handle *fhandle,
                            fdb_kvs_handle *root);
 void fdb_file_handle_close_all(fdb_file_handle *fhandle);
