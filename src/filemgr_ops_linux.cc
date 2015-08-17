@@ -287,7 +287,7 @@ int _filemgr_aio_destroy(struct async_io_handle *aio_handle)
 
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/mount.h>
-#else
+#elif !defined(__sun)
 #include <sys/vfs.h>
 #endif
 
@@ -364,6 +364,7 @@ struct tranfer_blk_ownership {
 };
 #endif // EXT4_IOC_TRANSFER_BLK_OWNERSHIP
 
+#ifndef __sun
 static
 int _filemgr_linux_ext4_share_blks(int src_fd, int dst_fd, uint64_t src_off,
                                    uint64_t dst_off, uint64_t len)
@@ -380,9 +381,14 @@ int _filemgr_linux_ext4_share_blks(int src_fd, int dst_fd, uint64_t src_off,
     }
     return err;
 }
+#endif
 
 int _filemgr_linux_get_fs_type(int src_fd)
 {
+#ifdef __sun
+    // No support for ZFS
+    return FILEMGR_FS_NO_COW;
+#else
     int ret;
     struct statfs sfs;
     ret = fstatfs(src_fd, &sfs);
@@ -405,6 +411,7 @@ int _filemgr_linux_get_fs_type(int src_fd)
             ret = FILEMGR_FS_NO_COW;
     }
     return ret;
+#endif
 }
 
 int _filemgr_linux_copy_file_range(int fs_type,
@@ -412,6 +419,7 @@ int _filemgr_linux_copy_file_range(int fs_type,
                                    uint64_t dst_off, uint64_t len)
 {
     int ret = (int)FDB_RESULT_INVALID_ARGS;
+#ifndef __sun
     if (fs_type == FILEMGR_FS_BTRFS) {
         struct btrfs_ioctl_clone_range_args cr_args;
 
@@ -428,6 +436,7 @@ int _filemgr_linux_copy_file_range(int fs_type,
         ret = _filemgr_linux_ext4_share_blks(src_fd, dst_fd, src_off,
                                              dst_off, len);
     }
+#endif
     return ret;
 }
 
