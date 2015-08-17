@@ -525,11 +525,16 @@ fdb_status fdb_init(fdb_config *config)
     }
     spin_lock(&initial_lock);
     if (!fdb_initialized) {
+#if !defined(_ANDROID_) && !defined(__ANDROID__)
+        // Some Android devices (e.g., Nexus 6) return incorrect RAM size.
+        // We temporarily disable validity checking of block cache size
+        // on Android platform at this time.
         double ram_size = (double) get_memory_size();
         if (ram_size * BCACHE_MEMORY_THRESHOLD < (double) _config.buffercache_size) {
             spin_unlock(&initial_lock);
             return FDB_RESULT_TOO_BIG_BUFFER_CACHE;
         }
+#endif
         // initialize file manager and block cache
         f_config.blocksize = _config.blocksize;
         f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
