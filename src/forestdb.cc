@@ -4463,8 +4463,8 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     // sacrificing the writer's performance soon.
                     rv = (size_t)random(100);
                     if (rv < *prob) {
-                        // Set the sleep time 1000 us for the normal writer.
-                        filemgr_set_throttling_delay(handle->file, 1000);
+                        // Set the sleep time 200 - 1000 us for the normal writer.
+                        filemgr_set_throttling_delay(handle->file, 1000 * (*prob) / 100);
                         locked = true;
                     } else {
                         locked = false;
@@ -4907,8 +4907,8 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         // sacrificing the writer's performance soon.
         size_t rv = (size_t)random(100);
         if (rv < *prob) {
-            // Set the sleep time 1000 us for the normal writer.
-            filemgr_set_throttling_delay(handle->file, 1000);
+            // Set the sleep time 200 - 1000 us for the normal writer.
+            filemgr_set_throttling_delay(handle->file, 1000 * (*prob) / 100);
             locked = true;
         }
     }
