@@ -239,7 +239,7 @@ fdb_status wal_insert(fdb_txn *txn,
         if (le == NULL) {
             // not exist
             // create new item
-            item = (struct wal_item *)malloc(sizeof(struct wal_item));
+            item = (struct wal_item *)calloc(1, sizeof(struct wal_item));
             item->flag = 0x0;
 
             if (file->kv_header) { // multi KV instance mode
