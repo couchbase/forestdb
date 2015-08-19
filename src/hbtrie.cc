@@ -440,6 +440,8 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
     void *chunk;
     uint8_t *k = alca(uint8_t, trie->chunksize);
     uint8_t *v = alca(uint8_t, trie->valuelen);
+    memset(k, 0, trie->chunksize);
+    memset(k, 0, trie->valuelen);
     bid_t bid;
     uint64_t offset;
 
