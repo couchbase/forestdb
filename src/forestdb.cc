@@ -5487,6 +5487,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     fdb_sync_db_header(handle);
 
     // set filemgr configuration
+    _fdb_init_file_config(&handle->config, &fconfig);
     fconfig.blocksize = handle->config.blocksize;
     fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
     fconfig.chunksize = handle->config.chunksize;
@@ -5494,6 +5495,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     fconfig.num_wal_shards = handle->config.num_wal_partitions;
     fconfig.num_bcache_shards = handle->config.num_bcache_partitions;
     fconfig.flag = 0x0;
+
     if ((handle->config.durability_opt & FDB_DRB_ODIRECT) &&
         handle->config.buffercache_size) {
         fconfig.flag |= _ARCH_O_DIRECT;
