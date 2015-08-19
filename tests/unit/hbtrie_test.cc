@@ -115,6 +115,7 @@ void basic_test()
     rr = system(SHELL_DEL " hbtrie_testfile");
     (void)rr;
 
+    memset(&doc, 0, sizeof(struct docio_object));
     doc.key = (void*)keybuf;
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
@@ -135,7 +136,6 @@ void basic_test()
 
     hbtrie_init(&trie, 8, 8, blocksize, BLK_NOT_FOUND,
         (void*)&bhandle, btreeblk_get_ops(), (void*)&dhandle, _readkey_wrap);
-
     for (i=0;i<n;++i){
         _key_expand((char *) key_ori[i], key[i], 8);
         sprintf(dockey, "%s", key[i]);
