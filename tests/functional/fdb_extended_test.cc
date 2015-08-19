@@ -245,7 +245,13 @@ static void *_snapshot_reader_thread(void *voidargs)
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_snapshot_open(db, &snap_db, args->ndocs);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(status == FDB_RESULT_SUCCESS || status == FDB_RESULT_NO_DB_INSTANCE);
+    if (status == FDB_RESULT_NO_DB_INSTANCE) {
+        fdb_kvs_close(db);
+        fdb_close(dbfile);
+        thread_exit(0);
+        return NULL;
+    }
 
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
