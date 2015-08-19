@@ -3755,6 +3755,31 @@ INLINE void _fdb_update_block_distance(bid_t writer_curr_bid,
     *compactor_prev_bid = compactor_curr_bid;
 }
 
+static uint64_t _fdb_calculate_throttling_delay(uint64_t n_moved_docs,
+                                                struct timeval tv)
+{
+    uint64_t elapsed_us, delay_us;
+    struct timeval cur_tv, gap;
+
+    if (n_moved_docs == 0) {
+        return 0;
+    }
+
+    gettimeofday(&cur_tv, NULL);
+    gap = _utime_gap(tv, cur_tv);
+    elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
+    // Set writer's delay = 4x of compactor's delay per doc
+    // For example,
+    // 1) if compactor's speed is 10,000 docs/sec,
+    // 2) then the average delay per doc is 100 us.
+    // 3) In this case, we set the writer sleep delay to 400 (= 4*100) us.
+    // To avoid quick fluctuation of writer's delay,
+    // we use the entire average speed of compactor, not an instant speed.
+    delay_us = elapsed_us * 4 / n_moved_docs;
+
+    return delay_us;
+}
+
 static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                          struct filemgr *new_file,
                                          struct hbtrie *new_trie,
@@ -3874,7 +3899,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
             // 1) read all documents in offset_array, and
             // 2) move them into the new file.
             // 3) flush WAL periodically
-            n_moved_docs = i = 0;
+            i = 0;
             do {
                 // === read docs from the old file ===
                 size_t start_idx = i;
@@ -3948,6 +3973,9 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
                 // === flush WAL entries by compactor ===
                 if (wal_get_num_flushable(new_file) > 0) {
+                    uint64_t delay_us;
+                    delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
+
                     // Note that we don't need to grab a lock on the new file
                     // during the compaction because the new file is only accessed
                     // by the compactor.
@@ -3957,8 +3985,9 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     // sacrificing the writer's performance soon.
                     rv = (size_t)random(100);
                     if (rv < *prob) {
-                        // Set the sleep time 200 - 1000 us for the normal writer.
-                        filemgr_set_throttling_delay(handle->file, 1000 * (*prob) / 100);
+                        // Set the sleep time for the normal writer
+                        // according to the current speed of compactor
+                        filemgr_set_throttling_delay(handle->file, delay_us);
                         locked = true;
                     } else {
                         locked = false;
@@ -4193,7 +4222,8 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
                                       uint64_t *old_offset_array,
                                       uint64_t n_buf,
                                       bool got_lock,
-                                      size_t *prob)
+                                      size_t *prob,
+                                      uint64_t delay_us)
 {
     uint64_t i;
     uint64_t doc_offset = 0;
@@ -4242,9 +4272,10 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         // short-term approach and we plan to address this issue without
         // sacrificing the writer's performance soon.
         size_t rv = (size_t)random(100);
-        if (rv < *prob) {
-            // Set the sleep time 200 - 1000 us for the normal writer.
-            filemgr_set_throttling_delay(handle->file, 1000 * (*prob) / 100);
+        if (rv < *prob && delay_us) {
+            // Set the sleep time for the normal writer
+            // according to the current speed of compactor.
+            filemgr_set_throttling_delay(handle->file, delay_us);
             locked = true;
         }
     }
@@ -4286,7 +4317,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 {
     uint64_t offset, offset_end;
     uint64_t old_offset, new_offset;
-    uint64_t sum_docsize;;
+    uint64_t sum_docsize, n_moved_docs;
     uint64_t *old_offset_array;
     size_t c;
     size_t blocksize = handle->file->config->blocksize;
@@ -4331,7 +4362,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     doc = (struct docio_object *)
           malloc(sizeof(struct docio_object) * FDB_COMP_BATCHSIZE);
     old_offset_array = (uint64_t*)malloc(sizeof(uint64_t) * FDB_COMP_BATCHSIZE);
-    c = old_offset = new_offset = sum_docsize = 0;
+    c = old_offset = new_offset = sum_docsize = n_moved_docs = 0;
     offset = (begin_hdr+1) * blocksize;
     offset_end = (end_hdr+1) * blocksize;
 
@@ -4376,8 +4407,10 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 // As this block is a commit header, flush the WAL and write
                 // the commit header to the new file.
                 if (c) {
+                    uint64_t delay_us;
+                    delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
                     _fdb_append_batched_delta(handle, &new_handle, doc,
-                                              old_offset_array, c, got_lock, prob);
+                                              old_offset_array, c, got_lock, prob, delay_us);
                     c = sum_docsize = 0;
                 }
                 btreeblk_end(handle->bhandle);
@@ -4443,13 +4476,18 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                         old_offset_array[c] = offset;
                         sum_docsize += _fdb_get_docsize(doc[c].length);
                         c++;
+                        n_moved_docs++;
                         offset = _offset;
 
                         if (sum_docsize >= FDB_COMP_MOVE_UNIT ||
                             c >= FDB_COMP_BATCHSIZE) {
+
+                            uint64_t delay_us;
+                            delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
+
                             // append batched docs & flush WAL
                             _fdb_append_batched_delta(handle, &new_handle, doc,
-                                                      old_offset_array, c, got_lock, prob);
+                                                      old_offset_array, c, got_lock, prob, delay_us);
                             c = sum_docsize = 0;
                             writer_curr_bid = filemgr_get_pos(handle->file) / blocksize;
                             compactor_curr_bid = offset / blocksize;
@@ -4482,8 +4520,11 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
     // final append & WAL flush
     if (c) {
+        uint64_t delay_us;
+        delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
+
         _fdb_append_batched_delta(handle, &new_handle, doc,
-                                  old_offset_array, c, got_lock, prob);
+                                  old_offset_array, c, got_lock, prob, delay_us);
         if (!distance_updated) {
             // Probability was not updated since the amount of delta was not big enough.
             // We need to update it at least once for each iteration.
