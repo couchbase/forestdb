@@ -3891,6 +3891,31 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     return fs;
 }
 
+static uint64_t _fdb_calculate_throttling_delay(uint64_t n_moved_docs,
+                                                struct timeval tv)
+{
+    uint64_t elapsed_us, delay_us;
+    struct timeval cur_tv, gap;
+
+    if (n_moved_docs == 0) {
+        return 0;
+    }
+
+    gettimeofday(&cur_tv, NULL);
+    gap = _utime_gap(tv, cur_tv);
+    elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
+    // Set writer's delay = 4x of compactor's delay per doc
+    // For example,
+    // 1) if compactor's speed is 10,000 docs/sec,
+    // 2) then the average delay per doc is 100 us.
+    // 3) In this case, we set the writer sleep delay to 400 (= 4*100) us.
+    // To avoid quick fluctuation of writer's delay,
+    // we use the entire average speed of compactor, not an instant speed.
+    delay_us = elapsed_us * 4 / n_moved_docs;
+
+    return delay_us;
+}
+
 INLINE void _fdb_adjust_prob(size_t cur_ratio, size_t *prob, size_t max_prob)
 {
     if (cur_ratio < FDB_COMP_RATIO_MIN) {
@@ -3962,6 +3987,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     uint64_t *offset_array;
     uint64_t src_bid, dst_bid, contiguous_bid;
     uint64_t clone_len;
+    uint64_t n_moved_docs = 0;
     uint32_t blocksize;
     size_t i, c, rv;
     size_t offset_array_max;
@@ -4052,9 +4078,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
             // quick sort
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
 
-            // probabilistic locking (short-term approach)
-            rv = (size_t)random(100);
-
             size_t num_batch_reads =
             docio_batch_read_docs(handle->dhandle, &offset_array[0],
                     _doc, c, FDB_COMP_MOVE_UNIT,
@@ -4121,14 +4144,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
 
                 if (decision == FDB_CS_KEEP_DOC) { // Clone doc to new file
                     if (_bid - contiguous_bid > 1) {
-                        // probabilistic locking to slow down writer
-                        // (short-term approach)
-                        if (rv < *prob) {
-                            filemgr_mutex_lock(handle->file);
-                            locked = true;
-                        } else {
-                            locked = false;
-                        }
                         // Non-Contiguous copy range hit!
                         // Perform file range copy over existing blocks
                         fs = filemgr_copy_file_range(handle->file, new_file,
@@ -4138,9 +4153,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                             break;
                         }
 
-                        if (locked) {
-                            filemgr_mutex_unlock(handle->file);
-                        }
                         dst_bid = dst_bid + 1 + clone_len;
 
                         // reset start block id, contiguous bid & len for
@@ -4170,6 +4182,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
 
                     wal_insert(&new_file->global_txn,
                                new_file, &wal_doc, new_offset, 1);
+                    ++n_moved_docs;
                 } // if non-deleted or deleted-but-not-yet-purged doc check
                 free(doc.key);
                 free(doc.meta);
@@ -4183,26 +4196,28 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                 }
             } // repeat until no more offset in the offset_array
 
-            // probabilistic locking to slow down writer
-            // (short-term approach)
-            if (rv < *prob) {
-                filemgr_mutex_lock(handle->file);
-                locked = true;
-            } else {
-                locked = false;
-            }
             // copy out the last set of contiguous blocks
             fs = filemgr_copy_file_range(handle->file, new_file, src_bid,
                                          dst_bid, 1 + clone_len);
-            if (locked) {
-                filemgr_mutex_unlock(handle->file);
-            }
             if (fs != FDB_RESULT_SUCCESS) {
                 break;
             }
             // === flush WAL entries by compactor ===
             if (wal_get_num_flushable(new_file) > 0) {
-
+                uint64_t delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
+                // We intentionally try to slow down the normal writer if
+                // the compactor can't catch up with the writer. This is a
+                // short-term approach and we plan to address this issue without
+                // sacrificing the writer's performance soon.
+                rv = (size_t)random(100);
+                if (rv < *prob) {
+                    // Set the sleep time for the normal writer
+                    // according to the current speed of compactor
+                    filemgr_set_throttling_delay(handle->file, delay_us);
+                    locked = true;
+                } else {
+                    locked = false;
+                }
                 struct avl_tree flush_items;
                 wal_flush_by_compactor(new_file, (void*)&new_handle,
                                        _fdb_wal_flush_func,
@@ -4210,6 +4225,9 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                                        &flush_items);
                 wal_set_dirty_status(new_file, FDB_WAL_PENDING);
                 wal_release_flushed_items(new_file, &flush_items);
+                if (locked) {
+                    filemgr_set_throttling_delay(handle->file, 0);
+                }
 
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
@@ -4255,31 +4273,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     return fs;
 }
 #endif // _COW_COMPACTION
-
-static uint64_t _fdb_calculate_throttling_delay(uint64_t n_moved_docs,
-                                                struct timeval tv)
-{
-    uint64_t elapsed_us, delay_us;
-    struct timeval cur_tv, gap;
-
-    if (n_moved_docs == 0) {
-        return 0;
-    }
-
-    gettimeofday(&cur_tv, NULL);
-    gap = _utime_gap(tv, cur_tv);
-    elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
-    // Set writer's delay = 4x of compactor's delay per doc
-    // For example,
-    // 1) if compactor's speed is 10,000 docs/sec,
-    // 2) then the average delay per doc is 100 us.
-    // 3) In this case, we set the writer sleep delay to 400 (= 4*100) us.
-    // To avoid quick fluctuation of writer's delay,
-    // we use the entire average speed of compactor, not an instant speed.
-    delay_us = elapsed_us * 4 / n_moved_docs;
-
-    return delay_us;
-}
 
 static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                                          struct filemgr *new_file,
@@ -4756,7 +4749,8 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
                                      uint64_t *old_offset_array,
                                      uint64_t n_buf,
                                      bool got_lock,
-                                     size_t *prob)
+                                     size_t *prob,
+                                     uint64_t delay_us)
 
 {
     uint64_t i;
@@ -4768,19 +4762,6 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
     uint32_t blocksize = handle->file->blocksize;
     bool locked = false;
     fdb_status fs = FDB_RESULT_SUCCESS;
-
-    if (!got_lock) {
-        // We intentionally try to grab a lock on the old file here to have
-        // the compactor and normal writer interleave together through the
-        // old file's lock and make sure that the compactor can catch up with
-        // the normal writer. This is a short-term approach and we plan to address
-        // this issue without sacrificing the writer's performance soon.
-        size_t rv = (size_t)random(100);
-        if (rv < *prob) {
-            filemgr_mutex_lock(handle->file);
-            locked = true;
-        }
-    }
 
     clone_len = 0;
     src_bid = old_offset_array[0] / blocksize;
@@ -4861,6 +4842,21 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
     fs = filemgr_copy_file_range(file, new_file, src_bid, dst_bid,
                                  1 + clone_len);
     docio_reset(new_handle->dhandle);
+
+    if (!got_lock) {
+        // We intentionally try to slow down the normal writer if
+        // the compactor can't catch up with the writer. This is a
+        // short-term approach and we plan to address this issue without
+        // sacrificing the writer's performance soon.
+        size_t rv = (size_t)random(100);
+        if (rv < *prob && delay_us) {
+            // Set the sleep time for the normal writer
+            // according to the current speed of compactor.
+            filemgr_set_throttling_delay(handle->file, delay_us);
+            locked = true;
+        }
+    }
+
     // WAL flush
     struct avl_tree flush_items;
     wal_commit(&new_handle->file->global_txn, new_handle->file, NULL, &handle->log_callback);
@@ -4872,7 +4868,7 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
     wal_release_flushed_items(new_handle->file, &flush_items);
 
     if (locked) {
-        filemgr_mutex_unlock(handle->file);
+        filemgr_set_throttling_delay(handle->file, 0);
     }
 
     if (handle->config.compaction_cb &&
@@ -4908,7 +4904,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         if (flushed_blocks &&
             filemgr_is_cow_supported(handle->file, new_handle->file)) {
             _fdb_clone_batched_delta(handle, new_handle, doc,
-                    old_offset_array, n_buf, got_lock, prob);
+                                     old_offset_array, n_buf, got_lock, prob, delay_us);
             return; // TODO: return status from function above
         }
     }
