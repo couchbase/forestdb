@@ -39,14 +39,16 @@ struct cb_args {
     fdb_kvs_handle *handle;
 };
 
-static int compaction_cb(fdb_file_handle *fhandle,
-                         fdb_compaction_status status,
-                         fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
-                         void *ctx)
+static fdb_compact_decision compaction_cb(fdb_file_handle *fhandle,
+                            fdb_compaction_status status,
+                            fdb_doc *doc, uint64_t old_offset,
+                            uint64_t new_offset,
+                            void *ctx)
 {
     TEST_INIT();
     fdb_doc *rdoc;
     fdb_status s;
+    fdb_compact_decision ret = FDB_CS_KEEP_DOC;
     struct cb_args *args = (struct cb_args *)ctx;
 
     (void) doc;
@@ -59,6 +61,9 @@ static int compaction_cb(fdb_file_handle *fhandle,
     } else if (status == FDB_CS_FLUSH_WAL) {
         args->wal_flush = true;
     } else if (status == FDB_CS_MOVE_DOC) {
+        if (doc->deleted) {
+            ret = FDB_CS_DROP_DOC;
+        }
         args->n_moved_docs++;
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
         rdoc->offset = old_offset;
@@ -73,7 +78,7 @@ static int compaction_cb(fdb_file_handle *fhandle,
         TEST_CHK (s == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
     }
-    return 0;
+    return ret;
 }
 
 void compaction_callback_test()
@@ -2056,10 +2061,11 @@ struct cb_upt_args {
     int nmoves;
 };
 
-static int cb_upt(fdb_file_handle *fhandle,
-                  fdb_compaction_status status,
-                  fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
-                  void *ctx)
+static fdb_compact_decision cb_upt(fdb_file_handle *fhandle,
+                                   fdb_compaction_status status,
+                                   fdb_doc *doc, uint64_t old_offset,
+                                   uint64_t new_offset,
+                                   void *ctx)
 {
     TEST_INIT();
     struct cb_upt_args *args = (struct cb_upt_args *)ctx;

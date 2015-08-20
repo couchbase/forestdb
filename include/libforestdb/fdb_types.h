@@ -236,14 +236,27 @@ enum {
 };
 
 /**
+ * Compaction decision returned if FDB_CS_MOVE_DOC callback option is used.
+ * If this compaction callback option is used then it is upto its corresponding
+ * callback function to specify, using the given return values below, if a
+ * given document should be retained in the newly compacted file or dropped.
+ */
+typedef int fdb_compact_decision;
+enum {
+    FDB_CS_KEEP_DOC = 0x0,
+    FDB_CS_DROP_DOC = 0x1
+};
+
+/**
  * Pointer type definition of a callback function for compaction.
  */
-typedef int (*fdb_compaction_callback)(fdb_file_handle *fhandle,
-                                       fdb_compaction_status status,
-                                       fdb_doc *doc,
-                                       uint64_t last_oldfile_offset,
-                                       uint64_t last_newfile_offset,
-                                       void *ctx);
+typedef fdb_compact_decision (*fdb_compaction_callback)(
+                               fdb_file_handle *fhandle,
+                               fdb_compaction_status status,
+                               fdb_doc *doc,
+                               uint64_t last_oldfile_offset,
+                               uint64_t last_newfile_offset,
+                               void *ctx);
 
 /**
  * ForestDB config options that are passed to fdb_open API.

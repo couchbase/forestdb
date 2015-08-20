@@ -4080,22 +4080,46 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
             // 2) flush WAL periodically
             for (i = 0; i < c; ++i) {
                 uint64_t _bid;
+                fdb_compact_decision decision;
                 doc = _doc[i];
                 // === read docs from the old file ===
                 offset = offset_array[i];
                 _bid = offset / blocksize;
                 _offset = offset + _fdb_get_docsize(doc.length);
-
-                // compare timestamp
                 deleted = doc.length.flag & DOCIO_DELETED;
-                // clone doc document to new file when
-                // 1. the document is not deleted
-                // 2. the document is logically deleted but
-                //    its timestamp isn't overdue
-                if (!deleted ||
-                    (cur_timestamp < doc.timestamp +
+                wal_doc.keylen = doc.length.keylen;
+                wal_doc.metalen = doc.length.metalen;
+                wal_doc.bodylen = doc.length.bodylen;
+                wal_doc.key = doc.key;
+                wal_doc.seqnum = doc.seqnum;
+
+                wal_doc.deleted = deleted;
+                // If user has specified a callback for move doc then
+                // the decision on to whether or not the document is moved
+                // into new file will rest completely on the return value
+                // from the callback
+                if (handle->config.compaction_cb &&
+                    handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+                    decision = handle->config.compaction_cb(
+                               handle->fhandle, FDB_CS_MOVE_DOC,
+                               &wal_doc, _offset, BLK_NOT_FOUND,
+                               handle->config.compaction_cb_ctx);
+                } else {
+                    // compare timestamp
+                    // 1. the document is not deleted
+                    // 2. the document is logically deleted but
+                    //    its timestamp isn't overdue
+                    if (!deleted ||
+                        (cur_timestamp < doc.timestamp +
                                      handle->config.purging_interval &&
-                     deleted)) {
+                        deleted)) {
+                        decision = FDB_CS_KEEP_DOC;
+                    } else {
+                        decision = FDB_CS_DROP_DOC;
+                    }
+                }
+
+                if (decision == FDB_CS_KEEP_DOC) { // Clone doc to new file
                     if (_bid - contiguous_bid > 1) {
                         // probabilistic locking to slow down writer
                         // (short-term approach)
@@ -4141,26 +4165,11 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                     }
 
                     old_offset = offset;
-
-                    wal_doc.keylen = doc.length.keylen;
-                    wal_doc.metalen = doc.length.metalen;
-                    wal_doc.bodylen = doc.length.bodylen;
-                    wal_doc.key = doc.key;
-                    wal_doc.seqnum = doc.seqnum;
-
-                    wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
-                    wal_doc.deleted = deleted;
                     wal_doc.offset = new_offset;
+                    wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
 
                     wal_insert(&new_file->global_txn,
                                new_file, &wal_doc, new_offset, 1);
-                    if (handle->config.compaction_cb &&
-                        handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                        handle->config.compaction_cb(
-                            handle->fhandle, FDB_CS_MOVE_DOC,
-                            &wal_doc, old_offset, new_offset,
-                            handle->config.compaction_cb_ctx);
-                    }
                 } // if non-deleted or deleted-but-not-yet-purged doc check
                 free(doc.key);
                 free(doc.meta);
@@ -4422,46 +4431,58 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
                 // === write docs into the new file ===
                 for (j=0; j<num_batch_reads; ++j) {
+                    fdb_compact_decision decision;
                     if (!doc[j].key) {
                         continue;
                     }
-                    // compare timestamp
+
                     deleted = doc[j].length.flag & DOCIO_DELETED;
-                    if (!deleted ||
-                        (cur_timestamp < doc[j].timestamp +
-                                         handle->config.purging_interval &&
-                         deleted)) {
-                        // re-write the document to new file when
-                        // 1. the document is not deleted
-                        // 2. the document is logically deleted but
-                        //    its timestamp isn't overdue
+                    wal_doc.keylen = doc[j].length.keylen;
+                    wal_doc.metalen = doc[j].length.metalen;
+                    wal_doc.bodylen = doc[j].length.bodylen;
+                    wal_doc.key = doc[j].key;
+                    wal_doc.seqnum = doc[j].seqnum;
+                    wal_doc.deleted = deleted;
+                    wal_doc.meta = doc[j].meta;
+
+                    // If user has specified a callback for move doc then
+                    // the decision on to whether or not the document is moved
+                    // into new file will rest completely on the return value
+                    // from the callback
+                    if (handle->config.compaction_cb &&
+                        handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+                        decision = handle->config.compaction_cb(
+                                   handle->fhandle, FDB_CS_MOVE_DOC,
+                                   &wal_doc, offset_array[start_idx + j],
+                                   BLK_NOT_FOUND,
+                                   handle->config.compaction_cb_ctx);
+                    } else {
+                        // compare timestamp
+                        if (!deleted ||
+                            (cur_timestamp < doc[j].timestamp +
+                             handle->config.purging_interval &&
+                             deleted)) {
+                            // re-write the document to new file when
+                            // 1. the document is not deleted
+                            // 2. the document is logically deleted but
+                            //    its timestamp isn't overdue
+                            decision = FDB_CS_KEEP_DOC;
+                        } else {
+                            decision = FDB_CS_DROP_DOC;
+                        }
+                    }
+                    if (decision == FDB_CS_KEEP_DOC) {
                         new_offset = docio_append_doc(new_dhandle, &doc[j],
                                                       deleted, 0);
                         old_offset = offset_array[start_idx + j];
 
-                        wal_doc.keylen = doc[j].length.keylen;
-                        wal_doc.metalen = doc[j].length.metalen;
-                        wal_doc.bodylen = doc[j].length.bodylen;
-                        wal_doc.key = doc[j].key;
-                        wal_doc.seqnum = doc[j].seqnum;
-
-                        wal_doc.meta = doc[j].meta;
                         wal_doc.body = doc[j].body;
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j].length);
-                        wal_doc.deleted = deleted;
                         wal_doc.offset = new_offset;
 
                         wal_insert(&new_file->global_txn,
                                    new_file, &wal_doc, new_offset, 1);
                         n_moved_docs++;
-
-                        if (handle->config.compaction_cb &&
-                            handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
-                            handle->config.compaction_cb(
-                                handle->fhandle, FDB_CS_MOVE_DOC,
-                                &wal_doc, old_offset, new_offset,
-                                handle->config.compaction_cb_ctx);
-                        }
                     }
                     free(doc[j].key);
                     free(doc[j].meta);

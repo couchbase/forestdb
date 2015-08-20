@@ -1328,10 +1328,11 @@ struct cb_inmem_snap_args {
     char *valuestr;
 };
 
-static int cb_inmem_snap(fdb_file_handle *fhandle,
-                       fdb_compaction_status status,
-                       fdb_doc *doc_in, uint64_t old_offset, uint64_t new_offset,
-                       void *ctx)
+static fdb_compact_decision cb_inmem_snap(fdb_file_handle *fhandle,
+                            fdb_compaction_status status,
+                            fdb_doc *doc_in, uint64_t old_offset,
+                            uint64_t new_offset,
+                            void *ctx)
 {
     TEST_INIT();
     int c, idx;
@@ -1343,10 +1344,14 @@ static int cb_inmem_snap(fdb_file_handle *fhandle,
     fdb_iterator *fit;
     fdb_doc *doc;
     fdb_status s;
+    fdb_compact_decision ret = FDB_CS_KEEP_DOC;
     struct cb_inmem_snap_args *args = (struct cb_inmem_snap_args *)ctx;
     (void)args;
 
     if (status == FDB_CS_MOVE_DOC) {
+        if (doc_in->deleted) {
+            ret = FDB_CS_DROP_DOC;
+        }
         args->move_count++;
         if (args->move_count == 2) {
             // open in-memory snapshot
@@ -1442,7 +1447,7 @@ static int cb_inmem_snap(fdb_file_handle *fhandle,
             fdb_kvs_close(snap);
         }
     }
-    return 0;
+    return ret;
 }
 
 void in_memory_snapshot_compaction_test()

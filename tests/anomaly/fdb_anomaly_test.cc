@@ -492,14 +492,15 @@ struct cb_cmp_args {
     int nmoves;
 };
 
-static int cb_compact(fdb_file_handle *fhandle,
-                      fdb_compaction_status status,
-                      fdb_doc *doc, uint64_t old_offset,
-                      uint64_t new_offset, void *ctx)
+static fdb_compact_decision cb_compact(fdb_file_handle *fhandle,
+                            fdb_compaction_status status,
+                            fdb_doc *doc, uint64_t old_offset,
+                            uint64_t new_offset, void *ctx)
 {
     TEST_INIT();
     struct cb_cmp_args *args = (struct cb_cmp_args *)ctx;
     fdb_status fs;
+    fdb_compact_decision ret = FDB_CS_KEEP_DOC;
     (void) fhandle;
     (void) doc;
     (void) old_offset;
@@ -507,6 +508,9 @@ static int cb_compact(fdb_file_handle *fhandle,
 
     if (status == FDB_CS_MOVE_DOC) {
         args->nmoves++;
+        if (doc->deleted) {
+            ret = FDB_CS_DROP_DOC;
+        }
         if (args->nmoves == args->ndocs - 1) {
             char key[256], value[256];
             // phase 3 of compaction - uncommitted docs in old_file
@@ -523,7 +527,7 @@ static int cb_compact(fdb_file_handle *fhandle,
         }
     }
 
-    return 0;
+    return ret;
 }
 
 static void append_batch_delta(void)
