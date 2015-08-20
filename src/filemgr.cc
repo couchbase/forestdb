@@ -1269,9 +1269,9 @@ void filemgr_free_func(struct hash_elem *h)
     if (wal_is_initialized(file)) {
         wal_shutdown(file);
         size_t i = 0;
-        size_t num_all_shards = wal_get_num_all_shards(file);
-        // Free all WAL shards (including compactor's shard)
-        for (; i < num_all_shards; ++i) {
+        size_t num_shards = wal_get_num_shards(file);
+        // Free all WAL shards
+        for (; i < num_shards; ++i) {
             hash_free(&file->wal->key_shards[i].hash_bykey);
             spin_destroy(&file->wal->key_shards[i].lock);
             hash_free(&file->wal->seq_shards[i].hash_byseq);
