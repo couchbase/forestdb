@@ -2158,6 +2158,98 @@ void compact_upto_twice_test()
     TEST_RESULT("compact upto twice");
 }
 
+void wal_delete_compact_upto_test()
+{
+    TEST_INIT();
+    memleak_start();
+    int i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_snapshot_info_t *markers;
+    fdb_status status;
+    uint64_t num_markers;
+    fdb_kvs_info kvs_info;
+    char keybuf[256];
+    void *value;
+    size_t valuelen;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL " compact_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 19;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+
+    // open db
+    fdb_open(&dbfile, "./compact_test5", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+
+    // insert a few keys...
+    for (i=0;i<10;++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf),
+                            (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert keys such that last insert causes wal flush...
+    for (; i<20;++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf),
+                            (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+    // Now delete half of the newly inserted keys
+    for (i = 15; i < 20; ++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_del_kv(db, keybuf, strlen(keybuf));
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+    // Now deleted items are in the unflushed wal..
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Create another header for compact_upto()
+    sprintf(keybuf, "key%d", i);
+    status = fdb_set_kv(db, keybuf, strlen(keybuf),
+            (void*)"value", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Get all snap markers..
+    status = fdb_get_all_snap_markers(dbfile, &markers,
+                                      &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // compact upto the delete wal's marker...
+    status = fdb_compact_upto(dbfile, NULL, markers[1].marker);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Deleted items should not be found..
+    for (i = 15; i < 20; ++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    }
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("wal delete compact upto test");
+}
+
 void compact_upto_post_snapshot_test()
 {
     TEST_INIT();
@@ -2636,6 +2728,7 @@ void compact_with_snapshot_open_multi_kvs_test()
 int main(){
     int i;
 
+    wal_delete_compact_upto_test();
     for (i=0;i<4;++i) {
         compact_upto_overwrite_test(i);
     }

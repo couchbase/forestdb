@@ -3528,9 +3528,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                                      struct docio_handle *new_dhandle,
                                      struct btreeblk_handle *new_bhandle)
 {
-    struct timeval tv;
     fdb_kvs_handle new_handle;
-    timestamp_t cur_timestamp;
     uint32_t blocksize = handle->file->blocksize;
     uint64_t offset; // starting point
     uint64_t new_offset;
@@ -3544,9 +3542,6 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     } else {
         offset = (start_bid + 1) * blocksize;
     }
-
-    gettimeofday(&tv, NULL);
-    cur_timestamp = tv.tv_sec;
 
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.
     log_callback = handle->dhandle->log_callback;
@@ -3625,20 +3620,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                         continue;
                     }
                 }
-                // compare timestamp
-                // Do not re-write the document to new file if
-                // 1. the document is deleted OR
-                // 2. the document is not logically deleted but
-                //    its timestamp is overdue
                 deleted = doc.length.flag & DOCIO_DELETED;
-                if (deleted && cur_timestamp >= doc.timestamp
-                                + handle->config.purging_interval) {
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    offset = _offset;
-                    continue;
-                }
                 // Re-Write Document to the new file
                 new_offset = docio_append_doc(new_dhandle, &doc, deleted, 0);
                 if (new_offset == BLK_NOT_FOUND) {
