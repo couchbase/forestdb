@@ -97,7 +97,7 @@ INLINE int _wal_cmp_byseq(struct hash_elem *a, struct hash_elem *b)
 fdb_status wal_init(struct filemgr *file, int nbucket)
 {
     size_t i, num_hash_buckets;
-    size_t num_all_shards;
+    size_t num_shards;
 
     file->wal->flag = WAL_FLAG_INITIALIZED;
     atomic_init_uint32_t(&file->wal->size, 0);
@@ -114,16 +114,14 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
         file->wal->num_shards = DEFAULT_NUM_WAL_PARTITIONS;
     }
 
-    // Create one more WAL shard (num_shards+1)
-    // The additional shard is reserved for compactor
-    num_all_shards = wal_get_num_all_shards(file);
+    num_shards = wal_get_num_shards(file);
     file->wal->key_shards = (wal_shard_by_key *)
-        malloc(sizeof(struct wal_shard_by_key) * num_all_shards);
+        malloc(sizeof(struct wal_shard_by_key) * num_shards);
     file->wal->seq_shards = (wal_shard_by_seq *)
-        malloc(sizeof(struct wal_shard_by_seq) * num_all_shards);
+        malloc(sizeof(struct wal_shard_by_seq) * num_shards);
 
     num_hash_buckets = nbucket / file->wal->num_shards;
-    for (i = 0; i < num_all_shards; ++i) {
+    for (i = 0; i < num_shards; ++i) {
         if (i == file->wal->num_shards - 1) {
             num_hash_buckets = nbucket - (num_hash_buckets * i);
         } else if (i == file->wal->num_shards) {
@@ -172,24 +170,11 @@ fdb_status wal_insert(fdb_txn *txn,
     query.key = key;
     query.keylen = keylen;
 
-    // During the compaction, WAL entry inserted by compactor is always stored
-    // in the special shard (shard_num), while WAL entry inserted by normal
-    // writer is stored in the corresponding normal shards (0 ~ shard_num-1).
-    // Note that wal_find() always searches the normal shards only, thus
-    // documents inserted by compactor but not exist in the normal shards
-    // cannot be retrieved by wal_find(). However, fdb_get() continues to
-    // search in the HB+trie in the old file if wal_find() fails, thus they
-    // can be retrieved eventually.
     chk_sum = chksum((uint8_t*)key, keylen);
-    if (is_compactor) {
-        // Document inserted by compactor is always stored in
-        // the compactor's shard (i.e., shards[shard_num])
-        shard_num = file->wal->num_shards;
-    } else {
-        // Insertion by normal writer
-        shard_num = chk_sum % file->wal->num_shards;
+    shard_num = chk_sum % file->wal->num_shards;
+    if (!is_compactor) {
+        spin_lock(&file->wal->key_shards[shard_num].lock);
     }
-    spin_lock(&file->wal->key_shards[shard_num].lock);
 
     he = hash_find_by_hash_val(&file->wal->key_shards[shard_num].hash_bykey,
                                &query.he_key, (uint32_t) chk_sum);
@@ -197,10 +182,6 @@ fdb_status wal_insert(fdb_txn *txn,
     if (he) {
         // already exist .. retrieve header
         header = _get_entry(he, struct wal_item_header, he_key);
-
-        // it cannot happen that
-        // same doc already exists in the compactor's shard
-        assert(!is_compactor);
 
         // find uncommitted item belonging to the same txn
         le = list_begin(&header->items);
@@ -211,16 +192,24 @@ fdb_status wal_insert(fdb_txn *txn,
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
 
                 size_t seq_shard_num = item->seqnum % file->wal->num_shards;
-                spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                if (!is_compactor) {
+                    spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                }
                 hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                             &item->he_seq);
-                spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+                if (!is_compactor) {
+                    spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+                }
                 item->seqnum = doc->seqnum;
                 seq_shard_num = doc->seqnum % file->wal->num_shards;
-                spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                if (!is_compactor) {
+                    spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+                }
                 hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                             &item->he_seq);
-                spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+                if (!is_compactor) {
+                    spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+                }
 
                 atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk - item->doc_size);
 
@@ -259,10 +248,13 @@ fdb_status wal_insert(fdb_txn *txn,
 
             // don't care about compactor's shard here
             size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
-            spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+            if (!is_compactor) {
+                spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
+            }
             hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq, &item->he_seq);
-            spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
-
+            if (!is_compactor) {
+                spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+            }
             // insert into header's list
             list_push_front(&header->items, &item->list_elem);
             // also insert into transaction's list
@@ -306,16 +298,15 @@ fdb_status wal_insert(fdb_txn *txn,
         atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
 
         size_t seq_shard_num;
-        if (is_compactor) {
-            // Document inserted by compactor is always stored in
-            // the compactor's shard
-            seq_shard_num = file->wal->num_shards;
-        } else {
-            seq_shard_num = doc->seqnum % file->wal->num_shards;
+        seq_shard_num = doc->seqnum % file->wal->num_shards;
+        if (!is_compactor) {
+            spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
         }
-        spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
-        hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq, &item->he_seq);
-        spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+        hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq,
+                    &item->he_seq);
+        if (!is_compactor) {
+            spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+        }
 
         // insert into header's list
         // (pushing front is ok for compactor because no other item already exists)
@@ -333,7 +324,9 @@ fdb_status wal_insert(fdb_txn *txn,
         atomic_incr_uint32_t(&file->wal->size);
     }
 
-    spin_unlock(&file->wal->key_shards[shard_num].lock);
+    if (!is_compactor) {
+        spin_unlock(&file->wal->key_shards[shard_num].lock);
+    }
 
     return FDB_RESULT_SUCCESS;
 }
@@ -684,12 +677,8 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
         avl_remove(tree, &item->avl);
 
         // Grab the WAL key shard lock.
-        if (item->flag & WAL_ITEM_BY_COMPACTOR) {
-            shard_num = file->wal->num_shards;
-        } else {
-            shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
-                file->wal->num_shards;
-        }
+        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
+                           file->wal->num_shards;
         spin_lock(&file->wal->key_shards[shard_num].lock);
 
         // get KVS ID
@@ -700,11 +689,7 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
         }
 
         list_remove(&item->header->items, &item->list_elem);
-        if (item->flag & WAL_ITEM_BY_COMPACTOR) {
-            seq_shard_num = file->wal->num_shards;
-        } else {
-            seq_shard_num = item->seqnum % file->wal->num_shards;
-        }
+        seq_shard_num = item->seqnum % file->wal->num_shards;
         spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
         hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                     &item->he_seq);
@@ -749,13 +734,6 @@ static fdb_status _wal_flush(struct filemgr *file,
     struct wal_item_header *header;
     size_t i = 0;
     size_t num_shards = file->wal->num_shards;
-
-    if (by_compactor) {
-        // If this flushing is requested by compactor,
-        // flush WAL entries by compactor only.
-        i = file->wal->num_shards;
-        num_shards = i+1;
-    }
 
     // sort by old byte-offset of the document (for sequential access)
     avl_init(tree, NULL);
@@ -980,7 +958,7 @@ static fdb_status _wal_close(struct filemgr *file,
     bool committed;
     wal_item_action committed_item_action;
     size_t i = 0, seq_shard_num;
-    size_t num_all_shards = wal_get_num_all_shards(file);
+    size_t num_shards = wal_get_num_shards(file);
 
     if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
         if (aux == NULL) { // aux must contain pointer to KV ID
@@ -989,7 +967,7 @@ static fdb_status _wal_close(struct filemgr *file,
         kv_id_req = *(fdb_kvs_id_t*)aux;
     }
 
-    for (; i < num_all_shards; ++i) {
+    for (; i < num_shards; ++i) {
         spin_lock(&file->wal->key_shards[i].lock);
         e1 = list_begin(&file->wal->key_shards[i].list);
         while (e1) {
@@ -1021,11 +999,7 @@ static fdb_status _wal_close(struct filemgr *file,
                         committed_item_action = item->action;
                     }
                     // remove from seq hash table
-                    if (item->flag & WAL_ITEM_BY_COMPACTOR) {
-                        seq_shard_num = file->wal->num_shards;
-                    } else {
-                        seq_shard_num = item->seqnum % file->wal->num_shards;
-                    }
+                    seq_shard_num = item->seqnum % num_shards;
                     spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
                     hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                                 &item->he_seq);
@@ -1097,11 +1071,9 @@ size_t wal_get_size(struct filemgr *file)
     return atomic_get_uint32_t(&file->wal->size);
 }
 
-size_t wal_get_num_all_shards(struct filemgr *file)
+size_t wal_get_num_shards(struct filemgr *file)
 {
-    // normal shards (shard[0] ~ shard[num_shard-1]) +
-    // special shard (shard[num_shard]) for compactor
-    return file->wal->num_shards + 1;
+    return file->wal->num_shards;
 }
 
 size_t wal_get_num_flushable(struct filemgr *file)
