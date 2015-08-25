@@ -3735,16 +3735,18 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     uint64_t new_offset;
     uint64_t stop_offset = stop_bid * blocksize; // stopping point
     uint64_t n_moved_docs = 0;
+    fdb_compact_decision decision;
     err_log_callback *log_callback;
     fdb_status fs = FDB_RESULT_SUCCESS;
+
+    gettimeofday(&tv, NULL);
+    cur_timestamp = tv.tv_sec;
 
     if (start_bid == BLK_NOT_FOUND || start_bid == stop_bid) {
         return fs;
     } else {
         offset = (start_bid + 1) * blocksize;
     }
-    gettimeofday(&tv, NULL);
-    cur_timestamp = tv.tv_sec;
 
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.
     log_callback = handle->dhandle->log_callback;
@@ -3824,9 +3826,41 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                     }
                 }
                 deleted = doc.length.flag & DOCIO_DELETED;
-                if (!deleted || (cur_timestamp < doc.timestamp +
-                     handle->config.purging_interval && deleted)) {
-                    // Re-Write Document to the new file
+                wal_doc.keylen = doc.length.keylen;
+                wal_doc.metalen = doc.length.metalen;
+                wal_doc.bodylen = doc.length.bodylen;
+                wal_doc.key = doc.key;
+                wal_doc.meta = doc.meta;
+                wal_doc.seqnum = doc.seqnum;
+                wal_doc.deleted = deleted;
+                wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
+                // If user has specified a callback for move doc then
+                // the decision on to whether or not the document is moved
+                // into new file will rest completely on the return value
+                // from the callback
+                if (handle->config.compaction_cb &&
+                    handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+                    decision = handle->config.compaction_cb(
+                               handle->fhandle, FDB_CS_MOVE_DOC,
+                               &wal_doc, offset, BLK_NOT_FOUND,
+                               handle->config.compaction_cb_ctx);
+                } else {
+                    // compare timestamp
+                    if (!deleted ||
+                        (cur_timestamp < doc.timestamp +
+                         handle->config.purging_interval &&
+                         deleted)) {
+                        // re-write the document to new file when
+                        // 1. the document is not deleted
+                        // 2. the document is logically deleted but
+                        //    its timestamp isn't overdue
+                        decision = FDB_CS_KEEP_DOC;
+                    } else {
+                        decision = FDB_CS_DROP_DOC;
+                    }
+                }
+                if (decision == FDB_CS_KEEP_DOC) {
+                    // Re-Write Document to new_file based on decision above
                     new_offset = docio_append_doc(new_dhandle, &doc, deleted, 0);
                     if (new_offset == BLK_NOT_FOUND) {
                         free(doc.key);
@@ -3837,16 +3871,6 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 } else {
                     new_offset = BLK_NOT_FOUND;
                 }
-
-                // Restore the document into the WAL section of new file..
-                wal_doc.keylen = doc.length.keylen;
-                wal_doc.metalen = doc.length.metalen;
-                wal_doc.bodylen = doc.length.bodylen;
-                wal_doc.key = doc.key;
-                wal_doc.meta = doc.meta;
-                wal_doc.seqnum = doc.seqnum;
-                wal_doc.deleted = deleted;
-                wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
 
                 wal_insert(&new_file->global_txn,
                            new_file, &wal_doc, new_offset,
@@ -4177,7 +4201,8 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                     wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
 
                     wal_insert(&new_file->global_txn,
-                               new_file, &wal_doc, new_offset, 1);
+                               new_file, &wal_doc, new_offset,
+                               WAL_INS_COMPACT_PHASE1);
                     ++n_moved_docs;
                 } // if non-deleted or deleted-but-not-yet-purged doc check
                 free(doc.key);
@@ -4813,8 +4838,6 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
-        wal_insert(&new_file->global_txn, new_file, &wal_doc, doc_offset, 0);
-
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
             if (locked) {
@@ -4828,6 +4851,9 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
                 filemgr_mutex_lock(handle->file);
             }
         }
+
+        wal_insert(&new_file->global_txn, new_file, &wal_doc, doc_offset,
+                   WAL_INS_COMPACT_PHASE2);
 
         // free
         free(doc[i].key);
@@ -4912,17 +4938,9 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     gettimeofday(&tv, NULL);
     cur_timestamp  = tv.tv_sec;
     for (i=0; i<n_buf; ++i) {
-        fdb_doc wal_doc;
         bool deleted = doc[i].length.flag & DOCIO_DELETED;
-        if (!deleted || (cur_timestamp < doc[i].timestamp +
-            handle->config.purging_interval && deleted)) {
-            // append into the new file
-            doc_offset = docio_append_doc(new_handle->dhandle, &doc[i],
-                                      doc[i].length.flag & DOCIO_DELETED, 0);
-        } else {
-            doc_offset = BLK_NOT_FOUND;
-        }
-        // insert into the new file's WAL
+        fdb_compact_decision decision;
+        fdb_doc wal_doc;
         wal_doc.keylen = doc[i].length.keylen;
         wal_doc.bodylen = doc[i].length.bodylen;
         wal_doc.key = doc[i].key;
@@ -4931,22 +4949,38 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
-        wal_insert(&new_handle->file->global_txn, new_handle->file, &wal_doc,
-                   doc_offset, WAL_INS_COMPACT_PHASE2);
-
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
             if (got_lock) {
                 filemgr_mutex_unlock(handle->file);
             }
-            handle->config.compaction_cb(
-                handle->fhandle, FDB_CS_MOVE_DOC,
-                &wal_doc, old_offset_array[i], doc_offset,
-                handle->config.compaction_cb_ctx);
+            decision = handle->config.compaction_cb(
+                       handle->fhandle, FDB_CS_MOVE_DOC,
+                       &wal_doc, old_offset_array[i], BLK_NOT_FOUND,
+                       handle->config.compaction_cb_ctx);
             if (got_lock) {
                 filemgr_mutex_lock(handle->file);
             }
+        } else {
+            bool deleted = doc[i].length.flag & DOCIO_DELETED;
+            if (!deleted || (cur_timestamp < doc[i].timestamp +
+                             handle->config.purging_interval &&
+                             deleted)) {
+                decision = FDB_CS_KEEP_DOC;
+            } else {
+                decision = FDB_CS_DROP_DOC;
+            }
         }
+        if (decision == FDB_CS_KEEP_DOC) {
+            // append into the new file
+            doc_offset = docio_append_doc(new_handle->dhandle, &doc[i],
+                                        doc[i].length.flag & DOCIO_DELETED, 0);
+        } else {
+            doc_offset = BLK_NOT_FOUND;
+        }
+        // insert into the new file's WAL
+        wal_insert(&new_handle->file->global_txn, new_handle->file, &wal_doc,
+                   doc_offset, WAL_INS_COMPACT_PHASE2);
 
         // free
         free(doc[i].key);
