@@ -23,22 +23,25 @@
  * utilising the correct method based upon the callers crc_mode.
  */
 
-#include "checksum.h"
-#include "common.h"
-#include "crc32.h"
 
+#include <stdlib.h>
+#include <assert.h>
 #ifdef _CRC32C
 // Linking with platform for crc32c
-#include <platform/crc32c.h>
+# include <platform/crc32c.h>
 #else
-// Define a crc32c which does nothing but fdb_assert.
+#include <stdint.h>
+// Define a crc32c which does nothing but assert.
 uint32_t crc32c(const uint8_t* buf,
                 size_t buf_len,
                 uint32_t pre) {
     // Non couchbase builds are configured to never turn on crc32c.
-    fdb_assert(false, false, false);
+    assert(false);
+    return 0;
 }
 #endif
+# include "checksum.h"
+#include "crc32.h"
 
 /*
  * Get a checksum of buf for buf_len bytes.
@@ -52,7 +55,7 @@ uint32_t get_checksum(const uint8_t* buf,
     if (mode == CRC32C) {
         return crc32c(buf, buf_len, pre);
     } else {
-        fdb_assert(mode == CRC32, mode, CRC32);
+        assert(mode == CRC32);
         return crc32_8(buf, buf_len, pre);
     }
 }
