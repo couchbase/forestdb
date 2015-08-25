@@ -1440,6 +1440,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     } else { // Normal open
         filemgr_get_header(handle->file, header_buf, &header_len,
                            &handle->last_hdr_bid, &seqnum, &header_revnum);
+        version = handle->file->version;
     }
 
     // initialize the docio handle so kv headers may be read
