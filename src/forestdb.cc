@@ -340,11 +340,13 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                     // if mode is NORMAL, restore all items
                                     // if mode is KV_INS, restore items matching ID
                                     wal_insert(&file->global_txn, file,
-                                               &wal_doc, doc_offset, 0);
+                                               &wal_doc, doc_offset,
+                                               WAL_INS_WRITER);
                                 }
                             } else {
                                 wal_insert(&file->global_txn, file,
-                                           &wal_doc, doc_offset, 0);
+                                           &wal_doc, doc_offset,
+                                           WAL_INS_WRITER);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -2104,7 +2106,6 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
     } else {
         // Immediate remove
-        // LCOV_EXCL_START
         hr = hbtrie_remove(handle->trie, item->header->key,
                            item->header->keylen);
         fs = btreeblk_end(handle->bhandle);
@@ -2142,7 +2143,6 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
                                       delta);
             }
         }
-        // LCOV_EXCL_STOP
     }
     return FDB_RESULT_SUCCESS;
 }
@@ -3087,9 +3087,9 @@ fdb_set_start:
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
-        wal_insert(txn, file, &kv_ins_doc, offset, 0);
+        wal_insert(txn, file, &kv_ins_doc, offset, WAL_INS_WRITER);
     } else {
-        wal_insert(txn, file, doc, offset, 0);
+        wal_insert(txn, file, doc, offset, WAL_INS_WRITER);
     }
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -3722,8 +3722,8 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                                      struct btreeblk_handle *new_bhandle)
 {
     struct timeval tv;
-    fdb_kvs_handle new_handle;
     timestamp_t cur_timestamp;
+    fdb_kvs_handle new_handle;
     uint32_t blocksize = handle->file->blocksize;
     uint64_t offset; // starting point
     uint64_t new_offset;
@@ -3737,7 +3737,6 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     } else {
         offset = (start_bid + 1) * blocksize;
     }
-
     gettimeofday(&tv, NULL);
     cur_timestamp = tv.tv_sec;
 
@@ -3818,27 +3817,19 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                         continue;
                     }
                 }
-                // compare timestamp
-                // Do not re-write the document to new file if
-                // 1. the document is deleted OR
-                // 2. the document is not logically deleted but
-                //    its timestamp is overdue
                 deleted = doc.length.flag & DOCIO_DELETED;
-                if (deleted && cur_timestamp >= doc.timestamp
-                                + handle->config.purging_interval) {
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    offset = _offset;
-                    continue;
-                }
-                // Re-Write Document to the new file
-                new_offset = docio_append_doc(new_dhandle, &doc, deleted, 0);
-                if (new_offset == BLK_NOT_FOUND) {
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    return FDB_RESULT_WRITE_FAIL;
+                if (!deleted || (cur_timestamp < doc.timestamp +
+                     handle->config.purging_interval && deleted)) {
+                    // Re-Write Document to the new file
+                    new_offset = docio_append_doc(new_dhandle, &doc, deleted, 0);
+                    if (new_offset == BLK_NOT_FOUND) {
+                        free(doc.key);
+                        free(doc.meta);
+                        free(doc.body);
+                        return FDB_RESULT_WRITE_FAIL;
+                    }
+                } else {
+                    new_offset = BLK_NOT_FOUND;
                 }
 
                 // Restore the document into the WAL section of new file..
@@ -3851,14 +3842,9 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 wal_doc.deleted = deleted;
                 wal_doc.size_ondisk = _fdb_get_docsize(doc.length);
 
-                // In order to avoid that
-                // doc with same key (but newer one) is inserted into WAL again
-                // (wal_insert by compactor will ignore duplicated doc),
-                // we insert the document into WAL as a normal writer.
-                // Note that there is no cuncurrent writer since
-                // filemgr_mutex is already being held by the caller function.
                 wal_insert(&new_file->global_txn,
-                           new_file, &wal_doc, new_offset, 0);
+                           new_file, &wal_doc, new_offset,
+                           WAL_INS_COMPACT_PHASE1);
 
                 n_moved_docs++;
                 free(doc.key);
@@ -3884,7 +3870,6 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
         new_handle.dhandle = new_dhandle;
         new_handle.bhandle = new_bhandle;
 
-        wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
         wal_flush(new_file, (void*)&new_handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                   &flush_items);
@@ -4479,7 +4464,8 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.offset = new_offset;
 
                         wal_insert(&new_file->global_txn,
-                                   new_file, &wal_doc, new_offset, 1);
+                                   new_file, &wal_doc, new_offset,
+                                   WAL_INS_COMPACT_PHASE1);
                         n_moved_docs++;
                     }
                     free(doc[j].key);
@@ -4899,6 +4885,8 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     uint64_t i;
     uint64_t doc_offset = 0;
     bool locked = false;
+    struct timeval tv;
+    timestamp_t cur_timestamp;
 
 #ifdef _COW_COMPACTION
     if (clone_docs) {
@@ -4915,22 +4903,30 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     }
 #endif // _COW_COMPACTION
 
+    gettimeofday(&tv, NULL);
+    cur_timestamp  = tv.tv_sec;
     for (i=0; i<n_buf; ++i) {
-        // append into the new file
-        doc_offset = docio_append_doc(new_handle->dhandle, &doc[i],
-                                      doc[i].length.flag & DOCIO_DELETED, 0);
-        // insert into the new file's WAL
         fdb_doc wal_doc;
+        bool deleted = doc[i].length.flag & DOCIO_DELETED;
+        if (!deleted || (cur_timestamp < doc[i].timestamp +
+            handle->config.purging_interval && deleted)) {
+            // append into the new file
+            doc_offset = docio_append_doc(new_handle->dhandle, &doc[i],
+                                      doc[i].length.flag & DOCIO_DELETED, 0);
+        } else {
+            doc_offset = BLK_NOT_FOUND;
+        }
+        // insert into the new file's WAL
         wal_doc.keylen = doc[i].length.keylen;
         wal_doc.bodylen = doc[i].length.bodylen;
         wal_doc.key = doc[i].key;
         wal_doc.seqnum = doc[i].seqnum;
-        wal_doc.deleted = doc[i].length.flag & DOCIO_DELETED;
+        wal_doc.deleted = deleted;
         wal_doc.metalen = doc[i].length.metalen;
         wal_doc.meta = doc[i].meta;
         wal_doc.size_ondisk = _fdb_get_docsize(doc[i].length);
         wal_insert(&new_handle->file->global_txn, new_handle->file, &wal_doc,
-                   doc_offset, 0);
+                   doc_offset, WAL_INS_COMPACT_PHASE2);
 
         if (handle->config.compaction_cb &&
             handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
@@ -5989,7 +5985,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
          */
 
         if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-            // 1. deregieter from compactor (by calling fdb_close)
+            // 1. deregister from compactor (by calling fdb_close)
             // 2. remove [filename].meta
             // 3. rename [filename].[n] as [filename]
 

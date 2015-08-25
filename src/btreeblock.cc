@@ -101,7 +101,7 @@ INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,
                                          struct btreeblk_block *block)
 {
 #ifdef __BTREEBLK_BLOCKPOOL
-    assert(block->addr_item);
+   fdb_assert(block->addr_item, block->addr_item, block->bid);
     // sync addr & insert into pool
     block->addr_item->addr = block->addr;
     list_push_front(&handle->blockpool, &block->addr_item->le);
@@ -917,7 +917,7 @@ fdb_status btreeblk_operation_end(void *voidhandle)
                 return status;
             }
         }else{
-            assert(0);
+            fdb_assert(false, block->bid, handle->file->pos.val);
         }
 
         if (block->pos + (handle->nodesize) > (handle->file->blocksize) || !writable) {
