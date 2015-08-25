@@ -134,6 +134,18 @@ fdb_status fdb_set_log_callback(fdb_kvs_handle *handle,
                                 void *ctx_data);
 
 /**
+ * Set the fatal error callback that allows an application to specify a
+ * function to be called if forestdb encounters a fatal error, before
+ * forestdb raises a SIGABRT.
+ *
+ * @param err_callback Error callback that will be called upon detecting a
+ *        fatal error (but before forestdb raises SIGABRT). Any previously
+ *        registered fatal error callback will be replaced.
+ */
+LIBFDB_API
+void fdb_set_fatal_error_callback(fdb_fatal_error_callback err_callback);
+
+/**
  * Create a new FDB_DOC instance on heap with a given key, its metadata, and
  * its doc body.
  *

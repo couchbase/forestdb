@@ -3,15 +3,16 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "time_utils.h"
-#if !defined(WIN32) && !defined(_WIN32)
-#include <execinfo.h>
-#endif // !defined(WIN32) && !defined(_WIN32)
+
+#include "fdb_internal.h"
 
 #define N_DBG_SWITCH (256)
 
 static uint8_t _global_dbg_switch[N_DBG_SWITCH];
 static void* _global_dbg_addr[N_DBG_SWITCH];
 static uint64_t _global_dbg_uint64_t[N_DBG_SWITCH];
+
+fdb_fatal_error_callback fatal_error_callback = NULL;
 
 // LCOV_EXCL_START
 void _dbg_sw_set(int n)
@@ -54,17 +55,11 @@ void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected) {
      fprintf(stderr, "Assertion in %p != %p in %s:%d\n",
             (void *)val, (void *)expected, file, line);
 
-#if !defined(WIN32) && !defined(_WIN32)
-     void *callstack[10];
-     char **backtrace_buf;
-     int frames = backtrace(callstack, 10);
-     backtrace_buf = backtrace_symbols(callstack, frames);
-     if (backtrace_buf) {
-         for (int i = 0; i < frames; ++i) {
-             fprintf(stderr, "%d : %s\n", i, backtrace_buf[i]);
-         } // (no need to free memory as process is crashing)
+     // Invoke the fatal error callback if registered.
+     if (fatal_error_callback != NULL) {
+         fatal_error_callback();
      }
-#endif // !defined(WIN32) && !defined(_WIN32)
+
      hang_process = getenv("HANG_ON_ASSERTION");
      if (hang_process) {
          fprintf(stderr, "Hanging process...");

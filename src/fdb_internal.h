@@ -29,6 +29,9 @@
 extern "C" {
 #endif
 
+/* If non-NULL, callback invoked when handling a fatal error. */
+extern fdb_fatal_error_callback fatal_error_callback;
+
 void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id);
 void kvid2buf(size_t chunksize, fdb_kvs_id_t id, void *buf);
 void buf2buf(size_t chunksize_src, void *buf_src,
