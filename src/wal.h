@@ -36,6 +36,12 @@ enum{
     WAL_ACT_LOGICAL_REMOVE, // An item is marked as "DELETED" by removing its doc body only.
     WAL_ACT_REMOVE // An item (key, metadata, body) is removed immediately.
 };
+typedef int wal_insert_by;
+enum {
+    WAL_INS_WRITER = 0, // normal writer inserting
+    WAL_INS_COMPACT_PHASE1, // compactor in first phase moving unique docs
+    WAL_INS_COMPACT_PHASE2 // compactor in delta phase (catchup, uncommitted)
+};
 
 struct wal_item_header{
     void *key;
@@ -122,7 +128,7 @@ fdb_status wal_insert(fdb_txn *txn,
                       struct filemgr *file,
                       fdb_doc *doc,
                       uint64_t offset,
-                      int is_compactor);
+                      wal_insert_by caller);
 fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset);
 fdb_status wal_find_kv_id(fdb_txn *txn,
                           struct filemgr *file,

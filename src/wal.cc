@@ -150,7 +150,7 @@ fdb_status wal_insert(fdb_txn *txn,
                       struct filemgr *file,
                       fdb_doc *doc,
                       uint64_t offset,
-                      int is_compactor)
+                      wal_insert_by caller)
 {
     struct wal_item *item;
     struct wal_item_header query, *header;
@@ -169,10 +169,9 @@ fdb_status wal_insert(fdb_txn *txn,
     }
     query.key = key;
     query.keylen = keylen;
-
     chk_sum = chksum((uint8_t*)key, keylen);
     shard_num = chk_sum % file->wal->num_shards;
-    if (!is_compactor) {
+    if (caller == WAL_INS_WRITER) {
         spin_lock(&file->wal->key_shards[shard_num].lock);
     }
 
@@ -192,30 +191,40 @@ fdb_status wal_insert(fdb_txn *txn,
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
 
                 size_t seq_shard_num = item->seqnum % file->wal->num_shards;
-                if (!is_compactor) {
+                if (caller == WAL_INS_WRITER) {
                     spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
                 }
                 hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                             &item->he_seq);
-                if (!is_compactor) {
+                if (caller == WAL_INS_WRITER) {
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
                 }
                 item->seqnum = doc->seqnum;
                 seq_shard_num = doc->seqnum % file->wal->num_shards;
-                if (!is_compactor) {
+                if (caller == WAL_INS_WRITER) {
                     spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
                 }
                 hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                             &item->he_seq);
-                if (!is_compactor) {
+                if (caller == WAL_INS_WRITER) {
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
                 }
 
                 atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk - item->doc_size);
 
                 item->doc_size = doc->size_ondisk;
+                if (doc->deleted) {
+                    if (caller == WAL_INS_WRITER ||
+                        offset != BLK_NOT_FOUND) {// purge interval not met yet
+                        item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
+                    } else { // compactor purge deleted doc
+                        item->action = WAL_ACT_REMOVE; // immediate prune index
+                        offset = 0; // must process these first
+                    }
+                } else {
+                    item->action = WAL_ACT_INSERT;
+                }
                 item->offset = offset;
-                item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
 
                 // move the item to the front of the list (header)
                 list_remove(&header->items, &item->list_elem);
@@ -241,18 +250,28 @@ fdb_status wal_insert(fdb_txn *txn,
             item->header = header;
 
             item->seqnum = doc->seqnum;
-            item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
+            if (doc->deleted) {
+                if (caller == WAL_INS_WRITER ||
+                        offset != BLK_NOT_FOUND) {// purge interval not met yet
+                    item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
+                } else { // compactor purge deleted doc
+                    item->action = WAL_ACT_REMOVE; // immediate prune index
+                    offset = 0; // must process these first
+                }
+            } else {
+                item->action = WAL_ACT_INSERT;
+            }
             item->offset = offset;
             item->doc_size = doc->size_ondisk;
             atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
 
             // don't care about compactor's shard here
             size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
-            if (!is_compactor) {
+            if (caller == WAL_INS_WRITER) {
                 spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
             }
             hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq, &item->he_seq);
-            if (!is_compactor) {
+            if (caller == WAL_INS_WRITER) {
                 spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
             }
             // insert into header's list
@@ -277,7 +296,7 @@ fdb_status wal_insert(fdb_txn *txn,
 
         item = (struct wal_item *)malloc(sizeof(struct wal_item));
         // entries inserted by compactor is already committed
-        if (is_compactor) {
+        if (caller == WAL_INS_COMPACT_PHASE1) {
             item->flag = WAL_ITEM_COMMITTED | WAL_ITEM_BY_COMPACTOR;
         } else {
             item->flag = 0x0;
@@ -292,26 +311,37 @@ fdb_status wal_insert(fdb_txn *txn,
         item->header = header;
 
         item->seqnum = doc->seqnum;
-        item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
+
+        if (doc->deleted) {
+            if (caller == WAL_INS_WRITER ||
+                    offset != BLK_NOT_FOUND) {// purge interval not met yet
+                item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
+            } else { // compactor purge deleted doc
+                item->action = WAL_ACT_REMOVE; // immediate prune index
+                offset = 0; // must process these first
+            }
+        } else {
+            item->action = WAL_ACT_INSERT;
+        }
         item->offset = offset;
         item->doc_size = doc->size_ondisk;
         atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
 
         size_t seq_shard_num;
         seq_shard_num = doc->seqnum % file->wal->num_shards;
-        if (!is_compactor) {
+        if (caller == WAL_INS_WRITER) {
             spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
         }
         hash_insert(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                     &item->he_seq);
-        if (!is_compactor) {
+        if (caller == WAL_INS_WRITER) {
             spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
         }
 
         // insert into header's list
         // (pushing front is ok for compactor because no other item already exists)
         list_push_front(&header->items, &item->list_elem);
-        if (!is_compactor) {
+        if (caller == WAL_INS_WRITER || caller == WAL_INS_COMPACT_PHASE2) {
             // also insert into transaction's list
             list_push_back(txn->items, &item->list_elem_txn);
         } else {
@@ -324,7 +354,7 @@ fdb_status wal_insert(fdb_txn *txn,
         atomic_incr_uint32_t(&file->wal->size);
     }
 
-    if (!is_compactor) {
+    if (caller == WAL_INS_WRITER) {
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
 
@@ -468,7 +498,8 @@ fdb_status wal_txn_migration(void *dbhandle,
                     fdb_assert(item->txn != &old_file->global_txn,
                                (uint64_t)item->txn, 0);
                     // insert into new_file's WAL
-                    wal_insert(item->txn, new_file, &doc, offset, 0);
+                    wal_insert(item->txn, new_file, &doc, offset,
+                               WAL_INS_WRITER);
                     // remove from seq hash table
                     size_t shard_num = item->seqnum % num_shards;
                     spin_lock(&old_file->wal->seq_shards[shard_num].lock);

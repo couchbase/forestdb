@@ -969,6 +969,10 @@ void e2e_robust_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
     fconfig.durability_opt = FDB_DRB_ASYNC;
+    // to allow iterators to validate docs across async compaction
+    // specify purging_interval so deleted docs are not dropped by
+    // compactor immediately..
+    fconfig.purging_interval = 60;
 
     // test
     e2e_robust_pattern(fconfig);
