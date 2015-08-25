@@ -1704,6 +1704,12 @@ fdb_status fdb_set_log_callback(fdb_kvs_handle *handle,
 }
 
 LIBFDB_API
+void fdb_set_fatal_error_callback(fdb_fatal_error_callback err_callback)
+{
+    fatal_error_callback = err_callback;
+}
+
+LIBFDB_API
 fdb_status fdb_doc_create(fdb_doc **doc, const void *key, size_t keylen,
                           const void *meta, size_t metalen,
                           const void *body, size_t bodylen)

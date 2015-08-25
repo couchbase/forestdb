@@ -413,6 +413,11 @@ typedef struct {
 typedef void (*fdb_log_callback)(int err_code, const char *err_msg, void *ctx_data);
 
 /**
+ * Function pointer definition of the fatal error callback function.
+ */
+typedef void (*fdb_fatal_error_callback)(void);
+
+/**
  * ForestDB iterator options.Combinational options can be passed to the iterator.
  * For example, FDB_ITR_SKIP_MIN_KEY | FDB_ITR_SKIP_MAX_KEY means
  * "The smallest and largest keys in the iteration ragne won't be returned by the
