@@ -128,3 +128,11 @@ To run all the unit tests:
      `make test_valgrind`
 
     This target will run the tests and output the memory report to the console
+
+* For hardware accelerated CRC32C which can improve ForestDB performance, please fetch the optional couchbase platform repository into the forestdb source directory before building.
+
+`cd forestdb`
+
+`git clone https://github.com/couchbase/platform.git`
+
+`Follow the rest of the platform specific build instructions from above`

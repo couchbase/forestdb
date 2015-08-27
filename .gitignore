@@ -3,6 +3,7 @@
 couchstore_api/couchbench_fdb
 build
 coverage
+platform
 dummy2
 errorlog.txt
 forestdb_test
