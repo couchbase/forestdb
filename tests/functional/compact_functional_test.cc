@@ -28,6 +28,7 @@
 #include "test.h"
 
 #include "internal_types.h"
+#include "wal.h"
 #include "functional_util.h"
 
 struct cb_args {
@@ -2130,6 +2131,14 @@ static int compaction_del_cb(fdb_file_handle *fhandle,
                 s = fdb_del_kv(db, keybuf, strlen(keybuf));
                 TEST_CHK(s == FDB_RESULT_SUCCESS);
             }
+            // Now insert and delete a bunch of keys (all in WAL)
+            for (i = 0; i < n; ++i){
+                sprintf(keybuf, "KEY%d", i);
+                s = fdb_set_kv(db, keybuf, strlen(keybuf), NULL, 0);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
+                s = fdb_del_kv(db, keybuf, strlen(keybuf));
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
+            }
             sprintf(keybuf, "key%d", i);
             s = fdb_set_kv(db, keybuf, strlen(keybuf), NULL, 0);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -2191,6 +2200,7 @@ void compact_deleted_doc_test()
     // At end of phase 1, all documents get deleted
     s = fdb_compact(dbfile, "compact_test2");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CHK(wal_get_num_flushable(dbfile->root->file) == 0);
 
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
