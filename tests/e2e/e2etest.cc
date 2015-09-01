@@ -948,6 +948,7 @@ void e2e_concurrent_scan_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
     fconfig.durability_opt = FDB_DRB_ASYNC;
+    fconfig.purging_interval = 30; // retain deleted docs for iteration
 
     // test
     e2e_concurrent_scan_pattern(3, 5, 5, fconfig, true);
@@ -972,7 +973,7 @@ void e2e_robust_test()
     // to allow iterators to validate docs across async compaction
     // specify purging_interval so deleted docs are not dropped by
     // compactor immediately..
-    fconfig.purging_interval = 60;
+    fconfig.purging_interval = 80;
 
     // test
     e2e_robust_pattern(fconfig);

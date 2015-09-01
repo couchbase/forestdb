@@ -2359,8 +2359,8 @@ void compact_deleted_doc_test()
         s = fdb_set_kv(db, keybuf, strlen(keybuf),
                             (void*)"value", 5);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
     }
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // At end of phase 1, all documents get deleted
     s = fdb_compact(dbfile, "compact_test2");

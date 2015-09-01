@@ -58,6 +58,7 @@ void iterator_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1; // retain deletes before compaction
 
     // open db
     fdb_open(&dbfile, "./iterator_test1", &fconfig);
@@ -508,6 +509,7 @@ void iterator_seek_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1; // retain deletes before compaction
 
     // open db
     fdb_open(&dbfile, "./iterator_test1", &fconfig);
@@ -825,6 +827,7 @@ void iterator_complete_test(int insert_opt, int delete_opt)
     memleak_start();
 
     config = fdb_get_default_config();
+    config.purging_interval = 1; // retain deletes before compaction
     kvs_config = fdb_get_default_kvs_config();
     s = fdb_open(&dbfile, "./iterator_test", &config);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1624,6 +1627,7 @@ void iterator_set_del_docs_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 10;
+    fconfig.purging_interval = 1; //retain deletes until compaction
 
     fdb_open(&dbfile, "./iterator_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
@@ -1830,6 +1834,7 @@ void sequence_iterator_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1; // retain deletes until compaction
 
     // open db
     fdb_open(&dbfile, "./iterator_test1", &fconfig);
@@ -2066,6 +2071,7 @@ void sequence_iterator_duplicate_test()
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1; // retain deletes until compaction
 
     // open db
     fdb_open(&dbfile, "./iterator_test1", &fconfig);
@@ -3234,6 +3240,7 @@ void iterator_offset_access_test()
     fconfig.buffercache_size = 4096;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
+    fconfig.purging_interval = 1; // retain deletes until compaction
 
     // open db
     s = fdb_open(&dbfile, "./iterator_test1", &fconfig);
