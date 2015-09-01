@@ -1857,6 +1857,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
     uint8_t *kvid_seqnum;
     uint64_t old_offset, _offset;
     int delta, r;
+    struct docio_length len;
     struct filemgr *file = handle->dhandle->file;
     struct kvs_stat stat;
 
@@ -1924,7 +1925,6 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE,
                                   item->doc_size);
         } else { // update or logical delete
-            struct docio_length len;
             // This block is already cached when we call HBTRIE_INSERT.
             // No additional block access.
             len = docio_read_doc_length(handle->dhandle, old_offset);
@@ -1944,6 +1944,8 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
     } else {
         // Immediate remove
+        old_offset = item->old_offset;
+        handle->bhandle->nlivenodes = stat.nlivenodes;
         hr = hbtrie_remove(handle->trie, item->header->key,
                            item->header->keylen);
         fs = btreeblk_end(handle->bhandle);
@@ -1973,9 +1975,18 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         }
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
+            // This block is already cached when we call _fdb_wal_get_old_offset
+            // No additional block access should be done.
+            len = docio_read_doc_length(handle->dhandle, old_offset);
+
+            // Reduce the total number of docs by one
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
-            delta = -(int)item->doc_size;
+            // Reduce the total datasize by what size of previously present doc
+            delta = -(int)_fdb_get_docsize(len);
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
+            // Update index size to new size after the remove operation
+            delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_NLIVENODES, delta);
         }
     }
     return FDB_RESULT_SUCCESS;
@@ -2893,7 +2904,14 @@ fdb_set_start:
         return FDB_RESULT_WRITE_FAIL;
     }
 
-    doc->size_ondisk = _fdb_get_docsize(_doc.length);
+    if (doc->deleted && !handle->config.purging_interval) {
+        // immediately remove from hbtrie upon WAL flush
+        offset = BLK_NOT_FOUND;
+        doc->size_ondisk = 0;
+    } else {
+        doc->size_ondisk = _fdb_get_docsize(_doc.length);
+    }
+
     doc->offset = offset;
     if (!txn) {
         txn = &file->global_txn;

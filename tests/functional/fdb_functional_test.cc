@@ -54,6 +54,7 @@ void basic_test()
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
     fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1;
 
     // Read-Write mode test without a create flag.
     fconfig.flags = 0;
@@ -418,6 +419,7 @@ void deleted_doc_get_api_test()
 
     // open dbfile
     fconfig = fdb_get_default_config();
+    fconfig.purging_interval = 1;
     kvs_config = fdb_get_default_kvs_config();
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -557,6 +559,7 @@ void set_get_meta_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
+    fconfig.purging_interval = 1;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // remove previous dummy files
@@ -2368,6 +2371,7 @@ void doc_compression_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compress_document_body = true;
     fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 1;
 
     // open db
     fdb_open(&dbfile, "./dummy1", &fconfig);

@@ -214,10 +214,9 @@ fdb_status wal_insert(fdb_txn *txn,
 
                 item->doc_size = doc->size_ondisk;
                 if (doc->deleted) {
-                    if (caller == WAL_INS_WRITER ||
-                        offset != BLK_NOT_FOUND) {// purge interval not met yet
+                    if (offset != BLK_NOT_FOUND) {// purge interval not met yet
                         item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
-                    } else { // compactor purge deleted doc
+                    } else { // drop the deleted doc right away
                         item->action = WAL_ACT_REMOVE; // immediate prune index
                         offset = 0; // must process these first
                     }
@@ -251,8 +250,7 @@ fdb_status wal_insert(fdb_txn *txn,
 
             item->seqnum = doc->seqnum;
             if (doc->deleted) {
-                if (caller == WAL_INS_WRITER ||
-                        offset != BLK_NOT_FOUND) {// purge interval not met yet
+                if (offset != BLK_NOT_FOUND) {// purge interval not met yet
                     item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
                 } else { // compactor purge deleted doc
                     item->action = WAL_ACT_REMOVE; // immediate prune index
@@ -313,8 +311,7 @@ fdb_status wal_insert(fdb_txn *txn,
         item->seqnum = doc->seqnum;
 
         if (doc->deleted) {
-            if (caller == WAL_INS_WRITER ||
-                    offset != BLK_NOT_FOUND) {// purge interval not met yet
+            if (offset != BLK_NOT_FOUND) {// purge interval not met yet
                 item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
             } else { // compactor purge deleted doc
                 item->action = WAL_ACT_REMOVE; // immediate prune index
@@ -919,9 +916,8 @@ fdb_status wal_snapshot(struct filemgr *file,
                 doc.key = malloc(doc.keylen); // (freed in fdb_snapshot_close)
                 memcpy(doc.key, item->header->key, doc.keylen);
                 doc.seqnum = item->seqnum;
-                doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE);
-                fdb_assert(item->action != WAL_ACT_REMOVE, item->action,
-                           item->offset); // reserved for compactor use only
+                doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                               item->action == WAL_ACT_REMOVE);
                 snapshot_func(dbhandle, &doc, item->offset);
                 if (doc.seqnum > copied_seq) {
                     copied_seq = doc.seqnum;

@@ -3080,6 +3080,7 @@ void rollback_prior_to_ops(bool walflush)
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 10;
+    fconfig.purging_interval = 1; // retain deletes until compaction
 
     fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
