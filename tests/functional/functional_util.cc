@@ -33,6 +33,25 @@ void _set_random_string_smallabt(char *str, int len)
     } while (len--);
 }
 
+int _disk_dump(const char *filepath, size_t pos, size_t bytes) {
+    struct filemgr_ops *ops = get_filemgr_ops();
+    int fd = ops->open(filepath, O_CREAT| O_RDWR, 0666);
+    if (fd < 0) {
+        fprintf(stderr, "failure to open %s\n", filepath);
+        return fd;
+    }
+    char *buf = (char *)malloc(bytes);
+    if (!buf) {
+        return -2;
+    }
+    if (ops->pwrite(fd, buf, bytes, pos) != bytes) {
+        return -1;
+    }
+    ops->close(fd);
+    free(buf);
+    return fd;
+}
+
 void logCallbackFunc(int err_code,
                      const char *err_msg,
                      void *pCtxData) {
