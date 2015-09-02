@@ -3818,8 +3818,8 @@ void rollback_drop_multi_files_kvs_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    // remove previous dummy test files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -3830,7 +3830,7 @@ void rollback_drop_multi_files_kvs_test()
 
     // 1024 kvs via 128 per dbfile
     for(j=0;j<n_files;++j){
-        sprintf(fname, "dummy%d", j);
+        sprintf(fname, "mvcc_test%d", j);
         status = fdb_open(&dbfiles[j], fname, &fconfig);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         for(i=0;i<n_kvs;++i){
@@ -3916,7 +3916,7 @@ void rollback_drop_multi_files_kvs_test()
 
     // custom compact
     for(j=0;j<n_files;++j){
-        sprintf(fname, "dummy_compact%d", j);
+        sprintf(fname, "mvcc_test_compact%d", j);
         status = fdb_compact(dbfiles[j], fname);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
@@ -3943,8 +3943,6 @@ void rollback_drop_multi_files_kvs_test()
         TEST_CHK(j==n);
     }
     fdb_doc_free(rdoc);
-
-
 
     // cleanup
     for(j=0;j<n_files;++j){
