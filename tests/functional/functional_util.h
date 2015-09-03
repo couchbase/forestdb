@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include "common.h"
+#include "filemgr_ops.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,6 +29,8 @@ extern "C" {
 void _set_random_string(char *str, int len);
 
 void _set_random_string_smallabt(char *str, int len);
+
+int _disk_dump(const char *filepath, const size_t pos, const size_t bytes);
 
 void logCallbackFunc(int err_code,
                      const char *err_msg,

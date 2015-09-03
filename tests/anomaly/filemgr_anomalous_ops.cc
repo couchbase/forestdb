@@ -26,7 +26,7 @@
 #include <unistd.h>
 #endif
 
-#include "filemgr.h"
+#include "filemgr_ops.h"
 #include "filemgr_anomalous_ops.h"
 #include "libforestdb/forestdb.h"
 

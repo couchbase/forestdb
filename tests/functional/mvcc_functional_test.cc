@@ -289,19 +289,10 @@ void crash_recovery_test(bool walflush)
     // Shutdown forest db in the middle of the test to simulate crash
     fdb_shutdown();
 
-    sprintf(bodybuf,
-            "dd if=/dev/zero bs=%d of=%s oseek=%d count=2 >> errorlog.txt",
-            (int)fconfig.blocksize, test_file, (int)bid);
-    // Now append garbage at the end of the file for a few blocks
-    r = system(bodybuf);
-    (void)r;
-    // Write 1024 bytes of non-block aligned garbage to end of file
-    sprintf(bodybuf,
-            "dd if=/dev/zero bs=%d of=%s oseek=%d count=1 >> errorlog.txt",
-            (int)fconfig.blocksize/4, test_file, (int)(bid + 2)*4);
-    r = system(bodybuf);
-    (void)r;
-
+    // append 9K of non-block aligned garbage at end of file
+    r = _disk_dump(test_file, bid * fconfig.blocksize,
+                   (2 * fconfig.blocksize) + (fconfig.blocksize / 4));
+    TEST_CHK(r >= 0);
 
     // reopen the same file
     status = fdb_open(&dbfile, test_file, &fconfig);
@@ -4023,8 +4014,8 @@ void rollback_drop_multi_files_kvs_test()
     fdb_doc *rdoc;
     fdb_status status;
 
-    // remove previous dummy test files
-    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    // remove previous test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -4035,7 +4026,7 @@ void rollback_drop_multi_files_kvs_test()
 
     // 1024 kvs via 128 per dbfile
     for(j=0;j<n_files;++j){
-        sprintf(fname, "dummy%d", j);
+        sprintf(fname, "mvcc_test%d", j);
         status = fdb_open(&dbfiles[j], fname, &fconfig);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         for(i=0;i<n_kvs;++i){
@@ -4121,7 +4112,7 @@ void rollback_drop_multi_files_kvs_test()
 
     // custom compact
     for(j=0;j<n_files;++j){
-        sprintf(fname, "dummy_compact%d", j);
+        sprintf(fname, "mvcc_test_compact%d", j);
         status = fdb_compact(dbfiles[j], fname);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
@@ -4148,8 +4139,6 @@ void rollback_drop_multi_files_kvs_test()
         TEST_CHK(j==n);
     }
     fdb_doc_free(rdoc);
-
-
 
     // cleanup
     for(j=0;j<n_files;++j){
@@ -4181,7 +4170,6 @@ void tx_crash_recover_test()
     uint64_t bid;
     const char *test_file = "./mvcc_test2";
     const char *test_file_c = "./mvcc_test3";
-    char bodybuf[256];
 
     r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
@@ -4224,26 +4212,14 @@ void tx_crash_recover_test()
     fdb_close(file);
     fdb_shutdown();
 
-    // append garbage
-    sprintf(bodybuf,
-            "dd if=/dev/zero bs=%d of=%s oseek=%d count=2 >> errorlog.txt",
-            (int)config.blocksize, test_file_c, (int)bid);
-    // Now append garbage at the end of the file for a few blocks
-    r = system(bodybuf);
-    (void)r;
-    // Write 1024 bytes of non-block aligned garbage to end of file
-    sprintf(bodybuf,
-            "dd if=/dev/zero bs=%d of=%s oseek=%d count=1 >> errorlog.txt",
-            (int)config.blocksize/4, test_file_c, (int)(bid + 2)*4);
-    r = system(bodybuf);
-    (void)r;
+    // Now append 9K of non-block aligned garbage at the end of the file..
+    r = _disk_dump(test_file_c, bid * config.blocksize,
+                  (config.blocksize * 2) + (config.blocksize / 4));
+    TEST_CHK(r >= 0);
 
-    // write garbage to old compact file
-    sprintf(bodybuf,
-            "dd if=/dev/zero bs=%d of=%s oseek=%d count=1 >> errorlog.txt",
-            (int)config.blocksize/4, test_file, (int)(bid + 2)*4);
-    r = system(bodybuf);
-    (void)r;
+    // also write non-block aligned garbage to old compact file
+    r = _disk_dump(test_file, (bid + 2)*4*config.blocksize, config.blocksize/4);
+    TEST_CHK(r >= 0);
 
     // reopen
     status = fdb_open(&file, test_file_c, &config);
