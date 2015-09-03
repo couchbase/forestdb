@@ -1823,7 +1823,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     }
 
     status = btreeblk_end(handle->bhandle);
-    fdb_assert(status == FDB_RESULT_SUCCESS, status, handle);
+    if (status != FDB_RESULT_SUCCESS) {
+        return status;
+    }
 
     // do not register read-only handles
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
@@ -2264,9 +2266,13 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             char filename[FDB_MAX_FILENAME_LEN];
             strcpy(filename, handle->filename);
             fs = _fdb_close(handle);
-            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
             fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
-            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
         } else {
             filemgr_get_header(handle->file, buf, &header_len, NULL, NULL, NULL);
             fdb_fetch_header(buf,
@@ -2275,9 +2281,13 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
                              &kv_info_offset, &header_flags,
                              &new_filename, NULL);
             fs = _fdb_close(handle);
-            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
             fs = _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
-            fdb_assert(fs == FDB_RESULT_SUCCESS, fs, handle);
+            if (fs != FDB_RESULT_SUCCESS) {
+                return fs;
+            }
         }
     }
     if (status) {
