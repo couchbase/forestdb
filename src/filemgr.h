@@ -249,7 +249,7 @@ INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)
 }
 void filemgr_remove_file(struct filemgr *file);
 
-fdb_status filemgr_commit(struct filemgr *file,
+fdb_status filemgr_commit(struct filemgr *file, bool sync,
                           err_log_callback *log_callback);
 fdb_status filemgr_sync(struct filemgr *file,
                         err_log_callback *log_callback);

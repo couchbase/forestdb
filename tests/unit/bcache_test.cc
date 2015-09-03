@@ -49,12 +49,12 @@ void basic_test()
         filemgr_alloc(file, NULL);
         filemgr_write(file, i, buf, NULL);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
     for (i=5;i<10;++i) {
         filemgr_alloc(file, NULL);
         filemgr_write(file, i, buf, NULL);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     filemgr_read(file, 8, buf, NULL, true);
     filemgr_read(file, 9, buf, NULL, true);
@@ -103,7 +103,7 @@ void basic_test2()
         filemgr_alloc(file, NULL);
         filemgr_write(file, i, buf, NULL);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
@@ -233,7 +233,7 @@ void multi_thread_test(
         thread_join(tid[i], &ret[i]);
     }
 
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
     free(buf);

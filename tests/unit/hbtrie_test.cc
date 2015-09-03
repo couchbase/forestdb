@@ -153,7 +153,7 @@ void basic_test()
     hbtrie_remove(&trie, (void*)key[0], strlen(key[0]));
     btreeblk_end(&bhandle);
 
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     for (i=0;i<n;++i) {
         if (i!=2) {
@@ -278,7 +278,7 @@ void large_test()
         TEST_TIME();
 
         DBG("filemgr commit .. \n");
-        filemgr_commit(file, NULL);
+        filemgr_commit(file, true, NULL);
         TEST_TIME();
     }
 
@@ -303,7 +303,7 @@ void large_test()
         TEST_TIME();
 
         DBG("filemgr commit .. \n");
-        filemgr_commit(file, NULL);
+        filemgr_commit(file, true, NULL);
         TEST_TIME();
     }
 
@@ -541,7 +541,7 @@ void skew_basic_test()
     }
     hbtrie_iterator_free(&it);
 
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     hbtrie_free(&trie);
     docio_free(&dhandle);
@@ -764,7 +764,7 @@ void hbtrie_partial_update_test()
         hbtrie_insert(&trie, key, strlen(key), &v, &v_out);
         btreeblk_end(&bhandle);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
     //printf("root: %lx\n", trie.root_bid);
 
     // retrieve check
@@ -799,7 +799,7 @@ void hbtrie_partial_update_test()
         hbtrie_insert(&trie, key, strlen(key), &v, &v_out);
         btreeblk_end(&bhandle);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     // replace the first-level chunks by old values
     for (i=0;i<3;++i){
@@ -807,7 +807,7 @@ void hbtrie_partial_update_test()
         hbtrie_insert_partial(&trie, key, strlen(key), &v1[i], &v_out);
         btreeblk_end(&bhandle);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     // retrieve check
     for (i=0;i<(uint64_t)n;++i) {
@@ -825,7 +825,7 @@ void hbtrie_partial_update_test()
         hbtrie_insert(&trie, key, strlen(key), &v, &v_out);
         btreeblk_end(&bhandle);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     // replace the second-level chunks by old values
     for (i=0;i<9;++i){
@@ -833,7 +833,7 @@ void hbtrie_partial_update_test()
         hbtrie_insert_partial(&trie, key, strlen(key), &v2[i], &v_out);
         btreeblk_end(&bhandle);
     }
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     // retrieve check
     for (i=0;i<(uint64_t)n;++i) {
@@ -854,7 +854,7 @@ void hbtrie_partial_update_test()
     sprintf(key, "key%05d", (int)i);
     hbtrie_remove_partial(&trie, key, strlen(key));
     btreeblk_end(&bhandle);
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     // retrieve check
     for (i=0;i<(uint64_t)n;++i) {
