@@ -1128,7 +1128,7 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
             *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id);
         }
     }
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -2233,7 +2233,7 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     info->space_used += nlivenodes * handle->config.blocksize;
     info->file = handle->fhandle;
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
 
     // This is another LIBFDB_API call, so handle is marked as free
     // in the line above before making this call

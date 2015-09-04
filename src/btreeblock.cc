@@ -101,7 +101,10 @@ INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,
                                          struct btreeblk_block *block)
 {
 #ifdef __BTREEBLK_BLOCKPOOL
-   fdb_assert(block->addr_item, block->addr_item, block->bid);
+    if (!block->addr_item) {
+        // TODO: Need to log the corresponding error message.
+        return;
+    }
     // sync addr & insert into pool
     block->addr_item->addr = block->addr;
     list_push_front(&handle->blockpool, &block->addr_item->le);
@@ -922,8 +925,8 @@ fdb_status btreeblk_operation_end(void *voidhandle)
             if (status != FDB_RESULT_SUCCESS) {
                 return status;
             }
-        }else{
-            fdb_assert(false, block->bid, handle->file->pos.val);
+        } else {
+            return FDB_RESULT_WRITE_FAIL;
         }
 
         if (block->pos + (handle->nodesize) > (handle->file->blocksize) || !writable) {
@@ -1108,8 +1111,11 @@ void btreeblk_clone_dirty_snapshot(struct btreeblk_handle *dst,
         return;
     }
     spin_lock(&src->dirty_snapshot->lock);
-    fdb_assert(src->dirty_snapshot->ref_cnt > 0, src->dirty_snapshot->ref_cnt,
-               0);
+    if (!src->dirty_snapshot->ref_cnt) {
+        spin_unlock(&src->dirty_snapshot->lock);
+        // TODO: Need to log the corresponding error message
+        return;
+    }
     src->dirty_snapshot->ref_cnt++;
     dst->dirty_snapshot = src->dirty_snapshot;
     spin_unlock(&src->dirty_snapshot->lock);
@@ -1125,8 +1131,11 @@ void btreeblk_free_dirty_snapshot(struct btreeblk_handle *handle)
     }
 
     spin_lock(&handle->dirty_snapshot->lock);
-    fdb_assert(handle->dirty_snapshot->ref_cnt > 0,
-               handle->dirty_snapshot->ref_cnt, 0);
+    if (!handle->dirty_snapshot->ref_cnt) {
+        spin_unlock(&handle->dirty_snapshot->lock);
+        // TODO: Need to log the corresponding error message
+        return;
+    }
     if (--handle->dirty_snapshot->ref_cnt == 0) {
         a = avl_first(handle->dirty_snapshot->snap_tree);
         while (a) {

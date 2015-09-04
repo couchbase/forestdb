@@ -971,7 +971,7 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     if (wal_txn_exists(handle_in->file)) {
         filemgr_set_rollback(handle_in->file, 0);
         filemgr_mutex_unlock(handle_in->file);
-        fdb_assert(atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
     }
 
@@ -999,13 +999,13 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     // even via the current fdb_kvs_handle
     if (seqnum > handle_in->seqnum) {
         filemgr_set_rollback(handle_in->file, 0); // allow mutations
-        fdb_assert(atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0);
         return FDB_RESULT_NO_DB_INSTANCE;
     }
 
     handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
     if (!handle) { // LCOV_EXCL_START
-        fdb_assert(atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
@@ -1046,11 +1046,11 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
             filemgr_set_seqnum(handle_in->file, old_seqnum);
             filemgr_mutex_unlock(handle_in->file);
             free(handle);
-            fdb_assert(atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0);
         }
     } else {
         free(handle);
-        fdb_assert(atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle_in->handle_busy, 1, 0);
     }
 
     return fs;
@@ -1311,7 +1311,11 @@ fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
     }
 
     status = btreeblk_end(handle_out->bhandle);
-    fdb_assert(status == FDB_RESULT_SUCCESS, status, handle_out);
+    if (status != FDB_RESULT_SUCCESS) {
+        const char *msg = "Snapshot clone operation fails due to the errors in "
+            "btreeblk_end() in a database file '%s'\n";
+        fdb_log(&handle_in->log_callback, status, msg, handle_in->file->filename);
+    }
 
 #ifdef _TRACE_HANDLES
     spin_lock(&open_handle_lock);
@@ -1733,7 +1737,13 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     // initialize pointer to the global operational stats of this KV store
     handle->op_stats = filemgr_get_ops_stats(handle->file, handle->kvs);
-    fdb_assert(handle->op_stats, 0, 0);
+    if (!handle->op_stats) {
+        const char *msg = "Database open fails due to the error in retrieving "
+            "the global operational stats of KV store in a database file '%s'\n";
+        fdb_log(&handle->log_callback, FDB_RESULT_OPEN_FAIL, msg,
+                handle->file->filename);
+        return FDB_RESULT_OPEN_FAIL;
+    }
 
     handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
     hbtrie_init(handle->trie, config->chunksize, OFFSET_SIZE,
@@ -1819,6 +1829,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     filemgr_close(result.file, 0, handle->filename,
                                   &handle->log_callback);
                 }
+            } else {
+                free(prev_filename);
             }
         } else {
             free(prev_filename);
@@ -2436,20 +2448,20 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         _doc.body = doc->body;
 
         if (wr == FDB_RESULT_SUCCESS && doc->deleted) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         _offset = docio_read_doc(dhandle, offset, &_doc, true);
         if (_offset == offset) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         if (_doc.length.keylen != doc_kv.keylen ||
             _doc.length.flag & DOCIO_DELETED) {
             free_docio_object(&_doc, 0, alloced_meta, alloced_body);
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -2462,11 +2474,11 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
 
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_SUCCESS;
     }
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -2565,13 +2577,13 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
                                                        true);
         if (body_offset == offset){
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         if (_doc.length.keylen != doc_kv.keylen) {
             free_docio_object(&_doc, 0, alloced_meta, 0);
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -2584,11 +2596,11 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
 
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_SUCCESS;
     }
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -2691,18 +2703,18 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         _doc.body = doc->body;
 
         if (wr == FDB_RESULT_SUCCESS && doc->deleted) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         _offset = docio_read_doc(dhandle, offset, &_doc, true);
         if (_offset == offset) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         if (_doc.length.flag & DOCIO_DELETED) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             free_docio_object(&_doc, alloc_key, alloc_meta, alloc_body);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -2730,13 +2742,11 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
 
-        fdb_assert(doc->seqnum == _doc.seqnum, doc->seqnum, _doc.seqnum);
-
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_SUCCESS;
     }
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -2823,19 +2833,28 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
+        bool alloc_key, alloc_meta;
         if (!handle->kvs) { // single KVS mode
             _doc.key = doc->key;
             _doc.length.keylen = doc->keylen;
+            alloc_key = doc->key ? false : true;
         } else {
             _doc.key = NULL;
+            alloc_key = true;
         }
         _doc.meta = doc->meta;
+        alloc_meta = doc->meta ? false : true;
         _doc.body = doc->body;
 
         uint64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
                                                        true);
         if (body_offset == offset) {
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+            return FDB_RESULT_KEY_NOT_FOUND;
+        }
+        if (doc->seqnum != _doc.seqnum) {
+            free_docio_object(&_doc, alloc_key, alloc_meta, false);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
@@ -2861,13 +2880,11 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         doc->size_ondisk = _fdb_get_docsize(_doc.length);
         doc->offset = offset;
 
-        fdb_assert(doc->seqnum == _doc.seqnum, doc->seqnum, _doc.seqnum);
-
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_SUCCESS;
     }
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -2922,14 +2939,14 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
 
     uint64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc, true);
     if (_offset == offset) {
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
     } else {
         if (handle->kvs) {
             fdb_kvs_id_t kv_id;
             buf2kvid(handle->config.chunksize, _doc.key, &kv_id);
             if (kv_id != handle->kvs->id) {
-                fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                 free_docio_object(&_doc, 1, 1, 1);
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
@@ -2937,7 +2954,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
         }
         if (!equal_docs(doc, &_doc)) {
             free_docio_object(&_doc, 1, 1, 1);
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
     }
@@ -2973,11 +2990,11 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if (_doc.length.flag & DOCIO_DELETED) {
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -3058,7 +3075,7 @@ fdb_set_start:
 
     if (filemgr_is_rollback_on(handle->file)) {
         filemgr_mutex_unlock(handle->file);
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
@@ -3115,7 +3132,7 @@ fdb_set_start:
     offset = docio_append_doc(dhandle, &_doc, doc->deleted, txn_enabled);
     if (offset == BLK_NOT_FOUND) {
         filemgr_mutex_unlock(file);
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_WRITE_FAIL;
     }
 
@@ -3187,8 +3204,7 @@ fdb_set_start:
             wr = wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(file);
-                fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0),
-                           1, 0);
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                 return wr;
             }
             wr = wal_flush(file, (void *)handle,
@@ -3196,8 +3212,7 @@ fdb_set_start:
                       &flush_items);
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(file);
-                fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0),
-                           1, 0);
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                 return wr;
             }
             wal_set_dirty_status(file, FDB_WAL_PENDING);
@@ -3231,11 +3246,11 @@ fdb_set_start:
     }
 
     if (wal_flushed && handle->config.auto_commit) {
-        fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return _fdb_commit(handle->fhandle->root, FDB_COMMIT_NORMAL,
                            false); // asynchronous commit only
     }
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -3596,9 +3611,13 @@ fdb_commit_start:
         }
     }
 
-    fdb_assert(handle->last_wal_flush_hdr_bid == BLK_NOT_FOUND ||
-           handle->last_wal_flush_hdr_bid <= handle->last_hdr_bid,
-           handle->last_wal_flush_hdr_bid, handle->last_hdr_bid);
+    if (handle->last_wal_flush_hdr_bid != BLK_NOT_FOUND &&
+        handle->last_wal_flush_hdr_bid > handle->last_hdr_bid) {
+        filemgr_mutex_unlock(handle->file);
+        const char *msg = "Commit operation fails becasue the last wal_flushed "
+            "commit header bid > the last commit header bid in a database file '%s'\n";
+        return fdb_log(&handle->log_callback, FDB_RESULT_COMMIT_FAIL, msg, handle->file);
+    }
 
     if (txn == NULL) {
         // update global_txn's previous header BID
@@ -4074,10 +4093,6 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     fdb_status fs = FDB_RESULT_SUCCESS;
     blocksize = handle->file->config->blocksize;
 
-    // TODO: Does the following assert hold true always?
-    fdb_assert(blocksize == (uint32_t)new_file->config->blocksize, blocksize,
-               new_file->config->blocksize);
-
     compactor_prev_bid = 0;
     writer_prev_bid = filemgr_get_pos(handle->file) /
                       handle->file->config->blocksize;
@@ -4152,11 +4167,9 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                     _doc, c, FDB_COMP_MOVE_UNIT,
                     (size_t) (-1), // We are not reading the value portion
                     aio_handle_ptr, true);
-            if (num_batch_reads == (size_t) -1) {
+            if (num_batch_reads == (size_t) -1 || num_batch_reads != c) {
                 fs = FDB_RESULT_COMPACTION_FAIL;
                 break;
-            } else {
-                fdb_assert(num_batch_reads == c, num_batch_reads, c);
             }
             src_bid = offset_array[0] / blocksize;
             contiguous_bid = src_bid;
@@ -5956,7 +5969,9 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     old_filename_len = strlen(old_file->filename) + 1;
     old_filename = (char *) malloc(old_filename_len);
     strncpy(old_filename, old_file->filename, old_filename_len);
-    filemgr_update_file_status(new_file, FILE_NORMAL, old_filename);
+    if(filemgr_update_file_status(new_file, FILE_NORMAL, old_filename) == 0) {
+        free(old_filename);
+    }
 
     // Atomically perform
     // 1) commit new file

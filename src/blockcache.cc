@@ -794,7 +794,13 @@ static bool _fname_try_free(struct fnamedic_item *fname)
             file_list[i] = file_list[i+1];
         }
     }
-    fdb_assert(found, num_files, fname->ref_count.val);
+    if (!found) {
+        rw_spin_write_unlock(&filelist_lock);
+        DBG("Error: fnamedic_item instance for a file '%s' can't be "
+            "found in the buffer cache's file list.\n", fname->filename);
+        return false;
+    }
+
     file_list[num_files - 1] = NULL;
     --num_files;
     if (atomic_get_uint32_t(&fname->ref_count) != 0) {
@@ -810,9 +816,19 @@ static bool _fname_try_free(struct fnamedic_item *fname)
 static void _fname_free(struct fnamedic_item *fname)
 {
     // file must be empty
-    fdb_assert(_file_empty(fname), false, true);
+    if (!_file_empty(fname)) {
+        DBG("Warning: failed to free fnamedic_item instance for a file '%s' "
+            "because the fnamedic_item instance is not empty!\n",
+            fname->filename);
+        return;
+    }
     uint32_t ref_count = atomic_get_uint32_t(&fname->ref_count);
-    fdb_assert(ref_count == 0, 0, ref_count);
+    if (ref_count != 0) {
+        DBG("Warning: failed to free fnamedic_item instance for a file '%s' "
+            "because its ref counter is not zero!\n",
+            fname->filename);
+        return;
+    }
 
     // free hash
     size_t i = 0;
@@ -878,7 +894,13 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
         if (h) {
             // cache hit
             item = _get_entry(h, struct bcache_item, hash_elem);
-            fdb_assert(!(item->flag & BCACHE_FREE), item->flag, file);
+            if (item->flag & BCACHE_FREE) {
+                spin_unlock(&fname->shards[shard_num].lock);
+                DBG("Warning: failed to read the buffer cache entry for a file '%s' "
+                    "because the entry belongs to the free list!\n",
+                    file->filename);
+                return 0;
+            }
 
             // move the item to the head of list if the block is clean
             // (don't care if the block is dirty)
@@ -935,7 +957,13 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
         if (h) {
             // cache hit
             item = _get_entry(h, struct bcache_item, hash_elem);
-            fdb_assert(!(item->flag & BCACHE_FREE), item->flag, BCACHE_FREE);
+            if (item->flag & BCACHE_FREE) {
+                spin_unlock(&fname->shards[shard_num].lock);
+                DBG("Warning: failed to invalidate the buffer cache entry for a file '%s' "
+                    "because the entry belongs to the free list!\n",
+                    file->filename);
+                return;
+            }
 
             if (!(item->flag & BCACHE_DIRTY)) {
                 atomic_decr_uint64_t(&fname->nitems);
@@ -1119,7 +1147,12 @@ int bcache_write_partial(struct filemgr *file,
         item = _get_entry(h, struct bcache_item, hash_elem);
     }
 
-    fdb_assert(!(item->flag & BCACHE_FREE), item->flag, BCACHE_FREE);
+    if (item->flag & BCACHE_FREE) {
+        DBG("Warning: failed to write on the buffer cache entry for a file '%s' "
+            "because the entry belongs to the free list!\n",
+            file->filename);
+        return 0;
+    }
 
     // check whether this is dirty block
     // to avoid re-insert already existing item into tree
@@ -1222,7 +1255,13 @@ bool bcache_remove_file(struct filemgr *file)
         // acquire lock
         spin_lock(&bcache_lock);
         // file must be empty
-        fdb_assert(_file_empty(fname_item), fname_item, NULL);
+        if (!_file_empty(fname_item)) {
+            spin_unlock(&bcache_lock);
+            DBG("Warning: failed to remove fnamedic_item instance for a file '%s' "
+                "because the fnamedic_item instance is not empty!\n",
+                file->filename);
+            return rv;
+        }
 
         // remove from fname dictionary hash table
         hash_remove(&fnamedic, &fname_item->hash_elem);

@@ -59,7 +59,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         if (filemgr_is_rollback_on(handle->file)) {
             // deny beginning transaction during rollback
             filemgr_mutex_unlock(handle->file);
-            fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_FAIL_BY_ROLLBACK;
         }
 
@@ -93,7 +93,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
 
     filemgr_mutex_unlock(file);
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -148,7 +148,7 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
 
     filemgr_mutex_unlock(file);
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -208,6 +208,6 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
         filemgr_mutex_unlock(file);
     }
 
-    fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return fs;
 }

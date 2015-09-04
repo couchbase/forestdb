@@ -613,7 +613,10 @@ btree_result btree_get_key_range(
     struct bnode *root, *node;
     uint64_t _num, _den, _nentry, resolution, mask, _idx_begin, _idx_end;
 
-    fdb_assert(num < den, num, den);
+    if (num >= den) {
+        // TODO: Need to log the corresponding error message
+        return BTREE_RESULT_FAIL;
+    }
     resolution = 1<<4; mask = resolution-1;
 
     if (btree->kv_ops->init_kv_var) btree->kv_ops->init_kv_var(btree, k, v);

@@ -149,7 +149,13 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                                         log_callback) == handle->curblock+1) {
 
             // start from current block
-            fdb_assert(begin == handle->curblock + 1, begin, handle->curblock+1);
+            if (begin != (handle->curblock + 1)) {
+                fdb_log(log_callback, fs,
+                        "Error in allocating blocks starting from block id %" _F64
+                        " in a database file '%s'", handle->curblock + 1,
+                        handle->file->filename);
+                return BLK_NOT_FOUND;
+            }
 
             fs = _add_blk_marker(handle->file, handle->curblock, blocksize,
                                  marker, log_callback);
@@ -190,7 +196,13 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                                         nblock + ((remain>offset)?1:0), &begin, &end,
                                         log_callback) == handle->curblock+1) {
             // start from current block
-            fdb_assert(begin == handle->curblock + 1, begin, handle->curblock+1);
+            if (begin != (handle->curblock + 1)) {
+                fdb_log(log_callback, fs,
+                        "Error in allocating blocks starting from block id %" _F64
+                        " in a database file '%s'", handle->curblock + 1,
+                        handle->file->filename);
+                return BLK_NOT_FOUND;
+            }
 
             fs = _add_blk_marker(handle->file, handle->curblock, blocksize,
                                  marker, log_callback);
@@ -692,8 +704,14 @@ static uint64_t _docio_read_doc_component_comp(struct docio_handle *handle,
                 offset, len, handle->file->filename);
         return 0;
     }
-
-    fdb_assert(uncomp_size == len, uncomp_size, len);
+    if (uncomp_size != len) {
+        fdb_log(log_callback, FDB_RESULT_COMPRESSION_FAIL,
+                "Error in decompressing the data with the file offset "
+                "%" _F64 " in a database file '%s', because the uncompressed length %d "
+                "is not same as the expected length %d",
+                offset, handle->file->filename, uncomp_size, len);
+        return 0;
+    }
     return _offset;
 }
 
@@ -889,8 +907,6 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
         meta_alloc = 1;
     }
 
-    fdb_assert(doc->key, handle, doc->length.keylen);
-
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen,
                                         doc->key, log_callback);
     if (_offset == 0) {
@@ -1053,8 +1069,6 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
         doc->body = (void *)malloc(doc->length.bodylen);
         body_alloc = 1;
     }
-
-    fdb_assert(doc->key, handle, doc->length.keylen);
 
     _offset = _docio_read_doc_component(handle, _offset,
                                         doc->length.keylen,
@@ -1242,8 +1256,16 @@ static int _submit_async_io_requests(struct docio_handle *handle,
                 "Error in submitting async I/O requests to a file '%s', errno msg: %s",
                 handle->file->filename, errno_msg);
         return num_sub;
+    } else if (num_sub != size) {
+        // Error loggings
+        char errno_msg[512];
+        handle->file->ops->get_errno_str(errno_msg, 512);
+        fdb_log(handle->log_callback, (fdb_status) num_sub,
+                "Error in submitting async I/O requests to a file '%s', errno msg: %s, "
+                "%d requests were submitted, but only %d requests were processed",
+                handle->file->filename, errno_msg, size, num_sub);
+        return num_sub;
     }
-    fdb_assert(num_sub == size, num_sub, size);
 
     while (num_sub > 0) {
         num_events = handle->file->ops->aio_getevents(aio_handle, 1,
@@ -1252,7 +1274,7 @@ static int _submit_async_io_requests(struct docio_handle *handle,
             // Error loggings
             char errno_msg[512];
             handle->file->ops->get_errno_str(errno_msg, 512);
-            fdb_log(handle->log_callback, (fdb_status) num_sub,
+            fdb_log(handle->log_callback, (fdb_status) num_events,
                     "Error in getting async I/O events from the completion queue "
                     "for a file '%s', errno msg: %s", handle->file->filename, errno_msg);
             return num_events;
@@ -1348,11 +1370,10 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
                                                             aio_handle, aio_size,
                                                             &sum_doc_size,
                                                             keymeta_only);
-                    if (num_sub < 0) {
+                    if (num_sub < 0 || num_sub != aio_size) {
                         read_fail = true;
                         break;
                     }
-                    fdb_assert(num_sub == aio_size, num_sub, aio_size);
                     aio_size = 0;
                     doc_idx += num_sub;
                 }

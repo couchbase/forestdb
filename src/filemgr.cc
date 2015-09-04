@@ -646,6 +646,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     if (!create) {
                         _log_errno_str(ops, log_callback,
                                 FDB_RESULT_NO_SUCH_FILE, "OPEN", filename);
+                        file->ref_count--;
                         spin_unlock(&filemgr_openlock);
                         result.rv = FDB_RESULT_NO_SUCH_FILE;
                         return result;
@@ -1365,8 +1366,9 @@ void filemgr_remove_file(struct filemgr *file)
 {
     struct hash_elem *ret;
 
-    fdb_assert(file, file, NULL);
-    fdb_assert(file->ref_count <= 0, file->ref_count, 0);
+    if (!file || file->ref_count > 0) {
+        return;
+    }
 
     // remove from global hash table
     spin_lock(&filemgr_openlock);
@@ -1554,7 +1556,14 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
     uint64_t pos = bid * file->blocksize;
     fdb_status status = FDB_RESULT_SUCCESS;
     uint64_t curr_pos = atomic_get_uint64_t(&file->pos);
-    fdb_assert(pos < curr_pos, pos, curr_pos);
+
+    if (pos >= curr_pos) {
+        const char *msg = "Read error: read offset %" _F64 " exceeds the file's "
+                          "current offset %" _F64 " in a database file '%s'\n";
+        fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, pos, curr_pos,
+                file->filename);
+        return FDB_RESULT_READ_FAIL;
+    }
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
@@ -1681,13 +1690,28 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                                 uint64_t offset, uint64_t len, void *buf,
                                 err_log_callback *log_callback)
 {
-    fdb_assert(offset + len <= file->blocksize, offset + len, file);
-
     size_t lock_no;
     ssize_t r = 0;
     uint64_t pos = bid * file->blocksize + offset;
     uint64_t curr_commit_pos = atomic_get_uint64_t(&file->last_commit);
-    fdb_assert(pos >= curr_commit_pos, pos, curr_commit_pos);
+
+    if (offset + len > file->blocksize) {
+        const char *msg = "Write error: trying to write the buffer data "
+            "(offset: %" _F64 ", len: %" _F64 " that exceeds the block size "
+            "%" _F64 " in a database file '%s'\n";
+        fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, offset, len,
+                file->blocksize, file->filename);
+        return FDB_RESULT_WRITE_FAIL;
+    }
+
+    if (pos < curr_commit_pos) {
+        const char *msg = "Write error: trying to write at the offset %" _F64 " that is "
+                          "smaller than the current commit offset %" _F64 " in "
+                          "a database file '%s'\n";
+        fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos, curr_commit_pos,
+                file->filename);
+        return FDB_RESULT_WRITE_FAIL;
+    }
 
     if (global_config.ncacheblock > 0) {
         lock_no = bid % DLOCK_MAX;
@@ -1993,7 +2017,6 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
         } else {
             ret = 0;
             fdb_assert(file->ref_count, file->ref_count, 0);
-            free(old_filename);
         }
     }
     spin_unlock(&file->lock);
@@ -2046,8 +2069,12 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     uint16_t new_filename_len;
     char *past_filename;
     spin_lock(&very_old_file->lock);
-    fdb_assert(very_old_file->header.size, very_old_file->header.size, 0);
-    fdb_assert(very_old_file->new_file, very_old_file->new_file, 0);
+
+    if (very_old_file->header.size == 0 || very_old_file->new_file == NULL) {
+        spin_unlock(&very_old_file->lock);
+        return NULL;
+    }
+
     old_header_len = very_old_file->header.size;
     new_filename_len = strlen(new_file->filename);
     // Find out the new DB header length with new_file's filename
@@ -2071,7 +2098,9 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
 
 void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
 {
-    fdb_assert(new_file, new_file, old_file);
+    if (new_file == NULL) {
+        return;
+    }
 
     spin_lock(&old_file->lock);
     if (old_file->ref_count > 0) {
@@ -2099,7 +2128,9 @@ struct kvs_ops_stat *filemgr_migrate_op_stats(struct filemgr *old_file,
                                               struct kvs_info *kvs)
 {
     kvs_ops_stat *ret = NULL;
-    fdb_assert(new_file, new_file, old_file);
+    if (new_file == NULL) {
+        return NULL;
+    }
 
     spin_lock(&old_file->lock);
     new_file->header.op_stat = old_file->header.op_stat;

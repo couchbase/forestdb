@@ -366,7 +366,12 @@ hbtrie_result hbtrie_iterator_init(struct hbtrie *trie,
 
     if (initial_key) {
         it->keylen = _hbtrie_reform_key(trie, initial_key, keylen, it->curkey);
-        fdb_assert(it->keylen < HBTRIE_MAX_KEYLEN, it->keylen, trie);
+        if (it->keylen >= HBTRIE_MAX_KEYLEN) {
+            free(it->curkey);
+            DBG("Error: HBTrie iterator init fails because the init key length %d is "
+                "greater than the max key length %d\n", it->keylen, HBTRIE_MAX_KEYLEN);
+            return HBTRIE_RESULT_FAIL;
+        }
         memset((uint8_t*)it->curkey + it->keylen, 0, trie->chunksize);
     }else{
         it->keylen = 0;
