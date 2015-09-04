@@ -44,7 +44,7 @@ int _disk_dump(const char *filepath, size_t pos, size_t bytes) {
     if (!buf) {
         return -2;
     }
-    if (ops->pwrite(fd, buf, bytes, pos) != bytes) {
+    if (ops->pwrite(fd, buf, bytes, pos) != (int)bytes) {
         return -1;
     }
     ops->close(fd);
