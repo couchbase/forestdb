@@ -164,6 +164,12 @@ INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
     // allocate new block from file manager
     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
     _btreeblk_get_aligned_block(handle, block);
+    if (sb_no != -1) {
+        // If this block is used as a sub-block container,
+        // fill it with zero bytes for easy identifying
+        // which region is allocated and which region is not.
+        memset(block->addr, 0x0, handle->nodesize);
+    }
     block->sb_no = sb_no;
     block->pos = handle->nodesize;
     block->bid = filemgr_alloc(handle->file, handle->log_callback);
