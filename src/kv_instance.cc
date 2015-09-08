@@ -1325,7 +1325,9 @@ fdb_kvs_create_start:
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle);
-        fs = filemgr_commit(root_handle->file, &root_handle->log_callback);
+        fs = filemgr_commit(root_handle->file,
+                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
+                 &root_handle->log_callback);
     }
 
     filemgr_mutex_unlock(file);
@@ -1940,7 +1942,9 @@ fdb_kvs_remove_start:
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle);
-        fs = filemgr_commit(root_handle->file, &root_handle->log_callback);
+        fs = filemgr_commit(root_handle->file,
+                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
+                &root_handle->log_callback);
     }
 
     filemgr_mutex_unlock(file);
@@ -2116,7 +2120,8 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         handle_in->seqnum = seqnum;
         filemgr_mutex_unlock(handle_in->file);
 
-        fs = _fdb_commit(super_handle, FDB_COMMIT_NORMAL);
+        fs = _fdb_commit(super_handle, FDB_COMMIT_NORMAL,
+                         !(handle_in->config.durability_opt & FDB_DRB_ASYNC));
         if (fs == FDB_RESULT_SUCCESS) {
             _fdb_kvs_close(handle);
             *handle_ptr = handle_in;

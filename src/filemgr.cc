@@ -1818,7 +1818,7 @@ fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                                 log_callback);
 }
 
-fdb_status filemgr_commit(struct filemgr *file,
+fdb_status filemgr_commit(struct filemgr *file, bool sync,
                           err_log_callback *log_callback)
 {
     uint16_t header_len = file->header.size;
@@ -1934,7 +1934,7 @@ fdb_status filemgr_commit(struct filemgr *file,
 
     spin_unlock(&file->lock);
 
-    if (file->fflags & FILEMGR_SYNC) {
+    if (sync) {
         result = file->ops->fsync(file->fd);
         _log_errno_str(file->ops, log_callback, (fdb_status)result, "FSYNC", file->filename);
     }

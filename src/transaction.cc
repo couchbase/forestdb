@@ -177,7 +177,8 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
 
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (list_begin(handle->txn->items)) {
-        fs = _fdb_commit(handle, opt);
+        fs = _fdb_commit(handle, opt,
+                       !(handle->config.durability_opt & FDB_DRB_ASYNC));
     }
 
     if (fs == FDB_RESULT_SUCCESS) {

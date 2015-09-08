@@ -115,7 +115,7 @@ void basic_test()
     docio_read_doc_key(&handle, 81, &keylen, (void*)keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
     filemgr_close(file, true, NULL, NULL);
 
     TEST_RESULT("basic test");

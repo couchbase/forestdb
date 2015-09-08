@@ -1028,7 +1028,8 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         filemgr_set_seqnum(handle_in->file, seqnum);
         filemgr_mutex_unlock(handle_in->file);
 
-        fs = _fdb_commit(handle, FDB_COMMIT_NORMAL);
+        fs = _fdb_commit(handle, FDB_COMMIT_NORMAL,
+                !(handle_in->config.durability_opt & FDB_DRB_ASYNC));
         if (fs == FDB_RESULT_SUCCESS) {
             if (handle_in->txn) {
                 handle->txn = handle_in->txn;
@@ -1148,6 +1149,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
         handle->kvs = kvs; // re-use super_handle's kvs info
         handle->kvs_config = kvs_config;
     }
+    handle->config = config;
 
     fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
 
@@ -1173,7 +1175,8 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
         filemgr_set_seqnum(file, handle->seqnum);
         filemgr_mutex_unlock(file);
 
-        fs = _fdb_commit(handle, FDB_COMMIT_NORMAL);
+        fs = _fdb_commit(handle, FDB_COMMIT_NORMAL,
+                         !(handle->config.durability_opt & FDB_DRB_ASYNC));
         if (fs == FDB_RESULT_SUCCESS) {
             _fdb_close(super_handle);
             *super_handle = *handle;
@@ -3229,7 +3232,8 @@ fdb_set_start:
 
     if (wal_flushed && handle->config.auto_commit) {
         fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
-        return fdb_commit(handle->fhandle, FDB_COMMIT_NORMAL);
+        return _fdb_commit(handle->fhandle->root, FDB_COMMIT_NORMAL,
+                           false); // asynchronous commit only
     }
     fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0), 1, 0);
     return FDB_RESULT_SUCCESS;
@@ -3450,10 +3454,11 @@ static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 LIBFDB_API
 fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
 {
-    return _fdb_commit(fhandle->root, opt);
+    return _fdb_commit(fhandle->root, opt,
+            !(fhandle->root->config.durability_opt & FDB_DRB_ASYNC));
 }
 
-fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt)
+fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
 {
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_txn *earliest_txn;
@@ -3601,7 +3606,7 @@ fdb_commit_start:
     }
 
     handle->cur_header_revnum = fdb_set_file_header(handle);
-    fs = filemgr_commit(handle->file, &handle->log_callback);
+    fs = filemgr_commit(handle->file, sync, &handle->log_callback);
     if (wal_flushed) {
         wal_release_flushed_items(handle->file, &flush_items);
     }
@@ -3688,7 +3693,9 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     new_file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
 
     handle->cur_header_revnum = fdb_set_file_header(handle);
-    status = filemgr_commit(new_file, &handle->log_callback);
+    status = filemgr_commit(new_file,
+                            !(handle->config.durability_opt & FDB_DRB_ASYNC),
+                            &handle->log_callback);
     if (status != FDB_RESULT_SUCCESS) {
         filemgr_mutex_unlock(old_file);
         filemgr_mutex_unlock(new_file);
@@ -3705,7 +3712,9 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         if (very_old_file) {
             filemgr_redirect_old_file(very_old_file, new_file,
                                       _fdb_redirect_header);
-            filemgr_commit(very_old_file, &handle->log_callback);
+            filemgr_commit(very_old_file,
+                           !(handle->config.durability_opt & FDB_DRB_ASYNC),
+                           &handle->log_callback);
             // I/O errors here are not propogated since this is best-effort
             // Since filemgr_search_stale_links() will have opened the file
             // we must close it here to ensure decrement of ref counter
@@ -4796,7 +4805,8 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     new_handle.cur_header_revnum = fdb_set_file_header(&new_handle);
 
     // Commit a new file.
-    fs = filemgr_commit(new_handle.file, log_callback);
+    fs = filemgr_commit(new_handle.file, false, // asynchronous commit is ok
+                        log_callback);
     btreeblk_end(handle.bhandle);
     handle.shandle = NULL;
     _fdb_close(&handle);
@@ -5192,16 +5202,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 // If synchrouns commit is enabled, then disable it temporarily for each
                 // commit header as synchronous commit is not required in the new file
                 // during the compaction.
-                bool sync_enabled = false;
-                if (new_file->fflags & FILEMGR_SYNC) {
-                    new_file->fflags &= ~FILEMGR_SYNC;
-                    sync_enabled = true;
-                }
-                // Commit a new file.
-                fs = filemgr_commit(new_file, log_callback);
-                if (sync_enabled) {
-                    new_file->fflags |= FILEMGR_SYNC;
-                }
+                fs = filemgr_commit(new_file, false, log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     free(doc);
                     free(old_offset_array);
@@ -5781,7 +5782,9 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     btreeblk_end(handle->bhandle);
 
     // Commit the current file handle to record the compaction filename
-    fdb_status fs = filemgr_commit(handle->file, &handle->log_callback);
+    fdb_status fs = filemgr_commit(handle->file,
+                    !(handle->config.durability_opt & FDB_DRB_ASYNC),
+                    &handle->log_callback);
     wal_release_flushed_items(handle->file, &flush_items);
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);

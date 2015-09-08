@@ -90,7 +90,7 @@ void basic_test()
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     k = 5;
     v = 55;
@@ -99,7 +99,7 @@ void basic_test()
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     k = 5;
     v = 59;
@@ -108,7 +108,7 @@ void basic_test()
     //btree_operation_end(&btree);
 
     btreeblk_end(&btree_handle);
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
 
     struct btree btree2;
@@ -176,7 +176,7 @@ void iterator_test()
     btreeblk_end(&btree_handle);
     //btree_operation_end(&btree);
 
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
 
     k = 4;
     btree_iterator_init(&btree, &bi, (void*)&k);
@@ -249,7 +249,7 @@ void two_btree_test()
         btree_insert(&btree_b, (void*)&k, (void*)&v);
     }
 
-    filemgr_commit(file, NULL);
+    filemgr_commit(file, true, NULL);
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
@@ -450,7 +450,7 @@ void subblock_test()
         sprintf(valuebuf, "%08x", i);
         btree_insert(&btree, (void*)keybuf, (void*)valuebuf);
         btreeblk_end(&bhandle);
-        filemgr_commit(file, NULL);
+        filemgr_commit(file, true, NULL);
         for (j=0;j<=i;++j){
             sprintf(keybuf, "%08d", j);
             sprintf(valuebuf, "%08x", j);
@@ -511,7 +511,7 @@ void subblock_test()
             btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
             btreeblk_end(&bhandle);
         }
-        filemgr_commit(file, NULL);
+        filemgr_commit(file, true, NULL);
         for (j=0;j<nbtrees;++j){
             for (k=0;k<=i;++k){
                 sprintf(keybuf, "%02d%06d", j, k);
@@ -545,7 +545,7 @@ void subblock_test()
             btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
             btreeblk_end(&bhandle);
         }
-        filemgr_commit(file, NULL);
+        filemgr_commit(file, true, NULL);
     }
     btreeblk_free(&bhandle);
     filemgr_close(file, true, NULL, NULL);
@@ -569,7 +569,7 @@ void subblock_test()
             sprintf(valuebuf, "%02d%06x", j, i);
             btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
             btreeblk_end(&bhandle);
-            filemgr_commit(file, NULL);
+            filemgr_commit(file, true, NULL);
         }
     }
     btreeblk_free(&bhandle);
