@@ -121,6 +121,7 @@ struct filemgr {
     int fd;
     atomic_uint64_t pos;
     atomic_uint64_t last_commit;
+    atomic_uint64_t num_invalidated_blocks;
     struct wal *wal;
     struct filemgr_header header;
     struct filemgr_ops *ops;
@@ -227,6 +228,7 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
                                   err_log_callback *log_callback);
 
 void filemgr_invalidate_block(struct filemgr *file, bid_t bid);
+bool filemgr_is_fully_resident(struct filemgr *file);
 
 fdb_status filemgr_read(struct filemgr *file,
                         bid_t bid, void *buf,

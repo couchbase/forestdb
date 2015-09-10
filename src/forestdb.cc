@@ -2963,7 +2963,7 @@ fdb_set_start:
         }
 
         if (wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
-            struct avl_tree flush_items;
+            union wal_flush_items flush_items;
 
             // discard all cached writable blocks
             // to avoid data inconsistency with other writers
@@ -2978,8 +2978,8 @@ fdb_set_start:
                 return wr;
             }
             wr = wal_flush(file, (void *)handle,
-                      _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                      &flush_items);
+                           _fdb_wal_flush_func, _fdb_wal_get_old_offset,
+                           &flush_items);
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(file);
                 fdb_assert(atomic_cas_uint8_t(&handle->handle_busy, 1, 0),
@@ -3249,7 +3249,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
     fdb_status fs = FDB_RESULT_SUCCESS;
     bool wal_flushed = false;
     bid_t dirty_idtree_root, dirty_seqtree_root;
-    struct avl_tree flush_items;
+    union wal_flush_items flush_items;
     fdb_status wr = FDB_RESULT_SUCCESS;
 
     if (handle->kvs) {
@@ -3412,7 +3412,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     fdb_txn *earliest_txn;
     bool wal_flushed = false;
     bid_t dirty_idtree_root, dirty_seqtree_root;
-    struct avl_tree flush_items;
+    union wal_flush_items flush_items;
     fdb_status status = FDB_RESULT_SUCCESS;
     struct filemgr *very_old_file;
 
@@ -3695,7 +3695,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
 
     // wal flush into new file so all documents are reflected in its main index
     if (n_moved_docs) {
-        struct avl_tree flush_items;
+        union wal_flush_items flush_items;
         new_handle = *handle;
         new_handle.file = new_file;
         new_handle.trie = new_trie;
@@ -4009,7 +4009,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     } else {
                         locked = false;
                     }
-                    struct avl_tree flush_items;
+                    union wal_flush_items flush_items;
                     wal_flush_by_compactor(new_file, (void*)&new_handle,
                                            _fdb_wal_flush_func,
                                            _fdb_wal_get_old_offset,
@@ -4309,7 +4309,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     }
 
     // WAL flush
-    struct avl_tree flush_items;
+    union wal_flush_items flush_items;
     wal_commit(&new_handle->file->global_txn, new_handle->file, NULL, &handle->log_callback);
     wal_flush(new_handle->file, (void*)new_handle,
               _fdb_wal_flush_func,
@@ -4961,7 +4961,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                              bid_t marker_bid)
 
 {
-    struct avl_tree flush_items;
+    union wal_flush_items flush_items;
     char *old_filename = NULL;
     size_t old_filename_len = 0;
     struct filemgr *old_file;

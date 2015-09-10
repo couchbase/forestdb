@@ -79,6 +79,7 @@
 #define __BCACHE_SECOND_CHANCE
 
 #define FILEMGR_PREFETCH_UNIT (4194304) // 4MB
+#define FILEMGR_RESIDENT_THRESHOLD (0.9) // 90 % of file is in buffer cache
 #define __FILEMGR_DATA_PARTIAL_LOCK
 //#define __FILEMGR_DATA_MUTEX_LOCK
 

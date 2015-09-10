@@ -668,8 +668,8 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
 static int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct wal_item *aa, *bb;
-    aa = _get_entry(a, struct wal_item, avl);
-    bb = _get_entry(b, struct wal_item, avl);
+    aa = _get_entry(a, struct wal_item, avl_flush);
+    bb = _get_entry(b, struct wal_item, avl_flush);
 
     if (aa->old_offset < bb->old_offset) {
         return -1;
@@ -728,32 +728,78 @@ INLINE void _wal_release_item(struct filemgr *file, size_t shard_num,
     free(item);
 }
 
-fdb_status wal_release_flushed_items(struct filemgr *file,
-                                     struct avl_tree *flush_items)
+#define WAL_SORTED_FLUSH ((void *)1) // stored in aux if avl tree is used
+
+INLINE bool _wal_are_items_sorted(union wal_flush_items *flush_items)
 {
-    struct avl_tree *tree = flush_items;
-    struct avl_node *a;
+    return (flush_items->tree.aux == WAL_SORTED_FLUSH);
+}
+
+fdb_status wal_release_flushed_items(struct filemgr *file,
+                                     union wal_flush_items *flush_items)
+{
     struct wal_item *item;
     size_t shard_num;
 
-    // scan and remove entries in the avl-tree
-    while (1) {
-        if ((a = avl_first(tree)) == NULL) {
-            break;
+    if (_wal_are_items_sorted(flush_items)) {
+        struct avl_tree *tree = &flush_items->tree;
+        // scan and remove entries in the avl-tree
+        while (1) {
+            struct avl_node *a;
+            if ((a = avl_first(tree)) == NULL) {
+                break;
+            }
+            item = _get_entry(a, struct wal_item, avl_flush);
+            avl_remove(tree, &item->avl_flush);
+
+            // Grab the WAL key shard lock.
+            shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
+                file->wal->num_shards;
+            spin_lock(&file->wal->key_shards[shard_num].lock);
+
+            _wal_release_item(file, shard_num, item);
+
+            spin_unlock(&file->wal->key_shards[shard_num].lock);
         }
-        item = _get_entry(a, struct wal_item, avl);
-        avl_remove(tree, &item->avl);
+    } else {
+        struct list *list_head = &flush_items->list;
+        // scan and remove entries in the avl-tree
+        while (1) {
+            struct list_elem *a;
+            if ((a = list_begin(list_head)) == NULL) {
+                break;
+            }
+            item = _get_entry(a, struct wal_item, list_elem_flush);
+            list_remove(list_head, &item->list_elem_flush);
 
-        // Grab the WAL key shard lock.
-        shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
-                           file->wal->num_shards;
-        spin_lock(&file->wal->key_shards[shard_num].lock);
+            // Grab the WAL key shard lock.
+            shard_num = chksum((uint8_t*)item->header->key, item->header->keylen) %
+                file->wal->num_shards;
+            spin_lock(&file->wal->key_shards[shard_num].lock);
 
-        _wal_release_item(file, shard_num, item);
+            _wal_release_item(file, shard_num, item);
 
-        spin_unlock(&file->wal->key_shards[shard_num].lock);
+            spin_unlock(&file->wal->key_shards[shard_num].lock);
+        }
     }
 
+    return FDB_RESULT_SUCCESS;
+}
+
+INLINE fdb_status _wal_do_flush(struct wal_item *item,
+                                wal_flush_func *flush_func, void *dbhandle)
+{
+    // check weather this item is updated after insertion into tree
+    if (item->flag & WAL_ITEM_FLUSH_READY) {
+        fdb_status fs = flush_func(dbhandle, item);
+        if (fs != FDB_RESULT_SUCCESS) {
+            fdb_kvs_handle *handle = (fdb_kvs_handle *) dbhandle;
+            fdb_log(&handle->log_callback, fs,
+                    "Failed to flush WAL item (key '%s') into a database file '%s'",
+                    (const char *) item->header->key, handle->file->filename);
+            return fs;
+        }
+    }
     return FDB_RESULT_SUCCESS;
 }
 
@@ -761,19 +807,23 @@ static fdb_status _wal_flush(struct filemgr *file,
                              void *dbhandle,
                              wal_flush_func *flush_func,
                              wal_get_old_offset_func *get_old_offset,
-                             struct avl_tree *flush_items,
+                             union wal_flush_items *flush_items,
                              bool by_compactor)
 {
-    struct avl_tree *tree = flush_items;
-    struct avl_node *a;
+    struct avl_tree *tree = &flush_items->tree;
+    struct list *list_head = &flush_items->list;
     struct list_elem *e, *ee, *e_next, *ee_prev;
     struct wal_item *item;
     struct wal_item_header *header;
     size_t i = 0;
     size_t num_shards = file->wal->num_shards;
+    bool do_sort = !filemgr_is_fully_resident(file);
+    if (do_sort) {
+        avl_init(tree, WAL_SORTED_FLUSH);
+    } else {
+        list_init(list_head);
+    }
 
-    // sort by old byte-offset of the document (for sequential access)
-    avl_init(tree, NULL);
     for (; i < num_shards; ++i) {
         spin_lock(&file->wal->key_shards[i].lock);
         e = list_begin(&file->wal->key_shards[i].list);
@@ -803,7 +853,11 @@ static fdb_status _wal_flush(struct filemgr *file,
                         // to retrieve the old offsets of WAL items because they
                         // are all new insertions into new file's hbtrie index.
                         item->old_offset = 0;
-                        avl_insert(tree, &item->avl, _wal_flush_cmp);
+                        if (do_sort) {
+                            avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
+                        } else {
+                            list_push_back(list_head, &item->list_elem_flush);
+                        }
                     } else {
                         spin_unlock(&file->wal->key_shards[i].lock);
                         item->old_offset = get_old_offset(dbhandle, item);
@@ -812,8 +866,10 @@ static fdb_status _wal_flush(struct filemgr *file,
                             item->action == WAL_ACT_REMOVE) {// insert & delete
                             // drop and release this item right away from WAL
                             _wal_release_item(file, i, item);
+                        } else if (do_sort) {
+                            avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
                         } else {
-                            avl_insert(tree, &item->avl, _wal_flush_cmp);
+                            list_push_back(list_head, &item->list_elem_flush);
                         }
                     }
                 }
@@ -824,21 +880,24 @@ static fdb_status _wal_flush(struct filemgr *file,
         spin_unlock(&file->wal->key_shards[i].lock);
     }
 
-    // scan and flush entries in the avl-tree
-    a = avl_first(tree);
-    while (a) {
-        item = _get_entry(a, struct wal_item, avl);
-        a = avl_next(a);
-
-        // check weather this item is updated after insertion into tree
-        if (item->flag & WAL_ITEM_FLUSH_READY) {
-            fdb_status fs = flush_func(dbhandle, item);
+    // scan and flush entries in the avl-tree or list
+    if (do_sort) {
+        struct avl_node *a = avl_first(tree);
+        while (a) {
+            item = _get_entry(a, struct wal_item, avl_flush);
+            a = avl_next(a);
+            fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
             if (fs != FDB_RESULT_SUCCESS) {
-                fdb_kvs_handle *handle = (fdb_kvs_handle *) dbhandle;
-                fdb_log(&handle->log_callback, fs,
-                        "Failed to flush WAL item (key '%s') into a database file '%s'",
-                        (const char *) item->header->key, file->filename);
-
+                return fs;
+            }
+        }
+    } else {
+        struct list_elem *a = list_begin(list_head);
+        while (a) {
+            item = _get_entry(a, struct wal_item, list_elem_flush);
+            a = list_next(a);
+            fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
+            if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
         }
@@ -851,7 +910,7 @@ fdb_status wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
-                     struct avl_tree *flush_items)
+                     union wal_flush_items *flush_items)
 {
     return _wal_flush(file, dbhandle, flush_func, get_old_offset,
                       flush_items, false);
@@ -861,7 +920,7 @@ fdb_status wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
-                                  struct avl_tree *flush_items)
+                                  union wal_flush_items *flush_items)
 {
     return _wal_flush(file, dbhandle, flush_func, get_old_offset,
                       flush_items, true);
