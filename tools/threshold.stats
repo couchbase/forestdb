@@ -1,0 +1,15 @@
+set             100
+get             100
+delete          100
+iterator_init   100
+iterator_get    100
+iterator_next   100
+iterator_close  100
+snap_open       100
+kv_close        100
+file_close      10000
+snap_close      10000
+shutdown        100000
+commit_wal      100000
+commit_norm     100000
+compact         1000000
