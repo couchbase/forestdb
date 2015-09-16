@@ -927,12 +927,13 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
     return 0;
 }
 
-void bcache_invalidate_block(struct filemgr *file, bid_t bid)
+bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
 {
     struct hash_elem *h;
     struct bcache_item *item;
     struct bcache_item query;
     struct fnamedic_item *fname;
+    bool ret = false;
 
     // Note that we don't need to grab bcache_lock here as the block cache
     // is already created and binded when the file is created or opened for
@@ -962,7 +963,7 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
                 DBG("Warning: failed to invalidate the buffer cache entry for a file '%s' "
                     "because the entry belongs to the free list!\n",
                     file->filename);
-                return;
+                return false;
             }
 
             if (!(item->flag & BCACHE_DIRTY)) {
@@ -976,6 +977,7 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
 
                 // add to freelist
                 _bcache_release_freeblock(item);
+                ret = true;
             } else {
                 spin_unlock(&fname->shards[shard_num].lock);
             }
@@ -984,6 +986,7 @@ void bcache_invalidate_block(struct filemgr *file, bid_t bid)
             spin_unlock(&fname->shards[shard_num].lock);
         }
     }
+    return ret;
 }
 
 int bcache_write(struct filemgr *file,
@@ -1341,6 +1344,15 @@ void bcache_init(int nblock, int blocksize)
 uint64_t bcache_get_num_free_blocks()
 {
     return freelist_count;
+}
+
+uint64_t bcache_get_num_blocks(struct filemgr *file)
+{
+    struct fnamedic_item *fname = file->bcache;
+    if (fname) {
+        return atomic_get_uint64_t(&fname->nitems);
+    }
+    return 0;
 }
 
 // LCOV_EXCL_START

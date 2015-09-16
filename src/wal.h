@@ -67,7 +67,10 @@ struct wal_item{
     struct hash_elem he_seq;
     struct list_elem list_elem; // for wal_item_header's 'items'
     struct list_elem list_elem_txn; // for transaction
-    struct avl_node avl;
+    union { // for offset-based sorting for WAL flush
+        struct avl_node avl_flush;
+        struct list_elem list_elem_flush;
+    };
     struct wal_item_header *header;
 };
 
@@ -122,6 +125,11 @@ struct wal_txn_wrapper {
     struct list_elem le;
 };
 
+union wal_flush_items {
+    struct avl_tree tree; // if WAL items are to be sorted by offset
+    struct list list; // if WAL items need not be sorted
+};
+
 fdb_status wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
 fdb_status wal_insert(fdb_txn *txn,
@@ -145,17 +153,17 @@ fdb_status wal_txn_migration(void *dbhandle,
 fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func,
                       err_log_callback *log_callback);
 fdb_status wal_release_flushed_items(struct filemgr *file,
-                                     struct avl_tree *flush_items);
+                                     union wal_flush_items *flush_items);
 fdb_status wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
-                     struct avl_tree *flush_items);
+                     union wal_flush_items *flush_items);
 fdb_status wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
-                                  struct avl_tree *flush_items);
+                                  union wal_flush_items *flush_items);
 fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
                         fdb_seqnum_t *upto_seq,
