@@ -1869,18 +1869,18 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         kv_id = 0;
     }
 
+    r = _kvs_stat_get(file, kv_id, &stat);
+    if (r != 0) {
+        // KV store corresponding to kv_id is already removed
+        // skip this item
+        return FDB_RESULT_SUCCESS;
+    }
+
     if (item->action == WAL_ACT_INSERT ||
         item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
 
-        r = _kvs_stat_get(file, kv_id, &stat);
-        if (r != 0) {
-            // KV store corresponding to kv_id is already removed
-            // skip this item
-            return FDB_RESULT_SUCCESS;
-        }
         handle->bhandle->nlivenodes = stat.nlivenodes;
-
         hr = hbtrie_insert(handle->trie,
                            item->header->key,
                            item->header->keylen,
