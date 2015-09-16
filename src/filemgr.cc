@@ -646,7 +646,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     if (!create) {
                         _log_errno_str(ops, log_callback,
                                 FDB_RESULT_NO_SUCH_FILE, "OPEN", filename);
-                        file->ref_count--;
                         spin_unlock(&filemgr_openlock);
                         result.rv = FDB_RESULT_NO_SUCH_FILE;
                         return result;
