@@ -1528,6 +1528,8 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
                     // follow kvs_config's custom cmp next
                     root_handle->file->kv_header->default_kvs_cmp =
                         root_handle->kvs_config.custom_cmp;
+                    fdb_file_handle_add_cmp_func(fhandle, NULL,
+                                                 root_handle->kvs_config.custom_cmp);
                 }
 
                 if (root_handle->file->kv_header->default_kvs_cmp) {
