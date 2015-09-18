@@ -121,30 +121,28 @@ struct bcache_item {
     // hash elem for lookup hash table
     struct hash_elem hash_elem;
     // list elem for {free, clean, dirty} lists
-    struct list_elem list_elem;
+    union {
+        struct list_elem list_elem;
+        struct avl_node avl;
+    };
     // flag
     uint8_t flag;
     // score
     uint8_t score;
 };
 
-struct dirty_item {
-    struct bcache_item *item;
-    struct avl_node avl;
-};
-
 INLINE int _dirty_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
-    struct dirty_item *aa, *bb;
-    aa = _get_entry(a, struct dirty_item, avl);
-    bb = _get_entry(b, struct dirty_item, avl);
+    struct bcache_item *aa, *bb;
+    aa = _get_entry(a, struct bcache_item, avl);
+    bb = _get_entry(b, struct bcache_item, avl);
 
     #ifdef __BIT_CMP
-        return _CMP_U64(aa->item->bid , bb->item->bid);
+        return _CMP_U64(aa->bid , bb->bid);
 
     #else
-        if (aa->item->bid < bb->item->bid) return -1;
-        else if (aa->item->bid > bb->item->bid) return 1;
+        if (aa->bid < bb->bid) return -1;
+        else if (aa->bid > bb->bid) return 1;
         else return 0;
 
     #endif
@@ -423,8 +421,11 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                         dirty_bids[i] = (struct dirty_bid *)
                             mempool_alloc(sizeof(struct dirty_bid));
                     }
-                    dirty_bids[i]->bid = _get_entry(node, struct dirty_item, avl)->item->bid;
-                    avl_insert(&dirty_blocks, &dirty_bids[i]->avl, _dirty_bid_cmp);
+                    struct bcache_item *ditem = _get_entry(node,
+                                                struct bcache_item, avl);
+                    dirty_bids[i]->bid = ditem->bid;
+                    avl_insert(&dirty_blocks, &dirty_bids[i]->avl,
+                               _dirty_bid_cmp);
                 }
                 if (!(sync && o_direct)) {
                     spin_unlock(&fname_item->shards[i].lock);
@@ -458,12 +459,12 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
             cur_tree = &fname_item->shards[shard_num].tree_idx;
         }
 
-        struct dirty_item *dirty_block = NULL;
+        struct bcache_item *dirty_block = NULL;
         bool item_exist = false;
         node = avl_first(cur_tree);
         if (node) {
-            dirty_block = _get_entry(node, struct dirty_item, avl);
-            if (dbid->bid == dirty_block->item->bid) {
+            dirty_block = _get_entry(node, struct bcache_item, avl);
+            if (dbid->bid == dirty_block->bid) {
                 item_exist = true;
             }
         }
@@ -480,7 +481,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
 
         consecutive_blocks = true;
         // if BID of next dirty block is not consecutive .. stop
-        if (dirty_block->item->bid != prev_bid + 1 && prev_bid != BLK_NOT_FOUND &&
+        if (dirty_block->bid != prev_bid + 1 && prev_bid != BLK_NOT_FOUND &&
             sync) {
             if (flush_all) {
                 consecutive_blocks = false;
@@ -493,15 +494,15 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         }
         // set START_BID if this is the start block for a single batch write.
         if (start_bid == BLK_NOT_FOUND) {
-            start_bid = dirty_block->item->bid;
+            start_bid = dirty_block->bid;
         }
         // set PREV_BID and go to next block
-        prev_bid = dirty_block->item->bid;
+        prev_bid = dirty_block->bid;
 
         // set PTR and get block MARKER
-        ptr = dirty_block->item->addr;
+        ptr = dirty_block->addr;
         marker = *((uint8_t*)(ptr) + bcache_blocksize-1);
-        dirty_block->item->flag &= ~(BCACHE_DIRTY);
+        dirty_block->flag &= ~(BCACHE_DIRTY);
         if (sync) {
             // copy to buffer
 #ifdef __CRC32
@@ -529,15 +530,15 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                     }
                     // Start a new batch again.
                     count = 0;
-                    start_bid = dirty_block->item->bid;
+                    start_bid = dirty_block->bid;
                 }
                 memcpy((uint8_t *)(buf) + count*bcache_blocksize,
-                       dirty_block->item->addr, bcache_blocksize);
+                       dirty_block->addr, bcache_blocksize);
             } else {
                 ret = fname_item->curfile->ops->pwrite(fname_item->curfile->fd,
-                                                       dirty_block->item->addr,
+                                                       dirty_block->addr,
                                                        bcache_blocksize,
-                                                       dirty_block->item->bid * bcache_blocksize);
+                                                       dirty_block->bid * bcache_blocksize);
                 if (ret != bcache_blocksize) {
                     if (!(sync && o_direct)) {
                         spin_unlock(&fname_item->shards[shard_num].lock);
@@ -556,19 +557,20 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         prevhead = fname_item->shards[shard_num].cleanlist.head;
         (void)prevhead;
         list_push_front(&fname_item->shards[shard_num].cleanlist,
-                        &dirty_block->item->list_elem);
+                        &dirty_block->list_elem);
 
-        fdb_assert(!(dirty_block->item->flag & BCACHE_FREE),
-                   dirty_block->item->flag, BCACHE_FREE);
-        fdb_assert(dirty_block->item->list_elem.prev == NULL &&
-                   prevhead == dirty_block->item->list_elem.next,
-                   prevhead, dirty_block->item->list_elem.next);
-        mempool_free(dirty_block);
+        fdb_assert(!(dirty_block->flag & BCACHE_FREE),
+                   dirty_block->flag, BCACHE_FREE);
+        fdb_assert(dirty_block->list_elem.prev == NULL &&
+                   prevhead == dirty_block->list_elem.next,
+                   prevhead, dirty_block->list_elem.next);
 
         // Get the next dirty block from the victim shard and insert it into
         // the cross-shard dirty block list.
         if (node) {
-            dbid->bid = _get_entry(node, struct dirty_item, avl)->item->bid;
+            struct bcache_item *ditem = _get_entry(node, struct bcache_item,
+                                                   avl);
+            dbid->bid = ditem->bid;
             avl_insert(&dirty_blocks, &dbid->avl, _dirty_bid_cmp);
         }
         if (!(sync && o_direct)) {
@@ -948,6 +950,14 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
                 _bcache_release_freeblock(item);
                 ret = true;
             } else {
+                uint8_t marker = *((uint8_t*)item->addr + bcache_blocksize-1);
+                // Consider a dirty index node as a dirty doc node to lower its
+                // priority & flush more contiguous items in _flush_dirty_items
+                if (marker == BLK_MARKER_BNODE) {
+                    avl_remove(&fname->shards[shard_num].tree_idx, &item->avl);
+                    avl_insert(&fname->shards[shard_num].tree, &item->avl,
+                               _dirty_cmp);
+                }
                 spin_unlock(&fname->shards[shard_num].lock);
             }
         } else {
@@ -1040,19 +1050,16 @@ int bcache_write(struct filemgr *file,
         if (!(item->flag & BCACHE_DIRTY)) {
             // dirty block
             // insert into tree
-            struct dirty_item *ditem;
             uint8_t marker;
-
-            ditem = (struct dirty_item *)
-                    mempool_alloc(sizeof(struct dirty_item));
-            ditem->item = item;
 
             marker = *((uint8_t*)buf + bcache_blocksize-1);
             if (marker == BLK_MARKER_BNODE ) {
                 // b-tree node
-                avl_insert(&fname_new->shards[shard_num].tree_idx, &ditem->avl, _dirty_cmp);
+                avl_insert(&fname_new->shards[shard_num].tree_idx, &item->avl,
+                           _dirty_cmp);
             } else {
-                avl_insert(&fname_new->shards[shard_num].tree, &ditem->avl, _dirty_cmp);
+                avl_insert(&fname_new->shards[shard_num].tree, &item->avl,
+                           _dirty_cmp);
             }
         }
         item->flag |= BCACHE_DIRTY;
@@ -1126,21 +1133,19 @@ int bcache_write_partial(struct filemgr *file,
     if (!(item->flag & BCACHE_DIRTY)) {
         // this block was clean block
         uint8_t marker;
-        struct dirty_item *ditem;
 
         // remove from clean list
         list_remove(&fname_new->shards[shard_num].cleanlist, &item->list_elem);
-
-        ditem = (struct dirty_item *)mempool_alloc(sizeof(struct dirty_item));
-        ditem->item = item;
 
         // insert into tree
         marker = *((uint8_t*)item->addr + bcache_blocksize-1);
         if (marker == BLK_MARKER_BNODE ) {
             // b-tree node
-            avl_insert(&fname_new->shards[shard_num].tree_idx, &ditem->avl, _dirty_cmp);
+            avl_insert(&fname_new->shards[shard_num].tree_idx, &item->avl,
+                       _dirty_cmp);
         } else {
-            avl_insert(&fname_new->shards[shard_num].tree, &ditem->avl, _dirty_cmp);
+            avl_insert(&fname_new->shards[shard_num].tree, &item->avl,
+                       _dirty_cmp);
         }
     }
 
@@ -1329,7 +1334,6 @@ void bcache_print_items()
 
     struct fnamedic_item *fname;
     struct bcache_item *item;
-    struct dirty_item *dirty;
     struct list_elem *ee;
     struct avl_node *a;
 
@@ -1376,8 +1380,7 @@ void bcache_print_items()
                 ee = list_next(ee);
             }
             while(a){
-                dirty = _get_entry(a, struct dirty_item, avl);
-                item = dirty->item;
+                item = _get_entry(a, struct bcache_item, avl);
                 scores[item->score]++;
                 scores_local[item->score]++;
                 nitems++;
