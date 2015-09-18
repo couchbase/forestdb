@@ -113,6 +113,8 @@ struct fnamedic_item {
 #define BCACHE_DIRTY (0x1)
 #define BCACHE_FREE (0x4)
 
+static void *buffercache_addr = NULL;
+
 struct bcache_item {
     // BID
     bid_t bid;
@@ -1266,7 +1268,7 @@ void bcache_init(int nblock, int blocksize)
 {
     int i;
     struct bcache_item *item;
-    struct list_elem *e;
+    uint8_t *block_ptr;
 
     list_init(&freelist);
     list_init(&file_zombies);
@@ -1284,6 +1286,9 @@ void bcache_init(int nblock, int blocksize)
     num_files = 0;
     file_array_capacity = 4096; // Initial capacity of file list array.
     file_list = (fnamedic_item **) calloc(file_array_capacity, sizeof(fnamedic_item *));
+    // Allocate entire buffer cache memory
+    block_ptr = (uint8_t *)malloc(bcache_blocksize * nblock);
+    buffercache_addr = block_ptr;
 
     for (i=0;i<nblock;++i){
         item = (struct bcache_item *)malloc(sizeof(struct bcache_item));
@@ -1291,17 +1296,12 @@ void bcache_init(int nblock, int blocksize)
         item->bid = BLK_NOT_FOUND;
         item->flag = 0x0 | BCACHE_FREE;
         item->score = 0;
+        item->addr = block_ptr;
+        block_ptr += bcache_blocksize;
 
         list_push_front(&freelist, &item->list_elem);
         freelist_count++;
     }
-    e = list_begin(&freelist);
-    while(e){
-        item = _get_entry(e, struct bcache_item, list_elem);
-        item->addr = (void *)malloc(bcache_blocksize);
-        e = list_next(e);
-    }
-
 }
 
 uint64_t bcache_get_num_free_blocks()
@@ -1432,7 +1432,6 @@ void bcache_print_items()
 INLINE void _bcache_free_bcache_item(struct hash_elem *h)
 {
     struct bcache_item *item = _get_entry(h, struct bcache_item, hash_elem);
-    free(item->addr);
     free(item);
 }
 // LCOV_EXCL_STOP
@@ -1470,7 +1469,6 @@ void bcache_shutdown()
         item = _get_entry(e, struct bcache_item, list_elem);
         e = list_remove(&freelist, e);
         freelist_count--;
-        free(item->addr);
         free(item);
     }
 
@@ -1483,6 +1481,9 @@ void bcache_shutdown()
     }
     // Free the file list array
     free(file_list);
+
+    // Free entire buffercache memory
+    free(buffercache_addr);
 
     spin_lock(&bcache_lock);
     hash_free_active(&fnamedic, _bcache_free_fnamedic);
