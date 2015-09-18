@@ -186,6 +186,54 @@ void fdb_file_handle_add_cmp_func(fdb_file_handle *fhandle,
     list_push_back(fhandle->cmp_func_list, &node->le);
 }
 
+void fdb_cmp_func_list_from_filemgr(struct filemgr *file, struct list *cmp_func_list)
+{
+    if (!file || !file->kv_header || !cmp_func_list) {
+        return;
+    }
+
+    struct cmp_func_node *node;
+
+    spin_lock(&file->kv_header->lock);
+    // Default KV store cmp function
+    if (file->kv_header->default_kvs_cmp) {
+        node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
+        node->func = file->kv_header->default_kvs_cmp;
+        node->kvs_name = NULL;
+        list_push_back(cmp_func_list, &node->le);
+    }
+
+    // Rest of KV stores
+    struct kvs_node *kvs_node;
+    struct avl_node *a = avl_first(file->kv_header->idx_name);
+    while (a) {
+        kvs_node = _get_entry(a, struct kvs_node, avl_name);
+        a = avl_next(a);
+        node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
+        node->func = kvs_node->custom_cmp;
+        node->kvs_name = (char*)calloc(1, strlen(kvs_node->kvs_name)+1);
+        strcpy(node->kvs_name, kvs_node->kvs_name);
+        list_push_back(cmp_func_list, &node->le);
+    }
+    spin_unlock(&file->kv_header->lock);
+}
+
+void fdb_free_cmp_func_list(struct list *cmp_func_list)
+{
+    if (!cmp_func_list) {
+        return;
+    }
+
+    struct cmp_func_node *cmp_node;
+    struct list_elem *e = list_begin(cmp_func_list);
+    while (e) {
+        cmp_node = _get_entry(e, struct cmp_func_node, le);
+        e = list_remove(cmp_func_list, &cmp_node->le);
+        free(cmp_node->kvs_name);
+        free(cmp_node);
+    }
+}
+
 static void _free_cmp_func_list(fdb_file_handle *fhandle)
 {
     struct list_elem *e;

@@ -78,7 +78,6 @@ struct openfiles_elem {
     bool daemon_compact_in_progress;
     bool removal_activated;
     err_log_callback *log_callback;
-    struct list *cmp_func_list; // pointer to fhandle's list
     struct avl_node avl;
 };
 
@@ -395,8 +394,14 @@ void * compactor_thread(void *voidargs)
                 // read the variables of 'elem' until the compaction is completed.
                 _compactor_get_vfilename(elem->filename, vfilename);
 
+                // Get the list of custom compare functions.
+                struct list cmp_func_list;
+                list_init(&cmp_func_list);
+                fdb_cmp_func_list_from_filemgr(elem->file, &cmp_func_list);
                 fs = fdb_open_for_compactor(&fhandle, vfilename, &elem->config,
-                                            elem->cmp_func_list);
+                                           &cmp_func_list);
+                fdb_free_cmp_func_list(&cmp_func_list);
+
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(elem->filename, new_filename);
                     fdb_compact_file(fhandle, new_filename, false, (bid_t) -1,
@@ -562,7 +567,6 @@ static fdb_status _compactor_store_metafile(char *metafile,
 
 fdb_status compactor_register_file(struct filemgr *file,
                                    fdb_config *config,
-                                   struct list *cmp_func_list,
                                    err_log_callback *log_callback)
 {
     file_status_t fstatus;
@@ -596,7 +600,6 @@ fdb_status compactor_register_file(struct filemgr *file,
         elem->compaction_flag = false;
         elem->daemon_compact_in_progress = false;
         elem->removal_activated = false;
-        elem->cmp_func_list = cmp_func_list;
         elem->log_callback = NULL;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
@@ -676,7 +679,6 @@ fdb_status compactor_register_file_removing(struct filemgr *file,
         elem->compaction_flag = true;
         elem->daemon_compact_in_progress = true;
         elem->removal_activated = false;
-        elem->cmp_func_list = NULL;
         elem->log_callback = log_callback;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as

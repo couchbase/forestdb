@@ -36,7 +36,6 @@ void compactor_shutdown();
 bool compactor_switch_compaction_flag(struct filemgr *file, bool flag);
 fdb_status compactor_register_file(struct filemgr *file,
                                    fdb_config *config,
-                                   struct list *cmp_func_list,
                                    err_log_callback *log_callback);
 
 fdb_status compactor_register_file_removing(struct filemgr *file,

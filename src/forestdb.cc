@@ -727,7 +727,7 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     handle->shandle = NULL;
 
     fdb_file_handle_init(fhandle, handle);
-    if (cmp_func_list) {
+    if (cmp_func_list && list_begin(cmp_func_list)) {
         fdb_file_handle_clone_cmp_func_list(fhandle, cmp_func_list);
     }
     fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, fconfig);
@@ -1846,7 +1846,6 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
         config->compaction_mode == FDB_COMPACTION_AUTO) {
         status = compactor_register_file(handle->file, (fdb_config *)config,
-                                         handle->fhandle->cmp_func_list,
                                          &handle->log_callback);
     }
 

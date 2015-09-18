@@ -103,6 +103,10 @@ void fdb_file_handle_add_cmp_func(fdb_file_handle *fhandle,
                                   fdb_custom_cmp_variable cmp_func);
 void fdb_file_handle_free(fdb_file_handle *fhandle);
 
+void fdb_cmp_func_list_from_filemgr(struct filemgr *file,
+                                    struct list *cmp_func_list);
+void fdb_free_cmp_func_list(struct list *cmp_func_list);
+
 fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle);
 hbtrie_cmp_func * fdb_kvs_find_cmp_chunk(void *chunk, void *aux);
 
