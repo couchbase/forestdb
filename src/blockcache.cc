@@ -1287,7 +1287,7 @@ void bcache_init(int nblock, int blocksize)
     file_array_capacity = 4096; // Initial capacity of file list array.
     file_list = (fnamedic_item **) calloc(file_array_capacity, sizeof(fnamedic_item *));
     // Allocate entire buffer cache memory
-    block_ptr = (uint8_t *)malloc(bcache_blocksize * nblock);
+    block_ptr = (uint8_t *)malloc((uint64_t)bcache_blocksize * nblock);
     buffercache_addr = block_ptr;
 
     for (i=0;i<nblock;++i){
