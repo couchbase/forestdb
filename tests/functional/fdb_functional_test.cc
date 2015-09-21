@@ -2826,11 +2826,17 @@ void purge_logically_deleted_doc_test()
         rdoc = NULL;
 
         // retrieve metadata
-        // all documents including logically deleted document should exist
         fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
         status = fdb_get_metaonly(db, rdoc);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
-        fdb_doc_free(rdoc);
+        if (i != 5) {
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            fdb_doc_free(rdoc);
+        } else {
+            // If the above compaction takes longer than two secs (e.g., slow disk),
+            // then, fdb_get_metaonly will return KEY_NOT_FOUND error.
+            TEST_CHK(status == FDB_RESULT_SUCCESS ||
+                     status == FDB_RESULT_KEY_NOT_FOUND);
+        }
         rdoc = NULL;
     }
 
