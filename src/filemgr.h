@@ -228,6 +228,9 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
 
 void filemgr_invalidate_block(struct filemgr *file, bid_t bid);
 bool filemgr_is_fully_resident(struct filemgr *file);
+// returns number of immutable blocks that remain in file
+uint64_t filemgr_flush_immutable(struct filemgr *file,
+                                 err_log_callback *log_callback);
 
 fdb_status filemgr_read(struct filemgr *file,
                         bid_t bid, void *buf,
@@ -235,7 +238,8 @@ fdb_status filemgr_read(struct filemgr *file,
                         bool read_on_cache_miss);
 
 fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
-                          uint64_t len, void *buf, err_log_callback *log_callback);
+                          uint64_t len, void *buf, bool final_write,
+                          err_log_callback *log_callback);
 fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback);
 INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)

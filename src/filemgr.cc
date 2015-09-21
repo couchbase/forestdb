@@ -1471,7 +1471,8 @@ void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
     }
 }
 
-bool filemgr_is_fully_resident(struct filemgr *file) {
+bool filemgr_is_fully_resident(struct filemgr *file)
+{
     bool ret = false;
     if (global_config.ncacheblock > 0) {
         //TODO: A better thing to do is to track number of document blocks
@@ -1484,6 +1485,26 @@ bool filemgr_is_fully_resident(struct filemgr *file) {
             ret = true;
         }
     }
+    return ret;
+}
+
+uint64_t filemgr_flush_immutable(struct filemgr *file,
+                                   err_log_callback *log_callback)
+{
+    uint64_t ret = 0;
+    if (global_config.ncacheblock > 0) {
+        ret = bcache_get_num_immutable(file);
+        if (!ret) {
+            return ret;
+        }
+        fdb_status rv = bcache_flush_immutable(file);
+        if (rv != FDB_RESULT_SUCCESS) {
+            _log_errno_str(file->ops, log_callback, (fdb_status)rv, "WRITE",
+                           file->filename);
+        }
+        return bcache_get_num_immutable(file);
+    }
+
     return ret;
 }
 
@@ -1570,7 +1591,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 return status;
             }
 #endif
-            r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
+            r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN, false);
             if (r != global_config.blocksize) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1621,6 +1642,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 
 fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                                 uint64_t offset, uint64_t len, void *buf,
+                                bool final_write,
                                 err_log_callback *log_callback)
 {
     fdb_assert(offset + len <= file->blocksize, offset + len, file);
@@ -1649,7 +1671,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
-            r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
+            r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY, final_write);
             if (r != global_config.blocksize) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1666,7 +1688,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
             }
         } else {
             // partially write buffer cache first
-            r = bcache_write_partial(file, bid, buf, offset, len);
+            r = bcache_write_partial(file, bid, buf, offset, len, final_write);
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
@@ -1697,7 +1719,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     }
                 }
                 memcpy((uint8_t *)_buf + offset, buf, len);
-                r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
+                r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY, final_write);
                 if (r != global_config.blocksize) {
                     if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1755,6 +1777,7 @@ fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback)
 {
     return filemgr_write_offset(file, bid, 0, file->blocksize, buf,
+                                false, // TODO: track immutability of index blk
                                 log_callback);
 }
 
