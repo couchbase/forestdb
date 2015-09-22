@@ -695,7 +695,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint64_t(&file->last_commit, offset);
     atomic_init_uint64_t(&file->pos, offset);
     atomic_init_uint32_t(&file->throttling_delay, 0);
-    atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
 
     file->bcache = NULL;
     file->in_place_compaction = false;
@@ -1289,7 +1288,6 @@ void filemgr_free_func(struct hash_elem *h)
     atomic_destroy_uint64_t(&file->pos);
     atomic_destroy_uint64_t(&file->last_commit);
     atomic_destroy_uint32_t(&file->throttling_delay);
-    atomic_destroy_uint64_t(&file->num_invalidated_blocks);
 
     // free file structure
     free(file->config);
@@ -1469,9 +1467,7 @@ INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
 void filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 {
     if (global_config.ncacheblock > 0) {
-        if (bcache_invalidate_block(file, bid)) {
-            atomic_incr_uint64_t(&file->num_invalidated_blocks);
-        }
+        bcache_invalidate_block(file, bid);
     }
 }
 
@@ -1483,8 +1479,7 @@ bool filemgr_is_fully_resident(struct filemgr *file) {
         double num_cached_blocks = (double)bcache_get_num_blocks(file);
         uint64_t num_blocks = atomic_get_uint64_t(&file->pos)
                                  / file->blocksize;
-        double num_fblocks = (double)(num_blocks // discount invalidated blocks
-                           - atomic_get_uint64_t(&file->num_invalidated_blocks));
+        double num_fblocks = (double)num_blocks;
         if (num_cached_blocks > num_fblocks * FILEMGR_RESIDENT_THRESHOLD) {
             ret = true;
         }

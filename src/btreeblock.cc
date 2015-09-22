@@ -459,7 +459,6 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
         // move
         memcpy(new_addr, old_addr, (handle->nodesize));
 
-        filemgr_invalidate_block(handle->file, bid);
         return new_addr;
     } else {
         // subblock
@@ -477,7 +476,6 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
             // move
             memcpy(new_addr, old_addr, (handle->nodesize));
 
-            filemgr_invalidate_block(handle->file, _bid);
             return (uint8_t*)new_addr + handle->sb[sb].sb_size * idx;
         } else {
             //2 case 2
@@ -549,13 +547,11 @@ void btreeblk_remove(void *voidhandle, bid_t bid)
             if (nitems == 0) {
                 handle->sb[sb].bid = BLK_NOT_FOUND;
                 handle->nlivenodes--;
-                filemgr_invalidate_block(handle->file, _bid);
             }
         }
     } else {
         // normal block
         handle->nlivenodes--;
-        filemgr_invalidate_block(handle->file, bid);
     }
 }
 // LCOV_EXCL_STOP
