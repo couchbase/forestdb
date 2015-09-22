@@ -59,10 +59,6 @@ bool compactor_is_valid_mode(const char *filename, fdb_config *config);
 fdb_status compactor_destroy_file(char *filename,
                                   fdb_config *config);
 
-#if !defined(WIN32) && !defined(_WIN32)
-struct timespec convert_reltime_to_abstime(unsigned int ms);
-#endif
-
 #ifdef __cplusplus
 }
 #endif

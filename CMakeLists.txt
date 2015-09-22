@@ -98,6 +98,7 @@ add_library(forestdb SHARED
             src/btree_str_kv.cc
             src/btree_fast_str_kv.cc
             src/btreeblock.cc
+            src/bgflusher.cc
             src/compactor.cc
             src/configuration.cc
             src/docio.cc
@@ -137,6 +138,7 @@ add_executable(forestdb_dump
                src/btree_str_kv.cc
                src/btree_fast_str_kv.cc
                src/btreeblock.cc
+               src/bgflusher.cc
                src/compactor.cc
                src/configuration.cc
                src/docio.cc
@@ -178,6 +180,7 @@ add_executable(forestdb_hexamine
                src/btree_str_kv.cc
                src/btree_fast_str_kv.cc
                src/btreeblock.cc
+               src/bgflusher.cc
                src/compactor.cc
                src/configuration.cc
                src/docio.cc

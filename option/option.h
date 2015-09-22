@@ -70,6 +70,9 @@
 #define FDB_COMP_PROB_UNIT_DEC (5) // 5% (probability delta unit for decrease)
 #define FDB_COMPACTOR_SLEEP_DURATION (15)
 #define FDB_DEFAULT_COMPACTION_THRESHOLD (30)
+#define FDB_BGFLUSHER_SLEEP_DURATION (2)
+#define FDB_BGFLUSHER_DIRTY_THRESHOLD (1024) //if more than this 4MB dirty
+                                             // wake up any sleeping bgflusher
 
 #define BCACHE_NBUCKET (4099) // a prime number
 #define BCACHE_NDICBUCKET (4099) // a prime number
@@ -115,4 +118,6 @@
 #define DEFAULT_NUM_COMPACTOR_THREADS (4)
 #define MAX_NUM_COMPACTOR_THREADS (128)
 
+#define DEFAULT_NUM_BGFLUSHER_THREADS (4)
+#define MAX_NUM_BGFLUSHER_THREADS (64)
 #endif

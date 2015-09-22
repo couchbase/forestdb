@@ -74,6 +74,7 @@ fdb_config get_default_config(void) {
         fconfig.num_bcache_partitions = prime_size_table[i-1];
     } else {
         fconfig.num_wal_partitions = prime_size_table[i];
+        // For bcache partitions pick a higher value for smaller avl trees
         fconfig.num_bcache_partitions = prime_size_table[i];
     }
 
@@ -84,6 +85,7 @@ fdb_config get_default_config(void) {
     fconfig.max_writer_lock_prob = 100;
     // 4 daemon compactor threads by default
     fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
+    fconfig.num_bgflusher_threads = DEFAULT_NUM_BGFLUSHER_THREADS;
 
     return fconfig;
 }
@@ -150,6 +152,9 @@ bool validate_fdb_config(fdb_config *fconfig) {
     }
     if (fconfig->num_compactor_threads < 1 ||
         fconfig->num_compactor_threads > MAX_NUM_COMPACTOR_THREADS) {
+        return false;
+    }
+    if (fconfig->num_bgflusher_threads > MAX_NUM_BGFLUSHER_THREADS) {
         return false;
     }
 

@@ -7,6 +7,7 @@ add_executable(fdb_functional_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -47,6 +48,7 @@ add_executable(fdb_extended_test
                ${ROOT_SRC}/btree_str_kv.cc
                ${ROOT_SRC}/btree_fast_str_kv.cc
                ${ROOT_SRC}/btreeblock.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
@@ -81,6 +83,7 @@ set_target_properties(fdb_extended_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 add_executable(compact_functional_test
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc
@@ -121,6 +124,7 @@ set_target_properties(compact_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_T
 add_executable(iterator_functional_test
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc
@@ -161,6 +165,7 @@ set_target_properties(iterator_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_
 add_executable(mvcc_functional_test
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc
@@ -201,6 +206,7 @@ set_target_properties(mvcc_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOL
 add_executable(multi_kv_functional_test
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc
@@ -241,6 +247,7 @@ set_target_properties(multi_kv_functional_test PROPERTIES COMPILE_FLAGS "-D_FDB_
 add_executable(big_concurrency_test
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc
@@ -281,6 +288,7 @@ set_target_properties(big_concurrency_test PROPERTIES COMPILE_FLAGS
 add_executable(big_compaction_test
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc

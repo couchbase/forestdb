@@ -1,6 +1,7 @@
 add_executable(fdb_anomaly_test
                ${ROOT_SRC}/api_wrapper.cc
                ${ROOT_SRC}/avltree.cc
+               ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/btree.cc
                ${ROOT_SRC}/btree_kv.cc

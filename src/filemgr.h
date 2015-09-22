@@ -121,6 +121,8 @@ struct filemgr {
     int fd;
     atomic_uint64_t pos;
     atomic_uint64_t last_commit;
+    atomic_uint64_t num_invalidated_blocks;
+    atomic_uint8_t commit_in_prog;
     struct wal *wal;
     struct filemgr_header header;
     struct filemgr_ops *ops;
