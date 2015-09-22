@@ -16,6 +16,8 @@
  */
 
 #include "time_utils.h"
+#include "stdint.h"
+#include "string.h"
 
 struct timeval _utime_gap(struct timeval a, struct timeval b)
 {
@@ -46,7 +48,32 @@ void usleep(unsigned int usec)
     CloseHandle(timer);
 }
 
-#endif
+#else
+
+struct timespec convert_reltime_to_abstime(unsigned int ms) {
+    struct timespec ts;
+    struct timeval tp;
+    uint64_t wakeup;
+
+    memset(&ts, 0, sizeof(ts));
+
+    /*
+     * Unfortunately pthread_cond_timedwait doesn't support relative sleeps
+     * so we need to convert back to an absolute time.
+     */
+    gettimeofday(&tp, NULL);
+    wakeup = ((uint64_t)(tp.tv_sec) * 1000) + (tp.tv_usec / 1000) + ms;
+    /* Round up for sub ms */
+    if ((tp.tv_usec % 1000) > 499) {
+        ++wakeup;
+    }
+
+    ts.tv_sec = wakeup / 1000;
+    wakeup %= 1000;
+    ts.tv_nsec = wakeup * 1000000;
+    return ts;
+}
+#endif //!defined(WIN32) && !defined(_WIN32)
 
 void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {
     usleep(*sleep_time);

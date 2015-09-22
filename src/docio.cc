@@ -47,7 +47,8 @@ void docio_free(struct docio_handle *handle)
 
 #ifdef __CRC32
 #define _add_blk_marker(file, bid, blocksize, marker, log_callback) \
-    filemgr_write_offset((file), (bid), (blocksize), BLK_MARKER_SIZE, (marker), (log_callback))
+    filemgr_write_offset((file), (bid), (blocksize), BLK_MARKER_SIZE,\
+                         (marker), (false), (log_callback))
 #else
 #define _add_blk_marker(file, bid, blocksize, marker, log_callback) \
     FDB_RESULT_SUCCESS
@@ -72,7 +73,7 @@ INLINE fdb_status _docio_fill_zero(struct docio_handle *handle, bid_t bid,
         // enough space in the block
         memset(zerobuf, 0x0, len_size);
         return filemgr_write_offset(handle->file, bid, pos, len_size,
-                                    zerobuf, handle->log_callback);
+                                    zerobuf, false, handle->log_callback);
     } else {
         // lack of space .. we don't need to fill zero bytes.
         return FDB_RESULT_SUCCESS;
@@ -85,6 +86,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
     uint8_t marker[BLK_MARKER_SIZE];
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
+    size_t remaining_space;
     err_log_callback *log_callback = handle->log_callback;
 #ifdef __CRC32
     blocksize -= BLK_MARKER_SIZE;
@@ -102,7 +104,8 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
         handle->curpos = 0;
     }
 
-    if (size <= blocksize - handle->curpos) {
+    remaining_space = blocksize - handle->curpos;
+    if (size <= remaining_space) {
         fdb_status fs = FDB_RESULT_SUCCESS;
         // simply append to current block
         offset = handle->curpos;
@@ -116,7 +119,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             return BLK_NOT_FOUND;
         }
         fs = filemgr_write_offset(handle->file, handle->curblock, offset, size,
-                                  buf, log_callback);
+                                  buf, (size == remaining_space), log_callback);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
                     "Error in writing a doc block with id %" _F64 ", offset %d, size %"
@@ -133,8 +136,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
         return handle->curblock * real_blocksize + offset;
 
-    } else {
-        // not simply fitted into current block
+    } else { // insufficient space to fit entire document into current block
         bid_t begin, end, i, startpos;
         uint32_t nblock = size / blocksize;
         uint32_t remain = size % blocksize;
@@ -168,7 +170,9 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             }
             if (offset > 0) {
                 fs = filemgr_write_offset(handle->file, handle->curblock,
-                                          handle->curpos, offset, buf, log_callback);
+                                          handle->curpos, offset, buf,
+                                          true, // mark block as immutable
+                                          log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing a doc block with id %" _F64 ", offset %d, "
@@ -215,7 +219,9 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
             }
             if (offset > 0) {
                 fs = filemgr_write_offset(handle->file, handle->curblock,
-                                          handle->curpos, offset, buf, log_callback);
+                                          handle->curpos, offset, buf,
+                                          true, // mark block as immutable
+                                          log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing a doc block with id %" _F64 ", offset %d, "
@@ -252,7 +258,9 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                     return BLK_NOT_FOUND;
                 }
                 fs = filemgr_write_offset(handle->file, i, 0, blocksize,
-                                          (uint8_t *)buf + offset, log_callback);
+                                          (uint8_t *)buf + offset,
+                                          true, // mark block as immutable
+                                          log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing an entire doc block with id %" _F64
@@ -277,7 +285,9 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                     return BLK_NOT_FOUND;
                 }
                 fs = filemgr_write_offset(handle->file, i, 0, remainsize,
-                                          (uint8_t *)buf + offset, log_callback);
+                                          (uint8_t *)buf + offset,
+                                          (remainsize == blocksize),
+                                          log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing a doc block with id %" _F64 ", "

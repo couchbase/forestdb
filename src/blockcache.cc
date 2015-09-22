@@ -106,11 +106,13 @@ struct fnamedic_item {
     atomic_uint32_t ref_count;
     atomic_uint64_t nvictim;
     atomic_uint64_t nitems;
+    atomic_uint64_t nimmutable;
     atomic_uint64_t access_timestamp;
     size_t num_shards;
 };
 
 #define BCACHE_DIRTY (0x1)
+#define BCACHE_IMMUTABLE (0x2)
 #define BCACHE_FREE (0x4)
 
 static void *buffercache_addr = NULL;
@@ -360,7 +362,7 @@ INLINE int _dirty_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     #endif
 }
 
-static void _free_dirty_blocks(struct dirty_bid **dirty_bids, size_t n) {
+static void _free_dirty_bids(struct dirty_bid **dirty_bids, size_t n) {
     size_t i = 0;
     for (; i < n; ++i) {
         if (dirty_bids[i]) {
@@ -372,7 +374,8 @@ static void _free_dirty_blocks(struct dirty_bid **dirty_bids, size_t n) {
 // Flush some consecutive or all dirty blocks for a given file and
 // move them to the clean list.
 static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
-                                      bool sync, bool flush_all)
+                                      bool sync, bool flush_all,
+                                      bool immutables_only)
 {
     void *buf = NULL;
     struct list_elem *prevhead = NULL;
@@ -421,12 +424,18 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                     node = avl_first(&fname_item->shards[i].tree_idx);
                 }
                 if (node) {
-                    if (!dirty_bids[i]) {
-                        dirty_bids[i] = (struct dirty_bid *)
-                            mempool_alloc(sizeof(struct dirty_bid));
+                    struct dirty_item *ditem = _get_entry(node,
+                                                struct dirty_item, avl);
+                    if (!immutables_only || // don't load mutable items
+                        ditem->item->flag & BCACHE_IMMUTABLE) {
+                        if (!dirty_bids[i]) {
+                            dirty_bids[i] = (struct dirty_bid *)
+                                mempool_alloc(sizeof(struct dirty_bid));
+                        }
+                        dirty_bids[i]->bid = ditem->item->bid;
+                        avl_insert(&dirty_blocks, &dirty_bids[i]->avl,
+                                   _dirty_bid_cmp);
                     }
-                    dirty_bids[i]->bid = _get_entry(node, struct dirty_item, avl)->item->bid;
-                    avl_insert(&dirty_blocks, &dirty_bids[i]->avl, _dirty_bid_cmp);
                 }
                 if (!(sync && o_direct)) {
                     spin_unlock(&fname_item->shards[i].lock);
@@ -477,6 +486,10 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
             if (!(sync && o_direct)) {
                 spin_unlock(&fname_item->shards[shard_num].lock);
             }
+            if (immutables_only &&
+                !atomic_get_uint64_t(&fname_item->nimmutable)) {
+                break;
+            }
             continue;
         }
 
@@ -503,7 +516,28 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         // set PTR and get block MARKER
         ptr = dirty_block->item->addr;
         marker = *((uint8_t*)(ptr) + bcache_blocksize-1);
-        dirty_block->item->flag &= ~(BCACHE_DIRTY);
+
+        node = avl_next(node);
+        // Get the next dirty block from the victim shard and insert it into
+        // the cross-shard dirty block list.
+        if (node) {
+            struct dirty_item *ditem = _get_entry(node, struct dirty_item,
+                                                  avl);
+            if (!immutables_only || ditem->item->flag & BCACHE_IMMUTABLE) {
+                dbid->bid = ditem->item->bid;
+                avl_insert(&dirty_blocks, &dbid->avl, _dirty_bid_cmp);
+            }
+        }
+
+        // remove from the shard dirty block list.
+        avl_remove(cur_tree, &dirty_block->avl);
+        if (dirty_block->item->flag & BCACHE_IMMUTABLE) {
+            atomic_decr_uint64_t(&fname_item->nimmutable);
+            if (!(sync && o_direct)) {
+                spin_unlock(&fname_item->shards[shard_num].lock);
+            }
+        }
+
         if (sync) {
             // copy to buffer
 #ifdef __CRC32
@@ -543,7 +577,8 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                                                        bcache_blocksize,
                                                        dirty_block->item->bid * bcache_blocksize);
                 if (ret != bcache_blocksize) {
-                    if (!(sync && o_direct)) {
+                    if (!(dirty_block->item->flag & BCACHE_IMMUTABLE) &&
+                        !(sync && o_direct)) {
                         spin_unlock(&fname_item->shards[shard_num].lock);
                     }
                     status = FDB_RESULT_WRITE_FAIL;
@@ -552,10 +587,14 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
             }
         }
 
-        node = avl_next(node);
-        // remove from the shard dirty block list.
-        avl_remove(cur_tree, &dirty_block->avl);
+        if (!(sync && o_direct)) {
+            if (dirty_block->item->flag & BCACHE_IMMUTABLE) {
+                spin_lock(&fname_item->shards[shard_num].lock);
+            }
+        }
 
+        dirty_block->item->flag &= ~(BCACHE_DIRTY);
+        dirty_block->item->flag &= ~(BCACHE_IMMUTABLE);
         // move to the shard clean block list.
         prevhead = fname_item->shards[shard_num].cleanlist.head;
         (void)prevhead;
@@ -569,12 +608,6 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                    prevhead, dirty_block->item->list_elem.next);
         mempool_free(dirty_block);
 
-        // Get the next dirty block from the victim shard and insert it into
-        // the cross-shard dirty block list.
-        if (node) {
-            dbid->bid = _get_entry(node, struct dirty_item, avl)->item->bid;
-            avl_insert(&dirty_blocks, &dbid->avl, _dirty_bid_cmp);
-        }
         if (!(sync && o_direct)) {
             spin_unlock(&fname_item->shards[shard_num].lock);
         }
@@ -615,7 +648,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         free_align(buf);
     }
 
-    _free_dirty_blocks(dirty_bids, fname_item->num_shards);
+    _free_dirty_bids(dirty_bids, fname_item->num_shards);
     return status;
 }
 
@@ -670,7 +703,8 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
                 spin_unlock(&bshard->lock);
                 // When the victim shard has no clean block, evict some dirty blocks
                 // from shards.
-                if (_flush_dirty_blocks(victim, true, false) != FDB_RESULT_SUCCESS) {
+                if (_flush_dirty_blocks(victim, true, false, false)
+                    != FDB_RESULT_SUCCESS) {
                     atomic_decr_uint32_t(&victim->ref_count);
                     return NULL;
                 }
@@ -741,6 +775,7 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     fname_new->curfile = file;
     atomic_init_uint64_t(&fname_new->nvictim, 0);
     atomic_init_uint64_t(&fname_new->nitems, 0);
+    atomic_init_uint64_t(&fname_new->nimmutable, 0);
     atomic_init_uint32_t(&fname_new->ref_count, 0);
     atomic_init_uint64_t(&fname_new->access_timestamp, 0);
     if (file->config->num_bcache_shards) {
@@ -844,6 +879,7 @@ static void _fname_free(struct fnamedic_item *fname)
     atomic_destroy_uint32_t(&fname->ref_count);
     atomic_destroy_uint64_t(&fname->nvictim);
     atomic_destroy_uint64_t(&fname->nitems);
+    atomic_destroy_uint64_t(&fname->nimmutable);
     atomic_destroy_uint64_t(&fname->access_timestamp);
     free(fname);
 }
@@ -981,6 +1017,8 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
                 _bcache_release_freeblock(item);
                 ret = true;
             } else {
+                item->flag |= BCACHE_IMMUTABLE; // (stale index node block)
+                atomic_incr_uint64_t(&fname->nimmutable);
                 spin_unlock(&fname->shards[shard_num].lock);
             }
         } else {
@@ -994,7 +1032,8 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
 int bcache_write(struct filemgr *file,
                  bid_t bid,
                  void *buf,
-                 bcache_dirty_t dirty)
+                 bcache_dirty_t dirty,
+                 bool final_write)
 {
     struct hash_elem *h = NULL;
     struct bcache_item *item;
@@ -1081,11 +1120,16 @@ int bcache_write(struct filemgr *file,
             ditem->item = item;
 
             marker = *((uint8_t*)buf + bcache_blocksize-1);
-            if (marker == BLK_MARKER_BNODE ) {
+            if (marker == BLK_MARKER_BNODE) {
                 // b-tree node
                 avl_insert(&fname_new->shards[shard_num].tree_idx, &ditem->avl, _dirty_cmp);
             } else {
-                avl_insert(&fname_new->shards[shard_num].tree, &ditem->avl, _dirty_cmp);
+                if (final_write) {
+                    item->flag |= BCACHE_IMMUTABLE; // (fully written doc block)
+                    atomic_incr_uint64_t(&fname_new->nimmutable);
+                }
+                avl_insert(&fname_new->shards[shard_num].tree, &ditem->avl,
+                           _dirty_cmp);
             }
         }
         item->flag |= BCACHE_DIRTY;
@@ -1110,7 +1154,8 @@ int bcache_write_partial(struct filemgr *file,
                          bid_t bid,
                          void *buf,
                          size_t offset,
-                         size_t len)
+                         size_t len,
+                         bool final_write)
 {
     struct hash_elem *h;
     struct bcache_item *item;
@@ -1178,7 +1223,17 @@ int bcache_write_partial(struct filemgr *file,
             // b-tree node
             avl_insert(&fname_new->shards[shard_num].tree_idx, &ditem->avl, _dirty_cmp);
         } else {
-            avl_insert(&fname_new->shards[shard_num].tree, &ditem->avl, _dirty_cmp);
+            avl_insert(&fname_new->shards[shard_num].tree, &ditem->avl,
+                       _dirty_cmp);
+            if (final_write) {
+                item->flag |= BCACHE_IMMUTABLE; // (fully written doc block)
+                atomic_incr_uint64_t(&fname_new->nimmutable);
+            }
+        }
+    } else if (!(item->flag & BCACHE_IMMUTABLE)) {
+        if (final_write) {
+            item->flag |= BCACHE_IMMUTABLE; // (fully written doc block)
+            atomic_incr_uint64_t(&fname_new->nimmutable);
         }
     }
 
@@ -1191,6 +1246,20 @@ int bcache_write_partial(struct filemgr *file,
     spin_unlock(&fname_new->shards[shard_num].lock);
 
     return len;
+}
+
+// flush and synchronize a batch of contiguous dirty immutable blocks in file
+// dirty blocks will be changed to clean blocks (not discarded)
+// Note: This function can be invoked as part of background flushing
+fdb_status bcache_flush_immutable(struct filemgr *file)
+{
+    struct fnamedic_item *fname_item;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    fname_item = file->bcache;
+    if (fname_item) {
+        status = _flush_dirty_blocks(fname_item, true, false, true);
+    }
+    return status;
 }
 
 // remove all dirty blocks of the FILE
@@ -1207,7 +1276,7 @@ void bcache_remove_dirty_blocks(struct filemgr *file)
         // we don't need to grab all the shard locks at once.
 
         // remove all dirty blocks
-        _flush_dirty_blocks(fname_item, false, true);
+        _flush_dirty_blocks(fname_item, false, true, false);
     }
 }
 
@@ -1296,7 +1365,7 @@ fdb_status bcache_flush(struct filemgr *file)
         // Note that this function is invoked as part of a commit operation while
         // the filemgr's lock is already grabbed by a committer.
         // Therefore, we don't need to grab all the shard locks at once.
-        status = _flush_dirty_blocks(fname_item, true, true);
+        status = _flush_dirty_blocks(fname_item, true, true, false);
     }
     return status;
 }
@@ -1353,6 +1422,16 @@ uint64_t bcache_get_num_blocks(struct filemgr *file)
         return atomic_get_uint64_t(&fname->nitems);
     }
     return 0;
+}
+
+uint64_t bcache_get_num_immutable(struct filemgr *file)
+{
+    struct fnamedic_item *fname = file->bcache;
+    if (fname) {
+        return atomic_get_uint64_t(&fname->nimmutable);
+    }
+    return 0;
+
 }
 
 // LCOV_EXCL_START

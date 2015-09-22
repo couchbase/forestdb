@@ -60,6 +60,7 @@ static spin_t initial_lock;
 
 
 static volatile uint8_t filemgr_initialized = 0;
+extern volatile uint8_t bgflusher_initialized;
 static struct filemgr_config global_config;
 static struct hash hash;
 static spin_t filemgr_openlock;
@@ -736,6 +737,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint64_t(&file->last_commit, offset);
     atomic_init_uint64_t(&file->pos, offset);
     atomic_init_uint32_t(&file->throttling_delay, 0);
+    atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
+    atomic_init_uint8_t(&file->commit_in_prog, 0);
 
     file->bcache = NULL;
     file->in_place_compaction = false;
@@ -1353,6 +1356,8 @@ void filemgr_free_func(struct hash_elem *h)
     atomic_destroy_uint64_t(&file->pos);
     atomic_destroy_uint64_t(&file->last_commit);
     atomic_destroy_uint32_t(&file->throttling_delay);
+    atomic_destroy_uint64_t(&file->num_invalidated_blocks);
+    atomic_destroy_uint8_t(&file->commit_in_prog);
 
     // free file structure
     free(file->config);
@@ -1546,7 +1551,8 @@ bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
     return ret;
 }
 
-bool filemgr_is_fully_resident(struct filemgr *file) {
+bool filemgr_is_fully_resident(struct filemgr *file)
+{
     bool ret = false;
     if (global_config.ncacheblock > 0) {
         //TODO: A better thing to do is to track number of document blocks
@@ -1559,6 +1565,29 @@ bool filemgr_is_fully_resident(struct filemgr *file) {
             ret = true;
         }
     }
+    return ret;
+}
+
+uint64_t filemgr_flush_immutable(struct filemgr *file,
+                                   err_log_callback *log_callback)
+{
+    uint64_t ret = 0;
+    if (global_config.ncacheblock > 0) {
+        if (atomic_get_uint8_t(&file->commit_in_prog)) {
+            return 0;
+        }
+        ret = bcache_get_num_immutable(file);
+        if (!ret) {
+            return ret;
+        }
+        fdb_status rv = bcache_flush_immutable(file);
+        if (rv != FDB_RESULT_SUCCESS) {
+            _log_errno_str(file->ops, log_callback, (fdb_status)rv, "WRITE",
+                           file->filename);
+        }
+        return bcache_get_num_immutable(file);
+    }
+
     return ret;
 }
 
@@ -1652,7 +1681,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 return status;
             }
 #endif
-            r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN);
+            r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN, false);
             if (r != global_config.blocksize) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1703,6 +1732,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 
 fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                                 uint64_t offset, uint64_t len, void *buf,
+                                bool final_write,
                                 err_log_callback *log_callback)
 {
     size_t lock_no;
@@ -1746,7 +1776,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
-            r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY);
+            r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY, final_write);
             if (r != global_config.blocksize) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1763,7 +1793,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
             }
         } else {
             // partially write buffer cache first
-            r = bcache_write_partial(file, bid, buf, offset, len);
+            r = bcache_write_partial(file, bid, buf, offset, len, final_write);
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
@@ -1794,7 +1824,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     }
                 }
                 memcpy((uint8_t *)_buf + offset, buf, len);
-                r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY);
+                r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY, final_write);
                 if (r != global_config.blocksize) {
                     if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1824,7 +1854,6 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
             spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
         }
-
     } else { // block cache disabled
 
 #ifdef __CRC32
@@ -1854,6 +1883,7 @@ fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback)
 {
     return filemgr_write_offset(file, bid, 0, file->blocksize, buf,
+                                false, // TODO: track immutability of index blk
                                 log_callback);
 }
 
@@ -1873,11 +1903,13 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
     filemgr_magic_t magic = FILEMGR_MAGIC_V2;
     filemgr_magic_t _magic;
 
+    atomic_store_uint8_t(&file->commit_in_prog, 1);
     if (global_config.ncacheblock > 0) {
         result = bcache_flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
                            "FLUSH", file->filename);
+            atomic_store_uint8_t(&file->commit_in_prog, 0);
             return (fdb_status)result;
         }
     }
@@ -1956,6 +1988,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         if (rv != file->blocksize) {
             _filemgr_release_temp_buf(buf);
             spin_unlock(&file->lock);
+            atomic_store_uint8_t(&file->commit_in_prog, 0);
             return FDB_RESULT_WRITE_FAIL;
         }
         atomic_store_uint64_t(&file->header.bid,
@@ -1977,6 +2010,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         result = file->ops->fsync(file->fd);
         _log_errno_str(file->ops, log_callback, (fdb_status)result, "FSYNC", file->filename);
     }
+    atomic_store_uint8_t(&file->commit_in_prog, 0);
     return (fdb_status) result;
 }
 

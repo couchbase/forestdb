@@ -15,36 +15,32 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_TIME_UTILS_H
-#define _JSAHN_TIME_UTILS_H
+#ifndef _FDB_BGFLUSHER_H
+#define _FDB_BGFLUSHER_H
 
 #include <time.h>
-#if defined(WIN32) || defined(_WIN32)
-#include <Windows.h>
-#else
-#include <sys/time.h>
-#include <unistd.h>
-#endif
+
+#include "internal_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct timeval _utime_gap(struct timeval a, struct timeval b);
+struct bgflusher_config{
+    size_t num_threads;
+};
 
-#if defined(WIN32) || defined(_WIN32)
-void usleep(unsigned int useconds);
-#endif
-
-void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time);
-
-#if !defined(WIN32) && !defined(_WIN32)
-struct timespec convert_reltime_to_abstime(unsigned int ms);
-#endif
+void bgflusher_init(struct bgflusher_config *config);
+void bgflusher_shutdown();
+fdb_status bgflusher_register_file(struct filemgr *file,
+                                   fdb_config *config,
+                                   err_log_callback *log_callback);
+void bgflusher_switch_file(struct filemgr *old_file, struct filemgr *new_file,
+                           err_log_callback *log_callback);
+void bgflusher_deregister_file(struct filemgr *file);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
-
+#endif // _FDB_BGFLUSHER_H

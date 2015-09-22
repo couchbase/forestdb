@@ -40,6 +40,7 @@
 #include "filemgr_ops.h"
 #include "configuration.h"
 #include "internal_types.h"
+#include "bgflusher.h"
 #include "compactor.h"
 #include "memleak.h"
 #include "time_utils.h"
@@ -490,6 +491,7 @@ fdb_status fdb_init(fdb_config *config)
 {
     fdb_config _config;
     compactor_config c_config;
+    bgflusher_config bgf_config;
     struct filemgr_config f_config;
 
     if (config) {
@@ -549,6 +551,9 @@ fdb_status fdb_init(fdb_config *config)
         c_config.sleep_duration = _config.compactor_sleep_duration;
         c_config.num_threads = _config.num_compactor_threads;
         compactor_init(&c_config);
+        // initialize background flusher daemon
+        bgf_config.num_threads = _config.num_bgflusher_threads;
+        bgflusher_init(&bgf_config);
 
         fdb_initialized = 1;
     }
@@ -1843,10 +1848,17 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     }
 
     // do not register read-only handles
-    if (!(config->flags & FDB_OPEN_FLAG_RDONLY) &&
-        config->compaction_mode == FDB_COMPACTION_AUTO) {
-        status = compactor_register_file(handle->file, (fdb_config *)config,
-                                         &handle->log_callback);
+    if (!(config->flags & FDB_OPEN_FLAG_RDONLY)) {
+        if (config->compaction_mode == FDB_COMPACTION_AUTO) {
+            status = compactor_register_file(handle->file,
+                                             (fdb_config *)config,
+                                             &handle->log_callback);
+        }
+        if (status == FDB_RESULT_SUCCESS) {
+            status = bgflusher_register_file(handle->file,
+                                             (fdb_config *)config,
+                                             &handle->log_callback);
+        }
     }
 
 #ifdef _TRACE_HANDLES
@@ -5866,6 +5878,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         prob = 20;
     }
 
+    bool file_switched = false; // bg flusher file
     do {
         last_hdr = cur_hdr;
         // get up-to-date header BID of the old file
@@ -5879,6 +5892,12 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
             // latest commit. They also should be moved.
             // But at this time, we should grab the old file's lock to prevent
             // any additional updates on it.
+            // Also stop flushing blocks from old file in favor of new file
+            if (!file_switched) {
+                bgflusher_switch_file(handle->file, new_file,
+                                      &handle->log_callback);
+                file_switched = true;
+            }
             filemgr_mutex_lock(handle->file);
             got_lock = true;
 
@@ -5906,6 +5925,12 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
             _fdb_cleanup_compact_err(handle, new_file, true, false,
                                      new_bhandle, new_dhandle, new_trie,
                                      new_seqtrie, new_seqtree);
+
+            // failure in compaction means switch back to old file
+            if (file_switched) {
+                bgflusher_switch_file(new_file, handle->file,
+                                      &handle->log_callback);
+            }
             return fs;
         }
 
@@ -6201,10 +6226,12 @@ fdb_status _fdb_close_root(fdb_kvs_handle *handle)
 fdb_status _fdb_close(fdb_kvs_handle *handle)
 {
     fdb_status fs;
-    if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY) &&
-        handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
-        // read-only file is not registered in compactor
-        compactor_deregister_file(handle->file);
+    if (!(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
+        if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+            // read-only file is not registered in compactor
+            compactor_deregister_file(handle->file);
+        }
+        bgflusher_deregister_file(handle->file);
     }
 
     btreeblk_end(handle->bhandle);
@@ -6665,6 +6692,7 @@ fdb_status fdb_shutdown()
             return FDB_RESULT_FILE_IS_BUSY;
         }
         compactor_shutdown();
+        bgflusher_shutdown();
         ret = filemgr_shutdown();
         if (ret == FDB_RESULT_SUCCESS) {
 #ifdef _MEMPOOL

@@ -37,6 +37,7 @@
 #include "compactor.h"
 #include "wal.h"
 #include "memleak.h"
+#include "time_utils.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_CPT
@@ -92,32 +93,6 @@ struct compactor_meta{
     char filename[MAX_FNAMELEN];
     uint32_t crc;
 };
-
-#if !defined(WIN32) && !defined(_WIN32)
-struct timespec convert_reltime_to_abstime(unsigned int ms) {
-    struct timespec ts;
-    struct timeval tp;
-    uint64_t wakeup;
-
-    memset(&ts, 0, sizeof(ts));
-
-    /*
-     * Unfortunately pthread_cond_timedwait doesn't support relative sleeps
-     * so we need to convert back to an absolute time.
-     */
-    gettimeofday(&tp, NULL);
-    wakeup = ((uint64_t)(tp.tv_sec) * 1000) + (tp.tv_usec / 1000) + ms;
-    /* Round up for sub ms */
-    if ((tp.tv_usec % 1000) > 499) {
-        ++wakeup;
-    }
-
-    ts.tv_sec = wakeup / 1000;
-    wakeup %= 1000;
-    ts.tv_nsec = wakeup * 1000000;
-    return ts;
-}
-#endif
 
 #if !defined(WIN32) && !defined(_WIN32)
 static bool does_file_exist(const char *filename) {
