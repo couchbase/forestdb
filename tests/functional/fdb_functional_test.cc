@@ -2700,13 +2700,13 @@ void purge_logically_deleted_doc_test()
         status = fdb_get_metaonly(db, rdoc);
         if (i != 5) {
             TEST_CHK(status == FDB_RESULT_SUCCESS);
-            fdb_doc_free(rdoc);
         } else {
             // If the above compaction takes longer than two secs (e.g., slow disk),
             // then, fdb_get_metaonly will return KEY_NOT_FOUND error.
             TEST_CHK(status == FDB_RESULT_SUCCESS ||
                      status == FDB_RESULT_KEY_NOT_FOUND);
         }
+        fdb_doc_free(rdoc);
         rdoc = NULL;
     }
 
