@@ -25,6 +25,48 @@ void str_gen(char *s, const int len) {
     s[len-1] = '\0';
 }
 
+void swap(char *x, char *y)
+{
+    char temp;
+    temp = *x;
+    *x = *y;
+    *y = temp;
+}
+
+/* Function to print permutations of string
+   This function takes three parameters:
+   1. String
+   2. Starting index of the string
+   3. Ending index of the string.
+   http://www.geeksforgeeks.org/write-a-c-program-to-print-all-permutations-of-a-given-string/
+   */
+int permute(fdb_kvs_handle *kv, char *a, int l, int r)
+{
+
+    int i;
+    char keybuf[256], metabuf[256], bodybuf[512];
+    fdb_doc *doc = NULL;
+    ts_nsec latency = 0;
+
+    if (l == r) {
+        sprintf(keybuf, a, l);
+        sprintf(metabuf, "meta%d", r);
+        str_gen(bodybuf, 64);
+        fdb_doc_create(&doc, (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        latency = timed_fdb_set(kv, doc);
+        fdb_doc_free(doc);
+        return latency;
+    } else {
+        for (i = l; i <= r; i++) {
+            swap((a+l), (a+i));
+            latency+=permute(kv, a, l+1, r);
+            swap((a+l), (a+i)); //backtrack
+        }
+    }
+    return latency;
+}
+
 
 void setup_db(fdb_file_handle **fhandle, fdb_kvs_handle **kv){
 
@@ -55,14 +97,13 @@ void setup_db(fdb_file_handle **fhandle, fdb_kvs_handle **kv){
 void sequential_set(bool walflush){
 
     int i, n = NDOCS;
-    uint64_t latency, latency_tot = 0, latency_tot2 = 0;
+    ts_nsec latency, latency_tot = 0, latency_tot2 = 0;
     float latency_avg = 0;
     char keybuf[256], metabuf[256], bodybuf[512];
 
     fdb_file_handle *fhandle;
     fdb_kvs_handle *kv, *snap_kv;
-    fdb_doc **doc = alca(fdb_doc*, n);
-    fdb_doc *rdoc = NULL;
+    fdb_doc *doc = NULL;
     fdb_iterator *iterator;
 
     printf("\nBENCH-SEQUENTIAL_SET-WALFLUSH-%d \n", walflush);
@@ -75,10 +116,12 @@ void sequential_set(bool walflush){
         sprintf(keybuf, "key%d", i);
         sprintf(metabuf, "meta%d", i);
         str_gen(bodybuf, 256);
-        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+        fdb_doc_create(&doc, (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        latency = timed_fdb_set(kv, doc[i]);
+        latency = timed_fdb_set(kv, doc);
         latency_tot += latency;
+	fdb_doc_free(doc);
+	doc = NULL;
     }
     latency_avg = float(latency_tot)/float(n);
     print_stat(ST_SET, latency_avg);
@@ -98,7 +141,7 @@ void sequential_set(bool walflush){
     for (i=0;i<n;++i){
 
         // sum time of all gets
-        latency = timed_fdb_iterator_get(iterator, &rdoc);
+        latency = timed_fdb_iterator_get(iterator, &doc);
         if(latency == ERR_NS){ break; }
         latency_tot += latency;
 
@@ -107,8 +150,8 @@ void sequential_set(bool walflush){
         if(latency == ERR_NS){ break; }
         latency_tot2 += latency;
 
-        fdb_doc_free(rdoc);
-        rdoc = NULL;
+        fdb_doc_free(doc);
+        doc = NULL;
     }
 
     latency_avg = float(latency_tot)/float(n);
@@ -123,9 +166,12 @@ void sequential_set(bool walflush){
     // get
     latency_tot = 0;
     for (i=0;i<n;++i){
-        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        latency = timed_fdb_get(kv, rdoc);
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&doc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        latency = timed_fdb_get(kv, doc);
         latency_tot += latency;
+        fdb_doc_free(doc);
+        doc = NULL;
     }
     latency_avg = float(latency_tot)/float(n);
     print_stat(ST_GET, latency_avg);
@@ -141,10 +187,14 @@ void sequential_set(bool walflush){
     // delete
     latency_tot = 0;
     for (i=0;i<n;++i){
-        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
-        latency = timed_fdb_delete(kv, rdoc);
+        sprintf(keybuf, "key%d", i);
+        fdb_doc_create(&doc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+        latency = timed_fdb_delete(kv, doc);
         latency_tot += latency;
+        fdb_doc_free(doc);
+        doc = NULL;
     }
+
     latency_avg = float(latency_tot)/float(n);
     print_stat(ST_DELETE, latency_avg);
 
@@ -161,8 +211,74 @@ void sequential_set(bool walflush){
     print_stat(ST_SHUTDOWN, latency);
 }
 
+void permutated_keyset()
+{
+
+    char str[] = "abc123";
+    int n = strlen(str);
+    ts_nsec latency, latency_tot = 0, latency_tot2 = 0;
+    float latency_avg = 0;
+
+    fdb_doc *rdoc = NULL;
+    fdb_file_handle *fhandle;
+    fdb_iterator *iterator;
+    fdb_kvs_handle *kv;
+
+    printf("\nBENCH-PERMUTATED_KEYSET\n");
+
+    // setup
+    setup_db(&fhandle, &kv);
+
+    // load permuated keyset
+    latency = permute(kv, str, 0, n-1);
+    print_stat(ST_SET, latency);
+
+    latency = timed_fdb_commit(fhandle, true);
+    print_stat(ST_COMMIT_WAL, latency);
+
+    // create an iterator for full range
+    latency = timed_fdb_iterator_init(kv, &iterator);
+    print_stat(ST_ITR_INIT, latency);
+
+
+    // repeat until fail
+    do {
+        // sum time of all gets
+        latency = timed_fdb_iterator_get(iterator, &rdoc);
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+        if(latency == ERR_NS){ break; }
+        latency_tot += latency;
+
+        // sum time of calls to next
+        latency = timed_fdb_iterator_next(iterator);
+        if(latency == ERR_NS){ break; }
+        latency_tot2 += latency;
+
+    } while (latency != ERR_NS);
+
+    latency_avg = float(latency_tot)/float(n);
+    print_stat(ST_ITR_GET, latency_avg);
+
+    latency_avg = float(latency_tot2)/float(n);
+    print_stat(ST_ITR_NEXT, latency_avg);
+
+    latency = timed_fdb_iterator_close(iterator);
+    print_stat(ST_ITR_CLOSE, latency);
+
+    latency = timed_fdb_kvs_close(kv);
+    print_stat(ST_KV_CLOSE, latency);
+
+    latency = timed_fdb_close(fhandle);
+    print_stat(ST_FILE_CLOSE, latency);
+
+    latency = timed_fdb_shutdown();
+    print_stat(ST_SHUTDOWN, latency);
+}
+
 int main(int argc, char* args[])
 {
-  sequential_set(true);
-  sequential_set(false);
+    sequential_set(true);
+    sequential_set(false);
+    permutated_keyset();
 }
