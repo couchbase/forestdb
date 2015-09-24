@@ -6316,13 +6316,18 @@ fdb_status fdb_destroy(const char *fname,
 
     filemgr_mutex_openlock(&fconfig);
 
+    // Destroy file whose name is exactly matched.
+    // In auto compaction mode, exact matching file name will not exist in
+    // file system, so we allow failure returned by this function.
     status = filemgr_destroy_file(filename, &fconfig, NULL);
-    if (status != FDB_RESULT_SUCCESS) {
+    if (status != FDB_RESULT_SUCCESS &&
+        config.compaction_mode != FDB_COMPACTION_AUTO) {
         filemgr_mutex_openunlock();
         return status;
     }
 
     if (config.compaction_mode == FDB_COMPACTION_AUTO) {
+        // Destroy all files whose prefix is matched.
         status = compactor_destroy_file(filename, &config);
         if (status != FDB_RESULT_SUCCESS) {
             filemgr_mutex_openunlock();

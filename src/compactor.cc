@@ -1027,6 +1027,7 @@ static fdb_status _compactor_search_n_destroy(const char *filename)
     int filename_len;
     int dirname_len;
     char dirname[MAX_FNAMELEN], prefix[MAX_FNAMELEN];
+    char full_fname[MAX_FNAMELEN];
     fdb_status fs = FDB_RESULT_SUCCESS;
 
     // error handling .. scan directory
@@ -1059,7 +1060,9 @@ static fdb_status _compactor_search_n_destroy(const char *filename)
         while ((dir_entry = readdir(dir_info))) {
             if (!strncmp(dir_entry->d_name, prefix, strlen(prefix))) {
                 // Need to check filemgr for possible open entry?
-                if (remove(dir_entry->d_name)) {
+                // Reconstruct full path
+                _reconstruct_path(full_fname, dirname, dir_entry->d_name);
+                if (remove(full_fname)) {
                     fs = FDB_RESULT_FILE_REMOVE_FAIL;
                     closedir(dir_info);
                     return fs;
@@ -1096,7 +1099,9 @@ static fdb_status _compactor_search_n_destroy(const char *filename)
     while (hfind != INVALID_HANDLE_VALUE) {
         if (!strncmp(filedata.cFileName, prefix, strlen(prefix))) {
             // Need to check filemgr for possible open entry?
-            if (remove(filedata.cFileName)) {
+            // Reconstruct full path
+            _reconstruct_path(full_fname, dirname, filedata.cFileName);
+            if (remove(full_fname)) {
                 fs = FDB_RESULT_FILE_REMOVE_FAIL;
                 FindClose(hfind);
                 hfind = INVALID_HANDLE_VALUE;

@@ -1222,6 +1222,41 @@ void db_destroy_test()
     TEST_RESULT("Database destroy test");
 }
 
+// Test for MB-16348
+void db_destroy_test_full_path()
+{
+    TEST_INIT();
+
+    memleak_start();
+    randomize();
+
+    int r;
+    fdb_file_handle *dbfile;
+    fdb_config config;
+    fdb_status s;
+    char path[256];
+    char cmd[256];
+
+    sprintf(path, "/tmp/fdb_destroy_test_%d", random(10000));
+
+    sprintf(cmd, "rm -rf %s*", path);
+    r = system(cmd); (void)r;
+
+    config = fdb_get_default_config();
+    config.compaction_mode = FDB_COMPACTION_AUTO;
+
+    fdb_open(&dbfile, path, &config);
+    fdb_close(dbfile);
+
+    s = fdb_destroy(path, &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("Database destroy (full path) test");
+}
 
 void operational_stats_test(bool multi_kv)
 {
@@ -3904,6 +3939,11 @@ int main(){
     db_close_and_remove();
     db_drop_test();
     db_destroy_test();
+#if !defined(WIN32) && !defined(_WIN32)
+#ifndef _MSC_VER
+    db_destroy_test_full_path(); // only for non-windows
+#endif
+#endif
     doc_compression_test();
     read_doc_by_offset_test();
     api_wrapper_test();
