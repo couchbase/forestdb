@@ -56,7 +56,7 @@ uint32_t get_checksum(const uint8_t* buf,
         return crc32c(buf, buf_len, pre);
     } else {
         assert(mode == CRC32);
-        return crc32_8(buf, buf_len, pre);
+        return crc32_8((void *)buf, buf_len, pre);
     }
 }
 
@@ -92,12 +92,12 @@ bool perform_integrity_check(const uint8_t* buf,
     if (mode == CRC_UNKNOWN || mode == CRC32C) {
         success = checksum == crc32c(buf, buf_len, 0);
         if (!success && mode == CRC_UNKNOWN) {
-            success = checksum == crc32_8(buf, buf_len, 0);
+            success = checksum == crc32_8((void *)buf, buf_len, 0);
         }
     } else
 #endif
     {
-        success = checksum == crc32_8(buf, buf_len, 0);
+        success = checksum == crc32_8((void *)buf, buf_len, 0);
     }
     return success;
 }
