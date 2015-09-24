@@ -727,10 +727,10 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
         ops->close(fd_meta);
 
         // CRC check, mode UNKNOWN means all modes are checked.
-        if (perform_integrity_check(buf,
-                                    sizeof(struct compactor_meta) - sizeof(crc),
-                                    meta.crc,
-                                    CRC_UNKNOWN)) {
+        if (!perform_integrity_check(buf,
+                                     sizeof(struct compactor_meta) - sizeof(crc),
+                                     meta.crc,
+                                     CRC_UNKNOWN)) {
             fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                     "Checksum mismatch in the meta file '%s'\n", metafile);
             return NULL;
