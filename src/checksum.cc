@@ -32,7 +32,7 @@
 #else
 #include <stdint.h>
 // Define a crc32c which does nothing but assert.
-uint32_t crc32c(const uint8_t* buf,
+static uint32_t crc32c(const uint8_t* buf,
                 size_t buf_len,
                 uint32_t pre) {
     // Non couchbase builds are configured to never turn on crc32c.

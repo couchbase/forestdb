@@ -74,7 +74,7 @@ struct openfiles_elem {
 };
 
 // compares file names
-int _bgflusher_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+static int _bgflusher_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     struct openfiles_elem *aa, *bb;
     aa = _get_entry(a, struct openfiles_elem, avl);
@@ -82,7 +82,7 @@ int _bgflusher_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     return strncmp(aa->filename, bb->filename, FDB_MAX_FILENAME_LEN);
 }
 
-void * bgflusher_thread(void *voidargs)
+static void * bgflusher_thread(void *voidargs)
 {
     fdb_status fs;
     struct avl_node *a;
@@ -141,7 +141,7 @@ void * bgflusher_thread(void *voidargs)
         }
         if (!num_blocks) {
             thread_cond_timedwait(&sync_cond, &sync_mutex,
-                                  sleep_duration * 1000);
+                                  (unsigned)(sleep_duration * 1000));
         }
         if (bgflusher_terminate_signal) {
             mutex_unlock(&sync_mutex);
