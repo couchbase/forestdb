@@ -3773,6 +3773,13 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     filemgr_mutex_unlock(new_file);
 
     atomic_incr_uint64_t(&handle->op_stats->num_compacts);
+
+    if (handle->config.compaction_cb &&
+        handle->config.compaction_cb_mask & FDB_CS_COMPLETE) {
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_COMPLETE,
+                                     NULL, BLK_NOT_FOUND, BLK_NOT_FOUND,
+                                     handle->config.compaction_cb_ctx);
+    }
     return status;
 }
 

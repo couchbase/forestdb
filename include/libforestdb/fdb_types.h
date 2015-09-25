@@ -245,7 +245,8 @@ enum {
     FDB_CS_MOVE_DOC = 0x2,
     FDB_CS_BATCH_MOVE = 0x4,
     FDB_CS_FLUSH_WAL = 0x8,
-    FDB_CS_END = 0x10,
+    FDB_CS_END = 0x10, // invoked at the end of every phase of compaction
+    FDB_CS_COMPLETE = 0x20 // invoked on completion of compaction
 };
 
 /**

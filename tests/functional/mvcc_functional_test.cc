@@ -3697,6 +3697,19 @@ void rollback_all_test(bool multi_kv)
     TEST_RESULT(bodybuf);
 }
 
+static int compaction_cb_count(fdb_file_handle *fhandle,
+                         fdb_compaction_status status,
+                         fdb_doc *doc, uint64_t old_offset,
+                         uint64_t new_offset, void *ctx)
+{
+    int *count = (int *)ctx;
+    TEST_INIT();
+    TEST_CHK(status == FDB_CS_COMPLETE);
+    *count = *count + 1;
+    return 0;
+}
+
+
 void auto_compaction_snapshots_test()
 {
     TEST_INIT();
@@ -3711,6 +3724,8 @@ void auto_compaction_snapshots_test()
     fdb_seqnum_t seqnum;
     fdb_kvs_info info;
     fdb_doc *rdoc;
+    int num_compactions = 0;
+    char str[64];
 
     int i, r;
 
@@ -3719,7 +3734,10 @@ void auto_compaction_snapshots_test()
 
     // Open Database File
     config = fdb_get_default_config();
-    config.compaction_mode=FDB_COMPACTION_AUTO;
+    config.compaction_mode = FDB_COMPACTION_AUTO;
+    config.compaction_cb = compaction_cb_count;
+    config.compaction_cb_ctx = &num_compactions;
+    config.compaction_cb_mask = FDB_CS_COMPLETE;
     config.compactor_sleep_duration=1;
     status = fdb_open(&file, "mvcc_test1", &config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -3731,7 +3749,6 @@ void auto_compaction_snapshots_test()
 
     // Several kv pairs
     for(i=0;i<100000;i++) {
-        char str[15];
         sprintf(str, "%d", i);
         status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -3784,7 +3801,9 @@ void auto_compaction_snapshots_test()
 
     memleak_end();
 
-    TEST_RESULT("auto compaction with snapshots test");
+    sprintf(str, "auto compaction completed %d times with snapshots",
+            num_compactions);
+    TEST_RESULT(str);
 }
 
 void *rollback_during_ops_test(void * args)
