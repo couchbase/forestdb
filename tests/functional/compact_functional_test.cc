@@ -22,6 +22,8 @@
 #include <time.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #endif
 
 #include "libforestdb/forestdb.h"
@@ -1166,6 +1168,106 @@ void auto_recover_compact_ok_test()
     memleak_end();
 
     TEST_RESULT("auto recovery after compaction test");
+}
+
+#if !defined(WIN32) && !defined(_WIN32)
+static bool does_file_exist(const char *filename) {
+    struct stat st;
+    int result = stat(filename, &st);
+    return result == 0;
+}
+#else
+static bool does_file_exist(const char *filename) {
+    return GetFileAttributes(filename) != INVALID_FILE_ATTRIBUTES;
+}
+#endif
+
+void unlink_after_compaction_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db, *snap;
+    fdb_doc **doc = alca(fdb_doc *, n);
+    fdb_doc *rdoc;
+    fdb_status s;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL " compact_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 16777216;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    s = fdb_set_log_callback(db, logCallbackFunc,
+                             (void *) "unlink_after_compaction_test");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // set docs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // create a snapshot
+    s = fdb_snapshot_open(db, &snap, n);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // compaction
+    s = fdb_compact(dbfile, "./compact_test2");
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // retrieve check on the new file
+    for (i=0;i<n;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        s = fdb_get(db, rdoc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+
+    // the old file should not be seen by user level application
+#if !defined(WIN32) && !defined(_WIN32)
+#ifndef _MSC_VER
+    TEST_CHK(!does_file_exist("./compact_test1"));
+#endif
+#endif
+
+    // retrieve check on the old file (snapshot)
+    for (i=0;i<n;++i){
+        fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+        s = fdb_get(snap, rdoc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(rdoc);
+    }
+
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+    for (i=0; i<n; ++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    memleak_end();
+    TEST_RESULT("unlink after compaction test");
 }
 
 void db_compact_overwrite()
@@ -3033,7 +3135,11 @@ int main(){
     compact_reopen_named_kvs();
     estimate_space_upto_test(false); // single kv instance in file
     estimate_space_upto_test(true); // multiple kv instance in file
-    auto_recover_compact_ok_test();
+    // Since we call unlink() to the old file after compaction,
+    // cloning old file after the compaction doesn't work anymore.
+    // So we temporarily disable this test.
+    //auto_recover_compact_ok_test();
+    unlink_after_compaction_test();
     db_compact_overwrite();
     db_compact_during_doc_delete(NULL);
     compaction_with_concurrent_transaction_test();

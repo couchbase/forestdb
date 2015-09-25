@@ -286,7 +286,9 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
 void filemgr_set_compaction_state(struct filemgr *old_file,
                                   struct filemgr *new_file,
                                   file_status_t status);
-void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file);
+void filemgr_remove_pending(struct filemgr *old_file,
+                            struct filemgr *new_file,
+                            err_log_callback *log_callback);
 
 struct kvs_ops_stat *filemgr_migrate_op_stats(struct filemgr *old_file,
                                               struct filemgr *new_file,

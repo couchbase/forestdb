@@ -1168,9 +1168,8 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         }
 
         spin_lock(&file->lock);
-        rv = file->ops->close(file->fd);
+
         if (atomic_get_uint8_t(&file->status) == FILE_REMOVED_PENDING) {
-            _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
 
             bool foreground_deletion = false;
 
@@ -1185,7 +1184,15 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 // 4) User opens DB file using its original name 'A', not 'A.1'.
                 // 5) Old file 'A' is opened, and then background thread deletes 'A'.
                 // 6) Crash!
+
+                // As the file is already unlinked, the file will be removed
+                // as soon as we close it.
+                rv = file->ops->close(file->fd);
+                _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
+#if defined(WIN32) || defined(_WIN32)
+                // For Windows, we need to manually remove the file.
                 remove(file->filename);
+#endif
                 foreground_deletion = true;
             }
 
@@ -1202,6 +1209,8 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             }
             return (fdb_status) rv;
         } else {
+
+            rv = file->ops->close(file->fd);
             if (cleanup_cache_onclose) {
                 _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
                 if (file->in_place_compaction && orig_file_name) {
@@ -2145,7 +2154,9 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     return past_filename;
 }
 
-void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
+void filemgr_remove_pending(struct filemgr *old_file,
+                            struct filemgr *new_file,
+                            err_log_callback *log_callback)
 {
     if (new_file == NULL) {
         return;
@@ -2156,6 +2167,15 @@ void filemgr_remove_pending(struct filemgr *old_file, struct filemgr *new_file)
         // delay removing
         old_file->new_file = new_file;
         atomic_store_uint8_t(&old_file->status, FILE_REMOVED_PENDING);
+
+#if !(defined(WIN32) || defined(_WIN32))
+        // Only for Posix
+        int ret;
+        ret = unlink(old_file->filename);
+        _log_errno_str(old_file->ops, log_callback, (fdb_status)ret,
+                       "UNLINK", old_file->filename);
+#endif
+
         spin_unlock(&old_file->lock);
     } else {
         // immediatly remove

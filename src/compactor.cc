@@ -410,7 +410,12 @@ void * compactor_thread(void *voidargs)
                 elem->removal_activated = true;
 
                 mutex_unlock(&cpt_lock);
+                // As the file is already unlinked, just close it.
+                ret = elem->file->ops->close(elem->file->fd);
+#if defined(WIN32) || defined(_WIN32)
+                // For Windows, we need to manually remove the file.
                 ret = remove(elem->file->filename);
+#endif
                 filemgr_remove_all_buffer_blocks(elem->file);
                 mutex_lock(&cpt_lock);
 

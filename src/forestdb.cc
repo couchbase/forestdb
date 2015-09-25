@@ -471,7 +471,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
         }
         // remove self: WARNING must not close this handle if snapshots
         // are yet to open this file
-        filemgr_remove_pending(old_file, new_db.file);
+        filemgr_remove_pending(old_file, new_db.file, &new_db.log_callback);
         filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
         free(new_db.filename);
         return FDB_RESULT_FAIL_BY_COMPACTION;
@@ -480,7 +480,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     // As the new file is partially compacted, it should be removed upon close.
     // Just in-case the new file gets opened before removal, point it to the old
     // file to ensure availability of data.
-    filemgr_remove_pending(new_db.file, handle->file);
+    filemgr_remove_pending(new_db.file, handle->file, &handle->log_callback);
     _fdb_close(&new_db);
 
     return FDB_RESULT_SUCCESS;
@@ -1830,7 +1830,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                                           &fconfig,
                                                           NULL);
                 if (result.file) {
-                    filemgr_remove_pending(result.file, handle->file);
+                    filemgr_remove_pending(result.file, handle->file,
+                                           &handle->log_callback);
                     filemgr_close(result.file, 0, handle->filename,
                                   &handle->log_callback);
                 }
@@ -3757,7 +3758,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     // Mark the old file as "remove_pending".
     // Note that a file deletion will be pended until there is no handle
     // referring the file.
-    filemgr_remove_pending(old_file, new_file);
+    filemgr_remove_pending(old_file, new_file, &handle->log_callback);
     // Migrate the operational statistics to the new_file, because
     // from this point onward all callers will re-open new_file
     handle->op_stats = filemgr_migrate_op_stats(old_file, new_file, handle->kvs);
