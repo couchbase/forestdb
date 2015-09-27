@@ -131,6 +131,9 @@ add_library(forestdb SHARED
             src/compactor.cc
             src/configuration.cc
             src/docio.cc
+            src/encryption.cc
+            src/encryption_aes.cc
+            src/encryption_bogus.cc
             src/filemgr.cc
             src/filemgr_ops.cc
             ${FORESTDB_FILE_OPS}
@@ -172,6 +175,9 @@ add_executable(forestdb_dump
                src/compactor.cc
                src/configuration.cc
                src/docio.cc
+               src/encryption.cc
+               src/encryption_aes.cc
+               src/encryption_bogus.cc
                src/fdb_errors.cc
                src/filemgr.cc
                src/filemgr_ops.cc
@@ -215,6 +221,9 @@ add_executable(forestdb_hexamine
                src/compactor.cc
                src/configuration.cc
                src/docio.cc
+               src/encryption.cc
+               src/encryption_aes.cc
+               src/encryption_bogus.cc
                src/fdb_errors.cc
                src/filemgr.cc
                src/filemgr_ops.cc

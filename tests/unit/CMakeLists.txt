@@ -18,6 +18,9 @@ add_executable(bcache_test
                ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/checksum.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -46,6 +49,9 @@ add_executable(filemgr_test
                ${ROOT_SRC}/bgflusher.cc
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/checksum.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -73,6 +79,9 @@ add_executable(btreeblock_test
                ${ROOT_SRC}/btree_kv.cc
                ${ROOT_SRC}/btreeblock.cc
                ${ROOT_SRC}/checksum.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -98,6 +107,9 @@ add_executable(docio_test
                ${ROOT_SRC}/blockcache.cc
                ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -127,6 +139,9 @@ add_executable(hbtrie_test
                ${ROOT_SRC}/btreeblock.cc
                ${ROOT_SRC}/checksum.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}

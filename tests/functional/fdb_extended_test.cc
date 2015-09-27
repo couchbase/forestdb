@@ -34,6 +34,8 @@
 #define MSIZE (32)
 #define VSIZE (100)
 
+#define FDB_ENCRYPTION_BOGUS (-1)
+
 static size_t num_readers(2);
 
 static mutex_t rollback_mutex;
@@ -83,6 +85,15 @@ struct compactor_thread_args {
 };
 
 typedef void *(thread_func) (void *);
+
+static fdb_encryption_algorithm_t cur_encryption;
+
+static fdb_config getDefaultConfig(void) {
+    fdb_config c = fdb_get_default_config();
+    c.encryption_key.algorithm = cur_encryption;
+    _set_random_string((char*)c.encryption_key.bytes, sizeof(c.encryption_key.bytes));
+    return c;
+}
 
 static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
                                    fdb_kvs_handle *db,
@@ -493,7 +504,7 @@ static void test_multi_readers(multi_reader_type reader_type,
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
     (void)r;
 
-    fdb_config fconfig = fdb_get_default_config();
+    fdb_config fconfig = getDefaultConfig();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     status = fdb_open(&dbfile, "./test.fdb", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -564,7 +575,7 @@ static void test_writer_multi_readers(writer_type wtype,
     r = system(SHELL_DEL" test.fdb* > errorlog.txt");
     (void)r;
 
-    fdb_config fconfig = fdb_get_default_config();
+    fdb_config fconfig = getDefaultConfig();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     if (comp_type == DAEMON_COMPACTION) {
         fconfig.compaction_mode = FDB_COMPACTION_AUTO;
@@ -657,7 +668,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
 
     rollback_done = false;
 
-    fdb_config fconfig = fdb_get_default_config();
+    fdb_config fconfig = getDefaultConfig();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     status = fdb_open(&dbfile, "./test.fdb", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -746,7 +757,7 @@ static void test_rollback_compaction(const char *test_name) {
 
     rollback_done = false;
 
-    fdb_config fconfig = fdb_get_default_config();
+    fdb_config fconfig = getDefaultConfig();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     status = fdb_open(&dbfile, "./test.fdb", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -804,7 +815,10 @@ static void test_rollback_compaction(const char *test_name) {
     TEST_RESULT(test_name);
 }
 
-int main() {
+void run_tests_with_encryption(fdb_encryption_algorithm_t encryption) {
+    fprintf(stderr, "----testing with encryption algorithm %d\n", encryption);
+    cur_encryption = encryption;
+
     // Read-only with multiple readers.
     test_multi_readers(MULTI_READERS, "test multi readers");
     test_multi_readers(MULTI_SNAPSHOT_READERS, "test multi snapshot readers");
@@ -870,6 +884,13 @@ int main() {
     test_rollback_multi_readers(MULTI_MIXED_READERS,
                                 "test a rollback and multi mixed readers");
     test_rollback_compaction("test concurrent rollback and compaction");
+}
 
+int main() {
+    run_tests_with_encryption(FDB_ENCRYPTION_NONE);
+    run_tests_with_encryption(FDB_ENCRYPTION_BOGUS);
+#if __APPLE__
+    run_tests_with_encryption(FDB_ENCRYPTION_AES256);
+#endif
     return 0;
 }

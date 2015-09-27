@@ -273,6 +273,23 @@ typedef fdb_compact_decision (*fdb_compaction_callback)(
                                void *ctx);
 
 /**
+  * Encryption algorithms known to ForestDB.
+  */
+typedef int fdb_encryption_algorithm_t;
+enum {
+    FDB_ENCRYPTION_NONE = 0,    /**< No encryption (default) */
+    FDB_ENCRYPTION_AES256 = 1   /**< AES with 256-bit key */
+};
+
+/**
+  * File encryption key.
+  */
+typedef struct {
+    fdb_encryption_algorithm_t algorithm;
+    uint8_t bytes[32];
+} fdb_encryption_key;
+
+/**
  * ForestDB config options that are passed to fdb_open API.
  */
 typedef struct {
@@ -436,6 +453,13 @@ typedef struct {
      * This is a global config that is configured across all ForestDB files.
      */
     size_t num_bgflusher_threads;
+    /**
+     * Encryption key for the database. Default value has algorithm = FDB_ENCRYPTION_NONE,
+     * i.e. no encryption. When a database file is being created, its contents will be
+     * encrypted with the given key. When a database is re-opened, the same key
+     * must be given, otherwise fdb_open will fail with error FDB_RESULT_NO_DB_HEADERS.
+     */
+    fdb_encryption_key encryption_key;
 
 } fdb_config;
 

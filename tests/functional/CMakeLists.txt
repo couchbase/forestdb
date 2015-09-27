@@ -12,6 +12,9 @@ add_executable(fdb_functional_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -54,6 +57,9 @@ add_executable(fdb_extended_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -96,6 +102,9 @@ add_executable(compact_functional_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -138,6 +147,9 @@ add_executable(iterator_functional_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -180,6 +192,9 @@ add_executable(mvcc_functional_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -222,6 +237,9 @@ add_executable(multi_kv_functional_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -264,6 +282,9 @@ add_executable(big_concurrency_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
@@ -306,6 +327,12 @@ add_executable(big_compaction_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                ${ROOT_SRC}/filemgr_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}

@@ -23,7 +23,7 @@
 #include "filemgr_ops.h"
 #include "test.h"
 
-void basic_test()
+void basic_test(fdb_encryption_algorithm_t encryption)
 {
     TEST_INIT();
 
@@ -38,6 +38,9 @@ void basic_test()
     config.ncacheblock = 1024;
     config.options = FILEMGR_CREATE;
     config.num_wal_shards = 8;
+
+    config.encryption_key.algorithm = encryption;
+    memset(&config.encryption_key.bytes, 0x55, sizeof(config.encryption_key.bytes));
 
     filemgr_open_result result = filemgr_open((char *) "./filemgr_testfile",
                                               get_filemgr_ops(), &config, NULL);
@@ -57,7 +60,8 @@ void basic_test()
 
     filemgr_close(file, true, NULL, NULL);
 
-    TEST_RESULT("basic test");
+    sprintf(buf, "basic test, encryption=%d", (int)encryption);
+    TEST_RESULT(buf);
 }
 
 void mt_init_test()
@@ -72,7 +76,8 @@ int main()
     int r = system(SHELL_DEL" filemgr_testfile");
     (void)r;
 
-    basic_test();
+    basic_test(FDB_ENCRYPTION_NONE);
+    basic_test(FDB_ENCRYPTION_BOGUS);
     mt_init_test();
 
     return 0;

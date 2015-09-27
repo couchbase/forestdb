@@ -207,7 +207,13 @@ typedef enum {
     /**
      * Fail to read asynchronous I/O events from the completion queue.
      */
-    FDB_RESULT_AIO_GETEVENTS_FAIL = -43
+    FDB_RESULT_AIO_GETEVENTS_FAIL = -43,
+    /**
+     * Error encrypting or decrypting data, or unsupported encryption algorithm.
+     */
+    FDB_RESULT_CRYPTO_ERROR = -44,
+
+    FDB_RESULT_LAST = FDB_RESULT_CRYPTO_ERROR // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus

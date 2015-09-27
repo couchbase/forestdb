@@ -33,6 +33,7 @@
 #include "list.h"
 #include "fdb_internal.h"
 #include "time_utils.h"
+#include "encryption.h"
 
 #include "memleak.h"
 
@@ -295,6 +296,48 @@ static void _filemgr_shutdown_temp_buf()
     spin_unlock(&temp_buf_lock);
 }
 
+// Read a block from the file, decrypting if necessary.
+static ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid) {
+    ssize_t result = file->ops->pread(file->fd, buf, file->blocksize, file->blocksize*bid);
+    if (file->encryption.ops && result > 0) {
+        if (result != file->blocksize)
+            return FDB_RESULT_READ_FAIL;
+        fdb_status status = fdb_decrypt_block(&file->encryption, buf, result, bid);
+        if (status != FDB_RESULT_SUCCESS)
+            return status;
+    }
+    return result;
+}
+
+// Write consecutive block(s) to the file, encrypting if necessary.
+ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_blocks, bid_t start_bid) {
+    size_t blocksize = file->blocksize;
+    cs_off_t offset = start_bid * blocksize;
+    size_t nbytes = num_blocks * blocksize;
+    if (file->encryption.ops == NULL) {
+        return file->ops->pwrite(file->fd, buf, nbytes, offset);
+    } else {
+        uint8_t *encrypted_buf;
+        if (nbytes > 4096)
+            encrypted_buf = (uint8_t*)malloc(nbytes);
+        else
+            encrypted_buf = alca(uint8_t, nbytes); // most common case (writing single block)
+        if (!encrypted_buf)
+            return FDB_RESULT_ALLOC_FAIL;
+        fdb_status status = fdb_encrypt_blocks(&file->encryption,
+                                               encrypted_buf,
+                                               buf,
+                                               blocksize,
+                                               num_blocks,
+                                               start_bid);
+        if (nbytes > 4096)
+            free(encrypted_buf);
+        if (status != FDB_RESULT_SUCCESS)
+            return status;
+        return file->ops->pwrite(file->fd, encrypted_buf, nbytes, offset);
+    }
+}
+
 static fdb_status _filemgr_read_header(struct filemgr *file,
                                        err_log_callback *log_callback)
 {
@@ -332,8 +375,8 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
 
         size_t block_counter = 0;
         do {
-            ssize_t rv = file->ops->pread(file->fd, buf, file->blocksize,
-                atomic_get_uint64_t(&file->pos) - file->blocksize);
+            ssize_t rv = filemgr_read_block(file, buf,
+                atomic_get_uint64_t(&file->pos)/file->blocksize - 1);
             if (rv != file->blocksize) {
                 status = FDB_RESULT_READ_FAIL;
                 const char *msg = "Unable to read a database file '%s' with "
@@ -611,6 +654,12 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     filemgr_init(config);
 
+    if (config->encryption_key.algorithm != FDB_ENCRYPTION_NONE && global_config.ncacheblock <= 0) {
+        // cannot use encryption without a block cache
+        result.rv = FDB_RESULT_CRYPTO_ERROR;
+        return result;
+    }
+
     // check whether file is already opened or not
     query.filename = filename;
     spin_lock(&filemgr_openlock);
@@ -707,6 +756,15 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     strcpy(file->filename, filename);
 
     file->ref_count = 1;
+
+    status = fdb_init_encryptor(&file->encryption, &config->encryption_key);
+    if (status != FDB_RESULT_SUCCESS) {
+        ops->close(fd);
+        free(file);
+        spin_unlock(&filemgr_openlock);
+        result.rv = status;
+        return result;
+    }
 
     file->wal = (struct wal *)calloc(1, sizeof(struct wal));
     file->wal->flag = 0;
@@ -1658,7 +1716,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
             }
 
             // if normal file, just read a block
-            r = file->ops->pread(file->fd, buf, file->blocksize, pos);
+            r = filemgr_read_block(file, buf, bid);
             if (r != file->blocksize) {
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "READ", file->filename);
@@ -1720,7 +1778,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
             return FDB_RESULT_READ_FAIL;
         }
 
-        r = file->ops->pread(file->fd, buf, file->blocksize, pos);
+        r = filemgr_read_block(file, buf, bid);
         if (r != file->blocksize) {
             _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",
                            file->filename);
@@ -1814,8 +1872,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     // this is the first time to write this block
                     // we don't need to read previous block from file.
                 } else {
-                    r = file->ops->pread(file->fd, _buf, file->blocksize,
-                                         bid * file->blocksize);
+                    r = filemgr_read_block(file, _buf, bid);
                     if (r != file->blocksize) {
                         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -1990,8 +2047,8 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         memcpy((uint8_t *)buf + file->blocksize - BLK_MARKER_SIZE,
                marker, BLK_MARKER_SIZE);
 
-        ssize_t rv = file->ops->pwrite(file->fd, buf, file->blocksize,
-                                       atomic_get_uint64_t(&file->pos));
+        ssize_t rv = filemgr_write_blocks(file, buf, 1,
+                                         atomic_get_uint64_t(&file->pos) / file->blocksize);
         _log_errno_str(file->ops, log_callback, (fdb_status) rv,
                        "WRITE", file->filename);
         if (rv != file->blocksize) {
@@ -2282,6 +2339,7 @@ fdb_status filemgr_destroy_file(char *filename,
         file->fd = file->ops->open(file->filename, O_RDWR, 0666);
         file->blocksize = global_config.blocksize;
         file->config = NULL;
+        fdb_init_encryptor(&file->encryption, &config->encryption_key);
         if (file->fd < 0) {
             if (file->fd != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call

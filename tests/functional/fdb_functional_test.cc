@@ -706,7 +706,7 @@ void error_to_str_test()
     int i;
     const char *err_msg;
 
-    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_AIO_GETEVENTS_FAIL; --i) {
+    for (i = FDB_RESULT_SUCCESS; i >= FDB_RESULT_LAST; --i) {
         err_msg = fdb_error_msg((fdb_status)i);
         // Verify that all error codes have corresponding error messages
         TEST_CHK(strcmp(err_msg, "unknown error"));

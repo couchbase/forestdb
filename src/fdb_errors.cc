@@ -157,6 +157,9 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_AIO_GETEVENTS_FAIL:
             return "Fail to read asynchronous I/O events from the completion queue";
 
+        case FDB_RESULT_CRYPTO_ERROR:
+            return "Encryption error";
+
         default:
             return "unknown error";
     }

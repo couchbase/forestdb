@@ -1226,6 +1226,7 @@ static void _fdb_init_file_config(const fdb_config *config,
     fconfig->prefetch_duration = config->prefetch_duration;
     fconfig->num_wal_shards = config->num_wal_partitions;
     fconfig->num_bcache_shards = config->num_bcache_partitions;
+    fconfig->encryption_key = config->encryption_key;
 }
 
 fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
@@ -5593,6 +5594,7 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
     if (!(handle->config.durability_opt & FDB_DRB_ASYNC)) {
         fconfig.options |= FILEMGR_SYNC;
     }
+    fconfig.encryption_key = handle->config.encryption_key;
 
     // open same file again, so the root kv handle can be redirected to this
     result = filemgr_open((char *)handle->filename,

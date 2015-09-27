@@ -556,10 +556,8 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                 if (count > 0 && !consecutive_blocks) {
                     size_t bytes_written;
                     // Note that this path can be only executed in flush_all case.
-                    bytes_written = (size_t)fname_item->curfile->ops->pwrite(
-                                              fname_item->curfile->fd,
-                                              buf, count * bcache_blocksize,
-                                              start_bid * bcache_blocksize);
+                    bytes_written = (size_t)filemgr_write_blocks(fname_item->curfile,
+                                                                 buf, count, start_bid);
                     if (bytes_written != count * bcache_blocksize) {
                         count = 0;
                         status = FDB_RESULT_WRITE_FAIL;
@@ -572,10 +570,10 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                 memcpy((uint8_t *)(buf) + count*bcache_blocksize,
                        dirty_block->item->addr, bcache_blocksize);
             } else {
-                ret = fname_item->curfile->ops->pwrite(fname_item->curfile->fd,
-                                                       dirty_block->item->addr,
-                                                       bcache_blocksize,
-                                                       dirty_block->item->bid * bcache_blocksize);
+                ret = filemgr_write_blocks(fname_item->curfile,
+                                           dirty_block->item->addr,
+                                           1,
+                                           dirty_block->item->bid);
                 if (ret != bcache_blocksize) {
                     if (!(dirty_block->item->flag & BCACHE_IMMUTABLE) &&
                         !(sync && o_direct)) {
@@ -616,9 +614,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         if (count*bcache_blocksize >= bcache_flush_unit && sync) {
             if (flush_all) {
                 if (o_direct) {
-                    ret = fname_item->curfile->ops->pwrite(fname_item->curfile->fd,
-                                                           buf, count * bcache_blocksize,
-                                                           start_bid * bcache_blocksize);
+                    ret = filemgr_write_blocks(fname_item->curfile, buf, count, start_bid);
                     if ((size_t)ret != count * bcache_blocksize) {
                         count = 0;
                         status = FDB_RESULT_WRITE_FAIL;
@@ -637,9 +633,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
     // synchronize
     if (sync && o_direct) {
         if (count > 0) {
-            ret = fname_item->curfile->ops->pwrite(fname_item->curfile->fd, buf,
-                                                   count * bcache_blocksize,
-                                                   start_bid * bcache_blocksize);
+            ret = filemgr_write_blocks(fname_item->curfile, buf, count, start_bid);
             if ((size_t)ret != count * bcache_blocksize) {
                 status = FDB_RESULT_WRITE_FAIL;
             }

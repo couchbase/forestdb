@@ -12,6 +12,9 @@ add_executable(fdb_anomaly_test
                ${ROOT_SRC}/compactor.cc
                ${ROOT_SRC}/configuration.cc
                ${ROOT_SRC}/docio.cc
+               ${ROOT_SRC}/encryption.cc
+               ${ROOT_SRC}/encryption_aes.cc
+               ${ROOT_SRC}/encryption_bogus.cc
                ${ROOT_SRC}/filemgr.cc
                filemgr_anomalous_ops.cc
                ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}

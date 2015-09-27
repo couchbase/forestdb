@@ -38,6 +38,7 @@
 #include "atomic.h"
 #include "checksum.h"
 #include "filemgr_ops.h"
+#include "encryption.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +60,7 @@ struct filemgr_config {
     uint64_t prefetch_duration;
     uint16_t num_wal_shards;
     uint16_t num_bcache_shards;
+    fdb_encryption_key encryption_key;
 };
 
 struct async_io_handle {
@@ -172,6 +174,8 @@ struct filemgr {
 
     // CRC the file is using.
     crc_mode_e crc_mode;
+
+    encryptor encryption;
 };
 
 typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
@@ -263,6 +267,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset
                           err_log_callback *log_callback);
 fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback);
+ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_blocks, bid_t start_bid);
 INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)
 {
     uint64_t pos = bid * file->blocksize;

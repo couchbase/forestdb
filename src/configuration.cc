@@ -87,6 +87,9 @@ fdb_config get_default_config(void) {
     fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
     fconfig.num_bgflusher_threads = DEFAULT_NUM_BGFLUSHER_THREADS;
 
+    fconfig.encryption_key.algorithm = FDB_ENCRYPTION_NONE;
+    memset(fconfig.encryption_key.bytes, 0, sizeof(fconfig.encryption_key.bytes));
+
     return fconfig;
 }
 
