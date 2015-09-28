@@ -454,9 +454,9 @@ void *iterate_thread(void *args){
             status = fdb_iterator_get(it, &rdoc);
             if (j) {
                 TEST_CHK(status == FDB_RESULT_SUCCESS);
-                fdb_doc_free(rdoc);
-                rdoc = NULL;
             }
+            fdb_doc_free(rdoc);
+            rdoc = NULL;
             j++;
         } while (fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
         // reverse and seek ahead
