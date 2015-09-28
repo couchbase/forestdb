@@ -380,7 +380,7 @@ void * compactor_thread(void *voidargs)
                 if (fs == FDB_RESULT_SUCCESS) {
                     compactor_get_next_filename(elem->filename, new_filename);
                     fdb_compact_file(fhandle, new_filename, false, (bid_t) -1,
-                                     false);
+                                     false, NULL);
                     fdb_close(fhandle);
 
                     strcpy(query.filename, new_filename);

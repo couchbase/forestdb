@@ -80,7 +80,8 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                             const char *new_filename,
                             bool in_place_compaction,
                             bid_t marker_bid,
-                            bool clone_docs);
+                            bool clone_docs,
+                            const fdb_encryption_key *new_encryption_key);
 
 fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle);
 

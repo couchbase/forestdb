@@ -46,6 +46,7 @@ extern "C" {
 
 #define TEST_CHK(cond) {if (!(cond)) {fprintf(stderr, "Test failed: %s %d\n", __FILE__, __LINE__); __test_pass=0; assert(cond);}}
 #define TEST_CMP(str1, str2, len) {if (memcmp(str1, str2, len)) {fprintf(stderr, "Test expected %s but got %s failed: %s %d\n", (char*)str2,(char*) str1, __FILE__, __LINE__); __test_pass=0; assert(false);}}
+#define TEST_STATUS(status) {fdb_status s = (status); if (s != FDB_RESULT_SUCCESS) {fprintf(stderr, "Test failed with fdb_status %d (%s) at %s %d\n", s, fdb_error_msg(s), __FILE__, __LINE__); __test_pass=0; assert(false);}}
 #define TEST_RESULT(name) {if ((__test_pass)) fprintf(stderr, "%s PASSED\n", (name)); else fprintf(stderr, "%s FAILED\n", (name)); }
 
 #define TEST_TIME() {\

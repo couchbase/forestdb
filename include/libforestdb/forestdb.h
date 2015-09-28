@@ -717,6 +717,17 @@ fdb_status fdb_compact_upto_with_cow(fdb_file_handle *fhandle,
                                      const char *new_filename,
                                      fdb_snapshot_marker_t marker);
 /**
+ * Change the database file's encryption, by compacting it while writing with a new key.
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param new_key Key with which to encrypt the new file. To remove encryption, set the key's
+ *                algorithm to FDB_ENCRYPTION_NONE.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_rekey(fdb_file_handle *fhandle,
+                     fdb_encryption_key new_key);
+
+/**
  * Return the overall buffer cache space actively used by all ForestDB files.
  * Note that this does not include space in WAL, hash tables and other
  * in-memory data structures allocated by ForestDB api

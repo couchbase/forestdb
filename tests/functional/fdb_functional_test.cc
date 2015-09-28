@@ -3914,6 +3914,103 @@ void get_byoffset_diff_kvs_test()
     TEST_RESULT("get byoffset diff kvs");
 }
 
+
+void rekey_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    size_t valuelen;
+    void *value;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_status status;
+
+    char keybuf[256], bodybuf[256], temp[256];
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    fconfig.encryption_key.algorithm = -1; // Bogus encryption
+    memset(fconfig.encryption_key.bytes, 0x42, sizeof(fconfig.encryption_key.bytes));
+
+    // open db
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "api_wrapper_test");
+    TEST_STATUS(status);
+
+    // error check
+    status = fdb_set_kv(db, NULL, 0, NULL, 0);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    // insert key-value pairs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+        TEST_STATUS(status);
+    }
+
+    // change the encryption key:
+    fdb_encryption_key new_key;
+    new_key.algorithm = -1; // Bogus encryption
+    memset(new_key.bytes, 0xBD, sizeof(new_key.bytes));
+    strcpy((char*)new_key.bytes, "bar");
+
+    status = fdb_rekey(dbfile, new_key);
+    TEST_STATUS(status);
+
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // reopen db
+    fconfig.encryption_key = new_key;
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_STATUS(status);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_STATUS(status);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "api_wrapper_test");
+    TEST_STATUS(status);
+
+    // retrieve key-value pairs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value, &valuelen);
+
+        // updated documents
+        TEST_STATUS(status);
+        sprintf(temp, "body%d", i);
+        TEST_CMP(value, temp, valuelen);
+        fdb_free_block(value);
+    }
+
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("encryption rekey test");
+}
+
 int main(){
     basic_test();
     set_get_max_keylen();
@@ -3960,6 +4057,7 @@ int main(){
     operational_stats_test(true);
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
     open_multi_files_kvs_test();
+    rekey_test();
 
     return 0;
 }
