@@ -135,7 +135,15 @@ fdb_status snap_insert(struct snap_handle *shandle, fdb_doc *doc,
         item->keylen = doc->keylen;
         item->key = doc->key;
         item->seqnum = doc->seqnum;
-        item->action = doc->deleted ? WAL_ACT_LOGICAL_REMOVE : WAL_ACT_INSERT;
+        if (doc->deleted) {
+            if (!offset) { // deleted item can never be at offset 0
+                item->action = WAL_ACT_REMOVE; // must be a purged item
+            } else {
+                item->action = WAL_ACT_LOGICAL_REMOVE;
+            }
+        } else {
+            item->action = WAL_ACT_INSERT;
+        }
         item->offset = offset;
         avl_insert(shandle->key_tree, &item->avl, _snp_wal_cmp);
         avl_insert(shandle->seq_tree, &item->avl_seq, _snp_seqnum_cmp);
