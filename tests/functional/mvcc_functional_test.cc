@@ -2131,6 +2131,147 @@ void snapshot_markers_in_file_test(bool multi_kv)
     TEST_RESULT(bodybuf);
 }
 
+void snapshot_with_deletes_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc = NULL;
+    fdb_kvs_info kvs_info;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "snapshot_with_deletes_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // ------- Setup test ----------------------------------
+    // insert even documents into main index
+    for (i=0; i<n; i = i + 2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    i = 7;
+    sprintf(keybuf, "key%d", i);
+    fdb_set_kv(db, keybuf, strlen(keybuf), NULL, 0);
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // let odd documents be in WAL section
+    for (i = 1; i < n; i = i + 2){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // Delete WAL doc 7
+    i = 7;
+    fdb_del(db, doc[i]);
+
+    // Create an iterator on the live DB over full range
+    fdb_iterator_init(db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    // attempt to seek to the deleted key7
+    status = fdb_iterator_seek(iterator, doc[i]->key, doc[i]->keylen,
+                               FDB_ITR_SEEK_HIGHER);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i = 8; // The next higher document must be returned
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    fdb_iterator_close(iterator);
+
+    // Open an in-memory snapshot over live DB
+    status = fdb_snapshot_open(db, &snap_db, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // check snapshot's sequence number
+    fdb_get_kvs_info(snap_db, &kvs_info);
+    TEST_CHK(kvs_info.last_seqnum == (fdb_seqnum_t)n+2);
+
+    // re-create an iterator on the snapshot for full range
+    fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+
+    i = 7;
+    // attempt to seek to the deleted key7
+    status = fdb_iterator_seek(iterator, doc[i]->key, doc[i]->keylen,
+                               FDB_ITR_SEEK_HIGHER);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i = 8; // The next higher document must be returned
+    TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+    TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+
+    fdb_doc_free(rdoc);
+    rdoc = NULL;
+
+    fdb_iterator_close(iterator);
+
+    // close db handle
+    fdb_kvs_close(db);
+    // close snapshot handle
+    fdb_kvs_close(snap_db);
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("snapshot with deletes test");
+}
+
 void rollback_forward_seqnum()
 {
 
@@ -4082,6 +4223,7 @@ int main(){
     snapshot_with_uncomitted_data_test();
     snapshot_markers_in_file_test(true); // multi kv instance mode
     snapshot_markers_in_file_test(false); // single kv instance mode
+    snapshot_with_deletes_test();
     rollback_during_ops_test(NULL);
     rollback_forward_seqnum();
     rollback_test(false); // single kv instance mode

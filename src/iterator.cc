@@ -1142,10 +1142,10 @@ fetch_hbtrie:
     }
 
     if (hr == HBTRIE_RESULT_SUCCESS && iterator->handle->kvs) {
-        // seek is done byeond the KV ID
         fdb_kvs_id_t kv_id;
         buf2kvid(size_chunk, iterator->_key, &kv_id);
         if (iterator->handle->kvs->id != kv_id) {
+            // seek is done beyond the KV ID
             hr = HBTRIE_RESULT_FAIL;
         }
     }
@@ -1173,13 +1173,14 @@ fetch_hbtrie:
                                                        &query.avl,
                                                        _fdb_wal_cmp);
         }
-        if (iterator->opt & FDB_ITR_NO_DELETES &&
-            iterator->tree_cursor) {
+        if (iterator->tree_cursor) {
             // skip deleted WAL entry
             do {
                 snap_item = _get_entry(iterator->tree_cursor,
                                        struct snap_wal_entry, avl);
-                if (snap_item->action == WAL_ACT_LOGICAL_REMOVE) {
+                if ((snap_item->action == WAL_ACT_LOGICAL_REMOVE && // skip
+                    iterator->opt & FDB_ITR_NO_DELETES) || //logical delete OR
+                    snap_item->action == WAL_ACT_REMOVE) { // immediate purge
                     if (iterator->_dhandle) {
                         cmp = _fdb_key_cmp(iterator,
                                            snap_item->key, snap_item->keylen,
@@ -1220,13 +1221,14 @@ fetch_hbtrie:
                                                        &query.avl,
                                                        _fdb_wal_cmp);
         }
-        if (iterator->opt & FDB_ITR_NO_DELETES &&
-            iterator->tree_cursor) {
+        if (iterator->tree_cursor) {
             // skip deleted WAL entry
             do {
                 snap_item = _get_entry(iterator->tree_cursor,
                                        struct snap_wal_entry, avl);
-                if (snap_item->action == WAL_ACT_LOGICAL_REMOVE) {
+                if ((snap_item->action == WAL_ACT_LOGICAL_REMOVE && // skip
+                     iterator->opt & FDB_ITR_NO_DELETES) || //logical delete OR
+                     snap_item->action == WAL_ACT_REMOVE) { //immediate purge
                     if (iterator->_dhandle) {
                         cmp = _fdb_key_cmp(iterator,
                                            snap_item->key, snap_item->keylen,
@@ -1280,6 +1282,8 @@ fetch_hbtrie:
 
             if (cmp == 0) {
                 // same key exists in both HB+trie and WAL
+                fdb_assert(snap_item->action != WAL_ACT_REMOVE,
+                           snap_item->action, iterator->_offset);
                 take_wal = true;
                 discard_hbtrie = true;
             } else if (cmp < 0) { // key[WAL] < key[HB+trie]
