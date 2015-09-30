@@ -2157,6 +2157,141 @@ void sequence_iterator_duplicate_test()
     TEST_RESULT("sequence iterator duplicate test");
 }
 
+// MB-16406
+void sequence_iterator_range_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    int count;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc = NULL;
+    fdb_status status;
+    fdb_iterator *iterator;
+    fdb_seqnum_t seqnum;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous iterator_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+
+    // open db
+    fdb_open(&dbfile, "./iterator_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "sequence_iterator_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert docs
+    for (i=0;i<n;i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                                (void*)metabuf, strlen(metabuf),
+                                (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+    // manually flush WAL & commit
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // create a full range seq iterator
+    status = fdb_iterator_sequence_init(db, &iterator, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // repeat until fail
+    count = 0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        i = count;
+        seqnum = i+1;
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+        TEST_CHK(rdoc->seqnum == seqnum);
+
+        count++;
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(count == n);
+    fdb_iterator_close(iterator);
+
+    // create a partial range seq iterator with the given max seq number
+    status = fdb_iterator_sequence_init(db, &iterator, 0, n/2, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // repeat until fail
+    count = 0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        i = count;
+        seqnum = i+1;
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+        TEST_CHK(rdoc->seqnum == seqnum);
+
+        count++;
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(count == n/2);
+    fdb_iterator_close(iterator);
+
+    // create a partial range seq iterator with the given min seq number
+    status = fdb_iterator_sequence_init(db, &iterator, (n/2)+1, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // repeat until fail
+    count = 0;
+    do {
+        status = fdb_iterator_get(iterator, &rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        i = count + n/2;
+        seqnum = i+1;
+
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+        TEST_CHK(rdoc->seqnum == seqnum);
+
+        count++;
+        fdb_doc_free(rdoc);
+        rdoc = NULL;
+    } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+    TEST_CHK(count == n/2);
+    fdb_iterator_close(iterator);
+
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("sequence iterator range test");
+}
+
 void reverse_sequence_iterator_test()
 {
     TEST_INIT();
@@ -3366,6 +3501,7 @@ int main(){
     iterator_del_next_test();
     sequence_iterator_test();
     sequence_iterator_duplicate_test();
+    sequence_iterator_range_test();
     reverse_sequence_iterator_test();
     reverse_sequence_iterator_kvs_test();
     reverse_iterator_test();

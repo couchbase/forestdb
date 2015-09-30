@@ -477,7 +477,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     uint8_t *start_seq_kv;
 
     if (handle == NULL || ptr_iterator == NULL ||
-        start_seq > end_seq) {
+        (end_seq && start_seq > end_seq)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
