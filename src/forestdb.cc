@@ -1387,6 +1387,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     // In case, snapshot_open is attempted with latest uncommitted
                     // sequence number
                     header_len = 0;
+                } else if (seq_commit == handle->max_seqnum) {
+                    // snapshot/rollback on the latest commit header
+                    seqnum = seq_commit; // skip file reverse scan
                 }
             }
             // Reverse scan the file to locate the DB header with seqnum marker
