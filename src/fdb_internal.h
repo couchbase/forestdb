@@ -108,8 +108,9 @@ void fdb_kvs_info_free(fdb_kvs_handle *handle);
 void fdb_kvs_header_reset_all_stats(struct filemgr *file);
 void fdb_kvs_header_create(struct filemgr *file);
 uint64_t fdb_kvs_header_append(struct filemgr *file,
-                                  struct docio_handle *dhandle);
-void fdb_kvs_header_read(struct filemgr *file,
+                               struct docio_handle *dhandle);
+struct kvs_header;
+void fdb_kvs_header_read(struct kvs_header *kv_header,
                          struct docio_handle *dhandle,
                          uint64_t kv_info_offset,
                          bool only_seq_nums);
@@ -117,8 +118,6 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle,
                          bool create_new);
-
-struct kvs_header;
 void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file);
 void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);
 void _fdb_kvs_header_import(struct kvs_header *kv_header,
