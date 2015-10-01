@@ -581,15 +581,19 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
     struct kvs_node *node_old, *node_new;
 
     if (create_new) {
+        struct kvs_header *kv_header;
         // copy KV header data in 'handle' to new file
-        fdb_kvs_header_create(new_file);
+        _fdb_kvs_header_create(&kv_header);
         // read from 'handle->dhandle', and import into 'new_file'
-        fdb_kvs_header_read(new_file, handle->dhandle,
-                            handle->kv_info_offset,
-                            FILEMGR_MAGIC_V2, false);
+        fdb_kvs_header_read(kv_header, handle->dhandle,
+                            handle->kv_info_offset, FILEMGR_MAGIC_V2, false);
         // write KV header in 'new_file' using 'new_dhandle'
         handle->kv_info_offset = fdb_kvs_header_append(new_file,
                                                           new_dhandle);
+        if (!filemgr_set_kv_header(new_file, kv_header, fdb_kvs_header_free,
+                                   false)) { // LCOV_EXCL_START
+            _fdb_kvs_header_free(kv_header);
+        } // LCOV_EXCL_STOP
         fdb_kvs_header_reset_all_stats(new_file);
     }
 
@@ -1020,7 +1024,7 @@ uint64_t fdb_kvs_header_append(struct filemgr *file,
     return kv_info_offset;
 }
 
-void fdb_kvs_header_read(struct filemgr *file,
+void fdb_kvs_header_read(struct kvs_header *kv_header,
                          struct docio_handle *dhandle,
                          uint64_t kv_info_offset,
                          uint64_t version,
@@ -1035,11 +1039,11 @@ void fdb_kvs_header_read(struct filemgr *file,
     if (offset == kv_info_offset) {
         fdb_log(dhandle->log_callback, FDB_RESULT_READ_FAIL,
                 "Failed to read a KV header with the offset %" _F64 " from a "
-                "database file '%s'", kv_info_offset, file->filename);
+                "database file '%s'", kv_info_offset, dhandle->file->filename);
         return;
     }
 
-    _fdb_kvs_header_import(file->kv_header, doc.body, doc.length.bodylen,
+    _fdb_kvs_header_import(kv_header, doc.body, doc.length.bodylen,
                            version, only_seq_nums);
     free_docio_object(&doc, 1, 1, 1);
 }

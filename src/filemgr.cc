@@ -2147,6 +2147,27 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
     spin_unlock(&old_file->lock);
 }
 
+bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
+                           void (*free_kv_header)(struct filemgr *file),
+                           bool got_lock)
+{
+    bool ret;
+    if (!got_lock) {
+        spin_lock(&file->lock);
+    }
+    if (!file->kv_header) {
+        file->kv_header = kv_header;
+        file->free_kv_header = free_kv_header;
+        ret = true;
+    } else {
+        ret = false;
+    }
+    if (!got_lock) {
+        spin_unlock(&file->lock);
+    }
+    return ret;
+}
+
 // Check if there is a file that still points to the old_file that is being
 // compacted away. If so open the file and return its pointer.
 static

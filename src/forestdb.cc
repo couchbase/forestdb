@@ -1161,7 +1161,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     if (handle->config.multi_kv_instances) {
         filemgr_mutex_lock(handle->file);
         fdb_kvs_header_create(handle->file);
-        fdb_kvs_header_read(handle->file, handle->dhandle, handle->kv_info_offset,
+        fdb_kvs_header_read(handle->file->kv_header, handle->dhandle, handle->kv_info_offset,
                             handle->file->version, false);
         filemgr_mutex_unlock(handle->file);
     }
@@ -1192,7 +1192,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
         }
     } else { // Rollback failed, restore KV header
         fdb_kvs_header_create(file);
-        fdb_kvs_header_read(file, super_handle->dhandle,
+        fdb_kvs_header_read(file->kv_header, super_handle->dhandle,
                             super_handle->kv_info_offset, FILEMGR_MAGIC_V2,
                             false);
     }
@@ -1477,10 +1477,15 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         if (handle->kvs && handle->kvs->id > 0) {
             if (kv_info_offset != BLK_NOT_FOUND) {
                 if (!handle->file->kv_header) {
-                    fdb_kvs_header_create(handle->file);
+                    struct kvs_header *kv_header;
+                    _fdb_kvs_header_create(&kv_header);
                     // KV header already exists but not loaded .. read & import
-                    fdb_kvs_header_read(handle->file, handle->dhandle,
+                    fdb_kvs_header_read(kv_header, handle->dhandle,
                                         kv_info_offset, version, false);
+                    if (!filemgr_set_kv_header(handle->file, kv_header,
+                                          fdb_kvs_header_free, false)) {
+                        _fdb_kvs_header_free(kv_header);
+                    }
                 }
                 seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
                                              handle->kvs->id);
@@ -1534,6 +1539,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     // In case, snapshot_open is attempted with latest uncommitted
                     // sequence number
                     header_len = 0;
+                } else if (seq_commit == handle->max_seqnum) {
+                    // snapshot/rollback on the latest commit header
+                    seqnum = seq_commit; // skip file reverse scan
                 }
             }
             // Reverse scan the file to locate the DB header with seqnum marker
@@ -1691,8 +1699,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         } else if (handle->file->kv_header == NULL) {
             // KV header already exists but not loaded .. read & import
             fdb_kvs_header_create(handle->file);
-            fdb_kvs_header_read(handle->file, handle->dhandle, kv_info_offset,
-                                version, false);
+            fdb_kvs_header_read(handle->file->kv_header, handle->dhandle,
+                                kv_info_offset, version, false);
         }
         filemgr_mutex_unlock(handle->file);
 
@@ -4774,7 +4782,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     filemgr_set_seqnum(new_file, old_seqnum);
     if (rhandle->kvs) {
         // Copy the old file's sequence numbers to the new file.
-        fdb_kvs_header_read(new_file, handle.dhandle,
+        fdb_kvs_header_read(new_file->kv_header, handle.dhandle,
                             handle.kv_info_offset, version, true);
         // Reset KV stats as they are updated while moving documents below.
         fdb_kvs_header_reset_all_stats(new_file);
@@ -5208,7 +5216,8 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                      &dummy64, &dummy64,
                                      &kv_info_offset, &dummy64,
                                      &compacted_filename, NULL);
-                    fdb_kvs_header_read(new_file, handle->dhandle,
+
+                    fdb_kvs_header_read(new_file->kv_header, handle->dhandle,
                                         kv_info_offset, version, true);
                 }
 

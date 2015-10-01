@@ -21,7 +21,6 @@
 #include "e2espec.h"
 #include "test.h"
 
-
 void gen_random(char *s, const int len) {
     if (len < 1){
         return;
@@ -75,6 +74,11 @@ void reset_storage_index(storage_t *st){
     gen_index_params(st->index_params);
 }
 
+void logCallbackFunc(int err_code, const char *err_msg, void *pCtxData) {
+    fprintf(stderr, "%s - error code: %d, error message: %s\n",
+            (char *) pCtxData, err_code, err_msg);
+}
+
 storage_t *init_storage(fdb_config *m_fconfig,
                   fdb_config *r_fconfig,
                   fdb_kvs_config *kvs_config,
@@ -94,12 +98,19 @@ storage_t *init_storage(fdb_config *m_fconfig,
     fdb_kvs_open(st->main, &st->all_docs, E2EKV_ALLDOCS,  kvs_config);
     fdb_kvs_open(st->main, &st->index1, E2EKV_INDEX1,  kvs_config);
     fdb_kvs_open(st->main, &st->index2, E2EKV_INDEX2,  kvs_config);
-
+    fdb_set_log_callback(st->all_docs, logCallbackFunc,
+                         (void *) "e2etest:all_docs");
+    fdb_set_log_callback(st->index1, logCallbackFunc,
+                         (void *) "e2etest:index1");
+    fdb_set_log_callback(st->index2, logCallbackFunc,
+                         (void *) "e2etest:index2");
 
     // use unique records db for each storage instance
     fdb_open(&st->records, E2EDB_RECORDS, r_fconfig);
     fdb_kvs_open(st->records, &st->rtx, E2EKV_RECORDS,  kvs_config);
     fdb_kvs_open(st->records, &st->chk, E2EKV_CHECKPOINTS,  kvs_config);
+    fdb_set_log_callback(st->rtx, logCallbackFunc, (void *) "e2etest:rtx");
+    fdb_set_log_callback(st->chk, logCallbackFunc, (void *) "e2etest:chk");
     return st;
 }
 

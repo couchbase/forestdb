@@ -194,6 +194,10 @@ void filemgr_set_lazy_file_deletion(bool enable,
 
 uint64_t filemgr_get_bcache_used_space(void);
 
+bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
+                           void (*free_kv_header)(struct filemgr *file),
+                           bool got_lock);
+
 size_t filemgr_get_ref_count(struct filemgr *file);
 
 INLINE void filemgr_incr_ref_count(struct filemgr *file) {
