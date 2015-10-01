@@ -566,6 +566,7 @@ fdb_status compactor_register_file(struct filemgr *file,
         strcpy(elem->filename, file->filename);
         elem->file = file;
         elem->config = *config;
+        elem->config.cleanup_cache_onclose = false; // prevent MB-16422
         elem->register_count = 1;
         elem->compaction_flag = false;
         elem->daemon_compact_in_progress = false;
