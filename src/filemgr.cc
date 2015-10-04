@@ -452,6 +452,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                             _filemgr_release_temp_buf(buf);
                         }
 
+                        file->version = magic;
                         return status;
                     } else {
                         status = FDB_RESULT_CHECKSUM_ERROR;
