@@ -34,6 +34,7 @@
 #include "fdb_internal.h"
 #include "time_utils.h"
 #include "encryption.h"
+#include "version.h"
 
 #include "memleak.h"
 
@@ -342,7 +343,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                                        err_log_callback *log_callback)
 {
     uint8_t marker[BLK_MARKER_SIZE];
-    filemgr_magic_t magic = FILEMGR_MAGIC_V2;
+    filemgr_magic_t magic = ver_get_latest_magic();
     filemgr_header_len_t len;
     uint8_t *buf;
     uint32_t crc, crc_file;
@@ -396,11 +397,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                        sizeof(magic));
                 magic = _endian_decode(magic);
 
-
-                //TODO: Need to refactor this part to support the file format
-                //TODO:.. versioning in a more efficient way
-
-                if (magic == FILEMGR_MAGIC_V1 || magic == FILEMGR_MAGIC_V2) {
+                if (ver_is_valid_magic(magic)) {
                     memcpy(&len,
                            buf + file->blocksize - BLK_MARKER_SIZE -
                            sizeof(magic) - sizeof(len),
@@ -473,11 +470,9 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                     }
                 } else {
                     status = FDB_RESULT_FILE_CORRUPTION;
-                    const char *msg = "Crash Detected: Wrong Magic %" _F64 " != (%" _F64
-                        " or %" _F64 ") in a database file '%s'\n";
-                    DBG(msg, magic, FILEMGR_MAGIC_V1, FILEMGR_MAGIC_V2, file->filename);
-                    fdb_log(log_callback, status, msg, magic, FILEMGR_MAGIC_V1, FILEMGR_MAGIC_V2,
-                            file->filename);
+                    const char *msg = "Crash Detected: Wrong Magic %" _F64
+                                      " in a database file '%s'\n";
+                    fdb_log(log_callback, status, msg, magic, file->filename);
                 }
             } else {
                 status = FDB_RESULT_NO_DB_HEADERS;
@@ -1014,12 +1009,12 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
             _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
             sizeof(magic));
     magic = _endian_decode(magic);
-    if (magic != FILEMGR_MAGIC_V1 && magic != FILEMGR_MAGIC_V2) {
+    if (!ver_is_valid_magic(magic)) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "A block magic value of %" _F64 " in the database header block"
                 "id %" _F64 " in a database file '%s'"
                 "does NOT match FILEMGR_MAGIC %" _F64 "!",
-                magic, bid, file->filename, FILEMGR_MAGIC_V2);
+                magic, bid, file->filename, ver_get_latest_magic());
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
@@ -1046,7 +1041,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
         *seqnum = _endian_decode(_seqnum);
     }
 
-    if (deltasize && magic == FILEMGR_MAGIC_V2) {
+    if (deltasize && ver_deltasize_support(magic)) {
         memcpy(&_deltasize, _buf + file->blocksize - BLK_MARKER_SIZE
                - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
                - sizeof(_deltasize), sizeof(_deltasize));
@@ -1096,7 +1091,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         magic = _endian_decode(magic);
 
         if (marker[0] != BLK_MARKER_DBHEADER ||
-            (magic != FILEMGR_MAGIC_V1 && magic != FILEMGR_MAGIC_V2)) {
+            !ver_is_valid_magic(magic)) {
             // not a header block
             // this happens when this function is invoked between
             // fdb_set() call and fdb_commit() call, so the last block
@@ -1149,14 +1144,14 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
                sizeof(magic));
         magic = _endian_decode(magic);
-        if (magic != FILEMGR_MAGIC_V1 && magic != FILEMGR_MAGIC_V2) {
+        if (!ver_is_valid_magic(magic)) {
             // broken linked list
             fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                     "A block magic value of %" _F64
                     " of the previous database header block id %" _F64 " in "
                     "a database file '%s' does NOT match FILEMGR_MAGIC %"
                     _F64"!", magic,
-                    bid, file->filename, FILEMGR_MAGIC_V2);
+                    bid, file->filename, ver_get_latest_magic());
             break;
         }
 
@@ -1173,7 +1168,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         memcpy(&_seqnum,
                _buf + hdr_len + sizeof(filemgr_header_revnum_t),
                sizeof(fdb_seqnum_t));
-        if (deltasize && magic == FILEMGR_MAGIC_V2) {
+        if (deltasize && ver_deltasize_support(magic)) {
             memcpy(&_deltasize,
                    _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
                    sizeof(hdr_len) - sizeof(prev_bid) - sizeof(_deltasize),
@@ -1967,7 +1962,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
-    filemgr_magic_t magic = FILEMGR_MAGIC_V2;
+    filemgr_magic_t magic = ver_get_latest_magic();
     filemgr_magic_t _magic;
 
     atomic_store_uint8_t(&file->commit_in_prog, 1);
@@ -2515,7 +2510,7 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
             + blocksize - BLK_MARKER_SIZE - sizeof(magic), sizeof(magic));
     magic = _endian_decode(magic);
 
-    return (magic == FILEMGR_MAGIC_V1 || magic == FILEMGR_MAGIC_V2);
+    return ver_is_valid_magic(magic);
 }
 
 bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)

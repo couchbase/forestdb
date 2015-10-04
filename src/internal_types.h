@@ -134,6 +134,7 @@ struct kvs_stat {
 // Version 2 - added delta size to DB header and CRC-32C
 #define FILEMGR_MAGIC_V2 (UINT64_C(0xdeadcafebeefc001))
 #define FILEMGR_MAGIC_V1 (UINT64_C(0xdeadcafebeefbeef))
+#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_V2
 
 /**
  * Atomic counters of operational statistics in ForestDB KV store.

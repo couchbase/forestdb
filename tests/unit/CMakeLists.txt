@@ -30,6 +30,7 @@ add_executable(bcache_test
                ${ROOT_SRC}/list.cc
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/version.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
@@ -61,6 +62,7 @@ add_executable(filemgr_test
                ${ROOT_SRC}/list.cc
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/version.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
@@ -91,6 +93,7 @@ add_executable(btreeblock_test
                ${ROOT_SRC}/list.cc
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/version.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
@@ -119,6 +122,7 @@ add_executable(docio_test
                ${ROOT_SRC}/list.cc
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/version.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc
@@ -152,6 +156,7 @@ add_executable(hbtrie_test
                ${ROOT_SRC}/list.cc
                ${ROOT_SRC}/wal.cc
                ${ROOT_SRC}/snapshot.cc
+               ${ROOT_SRC}/version.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
                ${ROOT_UTILS}/memleak.cc

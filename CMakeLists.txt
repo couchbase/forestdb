@@ -149,6 +149,7 @@ add_library(forestdb SHARED
             src/snapshot.cc
             src/transaction.cc
             src/kv_instance.cc
+            src/version.cc
             utils/memleak.cc
             utils/crc32.cc
             utils/debug.cc
@@ -193,6 +194,7 @@ add_executable(forestdb_dump
                src/snapshot.cc
                src/transaction.cc
                src/kv_instance.cc
+               src/version.cc
                utils/memleak.cc
                utils/crc32.cc
                utils/debug.cc
@@ -239,6 +241,7 @@ add_executable(forestdb_hexamine
                src/snapshot.cc
                src/transaction.cc
                src/kv_instance.cc
+               src/version.cc
                utils/memleak.cc
                utils/crc32.cc
                utils/debug.cc

@@ -31,6 +31,7 @@
 #include "hbtrie.h"
 #include "btreeblock.h"
 #include "snapshot.h"
+#include "version.h"
 
 #include "memleak.h"
 #include "time_utils.h"
@@ -587,7 +588,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         _fdb_kvs_header_create(&kv_header);
         // read from 'handle->dhandle', and import into 'new_file'
         fdb_kvs_header_read(kv_header, handle->dhandle,
-                            handle->kv_info_offset, FILEMGR_MAGIC_V2, false);
+                            handle->kv_info_offset, ver_get_latest_magic(), false);
         // write KV header in 'new_file' using 'new_dhandle'
         handle->kv_info_offset = fdb_kvs_header_append(new_file,
                                                           new_dhandle);
@@ -782,7 +783,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     kv_header->id_counter = id_counter;
 
     // Version control
-    if (version == FILEMGR_MAGIC_V1) {
+    if (!ver_deltasize_support(version)) {
         is_deltasize = false;
         _deltasize = 0;
     } else {
@@ -877,7 +878,7 @@ fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
     bool is_deltasize;
     fdb_seqnum_t _seqnum;
     // Version control
-    if (version == FILEMGR_MAGIC_V1) {
+    if (!ver_deltasize_support(version)) {
         is_deltasize = false;
     } else {
         is_deltasize = true;
@@ -947,7 +948,7 @@ uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
     int64_t deltasize;
 
     // Version control
-    if (version == FILEMGR_MAGIC_V1) {
+    if (!ver_deltasize_support(version)) {
         is_deltasize = false;
     } else {
         is_deltasize = true;

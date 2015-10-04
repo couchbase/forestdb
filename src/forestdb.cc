@@ -45,6 +45,7 @@
 #include "memleak.h"
 #include "time_utils.h"
 #include "system_resource_stats.h"
+#include "version.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB
@@ -1193,7 +1194,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     } else { // Rollback failed, restore KV header
         fdb_kvs_header_create(file);
         fdb_kvs_header_read(file->kv_header, super_handle->dhandle,
-                            super_handle->kv_info_offset, FILEMGR_MAGIC_V2,
+                            super_handle->kv_info_offset, ver_get_latest_magic(),
                             false);
     }
 
