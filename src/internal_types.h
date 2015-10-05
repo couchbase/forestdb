@@ -523,6 +523,10 @@ struct kvs_header {
      */
     uint8_t custom_cmp_enabled;
     /**
+     * Number of KV store instances
+     */
+    size_t num_kv_stores;
+    /**
      * lock to protect access to the idx_name and idx_id trees above
      */
     spin_t lock;

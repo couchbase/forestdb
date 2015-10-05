@@ -576,6 +576,10 @@ typedef struct {
      * Total disk space used by the file, including stale btree nodes and docs.
      */
     uint64_t file_size;
+    /**
+     * Number of KV store instances in a ForestDB file
+     */
+    size_t num_kv_stores;
 } fdb_file_info;
 
 /**

@@ -111,6 +111,7 @@ void basic_test()
     fdb_get_file_info(dbfile, &info);
     TEST_CHK(info.doc_count == 9);
     TEST_CHK(info.space_used > 0);
+    TEST_CHK(info.num_kv_stores == 1);
 
     fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, NULL, 0, NULL, 0);
     status = fdb_get_metaonly(db, rdoc);

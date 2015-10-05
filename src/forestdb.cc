@@ -6548,6 +6548,16 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
     info->space_used = fdb_estimate_space_used(fhandle);
     info->file_size = filemgr_get_pos(handle->file);
 
+    // Get the number of KV store instances in a given ForestDB file.
+    struct kvs_header *kv_header = handle->file->kv_header;
+    size_t num = 1; // default KV store.
+    if (kv_header) {
+        spin_lock(&kv_header->lock);
+        num += kv_header->num_kv_stores;
+        spin_unlock(&kv_header->lock);
+    }
+    info->num_kv_stores = num;
+
     return FDB_RESULT_SUCCESS;
 }
 

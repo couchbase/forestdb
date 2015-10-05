@@ -541,6 +541,7 @@ void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr)
     kv_header->custom_cmp_enabled = 0;
     kv_header->idx_name = (struct avl_tree*)malloc(sizeof(struct avl_tree));
     kv_header->idx_id = (struct avl_tree*)malloc(sizeof(struct avl_tree));
+    kv_header->num_kv_stores = 0;
     avl_init(kv_header->idx_name, NULL);
     avl_init(kv_header->idx_id, NULL);
     spin_init(&kv_header->lock);
@@ -861,6 +862,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
         if (!a) { // Insert a new KV header node if not exist.
             avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
             avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
+            ++kv_header->num_kv_stores;
         }
     }
     spin_unlock(&kv_header->lock);
@@ -1326,6 +1328,7 @@ fdb_kvs_create_start:
 
     avl_insert(kv_header->idx_name, &node->avl_name, _kvs_cmp_name);
     avl_insert(kv_header->idx_id, &node->avl_id, _kvs_cmp_id);
+    ++kv_header->num_kv_stores;
     spin_unlock(&kv_header->lock);
 
     // if compaction is in-progress,
@@ -1931,6 +1934,7 @@ fdb_kvs_remove_start:
 
             avl_remove(kv_header->idx_name, &node->avl_name);
             avl_remove(kv_header->idx_id, &node->avl_id);
+            --kv_header->num_kv_stores;
             spin_unlock(&kv_header->lock);
             spin_unlock(&root_handle->fhandle->lock);
 

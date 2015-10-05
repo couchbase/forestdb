@@ -299,6 +299,7 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     s = fdb_get_file_info(dbfile, &file_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(file_info.doc_count == (uint64_t)n*2);
+    TEST_CHK(file_info.num_kv_stores == 2);
     s = fdb_get_kvs_info(db, &kvs_info);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     TEST_CHK(kvs_info.doc_count == (uint64_t)n);
