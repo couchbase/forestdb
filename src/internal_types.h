@@ -24,7 +24,7 @@
 #include "common.h"
 #include "atomic.h"
 #include "avltree.h"
-#include "atomic.h"
+#include "list.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -589,6 +589,21 @@ typedef enum {
      */
     FDB_AFILENAME = 1,
 } fdb_filename_mode_t;
+
+/**
+ * Stale data position & length
+ */
+struct stale_data {
+    /**
+     * Starting offset of the stale data
+     */
+    uint64_t pos;
+    /**
+     * Length of the stale data
+     */
+    uint32_t len;
+    struct list_elem le;
+};
 
 #define FDB_FLAG_SEQTREE_USE (0x1)
 #define FDB_FLAG_ROOT_INITIALIZED (0x2)

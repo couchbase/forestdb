@@ -3218,10 +3218,14 @@ fdb_set_start:
 
         if (wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
             union wal_flush_items flush_items;
+            struct list stale_list;
 
             // discard all cached writable blocks
             // to avoid data inconsistency with other writers
             btreeblk_discard_blocks(handle->bhandle);
+
+            list_init(&stale_list);
+            filemgr_set_stale_list(handle->file, &stale_list);
 
             // commit only for non-transactional WAL entries
             wr = wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
@@ -3236,6 +3240,7 @@ fdb_set_start:
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(file);
                 atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                filemgr_clear_stale_list(handle->file);
                 return wr;
             }
             wal_set_dirty_status(file, FDB_WAL_PENDING);
@@ -3259,6 +3264,7 @@ fdb_set_start:
 
             wal_flushed = true;
             btreeblk_reset_subblock_info(handle->bhandle);
+            filemgr_clear_stale_list(handle->file);
         }
     }
 
@@ -3506,6 +3512,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
     bid_t dirty_idtree_root, dirty_seqtree_root;
     union wal_flush_items flush_items;
     fdb_status wr = FDB_RESULT_SUCCESS;
+    struct list stale_list;
 
     if (handle->kvs) {
         if (handle->kvs->type == KVS_SUB) {
@@ -3542,6 +3549,9 @@ fdb_commit_start:
         filemgr_mutex_unlock(handle->file);
         return fs;
     }
+
+    list_init(&stale_list);
+    filemgr_set_stale_list(handle->file, &stale_list);
 
     // commit wal
     if (txn) {
@@ -3596,11 +3606,13 @@ fdb_commit_start:
         //    (in this case, flush the rest of entries)
         // 3. user forces to manually flush wal
 
+
         wr = wal_flush(handle->file, (void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                   &flush_items);
         if (wr != FDB_RESULT_SUCCESS) {
             filemgr_mutex_unlock(handle->file);
+            filemgr_clear_stale_list(handle->file);
             return wr;
         }
         wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
@@ -3637,6 +3649,8 @@ fdb_commit_start:
     if (handle->last_wal_flush_hdr_bid != BLK_NOT_FOUND &&
         handle->last_wal_flush_hdr_bid > handle->last_hdr_bid) {
         filemgr_mutex_unlock(handle->file);
+        filemgr_clear_stale_list(handle->file);
+
         const char *msg = "Commit operation fails becasue the last wal_flushed "
             "commit header bid > the last commit header bid in a database file '%s'\n";
         return fdb_log(&handle->log_callback, FDB_RESULT_COMMIT_FAIL, msg, handle->file);
@@ -3654,6 +3668,7 @@ fdb_commit_start:
     }
 
     btreeblk_reset_subblock_info(handle->bhandle);
+    filemgr_clear_stale_list(handle->file);
 
     handle->dirty_updates = 0;
     filemgr_mutex_unlock(handle->file);
@@ -3738,6 +3753,10 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     status = filemgr_commit(new_file,
                             !(handle->config.durability_opt & FDB_DRB_ASYNC),
                             &handle->log_callback);
+
+    btreeblk_reset_subblock_info(handle->bhandle);
+    filemgr_clear_stale_list(handle->file);
+
     if (status != FDB_RESULT_SUCCESS) {
         filemgr_mutex_unlock(old_file);
         filemgr_mutex_unlock(new_file);
@@ -5775,6 +5794,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     struct btree *new_idtree = NULL;
     bid_t dirty_idtree_root, dirty_seqtree_root;
     fdb_seqnum_t seqnum;
+    struct list stale_list;
 
     // Copy the old file's seqnum to the new file.
     // (KV instances' seq numbers will be copied along with the KV header)
@@ -5863,6 +5883,9 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         target_seqtree = (struct btree*)new_seqtrie;
     }
 
+    list_init(&stale_list);
+    filemgr_set_stale_list(new_file, &stale_list);
+
     if (marker_bid != BLK_NOT_FOUND) {
         fs = _fdb_compact_move_docs_upto_marker(handle, new_file, new_trie,
                                                 new_idtree, target_seqtree,
@@ -5881,9 +5904,12 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
 
+        btreeblk_reset_subblock_info(new_bhandle);
+        filemgr_clear_stale_list(new_file);
         _fdb_cleanup_compact_err(handle, new_file, true, false, new_bhandle,
                                  new_dhandle, new_trie, new_seqtrie,
                                  new_seqtree);
+
         return fs;
     }
 
@@ -5947,6 +5973,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
             if (got_lock) {
                 filemgr_mutex_unlock(handle->file);
             }
+            btreeblk_reset_subblock_info(new_bhandle);
+            filemgr_clear_stale_list(new_file);
             _fdb_cleanup_compact_err(handle, new_file, true, false,
                                      new_bhandle, new_dhandle, new_trie,
                                      new_seqtrie, new_seqtree);
@@ -5956,6 +5984,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                 bgflusher_switch_file(new_file, handle->file,
                                       &handle->log_callback);
             }
+
             return fs;
         }
 

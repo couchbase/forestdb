@@ -176,6 +176,9 @@ struct filemgr {
     crc_mode_e crc_mode;
 
     encryptor encryption;
+
+    // temporary in-memory list of stale blocks
+    struct list *stale_list;
 };
 
 typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
@@ -363,6 +366,17 @@ bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst);
 
 void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us);
 uint32_t filemgr_get_throttling_delay(struct filemgr *file);
+
+INLINE void filemgr_set_stale_list(struct filemgr *file,
+                            struct list *stale_list)
+{
+    file->stale_list = stale_list;
+}
+void filemgr_clear_stale_list(struct filemgr *file);
+INLINE struct list * filemgr_get_stale_list(struct filemgr *file)
+{
+    return file->stale_list;
+}
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

@@ -752,6 +752,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     strcpy(file->filename, filename);
 
     file->ref_count = 1;
+    file->stale_list = NULL;
 
     status = fdb_init_encryptor(&file->encryption, &config->encryption_key);
     if (status != FDB_RESULT_SUCCESS) {
@@ -2537,6 +2538,23 @@ void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us)
 uint32_t filemgr_get_throttling_delay(struct filemgr *file)
 {
     return atomic_get_uint32_t(&file->throttling_delay);
+}
+
+void filemgr_clear_stale_list(struct filemgr *file)
+{
+    if (file->stale_list) {
+        // if the items in the list are not freed yet, release them first.
+        struct list_elem *e;
+        struct stale_data *item;
+
+        e = list_begin(file->stale_list);
+        while (e) {
+            item = _get_entry(e, struct stale_data, le);
+            e = list_remove(file->stale_list, e);
+            free(item);
+        }
+        file->stale_list = NULL;
+    }
 }
 
 void _kvs_stat_set(struct filemgr *file,
