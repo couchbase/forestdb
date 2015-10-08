@@ -1236,12 +1236,61 @@ btree_result btree_remove(struct btree *btree, void *key)
                 if (i+1 < btree->height) {
                     // if non-root node
                     rmv[i+1] = 1;
-                }else{
-                    // if root node
-                    btree->height--;
+                } else {
+                    // if root node, shrink the height
+
+                    // allocate new block for new root node
+                    uint8_t *buf = alca(uint8_t, btree->blksize);
+                    uint32_t nodesize = 0, new_rootsize = 0;
+                    bid_t child_bid, new_root_bid;
+                    struct bnode *new_root, *child;
+                    struct btree_meta meta;
+
+                    // read the child node
                     btree->kv_ops->get_kv(node[i], 0, k, v);
-                    btree->root_bid = btree->kv_ops->value2bid(v);
-                    btree->root_bid = _endian_decode(btree->root_bid);
+                    child_bid = btree->kv_ops->value2bid(v);
+                    child_bid = _endian_decode(child_bid);
+                    addr = btree->blk_ops->blk_read(btree->blk_handle, child_bid);
+                    child = _fetch_bnode(btree, addr, btree->height);
+
+                    nodesize = btree->blk_ops->blk_get_size(btree->blk_handle, child_bid);
+#ifdef __CRC32
+                    nodesize -= BLK_MARKER_SIZE;
+#endif
+
+                    // estimate the new root node size including metadata
+                    meta.size = btree_read_meta(btree, buf);
+                    meta.data = buf;
+
+                    if (meta.size) {
+                        new_rootsize += _metasize_align(meta.size) + sizeof(metasize_t);
+                    }
+                    new_rootsize += btree->kv_ops->get_data_size(child, NULL, NULL, NULL, 0);
+                    new_rootsize += sizeof(struct bnode);
+
+                    if (new_rootsize < nodesize) {
+                        // new root node has enough space for metadata .. shrink height
+                        btree->height--;
+
+                        // allocate a new node with the given meta
+                        addr = btree->blk_ops->blk_alloc(btree->blk_handle,
+                                                         &new_root_bid);
+                        _btree_init_node(btree, new_root_bid, addr,
+                                         btree->root_flag, btree->height, &meta);
+                        new_root = _fetch_bnode(btree, addr, btree->height);
+
+                        // copy all entries
+                        btree->kv_ops->copy_kv(new_root, child, 0, 0, child->nentry);
+                        new_root->nentry = child->nentry;
+                        // invalidate chlid node
+                        btree->blk_ops->blk_remove(btree->blk_handle, child_bid);
+
+                        btree->root_bid = new_root_bid;
+
+                        // as the old node is invalidated,
+                        // we don't need to move it.
+                        modified[i] = 0;
+                    }
                 }
             }
         }
