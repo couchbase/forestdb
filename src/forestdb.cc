@@ -159,10 +159,12 @@ int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux)
     return cmp(keystr1, keylen1, keystr2, keylen2);
 }
 
-void fdb_fetch_header(void *header_buf,
+void fdb_fetch_header(uint64_t version,
+                      void *header_buf,
                       bid_t *trie_root_bid,
                       bid_t *seq_root_bid,
                       uint64_t *ndocs,
+                      uint64_t *ndeletes,
                       uint64_t *nlivenodes,
                       uint64_t *datasize,
                       uint64_t *last_wal_flush_hdr_bid,
@@ -186,6 +188,13 @@ void fdb_fetch_header(void *header_buf,
     seq_memcpy(ndocs, (uint8_t *)header_buf + offset,
                sizeof(uint64_t), offset);
     *ndocs = _endian_decode(*ndocs);
+    if (ver_is_atleast_v2(version)) {
+        seq_memcpy(ndeletes, (uint8_t *)header_buf + offset,
+                   sizeof(uint64_t), offset);
+        *ndeletes = _endian_decode(*ndeletes);
+    } else {
+        *ndeletes = 0;
+    }
 
     seq_memcpy(nlivenodes, (uint8_t *)header_buf + offset,
                sizeof(uint64_t), offset);
@@ -1345,7 +1354,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     filemgr_header_revnum_t header_revnum = 0;
     fdb_seqtree_opt_t seqtree_opt = config->seqtree_opt;
     uint64_t ndocs = 0;
+    uint64_t ndeletes = 0;
     uint64_t datasize = 0;
+    uint64_t deltasize = 0;
     uint64_t last_wal_flush_hdr_bid = BLK_NOT_FOUND;
     uint64_t kv_info_offset = BLK_NOT_FOUND;
     uint64_t version;
@@ -1442,7 +1453,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (handle->shandle && handle->last_hdr_bid) {
         status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                       header_buf, &header_len, &seqnum,
-                                      &header_revnum, NULL, &version,
+                                      &header_revnum, &deltasize, &version,
                                       &handle->log_callback);
         if (status != FDB_RESULT_SUCCESS) {
             free(handle->filename);
@@ -1464,8 +1475,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     docio_init(handle->dhandle, handle->file, config->compress_document_body);
 
     if (header_len > 0) {
-        fdb_fetch_header(header_buf, &trie_root_bid,
-                         &seq_root_bid, &ndocs, &nlivenodes,
+        fdb_fetch_header(version, header_buf, &trie_root_bid,
+                         &seq_root_bid, &ndocs, &ndeletes, &nlivenodes,
                          &datasize, &last_wal_flush_hdr_bid, &kv_info_offset,
                          &header_flags, &compacted_filename, &prev_filename);
         // use existing setting for seqtree_opt
@@ -1553,8 +1564,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 if (header_len == 0) {
                     continue; // header doesn't exist
                 }
-                fdb_fetch_header(header_buf, &trie_root_bid,
-                                 &seq_root_bid, &ndocs, &nlivenodes,
+                fdb_fetch_header(version, header_buf, &trie_root_bid,
+                                 &seq_root_bid, &ndocs, &ndeletes, &nlivenodes,
                                  &datasize, &last_wal_flush_hdr_bid,
                                  &kv_info_offset, &header_flags,
                                  &compacted_filename, NULL);
@@ -1567,8 +1578,10 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                         struct kvs_stat stat_dst;
                         _kvs_stat_get(handle->file, 0, &stat_dst);
                         stat_dst.ndocs = ndocs;
+                        stat_dst.ndeletes = ndeletes;
                         stat_dst.datasize = datasize;
                         stat_dst.nlivenodes = nlivenodes;
+                        stat_dst.deltasize = deltasize;
                         _kvs_stat_set(handle->file, 0, stat_dst);
                     }
                     continue;
@@ -2121,6 +2134,8 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         if (hr == HBTRIE_RESULT_SUCCESS) {
             if (item->action == WAL_ACT_INSERT) {
                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, 1);
+            } else { // inserted a logical deleted doc into main index
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDELETES, 1);
             }
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE,
                                   item->doc_size);
@@ -2131,14 +2146,16 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             // No additional block access.
             len = docio_read_doc_length(handle->dhandle, old_offset);
 
-            if (!(len.flag & DOCIO_DELETED)) {
-                if (item->action == WAL_ACT_LOGICAL_REMOVE) {
+            if (!(len.flag & DOCIO_DELETED)) { // prev doc was not deleted
+                if (item->action == WAL_ACT_LOGICAL_REMOVE) { // now deleted
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
-                }
-            } else {
-                if (item->action == WAL_ACT_INSERT) {
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDELETES, 1);
+                } // else no change (prev doc was insert, now just an update)
+            } else { // prev doc in main index was a logically deleted doc
+                if (item->action == WAL_ACT_INSERT) { // now undeleted
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, 1);
-                }
+                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDELETES, -1);
+                } // else no change (prev doc was deleted, now re-deleted)
             }
 
             delta = (int)item->doc_size - (int)_fdb_get_docsize(len);
@@ -2191,6 +2208,10 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 
             // Reduce the total number of docs by one
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
+            if (len.flag & DOCIO_DELETED) { // prev deleted doc is dropped
+                _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDELETES, -1);
+            }
+
             // Reduce the total datasize by size of previously present doc
             delta = -(int)_fdb_get_docsize(len);
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_DATASIZE, delta);
@@ -2227,14 +2248,15 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
         header_buf = filemgr_get_header(handle->file, NULL, &header_len,
                                         NULL, NULL, NULL);
         if (header_len > 0) {
-            uint64_t header_flags, dummy64;
+            uint64_t header_flags, dummy64, version;
             bid_t idtree_root;
             bid_t new_seq_root;
             char *compacted_filename;
             char *prev_filename = NULL;
+            version = handle->file->version;
 
-            fdb_fetch_header(header_buf, &idtree_root,
-                             &new_seq_root,
+            fdb_fetch_header(version, header_buf, &idtree_root,
+                             &new_seq_root, &dummy64,
                              &dummy64, &dummy64,
                              &dummy64, &handle->last_wal_flush_hdr_bid,
                              &handle->kv_info_offset, &header_flags,
@@ -2290,7 +2312,7 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
     file_status_t fstatus = filemgr_get_file_status(handle->file);
     // check whether the compaction is done
     if (fstatus == FILE_REMOVED_PENDING) {
-        uint64_t ndocs, datasize, nlivenodes, last_wal_flush_hdr_bid;
+        uint64_t ndocs, ndeletes, datasize, nlivenodes, last_wal_flush_hdr_bid;
         uint64_t kv_info_offset, header_flags;
         size_t header_len;
         char *new_filename;
@@ -2313,9 +2335,10 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             }
         } else {
             filemgr_get_header(handle->file, buf, &header_len, NULL, NULL, NULL);
-            fdb_fetch_header(buf,
+            fdb_fetch_header(handle->file->version, buf,
                              &trie_root_bid, &seq_root_bid,
-                             &ndocs, &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
+                             &ndocs, &ndeletes, &nlivenodes, &datasize,
+                             &last_wal_flush_hdr_bid,
                              &kv_info_offset, &header_flags,
                              &new_filename, NULL);
             fs = _fdb_close(handle);
@@ -3336,21 +3359,24 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     [     0]: BID of root node of root B+Tree of HB+Trie: 8 bytes
     [     8]: BID of root node of seq B+Tree: 8 bytes (0xFF.. if not used)
     [    16]: # of live documents: 8 bytes
-    [    24]: # of live B+Tree nodes: 8 bytes
-    [    32]: Data size (byte): 8 bytes
-    [    40]: BID of the DB header created when last WAL flush: 8 bytes
-    [    48]: Offset of the document containing KV instances' info: 8 bytes
-    [    56]: Header flags: 8 bytes
-    [    64]: Size of newly compacted target file name : 2 bytes
-    [    66]: Size of old file name before compaction :  2 bytes
-    [    68]: File name of newly compacted file : x bytes
-    [  68+x]: File name of old file before compcation : y bytes
-    [68+x+y]: CRC32: 4 bytes
-    total size (header's length): 72+x+y bytes
+    [    24]: # of deleted documents: 8 bytes (version specific)
+    [    32]: # of live B+Tree nodes: 8 bytes
+    [    40]: Data size (byte): 8 bytes
+    [    48]: BID of the DB header created when last WAL flush: 8 bytes
+    [    56]: Offset of the document containing KV instances' info: 8 bytes
+    [    64]: Header flags: 8 bytes
+    [    72]: Size of newly compacted target file name : 2 bytes
+    [    74]: Size of old file name before compaction :  2 bytes
+    [    76]: File name of newly compacted file : x bytes
+    [  76+x]: File name of old file before compcation : y bytes
+    [76+x+y]: CRC32: 4 bytes
+    total size (header's length): 80+x+y bytes
 
     Note: the list of functions that need to be modified
           if the header structure is changed:
 
+        fdb_fetch_header() and associated callers in forestdb.cc
+        ver_get_new_filename_off() in version.cc
         _fdb_redirect_header() in forestdb.cc
         filemgr_destroy_file() in filemgr.cc
         print_header() in dump_common.cc
@@ -3389,6 +3415,11 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     // # docs
     _edn_safe_64 = _endian_encode(stat.ndocs);
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
+
+    // # deleted docs
+    _edn_safe_64 = _endian_encode(stat.ndeletes);
+    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
+
     // # live nodes
     _edn_safe_64 = _endian_encode(stat.nlivenodes);
     seq_memcpy(buf + offset, &_edn_safe_64,
@@ -3396,6 +3427,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     // data size
     _edn_safe_64 = _endian_encode(stat.datasize);
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
+
     // last header bid
     _edn_safe_64 = _endian_encode(handle->last_wal_flush_hdr_bid);
     seq_memcpy(buf + offset, &_edn_safe_64,
@@ -3443,14 +3475,17 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
 }
 
 static
-char *_fdb_redirect_header(uint8_t *buf, filemgr* new_file) {
+char *_fdb_redirect_header(struct filemgr *old_file, uint8_t *buf,
+                           filemgr* new_file) {
     uint16_t old_compact_filename_len; // size of existing old_filename in buf
     uint16_t new_compact_filename_len; // size of existing new_filename in buf
     uint16_t new_filename_len = strlen(new_file->filename) + 1;
     uint16_t new_filename_len_enc = _endian_encode(new_filename_len);
     uint32_t crc;
     size_t crc_offset;
-    size_t offset = 64;
+    size_t new_fnamelen_off = ver_get_new_filename_off(old_file->version);
+    size_t new_fname_off = new_fnamelen_off + 4;
+    size_t offset = new_fnamelen_off;
     char *old_filename;
     // Read existing DB header's size of newly compacted filename
     seq_memcpy(&new_compact_filename_len, buf + offset, sizeof(uint16_t),
@@ -3463,7 +3498,7 @@ char *_fdb_redirect_header(uint8_t *buf, filemgr* new_file) {
     old_compact_filename_len = _endian_decode(old_compact_filename_len);
 
     // Update DB header's size of newly compacted filename to redirected one
-    memcpy(buf + 64, &new_filename_len_enc, sizeof(uint16_t));
+    memcpy(buf + new_fnamelen_off, &new_filename_len_enc, sizeof(uint16_t));
 
     // Copy over existing DB header's old_filename to its new location
     old_filename = (char*)buf + offset + new_filename_len;
@@ -3472,9 +3507,9 @@ char *_fdb_redirect_header(uint8_t *buf, filemgr* new_file) {
                 old_compact_filename_len);
     }
     // Update the DB header's new_filename to the redirected one
-    memcpy(buf + 68, new_file->filename, new_filename_len);
+    memcpy(buf + new_fname_off, new_file->filename, new_filename_len);
     // Compute the DB header's new crc32 value
-    crc_offset = 68 + new_filename_len + old_compact_filename_len;
+    crc_offset = new_fname_off + new_filename_len + old_compact_filename_len;
     crc = get_checksum(buf, crc_offset, new_file->crc_mode);
     crc = _endian_encode(crc);
     // Update the DB header's new crc32 value
@@ -5214,8 +5249,9 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 size_t len = 0;
                 uint64_t version;
                 fdb_seqnum_t seqnum = 0;
-                fs = filemgr_fetch_header(handle->file, offset / blocksize, hdr_buf,
-                                          &len, &seqnum, NULL, NULL, &version, NULL);
+                fs = filemgr_fetch_header(handle->file, offset / blocksize,
+                                          hdr_buf, &len, &seqnum, NULL, NULL,
+                                          &version, NULL);
                 if (fs != FDB_RESULT_SUCCESS) {
                     // Invalid and corrupted header.
                     free(doc);
@@ -5231,7 +5267,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                     uint64_t dummy64;
                     uint64_t kv_info_offset;
                     char *compacted_filename = NULL;
-                    fdb_fetch_header(hdr_buf, &dummy64,
+                    fdb_fetch_header(version, hdr_buf, &dummy64, &dummy64,
                                      &dummy64, &dummy64, &dummy64,
                                      &dummy64, &dummy64,
                                      &kv_info_offset, &dummy64,
@@ -6442,6 +6478,7 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
     uint64_t ndocs;
+    uint64_t ndeletes;
     uint64_t nlivenodes;
     uint64_t datasize;
     uint64_t last_wal_flush_hdr_bid;
@@ -6496,10 +6533,10 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
             return 0;
         }
 
-        fdb_fetch_header(header_buf, &trie_root_bid, &seq_root_bid, &ndocs,
-                         &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
-                         &kv_info_offset, &header_flags, &compacted_filename,
-                         NULL);
+        fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
+                         &ndocs, &ndeletes, &nlivenodes, &datasize,
+                         &last_wal_flush_hdr_bid, &kv_info_offset,
+                         &header_flags, &compacted_filename, NULL);
         if (marker == hdr_bid) { // for the oldest header, sum up full values
             ret += datasize;
             ret += nlivenodes * handle->config.blocksize;
@@ -6531,7 +6568,7 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
 LIBFDB_API
 fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
 {
-    uint64_t ndocs;
+    uint64_t ndocs, ndeletes;
     fdb_kvs_handle *handle;
 
     if (!fhandle || !info) {
@@ -6575,6 +6612,13 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
         }
     }
 
+    ndeletes = _kvs_stat_get_sum(handle->file, KVS_STAT_NDELETES);
+    if (ndeletes) { // not accurate since some ndeletes may be wal_deletes
+        info->deleted_count = ndeletes + wal_deletes;
+    } else { // this is accurate since it reflects only wal_ndeletes
+        info->deleted_count = wal_deletes;
+    }
+
     info->space_used = fdb_estimate_space_used(fhandle);
     info->file_size = filemgr_get_pos(handle->file);
 
@@ -6603,6 +6647,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
     uint64_t ndocs;
+    uint64_t ndeletes;
     uint64_t nlivenodes;
     uint64_t datasize;
     uint64_t last_wal_flush_hdr_bid;
@@ -6661,10 +6706,10 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
             continue; // header doesn't exist, terminate iteration
         }
 
-        fdb_fetch_header(header_buf, &trie_root_bid, &seq_root_bid, &ndocs,
-                         &nlivenodes, &datasize, &last_wal_flush_hdr_bid,
-                         &kv_info_offset, &header_flags, &compacted_filename,
-                         NULL);
+        fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
+                         &ndocs, &ndeletes, &nlivenodes, &datasize,
+                         &last_wal_flush_hdr_bid, &kv_info_offset,
+                         &header_flags, &compacted_filename, NULL);
         markers[i].marker = (fdb_snapshot_marker_t)hdr_bid;
         if (kv_info_offset == BLK_NOT_FOUND) { // Single kv instance mode
             markers[i].num_kvs_markers = 1;

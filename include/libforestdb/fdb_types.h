@@ -569,6 +569,10 @@ typedef struct {
      */
     uint64_t doc_count;
     /**
+     * Total number of deleted documents aggregated across all KV stores.
+     */
+    uint64_t deleted_count;
+    /**
      * Disk space actively used by the file.
      */
     uint64_t space_used;
@@ -598,6 +602,10 @@ typedef struct {
      * Total number of non-deleted documents in a KV store.
      */
     uint64_t doc_count;
+    /**
+     * Total number of deleted documents in a KV store.
+     */
+    uint64_t deleted_count;
     /**
      * Disk space actively used by the KV store.
      */

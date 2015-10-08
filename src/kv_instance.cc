@@ -639,12 +639,13 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
      * [data size]:             8 bytes
      * [flags]:                 8 bytes
      * [delta size]:            8 bytes
+     * [# deleted docs]:        8 bytes
      * ...
      *    Please note that if the above format is changed, please also change...
      *    _fdb_kvs_get_snap_info()
      *    _fdb_kvs_header_import()
      *    _kvs_stat_get_sum_doc()
-     *
+     *    _kvs_stat_get_sum_attr
      */
 
     int size = 0;
@@ -652,7 +653,7 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
     uint16_t name_len, _name_len;
     uint64_t c = 0;
     uint64_t _n_kv, _kv_id, _flags;
-    uint64_t _nlivenodes, _ndocs, _datasize;
+    uint64_t _nlivenodes, _ndocs, _datasize, _ndeletes;
     int64_t _deltasize;
     fdb_kvs_id_t _id_counter;
     fdb_seqnum_t _seqnum;
@@ -683,6 +684,7 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
         size += sizeof(node->stat.datasize); // data size
         size += sizeof(node->flags); // flags
         size += sizeof(node->stat.deltasize); // delta size since commit
+        size += sizeof(node->stat.ndeletes); // # deleted docs
         a = avl_next(a);
     }
 
@@ -747,6 +749,11 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
         memcpy((uint8_t*)*data + offset, &_deltasize, sizeof(_deltasize));
         offset += sizeof(_deltasize);
 
+        // # deleted documents
+        _ndeletes = _endian_encode(node->stat.ndeletes);
+        memcpy((uint8_t*)*data + offset, &_ndeletes, sizeof(_ndeletes));
+        offset += sizeof(_ndeletes);
+
         a = avl_next(a);
     }
 
@@ -762,7 +769,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     uint64_t i, offset = 0;
     uint16_t name_len, _name_len;
     uint64_t n_kv, _n_kv, kv_id, _kv_id, flags, _flags;
-    uint64_t _nlivenodes, _ndocs, _datasize;
+    uint64_t _nlivenodes, _ndocs, _datasize, _ndeletes;
     int64_t _deltasize;
     bool is_deltasize;
     fdb_kvs_id_t id_counter, _id_counter;
@@ -783,9 +790,10 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     kv_header->id_counter = id_counter;
 
     // Version control
-    if (!ver_deltasize_support(version)) {
+    if (!ver_is_atleast_v2(version)) {
         is_deltasize = false;
         _deltasize = 0;
+        _ndeletes = 0;
     } else {
         is_deltasize = true;
     }
@@ -849,6 +857,9 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
             memcpy(&_deltasize, (uint8_t*)data + offset,
                    sizeof(_deltasize));
             offset += sizeof(_deltasize);
+            memcpy(&_ndeletes, (uint8_t*)data + offset,
+                   sizeof(_ndeletes));
+            offset += sizeof(_ndeletes);
         }
 
         if (!only_seq_nums) {
@@ -856,6 +867,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
             node->stat.ndocs = _endian_decode(_ndocs);
             node->stat.datasize = _endian_decode(_datasize);
             node->stat.deltasize = _endian_decode(_deltasize);
+            node->stat.ndeletes = _endian_decode(_ndeletes);
             node->flags = flags;
             node->custom_cmp = NULL;
         }
@@ -878,7 +890,7 @@ fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
     bool is_deltasize;
     fdb_seqnum_t _seqnum;
     // Version control
-    if (!ver_deltasize_support(version)) {
+    if (!ver_is_atleast_v2(version)) {
         is_deltasize = false;
     } else {
         is_deltasize = true;
@@ -908,6 +920,7 @@ fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
                             + sizeof(uint64_t); // skip over flags
     if (is_deltasize) {
         sizeof_skipped_segments += sizeof(uint64_t); // skip over deltasize
+        sizeof_skipped_segments += sizeof(uint64_t); // skip over ndeletes
     }
 
     for (i = 0; i < n_kv-1; ++i){
@@ -929,7 +942,7 @@ fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
         memcpy(&_seqnum, (uint8_t*)data + offset, sizeof(_seqnum));
         info->seqnum = _endian_decode(_seqnum);
 
-        // Skip over seqnum, nlivenodes, ndocs, datasize and flags onto next..
+        // Skip over seqnum, nlivenodes, ndocs, datasize, flags etc onto next..
         offset += sizeof_skipped_segments;
     }
 
@@ -948,7 +961,7 @@ uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
     int64_t deltasize;
 
     // Version control
-    if (!ver_deltasize_support(version)) {
+    if (!ver_is_atleast_v2(version)) {
         is_deltasize = false;
     } else {
         is_deltasize = true;
@@ -985,17 +998,28 @@ uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
             ret += _endian_decode(nlivenodes);
             // skip over nlivenodes just read
             offset += sizeof(nlivenodes);
-            // skip over ndocs, datasize, flags (and deltasize)
+            // skip over ndocs, datasize, flags (and deltasize, ndeletes)
             offset += sizeof(nlivenodes) + sizeof(ndocs) + sizeof(datasize)
-                   + sizeof(flags) + (is_deltasize ? sizeof(deltasize) : 0);
+                   + sizeof(flags) + (is_deltasize ? sizeof(deltasize)*2 : 0);
         } else if (attr == KVS_STAT_DATASIZE) {
             offset += sizeof(nlivenodes) + sizeof(ndocs);
             memcpy(&datasize, (uint8_t *)data + offset, sizeof(datasize));
             ret += _endian_decode(datasize);
-            // skip over datasize, flags (and deltasize)
+            // skip over datasize, flags (and deltasize, ndeletes)
             offset += sizeof(datasize) + sizeof(flags)
-                   + (is_deltasize ? sizeof(deltasize) : 0);
-        } // todo: implement for other stats if needed in future..
+                   + (is_deltasize ? sizeof(deltasize)*2 : 0);
+        } else if (attr == KVS_STAT_DELTASIZE) {
+            if (is_deltasize) {
+                offset += sizeof(nlivenodes) + sizeof(ndocs) + sizeof (datasize)
+                        + sizeof(flags);
+                memcpy(&deltasize, (uint8_t *)data + offset, sizeof(deltasize));
+                ret += _endian_decode(deltasize);
+                // skip over datasize, flags (and deltasize)
+                offset += sizeof(deltasize)*2; // and ndeletes
+            }
+        } else { // Attribute fetched not implemented yet..
+            fdb_assert(false, 0, attr); // Implement fetch for this attribute
+        }
     }
 
     return ret;
@@ -1116,7 +1140,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
                          &version, &handle->log_callback);
     if (id > 0) { // non-default KVS
         // read last KVS header
-        fdb_fetch_header(buf, &dummy64,
+        fdb_fetch_header(version, buf, &dummy64, &dummy64,
                          &dummy64, &dummy64, &dummy64,
                          &dummy64, &dummy64,
                          &kv_info_offset, &dummy64,
@@ -2217,6 +2241,7 @@ LIBFDB_API
 fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
 {
     uint64_t ndocs;
+    uint64_t ndeletes;
     uint64_t wal_docs;
     uint64_t wal_deletes;
     uint64_t wal_n_inserts;
@@ -2271,6 +2296,7 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         _kvs_stat_get(file, kv_id, &stat);
     }
     ndocs = stat.ndocs;
+    ndeletes = stat.ndeletes;
     wal_docs = stat.wal_ndocs;
     wal_deletes = stat.wal_ndeletes;
     wal_n_inserts = wal_docs - wal_deletes;
@@ -2278,11 +2304,17 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     if (ndocs + wal_n_inserts < wal_deletes) {
         info->doc_count = 0;
     } else {
-        if (ndocs) {
+        if (ndocs) { // not accurate since some ndocs may be in wal_n_inserts
             info->doc_count = ndocs + wal_n_inserts - wal_deletes;
-        } else {
+        } else { // this is accurate
             info->doc_count = wal_n_inserts;
         }
+    }
+
+    if (ndeletes) { // not accurate since some ndeletes may be wal_n_deletes
+        info->deleted_count = ndeletes + wal_deletes;
+    } else { // this is accurate
+        info->deleted_count = wal_deletes;
     }
 
     datasize = stat.datasize;

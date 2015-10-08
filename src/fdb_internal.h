@@ -58,10 +58,12 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync);
 fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status);
 void fdb_sync_db_header(fdb_kvs_handle *handle);
 
-void fdb_fetch_header(void *header_buf,
+void fdb_fetch_header(uint64_t version,
+                      void *header_buf,
                       bid_t *trie_root_bid,
                       bid_t *seq_root_bid,
                       uint64_t *ndocs,
+                      uint64_t *ndeletes,
                       uint64_t *nlivenodes,
                       uint64_t *datasize,
                       uint64_t *last_wal_flush_hdr_bid,

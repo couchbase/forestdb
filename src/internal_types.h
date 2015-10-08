@@ -94,6 +94,7 @@ struct kvs_info {
 typedef enum {
     KVS_STAT_NLIVENODES,
     KVS_STAT_NDOCS,
+    KVS_STAT_NDELETES,
     KVS_STAT_DATASIZE,
     KVS_STAT_WAL_NDOCS,
     KVS_STAT_WAL_NDELETES,
@@ -112,6 +113,10 @@ struct kvs_stat {
      * The number of documents.
      */
     uint64_t ndocs;
+    /**
+     * The number of deleted documents in main index.
+     */
+    uint64_t ndeletes;
     /**
      * The amount of space occupied by documents.
      */

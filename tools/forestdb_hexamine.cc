@@ -92,6 +92,7 @@ struct db_header {
     uint64_t trie_root_raw;
     uint64_t seqtree_root_raw;
     uint64_t num_docs;
+    uint64_t num_deletes;
     uint64_t num_nodes;
     uint64_t data_size;
     uint64_t last_wal_flush_bid;
@@ -132,6 +133,7 @@ void decode_dblock(void *block) {
     _db->trie_root_raw = _endian_decode(_db->trie_root_raw);
     _db->seqtree_root_raw =_endian_decode(_db->seqtree_root_raw);
     _db->num_docs = _endian_decode(_db->num_docs);
+    _db->num_deletes = _endian_decode(_db->num_deletes);
     _db->num_nodes = _endian_decode(_db->num_nodes);
     _db->data_size = _endian_decode(_db->data_size);
     _db->last_wal_flush_bid = _endian_decode(_db->

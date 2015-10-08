@@ -33,11 +33,13 @@ void print_header(fdb_kvs_handle *db)
     uint64_t ndocs;
     uint64_t ndocs_wal_inserted, ndocs_wal_deleted;
     uint64_t nlivenodes;
+    uint64_t ndeletes;
     uint64_t datasize;
     uint64_t datasize_wal;
     uint64_t last_header_bid;
     uint64_t kv_info_offset;
     uint64_t header_flags;
+    uint64_t version;
     size_t header_len;
     size_t subblock_no, idx;
     char *compacted_filename = NULL;
@@ -51,9 +53,10 @@ void print_header(fdb_kvs_handle *db)
     printf("DB header info:\n");
 
     filemgr_get_header(db->file, header_buf, &header_len, NULL, NULL, NULL);
+    version = db->file->version;
     if (header_len > 0) {
-        fdb_fetch_header(header_buf, &trie_root_bid,
-                         &seq_root_bid, &ndocs, &nlivenodes,
+        fdb_fetch_header(version, header_buf, &trie_root_bid,
+                         &seq_root_bid, &ndocs, &ndeletes, &nlivenodes,
                          &datasize, &last_header_bid, &kv_info_offset,
                          &header_flags, &compacted_filename, &prev_filename);
         revnum = filemgr_get_header_revnum(db->file);
@@ -114,15 +117,17 @@ void print_header(fdb_kvs_handle *db)
             struct avl_node *a;
 
             ndocs = _kvs_stat_get_sum(db->file, KVS_STAT_NDOCS);
+            ndeletes = _kvs_stat_get_sum(db->file, KVS_STAT_NDELETES);
             nlivenodes = _kvs_stat_get_sum(db->file, KVS_STAT_NLIVENODES);
             ndocs_wal_inserted = wal_get_size(db->file);
             ndocs_wal_deleted = wal_get_num_deletes(db->file);
             datasize = _kvs_stat_get_sum(db->file, KVS_STAT_DATASIZE);
             datasize_wal = wal_get_datasize(db->file);
 
-            printf("    # documents in the main index: %" _F64 " / "
+            printf("    # documents in the main index: %" _F64
+                   ", %" _F64 "deleted / "
                    "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
-                   ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
+                   ndocs, ndeletes, ndocs_wal_inserted, ndocs_wal_deleted);
             printf("    # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
                    nlivenodes, nlivenodes * FDB_BLOCKSIZE);
             printf("    Total document size: %" _F64 " bytes, (index: %" _F64 " bytes, "
@@ -146,6 +151,7 @@ void print_header(fdb_kvs_handle *db)
                     node = _get_entry(a, struct kvs_node, avl_name);
                     seqnum = node->seqnum;
                     ndocs = node->stat.ndocs;
+                    ndeletes = node->stat.ndeletes;
                     nlivenodes = node->stat.nlivenodes;
                     ndocs_wal_inserted = node->stat.wal_ndocs - node->stat.wal_ndeletes;
                     ndocs_wal_deleted = node->stat.wal_ndeletes;
@@ -153,6 +159,7 @@ void print_header(fdb_kvs_handle *db)
                 } else { // default KVS
                     printf("      KV store name: %s\n", name_list.kvs_names[i]);
                     ndocs = db->file->header.stat.ndocs;
+                    ndeletes = db->file->header.stat.ndeletes;
                     nlivenodes = db->file->header.stat.nlivenodes;
                     seqnum = db->file->header.seqnum;
                     ndocs_wal_inserted = db->file->header.stat.wal_ndocs -
@@ -161,9 +168,10 @@ void print_header(fdb_kvs_handle *db)
                     datasize = db->file->header.stat.datasize;
                 }
 
-                printf("      # documents in the main index: %" _F64 " / "
+                printf("      # documents in the main index: %" _F64
+                       ", %" _F64 "deleted / "
                        "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
-                       ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
+                       ndocs, ndeletes, ndocs_wal_inserted, ndocs_wal_deleted);
                 printf("      # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
                        nlivenodes, nlivenodes * FDB_BLOCKSIZE);
                 printf("      Total document size: %" _F64 " bytes\n", datasize);
@@ -180,9 +188,10 @@ void print_header(fdb_kvs_handle *db)
             ndocs_wal_deleted = wal_get_num_deletes(db->file);
             datasize_wal = wal_get_datasize(db->file);
 
-            printf("    # documents in the main index: %" _F64 " / "
+            printf("    # documents in the main index: %" _F64
+            ", %" _F64 "deleted / "
                    "in WAL: %" _F64 " (insert), %" _F64 " (remove)\n",
-                   ndocs, ndocs_wal_inserted, ndocs_wal_deleted);
+                   ndocs, ndeletes, ndocs_wal_inserted, ndocs_wal_deleted);
             printf("    # live index nodes: %" _F64 " (%" _F64 " bytes)\n",
                    nlivenodes, nlivenodes * FDB_BLOCKSIZE);
             printf("    Total document size: %" _F64 " bytes, (index: %" _F64 " bytes, "

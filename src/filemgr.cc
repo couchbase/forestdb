@@ -952,8 +952,7 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
         *len = file->header.size;
     }
     if (header_bid) {
-        *header_bid = ((file->header.size > 0) ?
-                       atomic_get_uint64_t(&file->header.bid) : BLK_NOT_FOUND);
+        *header_bid = filemgr_get_header_bid(file);
     }
     if (seqnum) {
         *seqnum = file->header.seqnum;
@@ -1042,11 +1041,13 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
         *seqnum = _endian_decode(_seqnum);
     }
 
-    if (deltasize && ver_deltasize_support(magic)) {
-        memcpy(&_deltasize, _buf + file->blocksize - BLK_MARKER_SIZE
-               - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
-               - sizeof(_deltasize), sizeof(_deltasize));
-        *deltasize = _endian_decode(_deltasize);
+    if (ver_is_atleast_v2(magic)) {
+        if (deltasize) {
+            memcpy(&_deltasize, _buf + file->blocksize - BLK_MARKER_SIZE
+                    - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
+                    - sizeof(_deltasize), sizeof(_deltasize));
+            *deltasize = _endian_decode(_deltasize);
+        }
     }
     _filemgr_release_temp_buf(_buf);
 
@@ -1169,12 +1170,14 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         memcpy(&_seqnum,
                _buf + hdr_len + sizeof(filemgr_header_revnum_t),
                sizeof(fdb_seqnum_t));
-        if (deltasize && ver_deltasize_support(magic)) {
-            memcpy(&_deltasize,
-                   _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
-                   sizeof(hdr_len) - sizeof(prev_bid) - sizeof(_deltasize),
-                   sizeof(_deltasize));
-            *deltasize = _endian_decode(_deltasize);
+        if (ver_is_atleast_v2(magic)) {
+            if (deltasize) {
+                memcpy(&_deltasize,
+                        _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic)
+                       - sizeof(hdr_len) - sizeof(prev_bid) - sizeof(_deltasize),
+                        sizeof(_deltasize));
+                *deltasize = _endian_decode(_deltasize);
+            }
         }
 
         *seqnum = _endian_decode(_seqnum);
@@ -2220,7 +2223,8 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                 new_header_len);
     }
     very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
-    past_filename = redirect_header_func((uint8_t *)very_old_file->header.data,
+    past_filename = redirect_header_func(very_old_file,
+                                         (uint8_t *)very_old_file->header.data,
                                          new_file);//Update in-memory header
     very_old_file->header.size = new_header_len;
     ++(very_old_file->header.revnum);
@@ -2383,16 +2387,21 @@ fdb_status filemgr_destroy_file(char *filename,
                     return status;
                 }
                 if (file->header.data) {
+                    size_t new_fnamelen_off = ver_get_new_filename_off(file->
+                                                                      version);
+                    size_t old_fnamelen_off = new_fnamelen_off + 2;
                     uint16_t *new_filename_len_ptr = (uint16_t *)((char *)
-                                                     file->header.data + 64);
+                                                     file->header.data
+                                                     + new_fnamelen_off);
                     uint16_t new_filename_len =
                                       _endian_decode(*new_filename_len_ptr);
                     uint16_t *old_filename_len_ptr = (uint16_t *)((char *)
-                                                     file->header.data + 66);
+                                                     file->header.data
+                                                     + old_fnamelen_off);
                     uint16_t old_filename_len =
                                       _endian_decode(*old_filename_len_ptr);
-                    old_filename = (char *)file->header.data + 68
-                                   + new_filename_len;
+                    old_filename = (char *)file->header.data + old_fnamelen_off
+                                   + 2 + new_filename_len;
                     if (old_filename_len) {
                         status = filemgr_destroy_file(old_filename, config,
                                                       destroy_set);
@@ -2615,6 +2624,8 @@ void _kvs_stat_update_attr(struct filemgr *file,
         stat->datasize += delta;
     } else if (attr == KVS_STAT_NDOCS) {
         stat->ndocs += delta;
+    } else if (attr == KVS_STAT_NDELETES) {
+        stat->ndeletes += delta;
     } else if (attr == KVS_STAT_NLIVENODES) {
         stat->nlivenodes += delta;
     } else if (attr == KVS_STAT_WAL_NDELETES) {
@@ -2680,6 +2691,8 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
         ret += file->header.stat.datasize;
     } else if (attr == KVS_STAT_NDOCS) {
         ret += file->header.stat.ndocs;
+    } else if (attr == KVS_STAT_NDELETES) {
+        ret += file->header.stat.ndeletes;
     } else if (attr == KVS_STAT_NLIVENODES) {
         ret += file->header.stat.nlivenodes;
     } else if (attr == KVS_STAT_WAL_NDELETES) {
@@ -2702,6 +2715,8 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
                 ret += node->stat.datasize;
             } else if (attr == KVS_STAT_NDOCS) {
                 ret += node->stat.ndocs;
+            } else if (attr == KVS_STAT_NDELETES) {
+                ret += node->stat.ndeletes;
             } else if (attr == KVS_STAT_NLIVENODES) {
                 ret += node->stat.nlivenodes;
             } else if (attr == KVS_STAT_WAL_NDELETES) {

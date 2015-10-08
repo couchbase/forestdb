@@ -2235,6 +2235,7 @@ void snapshot_with_deletes_test()
     // check snapshot's sequence number
     fdb_get_kvs_info(snap_db, &kvs_info);
     TEST_CHK(kvs_info.last_seqnum == (fdb_seqnum_t)n+2);
+    TEST_CHK(kvs_info.deleted_count == 1);
 
     // re-create an iterator on the snapshot for full range
     fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
@@ -2300,9 +2301,10 @@ void rollback_forward_seqnum()
     r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
     (void)r;
 
-    fconfig.wal_threshold = 1024;
+    fconfig.wal_threshold = n;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.purging_interval = 5;
 
     fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
@@ -2310,16 +2312,18 @@ void rollback_forward_seqnum()
 
 
     // set n docs within both dbs
-    for(i=0;i<n;++i){
+    for(i=0;i<=n;++i){
         sprintf(keybuf, "key%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
             NULL, 0, NULL, 0);
         fdb_set(kv1, doc[i]);
         fdb_set_kv(mirror_kv1, keybuf, strlen(keybuf), setop, 3);
-    }
+    } // last set should have caused a wal flush
+
+    fdb_del(kv1, doc[n]);
 
     // commit and save seqnum1
-    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
     fdb_get_kvs_info(kv1, &info);
     rb1_seqnum = info.last_seqnum;
 
@@ -2333,7 +2337,6 @@ void rollback_forward_seqnum()
     fdb_get_kvs_info(kv1, &info);
     rb2_seqnum = info.last_seqnum;
 
-
     // sets again
     for(i=0;i<n;++i){
         doc[i]->deleted = false;
@@ -2346,6 +2349,9 @@ void rollback_forward_seqnum()
     // rollback to first seqnum
     status = fdb_rollback(&kv1, rb1_seqnum);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_get_kvs_info(kv1, &info);
+    TEST_CHK(info.deleted_count == 1);
 
     // rollback to second seqnum
     status = fdb_rollback(&kv1, rb2_seqnum);
@@ -2364,7 +2370,7 @@ void rollback_forward_seqnum()
         rdoc = NULL;
     } while(fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);
 
-    for (i=0;i<n;++i){
+    for (i=0;i<=n;++i){
         fdb_doc_free(doc[i]);
     }
     fdb_iterator_close(it);

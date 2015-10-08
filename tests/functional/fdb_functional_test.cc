@@ -110,6 +110,7 @@ void basic_test()
     fdb_file_info info;
     fdb_get_file_info(dbfile, &info);
     TEST_CHK(info.doc_count == 9);
+    TEST_CHK(info.deleted_count == 1);
     TEST_CHK(info.space_used > 0);
     TEST_CHK(info.num_kv_stores == 1);
 

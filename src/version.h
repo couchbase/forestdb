@@ -28,7 +28,8 @@ INLINE filemgr_magic_t ver_get_latest_magic() {
     return FILEMGR_LATEST_MAGIC;
 }
 bool ver_is_valid_magic(filemgr_magic_t magic);
-bool ver_deltasize_support(filemgr_magic_t magic);
+bool ver_is_atleast_v2(filemgr_magic_t magic);
+size_t ver_get_new_filename_off(filemgr_magic_t magic);
 
 #endif /* _FDB_VERSION_H */
 
