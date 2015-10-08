@@ -490,6 +490,64 @@ void deleted_doc_get_api_test()
     TEST_RESULT("deleted doc get api test");
 }
 
+// MB-16312
+void complete_delete_test()
+{
+    TEST_INIT();
+
+    int i, r, n = 1000;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_iterator *fit;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_status s; (void)s;
+    char path[256];
+    char keybuf[256], valuebuf[256];
+
+    memleak_start();
+
+    sprintf(path, "./dummy1");
+
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    kvs_config = fdb_get_default_kvs_config();
+
+    fdb_open(&dbfile, path, &config);
+    s = fdb_kvs_open(dbfile, &db, "db1", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%05d", i);
+        sprintf(valuebuf, "value%05d", i);
+        s = fdb_set_kv(db, keybuf, strlen(keybuf)+1, valuebuf, strlen(valuebuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%05d", i);
+        sprintf(valuebuf, "value%05d", i);
+        s = fdb_del_kv(db, keybuf, strlen(keybuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    s = fdb_iterator_init(db, &fit, NULL, 0, NULL, 0, FDB_ITR_NO_DELETES);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("complete delete");
+}
+
 void large_batch_write_no_commit_test()
 {
     TEST_INIT();
@@ -4017,6 +4075,7 @@ int main(){
     set_get_max_keylen();
     config_test();
     deleted_doc_get_api_test();
+    complete_delete_test();
     set_get_meta_test();
     get_byoffset_diff_kvs_test();
 #if !defined(WIN32) && !defined(_WIN32)
