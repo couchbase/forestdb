@@ -450,13 +450,7 @@ INLINE void _btreeblk_add_stale_block(struct btreeblk_handle *handle,
                                  uint64_t pos,
                                  uint32_t len)
 {
-    if (handle->file->stale_list) {
-        struct stale_data *item;
-        item = (struct stale_data*)calloc(1, sizeof(struct stale_data));
-        item->pos = pos;
-        item->len = len;
-        list_push_back(handle->file->stale_list, &item->le);
-    }
+    filemgr_add_stale_block(handle->file, pos, len);
 }
 
 void btreeblk_set_dirty(void *voidhandle, bid_t bid);
@@ -1303,10 +1297,12 @@ void btreeblk_reset_subblock_info(struct btreeblk_handle *handle)
         if (handle->sb[sb_no].bid != BLK_NOT_FOUND) {
             // first of all, make all unused subblocks as stale
             for (idx=0; idx<handle->sb[sb_no].nblocks; ++idx) {
-                _btreeblk_add_stale_block(handle,
-                    (handle->sb[sb_no].bid * handle->nodesize)
-                        + (idx * handle->sb[sb_no].sb_size),
-                    handle->sb[sb_no].sb_size);
+                if (handle->sb[sb_no].bitmap[idx] == 0) {
+                    _btreeblk_add_stale_block(handle,
+                        (handle->sb[sb_no].bid * handle->nodesize)
+                            + (idx * handle->sb[sb_no].sb_size),
+                        handle->sb[sb_no].sb_size);
+                }
             }
             handle->sb[sb_no].bid = BLK_NOT_FOUND;
         }

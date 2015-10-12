@@ -99,6 +99,12 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
         handle->curpos = 0;
     }
     if (!filemgr_is_writable(handle->file, handle->curblock)) {
+        // mark remaining space in old block as stale
+        if (handle->curpos < real_blocksize) {
+            filemgr_mark_stale(handle->file,
+                               real_blocksize * handle->curblock + handle->curpos,
+                               blocksize - handle->curpos);
+        }
         // allocate new block
         handle->curblock = filemgr_alloc(handle->file, log_callback);
         handle->curpos = 0;
@@ -234,7 +240,15 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
             startpos = handle->curblock * real_blocksize + handle->curpos;
         } else {
-            // next block to be allocated is not continuous .. allocate new multiple blocks
+            // next block to be allocated is not continuous
+            // mark remaining space in the old block as stale
+            if (handle->curblock != BLK_NOT_FOUND &&
+                handle->curpos < real_blocksize) {
+                filemgr_mark_stale(handle->file,
+                                   real_blocksize * handle->curblock + handle->curpos,
+                                   blocksize - handle->curpos);
+            }
+            // allocate new multiple blocks
             filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0),
                                    &begin, &end, log_callback);
             offset = 0;

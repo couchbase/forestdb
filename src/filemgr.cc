@@ -819,6 +819,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     spin_init(&file->lock);
 
+    file->stale_list = (struct list*)calloc(1, sizeof(struct list));
+    list_init(file->stale_list);
+
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
     struct plock_ops pops;
     struct plock_config pconfig;
@@ -1427,6 +1430,9 @@ void filemgr_free_func(struct hash_elem *h)
     atomic_destroy_uint8_t(&file->commit_in_prog);
 
     // free file structure
+    struct list *stale_list = filemgr_get_stale_list(file);
+    filemgr_clear_stale_list(file);
+    free(stale_list);
     free(file->config);
     free(file);
 }
@@ -2563,6 +2569,42 @@ void filemgr_clear_stale_list(struct filemgr *file)
             free(item);
         }
         file->stale_list = NULL;
+    }
+}
+
+void filemgr_add_stale_block(struct filemgr *file,
+                             bid_t pos,
+                             size_t len)
+{
+    if (file->stale_list) {
+        struct stale_data *item;
+        item = (struct stale_data*)calloc(1, sizeof(struct stale_data));
+        item->pos = pos;
+        item->len = len;
+        list_push_back(file->stale_list, &item->le);
+    }
+}
+
+void filemgr_mark_stale(struct filemgr *file,
+                        bid_t offset,
+                        size_t length)
+{
+    // TODO: if corresponding blocks are not consecutive,
+    //       we need to modify this logic.
+    if (file->stale_list) {
+        size_t actual_len;
+        bid_t start_bid, end_bid;
+
+        start_bid = offset / file->blocksize;
+        end_bid = (offset + length) / file->blocksize;
+
+        actual_len = length + (end_bid - start_bid);
+        if ((offset + actual_len) % file->blocksize ==
+            file->blocksize - 1) {
+            actual_len += 1;
+        }
+
+        filemgr_add_stale_block(file, offset, actual_len);
     }
 }
 

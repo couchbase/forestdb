@@ -147,11 +147,12 @@ int wal_is_initialized(struct filemgr *file)
     return file->wal->flag & WAL_FLAG_INITIALIZED;
 }
 
-fdb_status wal_insert(fdb_txn *txn,
-                      struct filemgr *file,
-                      fdb_doc *doc,
-                      uint64_t offset,
-                      wal_insert_by caller)
+INLINE fdb_status _wal_insert(fdb_txn *txn,
+                              struct filemgr *file,
+                              fdb_doc *doc,
+                              uint64_t offset,
+                              wal_insert_by caller,
+                              bool immediate_remove)
 {
     struct wal_item *item;
     struct wal_item_header query, *header;
@@ -190,6 +191,7 @@ fdb_status wal_insert(fdb_txn *txn,
 
             if (item->txn == txn && !(item->flag & WAL_ITEM_COMMITTED)) {
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
+                // overwrite existing WAL item
 
                 size_t seq_shard_num = item->seqnum % file->wal->num_shards;
                 if (caller == WAL_INS_WRITER) {
@@ -200,6 +202,7 @@ fdb_status wal_insert(fdb_txn *txn,
                 if (caller == WAL_INS_WRITER) {
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
                 }
+
                 item->seqnum = doc->seqnum;
                 seq_shard_num = doc->seqnum % file->wal->num_shards;
                 if (caller == WAL_INS_WRITER) {
@@ -211,19 +214,38 @@ fdb_status wal_insert(fdb_txn *txn,
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
                 }
 
-                atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk - item->doc_size);
+                // mark previous doc region as stale
+                size_t doc_size_ondisk = doc->size_ondisk;
+                uint32_t stale_len = item->doc_size;
+                uint64_t stale_offset = item->offset;
+                if (item->action == WAL_ACT_INSERT ||
+                    item->action == WAL_ACT_LOGICAL_REMOVE) {
+                    // insert or logical remove
+                    filemgr_mark_stale(file, stale_offset, stale_len);
+                }
 
-                item->doc_size = doc->size_ondisk;
                 if (doc->deleted) {
-                    if (offset != BLK_NOT_FOUND) {// purge interval not met yet
+                    if (offset != BLK_NOT_FOUND && !immediate_remove) {
+                        // purge interval not met yet
                         item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
                     } else { // drop the deleted doc right away
                         item->action = WAL_ACT_REMOVE; // immediate prune index
+
+                        if (offset != BLK_NOT_FOUND) {
+                            // immediately mark as stale if offset is given
+                            // (which means that a deletion mark was appended into
+                            //  the file before calling wal_insert()).
+                            filemgr_mark_stale(file, offset, doc_size_ondisk);
+                        }
                         offset = 0; // must process these first
+                        doc_size_ondisk = 0;
                     }
                 } else {
                     item->action = WAL_ACT_INSERT;
                 }
+                atomic_add_uint64_t(&file->wal->datasize,
+                                    doc_size_ondisk - item->doc_size);
+                item->doc_size = doc->size_ondisk;
                 item->offset = offset;
 
                 // move the item to the front of the list (header)
@@ -248,13 +270,21 @@ fdb_status wal_insert(fdb_txn *txn,
                 atomic_incr_uint32_t(&file->wal->num_flushable);
             }
             item->header = header;
-
             item->seqnum = doc->seqnum;
+
             if (doc->deleted) {
-                if (offset != BLK_NOT_FOUND) {// purge interval not met yet
+                if (offset != BLK_NOT_FOUND && !immediate_remove) {
+                    // purge interval not met yet
                     item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
                 } else { // compactor purge deleted doc
                     item->action = WAL_ACT_REMOVE; // immediate prune index
+
+                    if (offset != BLK_NOT_FOUND) {
+                        // immediately mark as stale if offset is given
+                        // (which means that a deletion mark was appended into
+                        //  the file before calling wal_insert()).
+                        filemgr_mark_stale(file, offset, doc->size_ondisk);
+                    }
                     offset = 0; // must process these first
                 }
             } else {
@@ -262,7 +292,9 @@ fdb_status wal_insert(fdb_txn *txn,
             }
             item->offset = offset;
             item->doc_size = doc->size_ondisk;
-            atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
+            if (item->action != WAL_ACT_REMOVE) {
+                atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
+            }
 
             // don't care about compactor's shard here
             size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
@@ -312,10 +344,17 @@ fdb_status wal_insert(fdb_txn *txn,
         item->seqnum = doc->seqnum;
 
         if (doc->deleted) {
-            if (offset != BLK_NOT_FOUND) {// purge interval not met yet
+            if (offset != BLK_NOT_FOUND && !immediate_remove) {// purge interval not met yet
                 item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
             } else { // compactor purge deleted doc
                 item->action = WAL_ACT_REMOVE; // immediate prune index
+
+                if (offset != BLK_NOT_FOUND) {
+                    // immediately mark as stale if offset is given
+                    // (which means that an empty doc was appended before
+                    //  calling wal_insert()).
+                    filemgr_mark_stale(file, offset, doc->size_ondisk);
+                }
                 offset = 0; // must process these first
             }
         } else {
@@ -323,7 +362,9 @@ fdb_status wal_insert(fdb_txn *txn,
         }
         item->offset = offset;
         item->doc_size = doc->size_ondisk;
-        atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
+        if (item->action != WAL_ACT_REMOVE) {
+            atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk);
+        }
 
         size_t seq_shard_num;
         seq_shard_num = doc->seqnum % file->wal->num_shards;
@@ -357,6 +398,24 @@ fdb_status wal_insert(fdb_txn *txn,
     }
 
     return FDB_RESULT_SUCCESS;
+}
+
+fdb_status wal_insert(fdb_txn *txn,
+                      struct filemgr *file,
+                      fdb_doc *doc,
+                      uint64_t offset,
+                      wal_insert_by caller)
+{
+    return _wal_insert(txn, file, doc, offset, caller, false);
+}
+
+fdb_status wal_immediate_remove(fdb_txn *txn,
+                                struct filemgr *file,
+                                fdb_doc *doc,
+                                uint64_t offset,
+                                wal_insert_by caller)
+{
+    return _wal_insert(txn, file, doc, offset, caller, true);
 }
 
 static fdb_status _wal_find(fdb_txn *txn,
@@ -619,12 +678,23 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                 // (flush-readied item will be removed by flushing)
                 if ((_item->flag & WAL_ITEM_COMMITTED) &&
                     !(_item->flag & WAL_ITEM_FLUSH_READY)) {
+                    // remove from list & hash
                     list_remove(&item->header->items, &_item->list_elem);
                     size_t seq_shard_num = _item->seqnum % file->wal->num_shards;
                     spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
                     hash_remove(&file->wal->seq_shards[seq_shard_num].hash_byseq,
                                 &_item->he_seq);
                     spin_unlock(&file->wal->seq_shards[seq_shard_num].lock);
+
+                    // mark previous doc region as stale
+                    uint32_t stale_len = _item->doc_size;
+                    uint64_t stale_offset = _item->offset;
+                    if (_item->action == WAL_ACT_INSERT ||
+                        _item->action == WAL_ACT_LOGICAL_REMOVE) {
+                        // insert or logical remove
+                        filemgr_mark_stale(file, stale_offset, stale_len);
+                    }
+
                     prev_action = _item->action;
                     prev_commit = 1;
                     atomic_decr_uint32_t(&file->wal->size);
@@ -1036,7 +1106,10 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
         }
         if (item->action != WAL_ACT_REMOVE) {
             atomic_sub_uint64_t(&file->wal->datasize, item->doc_size);
+            // mark as stale if the item is not an immediate remove
+            filemgr_mark_stale(file, item->offset, item->doc_size);
         }
+
         // free
         free(item);
         atomic_decr_uint32_t(&file->wal->size);
@@ -1098,6 +1171,10 @@ static fdb_status _wal_close(struct filemgr *file,
                     if (!(item->flag & WAL_ITEM_COMMITTED)) {
                         // and also remove from transaction's list
                         list_remove(item->txn->items, &item->list_elem_txn);
+                        if (item->action != WAL_ACT_REMOVE) {
+                            // mark as stale if item is not committed and not an immediate remove
+                            filemgr_mark_stale(file, item->offset, item->doc_size);
+                        }
                     } else {
                         // committed item exists and will be removed
                         committed = true;

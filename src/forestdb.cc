@@ -2053,6 +2053,23 @@ INLINE fdb_status _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
     return snap_insert((struct snap_handle *)handle, doc, offset);
 }
 
+INLINE void _fdb_gather_stale_blocks(fdb_kvs_handle *handle)
+{
+    // TODO: those stale blocks will be inserted into stale-block tree
+
+    if (filemgr_get_stale_list(handle->file)) {
+        struct list_elem *e;
+        struct stale_data *item;
+
+        e = list_begin(handle->file->stale_list);
+        while (e) {
+            item = _get_entry(e, struct stale_data, le);
+            e = list_remove(handle->file->stale_list, e);
+            free(item);
+        }
+    }
+}
+
 INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
 {
     hbtrie_result hr;
@@ -2145,6 +2162,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             // This block is already cached when we call HBTRIE_INSERT.
             // No additional block access.
             len = docio_read_doc_length(handle->dhandle, old_offset);
+            filemgr_mark_stale(file, old_offset, _fdb_get_docsize(len));
 
             if (!(len.flag & DOCIO_DELETED)) { // prev doc was not deleted
                 if (item->action == WAL_ACT_LOGICAL_REMOVE) { // now deleted
@@ -2205,6 +2223,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             // This block is already cached when we call _fdb_wal_get_old_offset
             // No additional block access should be done.
             len = docio_read_doc_length(handle->dhandle, old_offset);
+            filemgr_mark_stale(file, old_offset, _fdb_get_docsize(len));
 
             // Reduce the total number of docs by one
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
@@ -3060,6 +3079,7 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
     bool txn_enabled = false;
     bool sub_handle = false;
     bool wal_flushed = false;
+    bool immediate_remove = false;
     file_status_t fstatus;
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_status wr = FDB_RESULT_SUCCESS;
@@ -3184,12 +3204,10 @@ fdb_set_start:
 
     if (doc->deleted && !handle->config.purging_interval) {
         // immediately remove from hbtrie upon WAL flush
-        offset = BLK_NOT_FOUND;
-        doc->size_ondisk = 0;
-    } else {
-        doc->size_ondisk = _fdb_get_docsize(_doc.length);
+        immediate_remove = true;
     }
 
+    doc->size_ondisk = _fdb_get_docsize(_doc.length);
     doc->offset = offset;
     if (!txn) {
         txn = &file->global_txn;
@@ -3199,9 +3217,17 @@ fdb_set_start:
         fdb_doc kv_ins_doc = *doc;
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
-        wal_insert(txn, file, &kv_ins_doc, offset, WAL_INS_WRITER);
+        if (!immediate_remove) {
+            wal_insert(txn, file, &kv_ins_doc, offset, WAL_INS_WRITER);
+        } else {
+            wal_immediate_remove(txn, file, &kv_ins_doc, offset, WAL_INS_WRITER);
+        }
     } else {
-        wal_insert(txn, file, doc, offset, WAL_INS_WRITER);
+        if (!immediate_remove) {
+            wal_insert(txn, file, doc, offset, WAL_INS_WRITER);
+        } else {
+            wal_immediate_remove(txn, file, doc, offset, WAL_INS_WRITER);
+        }
     }
 
     if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
@@ -3241,14 +3267,10 @@ fdb_set_start:
 
         if (wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
             union wal_flush_items flush_items;
-            struct list stale_list;
 
             // discard all cached writable blocks
             // to avoid data inconsistency with other writers
             btreeblk_discard_blocks(handle->bhandle);
-
-            list_init(&stale_list);
-            filemgr_set_stale_list(handle->file, &stale_list);
 
             // commit only for non-transactional WAL entries
             wr = wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
@@ -3263,7 +3285,6 @@ fdb_set_start:
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(file);
                 atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-                filemgr_clear_stale_list(handle->file);
                 return wr;
             }
             wal_set_dirty_status(file, FDB_WAL_PENDING);
@@ -3287,7 +3308,7 @@ fdb_set_start:
 
             wal_flushed = true;
             btreeblk_reset_subblock_info(handle->bhandle);
-            filemgr_clear_stale_list(handle->file);
+            _fdb_gather_stale_blocks(handle);
         }
     }
 
@@ -3547,7 +3568,6 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
     bid_t dirty_idtree_root, dirty_seqtree_root;
     union wal_flush_items flush_items;
     fdb_status wr = FDB_RESULT_SUCCESS;
-    struct list stale_list;
 
     if (handle->kvs) {
         if (handle->kvs->type == KVS_SUB) {
@@ -3584,9 +3604,6 @@ fdb_commit_start:
         filemgr_mutex_unlock(handle->file);
         return fs;
     }
-
-    list_init(&stale_list);
-    filemgr_set_stale_list(handle->file, &stale_list);
 
     // commit wal
     if (txn) {
@@ -3647,7 +3664,6 @@ fdb_commit_start:
                   &flush_items);
         if (wr != FDB_RESULT_SUCCESS) {
             filemgr_mutex_unlock(handle->file);
-            filemgr_clear_stale_list(handle->file);
             return wr;
         }
         wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
@@ -3684,7 +3700,6 @@ fdb_commit_start:
     if (handle->last_wal_flush_hdr_bid != BLK_NOT_FOUND &&
         handle->last_wal_flush_hdr_bid > handle->last_hdr_bid) {
         filemgr_mutex_unlock(handle->file);
-        filemgr_clear_stale_list(handle->file);
 
         const char *msg = "Commit operation fails becasue the last wal_flushed "
             "commit header bid > the last commit header bid in a database file '%s'\n";
@@ -3703,7 +3718,7 @@ fdb_commit_start:
     }
 
     btreeblk_reset_subblock_info(handle->bhandle);
-    filemgr_clear_stale_list(handle->file);
+    _fdb_gather_stale_blocks(handle);
 
     handle->dirty_updates = 0;
     filemgr_mutex_unlock(handle->file);
@@ -3790,7 +3805,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
                             &handle->log_callback);
 
     btreeblk_reset_subblock_info(handle->bhandle);
-    filemgr_clear_stale_list(handle->file);
+    _fdb_gather_stale_blocks(handle);
 
     if (status != FDB_RESULT_SUCCESS) {
         filemgr_mutex_unlock(old_file);
@@ -5830,7 +5845,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     struct btree *new_idtree = NULL;
     bid_t dirty_idtree_root, dirty_seqtree_root;
     fdb_seqnum_t seqnum;
-    struct list stale_list;
 
     // Copy the old file's seqnum to the new file.
     // (KV instances' seq numbers will be copied along with the KV header)
@@ -5919,9 +5933,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         target_seqtree = (struct btree*)new_seqtrie;
     }
 
-    list_init(&stale_list);
-    filemgr_set_stale_list(new_file, &stale_list);
-
     if (marker_bid != BLK_NOT_FOUND) {
         fs = _fdb_compact_move_docs_upto_marker(handle, new_file, new_trie,
                                                 new_idtree, target_seqtree,
@@ -5941,7 +5952,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
 
         btreeblk_reset_subblock_info(new_bhandle);
-        filemgr_clear_stale_list(new_file);
         _fdb_cleanup_compact_err(handle, new_file, true, false, new_bhandle,
                                  new_dhandle, new_trie, new_seqtrie,
                                  new_seqtree);
@@ -6010,7 +6020,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                 filemgr_mutex_unlock(handle->file);
             }
             btreeblk_reset_subblock_info(new_bhandle);
-            filemgr_clear_stale_list(new_file);
             _fdb_cleanup_compact_err(handle, new_file, true, false,
                                      new_bhandle, new_dhandle, new_trie,
                                      new_seqtrie, new_seqtree);

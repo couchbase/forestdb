@@ -379,6 +379,17 @@ INLINE struct list * filemgr_get_stale_list(struct filemgr *file)
     return file->stale_list;
 }
 
+// Add an item into stale-block list of the given 'file'.
+void filemgr_add_stale_block(struct filemgr *file,
+                             bid_t pos,
+                             size_t len);
+// Mark the given region (offset, length) as stale.
+// This function automatically calculates the additional space
+// used for block markers.
+void filemgr_mark_stale(struct filemgr *file,
+                        bid_t offset,
+                        size_t length);
+
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,
                    struct kvs_stat stat);

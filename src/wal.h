@@ -137,6 +137,11 @@ fdb_status wal_insert(fdb_txn *txn,
                       fdb_doc *doc,
                       uint64_t offset,
                       wal_insert_by caller);
+fdb_status wal_immediate_remove(fdb_txn *txn,
+                                struct filemgr *file,
+                                fdb_doc *doc,
+                                uint64_t offset,
+                                wal_insert_by caller);
 fdb_status wal_find(fdb_txn *txn, struct filemgr *file, fdb_doc *doc, uint64_t *offset);
 fdb_status wal_find_kv_id(fdb_txn *txn,
                           struct filemgr *file,
@@ -144,7 +149,6 @@ fdb_status wal_find_kv_id(fdb_txn *txn,
                           fdb_doc *doc,
                           uint64_t *offset);
 
-fdb_status wal_remove(fdb_txn *txn, struct filemgr *file, fdb_doc *doc);
 fdb_status wal_txn_migration(void *dbhandle,
                              void *new_dhandle,
                              struct filemgr *old_file,
