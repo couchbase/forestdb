@@ -596,11 +596,17 @@ void btreeblk_remove(void *voidhandle, bid_t bid)
             if (nitems == 0) {
                 handle->sb[sb].bid = BLK_NOT_FOUND;
                 handle->nlivenodes--;
+                _btreeblk_add_stale_block(handle,
+                                          _bid * handle->nodesize,
+                                          handle->nodesize);
             }
         }
     } else {
         // normal block
         handle->nlivenodes--;
+        _btreeblk_add_stale_block(handle,
+                                  _bid * handle->nodesize,
+                                  handle->nodesize);
     }
 }
 // LCOV_EXCL_STOP
