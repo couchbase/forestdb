@@ -1141,7 +1141,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
     if (id > 0) { // non-default KVS
         // read last KVS header
         fdb_fetch_header(version, buf, &dummy64, &dummy64,
-                         &dummy64, &dummy64, &dummy64,
+                         &dummy64, &dummy64, &dummy64, &dummy64,
                          &dummy64, &dummy64,
                          &kv_info_offset, &dummy64,
                          &compacted_filename, NULL);

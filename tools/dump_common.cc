@@ -47,6 +47,7 @@ void print_header(fdb_kvs_handle *db)
     bid_t bid;
     bid_t trie_root_bid;
     bid_t seq_root_bid;
+    bid_t stale_root_bid;
     fdb_seqnum_t seqnum;
     filemgr_header_revnum_t revnum;
 
@@ -55,8 +56,8 @@ void print_header(fdb_kvs_handle *db)
     filemgr_get_header(db->file, header_buf, &header_len, NULL, NULL, NULL);
     version = db->file->version;
     if (header_len > 0) {
-        fdb_fetch_header(version, header_buf, &trie_root_bid,
-                         &seq_root_bid, &ndocs, &ndeletes, &nlivenodes,
+        fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
+                         &stale_root_bid, &ndocs, &ndeletes, &nlivenodes,
                          &datasize, &last_header_bid, &kv_info_offset,
                          &header_flags, &compacted_filename, &prev_filename);
         revnum = filemgr_get_header_revnum(db->file);
@@ -99,6 +100,23 @@ void print_header(fdb_kvs_handle *db)
             }
         } else {
             printf("    Seq B+tree root BID: not exist\n");
+        }
+
+        if (stale_root_bid != BLK_NOT_FOUND) {
+            if (!is_subblock(stale_root_bid)) {
+                // normal block
+                printf("    Stale B+tree root BID: %" _F64 " (0x%" _X64 ", byte offset: %" _F64 ")\n",
+                       stale_root_bid, stale_root_bid, stale_root_bid * FDB_BLOCKSIZE);
+            } else {
+                // sub-block
+                subbid2bid(stale_root_bid, &subblock_no, &idx, &bid);
+                printf("    Stale B+tree root BID: %" _F64 ", %d-byte subblock #%" _F64,
+                       bid, db->bhandle->sb[subblock_no].sb_size, (uint64_t) idx);
+                printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", stale_root_bid,
+                       bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
+            }
+        } else {
+            printf("    Stale B+tree root BID: not exist\n");
         }
 
         if (last_header_bid != BLK_NOT_FOUND) {

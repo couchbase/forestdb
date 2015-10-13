@@ -2578,6 +2578,19 @@ void filemgr_add_stale_block(struct filemgr *file,
 {
     if (file->stale_list) {
         struct stale_data *item;
+        struct list_elem *e;
+
+        e = list_end(file->stale_list);
+
+        if (e) {
+            item = _get_entry(e, struct stale_data, le);
+            if (item->pos + item->len == pos) {
+                // merge if consecutive item
+                item->len += len;
+                return;
+            }
+        }
+
         item = (struct stale_data*)calloc(1, sizeof(struct stale_data));
         item->pos = pos;
         item->len = len;

@@ -21,7 +21,7 @@
 bool ver_is_valid_magic(filemgr_magic_t magic)
 {
     if (magic == FILEMGR_MAGIC_V1 ||
-        magic == FILEMGR_MAGIC_V2) {
+        (magic >= FILEMGR_MAGIC_V2 && magic <= FILEMGR_LATEST_MAGIC)) {
         return true;
     }
     return false;
@@ -36,10 +36,20 @@ bool ver_is_atleast_v2(filemgr_magic_t magic)
     return false;
 }
 
+bool ver_staletree_support(filemgr_magic_t magic)
+{
+    // All magic numbers since FILEMGR_MAGIC_V3
+    if (magic >= FILEMGR_MAGIC_V3 && magic <= FILEMGR_LATEST_MAGIC) {
+        return true;
+    }
+    return false;
+}
+
 size_t ver_get_new_filename_off(filemgr_magic_t magic) {
     switch(magic) {
         case FILEMGR_MAGIC_V1: return 64;
         case FILEMGR_MAGIC_V2: return 72;
+        case FILEMGR_MAGIC_V3: return 80;
     }
     return (size_t) -1;
 }

@@ -136,10 +136,12 @@ struct kvs_stat {
 };
 
 // Versioning information...
+// Version 3 - added stale-block tree info
+#define FILEMGR_MAGIC_V3 (UINT64_C(0xdeadcafebeefc002))
 // Version 2 - added delta size to DB header and CRC-32C
 #define FILEMGR_MAGIC_V2 (UINT64_C(0xdeadcafebeefc001))
 #define FILEMGR_MAGIC_V1 (UINT64_C(0xdeadcafebeefbeef))
-#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_V2
+#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_V3
 
 /**
  * Atomic counters of operational statistics in ForestDB KV store.
@@ -244,10 +246,10 @@ struct _fdb_kvs_handle {
      */
     struct hbtrie *trie;
     /**
-     * Document key B+-Tree instance.
-     * Used for custom compare function of variable length key
+     * Stale block B+-Tree instance.
+     * Maps from 'commit revision number' to 'stale block info' system document.
      */
-    struct btree *idtree;
+    struct btree *staletree;
     /**
      * Sequence B+-Tree instance.
      */

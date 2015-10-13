@@ -84,7 +84,7 @@ typedef uint64_t wal_doc_move_func(void *dbhandle,
                                    struct wal_item *item,
                                    fdb_doc *doc);
 typedef fdb_status wal_commit_mark_func(void *dbhandle,
-                                  uint64_t offset);
+                                        uint64_t offset);
 
 #define WAL_FLAG_INITIALIZED 0x1
 

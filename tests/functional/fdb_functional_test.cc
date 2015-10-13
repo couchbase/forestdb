@@ -370,6 +370,9 @@ void config_test()
         // Ensure just one block is used from the buffercache to store KV name
         // DB header and it does not change since files are duly closed
         TEST_CHK(bcache_space_used == fconfig.blocksize);
+        // We need to replace above check routine with following condition
+        // when V3 magic number is enabled:
+        //TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
 
         status = fdb_close(dbfile);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -387,6 +390,9 @@ void config_test()
     // Two blocks must be used - 1 by DB header created earlier and
     // One for the document block created by the fdb_set_kv
     TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
+    // We need to replace above check routine with following condition
+    // when V3 magic number is enabled:
+    //TEST_CHK(bcache_space_used == fconfig.blocksize * 3);
 
     fdb_close(dbfile);
 

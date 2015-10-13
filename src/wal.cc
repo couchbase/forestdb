@@ -873,6 +873,48 @@ INLINE fdb_status _wal_do_flush(struct wal_item *item,
     return FDB_RESULT_SUCCESS;
 }
 
+struct fdb_root_info {
+    bid_t orig_id_root;
+    bid_t orig_seq_root;
+    bid_t orig_stale_root;
+};
+
+INLINE void _wal_backup_root_info(void *voidhandle,
+                                  struct fdb_root_info *root_info)
+{
+    fdb_kvs_handle *handle = (fdb_kvs_handle*)voidhandle;
+
+    root_info->orig_id_root = handle->trie->root_bid;
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        if (handle->kvs) {
+            root_info->orig_seq_root = handle->seqtrie->root_bid;
+        } else {
+            root_info->orig_seq_root = handle->seqtree->root_bid;
+        }
+    }
+    if (handle->staletree) {
+        root_info->orig_stale_root = handle->staletree->root_bid;
+    }
+}
+
+INLINE void _wal_restore_root_info(void *voidhandle,
+                                   struct fdb_root_info *root_info)
+{
+    fdb_kvs_handle *handle = (fdb_kvs_handle*)voidhandle;
+
+    handle->trie->root_bid = root_info->orig_id_root;
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        if (handle->kvs) {
+            handle->seqtrie->root_bid = root_info->orig_seq_root;
+        } else {
+            handle->seqtree->root_bid = root_info->orig_seq_root;
+        }
+    }
+    if (handle->staletree) {
+        handle->staletree->root_bid = root_info->orig_stale_root;
+    }
+}
+
 static fdb_status _wal_flush(struct filemgr *file,
                              void *dbhandle,
                              wal_flush_func *flush_func,
@@ -885,14 +927,19 @@ static fdb_status _wal_flush(struct filemgr *file,
     struct list_elem *e, *ee, *e_next, *ee_prev;
     struct wal_item *item;
     struct wal_item_header *header;
+    struct fdb_root_info root_info;
     size_t i = 0;
     size_t num_shards = file->wal->num_shards;
     bool do_sort = !filemgr_is_fully_resident(file);
+
     if (do_sort) {
         avl_init(tree, WAL_SORTED_FLUSH);
     } else {
         list_init(list_head);
     }
+
+    memset(&root_info, 0xff, sizeof(root_info));
+    _wal_backup_root_info(dbhandle, &root_info);
 
     for (; i < num_shards; ++i) {
         spin_lock(&file->wal->key_shards[i].lock);
@@ -958,6 +1005,7 @@ static fdb_status _wal_flush(struct filemgr *file,
             a = avl_next(a);
             fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
             if (fs != FDB_RESULT_SUCCESS) {
+                _wal_restore_root_info(dbhandle, &root_info);
                 return fs;
             }
         }
@@ -968,6 +1016,7 @@ static fdb_status _wal_flush(struct filemgr *file,
             a = list_next(a);
             fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
             if (fs != FDB_RESULT_SUCCESS) {
+                _wal_restore_root_info(dbhandle, &root_info);
                 return fs;
             }
         }
