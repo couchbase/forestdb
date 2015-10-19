@@ -468,6 +468,7 @@ void handle_busy_test()
     status = fdb_set(itr->handle, doc[0]);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    fdb_iterator_close(itr);
     fdb_close(data.dbfile);
 
     for (i = n - 1; i >=0; --i) {
