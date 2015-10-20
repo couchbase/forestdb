@@ -6117,10 +6117,6 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
     bool in_place_compaction = false;
     char nextfile[FDB_MAX_FILENAME_LEN];
 
-    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
     if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
         // manual compaction
         if (!new_filename) { // In-place compaction.
@@ -6170,6 +6166,13 @@ fdb_status fdb_compact_upto(fdb_file_handle *fhandle,
                             const char *new_filename,
                             fdb_snapshot_marker_t marker)
 {
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    if (fhandle->root->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     return _fdb_compact(fhandle, new_filename, marker, false, NULL);
 }
 
@@ -6178,6 +6181,13 @@ fdb_status fdb_compact_upto_with_cow(fdb_file_handle *fhandle,
                                   const char *new_filename,
                                   fdb_snapshot_marker_t marker)
 {
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    if (fhandle->root->config.seqtree_opt != FDB_SEQTREE_USE) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     return _fdb_compact(fhandle, new_filename, marker, true, NULL);
 }
 

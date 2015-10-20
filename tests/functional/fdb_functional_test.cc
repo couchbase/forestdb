@@ -827,6 +827,9 @@ void seq_tree_exception_test()
     // commit
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     // close the db
     fdb_kvs_close(db);
     fdb_close(dbfile);
