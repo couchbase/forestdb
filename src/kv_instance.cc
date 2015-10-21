@@ -577,6 +577,7 @@ void fdb_kvs_header_reset_all_stats(struct filemgr *file)
 void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle,
+                         uint64_t *new_file_kv_info_offset,
                          bool create_new)
 {
     struct avl_node *a, *aa;
@@ -589,9 +590,18 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         // read from 'handle->dhandle', and import into 'new_file'
         fdb_kvs_header_read(kv_header, handle->dhandle,
                             handle->kv_info_offset, ver_get_latest_magic(), false);
+
         // write KV header in 'new_file' using 'new_dhandle'
-        handle->kv_info_offset = fdb_kvs_header_append(new_file,
-                                                          new_dhandle);
+        uint64_t new_kv_info_offset;
+        fdb_kvs_handle new_handle;
+        new_handle.file = new_file;
+        new_handle.dhandle = new_dhandle;
+        new_handle.kv_info_offset = BLK_NOT_FOUND;
+        new_kv_info_offset = fdb_kvs_header_append(&new_handle);
+        if (new_file_kv_info_offset) {
+            *new_file_kv_info_offset = new_kv_info_offset;
+        }
+
         if (!filemgr_set_kv_header(new_file, kv_header, fdb_kvs_header_free,
                                    false)) { // LCOV_EXCL_START
             _fdb_kvs_header_free(kv_header);
@@ -1025,16 +1035,20 @@ uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
     return ret;
 }
 
-uint64_t fdb_kvs_header_append(struct filemgr *file,
-                                  struct docio_handle *dhandle)
+uint64_t fdb_kvs_header_append(fdb_kvs_handle *handle)
 {
     char *doc_key = alca(char, 32);
     void *data;
     size_t len;
-    uint64_t kv_info_offset;
+    uint64_t kv_info_offset, prev_offset;
     struct docio_object doc;
+    struct docio_length doc_len;
+    struct filemgr *file = handle->file;
+    struct docio_handle *dhandle = handle->dhandle;
 
     _fdb_kvs_header_export(file->kv_header, &data, &len);
+
+    prev_offset = handle->kv_info_offset;
 
     memset(&doc, 0, sizeof(struct docio_object));
     sprintf(doc_key, "KV_header");
@@ -1047,6 +1061,12 @@ uint64_t fdb_kvs_header_append(struct filemgr *file,
     doc.seqnum = 0;
     kv_info_offset = docio_append_doc_system(dhandle, &doc);
     free(data);
+
+    if (prev_offset != BLK_NOT_FOUND) {
+        doc_len = docio_read_doc_length(handle->dhandle, prev_offset);
+        // mark stale
+        filemgr_mark_stale(handle->file, prev_offset, _fdb_get_docsize(doc_len));
+    }
 
     return kv_info_offset;
 }
@@ -1270,7 +1290,6 @@ static fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a;
     struct filemgr *file;
-    struct docio_handle *dhandle;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
 
@@ -1299,7 +1318,6 @@ fdb_kvs_create_start:
     }
 
     file = root_handle->file;
-    dhandle = root_handle->dhandle;
 
     file_status_t fstatus = filemgr_get_file_status(file);
     if (fstatus == FILE_REMOVED_PENDING) {
@@ -1400,7 +1418,7 @@ fdb_kvs_create_start:
     }
 
     // append system doc
-    root_handle->kv_info_offset = fdb_kvs_header_append(file, dhandle);
+    root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
@@ -1876,7 +1894,6 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     struct avl_node *a = NULL;
     struct list_elem *e;
     struct filemgr *file;
-    struct docio_handle *dhandle;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
     struct kvs_opened_node *opened_node;
@@ -1909,7 +1926,6 @@ fdb_kvs_remove_start:
     }
 
     file = root_handle->file;
-    dhandle = root_handle->dhandle;
 
     file_status_t fstatus = filemgr_get_file_status(file);
     if (fstatus == FILE_REMOVED_PENDING) {
@@ -2052,7 +2068,7 @@ fdb_kvs_remove_start:
     }
 
     // append system doc
-    root_handle->kv_info_offset = fdb_kvs_header_append(file, dhandle);
+    root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
@@ -2491,3 +2507,29 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
 
     return FDB_RESULT_SUCCESS;
 }
+
+filemgr_header_revnum_t fdb_get_smallest_active_header_revnum(fdb_kvs_handle *handle)
+{
+    filemgr_header_revnum_t min_revnum;
+    struct list_elem *e;
+    struct kvs_opened_node *item;
+
+    spin_lock(&handle->fhandle->lock);
+
+    min_revnum = handle->fhandle->root->cur_header_revnum;
+
+    e = list_begin(handle->fhandle->handles);
+    while (e) {
+
+        item = _get_entry(e, struct kvs_opened_node, le);
+        e = list_next(e);
+
+        if (item->handle->cur_header_revnum < min_revnum) {
+            min_revnum = item->handle->cur_header_revnum;
+        }
+    }
+    spin_unlock(&handle->fhandle->lock);
+
+    return min_revnum;
+}
+

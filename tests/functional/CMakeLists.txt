@@ -30,6 +30,7 @@ add_executable(fdb_functional_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
@@ -76,6 +77,7 @@ add_executable(fdb_extended_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
@@ -122,6 +124,7 @@ add_executable(compact_functional_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
@@ -168,6 +171,7 @@ add_executable(iterator_functional_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
@@ -214,6 +218,7 @@ add_executable(mvcc_functional_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
@@ -260,6 +265,7 @@ add_executable(multi_kv_functional_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
@@ -306,6 +312,7 @@ add_executable(big_concurrency_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc
@@ -355,6 +362,7 @@ add_executable(big_compaction_test
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
+               ${ROOT_SRC}/staleblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc

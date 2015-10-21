@@ -609,7 +609,10 @@ struct stale_data {
      * Length of the stale data
      */
     uint32_t len;
-    struct list_elem le;
+    union {
+        struct list_elem le;
+        struct avl_node avl;
+    };
 };
 
 #define FDB_FLAG_SEQTREE_USE (0x1)

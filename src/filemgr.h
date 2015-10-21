@@ -236,6 +236,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 err_log_callback *log_callback);
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
+                                   filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
                                    err_log_callback *log_callback);
 fdb_status filemgr_close(struct filemgr *file,
@@ -389,13 +390,39 @@ INLINE struct list * filemgr_get_stale_list(struct filemgr *file)
     return file->stale_list;
 }
 
-// Add an item into stale-block list of the given 'file'.
+/**
+ * Add an item into stale-block list of the given 'file'.
+ *
+ * @param file Pointer to file handle.
+ * @param pos Byte offset to the beginning of the stale region.
+ * @param len Length of the stale region.
+ * @return void.
+ */
 void filemgr_add_stale_block(struct filemgr *file,
                              bid_t pos,
                              size_t len);
-// Mark the given region (offset, length) as stale.
-// This function automatically calculates the additional space
-// used for block markers.
+/**
+ * Calculate the actual space (including block markers) used for the given data.
+ *
+ * @param file Pointer to file handle.
+ * @param offset Byte offset to the beginning of the data.
+ * @param length Length of the data.
+ * @return The actual length.
+ */
+size_t filemgr_actual_stale_length(struct filemgr *file,
+                                   bid_t offset,
+                                   size_t length);
+
+/**
+ * Mark the given region (offset, length) as stale.
+ * This function automatically calculates the additional space
+ * used for block markers, by internally calling filemgr_actual_stale_length().
+ *
+ * @param file Pointer to file handle.
+ * @param offset Byte offset to the beginning of the data.
+ * @param length Length of the data.
+ * @return void.
+ */
 void filemgr_mark_stale(struct filemgr *file,
                         bid_t offset,
                         size_t length);

@@ -121,8 +121,7 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
 void fdb_kvs_info_free(fdb_kvs_handle *handle);
 void fdb_kvs_header_reset_all_stats(struct filemgr *file);
 void fdb_kvs_header_create(struct filemgr *file);
-uint64_t fdb_kvs_header_append(struct filemgr *file,
-                               struct docio_handle *dhandle);
+uint64_t fdb_kvs_header_append(fdb_kvs_handle *handle);
 
 struct kvs_header;
 
@@ -134,6 +133,7 @@ void fdb_kvs_header_read(struct kvs_header *kv_header,
 void fdb_kvs_header_copy(fdb_kvs_handle *handle,
                          struct filemgr *new_file,
                          struct docio_handle *new_dhandle,
+                         uint64_t *new_file_kv_info_offset,
                          bool create_new);
 void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file);
 void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);
@@ -183,6 +183,14 @@ void fdb_kvs_set_seqnum(struct filemgr *file,
                         fdb_seqnum_t seqnum);
 
 fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum);
+
+/**
+ * Return the smallest commit revision number that are currently being referred.
+ *
+ * @param handle Pointer to ForestDB KV store handle.
+ * @return Header revision number.
+ */
+filemgr_header_revnum_t fdb_get_smallest_active_header_revnum(fdb_kvs_handle *handle);
 
 INLINE size_t _fdb_get_docsize(struct docio_length len)
 {

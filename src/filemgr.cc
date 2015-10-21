@@ -1059,6 +1059,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
 
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
+                                   filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
                                    err_log_callback *log_callback)
 {
@@ -1183,6 +1184,9 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
             }
         }
 
+        if (revnum) {
+            *revnum = _endian_decode(_revnum);
+        }
         *seqnum = _endian_decode(_seqnum);
         *len = hdr_len;
         *version = magic;
@@ -1967,7 +1971,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
     struct avl_node *a;
     struct kvs_node *node;
     struct kvs_header *kv_header = file->kv_header;
-    bid_t _prev_bid;
+    bid_t prev_bid, _prev_bid;
     uint64_t _deltasize;
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
@@ -2034,7 +2038,8 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         }
 
         // prev header bid
-        _prev_bid = _endian_encode(atomic_get_uint64_t(&file->header.bid));
+        prev_bid = atomic_get_uint64_t(&file->header.bid);
+        _prev_bid = _endian_encode(prev_bid);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - sizeof(_prev_bid) - BLK_MARKER_SIZE),
                &_prev_bid, sizeof(_prev_bid));
@@ -2063,6 +2068,12 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
             filemgr_clear_io_inprog(file);
             return FDB_RESULT_WRITE_FAIL;
         }
+
+        if (prev_bid) {
+            // mark prev DB header as stale
+            filemgr_add_stale_block(file, prev_bid * file->blocksize, file->blocksize);
+        }
+
         atomic_store_uint64_t(&file->header.bid,
                               atomic_get_uint64_t(&file->pos) / file->blocksize);
         atomic_add_uint64_t(&file->pos, file->blocksize);
@@ -2598,6 +2609,25 @@ void filemgr_add_stale_block(struct filemgr *file,
     }
 }
 
+size_t filemgr_actual_stale_length(struct filemgr *file,
+                                   bid_t offset,
+                                   size_t length)
+{
+    size_t actual_len;
+    bid_t start_bid, end_bid;
+
+    start_bid = offset / file->blocksize;
+    end_bid = (offset + length) / file->blocksize;
+
+    actual_len = length + (end_bid - start_bid);
+    if ((offset + actual_len) % file->blocksize ==
+        file->blocksize - 1) {
+        actual_len += 1;
+    }
+
+    return actual_len;
+}
+
 void filemgr_mark_stale(struct filemgr *file,
                         bid_t offset,
                         size_t length)
@@ -2605,19 +2635,8 @@ void filemgr_mark_stale(struct filemgr *file,
     // TODO: if corresponding blocks are not consecutive,
     //       we need to modify this logic.
     if (file->stale_list) {
-        size_t actual_len;
-        bid_t start_bid, end_bid;
-
-        start_bid = offset / file->blocksize;
-        end_bid = (offset + length) / file->blocksize;
-
-        actual_len = length + (end_bid - start_bid);
-        if ((offset + actual_len) % file->blocksize ==
-            file->blocksize - 1) {
-            actual_len += 1;
-        }
-
-        filemgr_add_stale_block(file, offset, actual_len);
+        filemgr_add_stale_block(file, offset,
+                                filemgr_actual_stale_length(file, offset, length));
     }
 }
 

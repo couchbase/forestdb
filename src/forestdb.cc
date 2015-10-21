@@ -46,6 +46,7 @@
 #include "time_utils.h"
 #include "system_resource_stats.h"
 #include "version.h"
+#include "staleblock.h"
 
 #ifdef __DEBUG
 #ifndef __DEBUG_FDB
@@ -1363,6 +1364,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     bid_t stale_root_bid = BLK_NOT_FOUND;
     fdb_seqnum_t seqnum = 0;
     filemgr_header_revnum_t header_revnum = 0;
+    filemgr_header_revnum_t latest_header_revnum = 0;
     fdb_seqtree_opt_t seqtree_opt = config->seqtree_opt;
     uint64_t ndocs = 0;
     uint64_t ndeletes = 0;
@@ -1464,7 +1466,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (handle->shandle && handle->last_hdr_bid) {
         status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                       header_buf, &header_len, &seqnum,
-                                      &header_revnum, &deltasize, &version,
+                                      &latest_header_revnum, &deltasize, &version,
                                       &handle->log_callback);
         if (status != FDB_RESULT_SUCCESS) {
             free(handle->filename);
@@ -1475,7 +1477,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
     } else { // Normal open
         filemgr_get_header(handle->file, header_buf, &header_len,
-                           &handle->last_hdr_bid, &seqnum, &header_revnum);
+                           &handle->last_hdr_bid, &seqnum, &latest_header_revnum);
         version = handle->file->version;
     }
 
@@ -1571,7 +1573,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             while (header_len && seqnum != handle->max_seqnum) {
                 hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                           header_buf, &header_len, &seqnum,
-                                          NULL, &version, &handle->log_callback);
+                                          &header_revnum, NULL, &version,
+                                          &handle->log_callback);
                 if (header_len == 0) {
                     continue; // header doesn't exist
                 }
@@ -1702,7 +1705,12 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
-    handle->cur_header_revnum = header_revnum;
+    if (header_revnum && !filemgr_is_rollback_on(handle->file)) {
+        // only for snapshot (excluding rollback)
+        handle->cur_header_revnum = header_revnum;
+    } else {
+        handle->cur_header_revnum = latest_header_revnum;
+    }
     handle->last_wal_flush_hdr_bid = last_wal_flush_hdr_bid;
 
     memset(&empty_stat, 0x0, sizeof(empty_stat));
@@ -1715,13 +1723,16 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         _kvs_stat_set(handle->file, 0, stat);
     }
 
+    handle->kv_info_offset = kv_info_offset;
     if (handle->config.multi_kv_instances && !handle->shandle) {
         // multi KV instance mode
         filemgr_mutex_lock(handle->file);
         if (kv_info_offset == BLK_NOT_FOUND) {
             // there is no KV header .. create & initialize
             fdb_kvs_header_create(handle->file);
-            kv_info_offset = fdb_kvs_header_append(handle->file, handle->dhandle);
+            // TODO: If another handle is opened before the first header is appended,
+            // an unnecessary KV info doc is appended. We need to address it.
+            kv_info_offset = fdb_kvs_header_append(handle);
         } else if (handle->file->kv_header == NULL) {
             // KV header already exists but not loaded .. read & import
             fdb_kvs_header_create(handle->file);
@@ -1845,7 +1856,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         if (stale_root_bid == BLK_NOT_FOUND) {
             btree_init(handle->staletree, (void *)handle->bhandle,
                        handle->btreeblkops, stale_kv_ops,
-                       handle->config.blocksize, sizeof(fdb_seqnum_t),
+                       handle->config.blocksize, sizeof(filemgr_header_revnum_t),
                        OFFSET_SIZE, 0x0, NULL);
          }else{
             btree_init_from_bid(handle->staletree, (void *)handle->bhandle,
@@ -2087,123 +2098,6 @@ INLINE fdb_status _fdb_wal_snapshot_func(void *handle, fdb_doc *doc,
                                          uint64_t offset) {
 
     return snap_insert((struct snap_handle *)handle, doc, offset);
-}
-
-INLINE void _fdb_gather_stale_blocks(fdb_kvs_handle *handle)
-{
-    // TODO: those stale blocks will be inserted into stale-block tree
-    uint32_t count = 0;
-    uint32_t offset = 0;
-    uint32_t bufsize = 8192;
-    uint32_t _count, _len;
-    uint64_t _pos;
-    uint8_t *buf = NULL;
-    bid_t doc_offset, _doc_offset;
-    bool gather_staleblocks = true;
-
-    /*
-     * << stale block system doc structure >>
-     * [previous doc offset]: 8 bytes (0xffff.. if not exist)
-     * [# items]:             4 bytes
-     * ---
-     * [position]:            8 bytes
-     * [length]:              4 bytes
-     * ...
-     */
-
-    if (filemgr_get_stale_list(handle->file)) {
-        struct list_elem *e;
-        struct stale_data *item;
-
-        buf = (uint8_t *)calloc(1, bufsize);
-        // initial previous doc offset
-        memset(buf, 0xff, sizeof(bid_t));
-
-        while(gather_staleblocks) {
-            // reserve space for prev offset & count
-            offset = sizeof(bid_t) + sizeof(uint32_t);
-
-            e = list_begin(handle->file->stale_list);
-            while (e) {
-                item = _get_entry(e, struct stale_data, le);
-
-                if (handle->staletree) {
-                    count++;
-                    _pos = _endian_encode(item->pos);
-                    _len = _endian_encode(item->len);
-
-                    memcpy(buf + offset, &_pos, sizeof(_pos));
-                    offset += sizeof(_pos);
-                    memcpy(buf + offset, &_len, sizeof(_len));
-                    offset += sizeof(_len);
-
-                    if (offset + sizeof(_pos) + sizeof(_len) >= bufsize) {
-                        bufsize *= 2;
-                        buf = (uint8_t*)realloc(buf, bufsize);
-                    }
-                }
-
-                e = list_remove(handle->file->stale_list, e);
-                free(item);
-            }
-
-            gather_staleblocks = false;
-            if (count) {
-                char *doc_key = alca(char, 32);
-                struct docio_object doc;
-                filemgr_header_revnum_t revnum, _revnum;
-
-                // store count
-                _count = _endian_encode(count);
-                memcpy(buf + sizeof(bid_t), &_count, sizeof(_count));
-
-                // append a system doc
-                memset(&doc, 0x0, sizeof(doc));
-                // add one to 'revnum' to get the next revision number
-                // (note that filemgr_mutex() is grabbed so that no other thread
-                //  will change the 'revnum').
-                revnum = filemgr_get_header_revnum(handle->file) + 1;
-                _revnum = _endian_encode(revnum);
-                sprintf(doc_key, "stale_blocks_%" _F64, revnum);
-                doc.key = (void*)doc_key;
-                doc.meta = NULL;
-                doc.body = buf;
-                doc.length.keylen = strlen(doc_key) + 1;
-                doc.length.metalen = 0;
-                doc.length.bodylen = offset;
-                doc.seqnum = 0;
-                doc_offset = docio_append_doc_system(handle->dhandle, &doc);
-
-                // insert into stale-block tree
-                _doc_offset = _endian_encode(doc_offset);
-                btree_insert(handle->staletree, (void *)&_revnum, (void *)&_doc_offset);
-                btreeblk_end(handle->bhandle);
-                btreeblk_reset_subblock_info(handle->bhandle);
-
-                if (list_begin(filemgr_get_stale_list(handle->file))) {
-                    // updating stale tree brings another stale blocks.
-                    // recursively update until there is no more stale block.
-
-                    // note that infinite loop will not occur because
-                    // 1) all updated index blocks for stale tree are still writable
-                    // 2) incoming keys for stale tree (revnum) are monotonic
-                    //    increasing order; most recently allocated node will be
-                    //    updated again.
-
-                    count = 0;
-                    // save previous doc offset
-                    memcpy(buf, &_doc_offset, sizeof(_doc_offset));
-
-                    // gather once again
-                    gather_staleblocks = true;
-                }
-            }
-        } // gather stale blocks
-
-        free(buf);
-    } else {
-        btreeblk_reset_subblock_info(handle->bhandle);
-    }
 }
 
 INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
@@ -3837,12 +3731,14 @@ fdb_commit_start:
     //       because KVS stats info is updated during WAL flushing.
     if (handle->kvs) {
         // multi KV instance mode .. append up-to-date KV header
-        handle->kv_info_offset = fdb_kvs_header_append(handle->file,
-                                                       handle->dhandle);
+        handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
     if (wal_flushed) {
-        _fdb_gather_stale_blocks(handle);
+        // add one to 'revnum' to get the next revision number
+        // (note that filemgr_mutex() is grabbed so that no other thread
+        //  will change the 'revnum').
+        fdb_gather_stale_blocks(handle, filemgr_get_header_revnum(handle->file)+1);
     }
 
     // Note: Getting header BID must be done after
@@ -3942,11 +3838,10 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     //       because KVS stats info is updated during WAL flushing.
     if (handle->kvs) {
         // multi KV instance mode .. append up-to-date KV header
-        handle->kv_info_offset = fdb_kvs_header_append(new_file,
-                                                       handle->dhandle);
+        handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
-    _fdb_gather_stale_blocks(handle);
+    fdb_gather_stale_blocks(handle, filemgr_get_header_revnum(handle->file)+1);
 
     handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
     if (wal_get_dirty_status(new_file) == FDB_WAL_CLEAN) {
@@ -4966,6 +4861,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     size_t header_len = 0;
     bid_t old_hdr_bid = 0;
     fdb_seqnum_t old_seqnum = 0;
+    filemgr_header_revnum_t revnum = 0;
     err_log_callback *log_callback = &rhandle->log_callback;
     uint64_t version;
     fdb_status fs;
@@ -4985,7 +4881,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     while (marker_bid < old_hdr_bid) {
         old_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
                                                 old_hdr_bid, NULL, &header_len,
-                                                &old_seqnum, NULL, &version,
+                                                &old_seqnum, &revnum, NULL, &version,
                                                 log_callback);
         if (!header_len) { // LCOV_EXCL_START
             return FDB_RESULT_READ_FAIL;
@@ -5022,6 +4918,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     handle.log_callback = *log_callback;
     handle.config = config;
     handle.kvs_config = kvs_config;
+    handle.cur_header_revnum = revnum;
 
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     // do not perform compaction for snapshot
@@ -5092,13 +4989,13 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     new_handle.dhandle = new_dhandle;
     new_handle.bhandle = new_bhandle;
     new_handle.trie = new_trie;
+    new_handle.kv_info_offset = BLK_NOT_FOUND;
 
     // Note: Appending KVS header must be done after flushing WAL
     //       because KVS stats info is updated during WAL flushing.
     if (new_handle.kvs) {
         // multi KV instance mode .. append up-to-date KV header
-        new_handle.kv_info_offset = fdb_kvs_header_append(new_handle.file,
-                                                          new_handle.dhandle);
+        new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
         new_handle.seqtrie = (struct hbtrie *) new_seqtree;
     } else {
         new_handle.seqtree = new_seqtree;
@@ -5517,8 +5414,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
                 if (new_handle.kvs) {
                     // multi KV instance mode .. append up-to-date KV header
-                    new_handle.kv_info_offset = fdb_kvs_header_append(new_file,
-                                                                      new_dhandle);
+                    new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
                 }
                 new_handle.last_hdr_bid = filemgr_get_next_alloc_block(new_file);
                 new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
@@ -6076,7 +5972,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
         new_staletree = (struct btree*)calloc(1, sizeof(struct btree));
         btree_init(new_staletree, (void *)new_bhandle,
                    handle->btreeblkops, stale_kv_ops,
-                   handle->config.blocksize, sizeof(fdb_seqnum_t),
+                   handle->config.blocksize, sizeof(filemgr_header_revnum_t),
                    OFFSET_SIZE, 0x0, NULL);
     } else {
         new_staletree = NULL;
@@ -6105,6 +6001,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     struct btree *new_idtree = NULL;
     bid_t dirty_idtree_root, dirty_seqtree_root;
     fdb_seqnum_t seqnum;
+    uint64_t new_file_kv_info_offset = BLK_NOT_FOUND;
 
     // Copy the old file's seqnum to the new file.
     // (KV instances' seq numbers will be copied along with the KV header)
@@ -6115,7 +6012,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     filemgr_set_seqnum(new_file, seqnum);
     if (handle->kvs) {
         // multi KV instance mode .. copy KV header data to new file
-        fdb_kvs_header_copy(handle, new_file, new_dhandle, true);
+        fdb_kvs_header_copy(handle, new_file, new_dhandle,
+                            &new_file_kv_info_offset, true);
     }
 
     // sync dirty root nodes
@@ -6151,8 +6049,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     //       because KVS stats info is updated during WAL flushing.
     if (handle->kvs) {
         // multi KV instance mode .. append up-to-date KV header
-        handle->kv_info_offset = fdb_kvs_header_append(handle->file,
-                                                       handle->dhandle);
+        handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
     handle->last_hdr_bid = filemgr_get_pos(handle->file) / handle->file->blocksize;
@@ -6317,7 +6214,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     filemgr_set_seqnum(new_file, seqnum);
     if (handle->kvs) {
         // copy seqnums of non-default KV stores
-        fdb_kvs_header_copy(handle, new_file, new_dhandle, false);
+        fdb_kvs_header_copy(handle, new_file, new_dhandle, NULL, false);
     }
 
     // migrate uncommitted transactional items to new file
@@ -6326,6 +6223,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
 
     old_file = handle->file;
     handle->file = new_file;
+    handle->kv_info_offset = new_file_kv_info_offset;
 
     btreeblk_free(handle->bhandle);
     free(handle->bhandle);
@@ -6808,7 +6706,7 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
         } else {
             prev_bid = filemgr_fetch_prev_header(file, hdr_bid,
                                                  header_buf, &header_len,
-                                                 &seqnum, &deltasize, &version,
+                                                 &seqnum, NULL, &deltasize, &version,
                                                  &handle->log_callback);
             hdr_bid = prev_bid;
         }
@@ -6990,7 +6888,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
         } else {
             hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                                 header_buf, &header_len,
-                                                &seqnum, NULL, &version,
+                                                &seqnum, NULL, NULL, &version,
                                                 &handle->log_callback);
         }
         if (header_len == 0) {
