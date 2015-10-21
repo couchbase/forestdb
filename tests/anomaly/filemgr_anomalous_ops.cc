@@ -177,7 +177,10 @@ struct anomalous_callbacks default_callbacks = {
     _copy_file_range_cb
 };
 
+struct anomalous_callbacks default_callbacks_backup = default_callbacks;
+
 struct anomalous_callbacks * get_default_anon_cbs() {
+    default_callbacks = default_callbacks_backup;
     return &default_callbacks;
 }
 

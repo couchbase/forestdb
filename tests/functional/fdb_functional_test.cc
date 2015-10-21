@@ -312,6 +312,10 @@ void set_get_max_keylen()
     status = fdb_set_kv(db, keybuf, strlen(keybuf), NULL, 0);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    // get NULL pointer
+    status = fdb_get(db, NULL);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
     // get kv
     status = fdb_get_kv(db, keybuf, strlen(keybuf), &rvalue, &rvalue_len);
     TEST_CHK(status == FDB_RESULT_SUCCESS);

@@ -572,7 +572,8 @@ fdb_status fdb_init(fdb_config *config)
         c_config.num_threads = _config.num_compactor_threads;
         compactor_init(&c_config);
         // initialize background flusher daemon
-        bgf_config.num_threads = _config.num_bgflusher_threads;
+        //bgf_config.num_threads = _config.num_bgflusher_threads;
+        bgf_config.num_threads = 0; // Disable the bg flusher temporarily
         bgflusher_init(&bgf_config);
 
         fdb_initialized = 1;
@@ -2579,7 +2580,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_status wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
     fdb_txn *txn;
-    fdb_doc doc_kv = *doc;
+    fdb_doc doc_kv;
 
     if (!handle || !doc || !doc->key || doc->keylen == 0 ||
         doc->keylen > FDB_MAX_KEYLEN ||
@@ -2591,6 +2592,8 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
+
+    doc_kv = *doc;
 
     if (handle->kvs) {
         // multi KV instance mode
