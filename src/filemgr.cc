@@ -697,7 +697,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint64_t(&file->pos, offset);
     atomic_init_uint32_t(&file->throttling_delay, 0);
     atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
-    atomic_init_uint8_t(&file->commit_in_prog, 0);
+    atomic_init_uint8_t(&file->io_in_prog, 0);
 
     file->bcache = NULL;
     file->in_place_compaction = false;
@@ -1292,7 +1292,7 @@ void filemgr_free_func(struct hash_elem *h)
     atomic_destroy_uint64_t(&file->last_commit);
     atomic_destroy_uint32_t(&file->throttling_delay);
     atomic_destroy_uint64_t(&file->num_invalidated_blocks);
-    atomic_destroy_uint8_t(&file->commit_in_prog);
+    atomic_destroy_uint8_t(&file->io_in_prog);
 
     // free file structure
     free(file->config);
@@ -1498,7 +1498,7 @@ uint64_t filemgr_flush_immutable(struct filemgr *file,
 {
     uint64_t ret = 0;
     if (global_config.ncacheblock > 0) {
-        if (atomic_get_uint8_t(&file->commit_in_prog)) {
+        if (atomic_get_uint8_t(&file->io_in_prog)) {
             return 0;
         }
         ret = bcache_get_num_immutable(file);
@@ -1800,13 +1800,13 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
     filemgr_magic_t magic = FILEMGR_MAGIC;
     filemgr_magic_t _magic;
 
-    atomic_store_uint8_t(&file->commit_in_prog, 1);
+    filemgr_set_io_inprog(file);
     if (global_config.ncacheblock > 0) {
         result = bcache_flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
                            "FLUSH", file->filename);
-            atomic_store_uint8_t(&file->commit_in_prog, 0);
+            filemgr_clear_io_inprog(file);
             return (fdb_status)result;
         }
     }
@@ -1866,7 +1866,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         if (rv != file->blocksize) {
             _filemgr_release_temp_buf(buf);
             spin_unlock(&file->lock);
-            atomic_store_uint8_t(&file->commit_in_prog, 0);
+            filemgr_clear_io_inprog(file);
             return FDB_RESULT_WRITE_FAIL;
         }
         atomic_store_uint64_t(&file->header.bid,
@@ -1887,7 +1887,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         result = file->ops->fsync(file->fd);
         _log_errno_str(file->ops, log_callback, (fdb_status)result, "FSYNC", file->filename);
     }
-    atomic_store_uint8_t(&file->commit_in_prog, 0);
+    filemgr_clear_io_inprog(file);
     return (fdb_status) result;
 }
 

@@ -122,7 +122,7 @@ struct filemgr {
     atomic_uint64_t pos;
     atomic_uint64_t last_commit;
     atomic_uint64_t num_invalidated_blocks;
-    atomic_uint8_t commit_in_prog;
+    atomic_uint8_t io_in_prog;
     struct wal *wal;
     struct filemgr_header header;
     struct filemgr_ops *ops;
@@ -259,6 +259,16 @@ INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)
             pos >= atomic_get_uint64_t(&file->last_commit));
 }
 void filemgr_remove_file(struct filemgr *file);
+
+INLINE void filemgr_set_io_inprog(struct filemgr *file)
+{
+    atomic_incr_uint8_t(&file->io_in_prog);
+}
+
+INLINE void filemgr_clear_io_inprog(struct filemgr *file)
+{
+    atomic_decr_uint8_t(&file->io_in_prog);
+}
 
 fdb_status filemgr_commit(struct filemgr *file, bool sync,
                           err_log_callback *log_callback);
