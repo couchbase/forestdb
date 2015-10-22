@@ -2399,10 +2399,11 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
     if (handle->cur_header_revnum != cur_revnum) {
         void *header_buf = NULL;
         size_t header_len;
+        bid_t hdr_bid;
+        filemgr_header_revnum_t revnum;
 
-        handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
         header_buf = filemgr_get_header(handle->file, NULL, &header_len,
-                                        NULL, NULL, NULL);
+                                        &hdr_bid, NULL, &revnum);
         if (header_len > 0) {
             uint64_t header_flags, dummy64, version;
             bid_t idtree_root;
@@ -2410,7 +2411,10 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
             bid_t new_stale_root;
             char *compacted_filename;
             char *prev_filename = NULL;
+
             version = handle->file->version;
+            handle->last_hdr_bid = hdr_bid;
+            handle->cur_header_revnum = revnum;
 
             fdb_fetch_header(version, header_buf, &idtree_root,
                              &new_seq_root, &new_stale_root, &dummy64,
@@ -2457,7 +2461,6 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
                 free(prev_filename);
             }
 
-            handle->cur_header_revnum = cur_revnum;
             handle->dirty_updates = 0;
             if (handle->kvs) {
                 // multiple KV instance mode AND sub handle
@@ -2467,7 +2470,10 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
                 // super handle OR single KV instance mode
                 handle->seqnum = filemgr_get_seqnum(handle->file);
             }
+        } else {
+            handle->last_hdr_bid = filemgr_get_header_bid(handle->file);
         }
+
         if (header_buf) {
             free(header_buf);
         }
