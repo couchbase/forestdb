@@ -572,8 +572,7 @@ fdb_status fdb_init(fdb_config *config)
         c_config.num_threads = _config.num_compactor_threads;
         compactor_init(&c_config);
         // initialize background flusher daemon
-        //bgf_config.num_threads = _config.num_bgflusher_threads;
-        bgf_config.num_threads = 0; // Disable the bg flusher temporarily
+        bgf_config.num_threads = _config.num_bgflusher_threads;
         bgflusher_init(&bgf_config);
 
         fdb_initialized = 1;

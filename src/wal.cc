@@ -997,6 +997,7 @@ static fdb_status _wal_flush(struct filemgr *file,
         spin_unlock(&file->wal->key_shards[i].lock);
     }
 
+    filemgr_set_io_inprog(file); // MB-16622:prevent parallel writes by flusher
     // scan and flush entries in the avl-tree or list
     if (do_sort) {
         struct avl_node *a = avl_first(tree);
@@ -1006,6 +1007,7 @@ static fdb_status _wal_flush(struct filemgr *file,
             fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
             if (fs != FDB_RESULT_SUCCESS) {
                 _wal_restore_root_info(dbhandle, &root_info);
+                filemgr_clear_io_inprog(file);
                 return fs;
             }
         }
@@ -1017,10 +1019,12 @@ static fdb_status _wal_flush(struct filemgr *file,
             fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
             if (fs != FDB_RESULT_SUCCESS) {
                 _wal_restore_root_info(dbhandle, &root_info);
+                filemgr_clear_io_inprog(file);
                 return fs;
             }
         }
     }
+    filemgr_clear_io_inprog(file);
 
     return FDB_RESULT_SUCCESS;
 }
