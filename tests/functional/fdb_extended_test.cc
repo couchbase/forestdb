@@ -889,7 +889,7 @@ void run_tests_with_encryption(fdb_encryption_algorithm_t encryption) {
 int main() {
     run_tests_with_encryption(FDB_ENCRYPTION_NONE);
     run_tests_with_encryption(FDB_ENCRYPTION_BOGUS);
-#if __APPLE__
+#if defined(_CRYPTO_CC) || defined(_CRYPTO_LIBTOMCRYPT) || defined(_CRYPTO_OPENSSL)
     run_tests_with_encryption(FDB_ENCRYPTION_AES256);
 #endif
     return 0;
