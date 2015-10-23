@@ -104,6 +104,7 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
     atomic_init_uint32_t(&file->wal->size, 0);
     atomic_init_uint32_t(&file->wal->num_flushable, 0);
     atomic_init_uint64_t(&file->wal->datasize, 0);
+    atomic_init_uint64_t(&file->wal->mem_overhead, 0);
     file->wal->wal_dirty = FDB_WAL_CLEAN;
 
     list_init(&file->wal->txn_list);
@@ -311,6 +312,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
             list_push_back(txn->items, &item->list_elem_txn);
 
             atomic_incr_uint32_t(&file->wal->size);
+            atomic_add_uint64_t(&file->wal->mem_overhead, sizeof(struct wal_item));
         }
     } else {
         // not exist .. create new one
@@ -391,6 +393,8 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         // insert an item header into a WAL shard's list
         list_push_back(&file->wal->key_shards[shard_num].list, &header->list_elem);
         atomic_incr_uint32_t(&file->wal->size);
+        atomic_add_uint64_t(&file->wal->mem_overhead,
+            sizeof(struct wal_item) + sizeof(struct wal_item_header) + keylen);
     }
 
     if (caller == WAL_INS_WRITER) {
@@ -531,6 +535,7 @@ fdb_status wal_txn_migration(void *dbhandle,
     struct list_elem *e1, *e2;
     size_t i = 0;
     size_t num_shards = old_file->wal->num_shards;
+    uint64_t mem_overhead = 0;
 
     // Note that the caller (i.e., compactor) alreay owns the locks on
     // both old_file and new_file filemgr instances. Therefore, it is OK to
@@ -581,6 +586,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                     free(doc.meta);
                     free(doc.body);
                     atomic_decr_uint32_t(&old_file->wal->size);
+                    mem_overhead += sizeof(struct wal_item);
                 } else {
                     e2= list_prev(e2);
                 }
@@ -592,6 +598,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                 hash_remove(&old_file->wal->key_shards[i].hash_bykey, &header->he_key);
                 // remove from wal list
                 e1 = list_remove(&old_file->wal->key_shards[i].list, &header->list_elem);
+                mem_overhead += header->keylen + sizeof(struct wal_item_header);
                 // free key & header
                 free(header->key);
                 free(header);
@@ -601,6 +608,7 @@ fdb_status wal_txn_migration(void *dbhandle,
         }
         spin_unlock(&old_file->wal->key_shards[i].lock);
     }
+    atomic_sub_uint64_t(&old_file->wal->mem_overhead, mem_overhead);
 
     spin_lock(&old_file->wal->lock);
 
@@ -636,6 +644,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
     fdb_kvs_id_t kv_id;
     fdb_status status;
     size_t shard_num;
+    uint64_t mem_overhead = 0;
 
     e1 = list_begin(txn->items);
     while(e1) {
@@ -664,6 +673,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                             "Error in appending a commit mark at offset %" _F64 " in "
                             "a database file '%s'", item->offset, file->filename);
                     spin_unlock(&file->wal->key_shards[shard_num].lock);
+                    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead);
                     return status;
                 }
             }
@@ -702,6 +712,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                     if (item->action != WAL_ACT_REMOVE) {
                         atomic_sub_uint64_t(&file->wal->datasize, _item->doc_size);
                     }
+                    mem_overhead += sizeof(struct wal_item);
                     free(_item);
                 }
             }
@@ -733,6 +744,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
         e1 = list_remove(txn->items, e1);
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
+    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -763,6 +775,8 @@ INLINE void _wal_release_item(struct filemgr *file, size_t shard_num,
                        struct wal_item *item) {
     fdb_kvs_id_t kv_id;
     size_t seq_shard_num;
+    uint64_t mem_overhead = 0;
+
     // get KVS ID
     if (item->flag & WAL_ITEM_MULTI_KV_INS_MODE) {
         buf2kvid(item->header->chunksize, item->header->key, &kv_id);
@@ -783,6 +797,7 @@ INLINE void _wal_release_item(struct filemgr *file, size_t shard_num,
                     &item->header->list_elem);
         hash_remove(&file->wal->key_shards[shard_num].hash_bykey,
                     &item->header->he_key);
+        mem_overhead = sizeof(wal_item_header) + item->header->keylen;
         free(item->header->key);
         free(item->header);
     }
@@ -797,6 +812,8 @@ INLINE void _wal_release_item(struct filemgr *file, size_t shard_num,
     if (item->action != WAL_ACT_REMOVE) {
         atomic_sub_uint64_t(&file->wal->datasize, item->doc_size);
     }
+    atomic_sub_uint64_t(&file->wal->mem_overhead,
+                        mem_overhead + sizeof(struct wal_item));
     free(item);
 }
 
@@ -1121,6 +1138,7 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
     struct wal_item *item;
     struct list_elem *e;
     size_t shard_num, seq_shard_num;
+    uint64_t mem_overhead = 0;
 
     e = list_begin(txn->items);
     while(e) {
@@ -1147,6 +1165,7 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
             // remove from wal list
             list_remove(&file->wal->key_shards[shard_num].list,
                         &item->header->list_elem);
+            mem_overhead += sizeof(struct wal_item_header) + item->header->keylen;
             // free key and header
             free(item->header->key);
             free(item->header);
@@ -1166,8 +1185,10 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
         // free
         free(item);
         atomic_decr_uint32_t(&file->wal->size);
+        mem_overhead += sizeof(struct wal_item);
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
+    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1190,6 +1211,7 @@ static fdb_status _wal_close(struct filemgr *file,
     wal_item_action committed_item_action;
     size_t i = 0, seq_shard_num;
     size_t num_shards = wal_get_num_shards(file);
+    uint64_t mem_overhead = 0;
 
     if (type == WAL_DISCARD_KV_INS) { // multi KV ins mode
         if (aux == NULL) { // aux must contain pointer to KV ID
@@ -1248,6 +1270,7 @@ static fdb_status _wal_close(struct filemgr *file,
                     }
                     free(item);
                     atomic_decr_uint32_t(&file->wal->size);
+                    mem_overhead += sizeof(struct wal_item);
                 } else {
                     e2 = list_next(e2);
                 }
@@ -1259,6 +1282,7 @@ static fdb_status _wal_close(struct filemgr *file,
                 // free header and remove from hash table & wal list
                 list_remove(&file->wal->key_shards[i].list, &header->list_elem);
                 hash_remove(&file->wal->key_shards[i].hash_bykey, &header->he_key);
+                mem_overhead += sizeof(struct wal_item_header) + header->keylen;
                 free(header->key);
                 free(header);
 
@@ -1275,6 +1299,7 @@ static fdb_status _wal_close(struct filemgr *file,
         }
         spin_unlock(&file->wal->key_shards[i].lock);
     }
+    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1291,6 +1316,7 @@ fdb_status wal_shutdown(struct filemgr *file)
     atomic_store_uint32_t(&file->wal->size, 0);
     atomic_store_uint32_t(&file->wal->num_flushable, 0);
     atomic_store_uint64_t(&file->wal->datasize, 0);
+    atomic_store_uint64_t(&file->wal->mem_overhead, 0);
     return wr;
 }
 
@@ -1327,6 +1353,11 @@ size_t wal_get_num_deletes(struct filemgr *file) {
 size_t wal_get_datasize(struct filemgr *file)
 {
     return atomic_get_uint64_t(&file->wal->datasize);
+}
+
+size_t wal_get_mem_overhead(struct filemgr *file)
+{
+    return atomic_get_uint64_t(&file->wal->mem_overhead);
 }
 
 void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status)

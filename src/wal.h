@@ -112,6 +112,7 @@ struct wal {
     atomic_uint32_t size; // total # entries in WAL (uint32_t)
     atomic_uint32_t num_flushable; // # flushable entries in WAL (uint32_t)
     atomic_uint64_t datasize; // total data size in WAL (uint64_t)
+    atomic_uint64_t mem_overhead; // memory overhead of all WAL entries
     struct list txn_list; // list of active transactions
     wal_dirty_t wal_dirty;
     struct wal_shard_by_key *key_shards;
@@ -190,6 +191,14 @@ void wal_add_transaction(struct filemgr *file, fdb_txn *txn);
 void wal_remove_transaction(struct filemgr *file, fdb_txn *txn);
 fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn);
 bool wal_txn_exists(struct filemgr *file);
+
+/**
+ * Get the memory overhead of the WAL index for a given file manager
+ * @param file the instance of a file manager whose WAL index memory overhead
+ *        should be returned
+ * @return the memory overhead of a given file manager's WAL index
+ */
+size_t wal_get_mem_overhead(struct filemgr *file);
 
 #ifdef __cplusplus
 }
