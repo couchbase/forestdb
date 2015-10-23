@@ -129,6 +129,18 @@ To run all the unit tests:
 
     This target will run the tests and output the memory report to the console
 
+* To enable the use of threadsanitizer for tests, install clang 3.5+ (currently only Ubuntu 14.04 is supported).  Also make sure to set flag **CB_THREADSANITIZER**
+
+     `cmake  -DCMAKE_C_COMPILER=clang-3.5 -DCMAKE_CXX_COMPILER=clang++-3.5  -DCB_THREADSANITIZER=1 ..`
+
+     `make all`
+
+     `make test`
+
+     Alternatively you can manually run tests under build/tests/<component>/ for real-time analysis.  When running as standalone it is recommended to include false error suppressions:
+
+     `TSAN_OPTIONS="second_deadlock_stack=1 suppressions=../../../cmake/Modules/tsan.suppressions" ./fdb_functional_test`
+
 * For hardware accelerated CRC32C which can improve ForestDB performance, please fetch the optional couchbase platform repository into the forestdb source directory before building.
 
 `cd forestdb`

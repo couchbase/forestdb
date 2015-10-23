@@ -117,6 +117,8 @@ else()
     endif()
 endif()
 
+INCLUDE(ThreadSanitizer)
+
 add_library(forestdb SHARED
             src/api_wrapper.cc
             src/avltree.cc
