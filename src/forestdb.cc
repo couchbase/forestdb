@@ -2611,7 +2611,6 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (!handle->shandle) {
         fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
 
         wal_file = handle->file;
         dhandle = handle->dhandle;
@@ -2625,6 +2624,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         } else {
             wr = wal_find(txn, wal_file, doc, &offset);
         }
+        fdb_sync_db_header(handle);
     } else {
         if (handle->kvs) {
             wr = snap_find(handle->shandle, &doc_kv, &offset);
@@ -2740,7 +2740,6 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (!handle->shandle) {
         fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
 
         wal_file = handle->file;
         dhandle = handle->dhandle;
@@ -2754,6 +2753,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         } else {
             wr = wal_find(txn, wal_file, doc, &offset);
         }
+        fdb_sync_db_header(handle);
     } else {
         if (handle->kvs) {
             wr = snap_find(handle->shandle, &doc_kv, &offset);
@@ -2853,7 +2853,6 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (!handle->shandle) {
         fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
 
         wal_file = handle->file;
         dhandle = handle->dhandle;
@@ -2871,6 +2870,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             wr = wal_find(txn, wal_file, doc, &offset);
         }
         doc->keylen = key_len;
+        fdb_sync_db_header(handle);
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         dhandle = handle->dhandle;
@@ -2999,7 +2999,6 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 
     if (!handle->shandle) {
         fdb_check_file_reopen(handle, NULL);
-        fdb_sync_db_header(handle);
 
         wal_file = handle->file;
         dhandle = handle->dhandle;
@@ -3016,6 +3015,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             wr = wal_find(txn, wal_file, doc, &offset);
         }
         doc->keylen = key_len;
+        fdb_sync_db_header(handle);
     } else {
         wr = snap_find(handle->shandle, doc, &offset);
         dhandle = handle->dhandle;
