@@ -35,7 +35,6 @@ static const char BENCHDB_NAME[] = "fdb_bench_dbfile";
 static const char BENCHKV_NAME[] = "fdb_bench_kv";
 static const int  NDOCS = 10000;
 static const int  CACHESIZE = 4096;
-static const long int ERR_NS = 0xFFFFFFFF;
 
 // stats
 static const char ST_SET[] = "set";

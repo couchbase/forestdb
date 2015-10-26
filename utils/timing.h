@@ -29,6 +29,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+static const long int ERR_NS = 0xFFFFFFFF;
 typedef  long int ts_nsec;
 ts_nsec get_monotonic_ts();
 ts_nsec ts_diff(ts_nsec start, ts_nsec end);

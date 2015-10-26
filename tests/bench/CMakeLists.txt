@@ -1,6 +1,6 @@
 add_executable(fdb_bench
                fdb_bench.cc
-               timing.cc
+               ${PROJECT_SOURCE_DIR}/utils/timing.cc
                ${GETTIMEOFDAY_VS})
 
 if ((NOT WIN32) AND (NOT APPLE))
