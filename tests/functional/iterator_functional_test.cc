@@ -1335,7 +1335,8 @@ void iterator_complete_test(int insert_opt, int delete_opt)
         // create an iterator with an end key and skip max key option
         i = n/3*2;
         sprintf(key, keystr, (int)i);
-        s = fdb_iterator_init(db, &fit, NULL, 0, key, strlen(key)+1, FDB_ITR_SKIP_MAX_KEY);
+        s = fdb_iterator_init(db, &fit, NULL, 0, key, strlen(key)+1,
+                              FDB_ITR_SKIP_MAX_KEY);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         s = fdb_iterator_seek_to_max(fit);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1352,7 +1353,8 @@ void iterator_complete_test(int insert_opt, int delete_opt)
         // create an iterator with an start key and skip min key option
         i = n/3;
         sprintf(key, keystr, (int)i);
-        s = fdb_iterator_init(db, &fit, key, strlen(key)+1, NULL, 0, FDB_ITR_SKIP_MIN_KEY);
+        s = fdb_iterator_init(db, &fit, key, strlen(key)+1, NULL, 0,
+                              FDB_ITR_SKIP_MIN_KEY);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         s = fdb_iterator_seek_to_min(fit);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -1521,6 +1523,104 @@ void iterator_extreme_key_test()
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     memleak_end();
     TEST_RESULT("iterator extreme key test");
+}
+
+void iterator_inmem_snapshot_seek_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 5;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // ------- Setup test ----------------------------------
+    for (i=0; i<n; i++){
+        sprintf(keybuf, "%c1",(char)i + 'a');
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, doc[i]);
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    // ---------- Snapshot tests begin -----------------------
+    // WAL items are not flushed...
+    status = fdb_snapshot_open(db, &snap_db, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "iterator_inmem_snapshot_seek_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // create an iterator on the snapshot for full range
+    fdb_iterator_init(snap_db, &iterator, (void*)"b1", 2, (void*)"d1", 2,
+                      FDB_ITR_NO_DELETES|
+                      FDB_ITR_SKIP_MAX_KEY|
+                      FDB_ITR_SKIP_MIN_KEY);
+
+    // seek to non-existent key that happens to land on the start key which
+    // should not be returned since we have passed ITR_SKIP_MIN_KEY
+    status = fdb_iterator_seek(iterator, "c0", 2, FDB_ITR_SEEK_LOWER);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    // seek to non-existent key that happens to land on the end key which
+    // should not be returned since we have passed ITR_SKIP_MAX_KEY
+    status = fdb_iterator_seek(iterator, "c2", 2, FDB_ITR_SEEK_HIGHER);
+    TEST_CHK(status == FDB_RESULT_ITERATOR_FAIL);
+
+    fdb_iterator_close(iterator);
+
+    // close db handle
+    fdb_kvs_close(db);
+    // close snapshot handle
+    fdb_kvs_close(snap_db);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("in-memory snapshot seek test");
 }
 
 void iterator_no_deletes_test()
@@ -3496,6 +3596,7 @@ int main(){
         }
     }
     iterator_extreme_key_test();
+    iterator_inmem_snapshot_seek_test();
     iterator_no_deletes_test();
     iterator_set_del_docs_test();
     iterator_del_next_test();

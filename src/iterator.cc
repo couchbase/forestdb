@@ -968,7 +968,7 @@ start:
 fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                              const void *seek_key,
                              const size_t seek_keylen,
-                             const fdb_iterator_seek_opt_t seek_preference)
+                             const fdb_iterator_seek_opt_t seek_pref)
 {
     int cmp, cmp2; // intermediate results of comparison
     int next_op = 0; // 0: none, -1: prev(), 1: next();
@@ -980,7 +980,6 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
     struct snap_wal_entry *snap_item = NULL, query;
     struct docio_object _doc;
-    fdb_iterator_seek_opt_t seek_pref = seek_preference;
 
     iterator->_dhandle = NULL; // setup for get() to return FAIL
 
@@ -1198,6 +1197,18 @@ fetch_hbtrie:
                     }
                     iterator->tree_cursor = avl_next(iterator->tree_cursor);
                     continue;
+                } else if (iterator->end_key &&
+                           iterator->opt & FDB_ITR_SKIP_MAX_KEY) {
+                    cmp = _fdb_key_cmp(iterator,
+                                       iterator->end_key, iterator->end_keylen,
+                                       snap_item->key, snap_item->keylen);
+                    if (cmp == 0) {
+                        // WAL cursor is positioned exactly at seeked end key
+                        // but iterator must skip the end key!
+                        // If hb+trie has an item, use that else return FAIL
+                        skip_wal = true;
+                        iterator->status = FDB_ITR_WAL;
+                    }
                 }
                 break;
             } while(iterator->tree_cursor);
@@ -1246,6 +1257,18 @@ fetch_hbtrie:
                     }
                     iterator->tree_cursor = avl_prev(iterator->tree_cursor);
                     continue;
+                } else if (iterator->start_key &&
+                           iterator->opt & FDB_ITR_SKIP_MIN_KEY) {
+                    cmp = _fdb_key_cmp(iterator,
+                                  snap_item->key, snap_item->keylen,
+                                  iterator->start_key, iterator->start_keylen);
+                    if (cmp == 0) {
+                        // WAL cursor is positioned exactly at seeked start key
+                        // but iterator must skip the start key!
+                        // If hb+trie has an item, use that else return FAIL
+                        skip_wal = true;
+                        iterator->status = FDB_ITR_WAL;
+                    }
                 }
                 break;
             } while(iterator->tree_cursor);
@@ -1355,8 +1378,7 @@ fetch_hbtrie:
             discard_hbtrie = true;
             // Since WAL tree doesn't contain max/min key if
             // skip_min/max options are enabled, we don't need to
-            // invoke next()/prev() call if no key is found in
-            // HB+trie.
+            // invoke next()/prev() call if no key is found in HB+trie.
             next_op = 0;
         }
 
