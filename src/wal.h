@@ -48,8 +48,7 @@ struct wal_item_header{
     uint16_t keylen;
     uint8_t chunksize;
     struct list items;
-    struct hash_elem he_key;
-    struct list_elem list_elem;
+    struct avl_node avl_key;
 };
 
 #define WAL_ITEM_COMMITTED (0x01)
@@ -64,7 +63,7 @@ struct wal_item{
     uint64_t offset;
     uint64_t old_offset;
     fdb_seqnum_t seqnum;
-    struct hash_elem he_seq;
+    struct avl_node avl_seq;
     struct list_elem list_elem; // for wal_item_header's 'items'
     struct list_elem list_elem_txn; // for transaction
     union { // for offset-based sorting for WAL flush
@@ -97,13 +96,12 @@ enum {
 };
 
 struct wal_shard_by_key {
-    struct hash hash_bykey; // indexes 'wal_item_header's key in WAL shard
-    struct list list; // list of all 'wal_item_header' instances in WAL shard
+    struct avl_tree map_bykey; // tree of all 'wal_item_header' (keys) in shard
     spin_t lock;
 };
 
 struct wal_shard_by_seq {
-    struct hash hash_byseq; // indexes 'wal_item's seq num in WAL shard
+    struct avl_tree map_byseq; // indexes 'wal_item's seq num in WAL shard
     spin_t lock;
 };
 

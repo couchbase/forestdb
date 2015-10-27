@@ -209,7 +209,8 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     int cmp;
     hbtrie_result hr;
     fdb_status fs;
-    struct list_elem *he, *ie;
+    struct avl_node *he;
+    struct list_elem *ie;
     struct wal_item_header *wal_item_header;
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
@@ -366,9 +367,10 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         size_t num_shards = wal_file->wal->num_shards;
         for (; i < num_shards; ++i) {
             spin_lock(&wal_file->wal->key_shards[i].lock);
-            he = list_begin(&wal_file->wal->key_shards[i].list);
+            he = avl_first(&wal_file->wal->key_shards[i].map_bykey);
             while(he) {
-                wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
+                wal_item_header = _get_entry(he, struct wal_item_header,
+                                             avl_key);
                 ie = list_begin(&wal_item_header->items);
                 if (txn->isolation == FDB_ISOLATION_READ_COMMITTED) {
                     // Search for the first uncommitted item belonging to this txn..
@@ -386,7 +388,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                 wal_item = _get_entry(ie, struct wal_item, list_elem);
                 if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
                     // ignore items moved by compactor
-                    he = list_next(he);
+                    he = avl_next(he);
                     continue;
                 }
                 if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
@@ -398,7 +400,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                                            wal_item_header->key,
                                            wal_item_header->keylen);
                         if ((cmp == 0 && opt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
-                            he = list_next(he);
+                            he = avl_next(he);
                             continue; // skip keys greater than max or equal (opt)
                         }
                     }
@@ -408,7 +410,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                                            wal_item_header->key,
                                            wal_item_header->keylen);
                         if ((cmp == 0 && opt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
-                            he = list_next(he);
+                            he = avl_next(he);
                             continue; // skip keys smaller than min or equal (opt)
                         }
                     }
@@ -423,7 +425,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                     // insert into tree
                     avl_insert(iterator->wal_tree, &snap_item->avl, _fdb_wal_cmp);
                 }
-                he = list_next(he);
+                he = avl_next(he);
             }
             spin_unlock(&wal_file->wal->key_shards[i].lock);
         }
@@ -466,7 +468,8 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                                       const fdb_seqnum_t end_seq,
                                       fdb_iterator_opt_t opt)
 {
-    struct list_elem *he, *ie;
+    struct avl_node *he;
+    struct list_elem *ie;
     struct wal_item_header *wal_item_header;
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
@@ -587,16 +590,17 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
         size_t num_shards = wal_file->wal->num_shards;
         for (; i < num_shards; ++i) {
             spin_lock(&wal_file->wal->key_shards[i].lock);
-            he = list_begin(&wal_file->wal->key_shards[i].list);
+            he = avl_first(&wal_file->wal->key_shards[i].map_bykey);
             while(he) {
-                wal_item_header = _get_entry(he, struct wal_item_header, list_elem);
+                wal_item_header = _get_entry(he, struct wal_item_header,
+                                             avl_key);
 
                 // compare committed item only (at the end of the list)
                 ie = list_end(&wal_item_header->items);
                 wal_item = _get_entry(ie, struct wal_item, list_elem);
                 if (wal_item->flag & WAL_ITEM_BY_COMPACTOR) {
                     // ignore items moved by compactor
-                    he = list_next(he);
+                    he = avl_next(he);
                     continue;
                 }
                 if ((wal_item->flag & WAL_ITEM_COMMITTED) ||
@@ -612,7 +616,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                                      wal_item_header->key, &kv_id);
                             if (kv_id != iterator->handle->kvs->id) {
                                 // KV instance doesn't match
-                                he = list_next(he);
+                                he = avl_next(he);
                                 continue;
                             }
                         }
@@ -630,7 +634,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                                    _fdb_seqnum_cmp);
                     }
                 }
-                he = list_next(he);
+                he = avl_next(he);
             }
             spin_unlock(&wal_file->wal->key_shards[i].lock);
         }
