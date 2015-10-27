@@ -117,7 +117,9 @@ else()
     endif()
 endif()
 
-INCLUDE(ThreadSanitizer)
+if (NOT COUCHBASE_SERVER_BUILD)
+   INCLUDE(ThreadSanitizer)
+endif()
 
 add_library(forestdb SHARED
             src/api_wrapper.cc
