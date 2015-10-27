@@ -35,6 +35,8 @@ static const char BENCHDB_NAME[] = "fdb_bench_dbfile";
 static const char BENCHKV_NAME[] = "fdb_bench_kv";
 static const int  NDOCS = 10000;
 static const int  CACHESIZE = 4096;
+static const int  KEY_SIZE = 16;
+static const int  PERMUTED_BYTES = 6;
 
 // stats
 static const char ST_SET[] = "set";
@@ -45,9 +47,11 @@ static const char ST_COMMIT_WAL[] = "commit_wal";
 static const char ST_COMMIT_NORM[] = "commit_norm";
 static const char ST_KV_CLOSE[] = "kv_close";
 static const char ST_SNAP_OPEN[] = "snap_open";
+static const char ST_AVG_SNAP_OPEN[] = "avg_snap_open";
 static const char ST_SNAP_CLOSE[] = "snap_close";
 static const char ST_ITR_INIT[] = "iterator_init";
 static const char ST_ITR_GET[] = "iterator_get";
+static const char ST_AVG_READ[] = "avg_read";
 static const char ST_ITR_NEXT[] = "iterator_next";
 static const char ST_ITR_CLOSE[] = "iterator_close";
 static const char ST_FILE_CLOSE[] = "file_close";
