@@ -1441,6 +1441,38 @@ char* _fdb_kvs_get_name(fdb_kvs_handle *handle, struct filemgr *file)
     return NULL;
 }
 
+// this function just returns pointer to kvs_name & offset to user key
+const char* _fdb_kvs_extract_name_off(fdb_kvs_handle *handle, void *keybuf,
+                                      size_t *key_offset)
+{
+    struct kvs_node *node, query;
+    struct avl_node *a;
+    fdb_kvs_id_t kv_id;
+    struct filemgr *file = handle->file;
+
+    if (!handle->kvs) { // single KV instance mode
+        *key_offset = 0;
+        return DEFAULT_KVS_NAME;
+    }
+
+    *key_offset = handle->config.chunksize;
+    buf2kvid(*key_offset, keybuf, &kv_id);
+    query.id = kv_id;
+    if (query.id == 0) { // default KV instance in multi kvs mode
+        return default_kvs_name;
+    }
+    spin_lock(&file->kv_header->lock);
+    a = avl_search(file->kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        const char *kvs_name = node->kvs_name;
+        spin_unlock(&file->kv_header->lock);
+        return kvs_name;
+    }
+    spin_unlock(&file->kv_header->lock);
+    return NULL;
+}
+
 fdb_status _fdb_kvs_clone_snapshot(fdb_kvs_handle *handle_in,
                                    fdb_kvs_handle *handle_out)
 {

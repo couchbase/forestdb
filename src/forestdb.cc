@@ -4022,7 +4022,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_COMPLETE) {
         handle->config.compaction_cb(handle->fhandle, FDB_CS_COMPLETE,
-                                     NULL, BLK_NOT_FOUND, BLK_NOT_FOUND,
+                                     NULL, NULL, BLK_NOT_FOUND, BLK_NOT_FOUND,
                                      handle->config.compaction_cb_ctx);
     }
     return status;
@@ -4173,10 +4173,17 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 // from the callback
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+                    size_t key_offset;
+                    const char *kvs_name = _fdb_kvs_extract_name_off(handle,
+                                                   wal_doc.key, &key_offset);
+                    wal_doc.keylen -= key_offset;
+                    wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
                     decision = handle->config.compaction_cb(
                                handle->fhandle, FDB_CS_MOVE_DOC,
-                               &wal_doc, offset, BLK_NOT_FOUND,
+                               kvs_name, &wal_doc, offset, BLK_NOT_FOUND,
                                handle->config.compaction_cb_ctx);
+                    wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
+                    wal_doc.keylen += key_offset;
                 } else {
                     // compare timestamp
                     if (!deleted ||
@@ -4374,8 +4381,8 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     }
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, 0, 0,
-                                     handle->config.compaction_cb_ctx);
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
+                                     0, 0, handle->config.compaction_cb_ctx);
     }
 
     gettimeofday(&tv, NULL);
@@ -4471,10 +4478,17 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                 // from the callback
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+                    size_t key_offset;
+                    const char *kvs_name = _fdb_kvs_extract_name_off(handle,
+                                                     wal_doc.key, &key_offset);
+                    wal_doc.keylen -= key_offset;
+                    wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
                     decision = handle->config.compaction_cb(
                                handle->fhandle, FDB_CS_MOVE_DOC,
-                               &wal_doc, _offset, BLK_NOT_FOUND,
+                               kvs_name, &wal_doc, _offset, BLK_NOT_FOUND,
                                handle->config.compaction_cb_ctx);
+                    wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
+                    wal_doc.keylen += key_offset;
                 } else {
                     // compare timestamp
                     // 1. the document is not deleted
@@ -4539,7 +4553,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
                     handle->config.compaction_cb(handle->fhandle,
-                                                 FDB_CS_BATCH_MOVE, NULL,
+                                                 FDB_CS_BATCH_MOVE, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
                 }
@@ -4581,7 +4595,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
                     handle->config.compaction_cb(handle->fhandle,
-                                                 FDB_CS_FLUSH_WAL, NULL,
+                                                 FDB_CS_FLUSH_WAL, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
                 }
@@ -4615,7 +4629,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
-                                     NULL, old_offset, new_offset,
+                                     NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
     }
 
@@ -4684,8 +4698,8 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, 0, 0,
-                                     handle->config.compaction_cb_ctx);
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
+                                     0, 0, handle->config.compaction_cb_ctx);
     }
 
     gettimeofday(&tv, NULL);
@@ -4794,11 +4808,21 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     // from the callback
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_MOVE_DOC) {
+                        size_t key_offset;
+                        const char *kvs_name = _fdb_kvs_extract_name_off(handle,
+                                                      wal_doc.key, &key_offset);
+                        wal_doc.keylen -= key_offset;
+                        wal_doc.key = (void *)((uint8_t*)wal_doc.key
+                                    + key_offset);
                         decision = handle->config.compaction_cb(
                                    handle->fhandle, FDB_CS_MOVE_DOC,
-                                   &wal_doc, offset_array[start_idx + j],
+                                   kvs_name, &wal_doc,
+                                   offset_array[start_idx + j],
                                    BLK_NOT_FOUND,
                                    handle->config.compaction_cb_ctx);
+                        wal_doc.key = (void *)((uint8_t*)wal_doc.key
+                                    - key_offset);
+                        wal_doc.keylen += key_offset;
                     } else {
                         // compare timestamp
                         if (!deleted ||
@@ -4837,7 +4861,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
                     handle->config.compaction_cb(handle->fhandle,
-                                                 FDB_CS_BATCH_MOVE, NULL,
+                                                 FDB_CS_BATCH_MOVE, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
                 }
@@ -4877,7 +4901,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
                         handle->config.compaction_cb(handle->fhandle,
-                                                     FDB_CS_FLUSH_WAL, NULL,
+                                                     FDB_CS_FLUSH_WAL, NULL, NULL,
                                                      old_offset, new_offset,
                                                      handle->config.compaction_cb_ctx);
                     }
@@ -4917,7 +4941,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
-                                     NULL, old_offset, new_offset,
+                                     NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
     }
 
@@ -5175,10 +5199,18 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
             if (locked) {
                 filemgr_mutex_unlock(handle->file);
             }
+            size_t key_offset;
+            const char *kvs_name = _fdb_kvs_extract_name_off(handle,
+                                                 wal_doc.key, &key_offset);
+            wal_doc.keylen -= key_offset;
+            wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
             handle->config.compaction_cb(handle->fhandle, FDB_CS_MOVE_DOC,
-                                         &wal_doc, old_offset_array[i],
+                                         kvs_name, &wal_doc,
+                                         old_offset_array[i],
                                          doc_offset,
                                          handle->config.compaction_cb_ctx);
+            wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
+            wal_doc.keylen += key_offset;
             if (locked) {
                 filemgr_mutex_lock(handle->file);
             }
@@ -5229,7 +5261,7 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
         handle->config.compaction_cb(
-            handle->fhandle, FDB_CS_FLUSH_WAL, NULL,
+            handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
             old_offset_array[i], doc_offset,
             handle->config.compaction_cb_ctx);
     }
@@ -5286,10 +5318,17 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
             if (got_lock) {
                 filemgr_mutex_unlock(handle->file);
             }
+            size_t key_offset;
+            const char *kvs_name = _fdb_kvs_extract_name_off(handle,
+                                                wal_doc.key, &key_offset);
+            wal_doc.keylen -= key_offset;
+            wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
             decision = handle->config.compaction_cb(
                        handle->fhandle, FDB_CS_MOVE_DOC,
-                       &wal_doc, old_offset_array[i], BLK_NOT_FOUND,
-                       handle->config.compaction_cb_ctx);
+                       kvs_name, &wal_doc, old_offset_array[i],
+                       BLK_NOT_FOUND, handle->config.compaction_cb_ctx);
+            wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
+            wal_doc.keylen += key_offset;
             if (got_lock) {
                 filemgr_mutex_lock(handle->file);
             }
@@ -5351,7 +5390,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
         handle->config.compaction_cb(
-            handle->fhandle, FDB_CS_FLUSH_WAL, NULL,
+            handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
             old_offset_array[i], doc_offset,
             handle->config.compaction_cb_ctx);
     }
@@ -5391,8 +5430,8 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
-        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, 0, 0,
-                                     handle->config.compaction_cb_ctx);
+        handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
+                                     0, 0, handle->config.compaction_cb_ctx);
     }
 
     // Temporarily disable log callback function
@@ -5594,7 +5633,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
-                                     NULL, old_offset, new_offset,
+                                     NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
     }
 

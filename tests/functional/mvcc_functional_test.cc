@@ -1321,6 +1321,7 @@ struct cb_inmem_snap_args {
 
 static fdb_compact_decision cb_inmem_snap(fdb_file_handle *fhandle,
                             fdb_compaction_status status,
+                            const char *kv_name,
                             fdb_doc *doc_in, uint64_t old_offset,
                             uint64_t new_offset,
                             void *ctx)
@@ -1340,6 +1341,7 @@ static fdb_compact_decision cb_inmem_snap(fdb_file_handle *fhandle,
     (void)args;
 
     if (status == FDB_CS_MOVE_DOC) {
+        TEST_CHK(kv_name);
         if (doc_in->deleted) {
             ret = FDB_CS_DROP_DOC;
         }
@@ -3408,13 +3410,15 @@ static void _snapshot_update_docs(fdb_file_handle *fhandle, struct cb_snapshot_a
     args->nupdates++;
 }
 
-static int cb_snapshot(fdb_file_handle *fhandle,
-                       fdb_compaction_status status,
-                       fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
-                       void *ctx)
+static fdb_compact_decision cb_snapshot(fdb_file_handle *fhandle,
+        fdb_compaction_status status, const char *kv_name,
+        fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
+        void *ctx)
 {
     struct cb_snapshot_args *args = (struct cb_snapshot_args *)ctx;
+    TEST_INIT();
 
+    TEST_CHK(!kv_name);
     if (status == FDB_CS_BEGIN) {
         // first verification
         _snapshot_check(args->handle, args->ndocs, args->nupdates);
@@ -3844,14 +3848,15 @@ void rollback_all_test(bool multi_kv)
     TEST_RESULT(bodybuf);
 }
 
-static int compaction_cb_count(fdb_file_handle *fhandle,
-                         fdb_compaction_status status,
-                         fdb_doc *doc, uint64_t old_offset,
-                         uint64_t new_offset, void *ctx)
+static fdb_compact_decision compaction_cb_count(fdb_file_handle *fhandle,
+                            fdb_compaction_status status, const char *kv_name,
+                            fdb_doc *doc, uint64_t old_offset,
+                            uint64_t new_offset, void *ctx)
 {
     int *count = (int *)ctx;
     TEST_INIT();
     TEST_CHK(status == FDB_CS_COMPLETE);
+    TEST_CHK(!kv_name);
     *count = *count + 1;
     return 0;
 }

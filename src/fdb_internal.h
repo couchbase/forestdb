@@ -154,6 +154,14 @@ bool _fdb_kvs_is_busy(fdb_file_handle *fhandle);
 void fdb_kvs_header_free(struct filemgr *file);
 
 char* _fdb_kvs_get_name(fdb_kvs_handle *kv_ins, struct filemgr *file);
+/**
+ * Extracts the KV Store name from a key sample and offset to start of user key
+ * @param handle - pointer to root handle
+ * @param keybuf - pointer to key which may include the KV Store Id prefix
+ * @param key_offset - return variable of offset to where real key begins
+ */
+const char* _fdb_kvs_extract_name_off(fdb_kvs_handle *handle, void *keybuf,
+                                      size_t *key_offset);
 
 fdb_status _fdb_kvs_clone_snapshot(fdb_kvs_handle *handle_in,
                                    fdb_kvs_handle *handle_out);

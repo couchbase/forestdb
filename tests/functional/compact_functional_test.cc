@@ -43,7 +43,7 @@ struct cb_args {
 };
 
 static fdb_compact_decision compaction_cb(fdb_file_handle *fhandle,
-                            fdb_compaction_status status,
+                            fdb_compaction_status status, const char *kv_name,
                             fdb_doc *doc, uint64_t old_offset,
                             uint64_t new_offset,
                             void *ctx)
@@ -67,12 +67,19 @@ static fdb_compact_decision compaction_cb(fdb_file_handle *fhandle,
         if (doc->deleted) {
             ret = FDB_CS_DROP_DOC;
         }
+
         args->n_moved_docs++;
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
         rdoc->offset = old_offset;
         s = fdb_get_byoffset(args->handle, rdoc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
+
+        if (fhandle->root->config.multi_kv_instances) {
+            TEST_CMP(kv_name, "db", 2);
+        } else {
+            TEST_CMP(kv_name, "default", 7);
+        }
     } else { // FDB_CS_BATCH_MOVE
         args->n_batch_move++;
         fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
@@ -84,7 +91,7 @@ static fdb_compact_decision compaction_cb(fdb_file_handle *fhandle,
     return ret;
 }
 
-void compaction_callback_test()
+void compaction_callback_test(bool multi_kv)
 {
     TEST_INIT();
     memleak_start();
@@ -108,6 +115,7 @@ void compaction_callback_test()
                                  FDB_CS_MOVE_DOC |
                                  FDB_CS_FLUSH_WAL |
                                  FDB_CS_END;
+    fconfig.multi_kv_instances = multi_kv;
 
     // remove all previous compact_test files
     r = system(SHELL_DEL" compact_test* > errorlog.txt");
@@ -115,7 +123,11 @@ void compaction_callback_test()
 
     // open db
     fdb_open(&dbfile, "./compact_test1", &fconfig);
-    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    if (multi_kv) {
+        fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    } else {
+        fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    }
     cb_args.handle = db;
 
     // write docs
@@ -142,7 +154,12 @@ void compaction_callback_test()
                                  FDB_CS_FLUSH_WAL |
                                  FDB_CS_END;
     fdb_open(&dbfile, "./compact_test2", &fconfig);
-    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+
+    if (multi_kv) {
+        fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    } else {
+        fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    }
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test3");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -158,7 +175,11 @@ void compaction_callback_test()
                                  FDB_CS_MOVE_DOC |
                                  FDB_CS_END;
     fdb_open(&dbfile, "./compact_test3", &fconfig);
-    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    if (multi_kv) {
+        fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    } else {
+        fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    }
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test4");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -173,7 +194,11 @@ void compaction_callback_test()
     fconfig.compaction_cb_mask = FDB_CS_MOVE_DOC |
                                  FDB_CS_FLUSH_WAL;
     fdb_open(&dbfile, "./compact_test4", &fconfig);
-    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    if (multi_kv) {
+        fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    } else {
+        fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    }
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test5");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -187,7 +212,11 @@ void compaction_callback_test()
     memset(&cb_args, 0x0, sizeof(struct cb_args));
     fconfig.compaction_cb_mask = FDB_CS_BATCH_MOVE;
     fdb_open(&dbfile, "./compact_test5", &fconfig);
-    fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    if (multi_kv) {
+        fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    } else {
+        fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    }
     cb_args.handle = db;
     s = fdb_compact(dbfile, "./compact_test6");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -201,7 +230,11 @@ void compaction_callback_test()
     fdb_shutdown();
 
     memleak_end();
-    TEST_RESULT("compaction callback function test");
+    if (multi_kv) {
+        TEST_RESULT("compaction callback function multi kv mode test");
+    } else {
+        TEST_RESULT("compaction callback function single kv mode test");
+    }
 }
 
 void compact_wo_reopen_test()
@@ -2038,7 +2071,7 @@ struct cb_txn_args {
 };
 
 static int cb_txn(fdb_file_handle *fhandle,
-                  fdb_compaction_status status,
+                  fdb_compaction_status status, const char *kv_name,
                   fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
                   void *ctx)
 {
@@ -2166,6 +2199,7 @@ struct cb_upt_args {
 
 static fdb_compact_decision cb_upt(fdb_file_handle *fhandle,
                                    fdb_compaction_status status,
+                                   const char *kv_name,
                                    fdb_doc *doc, uint64_t old_offset,
                                    uint64_t new_offset,
                                    void *ctx)
@@ -2184,9 +2218,17 @@ static fdb_compact_decision cb_upt(fdb_file_handle *fhandle,
         char keystr[] = "new%04d";
         char valuestr[] = "new_body%04d";
         fdb_status s;
-
         args->nmoves++;
         if (args->nmoves > n/2 && !args->done) {
+            // verify if the key is stripped off its prefix
+            fdb_doc tdoc;
+            memset(&tdoc, 0, sizeof(fdb_doc));
+            tdoc.key = doc->key;
+            tdoc.keylen = doc->keylen;
+            s = fdb_get(args->handle, &tdoc);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            free(tdoc.meta);
+            free(tdoc.body);
             // insert new docs
             for (i=0;i<n/2;++i){
                 sprintf(keybuf, keystr, i);
@@ -2235,6 +2277,7 @@ static fdb_compact_decision cb_upt(fdb_file_handle *fhandle,
             }
             args->done = 3;
         }
+        TEST_CMP(kv_name, "db", 2);
     }
 
     return 0;
@@ -2371,6 +2414,7 @@ void compaction_with_concurrent_update_test()
 
 static int compaction_del_cb(fdb_file_handle *fhandle,
                              fdb_compaction_status status,
+                             const char *kv_name,
                              fdb_doc *doc, uint64_t old_offset,
                              uint64_t new_offset,
                              void *ctx)
@@ -2389,6 +2433,7 @@ static int compaction_del_cb(fdb_file_handle *fhandle,
     if (status == FDB_CS_BEGIN) {
         TEST_CHK(false);
     } else if (status == FDB_CS_END) {
+        TEST_CHK(!kv_name);
         if (db) { // At end of first phase, mutate more docs...
             s = fdb_open(&dbfile, "./compact_test1", &fhandle->root->config);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -2909,7 +2954,7 @@ void compact_upto_overwrite_test(int opt)
     TEST_RESULT(cmd);
 }
 static int compaction_cb_get(fdb_file_handle *fhandle,
-                         fdb_compaction_status status,
+                         fdb_compaction_status status, const char *kv_name,
                          fdb_doc *doc, uint64_t old_offset,
                          uint64_t new_offset, void *ctx)
 {
@@ -2921,10 +2966,15 @@ static int compaction_cb_get(fdb_file_handle *fhandle,
     uint64_t num_markers;
     fdb_seqnum_t seqno;
 
-    (void) status;
     (void) doc;
     (void) old_offset;
     (void) new_offset;
+
+    if (status == FDB_CS_MOVE_DOC) {
+        TEST_CHK(kv_name);
+    } else {
+        TEST_CHK(!kv_name);
+    }
 
     // use snap markers
     s = fdb_get_all_snap_markers(fhandle, &markers, &num_markers);
@@ -3003,7 +3053,7 @@ void compact_with_snapshot_open_test()
 }
 
 static int compaction_cb_markers(fdb_file_handle *fhandle,
-                         fdb_compaction_status status,
+                         fdb_compaction_status status, const char *kv_name,
                          fdb_doc *doc, uint64_t old_offset,
                          uint64_t new_offset, void *ctx)
 {
@@ -3128,7 +3178,8 @@ int main(){
     compact_with_snapshot_open_test();
     compact_upto_post_snapshot_test();
     compact_upto_twice_test();
-    compaction_callback_test();
+    compaction_callback_test(true); // multi kv instance mode
+    compaction_callback_test(false); // single kv instance mode
     compact_wo_reopen_test();
     compact_with_reopen_test();
     compact_reopen_with_iterator();

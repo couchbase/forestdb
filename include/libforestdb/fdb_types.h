@@ -267,6 +267,7 @@ enum {
 typedef fdb_compact_decision (*fdb_compaction_callback)(
                                fdb_file_handle *fhandle,
                                fdb_compaction_status status,
+                               const char *kv_store_name,
                                fdb_doc *doc,
                                uint64_t last_oldfile_offset,
                                uint64_t last_newfile_offset,

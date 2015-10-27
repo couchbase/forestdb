@@ -494,7 +494,7 @@ struct cb_cmp_args {
 };
 
 static fdb_compact_decision cb_compact(fdb_file_handle *fhandle,
-                            fdb_compaction_status status,
+                            fdb_compaction_status status, const char *kv_name,
                             fdb_doc *doc, uint64_t old_offset,
                             uint64_t new_offset, void *ctx)
 {
@@ -508,6 +508,7 @@ static fdb_compact_decision cb_compact(fdb_file_handle *fhandle,
     (void) new_offset;
 
     if (status == FDB_CS_MOVE_DOC) {
+        TEST_CHK(kv_name);
         args->nmoves++;
         if (doc->deleted) {
             ret = FDB_CS_DROP_DOC;
