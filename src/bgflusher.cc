@@ -88,6 +88,7 @@ static void * bgflusher_thread(void *voidargs)
     struct avl_node *a;
     struct filemgr *file;
     struct openfiles_elem *elem;
+    err_log_callback *log_callback = NULL;
 
     while (1) {
         uint64_t num_blocks = 0;
@@ -109,17 +110,18 @@ static void * bgflusher_thread(void *voidargs)
                 a = avl_next(a);
             } else {
                 elem->background_flush_in_progress = true;
+                log_callback = elem->log_callback;
                 ffs = filemgr_open(file->filename, file->ops,
-                        file->config, elem->log_callback);
+                        file->config, log_callback);
                 fs = (fdb_status)ffs.rv;
                 mutex_unlock(&bgf_lock);
                 if (fs == FDB_RESULT_SUCCESS) {
                     num_blocks += filemgr_flush_immutable(file,
-                                                          elem->log_callback);
-                    filemgr_close(file, 0, file->filename, elem->log_callback);
+                                                          log_callback);
+                    filemgr_close(file, 0, file->filename, log_callback);
 
                 } else {
-                    fdb_log(elem->log_callback, fs,
+                    fdb_log(log_callback, fs,
                             "Failed to open the file '%s' for background flushing\n.",
                             file->filename);
                 }
