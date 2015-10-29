@@ -151,7 +151,7 @@ struct filemgr {
     atomic_uint32_t throttling_delay;
 
     // variables related to prefetching
-    volatile filemgr_prefetch_status_t prefetch_status;
+    atomic_uint8_t prefetch_status;
     thread_t prefetch_tid;
 
     // File format version

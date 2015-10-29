@@ -561,7 +561,8 @@ static void *_filemgr_prefetch_thread(void *voidargs)
             bcache_free_space = bcache_get_num_free_blocks();
             bcache_free_space *= args->file->blocksize;
 
-            if (args->file->prefetch_status == FILEMGR_PREFETCH_ABORT ||
+            if (atomic_get_uint8_t(&args->file->prefetch_status)
+                == FILEMGR_PREFETCH_ABORT ||
                 gap.tv_sec >= (int64_t)args->duration ||
                 bcache_free_space < FILEMGR_PREFETCH_UNIT) {
                 // terminate thread when
@@ -592,7 +593,8 @@ static void *_filemgr_prefetch_thread(void *voidargs)
         }
     }
 
-    args->file->prefetch_status = FILEMGR_PREFETCH_IDLE;
+    atomic_cas_uint8_t(&args->file->prefetch_status, FILEMGR_PREFETCH_RUNNING,
+                       FILEMGR_PREFETCH_IDLE);
     free(args);
     return NULL;
 }
@@ -619,8 +621,10 @@ void filemgr_prefetch(struct filemgr *file,
         args->duration = config->prefetch_duration;
         args->log_callback = log_callback;
 
-        file->prefetch_status = FILEMGR_PREFETCH_RUNNING;
-        thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
+        if (atomic_cas_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_IDLE,
+                               FILEMGR_PREFETCH_RUNNING)) {
+            thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
+        }
     }
     spin_unlock(&file->lock);
 }
@@ -798,7 +802,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->bcache = NULL;
     file->in_place_compaction = false;
     file->kv_header = NULL;
-    file->prefetch_status = FILEMGR_PREFETCH_IDLE;
+    atomic_init_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_IDLE);
 
     atomic_init_uint64_t(&file->header.bid, 0);
     atomic_init_uint64_t(&file->header.dirty_idtree_root, 0);
@@ -1350,17 +1354,15 @@ void filemgr_remove_all_buffer_blocks(struct filemgr *file)
 void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
+    filemgr_prefetch_status_t prefetch_state =
+                              atomic_get_uint8_t(&file->prefetch_status);
 
-    spin_lock(&file->lock);
-    if (file->prefetch_status == FILEMGR_PREFETCH_RUNNING) {
-        // prefetch thread is running
+    atomic_store_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_ABORT);
+    if (prefetch_state == FILEMGR_PREFETCH_RUNNING) {
+        // prefetch thread was running
         void *ret;
-        file->prefetch_status = FILEMGR_PREFETCH_ABORT;
-        spin_unlock(&file->lock);
-        // wait
+        // wait (the thread must have been created..)
         thread_join(file->prefetch_tid, &ret);
-    } else {
-        spin_unlock(&file->lock);
     }
 
     // remove all cached blocks
@@ -1430,6 +1432,7 @@ void filemgr_free_func(struct hash_elem *h)
     atomic_destroy_uint32_t(&file->throttling_delay);
     atomic_destroy_uint64_t(&file->num_invalidated_blocks);
     atomic_destroy_uint8_t(&file->io_in_prog);
+    atomic_destroy_uint8_t(&file->prefetch_status);
 
     // free file structure
     struct list *stale_list = filemgr_get_stale_list(file);
