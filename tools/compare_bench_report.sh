@@ -1,8 +1,8 @@
 DEFAULT_HEAD="bench_head"
 THRESHOLD_STATS="threshold.stats"
-NEW_BENCH_STATS="bench_new.stats"
-OLD_BENCH_STATS="bench_old.stats"
-BENCH_REPORT='bench_report.txt'
+NEW_BENCH_STATS="cmp_bench_new.stats"
+OLD_BENCH_STATS="cmp_bench_old.stats"
+BENCH_REPORT='cmp_bench_report.txt'
 BUILD_DIR="../build"
 
 if [ -n "$WORKSPACE" ]; then # jenkins override
@@ -89,7 +89,7 @@ run_bench $OLD_BENCH_STATS
 # stat            old             new             diff (ms)       thresh     regress
 # set             11.381200ns     10.151800ns     -1.2294         100
 # commit_wal      22366.000000ns  21965.000000ns  -401            100000
-awk 'NR==FNR {a[NR]=$2; next} $1~/BENCH/{printf "%s\n%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, "stat", "old", "new", "diff (ms)", "thresh", "regress"; next} {if(a[FNR]-$2>$3){ b[NR]="yes" }} {printf "%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, $2, a[FNR], a[FNR]-$2, $3, b[NR]}' bench_new.stats bench_old.stats  |   sed -E 's/^ .*yes//' | tee $BENCH_REPORT
+awk 'NR==FNR {a[NR]=$2; next} $1~/BENCH/{printf "%s\n%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, "stat", "old", "new", "diff (ms)", "thresh", "regress"; next} {if(a[FNR]-$2>$3){ b[NR]="yes" }} {printf "%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, $2, a[FNR], a[FNR]-$2, $3, b[NR]}' $NEW_BENCH_STATS $OLD_BENCH_STATS  |   sed -E 's/^ .*yes//' | tee $BENCH_REPORT
 
 REGRESSION_CNT=`cat $BENCH_REPORT | grep "yes \+$" | wc -l`
 echo -e "\nDone: $REGRESSION_CNT possible regressions\n\n"
