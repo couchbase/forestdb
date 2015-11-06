@@ -38,6 +38,7 @@ add_executable(fdb_functional_test
                fdb_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(fdb_functional_test ${PTHREAD_LIB} ${LIBM}
@@ -85,6 +86,7 @@ add_executable(fdb_extended_test
                fdb_extended_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(fdb_extended_test ${PTHREAD_LIB} ${LIBM}
@@ -132,6 +134,7 @@ add_executable(compact_functional_test
                compact_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(compact_functional_test ${PTHREAD_LIB} ${LIBM}
@@ -179,6 +182,7 @@ add_executable(iterator_functional_test
                iterator_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(iterator_functional_test ${PTHREAD_LIB} ${LIBM}
@@ -226,6 +230,7 @@ add_executable(mvcc_functional_test
                mvcc_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(mvcc_functional_test ${PTHREAD_LIB} ${LIBM}
@@ -273,6 +278,7 @@ add_executable(multi_kv_functional_test
                multi_kv_functional_test.cc
                functional_util.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(multi_kv_functional_test ${PTHREAD_LIB} ${LIBM}
@@ -319,6 +325,7 @@ add_executable(big_concurrency_test
                ${ROOT_UTILS}/partiallock.cc
                big_concurrency_test.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(big_concurrency_test ${PTHREAD_LIB} ${LIBM}
@@ -369,6 +376,7 @@ add_executable(big_compaction_test
                ${ROOT_UTILS}/partiallock.cc
                big_compaction_test.cc
                ${ROOT_UTILS}/time_utils.cc
+               ${ROOT_UTILS}/timing.cc
                ${ROOT_UTILS}/system_resource_stats.cc
                ${GETTIMEOFDAY_VS})
 target_link_libraries(big_compaction_test ${PTHREAD_LIB} ${LIBM}

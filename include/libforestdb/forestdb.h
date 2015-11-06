@@ -795,6 +795,19 @@ LIBFDB_API
 fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info);
 
 /**
+ * Return the latency information about various forestdb api calls
+ *
+ * @param fhandle Pointer to ForestDB KV file handle
+ * @param stats Pointer to a latency_stats instance
+ * @param type Type of latency stat to be retrieved
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
+                                 fdb_latency_stat *stats,
+                                 fdb_latency_stat_type type);
+
+/**
  * Get the current sequence number of a ForestDB KV store instance.
  *
  * @param handle Pointer to ForestDB KV store handle.
@@ -1023,7 +1036,6 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
  */
 LIBFDB_API
 const char* fdb_error_msg(fdb_status err_code);
-
 #ifdef __cplusplus
 }
 #endif

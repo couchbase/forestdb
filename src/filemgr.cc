@@ -799,6 +799,12 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
     atomic_init_uint8_t(&file->io_in_prog, 0);
 
+#ifdef _LATENCY_STATS
+    for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
+        filemgr_init_latency_stat(&file->lat_stats[i]);
+    }
+#endif // _LATENCY_STATS
+
     file->bcache = NULL;
     file->in_place_compaction = false;
     file->kv_header = NULL;
@@ -1235,6 +1241,9 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         if (wal_is_initialized(file)) {
             wal_close(file);
         }
+#ifdef _LATENCY_STATS_DUMP_TO_FILE
+        filemgr_dump_latency_stat(file, log_callback);
+#endif // _LATENCY_STATS_DUMP_TO_FILE
 
         spin_lock(&file->lock);
 
@@ -1401,6 +1410,12 @@ void filemgr_free_func(struct hash_elem *h)
         free(file->wal->seq_shards);
     }
     free(file->wal);
+
+#ifdef _LATENCY_STATS
+    for (int x = 0; x < FDB_LATENCY_NUM_STATS; ++x) {
+        filemgr_destroy_latency_stat(&file->lat_stats[x]);
+    }
+#endif // _LATENCY_STATS
 
     // free filename and header
     free(file->filename);
@@ -2474,6 +2489,7 @@ void filemgr_set_in_place_compaction(struct filemgr *file,
 }
 
 bool filemgr_is_in_place_compaction_set(struct filemgr *file)
+
 {
     bool ret = false;
     spin_lock(&file->lock);
@@ -2879,6 +2895,122 @@ struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
     }
     return stat;
 }
+
+#ifdef _LATENCY_STATS
+void filemgr_init_latency_stat(struct latency_stat *val) {
+    atomic_init_uint32_t(&val->lat_max, 0);
+    atomic_init_uint32_t(&val->lat_min, (uint32_t)(-1));
+    atomic_init_uint64_t(&val->lat_sum, 0);
+    atomic_init_uint64_t(&val->lat_num, 0);
+}
+
+void filemgr_migrate_latency_stats(struct filemgr *src, struct filemgr *dst) {
+    for (int type = 0; type < FDB_LATENCY_NUM_STATS; ++type) {
+        atomic_store_uint32_t(&dst->lat_stats[type].lat_min,
+                atomic_get_uint32_t(&src->lat_stats[type].lat_min));
+        atomic_store_uint32_t(&dst->lat_stats[type].lat_max,
+                atomic_get_uint32_t(&src->lat_stats[type].lat_max));
+        atomic_store_uint64_t(&dst->lat_stats[type].lat_sum,
+                atomic_get_uint64_t(&src->lat_stats[type].lat_sum));
+        atomic_store_uint64_t(&dst->lat_stats[type].lat_num,
+                atomic_get_uint64_t(&src->lat_stats[type].lat_num));
+    }
+}
+
+void filemgr_destroy_latency_stat(struct latency_stat *val) {
+    atomic_destroy_uint32_t(&val->lat_max);
+    atomic_destroy_uint32_t(&val->lat_min);
+    atomic_destroy_uint64_t(&val->lat_num);
+    atomic_destroy_uint64_t(&val->lat_sum);
+}
+
+void filemgr_update_latency_stat(struct filemgr *file,
+                                 fdb_latency_stat_type type,
+                                 uint32_t val)
+{
+    bool retry;
+    do {
+        uint32_t lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max);
+        if (lat_max < val) {
+            retry = !atomic_cas_uint32_t(&file->lat_stats[type].lat_max,
+                                         lat_max, val);
+        } else {
+            retry = false;
+        }
+    } while (retry);
+    do {
+        uint32_t lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min);
+        if (val < lat_min) {
+            retry = !atomic_cas_uint32_t(&file->lat_stats[type].lat_min,
+                                         lat_min, val);
+        } else {
+            retry = false;
+        }
+    } while (retry);
+    atomic_add_uint64_t(&file->lat_stats[type].lat_sum, val);
+    atomic_incr_uint64_t(&file->lat_stats[type].lat_num);
+}
+
+void filemgr_get_latency_stat(struct filemgr *file, fdb_latency_stat_type type,
+                              fdb_latency_stat *stat)
+{
+    uint64_t num = atomic_get_uint64_t(&file->lat_stats[type].lat_num);
+    if (!num) {
+        memset(stat, 0, sizeof(fdb_latency_stat));
+        return;
+    }
+    stat->lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max);
+    stat->lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min);
+    stat->lat_count = num;
+    stat->lat_avg = atomic_get_uint64_t(&file->lat_stats[type].lat_sum) / num;
+}
+
+const char *_filemgr_latency_stat_name(fdb_latency_stat_type stat)
+{
+    switch(stat) {
+        case FDB_LATENCY_SETS:       return "sets     ";
+        case FDB_LATENCY_GETS:       return "gets     ";
+        case FDB_LATENCY_SNAPSHOTS:  return "snapshots";
+        case FDB_LATENCY_COMMITS:    return "commits  ";
+        case FDB_LATENCY_COMPACTS:   return "compact  ";
+    }
+    return NULL;
+}
+
+#ifdef _LATENCY_STATS_DUMP_TO_FILE
+static const int _MAX_STATSFILE_LEN = FDB_MAX_FILENAME_LEN + 4;
+void filemgr_dump_latency_stat(struct filemgr *file,
+                               err_log_callback *log_callback) {
+    FILE *lat_file;
+    char latency_file_path[_MAX_STATSFILE_LEN];
+    strncpy(latency_file_path, file->filename, _MAX_STATSFILE_LEN);
+    strncat(latency_file_path, ".lat", _MAX_STATSFILE_LEN);
+    lat_file = fopen(latency_file_path, "a");
+    if (!lat_file) {
+        fdb_status status = FDB_RESULT_OPEN_FAIL;
+        const char *msg = "Warning: Unable to open latency stats file '%s'\n";
+        fdb_log(log_callback, status, msg, latency_file_path);
+        return;
+    }
+    fprintf(lat_file, "latency(us)\t\tmin\t\tavg\t\tmax\t\tnum_samples\n");
+    for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
+        uint32_t avg;
+        uint64_t num;
+        num = atomic_get_uint64_t(&file->lat_stats[i].lat_num);
+        if (!num) {
+            continue;
+        }
+        avg = atomic_get_uint64_t(&file->lat_stats[i].lat_sum) / num;
+        fprintf(lat_file, "%s:\t\t%u\t\t%u\t\t%u\t\t%" _F64 "\n",
+                _filemgr_latency_stat_name(i),
+                atomic_get_uint32_t(&file->lat_stats[i].lat_min),
+                avg, atomic_get_uint32_t(&file->lat_stats[i].lat_max), num);
+    }
+    fflush(lat_file);
+    fclose(lat_file);
+}
+#endif // _LATENCY_STATS_DUMP_TO_FILE
+#endif // _LATENCY_STATS
 
 void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id)
 {

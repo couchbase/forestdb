@@ -16,7 +16,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
-#include "test.h"
 
 #include "libforestdb/forestdb.h"
 #include "config.h"

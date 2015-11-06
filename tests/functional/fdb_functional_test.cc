@@ -1465,6 +1465,15 @@ void operational_stats_test(bool multi_kv)
             TEST_CMP(&rinfo, &info, sizeof(fdb_kvs_ops_info));
         }
     }
+    // also get latency stats..
+    for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
+        fdb_latency_stat stat;
+        memset(&stat, 0, sizeof(fdb_latency_stat));
+        status = fdb_get_latency_stats(dbfile, &stat, i);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fprintf(stderr, "%d:\t%u\t%u\t%u\t%" _F64 "\n", i,
+                stat.lat_max, stat.lat_avg, stat.lat_max, stat.lat_count);
+    }
 
     fdb_close(dbfile);
 

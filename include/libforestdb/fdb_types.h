@@ -44,6 +44,9 @@
  */
 #define FDB_MAX_BODYLEN (4294967295UL) // 2^32 - 1
 
+// Number of latency stat types
+#define FDB_LATENCY_NUM_STATS 5
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -650,6 +653,40 @@ typedef struct {
      */
     uint64_t num_iterator_moves;
 } fdb_kvs_ops_info;
+
+/**
+ * Latency stat type for each public API
+ */
+typedef uint8_t fdb_latency_stat_type;
+enum {
+    FDB_LATENCY_SETS      = 0, // fdb_set API
+    FDB_LATENCY_GETS      = 1, // fdb_get API
+    FDB_LATENCY_COMMITS   = 2, // fdb_commit API
+    FDB_LATENCY_SNAPSHOTS = 3, // fdb_snapshot_open API
+    FDB_LATENCY_COMPACTS  = 4  // fdb_compact API
+};
+
+/**
+ * Latency statistics of a specific ForestDB api call
+ */
+typedef struct {
+    /**
+     * Total number this call was invoked.
+     */
+    uint64_t lat_count;
+    /**
+     * The fastest call took this amount of time in micro seconds.
+     */
+    uint32_t lat_min;
+    /**
+     * The slowest call took this amount of time in micro seconds.
+     */
+    uint32_t lat_max;
+    /**
+     * The average time taken by this call in micro seconds.
+     */
+    uint32_t lat_avg;
+} fdb_latency_stat;
 
 /**
  * List of ForestDB KV store names

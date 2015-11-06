@@ -63,6 +63,26 @@ struct filemgr_config {
     fdb_encryption_key encryption_key;
 };
 
+#ifndef _LATENCY_STATS
+#define LATENCY_STAT_START()
+#define LATENCY_STAT_END(file, type)
+#else
+#define LATENCY_STAT_START() \
+     uint64_t begin=get_monotonic_ts();
+#define LATENCY_STAT_END(file, type)\
+    do {\
+        uint64_t end = get_monotonic_ts();\
+        filemgr_update_latency_stat(file, type, ts_diff(begin, end));} while(0)
+
+struct latency_stat {
+    atomic_uint32_t lat_min;
+    atomic_uint32_t lat_max;
+    atomic_uint64_t lat_sum;
+    atomic_uint64_t lat_num;
+};
+
+#endif // _LATENCY_STATS
+
 struct async_io_handle {
 #ifdef _ASYNC_IO
 #if !defined(WIN32) && !defined(_WIN32)
@@ -156,6 +176,10 @@ struct filemgr {
 
     // File format version
     uint64_t version;
+
+#ifdef _LATENCY_STATS
+    struct latency_stat lat_stats[FDB_LATENCY_NUM_STATS];
+#endif //_LATENCY_STATS
 
     // spin lock for small region
     spin_t lock;
@@ -312,6 +336,65 @@ void filemgr_set_compaction_state(struct filemgr *old_file,
 void filemgr_remove_pending(struct filemgr *old_file,
                             struct filemgr *new_file,
                             err_log_callback *log_callback);
+
+#ifdef _LATENCY_STATS
+/**
+ * Initialize a latency stats instance
+ *
+ * @param val Pointer to a latency stats instance to be initialized
+ */
+void filemgr_init_latency_stat(struct latency_stat *val);
+
+/**
+ * Destroy a latency stats instance
+ *
+ * @param val Pointer to a latency stats instance to be destroyed
+ */
+void filemgr_destroy_latency_stat(struct latency_stat *val);
+
+/**
+ * Migrate the latency stats from the source file to the destination file
+ *
+ * @param oldf Pointer to the source file manager
+ * @param newf Pointer to the destination file manager
+ */
+void filemgr_migrate_latency_stats(struct filemgr *src,
+                                   struct filemgr *dest);
+
+/**
+ * Update the latency stats for a given file manager
+ *
+ * @param file Pointer to the file manager whose latency stats need to be updated
+ * @param type Type of a latency stat to be updated
+ * @param val New value of a latency stat
+ */
+void filemgr_update_latency_stat(struct filemgr *file,
+                                 fdb_latency_stat_type type,
+                                 uint32_t val);
+
+/**
+ * Get the latency stats from a given file manager
+ *
+ * @param file Pointer to the file manager
+ * @param type Type of a latency stat to be retrieved
+ * @param stat Pointer to the stats instance to be populated
+ */
+void filemgr_get_latency_stat(struct filemgr *file,
+                              fdb_latency_stat_type type,
+                              fdb_latency_stat *stat);
+
+#ifdef _LATENCY_STATS_DUMP_TO_FILE
+/**
+ * Write all the latency stats for a given file manager to a stat log file
+ *
+ * @param file Pointer to the file manager
+ * @param log_callback Pointer to the log callback function
+ */
+void filemgr_dump_latency_stat(struct filemgr *file,
+                               err_log_callback *log_callback);
+
+#endif // _LATENCY_STATS_DUMP_TO_FILE
+#endif // _LATENCY_STATS
 
 struct kvs_ops_stat *filemgr_migrate_op_stats(struct filemgr *old_file,
                                               struct filemgr *new_file,

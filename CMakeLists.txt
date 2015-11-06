@@ -90,6 +90,15 @@ ELSEIF (_MEMLEAK EQUAL 2)
     ADD_DEFINITIONS(-D_CHK_MODIFY_AFTER_FREE=1)
 ENDIF()
 
+IF ("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+    ADD_DEFINITIONS(-D_LATENCY_STATS)
+ENDIF ("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+
+IF ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    ADD_DEFINITIONS(-D_LATENCY_STATS)
+    ADD_DEFINITIONS(-D_LATENCY_STATS_DUMP_TO_FILE)
+ENDIF ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+
 # Uncomment the following define below to enable handle tracking on SIGABRT
 # set(_TRACK_HANDLES 1)
 #
@@ -163,6 +172,7 @@ add_library(forestdb SHARED
             utils/debug.cc
             utils/partiallock.cc
             utils/time_utils.cc
+            utils/timing.cc
             utils/system_resource_stats.cc)
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
@@ -210,6 +220,7 @@ add_executable(forestdb_dump
                utils/iniparser.cc
                utils/partiallock.cc
                utils/time_utils.cc
+               utils/timing.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
@@ -258,6 +269,7 @@ add_executable(forestdb_hexamine
                utils/iniparser.cc
                utils/partiallock.cc
                utils/time_utils.cc
+               utils/timing.cc
                utils/system_resource_stats.cc)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}

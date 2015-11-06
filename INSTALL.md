@@ -129,6 +129,9 @@ To run all the unit tests:
 
     This target will run the tests and output the memory report to the console
 
+* By default, every run will produce an additional .lat file which indicates the latencies
+  of the forestdb api. This is disabled if CMAKE_BUILD_TYPE=Release
+
 * To enable the use of threadsanitizer for tests, install clang 3.5+ (currently only Ubuntu 14.04 is supported).  Also make sure to set flag **CB_THREADSANITIZER**
 
      `cmake  -DCMAKE_C_COMPILER=clang-3.5 -DCMAKE_CXX_COMPILER=clang++-3.5  -DCB_THREADSANITIZER=1 ..`
