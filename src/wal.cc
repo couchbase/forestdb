@@ -636,15 +636,18 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             if (!prev_commit) {
                 // there was no previous commit .. increase num_docs
                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
-                if (item->action == WAL_ACT_LOGICAL_REMOVE) {
+                if (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                    item->action == WAL_ACT_REMOVE) {
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
                 }
             } else {
                 if (prev_action == WAL_ACT_INSERT &&
-                    item->action == WAL_ACT_LOGICAL_REMOVE) {
+                    (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                     item->action == WAL_ACT_REMOVE)) {
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
-                } else if (prev_action == WAL_ACT_LOGICAL_REMOVE &&
-                           item->action == WAL_ACT_INSERT) {
+                } else if ((prev_action == WAL_ACT_LOGICAL_REMOVE ||
+                            prev_action == WAL_ACT_REMOVE) &&
+                            item->action == WAL_ACT_INSERT) {
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
                 }
             }
