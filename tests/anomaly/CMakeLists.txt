@@ -43,7 +43,7 @@ add_executable(fdb_anomaly_test
 target_link_libraries(fdb_anomaly_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
                       ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY})
+                      ${PLATFORM_LIBRARY} ${LIBRT})
 set_target_properties(fdb_anomaly_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 
