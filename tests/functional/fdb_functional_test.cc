@@ -502,6 +502,7 @@ void deleted_doc_stat_test()
     fdb_kvs_handle *db;
     fdb_doc _doc;
     fdb_doc *doc = &_doc;
+    fdb_doc *rdoc;
     fdb_status status;
     fdb_config fconfig;
     fdb_file_info info;
@@ -522,19 +523,25 @@ void deleted_doc_stat_test()
     kvs_config = fdb_get_default_kvs_config();
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    status = fdb_kvs_open(dbfile, &db, "main", &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    sprintf(keybuf, "key");
-    sprintf(bodybuf, "body");
-    doc->keylen = strlen(keybuf);
-    doc->bodylen = strlen(bodybuf);
+    sprintf(keybuf, "K"); // This is necessary to set keysize to 2 bytes so
+    sprintf(bodybuf, "body"); // it matches KV_header doc's keysize of 10
+    doc->keylen = strlen(keybuf) + 1; // in multi-kv mode and hits MB-16491
+    doc->bodylen = strlen(bodybuf) + 1;
     status = fdb_set(db, doc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // Delete the doc
     status = fdb_del(db, doc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Fetch the doc back
+    fdb_doc_create(&rdoc, doc->key, doc->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    fdb_doc_free(rdoc);
 
     // check the file info
     fdb_get_file_info(dbfile, &info);

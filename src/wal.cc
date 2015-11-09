@@ -398,6 +398,16 @@ static fdb_status _wal_find(fdb_txn *txn,
                         doc->deleted = false;
                     } else {
                         doc->deleted = true;
+                        if (item->action == WAL_ACT_REMOVE) {
+                            // Immediately deleted & purged doc have no real
+                            // presence on-disk. wal_find must return SUCCESS
+                            // here to indicate that the doc was deleted to
+                            // prevent main index lookup. Also, it must set the
+                            // offset to BLK_NOT_FOUND to ensure that caller
+                            // does NOT attempt to fetch the doc OR its
+                            // metadata from file.
+                            *offset = BLK_NOT_FOUND;
+                        }
                     }
                     spin_unlock(&file->wal->key_shards[shard_num].lock);
                     return FDB_RESULT_SUCCESS;
@@ -430,6 +440,16 @@ static fdb_status _wal_find(fdb_txn *txn,
                     doc->deleted = false;
                 } else {
                     doc->deleted = true;
+                    if (item->action == WAL_ACT_REMOVE) {
+                        // Immediately deleted & purged doc have no real
+                        // presence on-disk. wal_find must return SUCCESS
+                        // here to indicate that the doc was deleted to
+                        // prevent main index lookup. Also, it must set the
+                        // offset to BLK_NOT_FOUND to ensure that caller
+                        // does NOT attempt to fetch the doc OR its
+                        // metadata from file.
+                        *offset = BLK_NOT_FOUND;
+                    }
                 }
                 spin_unlock(&file->wal->seq_shards[shard_num].lock);
                 return FDB_RESULT_SUCCESS;

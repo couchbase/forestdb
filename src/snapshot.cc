@@ -205,6 +205,9 @@ fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,
                 doc->deleted = false;
             } else {
                 doc->deleted = true;
+                if (item->action == WAL_ACT_REMOVE) {
+                    *offset = BLK_NOT_FOUND;
+                }
             }
             return FDB_RESULT_SUCCESS;
         }
@@ -225,6 +228,9 @@ fdb_status snap_find(struct snap_handle *shandle, fdb_doc *doc,
                 doc->deleted = false;
             } else {
                 doc->deleted = true;
+                if (item->action == WAL_ACT_REMOVE) {
+                    *offset = BLK_NOT_FOUND;
+                }
             }
             return FDB_RESULT_SUCCESS;
         }
