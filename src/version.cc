@@ -45,6 +45,16 @@ bool ver_staletree_support(filemgr_magic_t magic)
     return false;
 }
 
+bool ver_non_consecutive_doc(filemgr_magic_t magic)
+{
+    // All magic numbers since FILEMGR_MAGIC_V3
+    if (magic >= FILEMGR_MAGIC_V3 && magic <= FILEMGR_LATEST_MAGIC) {
+        //return false;
+        return true;
+    }
+    return false;
+}
+
 size_t ver_get_new_filename_off(filemgr_magic_t magic) {
     switch(magic) {
         case FILEMGR_MAGIC_V1: return 64;

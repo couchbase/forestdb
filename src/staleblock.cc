@@ -25,6 +25,7 @@
 #include "list.h"
 #include "docio.h"
 #include "fdb_internal.h"
+#include "version.h"
 
 #include "memleak.h"
 
@@ -308,9 +309,19 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             }
 
             // also insert/merge the system doc region
-            _insert_n_merge(&tree, offset,
-                            filemgr_actual_stale_length(handle->file, offset,
-                                                        _fdb_get_docsize(doc.length)));
+            size_t length = _fdb_get_docsize(doc.length);
+            struct stale_regions sr;
+
+            sr = filemgr_actual_stale_regions(handle->file, offset, length);
+
+            if (sr.n_regions > 1) {
+                for (i=0; i<sr.n_regions; ++i){
+                    _insert_n_merge(&tree, sr.regions[i].pos, sr.regions[i].len);
+                }
+                free(sr.regions);
+            } else {
+                _insert_n_merge(&tree, sr.region.pos, sr.region.len);
+            }
 
             // We don't need to free 'meta' as it will be NULL.
             free(doc.body);

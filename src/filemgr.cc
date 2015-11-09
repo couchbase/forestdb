@@ -2645,15 +2645,99 @@ size_t filemgr_actual_stale_length(struct filemgr *file,
     return actual_len;
 }
 
+// if a document is not physically consecutive,
+// return all fragmented regions.
+struct stale_regions filemgr_actual_stale_regions(struct filemgr *file,
+                                                  bid_t offset,
+                                                  size_t length)
+{
+    uint8_t *buf = alca(uint8_t, file->blocksize);
+    size_t remaining = length;
+    size_t real_blocksize = file->blocksize;
+    size_t blocksize = real_blocksize;
+    size_t cur_pos, space_in_block, count;
+    bid_t cur_bid;
+    bool non_consecutive = ver_non_consecutive_doc(file->version);
+    struct docblk_meta blk_meta;
+    struct stale_regions ret;
+    struct stale_data *arr = NULL, *cur_region;
+
+    if (non_consecutive) {
+        blocksize -= DOCBLK_META_SIZE;
+
+        cur_bid = offset / file->blocksize;
+        // relative position in the block 'cur_bid'
+        cur_pos = offset % file->blocksize;
+
+        count = 0;
+        while (remaining) {
+            if (count == 1) {
+                // more than one stale region .. allocate array
+                size_t arr_size = (length / blocksize) + 2;
+                arr = (struct stale_data *)calloc(arr_size, sizeof(struct stale_data));
+                arr[0] = ret.region;
+                ret.regions = arr;
+            }
+
+            if (count == 0) {
+                // Since n_regions will be 1 in most cases,
+                // we do not allocate heap memory when 'n_regions==1'.
+                cur_region = &ret.region;
+            } else {
+                cur_region = &ret.regions[count];
+            }
+            cur_region->pos = (cur_bid * real_blocksize) + cur_pos;
+
+            // subtract data size in the current block
+            space_in_block = blocksize - cur_pos;
+            if (space_in_block <= remaining) {
+                // rest of the current block (including block meta)
+                cur_region->len = real_blocksize - cur_pos;
+                remaining -= space_in_block;
+            } else {
+                cur_region->len = remaining;
+                remaining = 0;
+            }
+            count++;
+
+            if (remaining) {
+                // get next BID
+                filemgr_read(file, cur_bid, (void *)buf, NULL, true);
+                memcpy(&blk_meta, buf + blocksize, sizeof(blk_meta));
+                cur_bid = _endian_decode(blk_meta.next_bid);
+                cur_pos = 0; // beginning of the block
+            }
+        }
+        ret.n_regions = count;
+
+    } else {
+        // doc blocks are consecutive .. always return a single region.
+        ret.n_regions = 1;
+        ret.region.pos = offset;
+        ret.region.len = filemgr_actual_stale_length(file, offset, length);
+    }
+
+    return ret;
+}
+
 void filemgr_mark_stale(struct filemgr *file,
                         bid_t offset,
                         size_t length)
 {
-    // TODO: if corresponding blocks are not consecutive,
-    //       we need to modify this logic.
     if (file->stale_list) {
-        filemgr_add_stale_block(file, offset,
-                                filemgr_actual_stale_length(file, offset, length));
+        size_t i;
+        struct stale_regions sr;
+
+        sr = filemgr_actual_stale_regions(file, offset, length);
+
+        if (sr.n_regions > 1) {
+            for (i=0; i<sr.n_regions; ++i){
+                filemgr_add_stale_block(file, sr.regions[i].pos, sr.regions[i].len);
+            }
+            free(sr.regions);
+        } else {
+            filemgr_add_stale_block(file, sr.region.pos, sr.region.len);
+        }
     }
 }
 

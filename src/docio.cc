@@ -22,6 +22,7 @@
 #include "docio.h"
 #include "wal.h"
 #include "fdb_internal.h"
+#include "version.h"
 #ifdef _DOC_COMP
 #include "snappy-c.h"
 #endif
@@ -66,7 +67,13 @@ INLINE fdb_status _docio_fill_zero(struct docio_handle *handle, bid_t bid,
     uint8_t *zerobuf = alca(uint8_t, len_size);
 
 #ifdef __CRC32
-    blocksize -= BLK_MARKER_SIZE;
+    if (ver_non_consecutive_doc(handle->file->version)) {
+        // new version: support non-consecutive document block
+        blocksize -= DOCBLK_META_SIZE;
+    } else {
+        // old version: block marker only
+        blocksize -= BLK_MARKER_SIZE;
+    }
 #endif
 
     if (pos + len_size <= blocksize) {
@@ -88,8 +95,21 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
     size_t real_blocksize = blocksize;
     size_t remaining_space;
     err_log_callback *log_callback = handle->log_callback;
+    bool non_consecutive = ver_non_consecutive_doc(handle->file->version);
+    struct docblk_meta blk_meta;
+
+    memset(&blk_meta, 0x0, sizeof(blk_meta));
+    blk_meta.marker = BLK_MARKER_DOC;
+    (void)blk_meta;
+
 #ifdef __CRC32
-    blocksize -= BLK_MARKER_SIZE;
+    if (non_consecutive) {
+        // new version: support non-consecutive document block
+        blocksize -= DOCBLK_META_SIZE;
+    } else {
+        // old version: block marker only
+        blocksize -= BLK_MARKER_SIZE;
+    }
     memset(marker, BLK_MARKER_DOC, BLK_MARKER_SIZE);
 #endif
 
@@ -101,6 +121,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
     if (!filemgr_is_writable(handle->file, handle->curblock)) {
         // mark remaining space in old block as stale
         if (handle->curpos < real_blocksize) {
+            // this function will calculate block marker size automatically.
             filemgr_mark_stale(handle->file,
                                real_blocksize * handle->curblock + handle->curpos,
                                blocksize - handle->curpos);
@@ -115,8 +136,20 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
         fdb_status fs = FDB_RESULT_SUCCESS;
         // simply append to current block
         offset = handle->curpos;
-        fs = _add_blk_marker(handle->file, handle->curblock, blocksize, marker,
-                             log_callback);
+
+        if (non_consecutive) {
+            // set next BID
+            blk_meta.next_bid = BLK_NOT_FOUND;
+            // write meta
+            fs = filemgr_write_offset(handle->file, handle->curblock,
+                                      blocksize, sizeof(blk_meta), &blk_meta,
+                                      false, log_callback);
+        } else {
+            fs = _add_blk_marker(handle->file, handle->curblock, blocksize, marker,
+                                 log_callback);
+        }
+
+
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
                     "Error in appending a doc block marker for a block id %" _F64
@@ -144,10 +177,15 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
     } else { // insufficient space to fit entire document into current block
         bid_t begin, end, i, startpos;
+        bid_t *block_list, block_list_size = 0;
         uint32_t nblock = size / blocksize;
         uint32_t remain = size % blocksize;
         uint64_t remainsize = size;
         fdb_status fs = FDB_RESULT_SUCCESS;
+
+        // as blocks may not be consecutive, we need to maintain
+        // the list of BIDs.
+        block_list = (bid_t *)alca(bid_t, nblock+1);
 
 #ifdef DOCIO_BLOCK_ALIGN
         offset = blocksize - handle->curpos;
@@ -200,85 +238,192 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
         }
 
 #else
-        // simple append mode .. always append at the end of file
+        // Simple append mode
+        // The given doc is appended at the byte offset right next the last doc.
+        // Note that block allocation can be non-consecutive.
         offset = blocksize - handle->curpos;
-        if (filemgr_alloc_multiple_cond(handle->file, handle->curblock+1,
-                                        nblock + ((remain>offset)?1:0), &begin, &end,
-                                        log_callback) == handle->curblock+1) {
-            // start from current block
-            if (begin != (handle->curblock + 1)) {
-                fdb_log(log_callback, fs,
-                        "Error in allocating blocks starting from block id %" _F64
-                        " in a database file '%s'", handle->curblock + 1,
-                        handle->file->filename);
-                return BLK_NOT_FOUND;
+
+        if (non_consecutive) {
+            // new version: support non-consecutive allocation
+
+            bool new_block = false;
+            bool start_from_new_block = false;
+
+            if (remain > offset) {
+                // if the current block cannot accommodate the remaining length
+                // of the document, allocate an additional block.
+                new_block = true;
             }
 
-            fs = _add_blk_marker(handle->file, handle->curblock, blocksize,
-                                 marker, log_callback);
-            if (fs != FDB_RESULT_SUCCESS) {
-                fdb_log(log_callback, fs,
-                        "Error in appending a doc block marker for a block id %" _F64
-                        " into a database file '%s'", handle->curblock,
-                        handle->file->filename);
-                return BLK_NOT_FOUND;
-            }
-            if (offset > 0) {
-                fs = filemgr_write_offset(handle->file, handle->curblock,
-                                          handle->curpos, offset, buf,
-                                          true, // mark block as immutable
-                                          log_callback);
-                if (fs != FDB_RESULT_SUCCESS) {
-                    fdb_log(log_callback, fs,
-                            "Error in writing a doc block with id %" _F64 ", offset %d, "
-                            "size %" _F64 " to a database file '%s'", handle->curblock,
-                            offset, size, handle->file->filename);
-                    return BLK_NOT_FOUND;
+            block_list_size = nblock + ((new_block)?1:0);
+            for (i=0; i<block_list_size; ++i) {
+                block_list[i] = filemgr_alloc(handle->file, log_callback);
+                if (i == 0 && handle->curblock != BLK_NOT_FOUND &&
+                    block_list[i] > handle->curblock+1) {
+                    // if the first new allocated block is not consecutive
+                    // from the current block, start writing document from
+                    // the new block.
+                    start_from_new_block = true;
+                    // since we won't write into the current block,
+                    // allocate one more block if necessary.
+                    if (remain && !new_block) {
+                        new_block = true;
+                        block_list_size++;
+                    }
                 }
             }
-            remainsize -= offset;
 
-            startpos = handle->curblock * real_blocksize + handle->curpos;
-        } else {
-            // next block to be allocated is not continuous
-            // mark remaining space in the old block as stale
-            if (handle->curblock != BLK_NOT_FOUND &&
-                handle->curpos < real_blocksize) {
-                filemgr_mark_stale(handle->file,
-                                   real_blocksize * handle->curblock + handle->curpos,
-                                   blocksize - handle->curpos);
-            }
-            // allocate new multiple blocks
-            filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0),
-                                   &begin, &end, log_callback);
-            offset = 0;
+            if (offset > 0 && !start_from_new_block) {
+                // start from the current block
 
-            startpos = begin * real_blocksize;
-        }
-
-#endif
-
-        for (i=begin; i<=end; ++i) {
-            handle->curblock = i;
-            if (remainsize >= blocksize) {
-                // write entire block
-                fs = _add_blk_marker(handle->file, i, blocksize, marker,
-                                     log_callback);
+                // set next BID
+                blk_meta.next_bid = _endian_encode(block_list[0]);
+                // write meta
+                fs = filemgr_write_offset(handle->file, handle->curblock,
+                                          blocksize, sizeof(blk_meta), &blk_meta,
+                                          false, log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
-                            "Error in appending a doc block marker for a block "
-                            "id %" _F64 " into a database file '%s'", i,
+                            "Error in appending a doc block metadata for a block id %" _F64
+                            " into a database file '%s'", handle->curblock,
                             handle->file->filename);
                     return BLK_NOT_FOUND;
                 }
-                fs = filemgr_write_offset(handle->file, i, 0, blocksize,
+
+                // write the front part of the doc
+                if (offset > 0) {
+                    fs = filemgr_write_offset(handle->file, handle->curblock,
+                                              handle->curpos, offset, buf,
+                                              true, // mark block as immutable
+                                              log_callback);
+                    if (fs != FDB_RESULT_SUCCESS) {
+                        fdb_log(log_callback, fs,
+                                "Error in writing a doc block with id %" _F64 ", offset %d, "
+                                "size %" _F64 " to a database file '%s'", handle->curblock,
+                                offset, size, handle->file->filename);
+                        return BLK_NOT_FOUND;
+                    }
+                }
+                remainsize -= offset;
+
+                startpos = handle->curblock * real_blocksize + handle->curpos;
+            } else {
+                // mark remaining space in the current block as stale
+                if (handle->curblock != BLK_NOT_FOUND &&
+                    handle->curpos < real_blocksize) {
+                    filemgr_mark_stale(handle->file,
+                                       real_blocksize * handle->curblock + handle->curpos,
+                                       blocksize - handle->curpos);
+                }
+                offset = 0;
+                startpos = block_list[0] * real_blocksize;
+            }
+
+        } else {
+            // old version: consecutive allocation only
+
+            if (filemgr_alloc_multiple_cond(handle->file, handle->curblock+1,
+                                            nblock + ((remain>offset)?1:0), &begin, &end,
+                                            log_callback) == handle->curblock+1) {
+                // start from current block
+                if (begin != (handle->curblock + 1)) {
+                    fdb_log(log_callback, fs,
+                            "Error in allocating blocks starting from block id %" _F64
+                            " in a database file '%s'", handle->curblock + 1,
+                            handle->file->filename);
+                    return BLK_NOT_FOUND;
+                }
+
+                fs = _add_blk_marker(handle->file, handle->curblock, blocksize,
+                                     marker, log_callback);
+                if (fs != FDB_RESULT_SUCCESS) {
+                    fdb_log(log_callback, fs,
+                            "Error in appending a doc block marker for a block id %" _F64
+                            " into a database file '%s'", handle->curblock,
+                            handle->file->filename);
+                    return BLK_NOT_FOUND;
+                }
+                if (offset > 0) {
+                    fs = filemgr_write_offset(handle->file, handle->curblock,
+                                              handle->curpos, offset, buf,
+                                              true, // mark block as immutable
+                                              log_callback);
+                    if (fs != FDB_RESULT_SUCCESS) {
+                        fdb_log(log_callback, fs,
+                                "Error in writing a doc block with id %" _F64 ", offset %d, "
+                                "size %" _F64 " to a database file '%s'", handle->curblock,
+                                offset, size, handle->file->filename);
+                        return BLK_NOT_FOUND;
+                    }
+                }
+                remainsize -= offset;
+
+                startpos = handle->curblock * real_blocksize + handle->curpos;
+            } else {
+                // next block to be allocated is not continuous
+                // mark remaining space in the old block as stale
+                if (handle->curblock != BLK_NOT_FOUND &&
+                    handle->curpos < real_blocksize) {
+                    filemgr_mark_stale(handle->file,
+                                       real_blocksize * handle->curblock + handle->curpos,
+                                       blocksize - handle->curpos);
+                }
+                // allocate new multiple blocks
+                filemgr_alloc_multiple(handle->file, nblock+((remain>0)?1:0),
+                                       &begin, &end, log_callback);
+                offset = 0;
+
+                startpos = begin * real_blocksize;
+            }
+
+            block_list_size = end - begin + 1;
+            for (i=0; i<block_list_size; ++i) {
+                block_list[i] = begin+i;
+            }
+
+        } // if (non_consecutive)
+
+#endif
+
+        for (i=0; i<block_list_size; ++i) {
+            handle->curblock = block_list[i];
+            if (non_consecutive) {
+                if (i < block_list_size - 1) {
+                    blk_meta.next_bid = _endian_encode(block_list[i+1]);
+                } else {
+                    // the last block .. set next BID '0xffff...'
+                    memset(&blk_meta.next_bid, 0xff, sizeof(blk_meta.next_bid));
+                }
+            }
+
+            // write meta (new) or block marker (old)
+            if (non_consecutive) {
+                fs = filemgr_write_offset(handle->file, handle->curblock,
+                                          blocksize, sizeof(blk_meta), &blk_meta,
+                                          false, log_callback);
+            } else {
+                fs = _add_blk_marker(handle->file, block_list[i], blocksize, marker,
+                                     log_callback);
+            }
+            if (fs != FDB_RESULT_SUCCESS) {
+                fdb_log(log_callback, fs,
+                        "Error in appending a doc block marker for a block "
+                        "id %" _F64 " into a database file '%s'", block_list[i],
+                        handle->file->filename);
+                return BLK_NOT_FOUND;
+            }
+
+            if (remainsize >= blocksize) {
+                // write entire block
+
+                fs = filemgr_write_offset(handle->file, block_list[i], 0, blocksize,
                                           (uint8_t *)buf + offset,
                                           true, // mark block as immutable
                                           log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing an entire doc block with id %" _F64
-                            ", size %" _F64 " to a database file '%s'", i, blocksize,
+                            ", size %" _F64 " to a database file '%s'", block_list[i], blocksize,
                             handle->file->filename);
                     return BLK_NOT_FOUND;
                 }
@@ -288,31 +433,23 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
             } else {
                 // write rest of document
-                fdb_assert(i==end, i, end);
-                fs = _add_blk_marker(handle->file, i, blocksize, marker,
-                                     log_callback);
-                if (fs != FDB_RESULT_SUCCESS) {
-                    fdb_log(log_callback, fs,
-                            "Error in appending a doc block marker for a block "
-                            "id %" _F64 " into a database file '%s'", i,
-                            handle->file->filename);
-                    return BLK_NOT_FOUND;
-                }
-                fs = filemgr_write_offset(handle->file, i, 0, remainsize,
+                fdb_assert(i==block_list_size-1, i, block_list_size-1);
+
+                fs = filemgr_write_offset(handle->file, block_list[i], 0, remainsize,
                                           (uint8_t *)buf + offset,
                                           (remainsize == blocksize),
                                           log_callback);
                 if (fs != FDB_RESULT_SUCCESS) {
                     fdb_log(log_callback, fs,
                             "Error in writing a doc block with id %" _F64 ", "
-                            "size %" _F64 " to a database file '%s'", i, remainsize,
+                            "size %" _F64 " to a database file '%s'", block_list[i], remainsize,
                             handle->file->filename);
                     return BLK_NOT_FOUND;
                 }
                 offset += remainsize;
                 handle->curpos = remainsize;
 
-                if (_docio_fill_zero(handle, i, handle->curpos) !=
+                if (_docio_fill_zero(handle, block_list[i], handle->curpos) !=
                     FDB_RESULT_SUCCESS) {
                     return BLK_NOT_FOUND;
                 }
@@ -575,8 +712,16 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
 {
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
+    bool non_consecutive = ver_non_consecutive_doc(handle->file->version);
+    struct docblk_meta blk_meta;
 #ifdef __CRC32
-    blocksize -= BLK_MARKER_SIZE;
+    if (non_consecutive) {
+        // new version: support non-consecutive document block
+        blocksize -= DOCBLK_META_SIZE;
+    } else {
+        // old version: block marker only
+        blocksize -= BLK_MARKER_SIZE;
+    }
 #endif
 
     uint64_t file_pos = filemgr_get_pos(handle->file);
@@ -617,7 +762,13 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
     } else {
         memcpy(length, (uint8_t *)buf + pos, restsize);
         // read additional block
-        bid++;
+        if (non_consecutive) {
+            memcpy(&blk_meta, (uint8_t*)buf + blocksize, sizeof(blk_meta));
+            bid = _endian_decode(blk_meta.next_bid);
+        } else {
+            bid++;
+        }
+
         fs = _docio_read_through_buffer(handle, bid, log_callback, true);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
@@ -646,8 +797,16 @@ static uint64_t _docio_read_doc_component(struct docio_handle *handle,
     uint32_t rest_len;
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
+    bool non_consecutive = ver_non_consecutive_doc(handle->file->version);
+    struct docblk_meta blk_meta;
 #ifdef __CRC32
-    blocksize -= BLK_MARKER_SIZE;
+    if (non_consecutive) {
+        // new version: support non-consecutive document block
+        blocksize -= DOCBLK_META_SIZE;
+    } else {
+        // old version: block marker only
+        blocksize -= BLK_MARKER_SIZE;
+    }
 #endif
 
     bid_t bid = offset / real_blocksize;
@@ -675,7 +834,14 @@ static uint64_t _docio_read_doc_component(struct docio_handle *handle,
             rest_len = 0;
         }else{
             memcpy((uint8_t *)buf_out + (len - rest_len), (uint8_t *)buf + pos, restsize);
-            bid++;
+
+            if (non_consecutive) {
+                memcpy(&blk_meta, (uint8_t*)buf + blocksize, sizeof(blk_meta));
+                bid = _endian_decode(blk_meta.next_bid);
+            } else {
+                bid++;
+            }
+
             pos = 0;
             rest_len -= restsize;
 

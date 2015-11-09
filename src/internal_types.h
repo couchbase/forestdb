@@ -615,6 +615,26 @@ struct stale_data {
     };
 };
 
+/**
+ * List of stale data
+ */
+struct stale_regions {
+    /**
+     * Number of regions
+     */
+    size_t n_regions;
+    union {
+        /**
+         * Pointer to the array of regions, if n_regions > 1
+         */
+        struct stale_data *regions;
+        /**
+         * Stale region, if n_regions == 1
+         */
+        struct stale_data region;
+    };
+};
+
 #define FDB_FLAG_SEQTREE_USE (0x1)
 #define FDB_FLAG_ROOT_INITIALIZED (0x2)
 #define FDB_FLAG_ROOT_CUSTOM_CMP (0x4)

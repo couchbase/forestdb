@@ -68,6 +68,12 @@ enum{
 #define BLK_MARKER_DBHEADER (0xee)
 #define BLK_MARKER_DOC (0xdd)
 #define BLK_MARKER_SIZE (1)
+#define DOCBLK_META_SIZE (16)
+struct docblk_meta {
+    bid_t next_bid;
+    uint8_t reserved[7];
+    uint8_t marker;
+};
 
 #define randomize() srand((unsigned)time(NULL))
 #define random(num) ((rand())%(num))

@@ -484,22 +484,25 @@ INLINE struct list * filemgr_get_stale_list(struct filemgr *file)
 void filemgr_add_stale_block(struct filemgr *file,
                              bid_t pos,
                              size_t len);
+
 /**
- * Calculate the actual space (including block markers) used for the given data.
+ * Calculate the actual space (including block markers) used for the given document
+ * data, and return the list of regions to be marked as stale (if the given document
+ * is not physically consecutive, more than one regions will be returned).
  *
  * @param file Pointer to file handle.
  * @param offset Byte offset to the beginning of the data.
  * @param length Length of the data.
- * @return The actual length.
+ * @return List of stale regions.
  */
-size_t filemgr_actual_stale_length(struct filemgr *file,
-                                   bid_t offset,
-                                   size_t length);
+struct stale_regions filemgr_actual_stale_regions(struct filemgr *file,
+                                                  bid_t offset,
+                                                  size_t length);
 
 /**
  * Mark the given region (offset, length) as stale.
- * This function automatically calculates the additional space
- * used for block markers, by internally calling filemgr_actual_stale_length().
+ * This function automatically calculates the additional space used for block
+ * markers or block matadata, by internally calling filemgr_actual_stale_regions().
  *
  * @param file Pointer to file handle.
  * @param offset Byte offset to the beginning of the data.
