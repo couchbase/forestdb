@@ -574,7 +574,9 @@ fdb_status fdb_init(fdb_config *config)
         c_config.num_threads = _config.num_compactor_threads;
         compactor_init(&c_config);
         // initialize background flusher daemon
-        bgf_config.num_threads = _config.num_bgflusher_threads;
+        // Temporarily disable background flushers until blockcache contention
+        // issue is resolved.
+        bgf_config.num_threads = 0; //_config.num_bgflusher_threads;
         bgflusher_init(&bgf_config);
 
         fdb_initialized = 1;
@@ -2553,12 +2555,14 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr == FDB_RESULT_SUCCESS || hr != HBTRIE_RESULT_FAIL) {
+    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
+         hr != HBTRIE_RESULT_FAIL) {
         bool alloced_meta = doc->meta ? false : true;
         bool alloced_body = doc->body ? false : true;
         if (handle->kvs) {
             _doc.key = doc_kv.key;
             _doc.length.keylen = doc_kv.keylen;
+            doc->deleted = doc_kv.deleted; // update deleted field if wal_find
         } else {
             _doc.key = doc->key;
             _doc.length.keylen = doc->keylen;
@@ -2683,7 +2687,8 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr == FDB_RESULT_SUCCESS || hr != HBTRIE_RESULT_FAIL) {
+    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
+         hr != HBTRIE_RESULT_FAIL) {
         if (handle->kvs) {
             _doc.key = doc_kv.key;
             _doc.length.keylen = doc_kv.keylen;
@@ -2810,7 +2815,8 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
+    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
+         br != BTREE_RESULT_FAIL) {
         bool alloc_key, alloc_meta, alloc_body;
         if (!handle->kvs) { // single KVS mode
             _doc.key = doc->key;
@@ -2956,7 +2962,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
     }
 
-    if (wr == FDB_RESULT_SUCCESS || br != BTREE_RESULT_FAIL) {
+    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
+         br != BTREE_RESULT_FAIL) {
         bool alloc_key, alloc_meta;
         if (!handle->kvs) { // single KVS mode
             _doc.key = doc->key;
@@ -3050,7 +3057,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
     uint64_t offset = doc->offset;
     struct docio_object _doc;
 
-    if (!offset) {
+    if (!offset || offset == BLK_NOT_FOUND) {
         return FDB_RESULT_INVALID_ARGS;
     }
 

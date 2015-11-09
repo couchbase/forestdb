@@ -436,6 +436,16 @@ static fdb_status _wal_find(fdb_txn *txn,
                         doc->deleted = false;
                     } else {
                         doc->deleted = true;
+                        if (item->action == WAL_ACT_REMOVE) {
+                            // Immediately deleted & purged doc have no real
+                            // presence on-disk. wal_find must return SUCCESS
+                            // here to indicate that the doc was deleted to
+                            // prevent main index lookup. Also, it must set the
+                            // offset to BLK_NOT_FOUND to ensure that caller
+                            // does NOT attempt to fetch the doc OR its
+                            // metadata from file.
+                            *offset = BLK_NOT_FOUND;
+                        }
                     }
                     spin_unlock(&file->wal->key_shards[shard_num].lock);
                     return FDB_RESULT_SUCCESS;
@@ -469,6 +479,16 @@ static fdb_status _wal_find(fdb_txn *txn,
                     doc->deleted = false;
                 } else {
                     doc->deleted = true;
+                    if (item->action == WAL_ACT_REMOVE) {
+                        // Immediately deleted & purged doc have no real
+                        // presence on-disk. wal_find must return SUCCESS
+                        // here to indicate that the doc was deleted to
+                        // prevent main index lookup. Also, it must set the
+                        // offset to BLK_NOT_FOUND to ensure that caller
+                        // does NOT attempt to fetch the doc OR its
+                        // metadata from file.
+                        *offset = BLK_NOT_FOUND;
+                    }
                 }
                 spin_unlock(&file->wal->seq_shards[shard_num].lock);
                 return FDB_RESULT_SUCCESS;
@@ -695,15 +715,18 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             if (!prev_commit) {
                 // there was no previous commit .. increase num_docs
                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
-                if (item->action == WAL_ACT_LOGICAL_REMOVE) {
+                if (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                    item->action == WAL_ACT_REMOVE) {
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
                 }
             } else {
                 if (prev_action == WAL_ACT_INSERT &&
-                    item->action == WAL_ACT_LOGICAL_REMOVE) {
+                    (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                     item->action == WAL_ACT_REMOVE)) {
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
-                } else if (prev_action == WAL_ACT_LOGICAL_REMOVE &&
-                           item->action == WAL_ACT_INSERT) {
+                } else if ((prev_action == WAL_ACT_LOGICAL_REMOVE ||
+                            prev_action == WAL_ACT_REMOVE) &&
+                            item->action == WAL_ACT_INSERT) {
                     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
                 }
             }

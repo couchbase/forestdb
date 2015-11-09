@@ -501,6 +501,76 @@ void deleted_doc_get_api_test()
     TEST_RESULT("deleted doc get api test");
 }
 
+void deleted_doc_stat_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc _doc;
+    fdb_doc *doc = &_doc;
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_file_info info;
+    fdb_kvs_config kvs_config;
+    char keybuf[256], bodybuf[256];
+
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    memset(doc, 0, sizeof(fdb_doc));
+    doc->key = &keybuf[0];
+    doc->body = &bodybuf[0];
+    doc->seqnum = SEQNUM_NOT_USED;
+
+    // open dbfile
+    fconfig = fdb_get_default_config();
+    fconfig.purging_interval = 0;
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open(dbfile, &db, "main", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    sprintf(keybuf, "K"); // This is necessary to set keysize to 2 bytes so
+    sprintf(bodybuf, "body"); // it matches KV_header doc's keysize of 10
+    doc->keylen = strlen(keybuf) + 1; // in multi-kv mode and hits MB-16491
+    doc->bodylen = strlen(bodybuf) + 1;
+    status = fdb_set(db, doc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Delete the doc
+    status = fdb_del(db, doc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Fetch the doc back
+    fdb_doc_create(&rdoc, doc->key, doc->keylen, NULL, 0, NULL, 0);
+    status = fdb_get(db, rdoc);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    fdb_doc_free(rdoc);
+
+    // check the file info
+    fdb_get_file_info(dbfile, &info);
+    TEST_CHK(info.doc_count == 0);
+
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // check the file info again after commit..
+    fdb_get_file_info(dbfile, &info);
+    TEST_CHK(info.doc_count == 0);
+
+    status = fdb_kvs_close(db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("deleted doc stat test");
+}
+
 // MB-16312
 void complete_delete_test()
 {
@@ -4098,6 +4168,7 @@ int main(){
     set_get_max_keylen();
     config_test();
     deleted_doc_get_api_test();
+    deleted_doc_stat_test();
     complete_delete_test();
     set_get_meta_test();
     get_byoffset_diff_kvs_test();
