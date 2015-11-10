@@ -1251,7 +1251,7 @@ fdb_status bcache_flush_immutable(struct filemgr *file)
     fdb_status status = FDB_RESULT_SUCCESS;
     fname_item = file->bcache;
     if (fname_item) {
-        status = _flush_dirty_blocks(fname_item, true, false, true);
+        status = _flush_dirty_blocks(fname_item, true, true, true);
     }
     return status;
 }
