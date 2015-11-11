@@ -6,7 +6,7 @@ BENCH_REPORT='cmp_bench_report.txt'
 BUILD_DIR="../build"
 
 if [ -n "$WORKSPACE" ]; then # jenkins override
-  BUILD_DIR="$WORKSPACE/build"
+  BUILD_DIR="$WORKSPACE/build/forestdb"
 fi
 if [ -n "$_BUILD_DIR" ]; then # explicit override
   BUILD_DIR="$_BUILD_DIR"
