@@ -22,7 +22,7 @@ function run_bench {
   popd
 
   STAT_FILE=$1
-  rm $STAT_FILE
+  rm $STAT_FILE 2>/dev/null
   $FDB_BENCH  | tee $STAT_FILE.0
 
   # append thresholds to output file
@@ -99,8 +99,8 @@ echo -e "\nDone: $REGRESSION_CNT possible regressions\n\n"
 git checkout $NEW_REV
 
 # cleanup
-rm $OLD_BENCH_STATS*
-rm $NEW_BENCH_STATS*
+rm $OLD_BENCH_STATS*  2>/dev/null
+rm $NEW_BENCH_STATS*  2>/dev/null
 
 # validator exit code
 if [ $REGRESSION_CNT -gt 0 ]; then
