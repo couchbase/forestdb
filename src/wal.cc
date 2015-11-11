@@ -947,6 +947,7 @@ static fdb_status _wal_flush(struct filemgr *file,
     size_t num_shards = file->wal->num_shards;
     bool do_sort = !filemgr_is_fully_resident(file);
 
+    memset(flush_items, 0, sizeof(union wal_flush_items));
     if (do_sort) {
         avl_init(tree, WAL_SORTED_FLUSH);
     } else {
