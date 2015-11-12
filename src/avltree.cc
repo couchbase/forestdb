@@ -224,18 +224,6 @@ static struct avl_node* _subtree_left_most(struct avl_tree *tree)
     return p;
 }
 
-static struct avl_node* _subtree_right_most(struct avl_tree *tree)
-{
-    struct avl_node *p = NULL;
-    struct avl_node *node = tree->root;
-
-    while(node) {
-        p = node;
-        node = node->right;
-    }
-    return p;
-}
-
 struct avl_node* avl_first(struct avl_tree *tree)
 {
     return tree->first;
