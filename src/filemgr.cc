@@ -2980,6 +2980,18 @@ struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
     return stat;
 }
 
+const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
+{
+    switch(stat) {
+        case FDB_LATENCY_SETS:       return "sets     ";
+        case FDB_LATENCY_GETS:       return "gets     ";
+        case FDB_LATENCY_SNAPSHOTS:  return "snapshots";
+        case FDB_LATENCY_COMMITS:    return "commits  ";
+        case FDB_LATENCY_COMPACTS:   return "compact  ";
+    }
+    return NULL;
+}
+
 #ifdef _LATENCY_STATS
 void filemgr_init_latency_stat(struct latency_stat *val) {
     atomic_init_uint32_t(&val->lat_max, 0);
@@ -3049,18 +3061,6 @@ void filemgr_get_latency_stat(struct filemgr *file, fdb_latency_stat_type type,
     stat->lat_avg = atomic_get_uint64_t(&file->lat_stats[type].lat_sum) / num;
 }
 
-const char *_filemgr_latency_stat_name(fdb_latency_stat_type stat)
-{
-    switch(stat) {
-        case FDB_LATENCY_SETS:       return "sets     ";
-        case FDB_LATENCY_GETS:       return "gets     ";
-        case FDB_LATENCY_SNAPSHOTS:  return "snapshots";
-        case FDB_LATENCY_COMMITS:    return "commits  ";
-        case FDB_LATENCY_COMPACTS:   return "compact  ";
-    }
-    return NULL;
-}
-
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
 static const int _MAX_STATSFILE_LEN = FDB_MAX_FILENAME_LEN + 4;
 void filemgr_dump_latency_stat(struct filemgr *file,
@@ -3086,7 +3086,7 @@ void filemgr_dump_latency_stat(struct filemgr *file,
         }
         avg = atomic_get_uint64_t(&file->lat_stats[i].lat_sum) / num;
         fprintf(lat_file, "%s:\t\t%u\t\t%u\t\t%u\t\t%" _F64 "\n",
-                _filemgr_latency_stat_name(i),
+                filemgr_latency_stat_name(i),
                 atomic_get_uint32_t(&file->lat_stats[i].lat_min),
                 avg, atomic_get_uint32_t(&file->lat_stats[i].lat_max), num);
     }

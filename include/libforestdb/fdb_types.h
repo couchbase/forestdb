@@ -44,9 +44,6 @@
  */
 #define FDB_MAX_BODYLEN (4294967295UL) // 2^32 - 1
 
-// Number of latency stat types
-#define FDB_LATENCY_NUM_STATS 5
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -665,6 +662,9 @@ enum {
     FDB_LATENCY_SNAPSHOTS = 3, // fdb_snapshot_open API
     FDB_LATENCY_COMPACTS  = 4  // fdb_compact API
 };
+
+// Number of latency stat types
+#define FDB_LATENCY_NUM_STATS 5
 
 /**
  * Latency statistics of a specific ForestDB api call

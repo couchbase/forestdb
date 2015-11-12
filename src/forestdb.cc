@@ -6666,6 +6666,12 @@ fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
+const char *fdb_latency_stat_name(fdb_latency_stat_type type)
+{
+    return filemgr_latency_stat_name(type);
+}
+
 // roughly estimate the space occupied db handle HANDLE
 LIBFDB_API
 size_t fdb_estimate_space_used(fdb_file_handle *fhandle)

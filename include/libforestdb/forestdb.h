@@ -808,6 +808,15 @@ fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
                                  fdb_latency_stat_type type);
 
 /**
+ * Return the name of the latency stat
+ *
+ * @param type The type of the latency stat to be named.
+ * @return const char pointer to the stat name. This must not be freed.
+ */
+LIBFDB_API
+const char * fdb_latency_stat_name(fdb_latency_stat_type type);
+
+/**
  * Get the current sequence number of a ForestDB KV store instance.
  *
  * @param handle Pointer to ForestDB KV store handle.
