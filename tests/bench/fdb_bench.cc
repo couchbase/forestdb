@@ -17,6 +17,55 @@ void print_stat(const char *name, float latency){
     printf("%-15s %f\n", name, latency);
 }
 
+void print_stats(fdb_file_handle *h){
+    TEST_INIT();
+
+    int i;
+    fdb_status status;
+    fdb_latency_stat stat;
+    const char *name;
+
+    for (i=0;i<FDB_LATENCY_NUM_STATS;i++){
+        memset(&stat, 0, sizeof(fdb_latency_stat));
+        status = fdb_get_latency_stats(h, &stat, i);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if(stat.lat_count==0){
+          continue;
+        }
+        name = fdb_latency_stat_name(i);
+        printf("%-15s %u\n", name, stat.lat_avg);
+    }
+}
+
+void print_stats_aggregate(fdb_file_handle **dbfiles, int nfiles){
+    TEST_INIT();
+
+    int i,j;
+    uint32_t cnt, sum, avg = 0;
+    fdb_status status;
+    fdb_latency_stat stat;
+    const char *name;
+
+    for (i=0;i<FDB_LATENCY_NUM_STATS;i++){
+
+        cnt = 0; sum = 0;
+
+        // avg of each stat across dbfiles
+        for(j=0;j<nfiles;j++){
+            memset(&stat, 0, sizeof(fdb_latency_stat));
+            status = fdb_get_latency_stats(dbfiles[j], &stat, i);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            cnt += stat.lat_count;
+            sum += stat.lat_avg;
+        }
+        if(cnt > 0){
+          name = fdb_latency_stat_name(i);
+          avg = sum/nfiles;
+          printf("%-15s %u\n", name, avg);
+        }
+    }
+}
+
 void str_gen(char *s, const int len) {
     int i = 0;
     static const char alphanum[] =
@@ -45,13 +94,12 @@ void swap(char *x, char *y)
     *y = temp;
 }
 
-int permute(fdb_kvs_handle *kv, char *a, int l, int r, int *samples)
+void permute(fdb_kvs_handle *kv, char *a, int l, int r)
 {
 
     int i;
     char keybuf[256], metabuf[256], bodybuf[512];
     fdb_doc *doc = NULL;
-    ts_nsec latency = 0;
     str_gen(bodybuf, 64);
 
     if (l == r) {
@@ -59,18 +107,15 @@ int permute(fdb_kvs_handle *kv, char *a, int l, int r, int *samples)
         sprintf(metabuf, "meta%d", r);
         fdb_doc_create(&doc, (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        latency = timed_fdb_set(kv, doc);
+        fdb_set(kv, doc);
         fdb_doc_free(doc);
-        (*samples)++;
-        return latency;
     } else {
         for (i = l; i <= r; i++) {
             swap((a+l), (a+i));
-            latency+=permute(kv, a, l+1, r, samples);
+            permute(kv, a, l+1, r);
             swap((a+l), (a+i)); //backtrack
         }
     }
-    return latency;
 }
 
 void setup_db(fdb_file_handle **fhandle, fdb_kvs_handle **kv){
@@ -101,12 +146,15 @@ void setup_db(fdb_file_handle **fhandle, fdb_kvs_handle **kv){
 
 void sequential_set(bool walflush){
 
+    TEST_INIT();
+
     int i, n = NDOCS;
     ts_nsec latency, latency_tot = 0, latency_tot2 = 0;
     float latency_avg = 0;
     char keybuf[256], metabuf[256], bodybuf[512];
 
     fdb_file_handle *fhandle;
+    fdb_status status;
     fdb_kvs_handle *kv, *snap_kv;
     fdb_doc *doc = NULL;
     fdb_iterator *iterator;
@@ -123,21 +171,16 @@ void sequential_set(bool walflush){
         sprintf(metabuf, "meta%d", i);
         fdb_doc_create(&doc, (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-        latency = timed_fdb_set(kv, doc);
-        latency_tot += latency;
+        status = fdb_set(kv, doc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(doc);
         doc = NULL;
     }
-    latency_avg = float(latency_tot)/float(n);
-    print_stat(ST_SET, latency_avg);
+
 
     // commit
-    latency = timed_fdb_commit(fhandle, walflush);
-    if(walflush){
-        print_stat(ST_COMMIT_WAL, latency);
-    } else {
-        print_stat(ST_COMMIT_NORM, latency);
-    }
+    status = fdb_commit(fhandle, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // create an iterator for full range
     latency = timed_fdb_iterator_init(kv, &iterator);
@@ -169,25 +212,22 @@ void sequential_set(bool walflush){
     print_stat(ST_ITR_CLOSE, latency);
 
     // get
-    latency_tot = 0;
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);
         fdb_doc_create(&doc, keybuf, strlen(keybuf), NULL, 0, NULL, 0);
-        latency = timed_fdb_get(kv, doc);
-        latency_tot += latency;
+        status = fdb_get(kv, doc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         fdb_doc_free(doc);
         doc = NULL;
     }
-    latency_avg = float(latency_tot)/float(n);
-    print_stat(ST_GET, latency_avg);
 
     // snapshot
-    latency = timed_fdb_snapshot(kv, &snap_kv);
-    print_stat(ST_SNAP_OPEN, latency);
+    status = fdb_snapshot_open(kv, &snap_kv, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // compact
-    latency = timed_fdb_compact(fhandle);
-    print_stat(ST_COMPACT, latency);
+    status = fdb_compact(fhandle, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // delete
     latency_tot = 0;
@@ -202,6 +242,8 @@ void sequential_set(bool walflush){
 
     latency_avg = float(latency_tot)/float(n);
     print_stat(ST_DELETE, latency_avg);
+
+    print_stats(fhandle);
 
     latency = timed_fdb_kvs_close(snap_kv);
     print_stat(ST_SNAP_CLOSE, latency);
@@ -218,10 +260,10 @@ void sequential_set(bool walflush){
 
 void permutated_keyset()
 {
+    TEST_INIT();
 
     char str[] = "abc123";
     int n = strlen(str);
-    int samples = 0;
     ts_nsec latency, latency_tot = 0, latency_tot2 = 0;
     float latency_avg = 0;
 
@@ -229,6 +271,7 @@ void permutated_keyset()
     fdb_file_handle *fhandle;
     fdb_iterator *iterator;
     fdb_kvs_handle *kv;
+    fdb_status status;
 
     printf("\nBENCH-PERMUTATED_KEYSET\n");
 
@@ -236,12 +279,10 @@ void permutated_keyset()
     setup_db(&fhandle, &kv);
 
     // load permuated keyset
-    latency = permute(kv, str, 0, n-1, &samples);
-    latency = latency/samples;
-    print_stat(ST_SET, latency);
+    permute(kv, str, 0, n-1);
 
-    latency = timed_fdb_commit(fhandle, true);
-    print_stat(ST_COMMIT_WAL, latency);
+    status = fdb_commit(fhandle, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // create an iterator for full range
     latency = timed_fdb_iterator_init(kv, &iterator);
@@ -264,6 +305,7 @@ void permutated_keyset()
 
     } while (latency != ERR_NS);
 
+
     latency_avg = float(latency_tot)/float(n);
     print_stat(ST_ITR_GET, latency_avg);
 
@@ -272,6 +314,8 @@ void permutated_keyset()
 
     latency = timed_fdb_iterator_close(iterator);
     print_stat(ST_ITR_CLOSE, latency);
+
+    print_stats(fhandle);
 
     latency = timed_fdb_kvs_close(kv);
     print_stat(ST_KV_CLOSE, latency);
@@ -288,17 +332,11 @@ void *writer_thread(void *args){
 
     thread_context *ctx= (thread_context*)args;
     fdb_kvs_handle *db = ctx->handle;
-
     char keybuf[KEY_SIZE];
-    ts_nsec latency = 0;
-    float avg_latency1 = 0.0;
-    int samples = 0;
 
     // load a permutated keyset
     str_gen(keybuf, KEY_SIZE);
-    latency = permute(db, keybuf, 0, PERMUTED_BYTES, &samples);
-    avg_latency1 = latency/samples;
-    ctx->avg_latency1 = avg_latency1;
+    permute(db, keybuf, 0, PERMUTED_BYTES);
     return NULL;
 }
 
@@ -391,30 +429,22 @@ void single_file_single_kvs(int n_threads){
         thread_create(&tid[i], writer_thread, (void*)&ctx[i]);
     }
 
-    a_latency1 = 0;
     for (i=0;i<n_threads;++i){
         thread_join(tid[i], &thread_ret[i]);
-        a_latency1 += ctx[i].avg_latency1;
     }
 
-    a_latency1 = a_latency1/n_threads;
-    print_stat(ST_SET, a_latency1);
-
-    latency = timed_fdb_commit(dbfile, true);
-    print_stat(ST_COMMIT_WAL, latency);
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // compact
-    latency = timed_fdb_compact(dbfile);
-    print_stat(ST_COMPACT, latency);
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // snapshot
-    latency = 0;
     for (i=0;i<n_threads;++i){
-        latency += timed_fdb_snapshot(db[i], &snap_db[i]);
+        status = fdb_snapshot_open(db[i], &snap_db[i], FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
-    latency = latency/n_threads;
-    print_stat(ST_SNAP_OPEN, latency);
-
 
     // n concurrent readers with snap_db
     latency = 0; latency2 = 0; a_latency1 = 0; a_latency2 = 0;
@@ -445,6 +475,8 @@ void single_file_single_kvs(int n_threads){
     }
     latency = latency/n_threads;
     print_stat(ST_SNAP_CLOSE, latency);
+
+    print_stats(dbfile);
 
     // close
     latency = 0;
@@ -504,30 +536,22 @@ void single_file_multi_kvs(int n_threads){
         thread_create(&tid[i], writer_thread, (void*)&ctx[i]);
     }
 
-    a_latency1 = 0;
     for (i=0;i<n_threads;++i){
         thread_join(tid[i], &thread_ret[i]);
-        a_latency1 += ctx[i].avg_latency1;
     }
 
-    a_latency1 = a_latency1/n_threads;
-    print_stat(ST_SET, a_latency1);
-
-    latency = timed_fdb_commit(dbfile, true);
-    print_stat(ST_COMMIT_WAL, latency);
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // compact
-    latency = timed_fdb_compact(dbfile);
-    print_stat(ST_COMPACT, latency);
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // snapshot
-    latency = 0;
     for (i=0;i<n_threads;++i){
-        latency += timed_fdb_snapshot(db[i], &snap_db[i]);
+        status = fdb_snapshot_open(db[i], &snap_db[i], FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
-    latency = latency/n_threads;
-    print_stat(ST_SNAP_OPEN, latency);
-
 
     // readers
     latency = 0; latency2 = 0; a_latency1 = 0; a_latency2 = 0;
@@ -558,6 +582,8 @@ void single_file_multi_kvs(int n_threads){
     }
     latency = latency/n_threads;
     print_stat(ST_SNAP_CLOSE, latency);
+
+    print_stats(dbfile);
 
     // close
     latency = 0;
@@ -620,38 +646,27 @@ void multi_file_single_kvs(int n_threads){
         thread_create(&tid[i], writer_thread, (void*)&ctx[i]);
     }
 
-    a_latency1 = 0;
     for (i=0;i<n_threads;++i){
         thread_join(tid[i], &thread_ret[i]);
-        a_latency1 += ctx[i].avg_latency1;
     }
 
-    a_latency1 = a_latency1/n_threads;
-    print_stat(ST_SET, a_latency1);
+    // commit
+    for (i=0;i<n_threads;++i){
+        status = fdb_commit(dbfile[i], FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
 
     // compact
-    latency = 0;
     for (i=0;i<n_threads;++i){
-        latency += timed_fdb_commit(dbfile[i], true);
+        status = fdb_compact(dbfile[i], NULL);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
-    latency = latency/n_threads;
-    print_stat(ST_COMMIT_WAL, latency);
-
-    // compact
-    latency = 0;
-    for (i=0;i<n_threads;++i){
-        latency += timed_fdb_compact(dbfile[i]);
-    }
-    latency = latency/n_threads;
-    print_stat(ST_COMPACT, latency);
 
     // snapshot
-    latency = 0;
     for (i=0;i<n_threads;++i){
-        latency += timed_fdb_snapshot(db[i], &snap_db[i]);
+        status = fdb_snapshot_open(db[i], &snap_db[i], FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
-    latency = latency/n_threads;
-    print_stat(ST_SNAP_OPEN, latency);
 
     // readers
     latency = 0; latency2 = 0; a_latency1 = 0; a_latency2 = 0;
@@ -682,6 +697,8 @@ void multi_file_single_kvs(int n_threads){
     }
     latency = latency/n_threads;
     print_stat(ST_SNAP_CLOSE, latency);
+
+    print_stats_aggregate(dbfile, n_threads);
 
     // close
     latency = 0;
@@ -749,38 +766,28 @@ void multi_file_multi_kvs(int n_threads){
         }
     }
 
-    a_latency1 = 0;
     for (i=0;i<n2_threads;++i){
         thread_join(tid[i], &thread_ret[i]);
-        a_latency1 += ctx[i].avg_latency1;
     }
-
-    a_latency1 = a_latency1/n2_threads;
-    print_stat(ST_SET, a_latency1);
 
     // commit
-    latency = 0;
     for (i=0;i<n_threads;++i){
-        latency += timed_fdb_commit(dbfile[i], true);
+        status = fdb_commit(dbfile[i], FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
-    latency = latency/n_threads;
-    print_stat(ST_COMMIT_WAL, latency);
 
     // compact
-    latency = 0;
     for (i=0;i<n_threads;++i){
-        latency += timed_fdb_compact(dbfile[i]);
+        status = fdb_compact(dbfile[i], NULL);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
-    latency = latency/n_threads;
-    print_stat(ST_COMPACT, latency);
 
     // snapshot
     latency = 0;
     for (i=0;i<n2_threads;++i){
-        latency += timed_fdb_snapshot(db[i], &snap_db[i]);
+        status = fdb_snapshot_open(db[i], &snap_db[i], FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
-    latency = latency/n2_threads;
-    print_stat(ST_SNAP_OPEN, latency);
 
     // readers
     latency = 0; latency2 = 0; a_latency1 = 0; a_latency2 = 0;
@@ -811,6 +818,8 @@ void multi_file_multi_kvs(int n_threads){
     }
     latency = latency/n2_threads;
     print_stat(ST_SNAP_CLOSE, latency);
+
+    print_stats_aggregate(dbfile, n_threads);
 
     // close
     latency = 0;
