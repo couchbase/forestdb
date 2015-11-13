@@ -28,8 +28,6 @@ struct avl_node {
 
 struct avl_tree{
     struct avl_node *root;
-    struct avl_node *first; // direct pointer to the first item in AVL tree
-    struct avl_node *last; // direct pointer to the last item in AVL tree
     void *aux;
 };
 

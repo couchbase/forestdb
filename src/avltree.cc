@@ -212,7 +212,7 @@ static struct avl_node* _balance_tree(struct avl_node *node, int bf)
     return node;
 }
 
-static struct avl_node* _subtree_left_most(struct avl_tree *tree)
+struct avl_node* avl_first(struct avl_tree *tree)
 {
     struct avl_node *p = NULL;
     struct avl_node *node = tree->root;
@@ -224,14 +224,16 @@ static struct avl_node* _subtree_left_most(struct avl_tree *tree)
     return p;
 }
 
-struct avl_node* avl_first(struct avl_tree *tree)
-{
-    return tree->first;
-}
-
 struct avl_node* avl_last(struct avl_tree *tree)
 {
-    return tree->last;
+    struct avl_node *p = NULL;
+    struct avl_node *node = tree->root;
+
+    while(node) {
+        p = node;
+        node = node->right;
+    }
+    return p;
 }
 
 struct avl_node* avl_next(struct avl_node *node)
@@ -411,8 +413,6 @@ struct avl_node* avl_search_smaller(struct avl_tree *tree,
 void avl_init(struct avl_tree *tree, void *aux)
 {
     tree->root = NULL;
-    tree->first = NULL;
-    tree->last = NULL;
     tree->aux = aux;
 }
 
@@ -424,7 +424,6 @@ struct avl_node* avl_insert(struct avl_tree *tree,
 
     struct avl_node *p=NULL,*cur;
     int cmp, bf, bf_old;
-    bool left_most = true, right_most = true;
 
     cur = tree->root;
     while(cur)
@@ -434,21 +433,12 @@ struct avl_node* avl_insert(struct avl_tree *tree,
 
         if(cmp > 0) {
             cur = cur->left;
-            right_most = false;
         }else if (cmp < 0){
             cur = cur->right;
-            left_most = false;
         }else {
             // duplicated key -> return
             return cur;
         }
-    }
-
-    if (left_most) {
-        tree->first = node;
-    }
-    if (right_most) {
-        tree->last = node;
     }
 
     avl_set_parent(node, p);
@@ -468,7 +458,8 @@ struct avl_node* avl_insert(struct avl_tree *tree,
             if (p->prev) p->prev->next = node;
             p->prev = node;
 #endif
-        } else {
+
+        }else {
             p->right = node;
 #ifdef _AVL_NEXT_POINTER
             node->prev = p;
@@ -539,16 +530,9 @@ void avl_remove(struct avl_tree *tree,
     if (node == NULL) return;
 
     struct avl_tree right_subtree;
-    struct avl_node *p=NULL, *cur=NULL, *next=NULL;
+    struct avl_node *p=NULL,*cur, *next=NULL;
     int bf = 0, bf_old;
 
-
-    if (tree->first == node) {
-        tree->first = avl_next(node);
-    }
-    if (tree->last == node) {
-        tree->last = avl_prev(node);
-    }
 
 #ifdef _AVL_NEXT_POINTER
     if (node->prev) node->prev->next = node->next;
@@ -557,7 +541,7 @@ void avl_remove(struct avl_tree *tree,
 
     // find smallest node in right sub-tree
     right_subtree.root = node->right;
-    next = _subtree_left_most(&right_subtree);
+    next = avl_first(&right_subtree);
 
     if (next) {
         // 1. NEXT exists
