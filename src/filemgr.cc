@@ -2724,7 +2724,7 @@ void filemgr_mark_stale(struct filemgr *file,
                         bid_t offset,
                         size_t length)
 {
-    if (file->stale_list) {
+    if (file->stale_list && length) {
         size_t i;
         struct stale_regions sr;
 
@@ -2735,7 +2735,7 @@ void filemgr_mark_stale(struct filemgr *file,
                 filemgr_add_stale_block(file, sr.regions[i].pos, sr.regions[i].len);
             }
             free(sr.regions);
-        } else {
+        } else if (sr.n_regions == 1) {
             filemgr_add_stale_block(file, sr.region.pos, sr.region.len);
         }
     }
