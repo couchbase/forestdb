@@ -198,6 +198,7 @@ static void _fdb_itr_sync_dirty_root(fdb_iterator *iterator,
     }
 }
 
+LIBFDB_API
 fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              fdb_iterator **ptr_iterator,
                              const void *start_key,
@@ -969,6 +970,7 @@ start:
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                              const void *seek_key,
                              const size_t seek_keylen,
@@ -1416,6 +1418,7 @@ fetch_hbtrie:
     }
 }
 
+LIBFDB_API
 fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
     size_t size_chunk = iterator->handle->config.chunksize;
 
@@ -1456,10 +1459,9 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
     return fdb_iterator_next(iterator);
 }
 
-fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
+fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
     int cmp;
     size_t size_chunk = iterator->handle->config.chunksize;
-
     if (!iterator || !iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
     }
@@ -1519,6 +1521,77 @@ fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
     return fdb_iterator_prev(iterator);
 }
 
+fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    iterator->direction = FDB_ITR_REVERSE; // only reverse iteration possible
+    iterator->_seqnum = iterator->end_seqnum;
+
+    if (iterator->handle->kvs) {
+        // create an iterator handle for hb-trie
+        uint8_t *end_seq_kv = alca(uint8_t, sizeof(size_t)*2);
+        fdb_kvs_id_t _kv_id = _endian_encode(iterator->handle->kvs->id);
+        memcpy(end_seq_kv, &_kv_id, sizeof(size_t));
+        memcpy(end_seq_kv + sizeof(size_t), &iterator->end_seqnum,
+                sizeof(size_t));
+
+        // reset HB+trie's seqtrie iterator using end_seq_kv
+        hbtrie_iterator_free(iterator->seqtrie_iterator);
+        hbtrie_iterator_init(iterator->handle->seqtrie,
+                             iterator->seqtrie_iterator,
+                             end_seq_kv, sizeof(size_t)*2);
+    } else {
+        // reset Btree iterator to end_seqnum
+        btree_iterator_free(iterator->seqtree_iterator);
+        // create an iterator handle for b-tree
+        btree_iterator_init(iterator->handle->seqtree,
+                            iterator->seqtree_iterator,
+                            (void *)(&iterator->end_seqnum));
+    }
+
+    if (iterator->end_seqnum != SEQNUM_NOT_USED) {
+        struct snap_wal_entry query;
+        query.seqnum = iterator->end_seqnum;
+        iterator->tree_cursor = avl_search_smaller(iterator->wal_tree,
+                                                   &query.avl_seq,
+                                                   _fdb_seqnum_cmp);
+    } else { // no end_seqnum specified, just head to the last entry
+        iterator->tree_cursor = avl_last(iterator->wal_tree);
+    }
+
+    if (iterator->tree_cursor) {
+        struct snap_wal_entry *snap_item = _get_entry(iterator->tree_cursor,
+                                               struct snap_wal_entry, avl_seq);
+        if (snap_item->seqnum == iterator->end_seqnum &&
+            iterator->opt & FDB_ITR_SKIP_MAX_KEY) {
+            iterator->tree_cursor = avl_prev(&snap_item->avl_seq);
+        }
+    }
+
+    if (iterator->tree_cursor) {
+        struct snap_wal_entry *snap_item = _get_entry(iterator->tree_cursor,
+                                               struct snap_wal_entry, avl_seq);
+        // If WAL tree has an entry, skip Main index for reverse iteration..
+        iterator->_offset = snap_item->offset;
+    } else {
+        iterator->_offset = BLK_NOT_FOUND; // fetch from main index
+    }
+
+    iterator->tree_cursor_prev = iterator->tree_cursor;
+    return fdb_iterator_prev(iterator);
+}
+
+LIBFDB_API
+fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
+    if (!iterator->hbtrie_iterator) {
+        return _fdb_iterator_seek_to_max_seq(iterator);
+    }
+
+    return _fdb_iterator_seek_to_max_key(iterator);
+}
+
 static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator)
 {
     size_t size_id, size_seq, seq_kv_len;
@@ -1547,7 +1620,7 @@ static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator)
         if (iterator->tree_cursor) { // on turning direction
             if (iterator->status == FDB_ITR_WAL) { // skip 2 items
                 iterator->tree_cursor = avl_prev(iterator->tree_cursor_prev);
-            } else { // skip 1 item if the last doc was returned from the main index
+            } else { // skip 1 item if the last doc was returned from main index
                 iterator->tree_cursor = avl_prev(iterator->tree_cursor);
             }
             iterator->tree_cursor_prev = iterator->tree_cursor;
@@ -1575,7 +1648,8 @@ start_seq:
                 br = BTREE_RESULT_FAIL;
             }
         } else {
-            br = btree_prev(iterator->seqtree_iterator, &seqnum, (void *)&offset);
+            br = btree_prev(iterator->seqtree_iterator, &seqnum,
+                            (void *)&offset);
         }
         btreeblk_end(iterator->handle->bhandle);
         if (br == BTREE_RESULT_SUCCESS) {
@@ -1755,7 +1829,8 @@ start_seq:
                 br = BTREE_RESULT_FAIL;
             }
         } else {
-            br = btree_next(iterator->seqtree_iterator, &seqnum, (void *)&offset);
+            br = btree_next(iterator->seqtree_iterator, &seqnum,
+                            (void *)&offset);
         }
         btreeblk_end(iterator->handle->bhandle);
         if (br == BTREE_RESULT_SUCCESS) {
@@ -1886,6 +1961,7 @@ start_seq:
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
@@ -1928,6 +2004,7 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
     return result;
 }
 
+LIBFDB_API
 fdb_status fdb_iterator_next(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
@@ -1973,6 +2050,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
 
 // DOC returned by this function must be freed by fdb_doc_free
 // if it was allocated because the incoming doc was pointing to NULL
+LIBFDB_API
 fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 {
     struct docio_object _doc;
@@ -2067,6 +2145,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 }
 
 // DOC returned by this function must be freed using 'fdb_doc_free'
+LIBFDB_API
 fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 {
     struct docio_object _doc;
@@ -2151,6 +2230,7 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
     return ret;
 }
 
+LIBFDB_API
 fdb_status fdb_iterator_close(fdb_iterator *iterator)
 {
     struct avl_node *a;
@@ -2212,7 +2292,8 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(&iterator->handle->log_callback, fs,
                     "Failed to close the KV Store from a database file '%s' as "
-                    "part of closing the iterator", iterator->handle->file->filename);
+                    "part of closing the iterator",
+                    iterator->handle->file->filename);
         }
     }
 
