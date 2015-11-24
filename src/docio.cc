@@ -564,8 +564,10 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
     if (fs != FDB_RESULT_SUCCESS) {
         if (read_on_cache_miss) {
             fdb_log(log_callback, fs,
-                    "Error in reading a doc length from a block with block id %" _F64
-                    " from a database file '%s'", bid, handle->file->filename);
+                    "Error in reading a doc length from offset %" _F64
+                    " in block id %" _F64
+                    " from a database file '%s'", offset, bid,
+                    handle->file->filename);
         }
         return offset;
     }
@@ -585,7 +587,8 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
                     "Error in reading a doc length from an additional block "
-                    "with block id %" _F64 " from a database file '%s'",
+                    "offset %" _F64 " in block id %" _F64
+                    " from a database file '%s'", offset,
                     bid, handle->file->filename);
             return offset;
         }
@@ -593,7 +596,8 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
             return offset;
         }
         // memcpy rest of data
-        memcpy((uint8_t *)length + restsize, buf, sizeof(struct docio_length) - restsize);
+        memcpy((uint8_t *)length + restsize, buf,
+               sizeof(struct docio_length) - restsize);
         pos = sizeof(struct docio_length) - restsize;
     }
 
@@ -716,8 +720,11 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
     checksum = _docio_length_checksum(_length);
     if (checksum != _length.checksum) {
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
-                "doc_length checksum mismatch error in a database file '%s'",
-                handle->file->filename);
+                "doc_length checksum mismatch error in a database file '%s'"
+                " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
+                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
+                checksum, _length.checksum, _length.keylen, _length.metalen,
+                _length.bodylen, _length.bodylen_ondisk, offset);
         length.keylen = 0;
         return length;
     }
