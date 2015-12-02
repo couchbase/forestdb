@@ -743,6 +743,17 @@ void * btreeblk_alloc_sub(void *voidhandle, bid_t *bid)
                             handle->sb[0].sb_size * i);
                 }
             }
+        } else {
+            // we have to mark all unused slots as stale
+            size_t idx;
+            for (idx=0; idx<handle->sb[0].nblocks; ++idx) {
+                if (handle->sb[0].bitmap[idx] == 0) {
+                    _btreeblk_add_stale_block(handle,
+                        (handle->sb[0].bid * handle->nodesize)
+                            + (idx * handle->sb[0].sb_size),
+                        handle->sb[0].sb_size);
+                }
+            }
         }
     }
 
