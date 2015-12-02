@@ -22,7 +22,7 @@
 #include "system_resource_stats.h"
 
 static ssize_t prime_size_table[] = {
-    11, 31, 47, 73, 97, 109, 211, 313, 419, 521, -1
+    11, 31, 47, 73, 97, 109, 211, 313, 419, -1
 };
 
 fdb_config get_default_config(void) {
