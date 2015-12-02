@@ -24,6 +24,7 @@
 #include "avltree.h"
 #include "hbtrie.h"
 #include "docio.h"
+#include "staleblock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -188,9 +189,9 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum);
  * Return the smallest commit revision number that are currently being referred.
  *
  * @param handle Pointer to ForestDB KV store handle.
- * @return Header revision number.
+ * @return Header revision number and block ID.
  */
-filemgr_header_revnum_t fdb_get_smallest_active_header_revnum(fdb_kvs_handle *handle);
+stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle);
 
 INLINE size_t _fdb_get_docsize(struct docio_length len)
 {

@@ -32,6 +32,7 @@
 #include "btreeblock.h"
 #include "snapshot.h"
 #include "version.h"
+#include "staleblock.h"
 
 #include "memleak.h"
 #include "time_utils.h"
@@ -2508,15 +2509,16 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
     return FDB_RESULT_SUCCESS;
 }
 
-filemgr_header_revnum_t fdb_get_smallest_active_header_revnum(fdb_kvs_handle *handle)
+stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
 {
-    filemgr_header_revnum_t min_revnum;
+    stale_header_info ret;
     struct list_elem *e;
     struct kvs_opened_node *item;
 
     spin_lock(&handle->fhandle->lock);
 
-    min_revnum = handle->fhandle->root->cur_header_revnum;
+    ret.revnum = handle->fhandle->root->cur_header_revnum;
+    ret.bid = handle->fhandle->root->last_hdr_bid;
 
     e = list_begin(handle->fhandle->handles);
     while (e) {
@@ -2524,12 +2526,13 @@ filemgr_header_revnum_t fdb_get_smallest_active_header_revnum(fdb_kvs_handle *ha
         item = _get_entry(e, struct kvs_opened_node, le);
         e = list_next(e);
 
-        if (item->handle->cur_header_revnum < min_revnum) {
-            min_revnum = item->handle->cur_header_revnum;
+        if (item->handle->cur_header_revnum < ret.revnum) {
+            ret.revnum = item->handle->cur_header_revnum;
+            ret.bid = item->handle->last_hdr_bid;
         }
     }
-    spin_unlock(&handle->fhandle->lock);
 
-    return min_revnum;
+    spin_unlock(&handle->fhandle->lock);
+    return ret;
 }
 

@@ -45,17 +45,23 @@ typedef struct {
     struct reusable_block *blocks;
 } reusable_block_list;
 
+typedef struct {
+    filemgr_header_revnum_t revnum;
+    bid_t bid;
+} stale_header_info;
+
 /**
- * Merge all stale region generated before commit header corresponding to
- * 'revnum_upto', and then return the list of reusable blocks.
+ * Gather and merge all stale regions up to 'stale_header', and then return the list
+ * of reusable blocks.
  *
  * @param handle Pointer to ForestDB KV store handle.
- * @param revnum_upto Maximum header revision number that stale regions to be merged
- *        are belonged to.
+ * @param stale_header Revision number and block ID of a header. All stale regions
+ *        corresponding to commit headers whose seq number is equal to or smaller
+ *        than that of 'stale_header' are gathered and merged for block reusing.
  * @return List of reusable blocks.
  */
 reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
-                                           filemgr_header_revnum_t revnum_upto);
+                                           stale_header_info stale_header);
 
 #endif /* _FDB_STALEBLOCK_H */
 

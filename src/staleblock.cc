@@ -225,7 +225,7 @@ static void _insert_n_merge(struct avl_tree *tree,
 }
 
 reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
-                                           filemgr_header_revnum_t revnum_upto)
+                                           stale_header_info stale_header)
 {
     uint8_t keybuf[64];
     uint32_t i;
@@ -234,6 +234,7 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
     uint64_t pos, item_pos;
     btree_iterator bit;
     btree_result br;
+    filemgr_header_revnum_t revnum_upto;
     filemgr_header_revnum_t revnum, _revnum;
     filemgr_header_revnum_t *revnum_array;
     bid_t offset, _offset, r_offset, prev_offset;
@@ -243,13 +244,16 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
     struct stale_data *item;
     struct list_elem *e;
 
+    revnum_upto = stale_header.revnum;
+
     avl_init(&tree, NULL);
     revnum_array = (filemgr_header_revnum_t *)
                    calloc(max_revnum_array, sizeof(filemgr_header_revnum_t));
     n_revnums = 0;
 
-    // scan stale-block tree and find all commit headers
-    // smaller than 'revnum_upto'
+    // scan stale-block tree and get all stale regions
+    // corresponding to commit headers whose seq number is
+    // equal to or smaller than 'revnum_upto'
     btree_iterator_init(handle->staletree, &bit, NULL);
     do {
         br = btree_next(&bit, (void*)&_revnum, (void*)&_offset);
@@ -338,6 +342,140 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
         btreeblk_end(handle->bhandle);
     }
 
+    // remove corresponding seq numbers from seq-tree
+    while (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        // (dummy loop for easy escape)
+
+        // we need to read header to get seq numbers for each KV stores
+        uint8_t *header_buf = alca(uint8_t, handle->file->blocksize);
+        uint64_t version;
+        size_t header_len, keylen;
+        bid_t header_bid;
+        fdb_seqnum_t start_seqnum, end_seqnum;
+        fdb_seqnum_t dummy_seqnum, cur;
+        filemgr_header_revnum_t header_revnum;
+        struct kvs_header *kv_header;
+
+        // read previous header
+        header_bid = filemgr_fetch_prev_header(handle->file, stale_header.bid,
+                         header_buf, &header_len, &end_seqnum, &header_revnum,
+                         NULL, &version, &handle->log_callback);
+
+        if (header_bid == stale_header.bid) {
+            // cannot get previous header
+            // (this happens if the current header is the only header in the file)
+            // we don't need to remove seq number from seq-tree.
+            break;
+        }
+
+        // get system doc offset info
+        uint64_t dummy64, kv_info_offset;
+        memcpy(&kv_info_offset, header_buf + 64, sizeof(kv_info_offset));
+        kv_info_offset = _endian_decode(kv_info_offset);
+
+        // get system doc corresponding to the header
+        _fdb_kvs_header_create(&kv_header);
+        fdb_kvs_header_read(kv_header, handle->dhandle,
+                            kv_info_offset, handle->file->version, false);
+
+        // remove seq numbers upto the given headers
+        if (handle->kvs) {
+            // multi KVS mode .. trie
+            int size_id, size_seq;
+            uint8_t *kv_seqnum;
+            fdb_kvs_id_t _kv_id;
+            hbtrie_iterator hit;
+            hbtrie_result hr;
+            struct avl_node *a = NULL;
+            struct kvs_node *kvs_node;
+
+            size_id = sizeof(fdb_kvs_id_t);
+            size_seq = sizeof(fdb_seqnum_t);
+            kv_seqnum = alca(uint8_t, size_id + size_seq);
+
+            // default KVS (KV ID == 0)
+            memset(kv_seqnum, 0x0, size_id + size_seq);
+
+            do { // loop for traversal of all KVS (including default KVS)
+                // 1st iteration (a==NULL): default KVS
+                // from 2nd iteration (a!=NULL): non-default KVS
+
+                // get the smallest seqnum of the KVS
+                do {
+                    hr = hbtrie_iterator_init(handle->seqtrie, &hit, kv_seqnum, size_id+size_seq);
+                    if (hr != HBTRIE_RESULT_SUCCESS) {
+                        break;
+                    }
+                    // get the first key
+                    hr = hbtrie_next(&hit, kv_seqnum, &keylen, &dummy64);
+                    if (hr != HBTRIE_RESULT_SUCCESS) {
+                        break;
+                    }
+                    memcpy(&dummy_seqnum, kv_seqnum + size_id, size_seq);
+                    start_seqnum = _endian_decode(dummy_seqnum);
+                    btreeblk_end(handle->bhandle);
+                    hbtrie_iterator_free(&hit);
+
+                    // remove all seq numbers from 'start_seqnum' to 'end_seqnum'
+                    for (cur=start_seqnum; cur<=end_seqnum; ++cur) {
+                        dummy_seqnum = _endian_encode(cur);
+                        memcpy(kv_seqnum+size_id, &dummy_seqnum, sizeof(dummy_seqnum));
+                        // don't care if the key is already removed
+                        hr = hbtrie_remove(handle->seqtrie, kv_seqnum, size_id + size_seq);
+                        btreeblk_end(handle->bhandle);
+                    }
+                } while (false); // dummy loop for easy escape
+
+                if (a == NULL) {
+                    // set the first non-default KVS for next iteration
+                    a = avl_first(kv_header->idx_id);
+                } else {
+                    a = avl_next(a);
+                }
+                if (a) {
+                    // set for next iteration
+                    kvs_node = _get_entry(a, struct kvs_node, avl_id);
+                    end_seqnum = kvs_node->seqnum;
+                    _kv_id = _endian_encode(kvs_node->id);
+                    memcpy(kv_seqnum, &_kv_id, size_id);
+                    memset(kv_seqnum+size_id, 0x0, size_seq);
+                }
+
+            } while (a);
+
+        } else {
+            // single kvs mode .. tree
+            btree_result br;
+
+            do {
+                // get the smallest seqnum
+                br = btree_iterator_init(handle->seqtree, &bit, NULL);
+                if (br != BTREE_RESULT_SUCCESS) {
+                    break;
+                }
+                // get the first key
+                br = btree_next(&bit, &dummy_seqnum, &dummy64);
+                if (br != BTREE_RESULT_SUCCESS) {
+                    break;
+                }
+                start_seqnum = _endian_decode(dummy_seqnum);
+                btreeblk_end(handle->bhandle);
+                btree_iterator_free(&bit);
+
+                // remove all seq numbers from 'start_seqnum' to 'end_seqnum'
+                for (cur=start_seqnum; cur<=end_seqnum; ++cur) {
+                    dummy_seqnum = _endian_encode(cur);
+                    br = btree_remove(handle->seqtree, &dummy_seqnum);
+                    btreeblk_end(handle->bhandle);
+                }
+
+            } while (false); // dummy loop for easy escape
+        }
+
+        _fdb_kvs_header_free(kv_header);
+        break;
+    }
+
     // gather stale blocks generated by removing b+tree entries
     e = list_begin(handle->file->stale_list);
     while (e) {
@@ -348,6 +486,7 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
         free(item);
     }
 
+    // now merge stale regions as large as possible
     size_t n_blocks =0 ;
     size_t blocksize = handle->file->blocksize;
     uint32_t max_blocks = 256;

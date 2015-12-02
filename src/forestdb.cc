@@ -3472,6 +3472,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
         filemgr_destroy_file() in filemgr.cc
         print_header() in dump_common.cc
         decode_dblock() and dblock in forestdb_hexamine.cc
+        fdb_get_reusable_block() in staleblock.cc
     */
 
     uint8_t *buf = alca(uint8_t, handle->config.blocksize);
