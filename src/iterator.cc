@@ -1144,7 +1144,28 @@ fetch_hbtrie:
         }
     }
 
-    if (hr == HBTRIE_RESULT_SUCCESS && iterator->handle->kvs) {
+    if (hr == HBTRIE_RESULT_SUCCESS && // Validate iteration range limits..
+        !next_op) { // only if caller is not seek_to_max/min (handled later)
+        cmp = -1;
+        if (iterator->end_key) {
+            cmp = _fdb_key_cmp(iterator, iterator->_key, iterator->_keylen,
+                               iterator->end_key, iterator->end_keylen);
+            if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) ||
+                 cmp > 0) { // greater than end_key OR at skipped MAX_KEY
+                hr = HBTRIE_RESULT_FAIL;
+            }
+        }
+        if (iterator->start_key) {
+            cmp = _fdb_key_cmp(iterator,iterator->_key, iterator->_keylen,
+                               iterator->start_key, iterator->start_keylen);
+            if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) ||
+                 cmp < 0) { // smaller than start_key OR at skipped MIN_KEY
+                hr = HBTRIE_RESULT_FAIL;
+            }
+        }
+    }
+
+    if (iterator->handle->kvs) {
         fdb_kvs_id_t kv_id;
         buf2kvid(size_chunk, iterator->_key, &kv_id);
         if (iterator->handle->kvs->id != kv_id) {
@@ -1152,7 +1173,6 @@ fetch_hbtrie:
             hr = HBTRIE_RESULT_FAIL;
         }
     }
-
     if (hr == HBTRIE_RESULT_SUCCESS) {
         iterator->_get_offset = iterator->_offset;
         iterator->_dhandle = iterator->handle->dhandle;

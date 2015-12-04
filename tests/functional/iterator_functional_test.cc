@@ -1525,7 +1525,7 @@ void iterator_extreme_key_test()
     TEST_RESULT("iterator extreme key test");
 }
 
-void iterator_inmem_snapshot_seek_test()
+void iterator_inmem_snapshot_seek_test(bool flush_wal)
 {
     TEST_INIT();
 
@@ -1573,8 +1573,11 @@ void iterator_inmem_snapshot_seek_test()
         fdb_set(db, doc[i]);
     }
 
-    // commit with a manual WAL flush (these docs go into HB-trie)
-    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    if (flush_wal) {
+        fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    } else {
+        fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    }
     // ---------- Snapshot tests begin -----------------------
     // WAL items are not flushed...
     status = fdb_snapshot_open(db, &snap_db, FDB_SNAPSHOT_INMEM);
@@ -3742,7 +3745,8 @@ int main(){
         }
     }
     iterator_extreme_key_test();
-    iterator_inmem_snapshot_seek_test();
+    iterator_inmem_snapshot_seek_test(false);
+    iterator_inmem_snapshot_seek_test(true);
     iterator_no_deletes_test();
     iterator_set_del_docs_test();
     iterator_del_next_test();
