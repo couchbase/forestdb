@@ -393,25 +393,6 @@ target_link_libraries(big_compaction_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(big_compaction_test PROPERTIES COMPILE_FLAGS
                       "-D_FDB_TOOLS")
 
-if (COUCHBASE_SERVER_BUILD)
-add_executable(crc_migration_test
-               crc_migration.cc
-               ${ROOT_SRC}/checksum.cc
-               ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/debug.cc)
-target_link_libraries(crc_migration_test
-                      ${DIRUTILS_LIBRARY}
-                      ${PLATFORM_LIBRARY}
-                      ${GTEST_LIBRARY}
-                      ${BACKTRACE_LIBRARIES}
-                      forestdb)
-target_include_directories(crc_migration_test
-                           PUBLIC
-                           ${gtest_SOURCE_DIR}/include)
-
-add_test(crc_migration_test crc_migration_test)
-endif(COUCHBASE_SERVER_BUILD)
-
 
 # add test target
 add_test(fdb_functional_test fdb_functional_test)
