@@ -1482,6 +1482,8 @@ void multi_kv_rollback_test(uint8_t opt, size_t chunksize)
     config.multi_kv_instances = true;
     config.wal_threshold = 1000;
     config.buffercache_size = 0;
+    // for rollback, disable block reusing
+    config.block_reusing_threshold = 0;
 
     if (opt & MULTI_KV_VAR_CMP) {
         s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,

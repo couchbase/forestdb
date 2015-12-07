@@ -396,6 +396,9 @@ void replay(storage_t *st)
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             free(chk);
             chk=NULL;
+            // after rollback, WAL entries should be flushed for
+            // accurate # docs count comparison with 'replay_kvs'.
+            e2e_fdb_commit(st->main, true);
 
             status = fdb_get_kvs_info(st->rtx, &info);
             TEST_CHK(status == FDB_RESULT_SUCCESS);

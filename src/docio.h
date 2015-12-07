@@ -117,7 +117,20 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
                              struct async_io_handle *aio_handle,
                              bool keymeta_only);
 
-int docio_check_buffer(struct docio_handle *dhandle, bid_t check_bid);
+/**
+ * Check if the given block is a valid document block. The bitmap revision number of
+ * the document block should match the passed revision number.
+ *
+ * @param handle Pointer to DocIO handle.
+ * @param bid ID of the block.
+ * @param sb_bmp_revnum Revision number of bitmap in superblock. If the value is
+ *        -1, this function does not care about revision number.
+ * @return True if valid.
+ */
+bool docio_check_buffer(struct docio_handle *handle,
+                        bid_t bid,
+                        uint64_t sb_bmp_revnum);
+
 
 INLINE void docio_reset(struct docio_handle *dhandle) {
     dhandle->curblock = BLK_NOT_FOUND;

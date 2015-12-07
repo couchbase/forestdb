@@ -167,7 +167,11 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         while (le) {
             item = _get_entry(le, struct wal_item, list_elem);
 
-            if (item->txn == txn && !(item->flag & WAL_ITEM_COMMITTED)) {
+            if (item->txn == txn &&
+                (!(item->flag & WAL_ITEM_COMMITTED) ||
+                 /* compactor should be able to overwrite committed item */
+                 caller == WAL_INS_COMPACT_PHASE1) ) {
+
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
                 // overwrite existing WAL item
 
@@ -617,8 +621,9 @@ fdb_status wal_txn_migration(void *dbhandle,
         if (txn != &old_file->global_txn) {
             e = list_remove(&old_file->wal->txn_list, &txn_wrapper->le);
             list_push_front(&new_file->wal->txn_list, &txn_wrapper->le);
-            // remove previous header info
+            // remove previous header info & revnum
             txn->prev_hdr_bid = BLK_NOT_FOUND;
+            txn->prev_revnum = 0;
         } else {
             e = list_next(e);
         }
@@ -1393,7 +1398,7 @@ fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn)
     struct wal_txn_wrapper *txn_wrapper;
     fdb_txn *txn;
     fdb_txn *ret = NULL;
-    bid_t bid = BLK_NOT_FOUND;
+    uint64_t min_revnum = 0;
 
     spin_lock(&file->wal->lock);
 
@@ -1401,9 +1406,10 @@ fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn)
     while(le) {
         txn_wrapper = _get_entry(le, struct wal_txn_wrapper, le);
         txn = txn_wrapper->txn;
+
         if (txn != cur_txn && list_begin(txn->items)) {
-            if (bid == BLK_NOT_FOUND || txn->prev_hdr_bid < bid) {
-                bid = txn->prev_hdr_bid;
+            if (min_revnum == 0 || txn->prev_revnum < min_revnum) {
+                min_revnum = txn->prev_revnum;
                 ret = txn;
             }
         }

@@ -49,7 +49,15 @@ bool ver_non_consecutive_doc(filemgr_magic_t magic)
 {
     // All magic numbers since FILEMGR_MAGIC_V3
     if (magic >= FILEMGR_MAGIC_V3 && magic <= FILEMGR_LATEST_MAGIC) {
-        //return false;
+        return true;
+    }
+    return false;
+}
+
+bool ver_superblock_support(filemgr_magic_t magic)
+{
+    // All magic numbers since FILEMGR_MAGIC_V3
+    if (magic >= FILEMGR_MAGIC_V3 && magic <= FILEMGR_LATEST_MAGIC) {
         return true;
     }
     return false;

@@ -86,6 +86,10 @@ fdb_config get_default_config(void) {
     // 4 daemon compactor threads by default
     fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
     fconfig.num_bgflusher_threads = DEFAULT_NUM_BGFLUSHER_THREADS;
+    // Block reusing threshold, 65% by default (i.e., almost 3x space amplification)
+    fconfig.block_reusing_threshold = 65;
+    // Keep at least 5 headers
+    fconfig.num_keeping_headers = 5;
 
     fconfig.encryption_key.algorithm = FDB_ENCRYPTION_NONE;
     memset(fconfig.encryption_key.bytes, 0, sizeof(fconfig.encryption_key.bytes));

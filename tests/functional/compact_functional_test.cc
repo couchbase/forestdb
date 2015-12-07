@@ -920,6 +920,9 @@ void compact_upto_test(bool multi_kv)
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
+    // since this test requires static number of markers,
+    // disable block reusing
+    fconfig.block_reusing_threshold = 0;
 
     // remove previous compact_test files
     r = system(SHELL_DEL" compact_test* > errorlog.txt");
@@ -2572,7 +2575,7 @@ void compact_upto_twice_test()
     status = fdb_get_all_snap_markers(dbfile, &markers,
                                       &num_markers);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    status = fdb_compact_upto(dbfile, NULL, markers[5].marker);
+    status = fdb_compact_upto(dbfile, NULL, markers[num_markers-1].marker);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_free_snap_markers(markers, num_markers);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2581,7 +2584,7 @@ void compact_upto_twice_test()
     status = fdb_get_all_snap_markers(dbfile, &markers,
                                       &num_markers);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    status = fdb_compact_upto(dbfile, NULL, markers[1].marker);
+    status = fdb_compact_upto(dbfile, NULL, markers[num_markers-2].marker);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_free_snap_markers(markers, num_markers);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2707,6 +2710,8 @@ void compact_upto_post_snapshot_test()
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    // prevent block reusing to keep snapshots
+    fconfig.block_reusing_threshold = 0;
 
     // open db
     fdb_open(&dbfile, "./compact_test1", &fconfig);
@@ -2863,7 +2868,7 @@ void compact_upto_overwrite_test(int opt)
     s = fdb_get_all_snap_markers(db_file, &markers, &n_markers);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    int upto = n/2;
+    int upto = n_markers/2;
     s = fdb_compact_upto(db_file, "./compact_test2", markers[upto].marker);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 

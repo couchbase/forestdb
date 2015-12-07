@@ -247,6 +247,43 @@ void fdb_fetch_header(uint64_t version,
     }
 }
 
+// read the revnum of the given header of BID
+INLINE filemgr_header_revnum_t _fdb_get_header_revnum(fdb_kvs_handle *handle, bid_t bid)
+{
+    uint8_t *buf = alca(uint8_t, handle->file->blocksize);
+    uint64_t version;
+    size_t header_len;
+    fdb_seqnum_t seqnum;
+    filemgr_header_revnum_t revnum = 0;
+    fdb_status fs;
+
+    fs = filemgr_fetch_header(handle->file, bid, buf, &header_len,
+                              &seqnum, &revnum, NULL, &version, NULL,
+                              &handle->log_callback);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return 0;
+    }
+    return revnum;
+}
+
+INLINE filemgr_header_revnum_t _fdb_get_bmp_revnum(fdb_kvs_handle *handle, bid_t bid)
+{
+    uint8_t *buf = alca(uint8_t, handle->file->blocksize);
+    uint64_t version, bmp_revnum = 0;
+    size_t header_len;
+    fdb_seqnum_t seqnum;
+    filemgr_header_revnum_t revnum;
+    fdb_status fs;
+
+    fs = filemgr_fetch_header(handle->file, bid, buf, &header_len,
+                              &seqnum, &revnum, NULL, &version, &bmp_revnum,
+                              &handle->log_callback);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return 0;
+    }
+    return bmp_revnum;
+}
+
 INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                              fdb_restore_mode_t mode,
                              bid_t hdr_bid,
@@ -257,6 +294,10 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     uint64_t last_wal_flush_hdr_bid = handle->last_wal_flush_hdr_bid;
     uint64_t hdr_off = hdr_bid * FDB_BLOCKSIZE;
     uint64_t offset = 0; //assume everything from first block needs restoration
+    uint64_t filesize = filemgr_get_pos(handle->file);
+    uint64_t doc_scan_limit;
+    uint64_t start_bmp_revnum, stop_bmp_revnum;
+    uint64_t cur_bmp_revnum = (uint64_t)-1;
     err_log_callback *log_callback;
 
     if (!hdr_off) { // Nothing to do if we don't have a header block offset
@@ -269,7 +310,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
 
     // If a valid last header was retrieved and it matches the current header
     // OR if WAL already had entries populated, then no crash recovery needed
-    if (hdr_off <= offset ||
+    if (hdr_off == offset || hdr_bid == last_wal_flush_hdr_bid ||
         (!handle->shandle && wal_get_size(file) &&
             mode != FDB_RESTORE_KV_INS)) {
         return;
@@ -284,10 +325,41 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     if (!handle->shandle) {
         filemgr_mutex_lock(file);
     }
-    for (; offset < hdr_off;
-        offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
-        if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
-            continue;
+
+    start_bmp_revnum = _fdb_get_bmp_revnum(handle, last_wal_flush_hdr_bid);
+    stop_bmp_revnum= _fdb_get_bmp_revnum(handle, hdr_bid);
+    cur_bmp_revnum = start_bmp_revnum;
+
+    // A: reused blocks during the 1st block reclaim (bmp_revnum: 1)
+    // B: reused blocks during the 2nd block reclaim (bmp_revnum: 2)
+    // otherwise: live block (bmp_revnum: 0)
+    //  1 2   3    4    5 6  7  8   9  10
+    // +-------------------------------------------+
+    // |  BBBBAAAAABBBBB  AAABBB    AAA            |
+    // +-------------------------------------------+
+    //              ^                     ^
+    //              hdr_bid               last_wal_flush
+    //
+    // scan order: 1 -> 5 -> 8 -> 10 -> 3 -> 6 -> 9 -> 2 -> 4 -> 7
+    // iteration #1: scan docs with bmp_revnum==0 in [last_wal_flush ~ filesize]
+    // iteration #2: scan docs with bmp_revnum==1 in [0 ~ filesize]
+    // iteration #3: scan docs with bmp_revnum==2 in [0 ~ hdr_bid]
+
+    do {
+        if (cur_bmp_revnum > stop_bmp_revnum) {
+            break;
+        } else if (cur_bmp_revnum == stop_bmp_revnum) {
+            doc_scan_limit = hdr_off;
+            if (offset >= hdr_off) {
+                break;
+            }
+        } else {
+            doc_scan_limit = filesize;
+        }
+
+        if (!docio_check_buffer(handle->dhandle, offset / blocksize,
+                                cur_bmp_revnum)) {
+            // not a document block .. move to next block
         } else {
             do {
                 struct docio_object doc;
@@ -296,6 +368,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                 memset(&doc, 0, sizeof(doc));
                 _offset = docio_read_doc(handle->dhandle, offset, &doc, true);
                 if (_offset == offset) { // reached unreadable doc, skip block
+                    break;
+                } else if (_offset < offset) { // stale document
+                    free(doc.key);
+                    free(doc.meta);
+                    free(doc.body);
                     break;
                 }
                 if (doc.key || (doc.length.flag & DOCIO_TXN_COMMITTED)) {
@@ -406,9 +483,18 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                     offset = _offset;
                     break;
                 }
-            } while (offset + sizeof(struct docio_length) < hdr_off);
+            } while (offset + sizeof(struct docio_length) < doc_scan_limit);
         }
-    }
+
+        offset = ((offset / blocksize) + 1) * blocksize;
+        if (ver_superblock_support(handle->file->version) &&
+            offset >= filesize) {
+            // circular scan
+            offset = blocksize * handle->file->sb->config->num_sb;
+            cur_bmp_revnum++;
+        }
+    } while(true);
+
     // wal commit
     if (!handle->shandle) {
         wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
@@ -568,6 +654,15 @@ fdb_status fdb_init(fdb_config *config)
         filemgr_set_lazy_file_deletion(true,
                                        compactor_register_file_removing,
                                        compactor_is_file_removed);
+        if (ver_superblock_support(ver_get_latest_magic())) {
+            struct sb_ops sb_ops = {sb_init, sb_get_default_config,
+                                    sb_read_latest, sb_alloc_block,
+                                    sb_bmp_is_writable, sb_bmp_is_active_block,
+                                    sb_get_bmp_revnum, sb_get_min_live_revnum,
+                                    sb_free};
+            filemgr_set_sb_operation(sb_ops);
+            sb_bmp_mask_init();
+        }
 
         // initialize compaction daemon
         c_config.sleep_duration = _config.compactor_sleep_duration;
@@ -1441,8 +1536,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
     if (result.rv != FDB_RESULT_SUCCESS) {
         return (fdb_status) result.rv;
     }
-
     handle->file = result.file;
+
     if (config->compaction_mode == FDB_COMPACTION_MANUAL &&
         strcmp(filename, actual_filename)) {
         // It is in-place compacted file if
@@ -1472,7 +1567,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                       header_buf, &header_len, &seqnum,
                                       &latest_header_revnum, &deltasize, &version,
-                                      &handle->log_callback);
+                                      NULL, &handle->log_callback);
         if (status != FDB_RESULT_SUCCESS) {
             free(handle->filename);
             handle->filename = NULL;
@@ -1491,6 +1586,22 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                       calloc(1, sizeof(struct docio_handle));
     handle->dhandle->log_callback = &handle->log_callback;
     docio_init(handle->dhandle, handle->file, config->compress_document_body);
+
+    // fetch previous superblock bitmap info if exists
+    // (this should be done after 'handle->dhandle' is initialized)
+    if (handle->file->sb) {
+        status = sb_bmp_fetch_doc(handle);
+        if (status != FDB_RESULT_SUCCESS) {
+            docio_free(handle->dhandle);
+            free(handle->dhandle);
+            free(handle->filename);
+            handle->filename = NULL;
+            filemgr_close(handle->file, false, handle->filename,
+                              &handle->log_callback);
+            return status;
+        }
+    }
+
 
     if (header_len > 0) {
         fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
@@ -1547,10 +1658,32 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         hdr_bid = 0; // This prevents _fdb_restore_wal() as incoming handle's
                      // *_open() should have already restored it
     } else { // Persisted snapshot or file rollback..
-        hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
-        if (hdr_bid > 0) {
+
+        // get the BID of the latest block
+        // (it is OK if the block is not a DB header)
+        bool dirty_data_exists = false;
+        struct superblock *sb = handle->file->sb;
+
+        if (sb && sb->bmp) {
+            dirty_data_exists = false;
+            if (sb->last_hdr_bid != BLK_NOT_FOUND) {
+                // add 1 since we subtract 1 from 'hdr_bid' below soon
+                hdr_bid = sb->last_hdr_bid + 1;
+            } else {
+                hdr_bid = BLK_NOT_FOUND;
+            }
+        } else {
+            hdr_bid = filemgr_get_pos(handle->file) / FDB_BLOCKSIZE;
+            dirty_data_exists = (hdr_bid > handle->last_hdr_bid);
+        }
+
+        if (hdr_bid == BLK_NOT_FOUND ||
+            (sb && hdr_bid <= sb->config->num_sb)) {
+            hdr_bid = 0;
+        } else if (hdr_bid > 0) {
             --hdr_bid;
         }
+
         if (handle->max_seqnum) {
             struct kvs_stat stat_ori;
             // backup original stats
@@ -1560,7 +1693,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 _kvs_stat_get(handle->file, 0, &stat_ori);
             }
 
-            if (hdr_bid > handle->last_hdr_bid){
+            if (dirty_data_exists){
                 // uncommitted data exists beyond the last DB header
                 // get the last committed seq number
                 fdb_seqnum_t seq_commit;
@@ -1573,12 +1706,13 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     // snapshot/rollback on the latest commit header
                     seqnum = seq_commit; // skip file reverse scan
                 }
+                hdr_bid = filemgr_get_header_bid(handle->file);
             }
             // Reverse scan the file to locate the DB header with seqnum marker
             while (header_len && seqnum != handle->max_seqnum) {
                 hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                           header_buf, &header_len, &seqnum,
-                                          &header_revnum, NULL, &version,
+                                          &header_revnum, NULL, &version, NULL,
                                           &handle->log_callback);
                 if (header_len == 0) {
                     continue; // header doesn't exist
@@ -2257,8 +2391,16 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
         if (hr == HBTRIE_RESULT_SUCCESS) {
             // This block is already cached when we call _fdb_wal_get_old_offset
             // No additional block access should be done.
-            len = docio_read_doc_length(handle->dhandle, old_offset);
-            filemgr_mark_stale(file, old_offset, _fdb_get_docsize(len));
+            char dummy_key[FDB_MAX_KEYLEN];
+            struct docio_object _doc;
+
+            _doc.meta = _doc.body = NULL;
+            _doc.key = &dummy_key;
+            _offset = docio_read_doc_key_meta(handle->dhandle, old_offset,
+                                              &_doc, true);
+            free(_doc.meta);
+            filemgr_mark_stale(file, old_offset, _fdb_get_docsize(_doc.length));
+            len = _doc.length;
 
             // Reduce the total number of docs by one
             _kvs_stat_update_attr(file, kv_id, KVS_STAT_NDOCS, -1);
@@ -2275,6 +2417,28 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle, struct wal_item *item)
             // the amount of new data inserted between commits.
             if (handle->last_hdr_bid * handle->config.blocksize < old_offset){
                 _kvs_stat_update_attr(file, kv_id, KVS_STAT_DELTASIZE, delta);
+            }
+
+            // remove sequence number for the removed doc
+            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+                _seqnum = _endian_encode(_doc.seqnum);
+                if (handle->kvs) {
+                    // multi KV instance mode .. HB+trie
+                    size_id = sizeof(fdb_kvs_id_t);
+                    size_seq = sizeof(fdb_seqnum_t);
+                    kvid_seqnum = alca(uint8_t, size_id + size_seq);
+                    kvid2buf(size_id, kv_id, kvid_seqnum);
+                    memcpy(kvid_seqnum + size_id, &_seqnum, size_seq);
+
+                    hbtrie_remove(handle->seqtrie, (void*)kvid_seqnum,
+                                  size_id + size_seq);
+                } else {
+                    btree_remove(handle->seqtree, (void*)&_seqnum);
+                }
+                fs = btreeblk_end(handle->bhandle);
+                if (fs != FDB_RESULT_SUCCESS) {
+                    return fs;
+                }
             }
 
             // Update index size to new size after the remove operation
@@ -3441,7 +3605,7 @@ static uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
     return rv;
 }
 
-uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
+uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum)
 {
     /*
     <ForestDB header>
@@ -3570,7 +3734,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle)
     crc = _endian_encode(crc);
     seq_memcpy(buf + offset, &crc, sizeof(crc), offset);
 
-    return filemgr_update_header(handle->file, buf, offset);
+    return filemgr_update_header(handle->file, buf, offset, inc_revnum);
 }
 
 static
@@ -3756,23 +3920,28 @@ fdb_commit_start:
     }
 
     if (wal_flushed) {
-        // add one to 'revnum' to get the next revision number
-        // (note that filemgr_mutex() is grabbed so that no other thread
-        //  will change the 'revnum').
-        fdb_gather_stale_blocks(handle, filemgr_get_header_revnum(handle->file)+1);
+        fdb_gather_stale_blocks(handle,
+                                filemgr_get_header_revnum(handle->file)+1,
+                                handle->last_hdr_bid,
+                                handle->kv_info_offset,
+                                filemgr_get_seqnum(handle->file),
+                                NULL);
     }
 
     // Note: Getting header BID must be done after
     //       all other data are written into the file!!
     //       Or, header BID inconsistency will occur (it will
     //       point to wrong block).
-    handle->last_hdr_bid = filemgr_get_next_alloc_block(handle->file);
+    handle->last_hdr_bid = filemgr_alloc(handle->file, &handle->log_callback);
+
     if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
         earliest_txn = wal_earliest_txn(handle->file,
                                         (txn)?(txn):(&handle->file->global_txn));
         if (earliest_txn) {
+            filemgr_header_revnum_t last_revnum;
+            last_revnum = _fdb_get_header_revnum(handle, handle->last_wal_flush_hdr_bid);
             // there exists other transaction that is not committed yet
-            if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
+            if (last_revnum < earliest_txn->prev_revnum) {
                 handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
             }
         } else {
@@ -3781,23 +3950,41 @@ fdb_commit_start:
         }
     }
 
-    if (handle->last_wal_flush_hdr_bid != BLK_NOT_FOUND &&
-        handle->last_wal_flush_hdr_bid > handle->last_hdr_bid) {
-        filemgr_mutex_unlock(handle->file);
-
-        const char *msg = "Commit operation fails becasue the last wal_flushed "
-            "commit header bid > the last commit header bid in a database file '%s'\n";
-        return fdb_log(&handle->log_callback, FDB_RESULT_COMMIT_FAIL, msg, handle->file);
-    }
+    // file header should be set after stale-block tree is updated.
+    handle->cur_header_revnum = fdb_set_file_header(handle, true);
 
     if (txn == NULL) {
         // update global_txn's previous header BID
         handle->file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
+        // reset TID (this is thread-safe as filemgr_mutex is grabbed)
+        handle->file->global_txn.prev_revnum = handle->cur_header_revnum;
     }
 
-    // file header should be set after stale-block tree is updated.
-    handle->cur_header_revnum = fdb_set_file_header(handle);
-    fs = filemgr_commit(handle->file, sync, &handle->log_callback);
+    if (handle->file->sb) {
+        // sync superblock
+        sb_update_header(handle);
+        if (sb_check_sync_period(handle)) {
+            if (sb_check_block_reusing(handle) && wal_flushed) {
+                // gather more reusable blocks
+                bool block_reclaimed = false;
+                btreeblk_discard_blocks(handle->bhandle);
+                block_reclaimed = sb_reclaim_reusable_blocks(handle);
+                if (block_reclaimed) {
+                    sb_bmp_append_doc(handle);
+                }
+            }
+            // header should be updated one more time
+            // since block reclaiming or stale block gathering changes root nodes
+            // of each tree. but at this time we don't increase header revision number.
+            handle->cur_header_revnum = fdb_set_file_header(handle, false);
+            sb_update_header(handle);
+            sb_sync_circular(handle);
+        }
+    }
+
+    // file commit
+    fs = filemgr_commit_bid(handle->file, handle->last_hdr_bid,
+                            sync, &handle->log_callback);
     if (wal_flushed) {
         wal_release_flushed_items(handle->file, &flush_items);
     }
@@ -3863,7 +4050,12 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
-    fdb_gather_stale_blocks(handle, filemgr_get_header_revnum(new_file)+1);
+    fdb_gather_stale_blocks(handle,
+                            filemgr_get_header_revnum(handle->file)+1,
+                            filemgr_get_header_bid(handle->file),
+                            handle->kv_info_offset,
+                            filemgr_get_seqnum(handle->file),
+                            NULL);
     handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
     if (wal_get_dirty_status(new_file) == FDB_WAL_CLEAN) {
         earliest_txn = wal_earliest_txn(new_file,
@@ -3881,8 +4073,13 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     // update global_txn's previous header BID
     new_file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
-
-    handle->cur_header_revnum = fdb_set_file_header(handle);
+    // file header should be set after stale-block tree is updated.
+    handle->cur_header_revnum = fdb_set_file_header(handle, true);
+    if (handle->file->sb) {
+        // sync superblock
+        sb_update_header(handle);
+        sb_sync_circular(handle);
+    }
     status = filemgr_commit(new_file,
                             !(handle->config.durability_opt & FDB_DRB_ASYNC),
                             &handle->log_callback);
@@ -3986,6 +4183,10 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     uint64_t new_offset;
     uint64_t stop_offset = stop_bid * blocksize; // stopping point
     uint64_t n_moved_docs = 0;
+    uint64_t filesize = filemgr_get_pos(handle->file);
+    uint64_t doc_scan_limit;
+    uint64_t start_bmp_revnum, stop_bmp_revnum;
+    uint64_t cur_bmp_revnum = (uint64_t)-1;
     fdb_compact_decision decision;
     err_log_callback *log_callback;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -4003,10 +4204,25 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     log_callback = handle->dhandle->log_callback;
     handle->dhandle->log_callback = NULL;
 
-    for (; offset < stop_offset;
-        offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
-        if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
-            continue;
+    start_bmp_revnum = _fdb_get_bmp_revnum(handle, start_bid);
+    stop_bmp_revnum= _fdb_get_bmp_revnum(handle, stop_bid);
+    cur_bmp_revnum = start_bmp_revnum;
+
+    do {
+        // The fundamental logic is same to that in WAL restore process.
+        // Please refer to comments in _fdb_restore_wal().
+         if (cur_bmp_revnum == stop_bmp_revnum && offset >= stop_offset) {
+             break;
+        }
+        if (cur_bmp_revnum == stop_bmp_revnum) {
+            doc_scan_limit = stop_offset;
+        } else {
+            doc_scan_limit = filesize;
+        }
+
+        if (!docio_check_buffer(handle->dhandle, offset / blocksize,
+                                cur_bmp_revnum)) {
+            // not a document block .. move to next block
         } else {
             do {
                 fdb_doc wal_doc;
@@ -4139,9 +4355,17 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 free(doc.meta);
                 free(doc.body);
                 offset = _offset;
-            } while (offset + sizeof(struct docio_length) < stop_offset);
+            } while (offset + sizeof(struct docio_length) < doc_scan_limit);
         }
-    }
+
+        offset = ((offset / blocksize) + 1) * blocksize;
+        if (ver_superblock_support(handle->file->version) &&
+            offset >= filesize && cur_bmp_revnum < stop_bmp_revnum) {
+            // circular scan
+            offset = blocksize * handle->file->sb->config->num_sb;
+            cur_bmp_revnum++;
+        }
+    } while(true);
 
     // wal flush into new file so all documents are reflected in its main index
     if (n_moved_docs) {
@@ -4896,12 +5120,20 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     size_t header_len = 0;
     bid_t old_hdr_bid = 0;
     fdb_seqnum_t old_seqnum = 0;
-    filemgr_header_revnum_t revnum = 0;
+    filemgr_header_revnum_t old_hdr_revnum = 0;
+    filemgr_header_revnum_t last_hdr_revnum, marker_revnum;
+    filemgr_header_revnum_t last_wal_hdr_revnum;
     err_log_callback *log_callback = &rhandle->log_callback;
     uint64_t version;
     fdb_status fs;
 
-    if (last_hdr_bid < marker_bid) {
+    last_hdr_revnum = _fdb_get_header_revnum(rhandle, last_hdr_bid);
+    marker_revnum = _fdb_get_header_revnum(rhandle, marker_bid);
+    if (last_hdr_revnum == 0 || marker_revnum == 0){
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    if (last_hdr_revnum < marker_revnum) {
         return FDB_RESULT_NO_DB_INSTANCE;
     } else if (last_hdr_bid == marker_bid) {
         // compact_upto marker is the same as the latest commit header.
@@ -4912,12 +5144,13 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
 
     old_hdr_bid = last_hdr_bid;
     old_seqnum = last_seq;
+    old_hdr_revnum = last_hdr_revnum;
 
-    while (marker_bid < old_hdr_bid) {
+    while (marker_revnum < old_hdr_revnum) {
         old_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
                                                 old_hdr_bid, NULL, &header_len,
-                                                &old_seqnum, &revnum, NULL, &version,
-                                                log_callback);
+                                                &old_seqnum, &old_hdr_revnum, NULL, &version,
+                                                NULL, log_callback);
         if (!header_len) { // LCOV_EXCL_START
             return FDB_RESULT_READ_FAIL;
         } // LCOV_EXCL_STOP
@@ -4953,7 +5186,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     handle.log_callback = *log_callback;
     handle.config = config;
     handle.kvs_config = kvs_config;
-    handle.cur_header_revnum = revnum;
+    handle.cur_header_revnum = old_hdr_revnum;
 
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     // do not perform compaction for snapshot
@@ -4998,8 +5231,12 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     if (last_wal_hdr_bid == BLK_NOT_FOUND) {
         // WAL has not been flushed ever
         last_wal_hdr_bid = 0; // scan from the beginning
+        last_wal_hdr_revnum = 0;
+    } else {
+        last_wal_hdr_revnum = _fdb_get_header_revnum(rhandle, last_wal_hdr_bid);
     }
-    if (last_wal_hdr_bid < old_hdr_bid) {
+
+    if (last_wal_hdr_revnum < old_hdr_revnum) {
         fs = _fdb_move_wal_docs(&handle,
                                 last_wal_hdr_bid,
                                 old_hdr_bid,
@@ -5040,7 +5277,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     new_handle.last_hdr_bid = filemgr_get_pos(new_handle.file) /
                               new_handle.file->blocksize;
     new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid; // WAL was flushed
-    new_handle.cur_header_revnum = fdb_set_file_header(&new_handle);
+    new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
 
     // Commit a new file.
     fs = filemgr_commit(new_handle.file, false, // asynchronous commit is ok
@@ -5340,12 +5577,17 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                           bool compact_upto,
                                           bool clone_docs,
                                           bool got_lock,
+                                          bool last_loop,
                                           size_t *prob)
 {
     uint64_t offset, offset_end;
     uint64_t old_offset, new_offset;
     uint64_t sum_docsize, n_moved_docs;
     uint64_t *old_offset_array;
+    uint64_t file_limit = end_hdr * handle->file->blocksize;
+    uint64_t doc_scan_limit;
+    uint64_t start_bmp_revnum, stop_bmp_revnum;
+    uint64_t cur_bmp_revnum = (uint64_t)-1;
     size_t c;
     size_t blocksize = handle->file->config->blocksize;
     struct timeval tv;
@@ -5385,6 +5627,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     new_handle.staletree = new_staletree;
     new_handle.dhandle = new_dhandle;
     new_handle.bhandle = new_bhandle;
+    new_handle.kv_info_offset = BLK_NOT_FOUND;
 
     doc = (struct docio_object *)
           malloc(sizeof(struct docio_object) * FDB_COMP_BATCHSIZE);
@@ -5396,9 +5639,35 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     compactor_bid_prev = offset / blocksize;
     writer_bid_prev = (filemgr_get_pos(handle->file) / blocksize);
 
-    for (; offset < offset_end;
-        offset = ((offset / blocksize) + 1) * blocksize) { // next block's off
-        if (!docio_check_buffer(handle->dhandle, offset / blocksize)) {
+    start_bmp_revnum = _fdb_get_bmp_revnum(handle, begin_hdr);
+    if (last_loop) {
+        // if last loop, 'end_hdr' may not be a header block .. just linear scan
+        stop_bmp_revnum = start_bmp_revnum;
+    } else {
+        stop_bmp_revnum= _fdb_get_bmp_revnum(handle, end_hdr);
+    }
+    cur_bmp_revnum = start_bmp_revnum;
+    if (stop_bmp_revnum < start_bmp_revnum) {
+        // this can happen at the end of delta moving
+        // (since end_hdr is just a non-existing file position)
+        stop_bmp_revnum = start_bmp_revnum;
+    }
+
+    do {
+        // Please refer to comments in _fdb_restore_wal().
+        // The fundamental logic is similar to that in WAL restore process,
+        // but scanning is limited to 'end_hdr', not the current file size.
+        if (cur_bmp_revnum == stop_bmp_revnum && offset >= offset_end) {
+            break;
+        }
+        if (cur_bmp_revnum == stop_bmp_revnum) {
+            doc_scan_limit = offset_end;
+        } else {
+            doc_scan_limit = file_limit;
+        }
+
+        if (!docio_check_buffer(handle->dhandle, offset / blocksize,
+                                cur_bmp_revnum)) {
             if (compact_upto &&
                 filemgr_is_commit_header(handle->dhandle->readbuffer, blocksize)) {
                 // Read the KV sequence numbers from the old file's commit header
@@ -5406,9 +5675,11 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 size_t len = 0;
                 uint64_t version;
                 fdb_seqnum_t seqnum = 0;
+                uint64_t local_bmp_revnum;
+
                 fs = filemgr_fetch_header(handle->file, offset / blocksize,
                                           hdr_buf, &len, &seqnum, NULL, NULL,
-                                          &version, NULL);
+                                          &version, &local_bmp_revnum, NULL);
                 if (fs != FDB_RESULT_SUCCESS) {
                     // Invalid and corrupted header.
                     free(doc);
@@ -5419,6 +5690,14 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                             offset / blocksize, handle->file->filename);
                     return fs;
                 }
+
+                if (local_bmp_revnum != cur_bmp_revnum) {
+                    // different version of superblock BMP revnum
+                    // we have to ignore this header to preserve the
+                    // order of header sequence.
+                    goto move_delta_next_loop;
+                }
+
                 filemgr_set_seqnum(new_file, seqnum);
                 if (new_handle.kvs) {
                     uint64_t dummy64;
@@ -5453,7 +5732,13 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 }
                 new_handle.last_hdr_bid = filemgr_get_next_alloc_block(new_file);
                 new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
-                new_handle.cur_header_revnum = fdb_set_file_header(&new_handle);
+                new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
+                fdb_gather_stale_blocks(&new_handle,
+                                        filemgr_get_header_revnum(new_file)+1,
+                                        new_handle.last_hdr_bid,
+                                        new_handle.kv_info_offset,
+                                        filemgr_get_seqnum(new_file),
+                                        NULL);
                 // If synchrouns commit is enabled, then disable it temporarily for each
                 // commit header as synchronous commit is not required in the new file
                 // during the compaction.
@@ -5467,7 +5752,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                     return fs;
                 }
             }
-            continue;
+
         } else {
             do {
                 uint64_t _offset;
@@ -5538,9 +5823,18 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                     offset = _offset;
                     break;
                 }
-            } while (offset + sizeof(struct docio_length) < offset_end);
+            } while (offset + sizeof(struct docio_length) < doc_scan_limit);
         }
-    }
+
+move_delta_next_loop:
+        offset = ((offset / blocksize) + 1) * blocksize;
+        if (ver_superblock_support(handle->file->version) &&
+            offset >= file_limit && cur_bmp_revnum < stop_bmp_revnum) {
+            // circular scan
+            offset = blocksize * handle->file->sb->config->num_sb;
+            cur_bmp_revnum++;
+        }
+    } while (true);
 
     // final append & WAL flush
     if (c) {
@@ -6090,11 +6384,18 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
+    // last header should be appended at the end of the file
     handle->last_hdr_bid = filemgr_get_pos(handle->file) / handle->file->blocksize;
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
 
-    handle->cur_header_revnum = fdb_set_file_header(handle);
+    handle->cur_header_revnum = fdb_set_file_header(handle, true);
     btreeblk_end(handle->bhandle);
+
+    if (handle->file->sb) {
+        // sync superblock
+        sb_update_header(handle);
+        sb_sync_circular(handle);
+    }
 
     // Commit the current file handle to record the compaction filename
     fdb_status fs = filemgr_commit(handle->file,
@@ -6171,6 +6472,10 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     }
 
     bool file_switched = false; // bg flusher file
+
+    // It is guaranteed that new delta updates during the compaction are not written
+    // in reused blocks, but are appended at the end of file. This minimizes code
+    // changes in delta migration routine.
     do {
         last_hdr = cur_hdr;
         // get up-to-date header BID of the old file
@@ -6207,7 +6512,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         fs = _fdb_compact_move_delta(handle, new_file, new_trie, new_idtree,
                                      target_seqtree, new_staletree, new_dhandle,
                                      new_bhandle, last_hdr, cur_hdr,
-                                     compact_upto, clone_docs, got_lock, &prob);
+                                     compact_upto, clone_docs, got_lock, escape, &prob);
         if (fs != FDB_RESULT_SUCCESS) {
             filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
 
@@ -6534,6 +6839,13 @@ fdb_status _fdb_close_root(fdb_kvs_handle *handle)
         _fdb_abort_transaction(handle);
     }
 
+    if (handle->file->sb) {
+        // sync superblock before close
+        fdb_sync_db_header(handle);
+        sb_update_header(handle);
+        sb_sync_circular(handle);
+    }
+
     fs = _fdb_close(handle);
     if (fs == FDB_RESULT_SUCCESS) {
         fdb_kvs_info_free(handle);
@@ -6761,13 +7073,13 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
             hdr_bid = handle->last_hdr_bid;
             status = filemgr_fetch_header(file, hdr_bid,
                                           header_buf, &header_len, NULL, NULL,
-                                          &deltasize, &version,
+                                          &deltasize, &version, NULL,
                                           &handle->log_callback);
         } else {
             prev_bid = filemgr_fetch_prev_header(file, hdr_bid,
                                                  header_buf, &header_len,
                                                  &seqnum, NULL, &deltasize, &version,
-                                                 &handle->log_callback);
+                                                 NULL, &handle->log_callback);
             hdr_bid = prev_bid;
         }
         if (status != FDB_RESULT_SUCCESS) {
@@ -6907,7 +7219,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     fdb_seqnum_t seqnum;
     fdb_snapshot_info_t *markers;
     int i;
-    uint64_t size;
+    uint64_t size, array_size;
     file_status_t fstatus;
     fdb_status status = FDB_RESULT_SUCCESS;
 
@@ -6923,11 +7235,11 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     fdb_sync_db_header(handle);
 
     // There are as many DB headers in a file as the file's header revision num
-    size = handle->cur_header_revnum;
-    if (!size) {
+    array_size = handle->cur_header_revnum - sb_get_min_live_revnum(handle->file);
+    if (!array_size) {
         return FDB_RESULT_NO_DB_INSTANCE;
     }
-    markers = (fdb_snapshot_info_t *)calloc(size, sizeof(fdb_snapshot_info_t));
+    markers = (fdb_snapshot_info_t *)calloc(array_size, sizeof(fdb_snapshot_info_t));
     if (!markers) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
@@ -6940,16 +7252,20 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
 
     // Reverse scan the file to locate the DB header with seqnum marker
     for (i = 0; header_len; ++i, ++size) {
-        if (i == 0 ) {
+        if (i == 0) {
             status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                           header_buf, &header_len, NULL,
-                                          NULL, NULL, &version,
+                                          NULL, NULL, &version, NULL,
                                           &handle->log_callback);
         } else {
+            if ((uint64_t)i >= array_size) {
+                header_len = 0;
+                continue;
+            }
             hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                                 header_buf, &header_len,
                                                 &seqnum, NULL, NULL, &version,
-                                                &handle->log_callback);
+                                                NULL, &handle->log_callback);
         }
         if (header_len == 0) {
             continue; // header doesn't exist, terminate iteration

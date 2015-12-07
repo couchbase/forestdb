@@ -26,25 +26,37 @@
 #include "docio.h"
 #include "fdb_internal.h"
 #include "version.h"
+#include "time_utils.h"
 
 #include "memleak.h"
 
 void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
-                             filemgr_header_revnum_t revnum)
+                             filemgr_header_revnum_t revnum,
+                             bid_t prev_hdr,
+                             uint64_t kv_info_offset,
+                             fdb_seqnum_t seqnum,
+                             struct list_elem *e_last)
 {
+    int delta, r;
     uint32_t count = 0;
-    uint32_t offset = 0;
+    uint32_t offset = 0, count_location;
     uint32_t bufsize = 8192;
     uint32_t _count, _len;
-    uint64_t _pos;
+    uint64_t _pos, _kv_info_offset;
     uint8_t *buf = NULL;
     bid_t doc_offset, _doc_offset;
+    bid_t _prev_hdr;
     bool gather_staleblocks = true;
     filemgr_header_revnum_t _revnum;
+    fdb_seqnum_t _seqnum;
+    struct kvs_stat stat;
 
     /*
      * << stale block system doc structure >>
      * [previous doc offset]: 8 bytes (0xffff.. if not exist)
+     * [previous header BID]: 8 bytes (0xffff.. if not exist)
+     * [KVS info doc offset]: 8 bytes (0xffff.. if not exist)
+     * [Default KVS seqnum]:  8 bytes
      * [# items]:             4 bytes
      * ---
      * [position]:            8 bytes
@@ -56,17 +68,49 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
         struct list_elem *e;
         struct stale_data *item;
 
+        r = _kvs_stat_get(handle->file, 0, &stat);
+        handle->bhandle->nlivenodes = stat.nlivenodes;
+        handle->bhandle->ndeltanodes = stat.nlivenodes;
+        (void)r;
+
         buf = (uint8_t *)calloc(1, bufsize);
         _revnum = _endian_encode(revnum);
 
         // initial previous doc offset
         memset(buf, 0xff, sizeof(bid_t));
+        count_location = sizeof(bid_t);
+
+        // previous header BID
+        if (prev_hdr == 0 || prev_hdr == BLK_NOT_FOUND) {
+            // does not exist
+            memset(&_prev_hdr, 0xff, sizeof(_prev_hdr));
+        } else {
+            _prev_hdr = _endian_encode(prev_hdr);
+        }
+        memcpy(buf + sizeof(bid_t), &_prev_hdr, sizeof(bid_t));
+        count_location += sizeof(bid_t);
+
+        // KVS info doc offset
+        _kv_info_offset = _endian_encode(kv_info_offset);
+        memcpy(buf + count_location, &_kv_info_offset, sizeof(uint64_t));
+        count_location += sizeof(uint64_t);
+
+        // default KVS seqnum
+        _seqnum = _endian_encode(seqnum);
+        memcpy(buf + count_location, &_seqnum, sizeof(fdb_seqnum_t));
+        count_location += sizeof(fdb_seqnum_t);
+        count_location += sizeof(count);
 
         while(gather_staleblocks) {
-            // reserve space for prev offset & count
-            offset = sizeof(bid_t) + sizeof(uint32_t);
+            // reserve space for
+            // prev offset (8), prev header (8), kv_info_offset (8), seqnum (8), count (4)
+            offset = count_location;
 
-            e = list_begin(handle->file->stale_list);
+            if (e_last) {
+                e = list_next(e_last);
+            } else {
+                e = list_begin(handle->file->stale_list);
+            }
             while (e) {
                 item = _get_entry(e, struct stale_data, le);
 
@@ -98,7 +142,7 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
 
                 // store count
                 _count = _endian_encode(count);
-                memcpy(buf + sizeof(bid_t), &_count, sizeof(_count));
+                memcpy(buf + count_location - sizeof(_count), &_count, sizeof(_count));
 
                 // append a system doc
                 memset(&doc, 0x0, sizeof(doc));
@@ -140,6 +184,12 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
                 }
             }
         } // gather stale blocks
+
+        delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
+        _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
+        delta = (int)handle->bhandle->ndeltanodes - (int)stat.nlivenodes;
+        delta *= handle->config.blocksize;
+        _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
 
         free(buf);
     } else {
@@ -227,29 +277,47 @@ static void _insert_n_merge(struct avl_tree *tree,
 reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
                                            stale_header_info stale_header)
 {
+    int delta, r;
     uint8_t keybuf[64];
     uint32_t i;
     uint32_t count, _count, item_len;
     uint32_t n_revnums, max_revnum_array = 256;
     uint64_t pos, item_pos;
+    uint64_t kv_info_offset = BLK_NOT_FOUND, _kv_info_offset;
+    uint64_t prev_kv_info_offset = BLK_NOT_FOUND;
+    uint64_t dummy64;
     btree_iterator bit;
     btree_result br;
-    filemgr_header_revnum_t revnum_upto;
-    filemgr_header_revnum_t revnum, _revnum;
+    filemgr_header_revnum_t revnum_upto, prev_revnum = 0;
+    filemgr_header_revnum_t revnum = 0, _revnum;
     filemgr_header_revnum_t *revnum_array;
+    fdb_seqnum_t seqnum = 0, prev_seqnum = 0, _seqnum;
     bid_t offset, _offset, r_offset, prev_offset;
+    bid_t prev_hdr = BLK_NOT_FOUND, _prev_hdr;
     struct docio_object doc;
     struct avl_tree tree;
     struct avl_node *avl;
     struct stale_data *item;
-    struct list_elem *e;
+    struct list_elem *e, *e_last;
+    struct kvs_stat stat;
+    struct timeval begin, cur, gap;
 
     revnum_upto = stale_header.revnum;
+
+    r = _kvs_stat_get(handle->file, 0, &stat);
+    handle->bhandle->nlivenodes = stat.nlivenodes;
+    handle->bhandle->ndeltanodes = stat.nlivenodes;
+    (void)r;
 
     avl_init(&tree, NULL);
     revnum_array = (filemgr_header_revnum_t *)
                    calloc(max_revnum_array, sizeof(filemgr_header_revnum_t));
     n_revnums = 0;
+
+    // remember the last stale list item to be preserved
+    e_last = list_end(handle->file->stale_list);
+
+    gettimeofday(&begin, NULL);
 
     // scan stale-block tree and get all stale regions
     // corresponding to commit headers whose seq number is
@@ -262,8 +330,10 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             break;
         }
 
+        prev_revnum = revnum;
         revnum = _endian_decode(_revnum);
         if (revnum > revnum_upto) {
+            revnum = prev_revnum;
             break;
         }
 
@@ -293,6 +363,30 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             memcpy(&_offset, doc.body, sizeof(_offset));
             prev_offset = _endian_decode(_offset);
             pos += sizeof(_offset);
+
+            // get previous header BID
+            memcpy(&_prev_hdr, (uint8_t*)doc.body + pos, sizeof(_prev_hdr));
+            prev_hdr = _endian_decode(_prev_hdr);
+            (void)prev_hdr;
+            pos += sizeof(_prev_hdr);
+
+            // get kv_info_offset
+            memcpy(&_kv_info_offset, (uint8_t*)doc.body + pos, sizeof(_kv_info_offset));
+            dummy64 = _endian_decode(_kv_info_offset);
+            if (dummy64 != kv_info_offset) {
+                prev_kv_info_offset = kv_info_offset;
+                kv_info_offset = dummy64;
+            }
+            pos += sizeof(_kv_info_offset);
+
+            // get default seqnum
+            memcpy(&_seqnum, (uint8_t*)doc.body + pos, sizeof(_seqnum));
+            dummy64 = _endian_decode(_seqnum);
+            if (dummy64 != seqnum) {
+                prev_seqnum = seqnum;
+                seqnum = dummy64;
+            }
+            pos += sizeof(_seqnum);
 
             // get count;
             memcpy(&_count, (uint8_t*)doc.body + pos, sizeof(_count));
@@ -332,6 +426,15 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
 
             offset = prev_offset;
         }
+
+        gettimeofday(&cur, NULL);
+        gap = _utime_gap(begin, cur);
+        if ((uint64_t)gap.tv_sec * 1000000 + gap.tv_usec > SB_RECLAIM_TIMELIMIT) {
+            // time over .. stop reclaiming although we didn't reach 'upto' revnum
+            // yet. Skipping the rest of stale blocks for now is OK because they
+            // will be gathered in the next round block reclaiming.
+            break;
+        }
     } while (true);
     btree_iterator_free(&bit);
 
@@ -343,47 +446,33 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
     }
 
     // remove corresponding seq numbers from seq-tree
-    while (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+    while (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
+           prev_hdr != BLK_NOT_FOUND) {
         // (dummy loop for easy escape)
 
         // we need to read header to get seq numbers for each KV stores
-        uint8_t *header_buf = alca(uint8_t, handle->file->blocksize);
-        uint64_t version;
-        size_t header_len, keylen;
-        bid_t header_bid;
+        size_t keylen;
         fdb_seqnum_t start_seqnum, end_seqnum;
         fdb_seqnum_t dummy_seqnum, cur;
-        filemgr_header_revnum_t header_revnum;
-        struct kvs_header *kv_header;
-
-        // read previous header
-        header_bid = filemgr_fetch_prev_header(handle->file, stale_header.bid,
-                         header_buf, &header_len, &end_seqnum, &header_revnum,
-                         NULL, &version, &handle->log_callback);
-
-        if (header_bid == stale_header.bid) {
-            // cannot get previous header
-            // (this happens if the current header is the only header in the file)
-            // we don't need to remove seq number from seq-tree.
-            break;
-        }
-
-        // get system doc offset info
-        uint64_t dummy64, kv_info_offset;
-        memcpy(&kv_info_offset, header_buf + 64, sizeof(kv_info_offset));
-        kv_info_offset = _endian_decode(kv_info_offset);
+        struct kvs_header *kv_header = NULL;
 
         // get system doc corresponding to the header
-        _fdb_kvs_header_create(&kv_header);
-        fdb_kvs_header_read(kv_header, handle->dhandle,
-                            kv_info_offset, handle->file->version, false);
+        if (prev_kv_info_offset != BLK_NOT_FOUND) {
+            _fdb_kvs_header_create(&kv_header);
+            fdb_kvs_header_read(kv_header, handle->dhandle,
+                                prev_kv_info_offset, handle->file->version, false);
+        } else {
+            // prev header doesn't exist .. we don't need to remove seq numbers
+            break;
+        }
+        end_seqnum = prev_seqnum; // default KVS
 
         // remove seq numbers upto the given headers
         if (handle->kvs) {
             // multi KVS mode .. trie
             int size_id, size_seq;
             uint8_t *kv_seqnum;
-            fdb_kvs_id_t _kv_id;
+            fdb_kvs_id_t _kv_id = 0;
             hbtrie_iterator hit;
             hbtrie_result hr;
             struct avl_node *a = NULL;
@@ -407,8 +496,10 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
                         break;
                     }
                     // get the first key
-                    hr = hbtrie_next(&hit, kv_seqnum, &keylen, &dummy64);
+                    hr = hbtrie_next_partial(&hit, kv_seqnum, &keylen, &dummy64);
                     if (hr != HBTRIE_RESULT_SUCCESS) {
+                        btreeblk_end(handle->bhandle);
+                        hbtrie_iterator_free(&hit);
                         break;
                     }
                     memcpy(&dummy_seqnum, kv_seqnum + size_id, size_seq);
@@ -421,7 +512,7 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
                         dummy_seqnum = _endian_encode(cur);
                         memcpy(kv_seqnum+size_id, &dummy_seqnum, sizeof(dummy_seqnum));
                         // don't care if the key is already removed
-                        hr = hbtrie_remove(handle->seqtrie, kv_seqnum, size_id + size_seq);
+                        hr = hbtrie_remove_partial(handle->seqtrie, kv_seqnum, size_id + size_seq);
                         btreeblk_end(handle->bhandle);
                     }
                 } while (false); // dummy loop for easy escape
@@ -476,8 +567,18 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
         break;
     }
 
+    delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
+    _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
+    delta = (int)handle->bhandle->ndeltanodes - (int)stat.nlivenodes;
+    delta *= handle->config.blocksize;
+    _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
+
     // gather stale blocks generated by removing b+tree entries
-    e = list_begin(handle->file->stale_list);
+    if (e_last) {
+        e = list_next(e_last);
+    } else {
+        e = list_begin(handle->file->stale_list);
+    }
     while (e) {
         item = _get_entry(e, struct stale_data, le);
         e = list_remove(handle->file->stale_list, e);
@@ -573,8 +674,8 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             // add a new item for the remaining region ('D' in above example)
             struct stale_data *new_item;
             new_item = (struct stale_data *)
-                calloc(1, sizeof(struct stale_data));
-            new_item->pos = (blocks_arr[n_blocks].bid + blocks_arr[n_blocks].count)
+                       calloc(1, sizeof(struct stale_data));
+            new_item->pos = (blocks_arr[n_blocks-1].bid + blocks_arr[n_blocks-1].count)
                             * blocksize;
             new_item->len = remaining_len;
             avl_insert(&tree, &new_item->avl, _reusable_offset_cmp);
@@ -591,8 +692,10 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
 
         list_push_back(handle->file->stale_list, &item->le);
     }
-    // re-write stale tree using 'upto' revnum as a key
-    fdb_gather_stale_blocks(handle, revnum_upto);
+    // re-write stale tree using the last revnum as a key
+    // in this case, only stale regions newly generated by this function are gathered,
+    // and prev_hdr is set to BLK_NOT_FOUND, as corresponding seq numbers are already removed.
+    fdb_gather_stale_blocks(handle, revnum, BLK_NOT_FOUND, BLK_NOT_FOUND, 0, e_last);
 
     free(revnum_array);
 

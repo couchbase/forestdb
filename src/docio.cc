@@ -100,6 +100,8 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
     memset(&blk_meta, 0x0, sizeof(blk_meta));
     blk_meta.marker = BLK_MARKER_DOC;
+    uint16_t revnum_hash = filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
+    blk_meta.sb_bmp_revnum_hash = _endian_encode(revnum_hash);
     (void)blk_meta;
 
 #ifdef __CRC32
@@ -699,12 +701,36 @@ INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
     return status;
 }
 
-INLINE int _docio_check_buffer(struct docio_handle *handle)
+INLINE bool _docio_check_buffer(struct docio_handle *handle, uint64_t bmp_revnum)
 {
-    uint8_t marker[BLK_MARKER_SIZE];
-    marker[0] = *(((uint8_t *)handle->readbuffer)
-                 + handle->file->blocksize - BLK_MARKER_SIZE);
-    return (marker[0] == BLK_MARKER_DOC);
+    size_t blocksize = handle->file->blocksize;
+    bool non_consecutive = ver_non_consecutive_doc(handle->file->version);
+    struct docblk_meta blk_meta;
+
+    if (non_consecutive) {
+        // new version: support non-consecutive document block
+        blocksize -= DOCBLK_META_SIZE;
+        memcpy(&blk_meta, (uint8_t*)handle->readbuffer + blocksize, sizeof(blk_meta));
+    } else {
+        // old version: block marker only
+        blocksize -= BLK_MARKER_SIZE;
+        memcpy(&blk_meta.marker, (uint8_t*)handle->readbuffer + blocksize,
+               sizeof(blk_meta.marker));
+    }
+
+    if (blk_meta.marker != BLK_MARKER_DOC) {
+        return false;
+    }
+
+    if (non_consecutive && bmp_revnum != (uint64_t)-1) {
+        uint16_t revnum_hash = _endian_decode(blk_meta.sb_bmp_revnum_hash);
+        if (revnum_hash == (bmp_revnum & 0xff)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+    return true;
 }
 
 static uint64_t _docio_read_length(struct docio_handle *handle,
@@ -727,16 +753,6 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
     }
 #endif
 
-    uint64_t file_pos = filemgr_get_pos(handle->file);
-    if (file_pos < (offset + sizeof(struct docio_length))) {
-        fdb_log(log_callback, FDB_RESULT_READ_FAIL,
-                "Read request with offset %" _F64 " and size %d exceeds the current "
-                "size %" _F64 " of a database file '%s'",
-                offset, sizeof(struct docio_length), file_pos,
-                handle->file->filename);
-        return offset;
-    }
-
     bid_t bid = offset / real_blocksize;
     uint32_t pos = offset % real_blocksize;
     void *buf = handle->readbuffer;
@@ -756,7 +772,7 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
         }
         return offset;
     }
-    if (!_docio_check_buffer(handle)) {
+    if (!_docio_check_buffer(handle, (uint64_t)-1)) {
         return offset;
     }
 
@@ -783,7 +799,7 @@ static uint64_t _docio_read_length(struct docio_handle *handle,
                     bid, handle->file->filename);
             return offset;
         }
-        if (!_docio_check_buffer(handle)) {
+        if (!_docio_check_buffer(handle, (uint64_t)-1)) {
             return offset;
         }
         // memcpy rest of data
@@ -953,20 +969,6 @@ struct docio_length docio_read_doc_length(struct docio_handle *handle, uint64_t 
         return length;
     }
 
-    // document size check
-    if (offset + sizeof(struct docio_length) +
-        length.keylen + length.metalen + length.bodylen_ondisk >
-        filemgr_get_pos(handle->file)) {
-        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                "Fatal error!!! Database file '%s' is corrupted.",
-                " crc %x keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.keylen, _length.metalen,
-                _length.bodylen, _length.bodylen_ondisk, offset);
-        length.keylen = 0;
-        return length;
-    }
-
     return length;
 }
 
@@ -1006,20 +1008,6 @@ void docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     if (length.keylen == 0 || length.keylen > FDB_MAX_KEYLEN_INTERNAL) {
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "Error in decoding the doc key length metadata in file %s"
-                " crc %x keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.keylen, _length.metalen,
-                _length.bodylen, _length.bodylen_ondisk, offset);
-        *keylen = 0;
-        return;
-    }
-
-    // document size check
-    if (offset + sizeof(struct docio_length) +
-        length.keylen + length.metalen + length.bodylen_ondisk >
-        filemgr_get_pos(handle->file)) {
-        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                "Fatal error!! Database file '%s' is corrupted.",
                 " crc %x keylen %d metalen %d bodylen %d "
                 "bodylen_ondisk %d offset %" _F64, handle->file->filename,
                 checksum, _length.keylen, _length.metalen,
@@ -1103,16 +1091,6 @@ uint64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
         fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "Error in decoding the doc length metadata (key length: %d) from "
                 "a database file '%s'", doc->length.keylen, handle->file->filename);
-        return offset;
-    }
-
-    // document size check
-    if (offset + sizeof(struct docio_length) +
-        doc->length.keylen + doc->length.metalen + doc->length.bodylen_ondisk >
-        filemgr_get_pos(handle->file)) {
-        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                "Fatal error!!! Database file '%s' is corrupted.",
-                handle->file->filename);
         return offset;
     }
 
@@ -1267,19 +1245,6 @@ uint64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
                 "Error in decoding the doc length metadata (key length: %d) from "
                 "a database file '%s' offset %" _F64, doc->length.keylen,
                 handle->file->filename, offset);
-        return offset;
-    }
-
-    // document size check
-    if (offset + sizeof(struct docio_length) +
-        doc->length.keylen + doc->length.metalen + doc->length.bodylen_ondisk >
-        filemgr_get_pos(handle->file)) {
-        fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                "Fatal error! Database file '%s' is corrupted.",
-                " crc %x keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.keylen, _length.metalen,
-                _length.bodylen, _length.bodylen_ondisk, offset);
         return offset;
     }
 
@@ -1642,10 +1607,12 @@ size_t docio_batch_read_docs(struct docio_handle *handle,
     return doc_idx;
 }
 
-int docio_check_buffer(struct docio_handle *handle, bid_t bid)
+bool docio_check_buffer(struct docio_handle *handle,
+                        bid_t bid,
+                        uint64_t sb_bmp_revnum)
 {
     err_log_callback *log_callback = handle->log_callback;
     _docio_read_through_buffer(handle, bid, log_callback, true);
-    return _docio_check_buffer(handle);
+    return _docio_check_buffer(handle, sb_bmp_revnum);
 }
 

@@ -1158,7 +1158,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
 
     // read header
     filemgr_fetch_header(file, hdr_bid, buf, &len, &seqnum, NULL, NULL,
-                         &version, &handle->log_callback);
+                         &version, NULL, &handle->log_callback);
     if (id > 0) { // non-default KVS
         // read last KVS header
         fdb_fetch_header(version, buf, &dummy64, &dummy64,
@@ -1423,7 +1423,7 @@ fdb_kvs_create_start:
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
-        root_handle->cur_header_revnum = fdb_set_file_header(root_handle);
+        root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
         fs = filemgr_commit(root_handle->file,
                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
                  &root_handle->log_callback);
@@ -2073,7 +2073,7 @@ fdb_kvs_remove_start:
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
-        root_handle->cur_header_revnum = fdb_set_file_header(root_handle);
+        root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
         fs = filemgr_commit(root_handle->file,
                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
                 &root_handle->log_callback);
@@ -2511,13 +2511,20 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
 
 stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
 {
+    uint8_t *hdr_buf = alca(uint8_t, handle->config.blocksize);
+    size_t i, hdr_len, n_headers;
+    bid_t hdr_bid, last_wal_bid;
+    filemgr_header_revnum_t hdr_revnum;
+    filemgr_header_revnum_t cur_revnum;
+    filemgr_magic_t magic;
+    fdb_seqnum_t seqnum;
     stale_header_info ret;
     struct list_elem *e;
     struct kvs_opened_node *item;
 
     spin_lock(&handle->fhandle->lock);
 
-    ret.revnum = handle->fhandle->root->cur_header_revnum;
+    ret.revnum = cur_revnum = handle->fhandle->root->cur_header_revnum;
     ret.bid = handle->fhandle->root->last_hdr_bid;
 
     e = list_begin(handle->fhandle->handles);
@@ -2533,6 +2540,63 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
     }
 
     spin_unlock(&handle->fhandle->lock);
+
+    if (handle->config.num_keeping_headers) {
+        // backward scan previous header info to keep more headers
+
+        if (ret.bid == handle->last_hdr_bid) {
+            // header in 'handle->last_hdr_bid' is not written into file yet!
+            // we should start from the previous header
+            hdr_bid = atomic_get_uint64_t(&handle->file->header.bid);
+            hdr_revnum = handle->file->header.revnum;
+        } else {
+            hdr_bid = ret.bid;
+            hdr_revnum = ret.revnum;
+        }
+
+        n_headers = handle->config.num_keeping_headers;
+        if (cur_revnum - hdr_revnum < n_headers) {
+            n_headers = n_headers - (cur_revnum - hdr_revnum);
+        } else {
+            n_headers = 0;
+        }
+
+        for (i=0; i<n_headers; ++i) {
+            hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
+                         hdr_buf, &hdr_len, &seqnum, &hdr_revnum, NULL,
+                         &magic, NULL, &handle->log_callback);
+            if (hdr_len) {
+                ret.revnum = hdr_revnum;
+                ret.bid = hdr_bid;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // although we keep more headers from the oldest active header, we have to
+    // preserve the last WAL flushing header from the target header for data
+    // consistency.
+    uint64_t dummy64;
+    char *new_filename;
+
+    filemgr_fetch_header(handle->file, ret.bid, hdr_buf, &hdr_len, &seqnum,
+                         &hdr_revnum, NULL, &magic, NULL, &handle->log_callback);
+    fdb_fetch_header(magic, hdr_buf, &dummy64, &dummy64, &dummy64, &dummy64,
+                     &dummy64, &dummy64, &dummy64, &last_wal_bid, &dummy64,
+                     &dummy64, &new_filename, NULL);
+
+    if (last_wal_bid != BLK_NOT_FOUND) {
+        filemgr_fetch_header(handle->file, last_wal_bid, hdr_buf, &hdr_len, &seqnum,
+                             &hdr_revnum, NULL, &magic, NULL, &handle->log_callback);
+        ret.bid = last_wal_bid;
+        ret.revnum = hdr_revnum;
+    } else {
+        // WAL has not been flushed yet .. we cannot trigger block reusing
+        ret.bid = BLK_NOT_FOUND;
+        ret.revnum = 0;
+    }
+
     return ret;
 }
 

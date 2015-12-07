@@ -158,6 +158,7 @@ SET(FORESTDB_CORE_SRC
             src/list.cc
             src/snapshot.cc
             src/staleblock.cc
+            src/superblock.cc
             src/transaction.cc
             src/version.cc
             src/wal.cc)

@@ -47,7 +47,7 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     result = filemgr_open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
     file = result.file;
 
-    filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1);
+    filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1, true);
 
     filemgr_close(file, true, NULL, NULL);
     result = filemgr_open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
@@ -56,7 +56,7 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     memcpy(buf, file->header.data, file->header.size);
     printf("%s\n", buf);
 
-    filemgr_update_header(file, (void*)dbheader2, strlen(dbheader2) + 1);
+    filemgr_update_header(file, (void*)dbheader2, strlen(dbheader2) + 1, true);
 
     filemgr_close(file, true, NULL, NULL);
 

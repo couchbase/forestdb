@@ -39,6 +39,7 @@
 #include "checksum.h"
 #include "filemgr_ops.h"
 #include "encryption.h"
+#include "superblock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -153,6 +154,7 @@ struct filemgr {
     int fd;
     atomic_uint64_t pos;
     atomic_uint64_t last_commit;
+    atomic_uint64_t last_commit_bmp_revnum;
     atomic_uint64_t num_invalidated_blocks;
     atomic_uint8_t io_in_prog;
     struct wal *wal;
@@ -177,6 +179,9 @@ struct filemgr {
 
     // File format version
     uint64_t version;
+
+    // superblock
+    struct superblock *sb;
 
 #ifdef _LATENCY_STATS
     struct latency_stat lat_stats[FDB_LATENCY_NUM_STATS];
@@ -220,6 +225,14 @@ void filemgr_set_lazy_file_deletion(bool enable,
                                     register_file_removal_func regis_func,
                                     check_file_removal_func check_func);
 
+/**
+ * Assign superblock operations.
+ *
+ * @param ops Set of superblock operations to be assigned.
+ * @return void.
+ */
+void filemgr_set_sb_operation(struct sb_ops ops);
+
 uint64_t filemgr_get_bcache_used_space(void);
 
 bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
@@ -239,7 +252,10 @@ filemgr_open_result filemgr_open(char *filename,
                                  struct filemgr_config *config,
                                  err_log_callback *log_callback);
 
-uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
+uint64_t filemgr_update_header(struct filemgr *file,
+                               void *buf,
+                               size_t len,
+                               bool inc_revnum);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
 
 fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file);
@@ -254,15 +270,26 @@ bid_t _filemgr_get_header_bid(struct filemgr *file);
 void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
                          bid_t *header_bid, fdb_seqnum_t *seqnum,
                          filemgr_header_revnum_t *header_revnum);
+
+/**
+ * Get the current bitmap revision number of superblock.
+ *
+ * @param file Pointer to filemgr handle.
+ * @return Current bitmap revision number.
+ */
+uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file);
+
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
                                 uint64_t *deltasize, uint64_t *version,
+                                uint64_t *sb_bmp_revnum,
                                 err_log_callback *log_callback);
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
+                                   uint64_t *sb_bmp_revnum,
                                    err_log_callback *log_callback);
 fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
@@ -301,16 +328,8 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset
 fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback);
 ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_blocks, bid_t start_bid);
-INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)
-{
-    uint64_t pos = bid * file->blocksize;
-    // Note that we don't need to grab file->lock here because
-    // 1) both file->pos and file->last_commit are only incremented.
-    // 2) file->last_commit is updated using the value of file->pos,
-    //    and always equal to or smaller than file->pos.
-    return (pos <  atomic_get_uint64_t(&file->pos) &&
-            pos >= atomic_get_uint64_t(&file->last_commit));
-}
+int filemgr_is_writable(struct filemgr *file, bid_t bid);
+
 void filemgr_remove_file(struct filemgr *file);
 
 INLINE void filemgr_set_io_inprog(struct filemgr *file)
@@ -325,7 +344,19 @@ INLINE void filemgr_clear_io_inprog(struct filemgr *file)
 
 fdb_status filemgr_commit(struct filemgr *file, bool sync,
                           err_log_callback *log_callback);
-fdb_status filemgr_sync(struct filemgr *file,
+/**
+ * Commit DB file, and write a DB header at the given BID.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param bid ID of the block that DB header will be written. If this value is set to
+ *        BLK_NOT_FOUND, then DB header is appended at the end of the file.
+ * @param sync Flag for calling fsync().
+ * @param log_callback Pointer to log callback function.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid, bool sync,
+                              err_log_callback *log_callback);
+fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
                         err_log_callback *log_callback);
 
 fdb_status filemgr_shutdown();

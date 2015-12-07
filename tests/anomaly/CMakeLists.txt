@@ -33,6 +33,7 @@ add_executable(fdb_anomaly_test
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc
                ${ROOT_SRC}/staleblock.cc
+               ${ROOT_SRC}/superblock.cc
                ${ROOT_UTILS}/memleak.cc
                ${ROOT_UTILS}/crc32.cc
                ${ROOT_UTILS}/debug.cc

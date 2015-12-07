@@ -131,6 +131,10 @@ hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
                           void *key_buf,
                           size_t *keylen,
                           void *value_buf);
+hbtrie_result hbtrie_next_partial(struct hbtrie_iterator *it,
+                                  void *key_buf,
+                                  size_t *keylen,
+                                  void *value_buf);
 hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
                                  void *value_buf);
 

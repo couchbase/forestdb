@@ -2011,6 +2011,8 @@ void snapshot_markers_in_file_test(bool multi_kv)
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
+    // for creating the strict number of snapshots, disable block reusing
+    fconfig.block_reusing_threshold = 0;
 
     // remove previous mvcc_test files
     r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
@@ -2307,6 +2309,7 @@ void rollback_forward_seqnum()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
     fconfig.purging_interval = 5;
+    fconfig.block_reusing_threshold = 0;
 
     fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
@@ -2683,6 +2686,7 @@ void rollback_ncommits()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.block_reusing_threshold = 0;
 
     fdb_open(&dbfile, "./mvcc_test1", &fconfig);
     fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
@@ -3986,6 +3990,8 @@ void *rollback_during_ops_test(void * args)
 
         // Open Database File
         config = fdb_get_default_config();
+        // disable block reusing for strict rollback
+        config.block_reusing_threshold = 0;
         status = fdb_open(&file, "mvcc_test1", &config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
 
@@ -4065,6 +4071,8 @@ void *rollback_during_ops_test(void * args)
 
     // open new copy of dbfile and kvs
     config = fdb_get_default_config();
+    // disable block reusing for strict rollback
+    config.block_reusing_threshold = 0;
     status = fdb_open(&file, "mvcc_test1", &config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     kvs_config = fdb_get_default_kvs_config();
@@ -4431,7 +4439,6 @@ void tx_crash_recover_test()
 
 
 int main(){
-
     rollback_secondary_kvs();
     multi_version_test();
 #ifdef __CRC32

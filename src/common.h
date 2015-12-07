@@ -67,11 +67,13 @@ enum{
 #define BLK_MARKER_BNODE (0xff)
 #define BLK_MARKER_DBHEADER (0xee)
 #define BLK_MARKER_DOC (0xdd)
+#define BLK_MARKER_SB (0xcc) // superblock
 #define BLK_MARKER_SIZE (1)
 #define DOCBLK_META_SIZE (16)
 struct docblk_meta {
     bid_t next_bid;
-    uint8_t reserved[7];
+    uint16_t sb_bmp_revnum_hash;
+    uint8_t reserved[5];
     uint8_t marker;
 };
 

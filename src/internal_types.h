@@ -494,6 +494,10 @@ struct _fdb_transaction {
      */
     uint64_t prev_hdr_bid;
     /**
+     * Rev number of the last header before the transaction begins.
+     */
+    uint64_t prev_revnum;
+    /**
      * List of dirty WAL items.
      */
     struct list *items;

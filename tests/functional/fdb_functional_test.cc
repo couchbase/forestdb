@@ -81,6 +81,8 @@ void basic_test()
     fdb_close(dbfile);
 
     // reopen db
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
     fdb_open(&dbfile, "./dummy1",&fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "basic_test");
@@ -371,12 +373,9 @@ void config_test()
 
         bcache_space_used = fdb_get_buffer_cache_used();
 
-        // Ensure just one block is used from the buffercache to store KV name
-        // DB header and it does not change since files are duly closed
-        TEST_CHK(bcache_space_used == fconfig.blocksize);
-        // We need to replace above check routine with following condition
-        // when V3 magic number is enabled:
-        //TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
+        // Since V3 magic number, 7 blocks are used:
+        // 4 superblocks + KV name header + Stale-tree root node + DB header
+        TEST_CHK(bcache_space_used == fconfig.blocksize * 7);
 
         status = fdb_close(dbfile);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -391,12 +390,10 @@ void config_test()
 
     bcache_space_used = fdb_get_buffer_cache_used();
 
-    // Two blocks must be used - 1 by DB header created earlier and
-    // One for the document block created by the fdb_set_kv
-    TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
-    // We need to replace above check routine with following condition
-    // when V3 magic number is enabled:
-    //TEST_CHK(bcache_space_used == fconfig.blocksize * 3);
+    // Since V3 magic number, 11 blocks are used:
+    // 7 blocks created eariler + KV name haeder + new Stale-tree root node +
+    // new DB header + document block for KV pair
+    TEST_CHK(bcache_space_used == fconfig.blocksize * 11);
 
     fdb_close(dbfile);
 

@@ -30,10 +30,18 @@
  *
  * @param handle Pointer to ForestDB KV store handle.
  * @param revnum Header revision number that will be stored as a key in stale tree.
+ * @param prev_hdr Currently up-to-date header BID.
+ * @param kv_info_offset Currently up-to-date KVS header doc offset.
+ * @param seqnum Currently up-to-date seq number of the default KVS.
+ * @param e_last Last (rightmost) stale region that should not be gathered at this time.
  * @return void.
  */
 void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
-                             filemgr_header_revnum_t revnum);
+                             filemgr_header_revnum_t revnum,
+                             bid_t prev_bid,
+                             uint64_t kv_info_offset,
+                             fdb_seqnum_t seqnum,
+                             struct list_elem *e_last);
 
 struct reusable_block {
     bid_t bid;

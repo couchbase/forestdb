@@ -86,6 +86,15 @@
 #define __FILEMGR_DATA_PARTIAL_LOCK
 //#define __FILEMGR_DATA_MUTEX_LOCK
 
+#define SB_DEFAULT_NUM_SUPERBLOCKS (4) // 4 superblocks for crash recovery
+#define SB_MAX_BITMAP_DOC_SIZE (1048576) // 1MB, 4M bitmaps per doc
+// Minimum file size for the condition that block reusing is triggered
+#define SB_MIN_BLOCK_REUSING_FILESIZE (16777216) // 16MB
+// Period that superblock is written into the file
+#define SB_SYNC_PERIOD (4194304) // sync for every 4MB update
+// Time limit for reusable block reclaim
+#define SB_RECLAIM_TIMELIMIT (100000) // 100 ms
+
 #define __BTREEBLK_BLOCKPOOL
 #define __BTREEBLK_SUBBLOCK
 //#define __BTREEBLK_READ_TREE // not used now, for future use

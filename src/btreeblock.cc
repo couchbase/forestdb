@@ -525,10 +525,12 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
                 // Mark all unused subblocks in the current parent block as stale
                 if (handle->sb[sb].bid != BLK_NOT_FOUND) {
                     for (i=0; i<handle->sb[sb].nblocks; ++i) {
-                        _btreeblk_add_stale_block(handle,
-                            (handle->sb[sb].bid * handle->nodesize)
-                                + (i * handle->sb[sb].sb_size),
-                            handle->sb[sb].sb_size);
+                        if (handle->sb[sb].bitmap[i] == 0) {
+                            _btreeblk_add_stale_block(handle,
+                                (handle->sb[sb].bid * handle->nodesize)
+                                    + (i * handle->sb[sb].sb_size),
+                                handle->sb[sb].sb_size);
+                        }
                     }
                 }
 
@@ -1094,7 +1096,9 @@ fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
 {
     int cmp;
     uint8_t *marker;
-    bid_t dirty_bid, commit_bid, cur_bid;
+    bid_t dirty_bid, commit_bid, cur_bid, filesize;
+    filemgr_header_revnum_t commit_bmp_revnum, latest_bmp_revnum;
+    filemgr_header_revnum_t cur_bmp_revnum;
     fdb_status fs;
     struct btreeblk_block *block = NULL;
     struct avl_tree *tree;
@@ -1127,7 +1131,37 @@ fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
 
     // scan dirty blocks
     // TODO: we need to devise more efficient way than scanning
-    for (cur_bid = commit_bid; cur_bid <= dirty_bid; cur_bid++) {
+    cur_bid = commit_bid;
+    commit_bmp_revnum = atomic_get_uint64_t(&handle->file->last_commit_bmp_revnum);
+    filesize = atomic_get_uint64_t(&handle->file->pos) / handle->file->blocksize;
+    if (handle->file->sb && handle->file->sb->bmp) {
+        latest_bmp_revnum = handle->file->sb->bmp_revnum;
+        if (handle->file->sb->cur_alloc_bid != BLK_NOT_FOUND) {
+            dirty_bid = handle->file->sb->cur_alloc_bid;
+        }
+    } else {
+        latest_bmp_revnum = commit_bmp_revnum;
+    }
+
+    // Note that scanning B+tree block can be done regardless of the order
+    cur_bmp_revnum = commit_bmp_revnum;
+    do {
+        if (cur_bmp_revnum == latest_bmp_revnum) {
+            // in this case, always 'commit_bid < dirty_bid'
+            if (cur_bid > dirty_bid) {
+                break;
+            }
+        } else if (cur_bmp_revnum < latest_bmp_revnum) {
+            // cur_bmp_revnum < latest_bmp_revnum
+            // in this case, commit_bid can be larger than dirty_bid
+            // and we need to scan in a circular manner
+            if (cur_bid > dirty_bid && cur_bid < commit_bid) {
+                break;
+            }
+        } else {
+            break;
+        }
+
         // read block from file (most dirty blocks may be cached)
         block->bid = cur_bid;
         if ((fs = filemgr_read(handle->file, block->bid, block->addr,
@@ -1152,7 +1186,17 @@ fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
                     calloc(1, sizeof(struct btreeblk_block));
             malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
         }
-    }
+
+        cur_bid++;
+        if (cur_bid >= filesize) {
+            cur_bmp_revnum++;
+            if (handle->file->sb) {
+                cur_bid = handle->file->sb->config->num_sb;
+            } else {
+                cur_bid = 0;
+            }
+        }
+    } while (true);
 
     // free unused block
     free_align(block->addr);

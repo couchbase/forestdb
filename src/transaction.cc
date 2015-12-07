@@ -86,6 +86,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         // there is no previous header until the compaction is done.
         handle->txn->prev_hdr_bid = BLK_NOT_FOUND;
     }
+    handle->txn->prev_revnum = handle->cur_header_revnum;
     handle->txn->items = (struct list *)malloc(sizeof(struct list));
     handle->txn->isolation = isolation_level;
     list_init(handle->txn->items);

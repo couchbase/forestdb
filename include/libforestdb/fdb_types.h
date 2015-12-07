@@ -461,6 +461,19 @@ typedef struct {
      * must be given, otherwise fdb_open will fail with error FDB_RESULT_NO_DB_HEADERS.
      */
     fdb_encryption_key encryption_key;
+    /**
+     * Circular block reusing threshold in the unit of percentage (%), which can be
+     * represented as '(stale data size)/(total file size)'. When stale data size
+     * grows beyond the threshold, circular block reusing is triggered so that stale
+     * blocks are reused for further block allocation. Block reusing is disabled if
+     * this threshold is set to zero or 100.
+     */
+    size_t block_reusing_threshold;
+    /**
+     * Number of the last commit headers whose stale blocks should be kept for
+     * snapshot readers.
+     */
+    size_t num_keeping_headers;
 
 } fdb_config;
 
