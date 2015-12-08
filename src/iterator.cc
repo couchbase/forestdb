@@ -1228,10 +1228,12 @@ fetch_hbtrie:
                     cmp = _fdb_key_cmp(iterator,
                                        iterator->end_key, iterator->end_keylen,
                                        snap_item->key, snap_item->keylen);
-                    if (cmp == 0) {
+                    if (cmp == 0 ||
                         // WAL cursor is positioned exactly at seeked end key
                         // but iterator must skip the end key!
                         // If hb+trie has an item, use that else return FAIL
+                        (cmp < 0 &&// WAL key out of range...
+                        !next_op)) { // Not called from fdb_iterator_seek_to_max
                         skip_wal = true;
                         iterator->status = FDB_ITR_WAL;
                     }
@@ -1288,10 +1290,12 @@ fetch_hbtrie:
                     cmp = _fdb_key_cmp(iterator,
                                   snap_item->key, snap_item->keylen,
                                   iterator->start_key, iterator->start_keylen);
-                    if (cmp == 0) {
+                    if (cmp == 0 ||
                         // WAL cursor is positioned exactly at seeked start key
                         // but iterator must skip the start key!
                         // If hb+trie has an item, use that else return FAIL
+                        (cmp < 0 && // WAL key out of range and
+                        !next_op)) { // Not called from fdb_iterator_seek_to_min
                         skip_wal = true;
                         iterator->status = FDB_ITR_WAL;
                     }
