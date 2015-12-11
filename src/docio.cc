@@ -518,6 +518,9 @@ INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
                         "Error in reading a doc block with id %" _F64 " from "
                         "a database file '%s'", bid, handle->file->filename);
             }
+            // we must reset 'lastbid' here because now 'readbuffer'
+            // may contain other data unrelated to 'lastbid'.
+            handle->lastbid = BLK_NOT_FOUND;
             return status;
         }
 
