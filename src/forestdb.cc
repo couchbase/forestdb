@@ -4185,14 +4185,17 @@ static uint64_t _fdb_calculate_throttling_delay(uint64_t n_moved_docs,
     gettimeofday(&cur_tv, NULL);
     gap = _utime_gap(tv, cur_tv);
     elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
-    // Set writer's delay = 4x of compactor's delay per doc
+    // Set writer's delay = 2x of compactor's delay per doc
     // For example,
     // 1) if compactor's speed is 10,000 docs/sec,
     // 2) then the average delay per doc is 100 us.
-    // 3) In this case, we set the writer sleep delay to 400 (= 4*100) us.
+    // 3) In this case, we set the writer sleep delay to 200 (= 2*100) us.
     // To avoid quick fluctuation of writer's delay,
     // we use the entire average speed of compactor, not an instant speed.
-    delay_us = elapsed_us * 4 / n_moved_docs;
+    delay_us = elapsed_us * 2 / n_moved_docs;
+    if (delay_us > 1000) { // Limit the max delay to 1ms
+        delay_us = 1000;
+    }
 
     return delay_us;
 }
