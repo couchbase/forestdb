@@ -3663,7 +3663,7 @@ void iterator_offset_access_test()
 
         // set in offset verification index
         s = fdb_set_kv(o_db, keybuf, strlen(keybuf),
-                        &doc[i]->offset, sizeof(uint64_t *));
+                        &doc[i]->offset, sizeof(uint64_t));
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
 
