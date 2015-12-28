@@ -68,6 +68,10 @@ struct superblock {
      */
     uint8_t *bmp;
     /**
+     * Bitmap index for fast searching of next reusable block.
+     */
+    struct avl_tree bmp_idx;
+    /**
      * Pointer to array of bitmap document offsets, where a bitmap document is a
      * system documents containing a part of the bitmap.
      */

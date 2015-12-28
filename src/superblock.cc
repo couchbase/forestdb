@@ -51,6 +51,146 @@
  * [block marker]:                        1 byte
  */
 
+
+/*
+ * << basic mask >>
+ * 0: 10000000
+ * 1: 01000000
+ *    ...
+ * 7: 00000001
+ */
+static uint8_t bmp_basic_mask[8];
+/*
+ * << 2d mask >>
+ * bmp_2d_mask[pos][len]
+ *
+ * 0,1: 10000000
+ * 0,2: 11000000
+ * 0,3: 11100000
+ *    ...
+ * 1,1: 01000000
+ * 1,2: 01100000
+ *    ...
+ * 3,1: 00010000
+ * 3,2: 00011000
+ *    ...
+ * 6,1: 00000010
+ * 6,2: 00000011
+ * 7,1: 00000001
+ */
+static uint8_t bmp_2d_mask[8][9];
+
+
+// x % 8
+#define mod8(x) ((x) & 0x7)
+// x / 8
+#define div8(x) ((x) >> 3)
+// rounding down (to the nearest 8)
+#define rd8(x) (((x) >> 3) << 3)
+
+
+struct bmp_idx_node {
+    uint64_t id;
+    struct avl_node avl;
+};
+
+INLINE int _bmp_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct bmp_idx_node *aa, *bb;
+    aa = _get_entry(a, struct bmp_idx_node, avl);
+    bb = _get_entry(b, struct bmp_idx_node, avl);
+
+#ifdef __BIT_CMP
+    return _CMP_U64(aa->id, bb->id);
+#else
+    if (aa->id < bb->id) {
+        return -1;
+    } else if (aa->id > bb->id) {
+        return 1;
+    } else {
+        return 0;
+    }
+#endif
+}
+
+static void _add_bmp_idx(struct avl_tree *bmp_idx, bid_t bid, bid_t count)
+{
+    bid_t cur, start_id, stop_id;
+    struct avl_node *a;
+    struct bmp_idx_node *item, query;
+
+    // 256 blocks per node
+    start_id = bid >> 8;
+    stop_id = (bid+count-1) >> 8;
+
+    for (cur=start_id; cur<=stop_id; ++cur) {
+        query.id = cur;
+        a = avl_search(bmp_idx, &query.avl, _bmp_idx_cmp);
+        if (a) {
+            // already exists .. do nothing
+        } else {
+            // create a node
+            item = (struct bmp_idx_node*)calloc(1, sizeof(struct bmp_idx_node));
+            item->id = query.id;
+            avl_insert(bmp_idx, &item->avl, _bmp_idx_cmp);
+        }
+    }
+}
+
+static void _free_bmp_idx(struct avl_tree *bmp_idx)
+{
+    // free all supplemental bmp idx nodes
+    struct avl_node *a;
+    struct bmp_idx_node *item;
+    a = avl_first(bmp_idx);
+    while (a) {
+        item = _get_entry(a, struct bmp_idx_node, avl);
+        a = avl_next(a);
+        avl_remove(bmp_idx, &item->avl);
+        free(item);
+    }
+}
+
+static void _construct_bmp_idx(struct avl_tree *bmp_idx, uint8_t *bmp, uint64_t bmp_size)
+{
+    uint64_t i, node_idx;
+    uint64_t *bmp64 = (uint64_t*)bmp;
+    struct bmp_idx_node *item;
+
+    // Since a single byte includes 8 bitmaps, an 8-byte integer contains 64 bitmaps.
+    // By converting bitmap array to uint64_t array, we can quickly verify if a
+    // 64-bitmap-group has at least one non-zero bit or not.
+    for (i=0; i<bmp_size/64; ++i) {
+        // in this loop, 'i' denotes bitmap group number.
+        node_idx = i/4;
+        if (bmp64[i]) {
+            item = (struct bmp_idx_node *)calloc(1, sizeof(struct bmp_idx_node));
+            item->id = node_idx;
+            avl_insert(bmp_idx, &item->avl, _bmp_idx_cmp);
+            // skip other bitmaps in the same bitmap index node
+            // (1 bitmap index node == 4 bitmap groups == 256 bitmaps)
+            i = (node_idx+1)*4;
+        }
+    }
+
+    // If there are remaining bitmaps, check if they are non-zero or not one by one.
+    if (bmp_size % 64) {
+        uint8_t idx, off;
+        for (i=(bmp_size/64)*64; i<bmp_size; ++i) {
+            // in this loop, 'i' denotes bitmap number (i.e., BID).
+            idx = div8(i);
+            off = mod8(i);
+            if (bmp[idx] & bmp_basic_mask[off]) {
+                node_idx = i >> 8;
+                item = (struct bmp_idx_node *)calloc(1, sizeof(struct bmp_idx_node));
+                item->id = node_idx;
+                avl_insert(bmp_idx, &item->avl, _bmp_idx_cmp);
+                i = (node_idx+1)*256;
+            }
+        }
+    }
+}
+
 INLINE size_t _bmp_size_to_num_docs(uint64_t bmp_size)
 {
     if (bmp_size) {
@@ -154,6 +294,8 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
             return FDB_RESULT_SB_READ_FAIL;
         }
     }
+
+    _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb->bmp_size);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -296,12 +438,17 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     }
     sb->bmp_size = num_blocks;
 
+    // free pre-existing bmp index
+    _free_bmp_idx(&sb->bmp_idx);
+
     for (i=0; i<blist.n_blocks; ++i) {
         sb_bmp_set(handle->file, blist.blocks[i].bid, blist.blocks[i].count);
         if (i==0 && sb->cur_alloc_bid == BLK_NOT_FOUND) {
             sb->cur_alloc_bid = blist.blocks[i].bid;
         }
         sb->num_free_blocks += blist.blocks[i].count;
+        // add info for supplementary bmp index
+        _add_bmp_idx(&sb->bmp_idx, blist.blocks[i].bid, blist.blocks[i].count);
     }
     free(blist.blocks);
 
@@ -313,33 +460,6 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     return true;
 }
 
-/*
- * << basic mask >>
- * 0: 10000000
- * 1: 01000000
- *    ...
- * 7: 00000001
- */
-static uint8_t bmp_basic_mask[8];
-/*
- * << 2d mask >>
- * bmp_2d_mask[pos][len]
- *
- * 0,1: 10000000
- * 0,2: 11000000
- * 0,3: 11100000
- *    ...
- * 1,1: 01000000
- * 1,2: 01100000
- *    ...
- * 3,1: 00010000
- * 3,2: 00011000
- *    ...
- * 6,1: 00000010
- * 6,2: 00000011
- * 7,1: 00000001
- */
-static uint8_t bmp_2d_mask[8][9];
 void sb_bmp_mask_init()
 {
     // preset masks to speed up bitmap set/clear operations
@@ -358,13 +478,6 @@ void sb_bmp_mask_init()
         }
     }
 }
-
-// x % 8
-#define mod8(x) ((x) & 0x7)
-// x / 8
-#define div8(x) ((x) >> 3)
-// rounding down (to the nearest 8)
-#define rd8(x) (((x) >> 3) << 3)
 
 INLINE void _sb_bmp_update(struct filemgr *file, bid_t bid, uint64_t len, int mode)
 {
@@ -431,20 +544,21 @@ INLINE void _sb_bmp_update(struct filemgr *file, bid_t bid, uint64_t len, int mo
 
 void sb_bmp_set(struct filemgr *file, bid_t bid, uint64_t len)
 {
-
     _sb_bmp_update(file, bid, len, 1);
 }
 
 void sb_bmp_clear(struct filemgr *file, bid_t bid, uint64_t len)
 {
-
     _sb_bmp_update(file, bid, len, 0);
 }
 
 bid_t sb_alloc_block(struct filemgr *file)
 {
+    uint64_t i, node_idx, node_off, bmp_idx, bmp_off;
     bid_t ret = BLK_NOT_FOUND;
     struct superblock *sb = file->sb;
+    struct avl_node *a;
+    struct bmp_idx_node *item, query;
 
     sb->num_alloc++;
     if (!file->sb->bmp ||
@@ -456,63 +570,46 @@ bid_t sb_alloc_block(struct filemgr *file)
     ret = sb->cur_alloc_bid;
     sb->num_free_blocks--;
 
-    // find next allocable BID
-    if (sb->num_free_blocks) {
-        uint64_t i, idx, offset;
-        bool next_loop = false;
-        // in the same byte
-        idx = div8(ret);
-        offset = mod8(ret)+1;
-        do {
-            for (i=offset; i<8; ++i) {
-                if (sb->bmp[idx] & bmp_basic_mask[i]) {
-                    sb->cur_alloc_bid = idx*8 + i;
-                    return ret;
-                }
-            }
-            next_loop = false;
-
-            for (i=div8(ret)+1; i<(sb->bmp_size+7)/8; ++i) {
-                if (sb->bmp[i]) {
-                    idx = i;
-                    offset = 0;
-                    next_loop = true;
-                    break;
-                }
-            }
-            if (next_loop) {
-                continue;
-            }
-
-            // No more free block in the current bitmap.
-            // We temporarily comment out this code block until find a more efficient
-            // way to manage bitmaps.
-            /*
-            // start over from zero (in a circular manner)
-            for (i=0; i<div8(ret); ++i) {
-                if (sb->bmp[i]) {
-                    idx = i;
-                    offset = 0;
-                    next_loop = true;
-                    break;
-                }
-            }
-            if (next_loop) {
-                continue;
-            }
-            */
-
-            // not found
-        } while (next_loop);
-
-        sb->cur_alloc_bid = BLK_NOT_FOUND;
-        sb->num_free_blocks = 0;
-
-        return ret;
-    } else {
+    if (sb->num_free_blocks == 0) {
         sb->cur_alloc_bid = BLK_NOT_FOUND;
         return BLK_NOT_FOUND;
     }
+
+    // find allocable block in the same bmp idx node
+    node_idx = ret >> 8;
+    node_off = (ret & 0xff)+1;
+    do {
+        for (i=node_off; i<256; ++i) {
+            bmp_idx = div8(i) + (node_idx * 32);
+            bmp_off = mod8(i);
+            if (sb->bmp[bmp_idx] & bmp_basic_mask[bmp_off]) {
+                sb->cur_alloc_bid = bmp_idx*8 + bmp_off;
+                return ret;
+            }
+        }
+
+        // current bmp_node does not include any free block .. remove
+        query.id = node_idx;
+        a = avl_search(&sb->bmp_idx, &query.avl, _bmp_idx_cmp);
+        if (a) {
+            item = _get_entry(a, struct bmp_idx_node, avl);
+            avl_remove(&sb->bmp_idx, a);
+            free(item);
+        }
+
+        // get next allocable bmp_node
+        a = avl_first(&sb->bmp_idx);
+        if (!a) {
+            // no more free bmp_node
+            sb->cur_alloc_bid = BLK_NOT_FOUND;
+            break;
+        }
+        item = _get_entry(a, struct bmp_idx_node, avl);
+        node_idx = item->id;
+        node_off = 0;
+    } while (true);
+
+    return BLK_NOT_FOUND;
 }
 
 INLINE bool _is_bmp_set(uint8_t *bmp, bid_t bid)
@@ -856,6 +953,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
 
 static void _sb_free(struct superblock *sb)
 {
+    _free_bmp_idx(&sb->bmp_idx);
     free(sb->bmp);
     free(sb->bmp_doc_offset);
     // note that each docio object doesn't need to be freed
@@ -907,6 +1005,7 @@ fdb_status sb_read_latest(struct filemgr *file,
     *file->sb->config = sconfig;
 
     file->sb->revnum++;
+    avl_init(&file->sb->bmp_idx, NULL);
 
     // free the other superblocks
     for (i=0; i<sconfig.num_sb; ++i) {
@@ -970,6 +1069,7 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
     file->sb->num_alloc = 0;
 
     file->version = ver_get_latest_magic();
+    avl_init(&file->sb->bmp_idx, NULL);
 
     // write initial superblocks
     for (i=0; i<file->sb->config->num_sb; ++i) {
