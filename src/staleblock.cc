@@ -37,7 +37,8 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
                              fdb_seqnum_t seqnum,
                              struct list_elem *e_last)
 {
-    int delta, r;
+    int64_t delta;
+    int r;
     uint32_t count = 0;
     uint32_t offset = 0, count_location;
     uint32_t bufsize = 8192;
@@ -185,9 +186,9 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
             }
         } // gather stale blocks
 
-        delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
+        delta = handle->bhandle->nlivenodes - stat.nlivenodes;
         _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
-        delta = (int)handle->bhandle->ndeltanodes - (int)stat.nlivenodes;
+        delta = handle->bhandle->ndeltanodes - stat.nlivenodes;
         delta *= handle->config.blocksize;
         _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
 
@@ -277,21 +278,18 @@ static void _insert_n_merge(struct avl_tree *tree,
 reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
                                            stale_header_info stale_header)
 {
-    int delta, r;
+    int64_t delta;
+    int r;
     uint8_t keybuf[64];
     uint32_t i;
     uint32_t count, _count, item_len;
     uint32_t n_revnums, max_revnum_array = 256;
     uint64_t pos, item_pos;
-    uint64_t kv_info_offset = BLK_NOT_FOUND, _kv_info_offset;
-    uint64_t prev_kv_info_offset = BLK_NOT_FOUND;
-    uint64_t dummy64;
     btree_iterator bit;
     btree_result br;
     filemgr_header_revnum_t revnum_upto, prev_revnum = 0;
     filemgr_header_revnum_t revnum = 0, _revnum;
     filemgr_header_revnum_t *revnum_array;
-    fdb_seqnum_t seqnum = 0, prev_seqnum = 0, _seqnum;
     bid_t offset, _offset, r_offset, prev_offset;
     bid_t prev_hdr = BLK_NOT_FOUND, _prev_hdr;
     struct docio_object doc;
@@ -367,23 +365,8 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             (void)prev_hdr;
             pos += sizeof(_prev_hdr);
 
-            // get kv_info_offset
-            memcpy(&_kv_info_offset, (uint8_t*)doc.body + pos, sizeof(_kv_info_offset));
-            dummy64 = _endian_decode(_kv_info_offset);
-            if (dummy64 != kv_info_offset) {
-                prev_kv_info_offset = kv_info_offset;
-                kv_info_offset = dummy64;
-            }
-            pos += sizeof(_kv_info_offset);
-
-            // get default seqnum
-            memcpy(&_seqnum, (uint8_t*)doc.body + pos, sizeof(_seqnum));
-            dummy64 = _endian_decode(_seqnum);
-            if (dummy64 != seqnum) {
-                prev_seqnum = seqnum;
-                seqnum = dummy64;
-            }
-            pos += sizeof(_seqnum);
+            // Skip kv_info_offset and default KVS's seqnum
+            pos += sizeof(uint64_t) + sizeof(fdb_seqnum_t);
 
             // get count;
             memcpy(&_count, (uint8_t*)doc.body + pos, sizeof(_count));
@@ -433,135 +416,9 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
         btreeblk_end(handle->bhandle);
     }
 
-    // remove corresponding seq numbers from seq-tree
-    while (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-           prev_hdr != BLK_NOT_FOUND) {
-        // (dummy loop for easy escape)
-
-        // we need to read header to get seq numbers for each KV stores
-        size_t keylen;
-        fdb_seqnum_t start_seqnum, end_seqnum;
-        fdb_seqnum_t dummy_seqnum, cur;
-        struct kvs_header *kv_header = NULL;
-
-        // get system doc corresponding to the header
-        if (prev_kv_info_offset != BLK_NOT_FOUND) {
-            _fdb_kvs_header_create(&kv_header);
-            fdb_kvs_header_read(kv_header, handle->dhandle,
-                                prev_kv_info_offset, handle->file->version, false);
-        } else {
-            if (handle->kvs) {
-                // prev header doesn't exist .. we don't need to remove seq numbers
-                break;
-            }
-        }
-        end_seqnum = prev_seqnum; // default KVS
-
-        // remove seq numbers upto the given headers
-        if (handle->kvs) {
-            // multi KVS mode .. trie
-            int size_id, size_seq;
-            uint8_t *kv_seqnum;
-            fdb_kvs_id_t _kv_id = 0;
-            hbtrie_iterator hit;
-            hbtrie_result hr;
-            struct avl_node *a = NULL;
-            struct kvs_node *kvs_node;
-
-            size_id = sizeof(fdb_kvs_id_t);
-            size_seq = sizeof(fdb_seqnum_t);
-            kv_seqnum = alca(uint8_t, size_id + size_seq);
-
-            // default KVS (KV ID == 0)
-            memset(kv_seqnum, 0x0, size_id + size_seq);
-
-            do { // loop for traversal of all KVS (including default KVS)
-                // 1st iteration (a==NULL): default KVS
-                // from 2nd iteration (a!=NULL): non-default KVS
-
-                // get the smallest seqnum of the KVS
-                do {
-                    hr = hbtrie_iterator_init(handle->seqtrie, &hit, kv_seqnum, size_id+size_seq);
-                    if (hr != HBTRIE_RESULT_SUCCESS) {
-                        break;
-                    }
-                    // get the first key
-                    hr = hbtrie_next_partial(&hit, kv_seqnum, &keylen, &dummy64);
-                    if (hr != HBTRIE_RESULT_SUCCESS) {
-                        btreeblk_end(handle->bhandle);
-                        hbtrie_iterator_free(&hit);
-                        break;
-                    }
-                    memcpy(&dummy_seqnum, kv_seqnum + size_id, size_seq);
-                    start_seqnum = _endian_decode(dummy_seqnum);
-                    btreeblk_end(handle->bhandle);
-                    hbtrie_iterator_free(&hit);
-
-                    // remove all seq numbers from 'start_seqnum' to 'end_seqnum'
-                    for (cur=start_seqnum; cur<=end_seqnum; ++cur) {
-                        dummy_seqnum = _endian_encode(cur);
-                        memcpy(kv_seqnum+size_id, &dummy_seqnum, sizeof(dummy_seqnum));
-                        // don't care if the key is already removed
-                        hr = hbtrie_remove_partial(handle->seqtrie, kv_seqnum, size_id + size_seq);
-                        btreeblk_end(handle->bhandle);
-                    }
-                } while (false); // dummy loop for easy escape
-
-                if (a == NULL) {
-                    // set the first non-default KVS for next iteration
-                    a = avl_first(kv_header->idx_id);
-                } else {
-                    a = avl_next(a);
-                }
-                if (a) {
-                    // set for next iteration
-                    kvs_node = _get_entry(a, struct kvs_node, avl_id);
-                    end_seqnum = kvs_node->seqnum;
-                    _kv_id = _endian_encode(kvs_node->id);
-                    memcpy(kv_seqnum, &_kv_id, size_id);
-                    memset(kv_seqnum+size_id, 0x0, size_seq);
-                }
-
-            } while (a);
-
-        } else {
-            // single kvs mode .. tree
-            btree_result br;
-
-            do {
-                // get the smallest seqnum
-                br = btree_iterator_init(handle->seqtree, &bit, NULL);
-                if (br != BTREE_RESULT_SUCCESS) {
-                    break;
-                }
-                // get the first key
-                br = btree_next(&bit, &dummy_seqnum, &dummy64);
-                if (br != BTREE_RESULT_SUCCESS) {
-                    break;
-                }
-                start_seqnum = _endian_decode(dummy_seqnum);
-                btreeblk_end(handle->bhandle);
-                btree_iterator_free(&bit);
-
-                // remove all seq numbers from 'start_seqnum' to 'end_seqnum'
-                for (cur=start_seqnum; cur<=end_seqnum; ++cur) {
-                    dummy_seqnum = _endian_encode(cur);
-                    br = btree_remove(handle->seqtree, &dummy_seqnum);
-                    btreeblk_end(handle->bhandle);
-                }
-
-            } while (false); // dummy loop for easy escape
-        }
-
-        if (kv_header) {
-            _fdb_kvs_header_free(kv_header);
-        }
-        break;
-    }
-
-    delta = (int)handle->bhandle->nlivenodes - (int)stat.nlivenodes;
+    delta = handle->bhandle->nlivenodes - stat.nlivenodes;
     _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
-    delta = (int)handle->bhandle->ndeltanodes - (int)stat.nlivenodes;
+    delta = handle->bhandle->ndeltanodes - stat.nlivenodes;
     delta *= handle->config.blocksize;
     _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
 

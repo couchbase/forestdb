@@ -73,7 +73,24 @@ struct wal_item{
     struct wal_item_header *header;
 };
 
-typedef fdb_status wal_flush_func(void *dbhandle, struct wal_item *item);
+typedef fdb_status wal_flush_func(void *dbhandle, struct wal_item *item,
+                                  struct avl_tree *stale_seqnum_list,
+                                  struct avl_tree *kvs_delta_stats);
+
+/**
+ * Pointer of function that purges stale entries from the sequence tree
+ * as part of WAL flush.
+ */
+typedef void wal_flush_seq_purge_func(void *dbhandle,
+                                      struct avl_tree *stale_seqnum_list,
+                                      struct avl_tree *kvs_delta_stats);
+
+/**
+ * Pointer of function that updates a KV store stats for each WAL flush
+ */
+typedef void wal_flush_kvs_delta_stats_func(struct filemgr *file,
+                                            avl_tree *kvs_delta_stats);
+
 typedef fdb_status wal_snapshot_func(void *shandle, fdb_doc *doc,
                                      uint64_t offset);
 typedef uint64_t wal_get_old_offset_func(void *dbhandle,
@@ -129,6 +146,7 @@ union wal_flush_items {
     struct list list; // if WAL items need not be sorted
 };
 
+
 fdb_status wal_init(struct filemgr *file, int nbucket);
 int wal_is_initialized(struct filemgr *file);
 fdb_status wal_insert(fdb_txn *txn,
@@ -157,16 +175,56 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *
                       err_log_callback *log_callback);
 fdb_status wal_release_flushed_items(struct filemgr *file,
                                      union wal_flush_items *flush_items);
+
+/**
+ * Flush WAL entries into the main indexes (i.e., hbtrie and sequence tree)
+ *
+ * @param file Pointer to the file manager
+ * @param dbhandle Pointer to the KV store handle
+ * @param flush_func Pointer of function that flushes each WAL entry into the
+ *                   main indexes
+ * @param get_old_offset Pointer of function that retrieves an offset of the
+ *                       old KV item from the hbtrie
+ * @param seq_purge_func Pointer of function that purges an old entry with the
+ *                       same key from the sequence tree
+ * @param delta_stats_func Pointer of function that updates each KV store's stats
+ * @param flush_items Pointer to the list that contains the list of all WAL entries
+ *                    that are flushed into the main indexes
+ * @return FDB_RESULT upon successful WAL flush
+ */
 fdb_status wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
+                     wal_flush_seq_purge_func *seq_purge_func,
+                     wal_flush_kvs_delta_stats_func *delta_stats_func,
                      union wal_flush_items *flush_items);
+
+/**
+ * Flush WAL entries into the main indexes (i.e., hbtrie and sequence tree)
+ * by the compactor
+ *
+ * @param file Pointer to the file manager
+ * @param dbhandle Pointer to the KV store handle
+ * @param flush_func Pointer of function that flushes each WAL entry into the
+ *                   main indexes
+ * @param get_old_offset Pointer of function that retrieves an offset of the
+ *                       old KV item from the hbtrie
+ * @param seq_purge_func Pointer of function that purges an old entry with the
+ *                       same key from the sequence tree
+ * @param delta_stats_func Pointer of function that updates each KV store's stats
+ * @param flush_items Pointer to the list that contains the list of all WAL entries
+ *                    that are flushed into the main indexes
+ * @return FDB_RESULT upon successful WAL flush
+ */
 fdb_status wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
+                                  wal_flush_seq_purge_func *seq_purge_func,
+                                  wal_flush_kvs_delta_stats_func *delta_stats_func,
                                   union wal_flush_items *flush_items);
+
 fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
                         fdb_seqnum_t *upto_seq,

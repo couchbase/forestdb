@@ -2368,9 +2368,15 @@ void rollback_forward_seqnum()
     do {
         status = fdb_iterator_get(it, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        status = fdb_get_metaonly_byseq(kv1, rdoc);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(rdoc->deleted == false);
+        if (rdoc->seqnum != (uint64_t)n+1) {
+            status = fdb_get_metaonly_byseq(kv1, rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(rdoc->deleted == false);
+        } else {
+            status = fdb_get_metaonly(kv1, rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(rdoc->deleted == true);
+        }
         fdb_doc_free(rdoc);
         rdoc = NULL;
     } while(fdb_iterator_next(it) != FDB_RESULT_ITERATOR_FAIL);

@@ -876,11 +876,14 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
 }
 
 INLINE fdb_status _wal_do_flush(struct wal_item *item,
-                                wal_flush_func *flush_func, void *dbhandle)
+                                wal_flush_func *flush_func,
+                                void *dbhandle,
+                                struct avl_tree *stale_seqnum_list,
+                                struct avl_tree *kvs_delta_stats)
 {
     // check weather this item is updated after insertion into tree
     if (item->flag & WAL_ITEM_FLUSH_READY) {
-        fdb_status fs = flush_func(dbhandle, item);
+        fdb_status fs = flush_func(dbhandle, item, stale_seqnum_list, kvs_delta_stats);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_kvs_handle *handle = (fdb_kvs_handle *) dbhandle;
             fdb_log(&handle->log_callback, fs,
@@ -938,6 +941,8 @@ static fdb_status _wal_flush(struct filemgr *file,
                              void *dbhandle,
                              wal_flush_func *flush_func,
                              wal_get_old_offset_func *get_old_offset,
+                             wal_flush_seq_purge_func *seq_purge_func,
+                             wal_flush_kvs_delta_stats_func *delta_stats_func,
                              union wal_flush_items *flush_items,
                              bool by_compactor)
 {
@@ -1018,17 +1023,23 @@ static fdb_status _wal_flush(struct filemgr *file,
     }
 
     filemgr_set_io_inprog(file); // MB-16622:prevent parallel writes by flusher
+    fdb_status fs = FDB_RESULT_SUCCESS;
+    struct avl_tree stale_seqnum_list;
+    struct avl_tree kvs_delta_stats;
+    avl_init(&stale_seqnum_list, NULL);
+    avl_init(&kvs_delta_stats, NULL);
+
     // scan and flush entries in the avl-tree or list
     if (do_sort) {
         struct avl_node *a = avl_first(tree);
         while (a) {
             item = _get_entry(a, struct wal_item, avl_flush);
             a = avl_next(a);
-            fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
+            fs = _wal_do_flush(item, flush_func, dbhandle,
+                               &stale_seqnum_list, &kvs_delta_stats);
             if (fs != FDB_RESULT_SUCCESS) {
                 _wal_restore_root_info(dbhandle, &root_info);
-                filemgr_clear_io_inprog(file);
-                return fs;
+                break;
             }
         }
     } else {
@@ -1036,26 +1047,34 @@ static fdb_status _wal_flush(struct filemgr *file,
         while (a) {
             item = _get_entry(a, struct wal_item, list_elem_flush);
             a = list_next(a);
-            fdb_status fs = _wal_do_flush(item, flush_func, dbhandle);
+            fs = _wal_do_flush(item, flush_func, dbhandle,
+                               &stale_seqnum_list, &kvs_delta_stats);
             if (fs != FDB_RESULT_SUCCESS) {
                 _wal_restore_root_info(dbhandle, &root_info);
-                filemgr_clear_io_inprog(file);
-                return fs;
+                break;
             }
         }
     }
-    filemgr_clear_io_inprog(file);
 
-    return FDB_RESULT_SUCCESS;
+    // Remove all stale seq entries from the seq tree
+    seq_purge_func(dbhandle, &stale_seqnum_list, &kvs_delta_stats);
+    // Update each KV store stats after WAL flush
+    delta_stats_func(file, &kvs_delta_stats);
+
+    filemgr_clear_io_inprog(file);
+    return fs;
 }
 
 fdb_status wal_flush(struct filemgr *file,
                      void *dbhandle,
                      wal_flush_func *flush_func,
                      wal_get_old_offset_func *get_old_offset,
+                     wal_flush_seq_purge_func *seq_purge_func,
+                     wal_flush_kvs_delta_stats_func *delta_stats_func,
                      union wal_flush_items *flush_items)
 {
     return _wal_flush(file, dbhandle, flush_func, get_old_offset,
+                      seq_purge_func, delta_stats_func,
                       flush_items, false);
 }
 
@@ -1063,9 +1082,12 @@ fdb_status wal_flush_by_compactor(struct filemgr *file,
                                   void *dbhandle,
                                   wal_flush_func *flush_func,
                                   wal_get_old_offset_func *get_old_offset,
+                                  wal_flush_seq_purge_func *seq_purge_func,
+                                  wal_flush_kvs_delta_stats_func *delta_stats_func,
                                   union wal_flush_items *flush_items)
 {
     return _wal_flush(file, dbhandle, flush_func, get_old_offset,
+                      seq_purge_func, delta_stats_func,
                       flush_items, true);
 }
 
