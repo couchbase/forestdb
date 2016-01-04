@@ -952,7 +952,7 @@ fdb_snapshot_open_start:
             }
         }
     }
-    LATENCY_STAT_END(handle->file, FDB_LATENCY_SNAPSHOTS);
+    LATENCY_STAT_END(file, FDB_LATENCY_SNAPSHOTS);
     return fs;
 }
 
