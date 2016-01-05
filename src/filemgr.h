@@ -350,11 +350,13 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
  * @param file Pointer to filemgr handle.
  * @param bid ID of the block that DB header will be written. If this value is set to
  *        BLK_NOT_FOUND, then DB header is appended at the end of the file.
+ * @param bmp_revnum Revision number of superblock's bitmap when this commit is called.
  * @param sync Flag for calling fsync().
  * @param log_callback Pointer to log callback function.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid, bool sync,
+fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
+                              uint64_t bmp_revnum, bool sync,
                               err_log_callback *log_callback);
 fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
                         err_log_callback *log_callback);

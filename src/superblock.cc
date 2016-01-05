@@ -34,21 +34,22 @@
 /*
  * << super block structure >>
  *
- * [file version (magic number)]:         8 bytes
- * [super block revision number]:         8 bytes
- * [bitmap revision number]:              8 bytes
- * [BID for next allocation]:             8 bytes
- * [last header BID]:                     8 bytes
- * [last header revnum]:                  8 bytes
- * [min active header revnum]:            8 bytes
- * [min active header BID]:               8 bytes
- * [# initial free blocks in the bitmap]: 8 bytes
- * [# free blocks in the bitmap]:         8 bytes
- * [bitmap size]:                         8 bytes
- * ... [bitmap doc offset]:               8 bytes each
- * [CRC32]:                               4 bytes
+ * 0x00 [file version (magic number)]:           8 bytes
+ * 0x08 [super block revision number]:           8 bytes
+ * 0x10 [bitmap revision number]:                8 bytes
+ * 0x18 [BID for next allocation]:               8 bytes
+ * 0x20 [last header BID]:                       8 bytes
+ * 0x28 [last header revnum]:                    8 bytes
+ * 0x30 [min active header revnum]:              8 bytes
+ * 0x38 [min active header BID]:                 8 bytes
+ * 0x40 [# initial free blocks in the bitmap]:   8 bytes
+ * 0x48 [# free blocks in the bitmap]:           8 bytes
+ * 0x50 [bitmap size]:                           8 bytes
+ * 0x58 [reserved bitmap size (0 if not exist)]: 8 bytes
+ * 0x60 ... [bitmap doc offset]:                 8 bytes each
+ *      [CRC32]:                                 4 bytes
  * ...
- * [block marker]:                        1 byte
+ *      [block marker]:                          1 byte
  */
 
 
@@ -87,7 +88,6 @@ static uint8_t bmp_2d_mask[8][9];
 #define div8(x) ((x) >> 3)
 // rounding down (to the nearest 8)
 #define rd8(x) (((x) >> 3) << 3)
-
 
 struct bmp_idx_node {
     uint64_t id;
@@ -236,7 +236,7 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
     for (i=0; i<num_docs; ++i) {
         // append a system doc for bitmap chunk
         memset(&sb->bmp_docs[i], 0x0, sizeof(struct docio_object));
-        sprintf(doc_key, "bitmap_%" _F64 "_%d", sb->revnum, (int)i);
+        sprintf(doc_key, "bitmap_%" _F64 "_%d", sb->bmp_revnum, (int)i);
         sb->bmp_docs[i].key = (void*)doc_key;
         sb->bmp_docs[i].meta = NULL;
         sb->bmp_docs[i].body = sb->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
@@ -257,6 +257,46 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
     }
 }
 
+void sb_rsv_append_doc(fdb_kvs_handle *handle)
+{
+    size_t i;
+    uint64_t num_docs;
+    char doc_key[64];
+    struct superblock *sb = handle->file->sb;
+    struct sb_rsv_bmp *rsv = sb->rsv_bmp;
+
+    rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
+    if (num_docs) {
+        rsv->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
+        rsv->bmp_docs = (struct docio_object*)
+                        calloc(num_docs, sizeof(struct docio_object));
+    }
+
+    // bitmap doc offsets
+    for (i=0; i<num_docs; ++i) {
+        // append a system doc for bitmap chunk
+        memset(&rsv->bmp_docs[i], 0x0, sizeof(struct docio_object));
+        sprintf(doc_key, "bitmap_%" _F64 "_%d", rsv->bmp_revnum, (int)i);
+        rsv->bmp_docs[i].key = (void*)doc_key;
+        rsv->bmp_docs[i].meta = NULL;
+        rsv->bmp_docs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
+
+        rsv->bmp_docs[i].length.keylen = strlen(doc_key)+1;
+        rsv->bmp_docs[i].length.metalen = 0;
+        if (i == num_docs - 1) {
+            // the last doc
+            rsv->bmp_docs[i].length.bodylen =
+                (rsv->bmp_size / 8) % SB_MAX_BITMAP_DOC_SIZE;
+        } else {
+            // otherwise: 1MB
+            rsv->bmp_docs[i].length.bodylen = SB_MAX_BITMAP_DOC_SIZE;
+        }
+        rsv->bmp_docs[i].seqnum = 0;
+        rsv->bmp_doc_offset[i] =
+            docio_append_doc_system(handle->dhandle, &rsv->bmp_docs[i]);
+    }
+}
+
 fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 {
     // == read bitmap from system docs ==
@@ -264,6 +304,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
     uint64_t num_docs, r_offset;
     char doc_key[64];
     struct superblock *sb = handle->file->sb;
+    struct sb_rsv_bmp *rsv = sb->rsv_bmp;
 
     // skip if previous bitmap exists
     if (sb->bmp) {
@@ -276,7 +317,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
     }
 
     free(sb->bmp);
-    sb->bmp = (uint8_t*)calloc(1, sb->bmp_size / 8);
+    sb->bmp = (uint8_t*)calloc(1, (sb->bmp_size+7) / 8);
 
     for (i=0; i<num_docs; ++i) {
         memset(&sb->bmp_docs[i], 0x0, sizeof(struct docio_object));
@@ -297,6 +338,37 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 
     _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb->bmp_size);
 
+    if (rsv) {
+        // reserved bitmap exists
+        rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
+        if (!num_docs) {
+            return FDB_RESULT_SUCCESS;
+        }
+
+        rsv->bmp = (uint8_t*)calloc(1, (rsv->bmp_size+7) / 8);
+
+        for (i=0; i<num_docs; ++i) {
+
+            memset(&rsv->bmp_docs[i], 0x0, sizeof(struct docio_object));
+            // pre-allocated buffer for key
+            rsv->bmp_docs[i].key = (void*)doc_key;
+            // directly point to the (reserved) bitmap
+            rsv->bmp_docs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
+
+            r_offset = docio_read_doc(handle->dhandle, rsv->bmp_doc_offset[i],
+                                      &rsv->bmp_docs[i], true);
+            if (r_offset == rsv->bmp_doc_offset[i]) {
+                // read fail
+                free(rsv->bmp);
+                free(sb->bmp);
+                rsv->bmp = sb->bmp = NULL;
+                return FDB_RESULT_SB_READ_FAIL;
+            }
+        }
+
+        _construct_bmp_idx(&rsv->bmp_idx, rsv->bmp, rsv->bmp_size);
+    }
+
     return FDB_RESULT_SUCCESS;
 }
 
@@ -315,6 +387,13 @@ void sb_update_header(fdb_kvs_handle *handle)
     if (handle->file->sb) {
         handle->file->sb->last_hdr_bid = handle->last_hdr_bid;
         handle->file->sb->last_hdr_revnum = handle->cur_header_revnum;
+
+        uint64_t lc_revnum = atomic_get_uint64_t(&handle->file->last_commit_bmp_revnum);
+        if (lc_revnum == handle->file->sb->bmp_revnum &&
+            handle->file->sb->bmp_prev) {
+            free(handle->file->sb->bmp_prev);
+            handle->file->sb->bmp_prev = NULL;
+        }
     }
 }
 
@@ -333,7 +412,8 @@ fdb_status sb_sync_circular(fdb_kvs_handle *handle)
     return fs;
 }
 
-bool sb_check_block_reusing(fdb_kvs_handle *handle)
+sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
+
 {
     // start block reusing when
     // 1) if blocks are not reused yet in this file:
@@ -347,59 +427,65 @@ bool sb_check_block_reusing(fdb_kvs_handle *handle)
     struct superblock *sb = handle->file->sb;
 
     if (!sb) {
-        return false;
+        return SBD_NONE;
     }
 
     if (filemgr_get_file_status(handle->file) != FILE_NORMAL) {
         // being compacted file does not allow block reusing
-        return false;
+        return SBD_NONE;
     }
 
     if (handle->config.block_reusing_threshold == 0 ||
         handle->config.block_reusing_threshold >= 100) {
         // circular block reusing is disabled
-        return false;
+        return SBD_NONE;
     }
 
     filesize = filemgr_get_pos(handle->file);
     if (filesize < SB_MIN_BLOCK_REUSING_FILESIZE) {
-        return false;
+        return SBD_NONE;
     }
 
     // at least # keeping headers should exist
     // since the last block reusing
     if (handle->cur_header_revnum <=
             sb->min_live_hdr_revnum + handle->config.num_keeping_headers) {
-        return false;
+        return SBD_NONE;
     }
 
     live_datasize = fdb_estimate_space_used(handle->fhandle);
     if (filesize == 0 || live_datasize == 0 ||
         live_datasize > filesize) {
-        return false;
+        return SBD_NONE;
     }
 
     ratio = (filesize - live_datasize) * 100 / filesize;
 
-    if (sb->bmp == NULL) {
-        // block reusing has not been started yet
-
-        if (ratio > handle->config.block_reusing_threshold) {
-            return true;
-        }
-    } else {
-        // stale blocks are already being reused before
-
-        // In the current implementation, for data consistency issue, block reusing is
-        // triggered only when there is no more free block in the current bitmap. We
-        // will address this issue in a separate commit soon.
-        if (sb->num_free_blocks == 0 &&
-            ratio > handle->config.block_reusing_threshold) {
-            return true;
+    if (ratio > handle->config.block_reusing_threshold) {
+        if (sb->bmp == NULL) {
+            // block reusing has not been started yet
+            return SBD_RECLAIM;
+        } else {
+            // stale blocks are already being reused before
+            if (sb->num_free_blocks == 0) {
+                if (sb->rsv_bmp) {
+                    // reserved bitmap exists
+                    return SBD_SWITCH;
+                } else {
+                    // re-reclaim
+                    return SBD_RECLAIM;
+                }
+            } else if ( (sb->num_free_blocks * 100 <
+                         sb->num_init_free_blocks * SB_PRE_RECLAIM_RATIO)) {
+                if (sb->num_init_free_blocks * handle->file->config->blocksize >
+                    SB_MIN_BLOCK_REUSING_FILESIZE)  {
+                    return SBD_RESERVE;
+                }
+            }
         }
     }
 
-    return false;
+    return SBD_NONE;
 }
 
 bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
@@ -433,7 +519,7 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
                 sb->bmp = (uint8_t*)realloc(sb->bmp, bmp_size_byte);
             }
             // clear previous bitmap (including newly allocated region) to zero
-            sb_bmp_clear(handle->file, 0, num_blocks);
+            sb_bmp_clear(sb->bmp, 0, num_blocks);
         }
     }
     sb->bmp_size = num_blocks;
@@ -442,7 +528,7 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     _free_bmp_idx(&sb->bmp_idx);
 
     for (i=0; i<blist.n_blocks; ++i) {
-        sb_bmp_set(handle->file, blist.blocks[i].bid, blist.blocks[i].count);
+        sb_bmp_set(sb->bmp, blist.blocks[i].bid, blist.blocks[i].count);
         if (i==0 && sb->cur_alloc_bid == BLK_NOT_FOUND) {
             sb->cur_alloc_bid = blist.blocks[i].bid;
         }
@@ -456,6 +542,58 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     sb->min_live_hdr_bid = sheader.bid;
     sb->bmp_revnum++;
     sb->num_init_free_blocks = sb->num_free_blocks;
+
+    return true;
+}
+
+bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
+{
+    size_t i;
+    uint64_t num_blocks, bmp_size_byte;
+    stale_header_info sheader;
+    reusable_block_list blist;
+    struct superblock *sb = handle->file->sb;
+    struct sb_rsv_bmp *rsv = NULL;
+
+    if (sb->rsv_bmp) {
+        // next bitmap already reclaimed
+        return false;
+    }
+
+    sheader = fdb_get_smallest_active_header(handle);
+    if (sheader.bid == BLK_NOT_FOUND) {
+        return false;
+    }
+
+    // get reusable block list
+    blist = fdb_get_reusable_block(handle, sheader);
+
+    // calculate bitmap size
+    num_blocks = filemgr_get_pos(handle->file) / handle->file->blocksize;
+    bmp_size_byte = (num_blocks+7) / 8;
+    if (num_blocks) {
+        rsv = (struct sb_rsv_bmp*)calloc(1, sizeof(struct sb_rsv_bmp));
+        rsv->bmp = (uint8_t*)calloc(1, bmp_size_byte);
+        rsv->cur_alloc_bid = BLK_NOT_FOUND;
+
+        avl_init(&rsv->bmp_idx, NULL);
+        rsv->bmp_size = num_blocks;
+
+        for (i=0; i<blist.n_blocks; ++i) {
+            sb_bmp_set(rsv->bmp, blist.blocks[i].bid, blist.blocks[i].count);
+            if (i==0 && rsv->cur_alloc_bid == BLK_NOT_FOUND) {
+                rsv->cur_alloc_bid = blist.blocks[i].bid;
+            }
+            rsv->num_free_blocks += blist.blocks[i].count;
+            _add_bmp_idx(&rsv->bmp_idx, blist.blocks[i].bid, blist.blocks[i].count);
+        }
+        free(blist.blocks);
+
+        rsv->min_live_hdr_revnum = sheader.revnum;
+        rsv->min_live_hdr_bid = sheader.bid;
+        rsv->bmp_revnum = sb->bmp_revnum+1;
+        sb->rsv_bmp = rsv;
+    }
 
     return true;
 }
@@ -479,14 +617,13 @@ void sb_bmp_mask_init()
     }
 }
 
-INLINE void _sb_bmp_update(struct filemgr *file, bid_t bid, uint64_t len, int mode)
+INLINE void _sb_bmp_update(uint8_t *bmp, bid_t bid, uint64_t len, int mode)
 {
     // mode==0: bitmap clear
     // mode==1: bitmap set
 
     uint64_t front_pos, front_len, rear_pos, rear_len;
     uint64_t mid_pos, mid_len;
-    struct superblock *sb = file->sb;
 
     //      front_len        rear_len
     //      <->              <-->
@@ -511,17 +648,17 @@ INLINE void _sb_bmp_update(struct filemgr *file, bid_t bid, uint64_t len, int mo
     // front bitmaps
     if (front_len) {
         if (mode) {
-            sb->bmp[div8(front_pos)] |= bmp_2d_mask[mod8(front_pos)][front_len];
+            bmp[div8(front_pos)] |= bmp_2d_mask[mod8(front_pos)][front_len];
         } else {
-            sb->bmp[div8(front_pos)] &= ~bmp_2d_mask[mod8(front_pos)][front_len];
+            bmp[div8(front_pos)] &= ~bmp_2d_mask[mod8(front_pos)][front_len];
         }
     }
     // rear bitmaps
     if (rear_len) {
         if (mode) {
-            sb->bmp[div8(rear_pos)] |= bmp_2d_mask[mod8(rear_pos)][rear_len];
+            bmp[div8(rear_pos)] |= bmp_2d_mask[mod8(rear_pos)][rear_len];
         } else {
-            sb->bmp[div8(rear_pos)] &= ~bmp_2d_mask[mod8(rear_pos)][rear_len];
+            bmp[div8(rear_pos)] &= ~bmp_2d_mask[mod8(rear_pos)][rear_len];
         }
     }
 
@@ -529,27 +666,82 @@ INLINE void _sb_bmp_update(struct filemgr *file, bid_t bid, uint64_t len, int mo
     uint8_t mask = (mode)?(0xff):(0x0);
     if (mid_len == 8) {
         // 8 bitmaps (1 byte)
-        sb->bmp[div8(mid_pos)] = mask;
+        bmp[div8(mid_pos)] = mask;
     } else if (mid_len < 64) {
         // 16 ~ 56 bitmaps (2 ~ 7 bytes)
         size_t i;
         for (i=0; i<mid_len; i+=8) {
-            sb->bmp[div8(mid_pos+i)] = mask;
+            bmp[div8(mid_pos+i)] = mask;
         }
     } else {
         // larger than 64 bitmaps (8 bytes)
-        memset(sb->bmp + div8(mid_pos), mask, div8(mid_len));
+        memset(bmp + div8(mid_pos), mask, div8(mid_len));
     }
 }
 
-void sb_bmp_set(struct filemgr *file, bid_t bid, uint64_t len)
+void sb_bmp_set(uint8_t *bmp, bid_t bid, uint64_t len)
 {
-    _sb_bmp_update(file, bid, len, 1);
+    _sb_bmp_update(bmp, bid, len, 1);
 }
 
-void sb_bmp_clear(struct filemgr *file, bid_t bid, uint64_t len)
+void sb_bmp_clear(uint8_t *bmp, bid_t bid, uint64_t len)
 {
-    _sb_bmp_update(file, bid, len, 0);
+    _sb_bmp_update(bmp, bid, len, 0);
+}
+
+bool sb_switch_reserved_blocks(struct filemgr *file)
+{
+    size_t i;
+    struct superblock *sb = file->sb;
+    struct sb_rsv_bmp *rsv = sb->rsv_bmp;
+
+    // reserved block should exist
+    if (!sb->rsv_bmp) {
+        return false;
+    }
+
+    // mark stale previous system docs
+    if (sb->bmp_doc_offset) {
+        for (i=0; i<sb->num_bmp_docs; ++i) {
+            filemgr_mark_stale(file, sb->bmp_doc_offset[i],
+                _fdb_get_docsize(sb->bmp_docs[i].length));
+        }
+
+        free(sb->bmp_doc_offset);
+        free(sb->bmp_docs);
+        sb->bmp_doc_offset = NULL;
+        sb->bmp_docs = NULL;
+    }
+
+    // should flush all dirty blocks in cache
+    filemgr_sync(file, false, NULL);
+
+    // free current bitmap idx
+    _free_bmp_idx(&sb->bmp_idx);
+    // temporarily keep current bitmap
+    if (sb->bmp_prev) {
+        free(sb->bmp_prev);
+    }
+    sb->bmp_prev = sb->bmp;
+    sb->bmp_prev_size = sb->bmp_size;
+
+    // copy all pointers from rsv to sb
+    sb->bmp_revnum = rsv->bmp_revnum;
+    sb->bmp_size = rsv->bmp_size;
+    sb->bmp = rsv->bmp;
+    sb->bmp_idx = rsv->bmp_idx;
+    sb->bmp_doc_offset = rsv->bmp_doc_offset;
+    sb->bmp_docs = rsv->bmp_docs;
+    sb->num_bmp_docs = rsv->num_bmp_docs;
+    sb->num_free_blocks = sb->num_init_free_blocks = rsv->num_free_blocks;
+    sb->cur_alloc_bid = rsv->cur_alloc_bid;
+    sb->min_live_hdr_revnum = rsv->min_live_hdr_revnum;
+    sb->min_live_hdr_bid = rsv->min_live_hdr_bid;
+
+    free(sb->rsv_bmp);
+    sb->rsv_bmp = NULL;
+
+    return true;
 }
 
 bid_t sb_alloc_block(struct filemgr *file)
@@ -561,18 +753,37 @@ bid_t sb_alloc_block(struct filemgr *file)
     struct bmp_idx_node *item, query;
 
     sb->num_alloc++;
-    if (!file->sb->bmp ||
-        file->sb->num_free_blocks == 0) {
-        // no reusable block in the bitmap
+sb_alloc_start_over:
+    if (!sb->bmp) {
+        // no bitmap
         return BLK_NOT_FOUND;
+    }
+
+    if (sb->num_free_blocks == 0) {
+        bool switched = false;
+        if (sb->rsv_bmp) {
+            switched = sb_switch_reserved_blocks(file);
+        }
+        if (switched) {
+            goto sb_alloc_start_over;
+        } else {
+            sb->cur_alloc_bid = BLK_NOT_FOUND;
+            return BLK_NOT_FOUND;
+        }
     }
 
     ret = sb->cur_alloc_bid;
     sb->num_free_blocks--;
 
     if (sb->num_free_blocks == 0) {
-        sb->cur_alloc_bid = BLK_NOT_FOUND;
-        return BLK_NOT_FOUND;
+        bool switched = false;
+        if (sb->rsv_bmp) {
+            switched = sb_switch_reserved_blocks(file);
+        }
+        if (!switched) {
+            sb->cur_alloc_bid = BLK_NOT_FOUND;
+        }
+        return ret;
     }
 
     // find allocable block in the same bmp idx node
@@ -601,7 +812,14 @@ bid_t sb_alloc_block(struct filemgr *file)
         a = avl_first(&sb->bmp_idx);
         if (!a) {
             // no more free bmp_node
-            sb->cur_alloc_bid = BLK_NOT_FOUND;
+            sb->num_free_blocks = 0;
+            bool switched = false;
+            if (sb->rsv_bmp) {
+                switched = sb_switch_reserved_blocks(file);
+            }
+            if (!switched) {
+                sb->cur_alloc_bid = BLK_NOT_FOUND;
+            }
             break;
         }
         item = _get_entry(a, struct bmp_idx_node, avl);
@@ -609,7 +827,7 @@ bid_t sb_alloc_block(struct filemgr *file)
         node_off = 0;
     } while (true);
 
-    return BLK_NOT_FOUND;
+    return ret;
 }
 
 INLINE bool _is_bmp_set(uint8_t *bmp, bid_t bid)
@@ -651,11 +869,15 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
 
         if (bid < sb->bmp_size) {
             // BID is in the bitmap .. check if bitmap is set.
-            return _is_bmp_set(sb->bmp, bid) &&
-                   bid < sb->cur_alloc_bid && bid >= last_commit;
+            if (_is_bmp_set(sb->bmp, bid) &&
+                bid < sb->cur_alloc_bid && bid >= last_commit) {
+                return true;
+            }
         } else {
             // BID is out-of-range of the bitmap
-            return bid >= last_commit;
+            if (bid >= last_commit) {
+                return true;
+            }
         }
     } else {
         // Different bitmap revision number: there are also 2 possible cases
@@ -681,10 +903,39 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
         // the block is writable if
         // 1) BID >= last_commit OR
         // 2) BID < cur_alloc_bid AND corresponding bitmap is set.
-        return bid >= last_commit ||
-               ( _is_bmp_set(sb->bmp, bid) &&
-                 bid < sb->cur_alloc_bid );
+        if (bid >= last_commit) {
+            // if prev_bmp exists, last commit position is still located on the
+            // previous bitmap (since prev_bmp is released when a commit is invoked
+            // in the new bitmap).
+            // So in this case, we have to check both previous/current bitmaps.
+            //
+            // (1: previous bitmap (sb->bmp_prev), 2: current bitmap (sb->bmp))
+            //
+            //        writable blocks          writable blocks
+            //    <-->      <---->   <-->          <> <> <>
+            // +-------------------------------------------+
+            // |  2222 1111 222222   2222   111111111 22 11|
+            // +-------------------------------------------+
+            //                                     ^
+            //                                     last_commit
+            if (sb->bmp_prev && bid < sb->bmp_prev_size) {
+                if (_is_bmp_set(sb->bmp_prev, bid) ||
+                    _is_bmp_set(sb->bmp, bid)) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        if (_is_bmp_set(sb->bmp, bid) &&
+            bid < sb->cur_alloc_bid) {
+            return true;
+        } else {
+            return false;
+        }
     }
+
+    return false;
 }
 
 bool sb_bmp_is_active_block(struct filemgr *file, bid_t bid)
@@ -774,13 +1025,29 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
-    num_docs = _bmp_size_to_num_docs(file->sb->bmp_size);
+    // reserved bitmap size (0 if not exist)
+    if (file->sb->rsv_bmp) {
+        enc_u64 = _endian_encode(file->sb->rsv_bmp->bmp_size);
+    }
+    memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
 
     // bitmap doc offsets
+    num_docs = _bmp_size_to_num_docs(file->sb->bmp_size);
     for (i=0; i<num_docs; ++i) {
         enc_u64 = _endian_encode(file->sb->bmp_doc_offset[i]);
         memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
         offset += sizeof(enc_u64);
+    }
+
+    // reserved bitmap doc offsets
+    if (file->sb->rsv_bmp) {
+        num_docs = _bmp_size_to_num_docs(file->sb->rsv_bmp->bmp_size);
+        for (i=0; i<num_docs; ++i) {
+            enc_u64 = _endian_encode(file->sb->rsv_bmp->bmp_doc_offset[i]);
+            memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
+            offset += sizeof(enc_u64);
+        }
     }
 
     // CRC
@@ -820,8 +1087,9 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     size_t i, num_docs;
     uint8_t *buf = alca(uint8_t, real_blocksize);
     uint32_t crc_file, crc, _crc;
-    uint64_t enc_u64, version, offset;
+    uint64_t enc_u64, version, offset, dummy64;
     fdb_status fs;
+    struct sb_rsv_bmp *rsv = NULL;
 
     memset(buf, 0x0, real_blocksize);
     offset = 0;
@@ -912,6 +1180,19 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
     sb->bmp_size = _endian_decode(enc_u64);
+
+    // reserved bitmap size
+    memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
+    offset += sizeof(enc_u64);
+    dummy64 = _endian_decode(enc_u64);
+    if (dummy64) {
+        // reserved bitmap array exists
+        rsv = (struct sb_rsv_bmp*)calloc(1, sizeof(struct sb_rsv_bmp));
+        rsv->bmp = NULL;
+        rsv->bmp_size = dummy64;
+        rsv->cur_alloc_bid = BLK_NOT_FOUND;
+    }
+
     // temporarily set bitmap array to NULL
     // (it will be allocated by fetching function)
     sb->bmp = NULL;
@@ -928,6 +1209,23 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
         offset += sizeof(enc_u64);
         sb->bmp_doc_offset[i] = _endian_decode(enc_u64);
+    }
+
+    // read reserved bmp docs if exist
+    if (rsv) {
+        rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
+        if (rsv->num_bmp_docs) {
+            rsv->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
+            rsv->bmp_docs = (struct docio_object*)
+                            calloc(num_docs, sizeof(struct docio_object));
+        }
+
+        // read doc offsets
+        for (i=0; i<num_docs; ++i) {
+            memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
+            offset += sizeof(enc_u64);
+            rsv->bmp_doc_offset[i] = _endian_decode(enc_u64);
+        }
     }
 
     // CRC
@@ -951,10 +1249,23 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     return FDB_RESULT_SUCCESS;
 }
 
+static void _rsv_free(struct sb_rsv_bmp *rsv)
+{
+    free(rsv->bmp);
+    free(rsv->bmp_doc_offset);
+    free(rsv->bmp_docs);
+}
+
 static void _sb_free(struct superblock *sb)
 {
+    if (sb->rsv_bmp) {
+        _free_bmp_idx(&sb->rsv_bmp->bmp_idx);
+        _rsv_free(sb->rsv_bmp);
+        free(sb->rsv_bmp);
+    }
     _free_bmp_idx(&sb->bmp_idx);
     free(sb->bmp);
+    free(sb->bmp_prev);
     free(sb->bmp_doc_offset);
     // note that each docio object doesn't need to be freed
     // as key/body fields point to static memory regions.
@@ -1027,6 +1338,11 @@ filemgr_header_revnum_t sb_get_min_live_revnum(struct filemgr *file)
     return file->sb->min_live_hdr_revnum;
 }
 
+uint64_t sb_get_num_free_blocks(struct filemgr *file)
+{
+    return file->sb->num_free_blocks;
+}
+
 struct sb_config sb_get_default_config()
 {
     struct sb_config ret;
@@ -1057,6 +1373,8 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
     file->sb->bmp_revnum = 0;
     file->sb->bmp_size = 0;
     file->sb->bmp = NULL;
+    file->sb->bmp_prev_size = 0;
+    file->sb->bmp_prev = NULL;
     file->sb->bmp_doc_offset = NULL;
     file->sb->bmp_docs = NULL;
     file->sb->num_init_free_blocks = 0;
@@ -1067,6 +1385,7 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
     file->sb->min_live_hdr_bid = BLK_NOT_FOUND;
     file->sb->last_hdr_revnum = 0;
     file->sb->num_alloc = 0;
+    file->sb->rsv_bmp = NULL;
 
     file->version = ver_get_latest_magic();
     avl_init(&file->sb->bmp_idx, NULL);

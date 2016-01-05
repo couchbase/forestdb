@@ -469,6 +469,21 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                             memcpy((void *) &file->header.seqnum,
                                     buf + len + sizeof(filemgr_header_revnum_t),
                                     sizeof(fdb_seqnum_t));
+
+                            if (ver_superblock_support(magic)) {
+                                // sb bmp revnum
+                                uint64_t _bmp_revnum;
+                                memcpy(&_bmp_revnum,
+                                    (uint8_t *)buf + (file->blocksize
+                                    - sizeof(filemgr_magic_t) - sizeof(len)
+                                    - sizeof(bid_t) - sizeof(uint64_t)
+                                    - sizeof(_bmp_revnum)
+                                    - BLK_MARKER_SIZE),
+                                    sizeof(_bmp_revnum));
+                                atomic_store_uint64_t(&file->last_commit_bmp_revnum,
+                                                      _endian_decode(_bmp_revnum));
+                            }
+
                             file->header.revnum =
                                 _endian_decode(file->header.revnum);
                             file->header.seqnum =
@@ -2166,10 +2181,16 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
                           err_log_callback *log_callback)
 {
     // append header at the end of the file
-    return filemgr_commit_bid(file, BLK_NOT_FOUND, sync, log_callback);
+    uint64_t bmp_revnum = 0;
+    if (sb_ops.get_bmp_revnum) {
+        bmp_revnum = sb_ops.get_bmp_revnum(file);
+    }
+    return filemgr_commit_bid(file, BLK_NOT_FOUND, bmp_revnum,
+                              sync, log_callback);
 }
 
-fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid, bool sync,
+fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
+                              uint64_t bmp_revnum, bool sync,
                               err_log_callback *log_callback)
 {
     uint16_t header_len = file->header.size;
@@ -2178,7 +2199,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid, bool sync,
     struct kvs_node *node;
     struct kvs_header *kv_header = file->kv_header;
     bid_t prev_bid, _prev_bid;
-    uint64_t _deltasize, _sb_revnum;
+    uint64_t _deltasize, _bmp_revnum;
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
@@ -2227,13 +2248,14 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid, bool sync,
         memcpy((uint8_t *)buf + header_len + sizeof(filemgr_header_revnum_t),
                &_seqnum, sizeof(fdb_seqnum_t));
 
-        // superblock's revision number
+        // current header's sb bmp revision number
         if (file->sb) {
-            _sb_revnum = _endian_encode(sb_ops.get_bmp_revnum(file));
+            _bmp_revnum = _endian_encode(bmp_revnum);
             memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
-                   - sizeof(header_len) - sizeof(_prev_bid)*2
-                   - sizeof(_deltasize) - BLK_MARKER_SIZE),
-                   &_sb_revnum, sizeof(_sb_revnum));
+                   - sizeof(header_len) - sizeof(_prev_bid)
+                   - sizeof(_deltasize) - sizeof(_bmp_revnum)
+                   - BLK_MARKER_SIZE),
+                   &_bmp_revnum, sizeof(_bmp_revnum));
         }
 
         // delta size since prior commit
@@ -2315,8 +2337,8 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid, bool sync,
     }
 
     if (file->sb && file->sb->bmp &&
-        atomic_get_uint64_t(&file->pos) == file->sb->bmp_size * file->blocksize &&
-        file->sb->cur_alloc_bid != BLK_NOT_FOUND) {
+        file->sb->cur_alloc_bid != BLK_NOT_FOUND &&
+        atomic_get_uint8_t(&file->status) == FILE_NORMAL) {
         // block reusing is currently enabled
         atomic_store_uint64_t(&file->last_commit,
                               file->sb->cur_alloc_bid * file->blocksize);
@@ -2325,7 +2347,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid, bool sync,
     }
     if (file->sb) {
         atomic_store_uint64_t(&file->last_commit_bmp_revnum,
-                              file->sb->bmp_revnum);
+                              bmp_revnum);
     }
     file->version = magic;
 

@@ -94,6 +94,8 @@
 #define SB_SYNC_PERIOD (4194304) // sync for every 4MB update
 // Time limit for reusable block reclaim
 #define SB_RECLAIM_TIMELIMIT (100000) // 100 ms
+// Threshold for pre-reclaiming
+#define SB_PRE_RECLAIM_RATIO (10) // 10 %
 
 #define __BTREEBLK_BLOCKPOOL
 #define __BTREEBLK_SUBBLOCK

@@ -3802,6 +3802,7 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
 
 fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
 {
+    uint64_t cur_bmp_revnum;
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_txn *earliest_txn;
     file_status_t fstatus;
@@ -3933,6 +3934,7 @@ fdb_commit_start:
     //       Or, header BID inconsistency will occur (it will
     //       point to wrong block).
     handle->last_hdr_bid = filemgr_alloc(handle->file, &handle->log_callback);
+    cur_bmp_revnum = sb_get_bmp_revnum(handle->file);
 
     if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
         earliest_txn = wal_earliest_txn(handle->file,
@@ -3963,15 +3965,29 @@ fdb_commit_start:
     if (handle->file->sb) {
         // sync superblock
         sb_update_header(handle);
-        if (sb_check_sync_period(handle)) {
-            if (sb_check_block_reusing(handle) && wal_flushed) {
-                // gather more reusable blocks
-                bool block_reclaimed = false;
+        if (sb_check_sync_period(handle) && wal_flushed) {
+            sb_decision_t decision;
+            bool block_reclaimed = false;
+
+            decision = sb_check_block_reusing(handle);
+            if (decision == SBD_RECLAIM) {
+                // gather reusable blocks
                 btreeblk_discard_blocks(handle->bhandle);
                 block_reclaimed = sb_reclaim_reusable_blocks(handle);
                 if (block_reclaimed) {
                     sb_bmp_append_doc(handle);
                 }
+            } else if (decision == SBD_RESERVE) {
+                // reserve reusable blocks
+                btreeblk_discard_blocks(handle->bhandle);
+                block_reclaimed = sb_reserve_next_reusable_blocks(handle);
+                if (block_reclaimed) {
+                    sb_rsv_append_doc(handle);
+                }
+            } else if (decision == SBD_SWITCH) {
+                // switch reserved reusable blocks
+                btreeblk_discard_blocks(handle->bhandle);
+                sb_switch_reserved_blocks(handle->file);
             }
             // header should be updated one more time
             // since block reclaiming or stale block gathering changes root nodes
@@ -3984,7 +4000,7 @@ fdb_commit_start:
 
     // file commit
     fs = filemgr_commit_bid(handle->file, handle->last_hdr_bid,
-                            sync, &handle->log_callback);
+                            cur_bmp_revnum, sync, &handle->log_callback);
     if (wal_flushed) {
         wal_release_flushed_items(handle->file, &flush_items);
     }
@@ -6391,12 +6407,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     handle->cur_header_revnum = fdb_set_file_header(handle, true);
     btreeblk_end(handle->bhandle);
 
-    if (handle->file->sb) {
-        // sync superblock
-        sb_update_header(handle);
-        sb_sync_circular(handle);
-    }
-
     // Commit the current file handle to record the compaction filename
     fdb_status fs = filemgr_commit(handle->file,
                     !(handle->config.durability_opt & FDB_DRB_ASYNC),
@@ -6410,6 +6420,12 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                                  new_dhandle, new_trie, new_seqtrie,
                                  new_seqtree);
         return fs;
+    }
+
+    if (handle->file->sb) {
+        // sync superblock
+        sb_update_header(handle);
+        sb_sync_circular(handle);
     }
 
     // Mark new file as newly compacted
@@ -6563,6 +6579,9 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // migrate uncommitted transactional items to new file
     wal_txn_migration((void*)handle, (void*)new_dhandle,
                       handle->file, new_file, _fdb_doc_move);
+
+    // final block cache flush for the old file
+    filemgr_sync(handle->file, false, &handle->log_callback);
 
     old_file = handle->file;
     handle->file = new_file;
