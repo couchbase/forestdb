@@ -155,7 +155,7 @@ fdb_status fdb_log(err_log_callback *log_callback,
                    const char *format, ...)
 {
     if (log_callback && log_callback->callback) {
-        char msg[1024];
+        char msg[4096];
         va_list args;
         va_start(args, format);
         vsprintf(msg, format, args);
@@ -1459,7 +1459,7 @@ void filemgr_free_func(struct hash_elem *h)
 
 // permanently remove file from cache (not just close)
 // LCOV_EXCL_START
-void filemgr_remove_file(struct filemgr *file)
+void filemgr_remove_file(struct filemgr *file, err_log_callback *log_callback)
 {
     struct hash_elem *ret;
 
@@ -1477,7 +1477,7 @@ void filemgr_remove_file(struct filemgr *file)
         (file->new_file && file->new_file->in_place_compaction)) {
         filemgr_free_func(&file->e);
     } else {
-        register_file_removal(file, NULL);
+        register_file_removal(file, log_callback);
     }
 }
 // LCOV_EXCL_STOP
@@ -2298,7 +2298,7 @@ void filemgr_remove_pending(struct filemgr *old_file,
             (old_file->new_file && old_file->new_file->in_place_compaction)) {
             remove(old_file->filename);
         }
-        filemgr_remove_file(old_file);
+        filemgr_remove_file(old_file, log_callback);
         // LCOV_EXCL_STOP
     }
 }

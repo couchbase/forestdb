@@ -581,7 +581,7 @@ fdb_status compactor_register_file(struct filemgr *file,
         elem->compaction_flag = false;
         elem->daemon_compact_in_progress = false;
         elem->removal_activated = false;
-        elem->log_callback = NULL;
+        elem->log_callback = log_callback;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
                                  // subsequent registration attempts for the same file

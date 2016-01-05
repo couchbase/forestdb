@@ -252,7 +252,7 @@ static void *_snapshot_reader_thread(void *voidargs)
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
-                                  (void *) "reader_thread");
+                                  (void *) "snapshot_reader_thread");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     status = fdb_snapshot_open(db, &snap_db, args->ndocs);
@@ -321,7 +321,7 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_set_log_callback(db, logCallbackFunc,
-                                  (void *) "reader_thread");
+                                  (void *) "rollback_reader_thread");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     while (1) {
@@ -511,6 +511,9 @@ static void test_multi_readers(multi_reader_type reader_type,
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "multi_reader_thread");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
     loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
