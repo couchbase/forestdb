@@ -37,6 +37,7 @@
 #define FDB_ENCRYPTION_BOGUS (-1)
 
 static size_t num_readers(2);
+static const char *test_filename;
 
 static mutex_t rollback_mutex;
 static volatile bool rollback_done(false);
@@ -155,7 +156,7 @@ static void *_reader_thread(void *voidargs)
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -195,7 +196,7 @@ static void *_rollback_reader_thread(void *voidargs)
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -247,7 +248,7 @@ static void *_snapshot_reader_thread(void *voidargs)
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -316,7 +317,7 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = FDB_OPEN_FLAG_RDONLY;
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -395,7 +396,7 @@ static void *_writer_thread(void *voidargs)
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = 0;
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -465,7 +466,7 @@ static void *_compactor_thread(void *voidargs)
     fdb_kvs_config kvs_config = *(args->kvs_config);
 
     fconfig.flags = 0;
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -506,7 +507,7 @@ static void test_multi_readers(multi_reader_type reader_type,
 
     fdb_config fconfig = getDefaultConfig();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -586,11 +587,14 @@ static void test_writer_multi_readers(writer_type wtype,
         fconfig.compactor_sleep_duration = 5;
     }
 
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "writer_multi_reader_thread");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
     loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
@@ -673,9 +677,12 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
 
     fdb_config fconfig = getDefaultConfig();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "writer_multi_reader_thread");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_doc **doc = alca(fdb_doc*, num_docs);
@@ -762,11 +769,14 @@ static void test_rollback_compaction(const char *test_name) {
 
     fdb_config fconfig = getDefaultConfig();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    status = fdb_open(&dbfile, "./test.fdb", &fconfig);
+    status = fdb_open(&dbfile, test_filename, &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "rollback_compactor_thread");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc **doc = alca(fdb_doc*, num_docs);
     // Load the initial documents with random keys.
     loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
@@ -795,7 +805,7 @@ static void test_rollback_compaction(const char *test_name) {
         fdb_get_file_info(dbfile, &info);
         // Since compaction succeeded,
         // filename must be different to the original name.
-        TEST_CHK(strcmp(info.filename, "./test.fdb"));
+        TEST_CHK(strcmp(info.filename, test_filename));
     }
 
     status = fdb_kvs_close(db);
@@ -890,8 +900,11 @@ void run_tests_with_encryption(fdb_encryption_algorithm_t encryption) {
 }
 
 int main() {
+    test_filename = "./test.fdb_a";
     run_tests_with_encryption(FDB_ENCRYPTION_NONE);
+    test_filename = "./test.fdb_b";
     run_tests_with_encryption(FDB_ENCRYPTION_BOGUS);
+    test_filename = "./test.fdb_c";
 #if defined(_CRYPTO_CC) || defined(_CRYPTO_LIBTOMCRYPT) || defined(_CRYPTO_OPENSSL)
     run_tests_with_encryption(FDB_ENCRYPTION_AES256);
 #endif
