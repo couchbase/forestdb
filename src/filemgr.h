@@ -194,6 +194,11 @@ filemgr_open_result filemgr_open(char *filename,
 uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
 
+/**
+ * Return the block id of the last commit header with WAL flush
+ */
+bid_t filemgr_get_last_wal_flush_header_id(struct filemgr *file);
+
 fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file);
 void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
 
