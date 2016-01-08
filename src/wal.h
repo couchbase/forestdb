@@ -65,8 +65,8 @@ struct wal_item{
     fdb_seqnum_t seqnum;
     struct avl_node avl_seq;
     struct list_elem list_elem; // for wal_item_header's 'items'
-    struct list_elem list_elem_txn; // for transaction
     union { // for offset-based sorting for WAL flush
+        struct list_elem list_elem_txn; // for transaction
         struct avl_node avl_flush;
         struct list_elem list_elem_flush;
     };
