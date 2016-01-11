@@ -884,7 +884,7 @@ void * btreeblk_enlarge_node(void *voidhandle,
                 handle->sb[src_sb].bitmap[src_idx] = 0;
 
                 // TODO: what if FDB handle is closed without fdb_commit() ?
-            } else if (handle->sb[src_sb].bid != BLK_NOT_FOUND) {
+            } else if (bid != BLK_NOT_FOUND) {
                 // The current source block will not be used for allocation anymore.
                 // Mark the corresponding subblock as stale.
                 _btreeblk_add_stale_block(handle,
