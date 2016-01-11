@@ -32,6 +32,7 @@ struct docio_handle {
     struct filemgr *file;
     bid_t curblock;
     uint32_t curpos;
+    uint16_t cur_bmp_revnum_hash;
     // for buffer purpose
     bid_t lastbid;
     void *readbuffer;

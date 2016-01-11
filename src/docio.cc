@@ -36,6 +36,7 @@ void docio_init(struct docio_handle *handle,
     handle->file = file;
     handle->curblock = BLK_NOT_FOUND;
     handle->curpos = 0;
+    handle->cur_bmp_revnum_hash = 0;
     handle->lastbid = BLK_NOT_FOUND;
     handle->compress_document_body = compress_document_body;
     malloc_align(handle->readbuffer, FDB_SECTOR_SIZE, file->blocksize);
@@ -100,8 +101,6 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
     memset(&blk_meta, 0x0, sizeof(blk_meta));
     blk_meta.marker = BLK_MARKER_DOC;
-    uint16_t revnum_hash = filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
-    blk_meta.sb_bmp_revnum_hash = _endian_encode(revnum_hash);
     (void)blk_meta;
 
 #ifdef __CRC32
@@ -117,6 +116,8 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
     if (handle->curblock == BLK_NOT_FOUND) {
         // allocate new block
+        handle->cur_bmp_revnum_hash =
+            filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
         handle->curblock = filemgr_alloc(handle->file, log_callback);
         handle->curpos = 0;
     }
@@ -129,9 +130,12 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
                                blocksize - handle->curpos);
         }
         // allocate new block
+        handle->cur_bmp_revnum_hash =
+            filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
         handle->curblock = filemgr_alloc(handle->file, log_callback);
         handle->curpos = 0;
     }
+    blk_meta.sb_bmp_revnum_hash = _endian_encode(handle->cur_bmp_revnum_hash);
 
     remaining_space = blocksize - handle->curpos;
     if (size <= remaining_space) {
@@ -180,6 +184,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
     } else { // insufficient space to fit entire document into current block
         bid_t begin, end, i, startpos;
         bid_t *block_list, block_list_size = 0;
+        uint16_t *bmp_revnum_list;
         uint32_t nblock = size / blocksize;
         uint32_t remain = size % blocksize;
         uint64_t remainsize = size;
@@ -188,6 +193,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
         // as blocks may not be consecutive, we need to maintain
         // the list of BIDs.
         block_list = (bid_t *)alca(bid_t, nblock+1);
+        bmp_revnum_list = (uint16_t *)alca(uint16_t, nblock+1);
 
 #ifdef DOCIO_BLOCK_ALIGN
         offset = blocksize - handle->curpos;
@@ -259,7 +265,9 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
             block_list_size = nblock + ((new_block)?1:0);
             for (i=0; i<block_list_size; ++i) {
+                bmp_revnum_list[i] = filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
                 block_list[i] = filemgr_alloc(handle->file, log_callback);
+
                 if (i == 0 && handle->curblock != BLK_NOT_FOUND &&
                     block_list[i] > handle->curblock+1) {
                     // if the first new allocated block is not consecutive
@@ -389,6 +397,9 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
         for (i=0; i<block_list_size; ++i) {
             handle->curblock = block_list[i];
+            handle->cur_bmp_revnum_hash = bmp_revnum_list[i];
+            blk_meta.sb_bmp_revnum_hash = _endian_encode(handle->cur_bmp_revnum_hash);
+
             if (non_consecutive) {
                 if (i < block_list_size - 1) {
                     blk_meta.next_bid = _endian_encode(block_list[i+1]);

@@ -7542,6 +7542,7 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
             h->dhandle->file->filename);
     fprintf(stderr, "dhandle: curblock %" _F64 "\n", h->dhandle->curblock);
     fprintf(stderr, "dhandle: curpos %d\n", h->dhandle->curpos);
+    fprintf(stderr, "dhandle: cur_bmp_revnum_hash %d\n", h->dhandle->cur_bmp_revnum_hash);
     fprintf(stderr, "dhandle: lastbid %" _F64 "\n", h->dhandle->lastbid);
     fprintf(stderr, "dhandle: readbuffer %p\n", h->dhandle->readbuffer);
     fprintf(stderr, "dhandle: %s\n",
