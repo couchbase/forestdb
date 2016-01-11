@@ -1,9 +1,9 @@
 DEFAULT_HEAD="bench_head"
-THRESHOLD_STATS="threshold.stats"
 NEW_BENCH_STATS="cmp_bench_new.stats"
 OLD_BENCH_STATS="cmp_bench_old.stats"
 BENCH_REPORT='cmp_bench_report.txt'
 BUILD_DIR="../build"
+THRESHOLD_PERC=0.10
 
 if [ -n "$WORKSPACE" ]; then # jenkins override
   BUILD_DIR="$WORKSPACE/build/forestdb"
@@ -23,22 +23,8 @@ function run_bench {
 
   STAT_FILE=$1
   rm $STAT_FILE 2>/dev/null
-  $FDB_BENCH  | tee $STAT_FILE.0
+  $FDB_BENCH  | tee $STAT_FILE
 
-  # append thresholds to output file
-  # (see threshold.stats)
-  while read line; do
-    stat="$( echo $line | awk '{print $1}')"
-
-    if [ -n "$stat" ]; then
-      threshold="$(grep "^$stat" $THRESHOLD_STATS | awk '{print $2}')"
-
-      # append threshold to file
-      line="$line $threshold"
-    fi
-
-    echo $line >> $STAT_FILE
-  done < $STAT_FILE.0
 }
 
 # set new revision name
@@ -81,7 +67,7 @@ run_bench $OLD_BENCH_STATS
 
 # run diff compares 2 files and prints diff in 3rd column
 # the third indicates added latency and regression is based
-# on values in threshold.stats.
+# on threshold.percentage
 #
 #... example output ...
 #
@@ -89,7 +75,7 @@ run_bench $OLD_BENCH_STATS
 # stat            old             new             diff (ms)       thresh     regress
 # set             11.381200ns     10.151800ns     -1.2294         100
 # commit_wal      22366.000000ns  21965.000000ns  -401            100000
-awk 'NR==FNR {a[NR]=$2; next} $1~/BENCH/{printf "%s\n%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, "stat", "old", "new", "diff (ms)", "thresh", "regress"; next} {if(a[FNR]-$2>$3){ b[NR]="yes" }} {printf "%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, $2, a[FNR], a[FNR]-$2, $3, b[NR]}' $NEW_BENCH_STATS $OLD_BENCH_STATS  |   sed -E 's/^ .*yes//' | tee $BENCH_REPORT
+awk 'NR==FNR {a[NR]=$2; next} $1~/BENCH/{printf "%s\n%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, "stat", "old", "new", "diff (ms)", "thresh", "regress"; next} {if(a[FNR]-$2>($2*'$THRESHOLD_PERC')){ b[NR]="yes" }} {printf "%-15s %-15s %-15s %-15s %-10s %-10s\n", $1, $2, a[FNR], a[FNR]-$2, $2*'$THRESHOLD_PERC', b[NR]}' $NEW_BENCH_STATS $OLD_BENCH_STATS  |   sed -E 's/^ .*yes//' | tee $BENCH_REPORT
 
 REGRESSION_CNT=`cat $BENCH_REPORT | grep "yes \+$" | wc -l`
 echo -e "\nDone: $REGRESSION_CNT possible regressions\n\n"
