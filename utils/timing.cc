@@ -261,7 +261,7 @@ ts_nsec get_monotonic_ts() {
     }
 
     ts = (double)time * timebase.numer / timebase.denom;
-#elif defined(__linux__) || defined(__sun)
+#elif defined(__linux__) || defined(__sun) || defined(__FreeBSD__)
     /* Linux and Solaris can use clock_gettime */
     struct timespec tm;
     if (clock_gettime(CLOCK_MONOTONIC, &tm) == -1) {
