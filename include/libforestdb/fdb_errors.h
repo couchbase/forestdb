@@ -212,6 +212,11 @@ typedef enum {
      * Error encrypting or decrypting data, or unsupported encryption algorithm.
      */
     FDB_RESULT_CRYPTO_ERROR = -44,
+    /**
+     * Compaction task is aborted due to compaction cancellation request
+     * from the application.
+     */
+    FDB_RESULT_COMPACTION_CANCELLATION = -45,
 
     FDB_RESULT_LAST = FDB_RESULT_CRYPTO_ERROR // Last (minimum) fdb_status value
 } fdb_status;

@@ -716,6 +716,16 @@ LIBFDB_API
 fdb_status fdb_compact_upto_with_cow(fdb_file_handle *fhandle,
                                      const char *new_filename,
                                      fdb_snapshot_marker_t marker);
+
+/**
+ * Cancel the compaction task if it is running currently.
+ *
+ * @param fhandle Pointer to ForestDB file handle
+ * @return FDB_RESULT_SUCCESS on successful cancellation.
+ */
+LIBFDB_API
+fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle);
+
 /**
  * Change the database file's encryption, by compacting it while writing with a new key.
  * @param fhandle Pointer to ForestDB file handle.

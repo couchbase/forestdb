@@ -50,6 +50,7 @@ extern "C" {
 #define FILEMGR_CREATE 0x08
 #define FILEMGR_REMOVAL_IN_PROG 0x10
 #define FILEMGR_CREATE_CRC32 0x20 // Used in testing upgrade path
+#define FILEMGR_CANCEL_COMPACTION 0x40 // Cancel the compaction
 
 struct filemgr_config {
     int blocksize;
@@ -432,6 +433,22 @@ fdb_status filemgr_copy_file_range(struct filemgr *src_file,
 
 bool filemgr_is_rollback_on(struct filemgr *file);
 void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
+
+/**
+ * Set the file manager's flag to cancel the compaction task that is currently running.
+ *
+ * @param file Pointer to the file manager instance
+ * @param cancel True if the compaction should be cancelled.
+ */
+void filemgr_set_cancel_compaction(struct filemgr *file, bool cancel);
+
+/**
+ * Return true if a compaction cancellation is requested.
+ *
+ * @param file Pointer to the file manager instance
+ * @return True if a compaction cancellation is requested.
+ */
+bool filemgr_is_compaction_cancellation_requested(struct filemgr *file);
 
 void filemgr_set_in_place_compaction(struct filemgr *file,
                                      bool in_place_compaction);

@@ -3164,6 +3164,104 @@ void compact_with_snapshot_open_multi_kvs_test()
     TEST_RESULT("compact with snapshot_open multi kvs test");
 }
 
+void *db_compact_during_compaction_cancellation(void *args)
+{
+
+    TEST_INIT();
+    memleak_start();
+
+    fdb_file_handle *dbfile;
+    fdb_status status;
+    fdb_config config;
+
+    // Open Database File
+    config = fdb_get_default_config();
+    status = fdb_open(&dbfile, "compact_test", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // compaction thread enters here
+    status = fdb_compact(dbfile, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS ||
+             status == FDB_RESULT_COMPACTION_CANCELLATION);
+    fdb_close(dbfile);
+
+    memleak_end();
+    // shutdown
+    thread_exit(0);
+    return NULL;
+}
+
+void compaction_cancellation_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    fdb_file_handle *file;
+    fdb_kvs_handle *kvs;
+    fdb_status status;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
+    (void)r;
+
+    // Open Database File
+    config = fdb_get_default_config();
+    status = fdb_open(&file, "compact_test", &config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Open KV Store
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_kvs_open_default(file, &kvs, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Load kv pairs
+    for(i=0;i<100000;i++) {
+        char str[15];
+        sprintf(str, "%d", i);
+        status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        // Commit every 100 SETs
+        if (i % 100 == 0) {
+            status = fdb_commit(file, FDB_COMMIT_NORMAL);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    thread_t tid;
+    void *thread_ret;
+    thread_create(&tid, db_compact_during_compaction_cancellation, NULL);
+    usleep(10000); // Sleep for 10ms
+    // Cancel the compaction task
+    status = fdb_cancel_compaction(file);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // join compactor
+    thread_join(tid, &thread_ret);
+
+    // Compact the database
+    status = fdb_compact(file, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    char key[15];
+    void *value;
+    size_t val_size;
+    for(i=0;i<100000;i++) {
+        sprintf(key, "%d", i);
+        status = fdb_get_kv(kvs, key, strlen(key), &value, &val_size);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        fdb_free_block(value);
+    }
+
+    status = fdb_close(file);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+
+    TEST_RESULT("compaction cancellation test");
+}
+
 int main(){
     int i;
 
@@ -3198,6 +3296,7 @@ int main(){
     auto_compaction_with_custom_cmp_function();
     compaction_daemon_test(20);
     auto_compaction_with_concurrent_insert_test(20);
+    compaction_cancellation_test();
 
     return 0;
 }

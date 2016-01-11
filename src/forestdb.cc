@@ -4538,10 +4538,15 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                 fs = FDB_RESULT_FAIL_BY_ROLLBACK;
                 break;
             }
+            if (filemgr_is_compaction_cancellation_requested(handle->file)) {
+                fs = FDB_RESULT_COMPACTION_CANCELLATION;
+                break;
+            }
 
             c = 0; // reset offset_array
         } // end of if (array exceeded threshold || no more docs in trie)
-        if (fs == FDB_RESULT_FAIL_BY_ROLLBACK) {
+        if (fs == FDB_RESULT_FAIL_BY_ROLLBACK ||
+            fs == FDB_RESULT_COMPACTION_CANCELLATION) {
             break;
         }
     } // end of while (hr != HBTRIE_RESULT_FAIL) (forall items in trie)
@@ -4841,6 +4846,10 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 // If the rollback operation is issued, abort the compaction task.
                 if (filemgr_is_rollback_on(handle->file)) {
                     fs = FDB_RESULT_FAIL_BY_ROLLBACK;
+                    break;
+                }
+                if (filemgr_is_compaction_cancellation_requested(handle->file)) {
+                    fs = FDB_RESULT_COMPACTION_CANCELLATION;
                     break;
                 }
 
@@ -7028,6 +7037,33 @@ size_t fdb_get_buffer_cache_used() {
     }
 
     return (size_t) filemgr_get_bcache_used_space();
+}
+
+LIBFDB_API
+fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle)
+{
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    fdb_kvs_handle *super_handle = fhandle->root;
+
+    filemgr_mutex_lock(super_handle->file);
+    filemgr_set_cancel_compaction(super_handle->file, true);
+
+    // TODO: Find a better way of cacncelling the ongoing compaction task.
+    unsigned int sleep_time = 10000; // 10 ms.
+    file_status_t fstatus = filemgr_get_file_status(super_handle->file);
+    while (fstatus == FILE_COMPACT_OLD) {
+        filemgr_mutex_unlock(super_handle->file);
+        decaying_usleep(&sleep_time, 1000000);
+        filemgr_mutex_lock(super_handle->file);
+        fstatus = filemgr_get_file_status(super_handle->file);
+    }
+    filemgr_set_cancel_compaction(super_handle->file, false);
+    filemgr_mutex_unlock(super_handle->file);
+
+    return FDB_RESULT_SUCCESS;
 }
 
 LIBFDB_API

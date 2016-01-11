@@ -2481,6 +2481,26 @@ void filemgr_set_rollback(struct filemgr *file, uint8_t new_val)
     spin_unlock(&file->lock);
 }
 
+void filemgr_set_cancel_compaction(struct filemgr *file, bool cancel)
+{
+    spin_lock(&file->lock);
+    if (cancel) {
+        file->fflags |= FILEMGR_CANCEL_COMPACTION;
+    } else {
+        file->fflags &= ~FILEMGR_CANCEL_COMPACTION;
+    }
+    spin_unlock(&file->lock);
+}
+
+bool filemgr_is_compaction_cancellation_requested(struct filemgr *file)
+{
+    bool rv;
+    spin_lock(&file->lock);
+    rv = (file->fflags & FILEMGR_CANCEL_COMPACTION);
+    spin_unlock(&file->lock);
+    return rv;
+}
+
 void filemgr_set_in_place_compaction(struct filemgr *file,
                                      bool in_place_compaction) {
     spin_lock(&file->lock);
