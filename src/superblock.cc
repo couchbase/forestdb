@@ -263,7 +263,16 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
     uint64_t num_docs;
     char doc_key[64];
     struct superblock *sb = handle->file->sb;
-    struct sb_rsv_bmp *rsv = sb->rsv_bmp;
+    struct sb_rsv_bmp *rsv = NULL;
+
+    if (!sb) {
+        return;
+    }
+
+    rsv = sb->rsv_bmp;
+    if (!rsv) {
+        return;
+    }
 
     rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
     if (num_docs) {
