@@ -300,7 +300,6 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
     struct stale_data *item;
     struct list_elem *e, *e_last;
     struct kvs_stat stat;
-    struct timeval begin, cur, gap;
 
     revnum_upto = stale_header.revnum;
 
@@ -316,8 +315,6 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
 
     // remember the last stale list item to be preserved
     e_last = list_end(handle->file->stale_list);
-
-    gettimeofday(&begin, NULL);
 
     // scan stale-block tree and get all stale regions
     // corresponding to commit headers whose seq number is
@@ -425,15 +422,6 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             free(doc.body);
 
             offset = prev_offset;
-        }
-
-        gettimeofday(&cur, NULL);
-        gap = _utime_gap(begin, cur);
-        if ((uint64_t)gap.tv_sec * 1000000 + gap.tv_usec > SB_RECLAIM_TIMELIMIT) {
-            // time over .. stop reclaiming although we didn't reach 'upto' revnum
-            // yet. Skipping the rest of stale blocks for now is OK because they
-            // will be gathered in the next round block reclaiming.
-            break;
         }
     } while (true);
     btree_iterator_free(&bit);
