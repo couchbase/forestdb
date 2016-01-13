@@ -3465,9 +3465,16 @@ fdb_set_start:
         wal_set_dirty_status(file, FDB_WAL_DIRTY);
     }
 
-    if (handle->config.wal_flush_before_commit ||
-         handle->config.auto_commit) {
-        bid_t dirty_idtree_root, dirty_seqtree_root;
+    if (handle->config.auto_commit &&
+        wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
+        // we don't need dirty WAL flushing in auto commit mode
+        // (_fdb_commit() is internally called at the end of this function)
+        wal_flushed = true;
+
+    } else if (handle->config.wal_flush_before_commit) {
+
+        bid_t dirty_idtree_root = BLK_NOT_FOUND;
+        bid_t dirty_seqtree_root = BLK_NOT_FOUND;
 
         if (!txn_enabled) {
             handle->dirty_updates = 1;
