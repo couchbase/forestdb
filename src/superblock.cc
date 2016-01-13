@@ -151,16 +151,23 @@ static void _free_bmp_idx(struct avl_tree *bmp_idx)
     }
 }
 
-static void _construct_bmp_idx(struct avl_tree *bmp_idx, uint8_t *bmp, uint64_t bmp_size)
+static void _construct_bmp_idx(struct avl_tree *bmp_idx,
+                               uint8_t *bmp,
+                               uint64_t bmp_size,
+                               bid_t start_bid)
 {
     uint64_t i, node_idx;
     uint64_t *bmp64 = (uint64_t*)bmp;
     struct bmp_idx_node *item;
 
+    if (start_bid == BLK_NOT_FOUND) {
+        start_bid = 0;
+    }
+
     // Since a single byte includes 8 bitmaps, an 8-byte integer contains 64 bitmaps.
     // By converting bitmap array to uint64_t array, we can quickly verify if a
     // 64-bitmap-group has at least one non-zero bit or not.
-    for (i=0; i<bmp_size/64; ++i) {
+    for (i=start_bid/64; i<bmp_size/64; ++i) {
         // in this loop, 'i' denotes bitmap group number.
         node_idx = i/4;
         if (bmp64[i]) {
@@ -176,7 +183,14 @@ static void _construct_bmp_idx(struct avl_tree *bmp_idx, uint8_t *bmp, uint64_t 
     // If there are remaining bitmaps, check if they are non-zero or not one by one.
     if (bmp_size % 64) {
         uint8_t idx, off;
-        for (i=(bmp_size/64)*64; i<bmp_size; ++i) {
+        uint64_t start;
+
+        start = (bmp_size/64)*64;
+        if (start < start_bid) {
+            start = start_bid;
+        }
+
+        for (i=start; i<bmp_size; ++i) {
             // in this loop, 'i' denotes bitmap number (i.e., BID).
             idx = div8(i);
             off = mod8(i);
@@ -349,7 +363,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         }
     }
 
-    _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb->bmp_size);
+    _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb->bmp_size, sb->cur_alloc_bid);
 
     rsv = sb->rsv_bmp;
     if (rsv && atomic_get_uint32_t(&rsv->status) == SB_RSV_INITIALIZING) {
@@ -380,7 +394,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
             }
         }
 
-        _construct_bmp_idx(&rsv->bmp_idx, rsv->bmp, rsv->bmp_size);
+        _construct_bmp_idx(&rsv->bmp_idx, rsv->bmp, rsv->bmp_size, 0);
         atomic_store_uint32_t(&rsv->status, SB_RSV_READY);
     }
 
@@ -1355,6 +1369,15 @@ fdb_status sb_read_latest(struct filemgr *file,
     *file->sb = sb_arr[max_sb_no];
     file->sb->config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
     *file->sb->config = sconfig;
+
+    // set last commit position
+    if (file->sb->cur_alloc_bid != BLK_NOT_FOUND) {
+        atomic_store_uint64_t(&file->last_commit,
+                              file->sb->cur_alloc_bid * file->config->blocksize);
+    } else {
+        // otherwise, last_commit == file->pos
+        // (already set by filemgr_open() function)
+    }
 
     file->sb->revnum++;
     avl_init(&file->sb->bmp_idx, NULL);
