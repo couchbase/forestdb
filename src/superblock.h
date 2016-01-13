@@ -41,7 +41,25 @@ struct sb_config {
     uint8_t num_sb;
 };
 
-/** Pre-reclaimed reusable block bitmap info.
+/**
+ * Reserved bitmap is destroyed or not initialized.
+ */
+#define SB_RSV_VOID (0x0)
+/**
+ * Reserved bitmap is being initialized (not ready to use).
+ */
+#define SB_RSV_INITIALIZING (0x1)
+/**
+ * Reserved bitmap is being written into the DB file.
+ */
+#define SB_RSV_WRITING (0x2)
+/**
+ * Reserved bitmap is now available.
+ */
+#define SB_RSV_READY (0xffff)
+
+/**
+ * Pre-reclaimed reusable block bitmap info.
  * Each attribute is same as that in superblock.
  */
 struct sb_rsv_bmp {
@@ -92,6 +110,10 @@ struct sb_rsv_bmp {
      * file.
      */
     bid_t min_live_hdr_bid;
+    /**
+     * Status of the reserved bitmap.
+     */
+    atomic_uint32_t status;
 };
 
 /**

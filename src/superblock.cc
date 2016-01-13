@@ -270,7 +270,8 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
     }
 
     rsv = sb->rsv_bmp;
-    if (!rsv) {
+    if (!rsv ||
+        atomic_get_uint32_t(&rsv->status) != SB_RSV_INITIALIZING) {
         return;
     }
 
@@ -304,6 +305,9 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
         rsv->bmp_doc_offset[i] =
             docio_append_doc_system(handle->dhandle, &rsv->bmp_docs[i]);
     }
+
+    // now 'rsv_bmp' is available.
+    atomic_store_uint32_t(&rsv->status, SB_RSV_READY);
 }
 
 fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
@@ -313,7 +317,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
     uint64_t num_docs, r_offset;
     char doc_key[64];
     struct superblock *sb = handle->file->sb;
-    struct sb_rsv_bmp *rsv = sb->rsv_bmp;
+    struct sb_rsv_bmp *rsv = NULL;
 
     // skip if previous bitmap exists
     if (sb->bmp) {
@@ -347,7 +351,8 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 
     _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb->bmp_size);
 
-    if (rsv) {
+    rsv = sb->rsv_bmp;
+    if (rsv && atomic_get_uint32_t(&rsv->status) == SB_RSV_INITIALIZING) {
         // reserved bitmap exists
         rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
         if (!num_docs) {
@@ -376,6 +381,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         }
 
         _construct_bmp_idx(&rsv->bmp_idx, rsv->bmp, rsv->bmp_size);
+        atomic_store_uint32_t(&rsv->status, SB_RSV_READY);
     }
 
     return FDB_RESULT_SUCCESS;
@@ -585,6 +591,9 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
         rsv->bmp = (uint8_t*)calloc(1, bmp_size_byte);
         rsv->cur_alloc_bid = BLK_NOT_FOUND;
 
+        // the initial status is 'INITIALIZING' so that 'rsv_bmp' is not
+        // available until executing sb_rsv_append_doc().
+        atomic_init_uint32_t(&rsv->status, SB_RSV_INITIALIZING);
         avl_init(&rsv->bmp_idx, NULL);
         rsv->bmp_size = num_blocks;
 
@@ -705,9 +714,14 @@ bool sb_switch_reserved_blocks(struct filemgr *file)
     struct sb_rsv_bmp *rsv = sb->rsv_bmp;
 
     // reserved block should exist
-    if (!sb->rsv_bmp) {
+    if (!rsv) {
         return false;
     }
+    // should be in a normal status
+    if (!atomic_cas_uint32_t(&rsv->status, SB_RSV_READY, SB_RSV_VOID)) {
+        return false;
+    }
+    // now status becomes 'VOID' so that rsv_bmp is not available.
 
     // mark stale previous system docs
     if (sb->bmp_doc_offset) {
@@ -1034,9 +1048,22 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
+    bool rsv_bmp_enabled = false;
+
+    if ( file->sb->rsv_bmp &&
+         atomic_cas_uint32_t(&file->sb->rsv_bmp->status,
+                             SB_RSV_READY, SB_RSV_WRITING) ) {
+        rsv_bmp_enabled = true;
+        // status becomes 'WRITING' so that switching will be postponed.
+        // note that 'rsv_bmp' is not currently used yet so that
+        // it won't block any other tasks except for switching.
+    }
+
     // reserved bitmap size (0 if not exist)
-    if (file->sb->rsv_bmp) {
+    if (rsv_bmp_enabled) {
         enc_u64 = _endian_encode(file->sb->rsv_bmp->bmp_size);
+    } else {
+        enc_u64 = 0;
     }
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
@@ -1050,13 +1077,15 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     }
 
     // reserved bitmap doc offsets
-    if (file->sb->rsv_bmp) {
+    if (rsv_bmp_enabled) {
         num_docs = _bmp_size_to_num_docs(file->sb->rsv_bmp->bmp_size);
         for (i=0; i<num_docs; ++i) {
             enc_u64 = _endian_encode(file->sb->rsv_bmp->bmp_doc_offset[i]);
             memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
             offset += sizeof(enc_u64);
         }
+
+        atomic_store_uint32_t(&file->sb->rsv_bmp->status, SB_RSV_READY);
     }
 
     // CRC
@@ -1200,6 +1229,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         rsv->bmp = NULL;
         rsv->bmp_size = dummy64;
         rsv->cur_alloc_bid = BLK_NOT_FOUND;
+        atomic_init_uint32_t(&rsv->status, SB_RSV_INITIALIZING);
     }
 
     // temporarily set bitmap array to NULL
@@ -1263,11 +1293,13 @@ static void _rsv_free(struct sb_rsv_bmp *rsv)
     free(rsv->bmp);
     free(rsv->bmp_doc_offset);
     free(rsv->bmp_docs);
+    atomic_destroy_uint32_t(&rsv->status);
 }
 
 static void _sb_free(struct superblock *sb)
 {
     if (sb->rsv_bmp) {
+        atomic_store_uint32_t(&sb->rsv_bmp->status, SB_RSV_VOID);
         _free_bmp_idx(&sb->rsv_bmp->bmp_idx);
         _rsv_free(sb->rsv_bmp);
         free(sb->rsv_bmp);
