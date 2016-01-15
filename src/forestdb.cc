@@ -367,6 +367,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                 cur_bmp_revnum)) {
             // not a document block .. move to next block
         } else {
+            uint64_t offset_original = offset;
             do {
                 struct docio_object doc;
                 uint64_t _offset;
@@ -490,6 +491,13 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                     break;
                 }
             } while (offset + sizeof(struct docio_length) < doc_scan_limit);
+
+            // Due to non-consecutive doc blocks, offset value may decrease
+            // and cause an infinite loop. To avoid this issue, we have to
+            // restore the last offset value if offset value is decreased.
+            if (offset < offset_original) {
+                offset = offset_original;
+            }
         }
 
         offset = ((offset / blocksize) + 1) * blocksize;
@@ -4253,6 +4261,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                                 cur_bmp_revnum)) {
             // not a document block .. move to next block
         } else {
+            uint64_t offset_original = offset;
             do {
                 fdb_doc wal_doc;
                 uint8_t deleted;
@@ -4385,6 +4394,13 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 free(doc.body);
                 offset = _offset;
             } while (offset + sizeof(struct docio_length) < doc_scan_limit);
+
+            // Due to non-consecutive doc blocks, offset value may decrease
+            // and cause an infinite loop. To avoid this issue, we have to
+            // restore the last offset value if offset value is decreased.
+            if (offset < offset_original) {
+                offset = offset_original;
+            }
         }
 
         offset = ((offset / blocksize) + 1) * blocksize;
@@ -5783,6 +5799,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
             }
 
         } else {
+            uint64_t offset_original = offset;
             do {
                 uint64_t _offset;
                 uint64_t doc_offset;
@@ -5853,6 +5870,13 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                     break;
                 }
             } while (offset + sizeof(struct docio_length) < doc_scan_limit);
+
+            // Due to non-consecutive doc blocks, offset value may decrease
+            // and cause an infinite loop. To avoid this issue, we have to
+            // restore the last offset value if offset value is decreased.
+            if (offset < offset_original) {
+                offset = offset_original;
+            }
         }
 
 move_delta_next_loop:
@@ -6412,6 +6436,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         // multi KV instance mode .. append up-to-date KV header
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
+
+    sb_return_reusable_blocks(handle);
 
     // last header should be appended at the end of the file
     handle->last_hdr_bid = filemgr_get_pos(handle->file) / handle->file->blocksize;
@@ -7253,6 +7279,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     int i;
     uint64_t size, array_size;
     file_status_t fstatus;
+    filemgr_header_revnum_t revnum;
     fdb_status status = FDB_RESULT_SUCCESS;
 
     if (!fhandle || !markers_out || !num_markers) {
@@ -7287,7 +7314,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
         if (i == 0) {
             status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                           header_buf, &header_len, NULL,
-                                          NULL, NULL, &version, NULL,
+                                          &revnum, NULL, &version, NULL,
                                           &handle->log_callback);
         } else {
             if ((uint64_t)i >= array_size) {
@@ -7296,11 +7323,15 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
             }
             hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                                 header_buf, &header_len,
-                                                &seqnum, NULL, NULL, &version,
+                                                &seqnum, &revnum, NULL, &version,
                                                 NULL, &handle->log_callback);
         }
         if (header_len == 0) {
             continue; // header doesn't exist, terminate iteration
+        }
+        if (ver_superblock_support(version) &&
+            revnum < handle->file->sb->min_live_hdr_revnum) {
+            continue; // eariler than the last block reclaiming
         }
 
         fdb_fetch_header(version, header_buf,

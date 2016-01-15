@@ -216,6 +216,11 @@ INLINE size_t _bmp_size_to_num_docs(uint64_t bmp_size)
     }
 }
 
+INLINE bool _is_bmp_set(uint8_t *bmp, bid_t bid)
+{
+    return (bmp[div8(bid)] & bmp_basic_mask[mod8(bid)]);
+}
+
 void sb_bmp_append_doc(fdb_kvs_handle *handle)
 {
     // == write bitmap into system docs ==
@@ -630,6 +635,115 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
     return true;
 }
 
+void sb_return_reusable_blocks(fdb_kvs_handle *handle)
+{
+    uint64_t node_id;
+    bid_t cur;
+    struct superblock *sb = handle->file->sb;
+    struct sb_rsv_bmp *rsv;
+    struct avl_node *a;
+    struct bmp_idx_node *item, query;
+
+    if (!sb) {
+        // we don't need to do this.
+        return;
+    }
+
+    // re-insert all remaining bitmap into stale list
+    for (cur = sb->cur_alloc_bid; cur < sb->bmp_size; ++cur) {
+        if (_is_bmp_set(sb->bmp, cur)) {
+            filemgr_add_stale_block(handle->file, cur, 1);
+        }
+
+        if ((cur % 256) == 0 && cur > 0) {
+            // node ID changes
+            // remove & free current bmp node
+            node_id = (cur % 256);
+            query.id = node_id - 1;
+            a = avl_search(&sb->bmp_idx, &query.avl, _bmp_idx_cmp);
+            if (a) {
+                item = _get_entry(a, struct bmp_idx_node, avl);
+                avl_remove(&sb->bmp_idx, a);
+                free(item);
+            }
+
+            // move to next bmp node
+            do {
+                a = avl_first(&sb->bmp_idx);
+                if (a) {
+                    item = _get_entry(a, struct bmp_idx_node, avl);
+                    if (item->id <= node_id) {
+                        avl_remove(&sb->bmp_idx, a);
+                        free(item);
+                        continue;
+                    }
+
+                    cur = item->id * 256;
+                }
+
+                // no more reusable block
+                cur = sb->bmp_size;
+                break;
+            } while (true);
+        }
+    }
+    sb->num_free_blocks = 0;
+    sb->cur_alloc_bid = BLK_NOT_FOUND;
+
+    // do the same work for the reserved blocks if exist
+    rsv = sb->rsv_bmp;
+    if (rsv &&
+        atomic_cas_uint32_t(&rsv->status, SB_RSV_READY, SB_RSV_VOID)) {
+
+        for (cur = rsv->cur_alloc_bid; cur < rsv->bmp_size; ++cur) {
+            if (_is_bmp_set(rsv->bmp, cur)) {
+                filemgr_add_stale_block(handle->file, cur, 1);
+            }
+
+            if ((cur % 256) == 0 && cur > 0) {
+                // node ID changes
+                // remove & free current bmp node
+                node_id = (cur % 256);
+                query.id = node_id - 1;
+                a = avl_search(&rsv->bmp_idx, &query.avl, _bmp_idx_cmp);
+                if (a) {
+                    item = _get_entry(a, struct bmp_idx_node, avl);
+                    avl_remove(&rsv->bmp_idx, a);
+                    free(item);
+                }
+
+                // move to next bmp node
+                do {
+                    a = avl_first(&rsv->bmp_idx);
+                    if (a) {
+                        item = _get_entry(a, struct bmp_idx_node, avl);
+                        if (item->id <= node_id) {
+                            avl_remove(&rsv->bmp_idx, a);
+                            free(item);
+                            continue;
+                        }
+
+                        cur = item->id * 256;
+                    }
+
+                    // no more reusable block
+                    cur = rsv->bmp_size;
+                    break;
+                } while (true);
+            }
+        }
+        rsv->num_free_blocks = 0;
+        rsv->cur_alloc_bid = BLK_NOT_FOUND;
+
+        free(rsv);
+        sb->rsv_bmp = NULL;
+    }
+
+    // re-store into stale tree using next header's revnum
+    filemgr_header_revnum_t revnum = handle->cur_header_revnum;
+    fdb_gather_stale_blocks(handle, revnum+1, BLK_NOT_FOUND, BLK_NOT_FOUND, 0, NULL);
+}
+
 void sb_bmp_mask_init()
 {
     // preset masks to speed up bitmap set/clear operations
@@ -865,11 +979,6 @@ sb_alloc_start_over:
     } while (true);
 
     return ret;
-}
-
-INLINE bool _is_bmp_set(uint8_t *bmp, bid_t bid)
-{
-    return (bmp[div8(bid)] & bmp_basic_mask[mod8(bid)]);
 }
 
 bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)

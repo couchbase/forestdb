@@ -325,6 +325,15 @@ bool sb_switch_reserved_blocks(struct filemgr *file);
 bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle);
 
 /**
+ * Restore all remaining reusable blocks including reserved blocks
+ * into stale tree again.
+ *
+ * @param handle Pointer to ForestDB KV store handle.
+ * @return void.
+ */
+void sb_return_reusable_blocks(fdb_kvs_handle *handle);
+
+/**
  * Set bitmap bits for the given blocks.
  *
  * @param bmp Pointer to bitmap array.
