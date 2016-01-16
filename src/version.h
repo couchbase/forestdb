@@ -35,5 +35,10 @@ bool ver_staletree_support(filemgr_magic_t magic);
 bool ver_non_consecutive_doc(filemgr_magic_t magic);
 size_t ver_get_new_filename_off(filemgr_magic_t magic);
 
+/**
+ * Return the offset of last_wal_flush_header field in a commit header
+ */
+size_t ver_get_last_wal_flush_hdr_off(filemgr_magic_t magic);
+
 #endif /* _FDB_VERSION_H */
 

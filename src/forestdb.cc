@@ -3846,11 +3846,16 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
     if (wal_get_num_flushable(new_file)) {
-        // flush wal if not empty
-        wal_flush(new_file, (void *)handle,
-                  _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
-        wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
-        wal_flushed = true;
+        // flush WAL if the new file's WAL is not empty and the commit is never called
+        // on the new file during the compaction.
+        if (new_file->header.data == NULL) {
+            wal_flush(new_file, (void *)handle,
+                      _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
+            wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
+            wal_flushed = true;
+        } else {
+            wal_set_dirty_status(new_file, FDB_WAL_PENDING);
+        }
     } else if (wal_get_size(new_file) == 0) {
         // empty WAL
         wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
@@ -3863,36 +3868,41 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
-    fdb_gather_stale_blocks(handle, filemgr_get_header_revnum(handle->file)+1);
-
-    handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
-    if (wal_get_dirty_status(new_file) == FDB_WAL_CLEAN) {
-        earliest_txn = wal_earliest_txn(new_file,
-                                        &new_file->global_txn);
-        if (earliest_txn) {
-            // there exists other transaction that is not committed yet
-            if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
-                handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
+    if (new_file->header.data == NULL) {
+        // Perform the commit if a commit is never invoked in the new file
+        // during compaction.
+        fdb_gather_stale_blocks(handle, filemgr_get_header_revnum(new_file)+1);
+        handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
+        if (wal_get_dirty_status(new_file) == FDB_WAL_CLEAN) {
+            earliest_txn = wal_earliest_txn(new_file,
+                                            &new_file->global_txn);
+            if (earliest_txn) {
+                // there exists other transaction that is not committed yet
+                if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
+                    handle->last_wal_flush_hdr_bid = earliest_txn->prev_hdr_bid;
+                }
+            } else {
+                // there is no other transaction .. now WAL is empty
+                handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
             }
         } else {
-            // there is no other transaction .. now WAL is empty
-            handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
+            handle->last_wal_flush_hdr_bid = filemgr_get_last_wal_flush_header_id(new_file);
         }
-    }
 
-    // update global_txn's previous header BID
-    new_file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
+        // update global_txn's previous header BID
+        new_file->global_txn.prev_hdr_bid = handle->last_hdr_bid;
 
-    // file header should be set after stale-block tree is updated.
-    handle->cur_header_revnum = fdb_set_file_header(handle);
-    status = filemgr_commit(new_file,
-                            !(handle->config.durability_opt & FDB_DRB_ASYNC),
-                            &handle->log_callback);
-
-    if (status != FDB_RESULT_SUCCESS) {
-        filemgr_mutex_unlock(old_file);
-        filemgr_mutex_unlock(new_file);
-        return status;
+        handle->cur_header_revnum = fdb_set_file_header(handle);
+        status = filemgr_commit(new_file,
+                                !(handle->config.durability_opt & FDB_DRB_ASYNC),
+                                &handle->log_callback);
+        if (status != FDB_RESULT_SUCCESS) {
+            filemgr_mutex_unlock(old_file);
+            filemgr_mutex_unlock(new_file);
+            return status;
+        }
+    } else {
+        handle->last_wal_flush_hdr_bid = filemgr_get_last_wal_flush_header_id(new_file);
     }
 
     if (wal_flushed) {
@@ -5211,7 +5221,8 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
                                       bool clone_docs,
                                       bool got_lock,
                                       size_t *prob,
-                                      uint64_t delay_us)
+                                      uint64_t delay_us,
+                                      bool do_wal_flush)
 {
     uint64_t i;
     uint64_t doc_offset = 0;
@@ -5309,14 +5320,17 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
     }
 
     // WAL flush
-    union wal_flush_items flush_items;
-    wal_commit(&new_handle->file->global_txn, new_handle->file, NULL, &handle->log_callback);
-    wal_flush(new_handle->file, (void*)new_handle,
-              _fdb_wal_flush_func,
-              _fdb_wal_get_old_offset,
-              &flush_items);
-    wal_set_dirty_status(new_handle->file, FDB_WAL_PENDING);
-    wal_release_flushed_items(new_handle->file, &flush_items);
+    if (do_wal_flush) {
+        union wal_flush_items flush_items;
+        wal_commit(&new_handle->file->global_txn, new_handle->file, NULL,
+                   &handle->log_callback);
+        wal_flush(new_handle->file, (void*)new_handle,
+                  _fdb_wal_flush_func,
+                  _fdb_wal_get_old_offset,
+                  &flush_items);
+        wal_set_dirty_status(new_handle->file, FDB_WAL_PENDING);
+        wal_release_flushed_items(new_handle->file, &flush_items);
+    }
 
     if (locked) {
         filemgr_set_throttling_delay(handle->file, 0);
@@ -5439,13 +5453,20 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
                 // As this block is a commit header, flush the WAL and write
                 // the commit header to the new file.
+                bool do_wal_flush = false;
                 if (c) {
                     uint64_t delay_us;
                     delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
+                    // Avoid the WAL flush at the last phase of compaction as it can block
+                    // the writer for a long period.
+                    if (!got_lock &&
+                        (sum_docsize >= FDB_COMP_MOVE_UNIT || c >= FDB_COMP_BATCHSIZE)) {
+                        do_wal_flush = true;
+                    }
                     // TODO: return error code from this function...
                     _fdb_append_batched_delta(handle, &new_handle, doc,
                                               old_offset_array, c, clone_docs,
-                                              got_lock, prob, delay_us);
+                                              got_lock, prob, delay_us, do_wal_flush);
                     c = sum_docsize = 0;
                 }
                 btreeblk_end(handle->bhandle);
@@ -5455,7 +5476,16 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                     new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
                 }
                 new_handle.last_hdr_bid = filemgr_get_next_alloc_block(new_file);
-                new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
+                if (do_wal_flush) {
+                    fdb_gather_stale_blocks(&new_handle,
+                                            filemgr_get_header_revnum(new_file)+1);
+                    new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
+                } else {
+                    new_handle.last_wal_flush_hdr_bid =
+                        filemgr_get_last_wal_flush_header_id(new_file);
+                    wal_commit(&new_handle.file->global_txn, new_handle.file, NULL,
+                               &handle->log_callback);
+                }
                 new_handle.cur_header_revnum = fdb_set_file_header(&new_handle);
                 // If synchrouns commit is enabled, then disable it temporarily for each
                 // commit header as synchronous commit is not required in the new file
@@ -5509,12 +5539,14 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
                             uint64_t delay_us;
                             delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
+                            bool do_wal_flush = !got_lock;
 
                             // append batched docs & flush WAL
                             // TODO: return error code from this function
                             _fdb_append_batched_delta(handle, &new_handle, doc,
                                                       old_offset_array, c, clone_docs,
-                                                      got_lock, prob, delay_us);
+                                                      got_lock, prob, delay_us,
+                                                      do_wal_flush);
                             c = sum_docsize = 0;
                             writer_curr_bid = filemgr_get_pos(handle->file) / blocksize;
                             compactor_curr_bid = offset / blocksize;
@@ -5550,9 +5582,14 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
         uint64_t delay_us;
         delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
 
+        bool do_wal_flush = false;
+        if (!got_lock &&
+            (sum_docsize >= FDB_COMP_MOVE_UNIT || c >= FDB_COMP_BATCHSIZE)) {
+            do_wal_flush = true;
+        }
         _fdb_append_batched_delta(handle, &new_handle, doc,
                                   old_offset_array, c, clone_docs, got_lock,
-                                  prob, delay_us);
+                                  prob, delay_us, do_wal_flush);
         if (!distance_updated) {
             // Probability was not updated since the amount of delta was not big
             // enough. We need to update it at least once for each iteration.
@@ -6188,13 +6225,13 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
             // But at this time, we should grab the old file's lock to prevent
             // any additional updates on it.
             // Also stop flushing blocks from old file in favor of new file
+            filemgr_mutex_lock(handle->file);
+            got_lock = true;
             if (!file_switched) {
                 bgflusher_switch_file(handle->file, new_file,
                                       &handle->log_callback);
                 file_switched = true;
             }
-            filemgr_mutex_lock(handle->file);
-            got_lock = true;
 
             bid_t last_bid;
             last_bid = (filemgr_get_pos(handle->file) / handle->config.blocksize) - 1;
@@ -6239,14 +6276,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     filemgr_mutex_lock(new_file);
 
     // As we moved uncommitted non-transactional WAL items,
-    // commit & flush those items. Now WAL contains only uncommitted
-    // transactional items (or empty), so it is ready to migrate ongoing
-    // transactions.
+    // mark those items as committed in WAL.
     wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
-    wal_flush(handle->file, (void*)handle,
-              _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
-    btreeblk_end(handle->bhandle);
-    wal_release_flushed_items(handle->file, &flush_items);
     // reset last_wal_flush_hdr_bid
     handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
 
@@ -6258,7 +6289,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         fdb_kvs_header_copy(handle, new_file, new_dhandle, NULL, false);
     }
 
-    // migrate uncommitted transactional items to new file
+    // migrate uncommitted transactional items to a new file if they are present in WAL.
     wal_txn_migration((void*)handle, (void*)new_dhandle,
                       handle->file, new_file, _fdb_doc_move);
 

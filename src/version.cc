@@ -63,3 +63,12 @@ size_t ver_get_new_filename_off(filemgr_magic_t magic) {
     }
     return (size_t) -1;
 }
+
+size_t ver_get_last_wal_flush_hdr_off(filemgr_magic_t magic) {
+    switch(magic) {
+        case FILEMGR_MAGIC_V1: return 40;
+        case FILEMGR_MAGIC_V2: return 48;
+        case FILEMGR_MAGIC_V3: return 56;
+    }
+    return (size_t) -1;
+}
