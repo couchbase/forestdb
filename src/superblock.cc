@@ -944,6 +944,11 @@ sb_alloc_start_over:
         for (i=node_off; i<256; ++i) {
             bmp_idx = div8(i) + (node_idx * 32);
             bmp_off = mod8(i);
+
+            if (bmp_idx*8 + bmp_off >= sb->bmp_size) {
+                break;
+            }
+
             if (sb->bmp[bmp_idx] & bmp_basic_mask[bmp_off]) {
                 sb->cur_alloc_bid = bmp_idx*8 + bmp_off;
                 return ret;
