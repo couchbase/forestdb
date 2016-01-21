@@ -1379,6 +1379,9 @@ static void _fdb_init_file_config(const fdb_config *config,
     fconfig->num_wal_shards = config->num_wal_partitions;
     fconfig->num_bcache_shards = config->num_bcache_partitions;
     fconfig->encryption_key = config->encryption_key;
+    atomic_store_uint64_t(&fconfig->block_reusing_threshold,
+                          config->block_reusing_threshold);
+    atomic_store_uint64_t(&fconfig->num_keeping_headers, config->num_keeping_headers);
 }
 
 fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
@@ -6221,20 +6224,8 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
     handle->staletree = new_staletree;
 
     // set filemgr configuration
-    fconfig.blocksize = handle->config.blocksize;
-    fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
-    fconfig.chunksize = handle->config.chunksize;
-    fconfig.options = FILEMGR_CREATE;
-    fconfig.num_wal_shards = handle->config.num_wal_partitions;
-    fconfig.flag = 0x0;
-    if ((handle->config.durability_opt & FDB_DRB_ODIRECT) &&
-         handle->config.buffercache_size) {
-        fconfig.flag |= _ARCH_O_DIRECT;
-    }
-    if (!(handle->config.durability_opt & FDB_DRB_ASYNC)) {
-        fconfig.options |= FILEMGR_SYNC;
-    }
-    fconfig.encryption_key = handle->config.encryption_key;
+    _fdb_init_file_config(&handle->config, &fconfig);
+    fconfig.options |= FILEMGR_CREATE;
 
     // open same file again, so the root kv handle can be redirected to this
     result = filemgr_open((char *)handle->filename,
@@ -6306,22 +6297,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
 
     // set filemgr configuration
     _fdb_init_file_config(&handle->config, &fconfig);
-    fconfig.blocksize = handle->config.blocksize;
-    fconfig.ncacheblock = handle->config.buffercache_size / handle->config.blocksize;
-    fconfig.chunksize = handle->config.chunksize;
-    fconfig.options = FILEMGR_CREATE;
-    fconfig.num_wal_shards = handle->config.num_wal_partitions;
-    fconfig.num_bcache_shards = handle->config.num_bcache_partitions;
-    fconfig.flag = 0x0;
-
-    if ((handle->config.durability_opt & FDB_DRB_ODIRECT) &&
-        handle->config.buffercache_size) {
-        fconfig.flag |= _ARCH_O_DIRECT;
-    }
-    if (!(handle->config.durability_opt & FDB_DRB_ASYNC)) {
-        fconfig.options |= FILEMGR_SYNC;
-    }
-
+    fconfig.options |= FILEMGR_CREATE;
     if (new_encryption_key) {
         fconfig.encryption_key = *new_encryption_key;
     }
@@ -7487,7 +7463,21 @@ fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle)
     }
     filemgr_set_cancel_compaction(super_handle->file, false);
     filemgr_mutex_unlock(super_handle->file);
+    return FDB_RESULT_SUCCESS;
+}
 
+LIBFDB_API
+fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
+                                        size_t block_reusing_threshold,
+                                        size_t num_keeping_headers)
+{
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    filemgr *file = fhandle->root->file;
+    atomic_store_uint64_t(&file->config->block_reusing_threshold,
+                          block_reusing_threshold);
+    atomic_store_uint64_t(&file->config->num_keeping_headers, num_keeping_headers);
     return FDB_RESULT_SUCCESS;
 }
 

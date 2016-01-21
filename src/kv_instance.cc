@@ -2512,7 +2512,8 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
 stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
 {
     uint8_t *hdr_buf = alca(uint8_t, handle->config.blocksize);
-    size_t i, hdr_len, n_headers;
+    size_t i, hdr_len;
+    uint64_t n_headers;
     bid_t hdr_bid, last_wal_bid;
     filemgr_header_revnum_t hdr_revnum;
     filemgr_header_revnum_t cur_revnum;
@@ -2555,7 +2556,9 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
 
     spin_unlock(&handle->file->fhandle_idx_lock);
 
-    if (handle->config.num_keeping_headers) {
+    uint64_t num_keeping_headers =
+        atomic_get_uint64_t(&handle->file->config->num_keeping_headers);
+    if (num_keeping_headers) {
         // backward scan previous header info to keep more headers
 
         if (ret.bid == handle->last_hdr_bid) {
@@ -2568,7 +2571,7 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
             hdr_revnum = ret.revnum;
         }
 
-        n_headers = handle->config.num_keeping_headers;
+        n_headers= num_keeping_headers;
         if (cur_revnum - hdr_revnum < n_headers) {
             n_headers = n_headers - (cur_revnum - hdr_revnum);
         } else {

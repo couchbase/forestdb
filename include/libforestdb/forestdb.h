@@ -1046,6 +1046,24 @@ fdb_status fdb_kvs_remove(fdb_file_handle *fhandle,
                           const char *kvs_name);
 
 /**
+ * Change the config parameters for reusing stale blocks
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param block_reusing_threshold Circular block reusing threshold in the unit of
+ *        percentage(%), which can be represented as '(stale data size)/(total file size)
+ *        When stale data size grows beyond this threshold, circular block reusing is
+ *        triggered so that stale blocks are reused for further block allocations.
+ *        Block reusing is disabled if this threshold is set to zero or 100.
+ * @param num_keeping_headers Number of the last commit headers whose stale blocks should
+ *        be kept for snapshot readers
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
+                                        size_t block_reusing_threshold,
+                                        size_t num_keeping_headers);
+
+/**
  * Retrieve ForestDB error code as a string
  *
  * @param  err_code Error code

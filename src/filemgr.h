@@ -63,6 +63,11 @@ struct filemgr_config {
     uint16_t num_wal_shards;
     uint16_t num_bcache_shards;
     fdb_encryption_key encryption_key;
+    // Stale block reusing threshold
+    atomic_uint64_t block_reusing_threshold;
+    // Number of the last commit headders whose stale blocks should
+    // be kept for snapshot readers.
+    atomic_uint64_t num_keeping_headers;
 };
 
 #ifndef _LATENCY_STATS

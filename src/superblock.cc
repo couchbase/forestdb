@@ -469,8 +469,9 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
         return SBD_NONE;
     }
 
-    if (handle->config.block_reusing_threshold == 0 ||
-        handle->config.block_reusing_threshold >= 100) {
+    uint64_t block_reusing_threshold =
+        atomic_get_uint64_t(&handle->file->config->block_reusing_threshold);
+    if (block_reusing_threshold == 0 || block_reusing_threshold >= 100) {
         // circular block reusing is disabled
         return SBD_NONE;
     }
@@ -483,7 +484,8 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
     // at least # keeping headers should exist
     // since the last block reusing
     if (handle->cur_header_revnum <=
-            sb->min_live_hdr_revnum + handle->config.num_keeping_headers) {
+        sb->min_live_hdr_revnum +
+        atomic_get_uint64_t(&handle->file->config->num_keeping_headers)) {
         return SBD_NONE;
     }
 
@@ -495,7 +497,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
 
     ratio = (filesize - live_datasize) * 100 / filesize;
 
-    if (ratio > handle->config.block_reusing_threshold) {
+    if (ratio > block_reusing_threshold) {
         if (sb->bmp == NULL) {
             // block reusing has not been started yet
             return SBD_RECLAIM;
