@@ -2042,8 +2042,8 @@ void auto_compaction_with_custom_cmp_function()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     old_filesize = file_info.file_size;
 
-    printf("wait for max 10 seconds..\n");
-    for(i=0; i<10; ++i) {
+    printf("wait for daemon compaction completion...\n");
+    while (true) {
         sleep(1);
 
         status = fdb_get_file_info(file, &file_info);
