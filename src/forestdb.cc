@@ -6872,6 +6872,23 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
 }
 
 LIBFDB_API
+fdb_status fdb_set_daemon_compaction_interval(fdb_file_handle *fhandle,
+                                              size_t interval)
+{
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    fdb_kvs_handle *handle = fhandle->root;
+
+    if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
+        return compactor_set_compaction_interval(handle->file, interval);
+    } else {
+        return FDB_RESULT_INVALID_CONFIG;
+    }
+}
+
+LIBFDB_API
 fdb_status fdb_close(fdb_file_handle *fhandle)
 {
     fdb_status fs;

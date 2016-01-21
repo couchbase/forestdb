@@ -68,8 +68,11 @@
 #define FDB_COMP_RATIO_MAX (60) // 60% (writer speed / compactor speed)
 #define FDB_COMP_PROB_UNIT_INC (5) // 5% (probability delta unit for increase)
 #define FDB_COMP_PROB_UNIT_DEC (5) // 5% (probability delta unit for decrease)
-#define FDB_COMPACTOR_SLEEP_DURATION (15)
+
+// full compaction internval in secs when the circular block reusing is enabled
+#define FDB_COMPACTOR_SLEEP_DURATION (28800)
 #define FDB_DEFAULT_COMPACTION_THRESHOLD (30)
+
 #define FDB_BGFLUSHER_SLEEP_DURATION (2)
 #define FDB_BGFLUSHER_DIRTY_THRESHOLD (1024) //if more than this 4MB dirty
                                              // wake up any sleeping bgflusher

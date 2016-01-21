@@ -386,8 +386,10 @@ typedef struct {
      */
     uint64_t compaction_minimum_filesize;
     /**
-     * Duration that the compaction daemon periodically wakes up, in the unit of
-     * second. This is a global config that is used across all ForestDB files.
+     * Duration that the compaction daemon task periodically wakes up, in the unit of
+     * second. This is a local config that can be configured per file.
+     * If the daemon compaction interval for a given file needs to be adjusted, then
+     * fdb_set_daemon_compaction_interval API can be used.
      */
     uint64_t compactor_sleep_duration;
     /**

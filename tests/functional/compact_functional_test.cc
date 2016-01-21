@@ -1762,6 +1762,13 @@ void compaction_daemon_test(size_t time_sec)
         }
     }
 
+    // Change the compaction interval to 60 secs.
+    status = fdb_set_daemon_compaction_interval(dbfile, 60);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // Change the compaction interval back to 1 sec.
+    status = fdb_set_daemon_compaction_interval(dbfile, 1);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     // perform manual compaction of auto-compact file
     status = fdb_compact(dbfile_non, NULL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);

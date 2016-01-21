@@ -81,6 +81,7 @@ struct openfiles_elem {
     err_log_callback *log_callback;
     struct avl_node avl;
     struct timeval last_compaction_timestamp;
+    size_t interval;
 };
 
 struct compactor_args_t {
@@ -150,7 +151,7 @@ INLINE bool _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
     gettimeofday(&curr_time, NULL);
     gap = _utime_gap(elem->last_compaction_timestamp, curr_time);
     uint64_t elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
-    if (elapsed_us < (sleep_duration * 1000000)) {
+    if (elapsed_us < (elem->interval * 1000000)) {
         return false;
     }
 
@@ -352,6 +353,10 @@ void * compactor_thread(void *voidargs)
     // TODO: Need to implement more flexible way of scheduling the compaction
     // daemon (e.g., public APIs to start / stop the compaction daemon).
     mutex_lock(&sync_mutex);
+    if (compactor_terminate_signal) {
+        mutex_unlock(&sync_mutex);
+        return NULL;
+    }
     thread_cond_timedwait(&sync_cond, &sync_mutex, sleep_duration * 1000);
     mutex_unlock(&sync_mutex);
 
@@ -603,6 +608,8 @@ fdb_status compactor_register_file(struct filemgr *file,
         elem->removal_activated = false;
         elem->log_callback = log_callback;
         gettimeofday(&elem->last_compaction_timestamp, NULL);
+        // Init the compaction interval using the global param
+        elem->interval = sleep_duration;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
                                  // subsequent registration attempts for the same file
@@ -683,6 +690,8 @@ fdb_status compactor_register_file_removing(struct filemgr *file,
         elem->removal_activated = false;
         elem->log_callback = log_callback;
         gettimeofday(&elem->last_compaction_timestamp, NULL);
+        // Init the compaction interval using the global param
+        elem->interval = sleep_duration;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
                                  // subsequent registration attempts for the same file
@@ -714,6 +723,26 @@ void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
         elem->config.compaction_threshold = new_threshold;
     }
     mutex_unlock(&cpt_lock);
+}
+
+fdb_status compactor_set_compaction_interval(struct filemgr *file,
+                                             size_t interval)
+{
+    struct avl_node *a = NULL;
+    struct openfiles_elem query, *elem;
+    fdb_status result = FDB_RESULT_SUCCESS;
+
+    strcpy(query.filename, file->filename);
+    mutex_lock(&cpt_lock);
+    a = avl_search(&openfiles, &query.avl, _compactor_cmp);
+    if (a) {
+        elem = _get_entry(a, struct openfiles_elem, avl);
+        elem->interval = interval;
+    } else {
+        result = FDB_RESULT_INVALID_ARGS;
+    }
+    mutex_unlock(&cpt_lock);
+    return result;
 }
 
 struct compactor_meta * _compactor_read_metafile(char *metafile,

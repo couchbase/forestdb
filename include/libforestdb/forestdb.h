@@ -727,6 +727,17 @@ LIBFDB_API
 fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle);
 
 /**
+ * Set the daemon compaction interval for a given file.
+ *
+ * @param fhandle Pointer to ForestDB file handle.
+ * @param interval Daemon compaction intervel to be set for a given file
+ * @return FDB_RESULT_SUCCESS on successful compaction interval change.
+ */
+LIBFDB_API
+fdb_status fdb_set_daemon_compaction_interval(fdb_file_handle *fhandle,
+                                              size_t interval);
+
+/**
  * Change the database file's encryption, by compacting it while writing with a new key.
  * @param fhandle Pointer to ForestDB file handle.
  * @param new_key Key with which to encrypt the new file. To remove encryption, set the key's
