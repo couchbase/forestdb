@@ -1683,6 +1683,10 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             if (sb->last_hdr_bid != BLK_NOT_FOUND) {
                 // add 1 since we subtract 1 from 'hdr_bid' below soon
                 hdr_bid = sb->last_hdr_bid + 1;
+                if (sb->cur_alloc_bid != hdr_bid) {
+                    // seq number has been increased since the last commit
+                    seqnum = fdb_kvs_get_committed_seqnum(handle);
+                }
             } else {
                 hdr_bid = BLK_NOT_FOUND;
             }
