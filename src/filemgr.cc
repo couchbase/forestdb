@@ -827,21 +827,6 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
     return ret;
 }
 
-bid_t filemgr_get_last_wal_flush_header_id(struct filemgr *file)
-{
-    bid_t header_bid;
-    spin_lock(&file->lock);
-    if (file->header.data) {
-        // TODO: Avoid using the hard-coded offset position in a header.
-        memcpy(&header_bid, (uint8_t *)file->header.data + 40, sizeof(bid_t));
-        header_bid = _endian_decode(header_bid);
-    } else {
-        header_bid = BLK_NOT_FOUND;
-    }
-    spin_unlock(&file->lock);
-    return header_bid;
-}
-
 // 'filemgr_get_seqnum' & 'filemgr_set_seqnum' have to be protected by
 // 'filemgr_mutex_lock' & 'filemgr_mutex_unlock'.
 fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file)
