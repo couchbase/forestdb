@@ -388,9 +388,12 @@ void * compactor_thread(void *voidargs)
                     // Search the next file for compaction.
                     a = avl_search_greater(&openfiles, &query.avl, _compactor_cmp);
                 } else {
-                    fdb_log(&fhandle->root->log_callback, fs,
-                            "Failed to open the file '%s' for auto daemon "
-                            "compaction.\n", vfilename);
+                    // As a workaround for MB-17009, call fprintf instead of fdb_log
+                    // until c->cgo->go callback trace issue is resolved.
+                    fprintf(stderr,
+                            "Error status code: %d, Failed to open the file "
+                            "'%s' for auto daemon compaction.\n",
+                            fs, vfilename);
                     // fail to open file
                     mutex_lock(&cpt_lock);
                     a = avl_next(&elem->avl);
@@ -422,9 +425,12 @@ void * compactor_thread(void *voidargs)
                 if (elem->log_callback && ret != 0) {
                     char errno_msg[512];
                     elem->file->ops->get_errno_str(errno_msg, 512);
-                    fdb_log(elem->log_callback, (fdb_status)ret,
-                            "Error in REMOVE on a database file '%s', %s",
-                            elem->file->filename, errno_msg);
+                    // As a workaround for MB-17009, call fprintf instead of fdb_log
+                    // until c->cgo->go callback trace issue is resolved.
+                    fprintf(stderr,
+                            "Error status code: %d, Error in REMOVE on a "
+                            "database file '%s', %s",
+                            ret, elem->file->filename, errno_msg);
                 }
 
                 // free filemgr structure
@@ -715,15 +721,19 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
         if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
             char errno_msg[512];
             ops->get_errno_str(errno_msg, 512);
-            fdb_log(log_callback, (fdb_status) ret,
-                    "Failed to read the meta file '%s', errno_message: %s\n",
-                    metafile, errno_msg);
+            // As a workaround for MB-17009, call fprintf instead of fdb_log
+            // until c->cgo->go callback trace issue is resolved.
+            fprintf(stderr,
+                    "Error status code: %d, Failed to read the meta file '%s', "
+                    "errno_message: %s\n",
+                    (int)ret, metafile, errno_msg);
             ret = ops->close(fd_meta);
             if (ret < 0) {
                 ops->get_errno_str(errno_msg, 512);
-                fdb_log(log_callback, (fdb_status) ret,
-                        "Failed to close the meta file '%s', errno_message: %s\n",
-                        metafile, errno_msg);
+                fprintf(stderr,
+                        "Error status code: %d, Failed to close the meta "
+                        "file '%s', errno_message: %s\n",
+                        (int)ret, metafile, errno_msg);
             }
             return NULL;
         }
@@ -737,8 +747,9 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
                                      sizeof(struct compactor_meta) - sizeof(crc),
                                      meta.crc,
                                      CRC_UNKNOWN)) {
-            fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
-                    "Checksum mismatch in the meta file '%s'\n", metafile);
+            fprintf(stderr,
+                    "Error status code: %d, Checksum mismatch in the meta file '%s'\n",
+                    FDB_RESULT_CHECKSUM_ERROR, metafile);
             return NULL;
         }
         // check if the file exists
@@ -782,18 +793,22 @@ static fdb_status _compactor_store_metafile(char *metafile,
         ret = ops->pwrite(fd_meta, &meta, sizeof(struct compactor_meta), 0);
         if (ret < 0 || (size_t)ret < sizeof(struct compactor_meta)) {
             ops->get_errno_str(errno_msg, 512);
-            fdb_log(log_callback, (fdb_status) ret,
-                    "Failed to perform a write in the meta file '%s', "
-                    "errno_message: %s\n", metafile, errno_msg);
+            // As a workaround for MB-17009, call fprintf instead of fdb_log
+            // until c->cgo->go callback trace issue is resolved.
+            fprintf(stderr,
+                    "Error status code: %d, Failed to perform a write in the meta "
+                    "file '%s', errno_message: %s\n",
+                    (int)ret, metafile, errno_msg);
             ops->close(fd_meta);
             return FDB_RESULT_WRITE_FAIL;
         }
         ret = ops->fsync(fd_meta);
         if (ret < 0) {
             ops->get_errno_str(errno_msg, 512);
-            fdb_log(log_callback, (fdb_status) ret,
-                    "Failed to perform a sync in the meta file '%s', "
-                    "errno_message: %s\n", metafile, errno_msg);
+            fprintf(stderr,
+                    "Error status code: %d, Failed to perform a sync in the meta "
+                    "file '%s', errno_message: %s\n",
+                    (int)ret, metafile, errno_msg);
             ops->close(fd_meta);
             return FDB_RESULT_FSYNC_FAIL;
         }
