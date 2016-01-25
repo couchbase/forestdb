@@ -298,6 +298,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     uint64_t doc_scan_limit;
     uint64_t start_bmp_revnum, stop_bmp_revnum;
     uint64_t cur_bmp_revnum = (uint64_t)-1;
+    bid_t next_doc_block = BLK_NOT_FOUND;
     err_log_callback *log_callback;
 
     if (!hdr_off) { // Nothing to do if we don't have a header block offset
@@ -367,7 +368,6 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                 cur_bmp_revnum)) {
             // not a document block .. move to next block
         } else {
-            uint64_t offset_original = offset;
             do {
                 struct docio_object doc;
                 uint64_t _offset;
@@ -376,11 +376,22 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                 _offset = docio_read_doc(handle->dhandle, offset, &doc, true);
                 if (_offset == offset) { // reached unreadable doc, skip block
                     break;
-                } else if (_offset < offset) { // stale document
-                    free(doc.key);
-                    free(doc.meta);
-                    free(doc.body);
-                    break;
+                } else if (_offset < offset) {
+                    // If more than one writer is appending docs concurrently,
+                    // they have their own doc block linked list and doc blocks
+                    // may not be consecutive. For example,
+                    //
+                    // Writer 1): 100 -> 102 -> 2 -> 4     | commit
+                    // Writer 2):    101 - > 103 -> 3 -> 5 |
+                    //
+                    // In this case, if we read doc BID 102, then 'offset' will jump
+                    // to doc BID 2, without reading BID 103.
+                    //
+                    // To address this issue, in case that 'offset' decreases,
+                    // remember the next doc block, and follow the doc linked list
+                    // first. After the linked list ends, 'offset' cursor will be
+                    // reset to 'next_doc_block'.
+                    next_doc_block = (offset / blocksize) + 1;
                 }
                 if (doc.key || (doc.length.flag & DOCIO_TXN_COMMITTED)) {
                     // check if the doc is transactional or not, and
@@ -491,16 +502,14 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                     break;
                 }
             } while (offset + sizeof(struct docio_length) < doc_scan_limit);
-
-            // Due to non-consecutive doc blocks, offset value may decrease
-            // and cause an infinite loop. To avoid this issue, we have to
-            // restore the last offset value if offset value is decreased.
-            if (offset < offset_original) {
-                offset = offset_original;
-            }
         }
 
-        offset = ((offset / blocksize) + 1) * blocksize;
+        if (next_doc_block != BLK_NOT_FOUND) {
+            offset = next_doc_block * blocksize;
+            next_doc_block = BLK_NOT_FOUND;
+        } else {
+            offset = ((offset / blocksize) + 1) * blocksize;
+        }
         if (ver_superblock_support(handle->file->version) &&
             offset >= filesize) {
             // circular scan
