@@ -450,8 +450,10 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             fdb_kvs_header_read(kv_header, handle->dhandle,
                                 prev_kv_info_offset, handle->file->version, false);
         } else {
-            // prev header doesn't exist .. we don't need to remove seq numbers
-            break;
+            if (handle->kvs) {
+                // prev header doesn't exist .. we don't need to remove seq numbers
+                break;
+            }
         }
         end_seqnum = prev_seqnum; // default KVS
 
@@ -551,7 +553,9 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             } while (false); // dummy loop for easy escape
         }
 
-        _fdb_kvs_header_free(kv_header);
+        if (kv_header) {
+            _fdb_kvs_header_free(kv_header);
+        }
         break;
     }
 
