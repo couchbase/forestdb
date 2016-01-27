@@ -2518,28 +2518,42 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
     filemgr_header_revnum_t cur_revnum;
     filemgr_magic_t magic;
     fdb_seqnum_t seqnum;
+    fdb_file_handle *fhandle = NULL;
     stale_header_info ret;
+    struct avl_node *a;
+    struct filemgr_fhandle_idx_node *fhandle_node;
     struct list_elem *e;
     struct kvs_opened_node *item;
-
-    spin_lock(&handle->fhandle->lock);
 
     ret.revnum = cur_revnum = handle->fhandle->root->cur_header_revnum;
     ret.bid = handle->fhandle->root->last_hdr_bid;
 
-    e = list_begin(handle->fhandle->handles);
-    while (e) {
+    spin_lock(&handle->file->fhandle_idx_lock);
 
-        item = _get_entry(e, struct kvs_opened_node, le);
-        e = list_next(e);
+    // check all opened file handles
+    a = avl_first(&handle->file->fhandle_idx);
+    while (a) {
+        fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        a = avl_next(a);
 
-        if (item->handle->cur_header_revnum < ret.revnum) {
-            ret.revnum = item->handle->cur_header_revnum;
-            ret.bid = item->handle->last_hdr_bid;
+        fhandle = (fdb_file_handle*)fhandle_node->fhandle;
+        spin_lock(&fhandle->lock);
+        // check all opened KVS handles belonging to the file handle
+        e = list_begin(fhandle->handles);
+        while (e) {
+
+            item = _get_entry(e, struct kvs_opened_node, le);
+            e = list_next(e);
+
+            if (item->handle->cur_header_revnum < ret.revnum) {
+                ret.revnum = item->handle->cur_header_revnum;
+                ret.bid = item->handle->last_hdr_bid;
+            }
         }
+        spin_unlock(&fhandle->lock);
     }
 
-    spin_unlock(&handle->fhandle->lock);
+    spin_unlock(&handle->file->fhandle_idx_lock);
 
     if (handle->config.num_keeping_headers) {
         // backward scan previous header info to keep more headers

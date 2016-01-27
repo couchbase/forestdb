@@ -764,6 +764,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
+        filemgr_fhandle_add(handle->file, fhandle);
     } else {
         *ptr_fhandle = NULL;
         free(handle);
@@ -836,6 +837,7 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
+        filemgr_fhandle_add(handle->file, fhandle);
     } else {
         *ptr_fhandle = NULL;
         free(handle);
@@ -880,6 +882,7 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, fconfig);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
+        filemgr_fhandle_add(handle->file, fhandle);
     } else {
         *ptr_fhandle = NULL;
         free(handle);
@@ -2571,6 +2574,7 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
 
 fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
 {
+    bool fhandle_ret;
     fdb_status fs = FDB_RESULT_SUCCESS;
     file_status_t fstatus = filemgr_get_file_status(handle->file);
     // check whether the compaction is done
@@ -2588,14 +2592,24 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
             // compaction daemon mode .. just close and then open
             char filename[FDB_MAX_FILENAME_LEN];
             strcpy(filename, handle->filename);
+
+            // We don't need to maintain fhandle list for the old file
+            // as there will be no more mutation on the file.
+            fhandle_ret = filemgr_fhandle_remove(handle->file, handle->fhandle);
             fs = _fdb_close(handle);
             if (fs != FDB_RESULT_SUCCESS) {
+                if (fhandle_ret) {
+                    filemgr_fhandle_add(handle->file, handle->fhandle);
+                }
                 return fs;
             }
+
             fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
+            filemgr_fhandle_add(handle->file, handle->fhandle);
+
         } else {
             filemgr_get_header(handle->file, buf, &header_len, NULL, NULL, NULL);
             fdb_fetch_header(handle->file->version, buf,
@@ -2604,14 +2618,21 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
                              &last_wal_flush_hdr_bid,
                              &kv_info_offset, &header_flags,
                              &new_filename, NULL);
+
+            fhandle_ret = filemgr_fhandle_remove(handle->file, handle->fhandle);
             fs = _fdb_close(handle);
             if (fs != FDB_RESULT_SUCCESS) {
+                if (fhandle_ret) {
+                    filemgr_fhandle_add(handle->file, handle->fhandle);
+                }
                 return fs;
             }
+
             fs = _fdb_open(handle, new_filename, FDB_AFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
+            filemgr_fhandle_add(handle->file, handle->fhandle);
         }
     }
     if (status) {
@@ -4175,6 +4196,10 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     filemgr_remove_pending(old_file, new_file, &handle->log_callback);
     // This mutex was acquired by the caller (i.e., _fdb_compact_file()).
     filemgr_mutex_unlock(old_file);
+
+    // After compaction is done, we don't need to maintain
+    // fhandle list in superblock.
+    filemgr_fhandle_remove(old_file, handle->fhandle);
 
     // Don't clean up the buffer cache entries for the old file.
     // They will be cleaned up later.
@@ -6022,6 +6047,7 @@ static void _fdb_cleanup_compact_err(fdb_kvs_handle *handle,
     if (got_lock) {
         filemgr_mutex_unlock(new_file);
     }
+    filemgr_fhandle_remove(new_file, handle->fhandle);
     filemgr_close(new_file, cleanup_cache, new_file->filename,
                   &handle->log_callback);
     // Free all the resources allocated in this function.
@@ -6307,6 +6333,8 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
 
     new_file = result.file;
     fdb_assert(new_file, handle, fconfig.options);
+
+    filemgr_fhandle_add(new_file, handle->fhandle);
 
     filemgr_set_in_place_compaction(new_file, in_place_compaction);
     // prevent update to the new_file
@@ -6880,10 +6908,13 @@ fdb_status fdb_close(fdb_file_handle *fhandle)
         }
     }
 
+    filemgr_fhandle_remove(fhandle->root->file, fhandle);
     fs = _fdb_close_root(fhandle->root);
     if (fs == FDB_RESULT_SUCCESS) {
         fdb_file_handle_close_all(fhandle);
         fdb_file_handle_free(fhandle);
+    } else {
+        filemgr_fhandle_add(fhandle->root->file, fhandle);
     }
     return fs;
 }

@@ -209,6 +209,15 @@ struct filemgr {
 
     // temporary in-memory list of stale blocks
     struct list *stale_list;
+
+    /**
+     * Index for fdb_file_handle belonging to the same filemgr handle.
+     */
+    struct avl_tree fhandle_idx;
+    /**
+     * Spin lock for file handle index.
+     */
+    spin_t fhandle_idx_lock;
 };
 
 typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
@@ -568,6 +577,38 @@ struct stale_regions filemgr_actual_stale_regions(struct filemgr *file,
 void filemgr_mark_stale(struct filemgr *file,
                         bid_t offset,
                         size_t length);
+
+/**
+ * The node structure of fhandle index.
+ */
+struct filemgr_fhandle_idx_node {
+    /**
+     * Void pointer to file handle.
+     */
+    void *fhandle;
+    /**
+     * AVL tree element.
+     */
+    struct avl_node avl;
+};
+
+/**
+ * Add a FDB file handle into the superblock's global index.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param fhandle Pointer to FDB file handle.
+ * @return True if successfully added.
+ */
+bool filemgr_fhandle_add(struct filemgr *file, void *fhandle);
+
+/**
+ * Remove a FDB file handle from the superblock's global index.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param fhandle Pointer to FDB file handle.
+ * @return True if successfully removed.
+ */
+bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,

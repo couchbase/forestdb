@@ -1433,6 +1433,7 @@ static void _sb_free(struct superblock *sb)
         free(sb->rsv_bmp);
     }
     _free_bmp_idx(&sb->bmp_idx);
+
     free(sb->bmp);
     free(sb->bmp_prev);
     free(sb->bmp_doc_offset);
@@ -1445,6 +1446,29 @@ static void _sb_free(struct superblock *sb)
     sb->bmp_doc_offset = NULL;
     sb->bmp_docs = NULL;
     sb->config = NULL;
+}
+
+void _sb_init(struct superblock *sb, struct sb_config sconfig)
+{
+    *sb->config = sconfig;
+    sb->revnum = 0;
+    sb->bmp_revnum = 0;
+    sb->bmp_size = 0;
+    sb->bmp = NULL;
+    sb->bmp_prev_size = 0;
+    sb->bmp_prev = NULL;
+    sb->bmp_doc_offset = NULL;
+    sb->bmp_docs = NULL;
+    sb->num_init_free_blocks = 0;
+    sb->num_free_blocks = 0;
+    sb->cur_alloc_bid = BLK_NOT_FOUND;
+    sb->last_hdr_bid = BLK_NOT_FOUND;
+    sb->min_live_hdr_revnum = 0;
+    sb->min_live_hdr_bid = BLK_NOT_FOUND;
+    sb->last_hdr_revnum = 0;
+    sb->num_alloc = 0;
+    sb->rsv_bmp = NULL;
+    avl_init(&sb->bmp_idx, NULL);
 }
 
 fdb_status sb_read_latest(struct filemgr *file,
@@ -1462,6 +1486,8 @@ fdb_status sb_read_latest(struct filemgr *file,
 
     // read all superblocks
     for (i=0; i<sconfig.num_sb; ++i) {
+        sb_arr[i].config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
+        _sb_init(&sb_arr[i], sconfig);
         fs = _sb_read_given_no(file, i, &sb_arr[i], log_callback);
         if (fs == FDB_RESULT_SUCCESS &&
             sb_arr[i].revnum >= max_revnum) {
@@ -1473,6 +1499,9 @@ fdb_status sb_read_latest(struct filemgr *file,
     if (max_sb_no == sconfig.num_sb) {
         // all superblocks are broken
         fs = FDB_RESULT_SB_READ_FAIL;
+        for (i=0; i<sconfig.num_sb; ++i) {
+            _sb_free(&sb_arr[i]);
+        }
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: "
                 "all superblocks are broken");
@@ -1481,8 +1510,6 @@ fdb_status sb_read_latest(struct filemgr *file,
 
     file->sb = (struct superblock*)calloc(1, sizeof(struct superblock));
     *file->sb = sb_arr[max_sb_no];
-    file->sb->config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
-    *file->sb->config = sconfig;
 
     // set last commit position
     if (file->sb->cur_alloc_bid != BLK_NOT_FOUND) {
@@ -1546,27 +1573,8 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
 
     file->sb = (struct superblock*)calloc(1, sizeof(struct superblock));
     file->sb->config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
-    *file->sb->config = sconfig;
-    file->sb->revnum = 0;
-    file->sb->bmp_revnum = 0;
-    file->sb->bmp_size = 0;
-    file->sb->bmp = NULL;
-    file->sb->bmp_prev_size = 0;
-    file->sb->bmp_prev = NULL;
-    file->sb->bmp_doc_offset = NULL;
-    file->sb->bmp_docs = NULL;
-    file->sb->num_init_free_blocks = 0;
-    file->sb->num_free_blocks = 0;
-    file->sb->cur_alloc_bid = BLK_NOT_FOUND;
-    file->sb->last_hdr_bid = BLK_NOT_FOUND;
-    file->sb->min_live_hdr_revnum = 0;
-    file->sb->min_live_hdr_bid = BLK_NOT_FOUND;
-    file->sb->last_hdr_revnum = 0;
-    file->sb->num_alloc = 0;
-    file->sb->rsv_bmp = NULL;
-
     file->version = ver_get_latest_magic();
-    avl_init(&file->sb->bmp_idx, NULL);
+    _sb_init(file->sb, sconfig);
 
     // write initial superblocks
     for (i=0; i<file->sb->config->num_sb; ++i) {

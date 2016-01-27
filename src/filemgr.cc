@@ -898,6 +898,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->stale_list = (struct list*)calloc(1, sizeof(struct list));
     list_init(file->stale_list);
 
+    spin_init(&file->fhandle_idx_lock);
+    avl_init(&file->fhandle_idx, NULL);
+
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
     struct plock_ops pops;
     struct plock_config pconfig;
@@ -1526,6 +1529,7 @@ void filemgr_remove_all_buffer_blocks(struct filemgr *file)
     }
 }
 
+void _free_fhandle_idx(struct avl_tree *idx);
 void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
@@ -1620,6 +1624,12 @@ void filemgr_free_func(struct hash_elem *h)
     if (sb_ops.release) {
         sb_ops.release(file);
     }
+
+    // free fhandle idx
+    spin_lock(&file->fhandle_idx_lock);
+    _free_fhandle_idx(&file->fhandle_idx);
+    spin_unlock(&file->fhandle_idx_lock);
+    spin_destroy(&file->fhandle_idx_lock);
 
     // free file structure
     struct list *stale_list = filemgr_get_stale_list(file);
@@ -3033,6 +3043,90 @@ void filemgr_mark_stale(struct filemgr *file,
             filemgr_add_stale_block(file, sr.region.pos, sr.region.len);
         }
     }
+}
+
+INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    uint64_t aaa, bbb;
+    struct filemgr_fhandle_idx_node *aa, *bb;
+    aa = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+    bb = _get_entry(b, struct filemgr_fhandle_idx_node, avl);
+    aaa = (uint64_t)aa->fhandle;
+    bbb = (uint64_t)bb->fhandle;
+
+#ifdef __BIT_CMP
+    return _CMP_U64(aaa, bbb);
+#else
+    if (aaa < bbb) {
+        return -1;
+    } else if (aaa > bbb) {
+        return 1;
+    } else {
+        return 0;
+    }
+#endif
+}
+
+void _free_fhandle_idx(struct avl_tree *idx)
+{
+    struct avl_node *a;
+    struct filemgr_fhandle_idx_node *item;
+
+    a = avl_first(idx);
+    while (a) {
+        item = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        a = avl_next(a);
+        avl_remove(idx, &item->avl);
+        free(item);
+    }
+}
+
+bool filemgr_fhandle_add(struct filemgr *file, void *fhandle)
+{
+    bool ret;
+    struct filemgr_fhandle_idx_node *item, query;
+    struct avl_node *a;
+
+    spin_lock(&file->fhandle_idx_lock);
+
+    query.fhandle = fhandle;
+    a = avl_search(&file->fhandle_idx, &query.avl, _fhandle_idx_cmp);
+    if (!a) {
+        // not exist, create a node and insert
+        item = (struct filemgr_fhandle_idx_node *)calloc(1, sizeof(struct filemgr_fhandle_idx_node));
+        item->fhandle = fhandle;
+        avl_insert(&file->fhandle_idx, &item->avl, _fhandle_idx_cmp);
+        ret = true;
+    } else {
+        ret = false;
+    }
+
+    spin_unlock(&file->fhandle_idx_lock);
+    return ret;
+}
+
+bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle)
+{
+    bool ret;
+    struct filemgr_fhandle_idx_node *item, query;
+    struct avl_node *a;
+
+    spin_lock(&file->fhandle_idx_lock);
+
+    query.fhandle = fhandle;
+    a = avl_search(&file->fhandle_idx, &query.avl, _fhandle_idx_cmp);
+    if (a) {
+        // exist, remove & free the item
+        item = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        avl_remove(&file->fhandle_idx, &item->avl);
+        free(item);
+        ret = true;
+    } else {
+        ret = false;
+    }
+
+    spin_unlock(&file->fhandle_idx_lock);
+    return ret;
 }
 
 void _kvs_stat_set(struct filemgr *file,
