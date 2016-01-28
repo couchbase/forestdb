@@ -3168,7 +3168,6 @@ void *db_compact_during_compaction_cancellation(void *args)
 {
 
     TEST_INIT();
-    memleak_start();
 
     fdb_file_handle *dbfile;
     fdb_status status;
@@ -3184,7 +3183,6 @@ void *db_compact_during_compaction_cancellation(void *args)
              status == FDB_RESULT_COMPACTION_CANCELLATION);
     fdb_close(dbfile);
 
-    memleak_end();
     // shutdown
     thread_exit(0);
     return NULL;
