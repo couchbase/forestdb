@@ -76,6 +76,43 @@ static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
+static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
+                                       fdb_kvs_id_t kv_id)
+{
+    struct filemgr *file = fhandle->root->file;
+    struct avl_node *a;
+    struct list_elem *e;
+    struct filemgr_fhandle_idx_node *fhandle_node;
+    struct kvs_opened_node *opened_node;
+    fdb_file_handle *file_handle;
+
+    spin_lock(&file->fhandle_idx_lock);
+    a = avl_first(&file->fhandle_idx);
+    while (a) {
+        fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        a = avl_next(a);
+        file_handle = (fdb_file_handle *) fhandle_node->fhandle;
+        spin_lock(&file_handle->lock);
+        e = list_begin(file_handle->handles);
+        while (e) {
+            opened_node = _get_entry(e, struct kvs_opened_node, le);
+            if ((opened_node->handle->kvs && opened_node->handle->kvs->id == kv_id) ||
+                (kv_id == 0 && opened_node->handle->kvs == NULL)) // single KVS mode
+            {
+                // there is an opened handle
+                spin_unlock(&file_handle->lock);
+                spin_unlock(&file->fhandle_idx_lock);
+                return true;
+            }
+            e = list_next(e);
+        }
+        spin_unlock(&file_handle->lock);
+    }
+    spin_unlock(&file->fhandle_idx_lock);
+
+    return false;
+}
+
 void fdb_file_handle_init(fdb_file_handle *fhandle,
                            fdb_kvs_handle *root)
 {
@@ -1893,11 +1930,9 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     fdb_kvs_id_t kv_id = 0;
     fdb_kvs_handle *root_handle;
     struct avl_node *a = NULL;
-    struct list_elem *e;
     struct filemgr *file;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
-    struct kvs_opened_node *opened_node;
 
     if (!fhandle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -1947,25 +1982,14 @@ fdb_kvs_remove_start:
     // find the kvs_node and remove
 
     // search by name to get ID
-    spin_lock(&root_handle->fhandle->lock);
-
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
         if (!rollback_recreate) {
             // default KV store .. KV ID = 0
             kv_id = 0;
-            e = list_begin(root_handle->fhandle->handles);
-            while (e) {
-                opened_node = _get_entry(e, struct kvs_opened_node, le);
-                if ((opened_node->handle->kvs &&
-                     opened_node->handle->kvs->id == kv_id) ||
-                     opened_node->handle->kvs == NULL) // single KVS mode
-                {
-                    // there is an opened handle
-                    spin_unlock(&root_handle->fhandle->lock);
-                    filemgr_mutex_unlock(file);
-                    return FDB_RESULT_KV_STORE_BUSY;
-                }
-                e = list_next(e);
+            if (_fdb_kvs_any_handle_opened(fhandle, kv_id)) {
+                // there is an opened handle
+                filemgr_mutex_unlock(file);
+                return FDB_RESULT_KV_STORE_BUSY;
             }
         }
         // reset KVS stats (excepting for WAL stats)
@@ -1976,7 +2000,6 @@ fdb_kvs_remove_start:
 
         // reset seqnum
         filemgr_set_seqnum(file, 0);
-        spin_unlock(&root_handle->fhandle->lock);
     } else {
         kv_header = file->kv_header;
         spin_lock(&kv_header->lock);
@@ -1984,7 +2007,6 @@ fdb_kvs_remove_start:
         a = avl_search(kv_header->idx_name, &query.avl_name, _kvs_cmp_name);
         if (a == NULL) { // KV name doesn't exist
             spin_unlock(&kv_header->lock);
-            spin_unlock(&root_handle->fhandle->lock);
             filemgr_mutex_unlock(file);
             return FDB_RESULT_KV_STORE_NOT_FOUND;
         }
@@ -1992,25 +2014,17 @@ fdb_kvs_remove_start:
         kv_id = node->id;
 
         if (!rollback_recreate) {
-            e = list_begin(root_handle->fhandle->handles);
-            while (e) {
-                opened_node = _get_entry(e, struct kvs_opened_node, le);
-                if (opened_node->handle->kvs &&
-                    opened_node->handle->kvs->id == kv_id) {
-                    // there is an opened handle
-                    spin_unlock(&kv_header->lock);
-                    spin_unlock(&root_handle->fhandle->lock);
-                    filemgr_mutex_unlock(file);
-                    return FDB_RESULT_KV_STORE_BUSY;
-                }
-                e = list_next(e);
+            if (_fdb_kvs_any_handle_opened(fhandle, kv_id)) {
+                // there is an opened handle
+                spin_unlock(&kv_header->lock);
+                filemgr_mutex_unlock(file);
+                return FDB_RESULT_KV_STORE_BUSY;
             }
 
             avl_remove(kv_header->idx_name, &node->avl_name);
             avl_remove(kv_header->idx_id, &node->avl_id);
             --kv_header->num_kv_stores;
             spin_unlock(&kv_header->lock);
-            spin_unlock(&root_handle->fhandle->lock);
 
             kv_id = node->id;
 
@@ -2025,7 +2039,6 @@ fdb_kvs_remove_start:
             node->stat.deltasize = 0;
             node->seqnum = 0;
             spin_unlock(&kv_header->lock);
-            spin_unlock(&root_handle->fhandle->lock);
         }
     }
 
@@ -2086,10 +2099,28 @@ fdb_kvs_remove_start:
 
 bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
 {
-    bool ret;
-    spin_lock(&fhandle->lock);
-    ret = (list_begin(fhandle->handles) != NULL);
-    spin_unlock(&fhandle->lock);
+    bool ret = false;
+    struct filemgr *file = fhandle->root->file;
+    struct avl_node *a;
+    struct filemgr_fhandle_idx_node *fhandle_node;
+    fdb_file_handle *file_handle;
+
+    spin_lock(&file->fhandle_idx_lock);
+    a = avl_first(&file->fhandle_idx);
+    while (a) {
+        fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        a = avl_next(a);
+        file_handle = (fdb_file_handle *) fhandle_node->fhandle;
+        spin_lock(&file_handle->lock);
+        if (list_begin(file_handle->handles) != NULL) {
+            ret = true;
+            spin_unlock(&file_handle->lock);
+            break;
+        }
+        spin_unlock(&file_handle->lock);
+    }
+    spin_unlock(&file->fhandle_idx_lock);
+
     return ret;
 }
 

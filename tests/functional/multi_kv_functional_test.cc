@@ -398,7 +398,28 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     // must fail due to opened handle
     TEST_CHK(s != FDB_RESULT_SUCCESS);
 
-    // closing super handle also closes all other sub-handles;
+    // Close "kv1" handle
+    s = fdb_kvs_close(kv1);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // re-open with a new file handle
+    fdb_file_handle *fhandle;
+    if (opt & MULTI_KV_VAR_CMP) {
+        s = fdb_open_custom_cmp(&fhandle, "./multi_kv_test2", &config,
+                                2, kvs_names, functions);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else {
+        s = fdb_open(&fhandle, "./multi_kv_test2", &config);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    s = fdb_kvs_open(fhandle, &kv1, "kv1", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // Try to remove "kv1" again, but should fail
+    s = fdb_kvs_remove(dbfile, "kv1");
+    TEST_CHK(s == FDB_RESULT_KV_STORE_BUSY);
+
+    // closing super handles also closes all other sub-handles;
+    s = fdb_close(fhandle);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 

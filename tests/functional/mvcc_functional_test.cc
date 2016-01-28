@@ -3791,6 +3791,22 @@ void rollback_all_test(bool multi_kv)
         for (r = 0; r < num_kvs; ++r) {
             fdb_kvs_close(db[r]);
         }
+
+        fdb_file_handle *fhandle;
+        fdb_kvs_handle *dbhandle;
+        status = fdb_open(&fhandle, "./mvcc_test6", &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open(fhandle, &dbhandle, "kv0", &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        // Rollback again, but should fail again because there is a new handle created
+        status = fdb_rollback_all(dbfile, markers[i].marker);
+        TEST_CHK(status == FDB_RESULT_KV_STORE_BUSY);
+        // Close the handle to have the rollback pass
+        status = fdb_kvs_close(dbhandle);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_close(fhandle);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
         status = fdb_rollback_all(dbfile, markers[i].marker);
     }
 
