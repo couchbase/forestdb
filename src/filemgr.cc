@@ -2393,7 +2393,8 @@ fdb_status filemgr_destroy_file(char *filename,
         file->ops = get_filemgr_ops();
         file->fd = file->ops->open(file->filename, O_RDWR, 0666);
         file->blocksize = global_config.blocksize;
-        file->config = NULL;
+        file->config = (struct filemgr_config *)alca(struct filemgr_config, 1);
+        *file->config = *config;
         fdb_init_encryptor(&file->encryption, &config->encryption_key);
         if (file->fd < 0) {
             if (file->fd != FDB_RESULT_NO_SUCH_FILE) {
