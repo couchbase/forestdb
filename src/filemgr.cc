@@ -372,7 +372,6 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     uint8_t *buf;
     uint32_t crc, crc_file;
     bool check_crc32_open_rule = false;
-    bool no_header_in_superblock = false;
     fdb_status status = FDB_RESULT_SUCCESS;
     bid_t hdr_bid, hdr_bid_local;
     size_t min_filesize = 0;
@@ -393,13 +392,12 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
         min_filesize = file->sb->config->num_sb * file->blocksize;
         if (file->sb->last_hdr_bid != BLK_NOT_FOUND) {
             hdr_bid = hdr_bid_local = file->sb->last_hdr_bid;
-        } else {
-            no_header_in_superblock = true;
         }
+        // if header info does not exist in superblock,
+        // get DB header at the end of the file.
     }
 
-    if (atomic_get_uint64_t(&file->pos) > min_filesize &&
-        !no_header_in_superblock) {
+    if (atomic_get_uint64_t(&file->pos) > min_filesize) {
         // Crash Recovery Test 1: unaligned last block write
         uint64_t remain = atomic_get_uint64_t(&file->pos) % file->blocksize;
         if (remain) {

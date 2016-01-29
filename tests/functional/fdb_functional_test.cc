@@ -390,10 +390,9 @@ void config_test()
 
     bcache_space_used = fdb_get_buffer_cache_used();
 
-    // Since V3 magic number, 11 blocks are used:
-    // 7 blocks created eariler + KV name haeder + new Stale-tree root node +
-    // new DB header + document block for KV pair
-    TEST_CHK(bcache_space_used == fconfig.blocksize * 11);
+    // Since V3 magic number, 8 blocks are used:
+    // 7 blocks created eariler + document block for KV pair
+    TEST_CHK(bcache_space_used == fconfig.blocksize * 8);
 
     fdb_close(dbfile);
 
