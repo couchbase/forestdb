@@ -129,16 +129,16 @@ IF (_ENCRYPTION)
     INCLUDE(FindEncryptionLib)
 ENDIF (_ENCRYPTION)
 
-add_library(forestdb SHARED
+SET(FORESTDB_CORE_SRC
             src/api_wrapper.cc
             src/avltree.cc
+            src/bgflusher.cc
             src/blockcache.cc
             src/btree.cc
             src/btree_kv.cc
             src/btree_str_kv.cc
             src/btree_fast_str_kv.cc
             src/btreeblock.cc
-            src/bgflusher.cc
             src/checksum.cc
             src/compactor.cc
             src/configuration.cc
@@ -146,78 +146,56 @@ add_library(forestdb SHARED
             src/encryption.cc
             src/encryption_aes.cc
             src/encryption_bogus.cc
+            src/fdb_errors.cc
             src/filemgr.cc
             src/filemgr_ops.cc
-            ${FORESTDB_FILE_OPS}
             src/forestdb.cc
-            src/fdb_errors.cc
+            src/hash.cc
             src/hash_functions.cc
             src/hbtrie.cc
             src/iterator.cc
-            src/list.cc
-            src/hash.cc
-            src/wal.cc
-            ${GETTIMEOFDAY_VS}
-            src/snapshot.cc
-            src/transaction.cc
             src/kv_instance.cc
-            src/version.cc
+            src/list.cc
+            src/snapshot.cc
             src/staleblock.cc
-            utils/memleak.cc
+            src/transaction.cc
+            src/version.cc
+            src/wal.cc)
+
+SET(FORESTDB_UTILS_SRC
             utils/crc32.cc
             utils/debug.cc
+            utils/memleak.cc
             utils/partiallock.cc
+            utils/system_resource_stats.cc
             utils/time_utils.cc
-            utils/timing.cc
-            utils/system_resource_stats.cc)
+            utils/timing.cc)
+
+add_library(forestdb SHARED
+            ${FORESTDB_FILE_OPS}
+            ${GETTIMEOFDAY_VS}
+            ${FORESTDB_CORE_SRC}
+            ${FORESTDB_UTILS_SRC})
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${LIBRT}
                       ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY} ${CRYPTO_LIB})
 
+
+# Create objects libraries for the different "tools" parts forestdb, which can be reused
+# by various targets.
+add_library(FDB_TOOLS_CORE OBJECT ${FORESTDB_CORE_SRC})
+set_target_properties(FDB_TOOLS_CORE PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
+
+add_library(FDB_TOOLS_UTILS OBJECT ${FORESTDB_UTILS_SRC})
+set_target_properties(FDB_TOOLS_UTILS PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
+
 add_executable(forestdb_dump
                tools/dump_common.cc
                tools/forestdb_dump.cc
-               src/api_wrapper.cc
-               src/avltree.cc
-               src/blockcache.cc
-               src/btree.cc
-               src/btree_kv.cc
-               src/btree_str_kv.cc
-               src/btree_fast_str_kv.cc
-               src/btreeblock.cc
-               src/bgflusher.cc
-               src/checksum.cc
-               src/compactor.cc
-               src/configuration.cc
-               src/docio.cc
-               src/encryption.cc
-               src/encryption_aes.cc
-               src/encryption_bogus.cc
-               src/fdb_errors.cc
-               src/filemgr.cc
-               src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
-               src/forestdb.cc
-               src/hash_functions.cc
-               src/hbtrie.cc
-               src/iterator.cc
-               src/list.cc
-               src/hash.cc
-               src/wal.cc
                ${GETTIMEOFDAY_VS}
-               src/snapshot.cc
-               src/transaction.cc
-               src/kv_instance.cc
-               src/version.cc
-               src/staleblock.cc
-               utils/memleak.cc
-               utils/crc32.cc
-               utils/debug.cc
-               utils/iniparser.cc
-               utils/partiallock.cc
-               utils/time_utils.cc
-               utils/timing.cc
-               utils/system_resource_stats.cc)
+               $<TARGET_OBJECTS:FDB_TOOLS_CORE>
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB})
@@ -226,47 +204,10 @@ set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 add_executable(forestdb_hexamine
                tools/dump_common.cc
                tools/forestdb_hexamine.cc
-               src/api_wrapper.cc
-               src/avltree.cc
-               src/blockcache.cc
-               src/btree.cc
-               src/btree_kv.cc
-               src/btree_str_kv.cc
-               src/btree_fast_str_kv.cc
-               src/btreeblock.cc
-               src/bgflusher.cc
-               src/checksum.cc
-               src/compactor.cc
-               src/configuration.cc
-               src/docio.cc
-               src/encryption.cc
-               src/encryption_aes.cc
-               src/encryption_bogus.cc
-               src/fdb_errors.cc
-               src/filemgr.cc
-               src/filemgr_ops.cc
                ${FORESTDB_FILE_OPS}
-               src/forestdb.cc
-               src/hash_functions.cc
-               src/hbtrie.cc
-               src/iterator.cc
-               src/list.cc
-               src/hash.cc
-               src/wal.cc
                ${GETTIMEOFDAY_VS}
-               src/snapshot.cc
-               src/transaction.cc
-               src/kv_instance.cc
-               src/version.cc
-               src/staleblock.cc
-               utils/memleak.cc
-               utils/crc32.cc
-               utils/debug.cc
-               utils/iniparser.cc
-               utils/partiallock.cc
-               utils/time_utils.cc
-               utils/timing.cc
-               utils/system_resource_stats.cc)
+               $<TARGET_OBJECTS:FDB_TOOLS_CORE>
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
                       ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB})
