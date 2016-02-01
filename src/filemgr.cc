@@ -945,7 +945,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     // init or load superblock
     status = _filemgr_load_sb(file, log_callback);
-    if (status != FDB_RESULT_SUCCESS) {
+    // we can tolerate SB_READ_FAIL for old version file
+    if (status != FDB_RESULT_SB_READ_FAIL &&
+        status != FDB_RESULT_SUCCESS) {
         _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
         file->ops->close(file->fd);
         free(file->stale_list);
@@ -1097,7 +1099,7 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
 
 uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file)
 {
-    if (sb_ops.get_bmp_revnum) {
+    if (file->sb && sb_ops.get_bmp_revnum) {
         return sb_ops.get_bmp_revnum(file);
     } else {
         return 0;
@@ -2211,7 +2213,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
-    filemgr_magic_t magic = ver_get_latest_magic();
+    filemgr_magic_t magic = file->version;
     filemgr_magic_t _magic;
     bool block_reusing = false;
 

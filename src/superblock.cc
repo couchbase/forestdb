@@ -1502,9 +1502,8 @@ fdb_status sb_read_latest(struct filemgr *file,
         for (i=0; i<sconfig.num_sb; ++i) {
             _sb_free(&sb_arr[i]);
         }
-        fdb_log(log_callback, fs,
-                "Failed to read the superblock: "
-                "all superblocks are broken");
+        // no readable superblock
+        // (if not corrupted, it may be a normal old version file)
         return fs;
     }
 
@@ -1535,17 +1534,29 @@ fdb_status sb_read_latest(struct filemgr *file,
 
 uint64_t sb_get_bmp_revnum(struct filemgr *file)
 {
-    return file->sb->bmp_revnum;
+    if (file->sb) {
+        return file->sb->bmp_revnum;
+    } else {
+        return 0;
+    }
 }
 
 filemgr_header_revnum_t sb_get_min_live_revnum(struct filemgr *file)
 {
-    return file->sb->min_live_hdr_revnum;
+    if (file->sb) {
+        return file->sb->min_live_hdr_revnum;
+    } else {
+        return 0;
+    }
 }
 
 uint64_t sb_get_num_free_blocks(struct filemgr *file)
 {
-    return file->sb->num_free_blocks;
+    if (file->sb) {
+        return file->sb->num_free_blocks;
+    } else {
+        return 0;
+    }
 }
 
 struct sb_config sb_get_default_config()

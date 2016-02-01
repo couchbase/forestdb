@@ -317,6 +317,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
         return;
     }
 
+    if (mode == FDB_RESTORE_NORMAL && !handle->shandle) {
+        // for normal WAL restore, set status to dirty
+        wal_set_dirty_status(handle->file, FDB_WAL_DIRTY);
+    }
+
     // Temporarily disable the error logging callback as there are false positive
     // checksum errors in docio_read_doc.
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.
@@ -3721,7 +3726,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum)
     }
 
     // stale block tree root bid (V3)
-    if (ver_staletree_support(ver_get_latest_magic())) {
+    if (ver_staletree_support(handle->file->version)) {
         _edn_safe_64 = _endian_encode(handle->staletree->root_bid);
         seq_memcpy(buf + offset, &_edn_safe_64,
                    sizeof(handle->staletree->root_bid), offset);
