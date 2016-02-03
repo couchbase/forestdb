@@ -3197,6 +3197,131 @@ void transaction_simple_api_test()
     TEST_RESULT("transaction simple API test");
 }
 
+void *in_memory_snapshot_thread(void *args)
+{
+
+    TEST_INIT();
+
+    fdb_kvs_handle *db = (fdb_kvs_handle *)args;
+    fdb_kvs_handle *snap_db;
+    fdb_iterator *fit;
+    fdb_status status;
+    fdb_doc *doc;
+    char key[256], value[256];
+
+    // Open in-memory snapshot
+    status = fdb_snapshot_open(db, &snap_db, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Iterate the in-memory snapshot
+    status = fdb_iterator_init(snap_db, &fit, NULL, 0, NULL, 0, 0x0);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    int i = 0;
+    do {
+        doc = NULL;
+        status = fdb_iterator_get(fit, &doc);
+        if (status != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        sprintf(key, "key%d", i);
+        sprintf(value, "body%d", i);
+        TEST_CMP(doc->key, key, doc->keylen);
+        TEST_CMP(doc->body, value, doc->bodylen);
+        i++;
+        fdb_doc_free(doc);
+    } while(fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    TEST_CHK(i == 10);
+
+    status = fdb_iterator_close(fit);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_close(snap_db);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // shutdown
+    thread_exit(0);
+    return NULL;
+}
+
+void transaction_in_memory_snapshot_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 10;
+    size_t valuelen;
+    void *value;
+    fdb_file_handle *dbfile, *dbfile_txn1;
+    fdb_kvs_handle *db, *db_txn1;
+    fdb_status status;
+
+    char keybuf[256], bodybuf[256];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.purging_interval = 0;
+    fconfig.compaction_threshold = 0;
+
+    // open db
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "transaction_in_memory_snapshot_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // insert the first set of key-value pairs
+    for (i=0;i<n;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // commit
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // open db and begin a transaction
+    fdb_open(&dbfile_txn1, "./mvcc_test1", &fconfig);
+    fdb_kvs_open_default(dbfile_txn1, &db_txn1, &kvs_config);
+    fdb_begin_transaction(dbfile_txn1, FDB_ISOLATION_READ_COMMITTED);
+
+    // concurrently update docs
+    for (i=10;i<10000;++i){
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d_txn1", i);
+        fdb_set_kv(db_txn1, keybuf, strlen(keybuf), bodybuf, strlen(bodybuf));
+    }
+
+    // Create in-memory snapshot thread
+    thread_t tid;
+    void *thread_ret;
+    thread_create(&tid, in_memory_snapshot_thread, (void *)db);
+
+    // commit txn1
+    fdb_end_transaction(dbfile_txn1, FDB_COMMIT_NORMAL);
+
+    thread_join(tid, &thread_ret);
+
+    // close db file
+    fdb_close(dbfile);
+    fdb_close(dbfile_txn1);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("transaction and in-memory snapshot interleaving test");
+}
+
 
 void rollback_prior_to_ops(bool walflush)
 {
@@ -4458,6 +4583,7 @@ int main(){
     rollback_ncommits();
     transaction_test();
     transaction_simple_api_test();
+    transaction_in_memory_snapshot_test();
     rollback_prior_to_ops(true); // wal commit
     rollback_prior_to_ops(false); // normal commit
     snapshot_concurrent_compaction_test();

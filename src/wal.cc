@@ -1064,6 +1064,29 @@ fdb_status wal_flush_by_compactor(struct filemgr *file,
                       flush_items, true);
 }
 
+INLINE bool item_partially_committed(struct filemgr *file,
+                                     struct list *active_txn_list,
+                                     fdb_txn *current_txn,
+                                     struct wal_item *item)
+{
+    bool partial_commit = false;
+
+    if (item->flag & WAL_ITEM_COMMITTED &&
+        item->txn != &file->global_txn && item->txn != current_txn) {
+        struct wal_txn_wrapper *txn_wrapper;
+        struct list_elem *txn_elem = list_begin(active_txn_list);
+        while(txn_elem) {
+            txn_wrapper = _get_entry(txn_elem, struct wal_txn_wrapper, le);
+            if (txn_wrapper->txn == item->txn) {
+                partial_commit = true;
+                break;
+            }
+            txn_elem = list_next(txn_elem);
+        }
+    }
+    return partial_commit;
+}
+
 // Used to copy all the WAL items for non-durable snapshots
 fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
@@ -1080,6 +1103,27 @@ fdb_status wal_snapshot(struct filemgr *file,
     size_t i = 0;
     size_t num_shards = file->wal->num_shards;
 
+    // Get the list of active transactions now
+    fdb_txn *active_txn;
+    struct wal_txn_wrapper *txn_wrapper;
+    struct list active_txn_list;
+    list_init(&active_txn_list);
+    spin_lock(&file->wal->lock);
+    ee = list_begin(&file->wal->txn_list);
+    while(ee) {
+        txn_wrapper = _get_entry(ee, struct wal_txn_wrapper, le);
+        active_txn = txn_wrapper->txn;
+        // except for global_txn
+        if (active_txn != &file->global_txn) {
+            txn_wrapper = (struct wal_txn_wrapper *)
+                calloc(1, sizeof(struct wal_txn_wrapper));
+            txn_wrapper->txn = active_txn;
+            list_push_front(&active_txn_list, &txn_wrapper->le);
+        }
+        ee = list_next(ee);
+    }
+    spin_unlock(&file->wal->lock);
+
     for (; i < num_shards; ++i) {
         spin_lock(&file->wal->key_shards[i].lock);
         a = avl_first(&file->wal->key_shards[i].map_bykey);
@@ -1093,9 +1137,10 @@ fdb_status wal_snapshot(struct filemgr *file,
                     continue; // duplication of items in WAL & Main-index
                 }
                 if (copy_upto != FDB_SNAPSHOT_INMEM) {
-                    // Take stable snapshot in new_file: Skip all items that are...
-                    if (copy_upto < item->seqnum || // higher than requested seqnum
-                        !(item->flag & WAL_ITEM_COMMITTED)) { // or uncommitted
+                    // Take stable snapshot in new_file: Skip all items that are
+                    // higher than requested seqnum or uncommitted.
+                    if (copy_upto < item->seqnum ||
+                        !(item->flag & WAL_ITEM_COMMITTED)) {
                         ee = list_next(ee);
                         continue;
                     }
@@ -1108,6 +1153,11 @@ fdb_status wal_snapshot(struct filemgr *file,
                         ee = list_next(ee);
                         continue;
                     }
+                }
+                // Skip the partially committed items too.
+                if (item_partially_committed(file, &active_txn_list, txn, item)) {
+                    ee = list_next(ee);
+                    continue;
                 }
 
                 doc.keylen = item->header->keylen;
@@ -1125,6 +1175,13 @@ fdb_status wal_snapshot(struct filemgr *file,
             a = avl_next(a);
         }
         spin_unlock(&file->wal->key_shards[i].lock);
+    }
+
+    ee = list_begin(&active_txn_list);
+    while (ee) {
+        txn_wrapper = _get_entry(ee, struct wal_txn_wrapper, le);
+        ee = list_remove(&active_txn_list, &txn_wrapper->le);
+        free(txn_wrapper);
     }
 
     *upto_seq = copied_seq; // Return to caller the highest copied seqnum
