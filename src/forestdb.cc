@@ -3846,13 +3846,22 @@ char *_fdb_redirect_header(struct filemgr *old_file, uint8_t *buf,
 
 static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 {
+    uint64_t marker_offset;
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     struct docio_handle *dhandle;
 
     dhandle = handle->dhandle;
-    if (docio_append_commit_mark(dhandle, offset) == BLK_NOT_FOUND) {
+    marker_offset = docio_append_commit_mark(dhandle, offset);
+    if (marker_offset == BLK_NOT_FOUND) {
         return FDB_RESULT_WRITE_FAIL;
     }
+    // Note: Since transaction commit marker is used only for crash recovery
+    // (or WAL reconstruction), we can mark it as stale immediately. Stale regions
+    // by those markers will be inserted into stale-tree at the next WAL flushing
+    // commit, thus will be reclaimed when the corresponding commit header
+    // becomes unreachable. After that, those commit markers becomes unnecessary
+    // for both crash recovery and WAL restore.
+    filemgr_mark_stale(handle->file, marker_offset, DOCIO_COMMIT_MARK_SIZE);
     return FDB_RESULT_SUCCESS;
 }
 

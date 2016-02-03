@@ -89,6 +89,8 @@ void docio_free(struct docio_handle *handle);
 bid_t docio_append_doc_raw(struct docio_handle *handle,
                            uint64_t size,
                            void *buf);
+
+#define DOCIO_COMMIT_MARK_SIZE (sizeof(struct docio_length) + sizeof(uint64_t))
 bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset);
 bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
                        uint8_t deleted, uint8_t txn_enabled);

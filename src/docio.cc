@@ -629,6 +629,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 
 bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset)
 {
+    // Note: should adapt DOCIO_COMMIT_MARK_SIZE if this function is modified.
     uint32_t offset = 0;
     uint64_t docsize;
     uint64_t _doc_offset;
