@@ -6058,7 +6058,8 @@ static void _fdb_cleanup_compact_err(fdb_kvs_handle *handle,
                                      struct docio_handle *new_dhandle,
                                      struct hbtrie *new_trie,
                                      struct hbtrie *new_seqtrie,
-                                     struct btree *new_seqtree)
+                                     struct btree *new_seqtree,
+                                     struct btree *new_staletree)
 {
     filemgr_set_compaction_state(new_file, NULL, FILE_REMOVED_PENDING);
     if (got_lock) {
@@ -6082,6 +6083,7 @@ static void _fdb_cleanup_compact_err(fdb_kvs_handle *handle,
             free(new_seqtree);
         }
     }
+    free(new_staletree);
 }
 
 static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
@@ -6488,7 +6490,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         filemgr_mutex_unlock(new_file);
         _fdb_cleanup_compact_err(handle, new_file, true, true, new_bhandle,
                                  new_dhandle, new_trie, new_seqtrie,
-                                 new_seqtree);
+                                 new_seqtree, new_staletree);
         return fs;
     }
 
@@ -6536,7 +6538,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
         btreeblk_reset_subblock_info(new_bhandle);
         _fdb_cleanup_compact_err(handle, new_file, true, false, new_bhandle,
                                  new_dhandle, new_trie, new_seqtrie,
-                                 new_seqtree);
+                                 new_seqtree, new_staletree);
 
         return fs;
     }
@@ -6608,7 +6610,7 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
             btreeblk_reset_subblock_info(new_bhandle);
             _fdb_cleanup_compact_err(handle, new_file, true, false,
                                      new_bhandle, new_dhandle, new_trie,
-                                     new_seqtrie, new_seqtree);
+                                     new_seqtrie, new_seqtree, new_staletree);
 
             // failure in compaction means switch back to old file
             if (file_switched) {
