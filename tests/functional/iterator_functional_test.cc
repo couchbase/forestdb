@@ -3750,6 +3750,110 @@ void iterator_offset_access_test()
     TEST_RESULT("iterator offset access test");
 }
 
+void iterator_deleted_doc_right_before_the_end_test()
+{
+    TEST_INIT();
+    int i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_iterator *fit;
+    fdb_doc *rdoc;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[256], cmd[256];
+
+    memleak_start();
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    kvs_config = fdb_get_default_kvs_config();
+
+    sprintf(cmd, SHELL_DEL " %s*", "./dummy");
+    r = system(cmd); (void)r;
+
+    s = fdb_open(&dbfile, "./dummy", &config);
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+
+    // insert 3 docs
+    for (i=0;i<3;++i) {
+        sprintf(keybuf, "k%06d\n", i);
+        sprintf(valuebuf, "v%06d\n", i);
+        s = fdb_set_kv(db, keybuf, 8, valuebuf, 8);
+    }
+
+    // delete the middle doc
+    i = 1;
+    sprintf(keybuf, "k%06d\n", i);
+    s = fdb_del_kv(db, keybuf, 8);
+
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    sprintf(keybuf, "a");
+    sprintf(cmd, "z");
+    s = fdb_iterator_init(db, &fit, keybuf, 1, cmd, 1, FDB_ITR_NO_DELETES);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_iterator_seek_to_max(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    rdoc = NULL;
+    s = fdb_iterator_get(fit, &rdoc);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    i = 2;
+    sprintf(keybuf, "k%06d\n", i);
+    TEST_CMP(rdoc->key, keybuf, 8);
+    fdb_doc_free(rdoc);
+
+    s = fdb_iterator_prev(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    rdoc = NULL;
+    s = fdb_iterator_get(fit, &rdoc);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    i = 0;
+    sprintf(keybuf, "k%06d\n", i);
+    TEST_CMP(rdoc->key, keybuf, 8);
+    fdb_doc_free(rdoc);
+
+    s = fdb_iterator_close(fit);
+
+    // opposite case
+    s = fdb_iterator_init(db, &fit, keybuf, 1, cmd, 1, FDB_ITR_NO_DELETES);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_iterator_seek_to_min(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    rdoc = NULL;
+    s = fdb_iterator_get(fit, &rdoc);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    i = 0;
+    sprintf(keybuf, "k%06d\n", i);
+    TEST_CMP(rdoc->key, keybuf, 8);
+    fdb_doc_free(rdoc);
+
+    s = fdb_iterator_next(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    rdoc = NULL;
+    s = fdb_iterator_get(fit, &rdoc);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    i = 2;
+    sprintf(keybuf, "k%06d\n", i);
+    TEST_CMP(rdoc->key, keybuf, 8);
+    fdb_doc_free(rdoc);
+
+    s = fdb_iterator_close(fit);
+
+    s = fdb_close(dbfile);
+    s = fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("iterator deleted doc right before the end of iteration test");
+}
+
 int main(){
     int i, j;
 
@@ -3781,6 +3885,7 @@ int main(){
     sequence_iterator_seek_test(true);
     iterator_concurrent_compaction();
     iterator_offset_access_test();
+    iterator_deleted_doc_right_before_the_end_test();
 
     return 0;
 }

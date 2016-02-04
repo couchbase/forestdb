@@ -753,6 +753,7 @@ start:
 
         if (cmp >= 0) {
             // key[WAL] >= key[hb-trie] .. take key[WAL] first
+            struct avl_node *cur_cursor = iterator->tree_cursor;
             iterator->tree_cursor = avl_prev(iterator->tree_cursor);
             iterator->tree_cursor_prev = iterator->tree_cursor;
             uint8_t drop_logical_deletes =
@@ -761,7 +762,7 @@ start:
             if (cmp > 0) {
                 if (snap_item->action == WAL_ACT_REMOVE || drop_logical_deletes) {
                     if (hr == HBTRIE_RESULT_FAIL &&
-                        iterator->tree_cursor == iterator->tree_cursor_start) {
+                        cur_cursor == iterator->tree_cursor_start) {
                         return FDB_RESULT_ITERATOR_FAIL;
                     }
                     // this key is removed .. get prev key[WAL]
@@ -907,6 +908,7 @@ start:
         if (cmp <= 0) {
             // key[WAL] <= key[hb-trie] .. take key[WAL] first
             // save the current pointer for reverse iteration
+            struct avl_node *cur_cursor = iterator->tree_cursor;
             iterator->tree_cursor_prev = iterator->tree_cursor;
             iterator->tree_cursor = avl_next(iterator->tree_cursor);
             uint8_t drop_logical_deletes =
@@ -915,7 +917,7 @@ start:
             if (cmp < 0) {
                 if (snap_item->action == WAL_ACT_REMOVE || drop_logical_deletes) {
                     if (hr == HBTRIE_RESULT_FAIL &&
-                        iterator->tree_cursor == NULL) {
+                        cur_cursor == NULL) {
                         return FDB_RESULT_ITERATOR_FAIL;
                     }
                     // this key is removed .. get next key[WAL]
