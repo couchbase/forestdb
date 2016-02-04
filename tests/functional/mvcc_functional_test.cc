@@ -2299,7 +2299,7 @@ void rollback_forward_seqnum()
     fdb_kvs_info info;
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc **doc = alca(fdb_doc*, n+1);
     fdb_doc *rdoc = NULL;
     fdb_status status;
     r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
