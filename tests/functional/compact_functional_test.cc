@@ -1966,7 +1966,7 @@ void auto_compaction_with_custom_cmp_function()
 
     int i, r, n=10000;
     char keybuf[256], bodybuf[256];
-    uint64_t old_filesize;
+    uint64_t max_filesize = 0;
     fdb_file_handle *file;
     fdb_kvs_handle *db1, *db2, *db3;
     fdb_status status;
@@ -2030,6 +2030,12 @@ void auto_compaction_with_custom_cmp_function()
         status = fdb_set_kv(db1, keybuf, strlen(keybuf),
                                  bodybuf, strlen(bodybuf));
         TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        status = fdb_get_file_info(file, &file_info);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        if (file_info.file_size > max_filesize) {
+            max_filesize = file_info.file_size;
+        }
     }
     // Commit
     status = fdb_commit(file, FDB_COMMIT_NORMAL);
@@ -2037,20 +2043,22 @@ void auto_compaction_with_custom_cmp_function()
 
     status = fdb_get_file_info(file, &file_info);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    old_filesize = file_info.file_size;
+    if (file_info.file_size > max_filesize) {
+        max_filesize = file_info.file_size;
+    }
 
-    printf("wait for max 10 seconds..\n");
-    for(i=0; i<10; ++i) {
+    printf("wait for daemon compaction completion... (max file size: %" _F64 ")\n", max_filesize);
+    while (true) {
         sleep(1);
 
         status = fdb_get_file_info(file, &file_info);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        if (file_info.file_size < old_filesize) {
+        if (file_info.file_size < max_filesize) {
             break;
         }
     }
     // should be compacted
-    TEST_CHK(file_info.file_size < old_filesize);
+    TEST_CHK(file_info.file_size < max_filesize);
 
     status = fdb_close(file);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
