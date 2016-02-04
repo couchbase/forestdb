@@ -637,6 +637,7 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
     return true;
 }
 
+static void _rsv_free(struct sb_rsv_bmp *rsv);
 void sb_return_reusable_blocks(fdb_kvs_handle *handle)
 {
     uint64_t node_id;
@@ -660,7 +661,7 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
         if ((cur % 256) == 0 && cur > 0) {
             // node ID changes
             // remove & free current bmp node
-            node_id = (cur % 256);
+            node_id = cur / 256;
             query.id = node_id - 1;
             a = avl_search(&sb->bmp_idx, &query.avl, _bmp_idx_cmp);
             if (a) {
@@ -679,8 +680,8 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
                         free(item);
                         continue;
                     }
-
                     cur = item->id * 256;
+                    break;
                 }
 
                 // no more reusable block
@@ -705,7 +706,7 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
             if ((cur % 256) == 0 && cur > 0) {
                 // node ID changes
                 // remove & free current bmp node
-                node_id = (cur % 256);
+                node_id = cur / 256;
                 query.id = node_id - 1;
                 a = avl_search(&rsv->bmp_idx, &query.avl, _bmp_idx_cmp);
                 if (a) {
@@ -724,8 +725,8 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
                             free(item);
                             continue;
                         }
-
                         cur = item->id * 256;
+                        break;
                     }
 
                     // no more reusable block
@@ -737,6 +738,8 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
         rsv->num_free_blocks = 0;
         rsv->cur_alloc_bid = BLK_NOT_FOUND;
 
+        _free_bmp_idx(&rsv->bmp_idx);
+        _rsv_free(rsv);
         free(rsv);
         sb->rsv_bmp = NULL;
     }
