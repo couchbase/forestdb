@@ -3250,8 +3250,6 @@ void transaction_in_memory_snapshot_test()
 
     int i, r;
     int n = 10;
-    size_t valuelen;
-    void *value;
     fdb_file_handle *dbfile, *dbfile_txn1;
     fdb_kvs_handle *db, *db_txn1;
     fdb_status status;
