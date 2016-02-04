@@ -1144,10 +1144,15 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
             BLK_MARKER_SIZE);
 
     if (marker[0] != BLK_MARKER_DBHEADER) {
+        // Comment this warning log as of now because the circular block reuse
+        // can cause false alarms as a previous stale header block can be reclaimed
+        // and reused for incoming writes.
+        /*
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "A block marker of the database header block id %" _F64 " in "
                 "a database file '%s' does NOT match BLK_MARKER_DBHEADER!",
                 bid, file->filename);
+        */
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
