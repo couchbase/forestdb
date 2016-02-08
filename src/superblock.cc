@@ -441,8 +441,6 @@ fdb_status sb_sync_circular(fdb_kvs_handle *handle)
         handle->file->sb->num_alloc = 0;
     }
 
-    filemgr_sync(handle->file, false, &handle->log_callback);
-
     return fs;
 }
 

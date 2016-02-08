@@ -4067,6 +4067,9 @@ fdb_commit_start:
             handle->cur_header_revnum = fdb_set_file_header(handle, false);
             sb_update_header(handle);
             sb_sync_circular(handle);
+        } else {
+            // update superblock for every commit
+            sb_sync_circular(handle);
         }
     }
 
