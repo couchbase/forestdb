@@ -3854,6 +3854,80 @@ void iterator_deleted_doc_right_before_the_end_test()
     TEST_RESULT("iterator deleted doc right before the end of iteration test");
 }
 
+void iterator_uncommited_seeks()
+{
+    TEST_INIT();
+
+    int r;
+
+    fdb_status status;
+    fdb_kvs_handle *db;
+    fdb_file_handle *dbfile;
+    fdb_iterator *it;
+    fdb_doc *rdoc;
+    rdoc=NULL;
+
+    memleak_start();
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
+    (void)r;
+    TEST_STATUS(fdb_open(&dbfile, "./iterator_test1", &fconfig));
+    TEST_STATUS(fdb_kvs_open_default(dbfile, &db, &kvs_config));
+
+    fdb_set_kv(db, "a", 1, NULL, 0);
+    fdb_set_kv(db, "b", 1, NULL, 0);
+    fdb_set_kv(db, "c", 1, NULL, 0);
+
+    status = fdb_iterator_init(db, &it, "b", 1, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // to 'b'
+    status = fdb_iterator_seek_to_min(it);
+    TEST_STATUS(status);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_STATUS(status);
+    TEST_CMP(rdoc->key, "b", 1);
+    fdb_doc_free(rdoc);
+    rdoc=NULL;
+
+    // to 'c'
+    status = fdb_iterator_seek_to_max(it);
+    TEST_STATUS(status);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_STATUS(status);
+    TEST_CMP(rdoc->key, "c", 1);
+    fdb_doc_free(rdoc);
+    rdoc=NULL;
+
+    // to 'b'
+    status = fdb_iterator_prev(it);
+    TEST_STATUS(status);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_STATUS(status);
+    TEST_CMP(rdoc->key, "b", 1);
+    fdb_doc_free(rdoc);
+    rdoc=NULL;
+
+    // to 'c'
+    status = fdb_iterator_next(it);
+    TEST_STATUS(status);
+    status = fdb_iterator_get(it, &rdoc);
+    TEST_STATUS(status);
+    TEST_CMP(rdoc->key, "c", 1);
+    fdb_doc_free(rdoc);
+    rdoc=NULL;
+
+    fdb_iterator_close(it);
+
+    fdb_close(dbfile);
+    fdb_shutdown();
+    memleak_end();
+    TEST_RESULT("iterator single doc range");
+}
+
 int main(){
     int i, j;
 
@@ -3886,6 +3960,6 @@ int main(){
     iterator_concurrent_compaction();
     iterator_offset_access_test();
     iterator_deleted_doc_right_before_the_end_test();
-
+    iterator_uncommited_seeks();
     return 0;
 }
