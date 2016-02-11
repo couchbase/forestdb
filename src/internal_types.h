@@ -333,6 +333,10 @@ struct _fdb_kvs_handle {
      * List element that will be inserted into 'handles' list in the root handle.
      */
     struct kvs_opened_node *node;
+    /**
+     * Number of active iterator instances created from this handle
+     */
+    uint32_t num_iterators;
 #ifdef _TRACE_HANDLES
     struct avl_node avl_trace;
 #endif

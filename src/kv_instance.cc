@@ -1863,6 +1863,10 @@ fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }
+    if (handle->num_iterators) {
+        // There are still active iterators created from this handle
+        return FDB_RESULT_KV_STORE_BUSY;
+    }
 
     if (handle->shandle && handle->kvs == NULL) {
         // snapshot of the default KV store + single KV store mode

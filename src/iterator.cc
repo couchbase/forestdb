@@ -457,6 +457,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 
     *ptr_iterator = iterator;
 
+    ++iterator->handle->num_iterators; // Increment the iterator counter of the KV handle
     fdb_iterator_next(iterator); // position cursor at first key
 
     return FDB_RESULT_SUCCESS;
@@ -658,6 +659,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
 
     *ptr_iterator = iterator;
 
+    ++iterator->handle->num_iterators; // Increment the iterator counter of the KV handle
     fdb_iterator_next(iterator); // position cursor at first key
 
     return FDB_RESULT_SUCCESS;
@@ -2311,6 +2313,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         free(iterator->end_key);
     }
 
+    --iterator->handle->num_iterators; // Decrement the iterator counter of the KV handle
     if (!iterator->handle->shandle) {
         // Close the opened handle in the iterator,
         // if the handle is not for snapshot.
