@@ -4552,9 +4552,76 @@ void tx_crash_recover_test()
 }
 
 
+void drop_kv_on_snap_iterator_test(){
+
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+
+    fdb_status status;
+    fdb_file_handle *f1;
+    fdb_kvs_handle *kv, *kv2, *snap_kv;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_doc *rdoc = NULL;
+    fdb_iterator *iterator;
+
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_open(&f1, "./mvcc_test1", &fconfig);
+    fdb_kvs_open_default(f1, &kv2, &kvs_config);
+    fdb_kvs_open(f1, &kv, "kv", &kvs_config);
+
+    // write 2 seqno's
+    status = fdb_set_kv(kv, (void *) "a", 1, NULL, 0);
+    TEST_STATUS(status);
+    status = fdb_set_kv(kv, (void *) "b", 1, NULL, 0);
+    TEST_STATUS(status);
+    status = fdb_commit(f1, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // open snapshot
+    status = fdb_snapshot_open(kv, &snap_kv, 2);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // open iterator on snapshot
+    status = fdb_iterator_init(snap_kv, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_kvs_close(snap_kv);
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // close kvs
+    status = fdb_kvs_close(kv);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // drop kvs
+    status = fdb_kvs_remove(f1, "kv");
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    fdb_doc_free(rdoc);
+
+    status = fdb_iterator_close(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_close(snap_kv);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_close(kv2);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_close(f1);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("drop kv other handle test");
+}
 
 int main(){
 
+    drop_kv_on_snap_iterator_test();
     rollback_secondary_kvs();
     multi_version_test();
 #ifdef __CRC32
