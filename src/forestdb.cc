@@ -4067,6 +4067,8 @@ fdb_commit_start:
             handle->cur_header_revnum = fdb_set_file_header(handle, false);
             sb_update_header(handle);
             sb_sync_circular(handle);
+            // reset allocation counter for next reclaim check
+            sb_reset_num_alloc(handle);
         } else {
             // update superblock for every commit
             sb_sync_circular(handle);

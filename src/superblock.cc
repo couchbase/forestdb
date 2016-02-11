@@ -431,16 +431,19 @@ void sb_update_header(fdb_kvs_handle *handle)
     }
 }
 
+void sb_reset_num_alloc(fdb_kvs_handle *handle)
+{
+    if (handle->file->sb) {
+        handle->file->sb->num_alloc = 0;
+    }
+}
+
 fdb_status sb_sync_circular(fdb_kvs_handle *handle)
 {
     fdb_status fs;
     fs = sb_write(handle->file,
                   handle->file->sb->revnum % handle->file->sb->config->num_sb,
                   &handle->log_callback);
-    if (fs == FDB_RESULT_SUCCESS) {
-        handle->file->sb->num_alloc = 0;
-    }
-
     return fs;
 }
 

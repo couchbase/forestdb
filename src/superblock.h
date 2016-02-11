@@ -254,6 +254,15 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle);
  * @return void.
  */
 void sb_update_header(fdb_kvs_handle *handle);
+
+/**
+ * Reset counter for the number of block allocation.
+ *
+ * @param handle Pointer to ForestDB KV store handle.
+ * @return void.
+ */
+void sb_reset_num_alloc(fdb_kvs_handle *handle);
+
 /**
  * Write back superblock info into the file.
  *
