@@ -13,6 +13,16 @@ INCLUDE(CheckSymbolExists)
 INCLUDE(CheckTypeSize)
 INCLUDE(CTest)
 
+IF (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git)
+    EXECUTE_PROCESS(COMMAND git describe --abbrev=7 --always --tags
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                    OUTPUT_VARIABLE FORESTDB_VERSION
+                    ERROR_QUIET
+                    OUTPUT_STRIP_TRAILING_WHITESPACE)
+ELSE (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git)
+    SET(FORESTDB_VERSION "unknown")
+ENDIF (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git)
+
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/option)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/utils)
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/src)

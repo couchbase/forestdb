@@ -50,6 +50,10 @@ void basic_test()
     r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
 
+    // Get the ForestDB version
+    const char *version = fdb_get_lib_version();
+    TEST_CHK(version != NULL && strlen(version) > 0);
+
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;

@@ -7112,6 +7112,12 @@ fdb_status fdb_shutdown()
     return ret;
 }
 
+LIBFDB_API
+const char* fdb_get_lib_version()
+{
+    return FORESTDB_VERSION;
+}
+
 void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "filename: %s\n", h->filename);
 
