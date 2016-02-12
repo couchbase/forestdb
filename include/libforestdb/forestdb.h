@@ -1084,6 +1084,16 @@ fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
  */
 LIBFDB_API
 const char* fdb_error_msg(fdb_status err_code);
+
+/**
+ * Return the string representation of ForestDB library version that is based on
+ * git-describe output.
+ *
+ * @return A text string that represents ForestDB library version
+ */
+LIBFDB_API
+const char* fdb_get_lib_version();
+
 #ifdef __cplusplus
 }
 #endif
