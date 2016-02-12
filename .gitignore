@@ -1,4 +1,5 @@
 # Keep the entries sorted to reduce the risk for a merge conflict
+tags
 *.[ao]
 couchstore_api/couchbench_fdb
 build
