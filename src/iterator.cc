@@ -848,6 +848,14 @@ static fdb_status _fdb_iterator_next(fdb_iterator *iterator)
         // In case reverse iteration went past the start, reset the
         // cursor to the start point
         iterator->tree_cursor = iterator->tree_cursor_start;
+        if (iterator->status == FDB_ITR_WAL &&
+            iterator->_dhandle && iterator->_get_offset != BLK_NOT_FOUND) {
+            // In this case, iterator is currently pointing to the first key
+            // (it implies that the first key is already returned).
+            // So we need to move it forward one step.
+            iterator->tree_cursor_prev = iterator->tree_cursor;
+            iterator->tree_cursor = avl_next(iterator->tree_cursor);
+        }
     }
 
 start:
