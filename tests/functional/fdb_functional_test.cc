@@ -82,6 +82,8 @@ void basic_test()
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(!strcmp(fdb_error_msg(status), "success"));
+    const char *file_version = fdb_get_file_version(dbfile);
+    TEST_CHK(file_version != NULL && strlen(file_version) > 0);
     fdb_close(dbfile);
 
     // reopen db

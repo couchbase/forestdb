@@ -183,7 +183,7 @@ struct filemgr {
     thread_t prefetch_tid;
 
     // File format version
-    uint64_t version;
+    filemgr_magic_t version;
 
     // superblock
     struct superblock *sb;

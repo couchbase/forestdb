@@ -67,6 +67,7 @@ void print_header(fdb_kvs_handle *db)
                bid, bid, bid * FDB_BLOCKSIZE);
         printf("    DB header length: %d bytes\n", (int)header_len);
         printf("    DB header revision number: %d\n", (int)revnum);
+        printf("    DB file version: %s\n", fdb_get_file_version(db->fhandle));
 
         if (trie_root_bid != BLK_NOT_FOUND) {
             if (!is_subblock(trie_root_bid)) {
@@ -228,5 +229,6 @@ void print_header(fdb_kvs_handle *db)
 
     } else {
         printf("    No header exists.\n");
+        printf("    DB file version: %s\n", fdb_get_file_version(db->fhandle));
     }
 }

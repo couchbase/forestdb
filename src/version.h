@@ -35,6 +35,14 @@ bool ver_non_consecutive_doc(filemgr_magic_t magic);
 size_t ver_get_new_filename_off(filemgr_magic_t magic);
 
 /**
+ * Return the version of a given file's magic value
+ *
+ * @param magic ForestDB file magic value
+ * @return Version of a given file's magic value
+ */
+const char* ver_get_version_string(filemgr_magic_t magic);
+
+/**
  * Return the offset of last_wal_flush_header field in a commit header
  */
 size_t ver_get_last_wal_flush_hdr_off(filemgr_magic_t magic);

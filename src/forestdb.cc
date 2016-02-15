@@ -7693,6 +7693,15 @@ const char* fdb_get_lib_version()
     return FORESTDB_VERSION;
 }
 
+LIBFDB_API
+const char* fdb_get_file_version(fdb_file_handle *fhandle)
+{
+    if (!fhandle || !fhandle->root) {
+        return "Error: file not opened yet!!!";
+    }
+    return ver_get_version_string(fhandle->root->file->version);
+}
+
 void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "filename: %s\n", h->filename);
 
