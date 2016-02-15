@@ -1543,7 +1543,7 @@ void iterator_inmem_snapshot_seek_test(bool flush_wal)
     char keybuf[256], metabuf[256], bodybuf[256];
 
     // remove previous mvcc_test files
-    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
     (void)r;
 
     fdb_config fconfig = fdb_get_default_config();
@@ -1553,12 +1553,8 @@ void iterator_inmem_snapshot_seek_test(bool flush_wal)
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
-    // remove previous mvcc_test files
-    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
-    (void)r;
-
     // open db
-    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    status = fdb_open(&dbfile, "./iterator_test1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
