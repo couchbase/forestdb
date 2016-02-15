@@ -21,6 +21,7 @@ void print_usage(void)
 {
     printf("\nUsage: forestdb_dump [OPTION]... [filename]\n"
     "\nOptions:\n"
+    "\n      --header-only         only print the header of a given ForestDB file"
     "\n      --key <key>           dump only specified document"
     "\n      --kvs <KV store name> name of KV store to be dumped"
     "\n      --byid                sort output by document id"
@@ -49,6 +50,7 @@ struct dump_option{
     bool print_key_in_hex;
     bool print_plain_meta;
     bool print_body_in_hex;
+    bool print_header_only;
     scan_mode_t scan_mode;
 };
 
@@ -245,6 +247,9 @@ int process_file(struct dump_option *opt)
         return -3;
     }
     print_header(dbfile->root);
+    if (opt->print_header_only) {
+        return 0;
+    }
 
     kvs_config = fdb_get_default_kvs_config();
 
@@ -339,6 +344,8 @@ int parse_options(int argc, char **argv, struct dump_option *opt)
                 opt->scan_mode = SCAN_BY_KEY;
             } else if (strncmp(argv[i], "--byseq", 16) == 0) {
                 opt->scan_mode = SCAN_BY_SEQ;
+            } else if (strncmp(argv[i], "--header-only", 13) == 0) {
+                opt->print_header_only = true;
             } else {
                 printf("\nUnknown option %s\n", argv[i]);
                 print_usage();

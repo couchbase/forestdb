@@ -72,3 +72,14 @@ size_t ver_get_last_wal_flush_hdr_off(filemgr_magic_t magic) {
     }
     return (size_t) -1;
 }
+
+const char* ver_get_version_string(filemgr_magic_t magic) {
+    switch (magic) {
+    case FILEMGR_MAGIC_V1:
+    case FILEMGR_MAGIC_V2:
+        return "ForestDB v1.x format";
+    case FILEMGR_MAGIC_V3:
+        return "ForestDB v2.x format";
+    }
+    return "unknown";
+}

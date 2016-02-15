@@ -1065,6 +1065,15 @@ const char* fdb_error_msg(fdb_status err_code);
 LIBFDB_API
 const char* fdb_get_lib_version();
 
+/**
+ * Return the version of a given ForestDB file.
+ *
+ * @param fhandle Pointer to ForestDB file handle whose file version is returned.
+ * @return Version of a given ForestDB file.
+ */
+LIBFDB_API
+const char* fdb_get_file_version(fdb_file_handle *fhandle);
+
 #ifdef __cplusplus
 }
 #endif
