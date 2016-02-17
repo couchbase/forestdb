@@ -96,20 +96,63 @@ bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
                        uint8_t deleted, uint8_t txn_enabled);
 bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *doc);
 
-struct docio_length docio_read_doc_length(struct docio_handle *handle,
-                                          uint64_t offset);
-void docio_read_doc_key(struct docio_handle *handle,
-                        uint64_t offset,
-                        keylen_t *keylen,
-                        void *keybuf);
-uint64_t docio_read_doc_key_meta(struct docio_handle *handle,
-                                 uint64_t offset,
-                                 struct docio_object *doc,
-                                 bool read_on_cache_miss);
-uint64_t docio_read_doc(struct docio_handle *handle,
-                        uint64_t offset,
-                        struct docio_object *doc,
-                        bool read_on_cache_miss);
+/**
+ * Retrieve the length info of a KV item at a given file offset.
+ *
+ * @param handle Pointer to the doc I/O handle
+ * @Param length Pointer to docio_length instance to be populated
+ * @param offset File offset to a KV item
+ * @return FDB_RESULT_SUCCESS on success
+ */
+fdb_status docio_read_doc_length(struct docio_handle *handle,
+                                 struct docio_length *length,
+                                 uint64_t offset);
+
+/**
+ * Read a key and its length at a given file offset.
+ *
+ * @param handle Pointer to the doc I/O handle
+ * @param offset File offset to a KV item
+ * @param keylen Pointer to a key length variable
+ * @param keybuf Pointer to a key buffer
+ * @return FDB_RESULT_SUCCESS on success
+ */
+fdb_status docio_read_doc_key(struct docio_handle *handle,
+                              uint64_t offset,
+                              keylen_t *keylen,
+                              void *keybuf);
+
+/**
+ * Read a key and its metadata at a given file offset.
+ *
+ * @param handle Pointer to the doc I/O handle
+ * @param offset File offset to a KV item
+ * @param doc Pointer to docio_object instance
+ * @param read_on_cache_miss Flag indicating if a disk read should be performed
+ *        on cache miss
+ * @return next offset right after a key and its metadata on succcessful read,
+ *         otherwise, the corresponding error code is returned.
+ */
+int64_t docio_read_doc_key_meta(struct docio_handle *handle,
+                                uint64_t offset,
+                                struct docio_object *doc,
+                                bool read_on_cache_miss);
+
+/**
+ * Read a KV item at a given file offset.
+ *
+ * @param handle Pointer to the doc I/O handle
+ * @param offset File offset to a KV item
+ * @param doc Pointer to docio_object instance
+ * @param read_on_cache_miss Flag indicating if a disk read should be performed
+ *        on cache miss
+ * @return next offset right after a key and its value on succcessful read,
+ *         otherwise, the corresponding error code is returned.
+ */
+int64_t docio_read_doc(struct docio_handle *handle,
+                       uint64_t offset,
+                       struct docio_object *doc,
+                       bool read_on_cache_miss);
 
 size_t docio_batch_read_docs(struct docio_handle *handle,
                              uint64_t *offset_array,

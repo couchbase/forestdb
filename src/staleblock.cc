@@ -290,7 +290,7 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
     filemgr_header_revnum_t revnum_upto, prev_revnum = 0;
     filemgr_header_revnum_t revnum = 0, _revnum;
     filemgr_header_revnum_t *revnum_array;
-    bid_t offset, _offset, r_offset, prev_offset;
+    bid_t offset, _offset, prev_offset;
     bid_t prev_hdr = BLK_NOT_FOUND, _prev_hdr;
     struct docio_object doc;
     struct avl_tree tree;
@@ -346,8 +346,7 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
             // pre-allocated buffer for key
             doc.key = (void*)keybuf;
 
-            r_offset = docio_read_doc(handle->dhandle, offset, &doc, true);
-            if (r_offset == offset) {
+            if (docio_read_doc(handle->dhandle, offset, &doc, true) <= 0) {
                 // read fail .. escape
                 offset = BLK_NOT_FOUND;
                 continue;

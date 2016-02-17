@@ -1022,7 +1022,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                              struct filemgr *new_file,
                              wal_doc_move_func *move_doc)
 {
-    uint64_t offset;
+    int64_t offset;
     fdb_doc doc;
     fdb_txn *txn;
     struct wal_txn_wrapper *txn_wrapper;
@@ -1052,6 +1052,10 @@ fdb_status wal_txn_migration(void *dbhandle,
                     // not committed yet
                     // move doc
                     offset = move_doc(dbhandle, new_dhandle, item, &doc);
+                    if (offset <= 0) {
+                        spin_unlock(&old_file->wal->key_shards[i].lock);
+                        return offset < 0 ? (fdb_status) offset : FDB_RESULT_READ_FAIL;
+                    }
                     // Note that all items belonging to global_txn should be
                     // flushed before calling this function
                     // (migrate transactional items only).

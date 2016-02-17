@@ -171,10 +171,10 @@ typedef fdb_status wal_snapshot_func(void *shandle, fdb_doc *doc,
                                      uint64_t offset);
 typedef uint64_t wal_get_old_offset_func(void *dbhandle,
                                          struct wal_item *item);
-typedef uint64_t wal_doc_move_func(void *dbhandle,
-                                   void *new_dhandle,
-                                   struct wal_item *item,
-                                   fdb_doc *doc);
+typedef int64_t wal_doc_move_func(void *dbhandle,
+                                  void *new_dhandle,
+                                  struct wal_item *item,
+                                  fdb_doc *doc);
 typedef fdb_status wal_commit_mark_func(void *dbhandle,
                                         uint64_t offset);
 

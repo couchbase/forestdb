@@ -333,7 +333,8 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 {
     // == read bitmap from system docs ==
     size_t i;
-    uint64_t num_docs, r_offset;
+    uint64_t num_docs;
+    int64_t r_offset;
     char doc_key[64];
     struct superblock *sb = handle->file->sb;
     struct sb_rsv_bmp *rsv = NULL;
@@ -360,11 +361,11 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 
         r_offset = docio_read_doc(handle->dhandle, sb->bmp_doc_offset[i],
                                   &sb->bmp_docs[i], true);
-        if (r_offset == sb->bmp_doc_offset[i]) {
+        if (r_offset <= 0) {
             // read fail
             free(sb->bmp);
             sb->bmp = NULL;
-            return FDB_RESULT_SB_READ_FAIL;
+            return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
         }
     }
 
@@ -390,12 +391,12 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 
             r_offset = docio_read_doc(handle->dhandle, rsv->bmp_doc_offset[i],
                                       &rsv->bmp_docs[i], true);
-            if (r_offset == rsv->bmp_doc_offset[i]) {
+            if (r_offset <= 0) {
                 // read fail
                 free(rsv->bmp);
                 free(sb->bmp);
                 rsv->bmp = sb->bmp = NULL;
-                return FDB_RESULT_SB_READ_FAIL;
+                return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
             }
         }
 

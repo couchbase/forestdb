@@ -285,7 +285,7 @@ void read_failure_test()
     fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
     status = fdb_get(db, rdoc);
 
-    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    TEST_CHK(status == FDB_RESULT_READ_FAIL);
     // free result document
     fdb_doc_free(rdoc);
 

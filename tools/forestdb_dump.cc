@@ -98,7 +98,7 @@ void print_doc(fdb_kvs_handle *db,
                struct dump_option *opt)
 {
     uint8_t is_wal_entry;
-    uint64_t _offset;
+    int64_t _offset;
     void *key;
     keylen_t keylen;
     fdb_status wr;
@@ -109,13 +109,13 @@ void print_doc(fdb_kvs_handle *db,
     memset(&doc, 0, sizeof(struct docio_object));
 
     _offset = docio_read_doc(db->dhandle, offset, &doc, true);
-    if (_offset == offset) {
+    if (_offset <= 0) {
         return;
     }
     if (doc.length.flag & DOCIO_TXN_COMMITTED) {
         offset = doc.doc_offset;
         _offset = docio_read_doc(db->dhandle, offset, &doc, true);
-        if (_offset == offset) {
+        if (_offset <= 0) {
             return;
         }
     }

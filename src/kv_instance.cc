@@ -1100,9 +1100,11 @@ uint64_t fdb_kvs_header_append(fdb_kvs_handle *handle)
     free(data);
 
     if (prev_offset != BLK_NOT_FOUND) {
-        doc_len = docio_read_doc_length(handle->dhandle, prev_offset);
-        // mark stale
-        filemgr_mark_stale(handle->file, prev_offset, _fdb_get_docsize(doc_len));
+        if (docio_read_doc_length(handle->dhandle, &doc_len, prev_offset)
+            == FDB_RESULT_SUCCESS) {
+            // mark stale
+            filemgr_mark_stale(handle->file, prev_offset, _fdb_get_docsize(doc_len));
+        }
     }
 
     return kv_info_offset;
@@ -1114,14 +1116,14 @@ void fdb_kvs_header_read(struct kvs_header *kv_header,
                          uint64_t version,
                          bool only_seq_nums)
 {
-    uint64_t offset;
+    int64_t offset;
     struct docio_object doc;
 
     memset(&doc, 0, sizeof(struct docio_object));
     offset = docio_read_doc(dhandle, kv_info_offset, &doc, true);
 
-    if (offset == kv_info_offset) {
-        fdb_log(dhandle->log_callback, FDB_RESULT_READ_FAIL,
+    if (offset <= 0) {
+        fdb_log(dhandle->log_callback, (fdb_status) offset,
                 "Failed to read a KV header with the offset %" _F64 " from a "
                 "database file '%s'", kv_info_offset, dhandle->file->filename);
         return;
@@ -1168,7 +1170,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
                          &kv_info_offset, &dummy64,
                          &compacted_filename, NULL);
 
-        uint64_t doc_offset;
+        int64_t doc_offset;
         struct kvs_header *kv_header;
         struct docio_object doc;
 
@@ -1177,7 +1179,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
         doc_offset = docio_read_doc(handle->dhandle,
                                     kv_info_offset, &doc, true);
 
-        if (doc_offset == kv_info_offset) {
+        if (doc_offset <= 0) {
             // fail
             _fdb_kvs_header_free(kv_header);
             return 0;
