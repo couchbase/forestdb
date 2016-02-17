@@ -440,6 +440,31 @@ int _filemgr_linux_copy_file_range(int fs_type,
     return ret;
 }
 
+int _filemgr_linux_posix_fallocate(int fd,
+									off_t offset, off_t len) 
+{
+	int ret = posix_fallocate(fd, offset, len);
+
+	return ret;
+}
+
+int _filemgr_linux_fallocate(int fd,
+							int mode, off_t offset, off_t len)
+{
+	int ret = fallocate(fd, mode, offset, len);
+
+	if( ret < 0 )
+		return _filemgr_linux_posix_fallocate(fd, offset, len);
+
+	return ret;
+}
+
+int _filemgr_linux_posix_fadvise(int fd, 
+								off_t offset, off_t len, int advice)
+{
+	return posix_fadvise(fd, offset, len, advice);
+}
+				
 struct filemgr_ops linux_ops = {
     _filemgr_linux_open,
     _filemgr_linux_pwrite,
@@ -457,7 +482,10 @@ struct filemgr_ops linux_ops = {
     _filemgr_aio_getevents,
     _filemgr_aio_destroy,
     _filemgr_linux_get_fs_type,
-    _filemgr_linux_copy_file_range
+    _filemgr_linux_copy_file_range,
+	_filemgr_linux_posix_fallocate,
+	_filemgr_linux_fallocate,
+	_filemgr_linux_posix_fadvise
 };
 
 struct filemgr_ops * get_linux_filemgr_ops()

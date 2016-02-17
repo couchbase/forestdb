@@ -21,6 +21,8 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <stdarg.h>
+#include <sys/mman.h>
+#include <linux/fadvise.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <sys/time.h>
 #endif
@@ -706,12 +708,18 @@ static fdb_status _filemgr_load_sb(struct filemgr *file,
             status = sb_ops.read_latest(file, sconfig, log_callback);
         } else {
             // new file
-            status = sb_ops.init(file, sconfig, log_callback);
+			status = sb_ops.init(file, sconfig, log_callback);
         }
     }
 
     return status;
 }
+
+#define F_BLOCK_NUM (5 * 1024)
+#define F_BLOCK_SIZE ((uint64_t)1024 * 1024)
+#define F_ALLOC_SIZE (F_BLOCK_NUM * F_BLOCK_SIZE)
+
+int filemgr_set_streamid(struct filemgr *file, int streamid);
 
 filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                  struct filemgr_config *config,
@@ -872,6 +880,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint64_t(&file->last_commit, offset);
     atomic_init_uint64_t(&file->last_commit_bmp_revnum, 0);
     atomic_init_uint64_t(&file->pos, offset);
+	atomic_init_uint64_t(&file->fallocate,
+			(offset + F_ALLOC_SIZE -1) / F_ALLOC_SIZE);
     atomic_init_uint32_t(&file->throttling_delay, 0);
     atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
     atomic_init_uint8_t(&file->io_in_prog, 0);
@@ -1019,6 +1029,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     result.file = file;
     result.rv = FDB_RESULT_SUCCESS;
+
+	filemgr_set_streamid(file, config->streamid);
     return result;
 }
 
@@ -1738,10 +1750,19 @@ fdb_status filemgr_shutdown()
     return ret;
 }
 
+
+int filemgr_set_streamid(struct filemgr *file, int streamid)
+{
+	return file->ops->posix_fadvise(file->fd, 0, 
+							streamid, POSIX_FADV_STREAMID);
+}
+// GB block
+
 bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback)
 {
     spin_lock(&file->lock);
     bid_t bid = BLK_NOT_FOUND;
+	off_t prealloc = 0;
 
     // block reusing is not allowed for being compacted file
     // for easy implementation.
@@ -1753,6 +1774,17 @@ bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback)
         bid = atomic_get_uint64_t(&file->pos) / file->blocksize;
         atomic_add_uint64_t(&file->pos, file->blocksize);
     }
+	/* begin: ogh */
+	if (file->config->fallocate) {
+		prealloc = atomic_get_uint64_t(&file->fallocate);
+		if (0 == prealloc || 
+				atomic_get_uint64_t(&file->pos)/F_ALLOC_SIZE > prealloc) {
+			atomic_add_uint64_t(&file->fallocate, 1);
+			file->ops->fallocate(file->fd, 0, 0, 
+							F_ALLOC_SIZE * (prealloc + 1));
+		}
+	}
+	/* end: ogh */
 
     if (global_config.ncacheblock <= 0) {
         // if block cache is turned off, write the allocated block before use

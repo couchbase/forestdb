@@ -2,7 +2,8 @@
 tags
 *.[ao]
 couchstore_api/couchbench_fdb
-build
+*build
+*.out
 coverage
 platform
 dummy2

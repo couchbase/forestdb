@@ -1382,6 +1382,8 @@ static void _fdb_init_file_config(const fdb_config *config,
     atomic_store_uint64_t(&fconfig->block_reusing_threshold,
                           config->block_reusing_threshold);
     atomic_store_uint64_t(&fconfig->num_keeping_headers, config->num_keeping_headers);
+	fconfig->streamid = config->streamid;
+	fconfig->fallocate = config->fallocate;
 }
 
 fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
@@ -6443,6 +6445,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                                               handle->fileops,
                                               &fconfig,
                                               &handle->log_callback);
+
     if (result.rv != FDB_RESULT_SUCCESS) {
         filemgr_mutex_unlock(handle->file);
         return (fdb_status) result.rv;
@@ -6519,9 +6522,39 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
         new_staletree = NULL;
     }
 
-    status = _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
-                             new_trie, new_seqtrie, new_seqtree, new_staletree,
-                             marker_bid, clone_docs);
+	/* begin: Added by ogh */
+	if( handle->config.compaction_libaio && 
+				!(fconfig.flag & _ARCH_O_DIRECT)) {
+		int direct_fd = 0;
+		int file_flag = 0x0;
+		int old_fd = handle->file->fd;
+
+		file_flag = O_RDWR;
+		file_flag |= fconfig.flag;
+		file_flag |= _ARCH_O_DIRECT;
+
+		direct_fd = open((char *)handle->filename, file_flag, 0666);
+		if (direct_fd <= 0) {
+			filemgr_mutex_unlock(handle->file);
+			return FDB_RESULT_OPEN_FAIL;
+		}
+
+		// switch to direct_io fd
+		handle->file->fd = direct_fd;
+		status = _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
+								 new_trie, new_seqtrie, new_seqtree, new_staletree,
+								 marker_bid, clone_docs);
+		filemgr_mutex_lock(handle->file);
+		handle->file->fd = old_fd;
+		filemgr_mutex_unlock(handle->file);
+		// close temp file descriptor
+		close(direct_fd);
+	} else {
+		status = _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
+								 new_trie, new_seqtrie, new_seqtree, new_staletree,
+								 marker_bid, clone_docs);
+	}
+	/* end: Added by ogh */
     LATENCY_STAT_END(fhandle->root->file, FDB_LATENCY_COMPACTS);
     return status;
 }

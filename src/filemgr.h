@@ -59,6 +59,10 @@ struct filemgr_config {
     int flag;
     int chunksize;
     uint8_t options;
+	/* begin: ogh */
+	uint8_t streamid;
+	uint8_t fallocate;
+	/* end: ogh */
     uint64_t prefetch_duration;
     uint16_t num_wal_shards;
     uint16_t num_bcache_shards;
@@ -157,6 +161,7 @@ struct filemgr {
     uint16_t filename_len;
     uint32_t blocksize;
     int fd;
+	atomic_uint64_t fallocate;
     atomic_uint64_t pos;
     atomic_uint64_t last_commit;
     atomic_uint64_t last_commit_bmp_revnum;

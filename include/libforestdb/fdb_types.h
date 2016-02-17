@@ -477,6 +477,13 @@ typedef struct {
      */
     size_t num_keeping_headers;
 
+
+	/* begin: Added by ogh */
+	uint8_t fallocate;
+	uint8_t compaction_libaio;
+	uint8_t streamid;
+	/* end: Added by ogh */
+
 } fdb_config;
 
 typedef struct {

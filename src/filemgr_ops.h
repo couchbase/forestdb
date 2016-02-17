@@ -50,6 +50,9 @@ struct filemgr_ops {
     int (*get_fs_type)(int src_fd);
     int (*copy_file_range)(int fs_type, int src_fd, int dst_fd,
                            uint64_t src_off, uint64_t dst_off, uint64_t len);
+	int (*posix_fallocate)(int fd, off_t offset, off_t len);
+	int (*fallocate)(int fd, int mode, off_t offset, off_t len);
+	int (*posix_fadvise)(int fd, off_t offset, off_t len, int advice);
 };
 
 struct filemgr_ops * get_filemgr_ops();
