@@ -704,7 +704,6 @@ fdb_status fdb_init(fdb_config *config)
 
         fdb_initialized = 1;
     }
-    fdb_open_inprog++;
     spin_unlock(&initial_lock);
 
     return FDB_RESULT_SUCCESS;
@@ -754,6 +753,10 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
+    spin_lock(&initial_lock);
+    fdb_open_inprog++;
+    spin_unlock(&initial_lock);
+
     atomic_init_uint8_t(&handle->handle_busy, 0);
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
@@ -762,6 +765,9 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     if (fs != FDB_RESULT_SUCCESS) {
         free(handle);
         free(fhandle);
+        spin_lock(&initial_lock);
+        fdb_open_inprog--;
+        spin_unlock(&initial_lock);
         return fs;
     }
     fdb_file_handle_init(fhandle, handle);
@@ -823,6 +829,10 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
+    spin_lock(&initial_lock);
+    fdb_open_inprog++;
+    spin_unlock(&initial_lock);
+
     atomic_init_uint8_t(&handle->handle_busy, 0);
     handle->shandle = NULL;
     handle->kvs_config = get_default_kvs_config();
@@ -831,6 +841,9 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     if (fs != FDB_RESULT_SUCCESS) {
         free(handle);
         free(fhandle);
+        spin_lock(&initial_lock);
+        fdb_open_inprog--;
+        spin_unlock(&initial_lock);
         return fs;
     }
     fdb_file_handle_init(fhandle, handle);
