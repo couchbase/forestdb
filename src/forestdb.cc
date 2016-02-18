@@ -1061,31 +1061,18 @@ fdb_snapshot_open_start:
             handle->max_seqnum = handle_in->seqnum;
 
             // synchronize dirty root nodes if exist
-            if (filemgr_dirty_root_exist(handle->file)) {
-                bid_t dirty_idtree_root, dirty_seqtree_root;
-                filemgr_mutex_lock(handle->file);
-                filemgr_get_dirty_root(handle->file,
+            bid_t dirty_idtree_root = BLK_NOT_FOUND;
+            bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+            struct filemgr_dirty_update_node *dirty_update;
+
+            dirty_update = filemgr_dirty_update_get_latest(handle->file);
+            btreeblk_set_dirty_update(handle->bhandle, dirty_update);
+
+            if (dirty_update) {
+                filemgr_dirty_update_get_root(handle->file, dirty_update,
                                        &dirty_idtree_root, &dirty_seqtree_root);
-                if (dirty_idtree_root != BLK_NOT_FOUND) {
-                    handle->trie->root_bid = dirty_idtree_root;
-                }
-                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                    if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                        if (handle->kvs) {
-                            handle->seqtrie->root_bid = dirty_seqtree_root;
-                        } else {
-                            btree_init_from_bid(handle->seqtree,
-                                                handle->seqtree->blk_handle,
-                                                handle->seqtree->blk_ops,
-                                                handle->seqtree->kv_ops,
-                                                handle->seqtree->blksize,
-                                                dirty_seqtree_root);
-                        }
-                    }
-                }
+                _fdb_import_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
                 btreeblk_discard_blocks(handle->bhandle);
-                btreeblk_create_dirty_snapshot(handle->bhandle);
-                filemgr_mutex_unlock(handle->file);
             }
             // Having synced the dirty root, make an in-memory WAL snapshot
             fs = wal_snapshot_open(handle->file, txn, kv_id, seqnum, &cmp_info,
@@ -1108,8 +1095,12 @@ fdb_snapshot_open_start:
                     }
                 }
                 btreeblk_discard_blocks(handle->bhandle);
-                btreeblk_clone_dirty_snapshot(handle->bhandle,
-                                              handle_in->bhandle);
+
+                // increase ref count for dirty update
+                struct filemgr_dirty_update_node *dirty_update;
+                dirty_update = btreeblk_get_dirty_update(handle_in->bhandle);
+                filemgr_dirty_update_inc_ref_count(handle_in->file, dirty_update);
+                btreeblk_set_dirty_update(handle->bhandle, dirty_update);
             }
         }
         *ptr_handle = handle;
@@ -2813,49 +2804,40 @@ fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status)
     return fs;
 }
 
-static bool _fdb_sync_dirty_root(fdb_kvs_handle *handle)
+static void _fdb_sync_dirty_root(fdb_kvs_handle *handle)
 {
-    bool locked = false;
-    bid_t dirty_idtree_root, dirty_seqtree_root;
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
 
     if (handle->shandle) {
         // skip snapshot
-        return locked;
+        return;
     }
 
-    if ( ( handle->dirty_updates ||
-           filemgr_dirty_root_exist(handle->file) )  &&
-         filemgr_get_header_bid(handle->file) == handle->last_hdr_bid ) {
-        // 1) { a) dirty WAL flush by this handle exists OR
-        //      b) dirty WAL flush by other handle exists } AND
-        // 2) no commit was performed yet.
-        // grab lock for writer
-        filemgr_mutex_lock(handle->file);
-        locked = true;
+    struct filemgr_dirty_update_node *dirty_update;
+    dirty_update = filemgr_dirty_update_get_latest(handle->file);
+    btreeblk_set_dirty_update(handle->bhandle, dirty_update);
 
-        // get dirty root nodes
-        filemgr_get_dirty_root(handle->file,
-                               &dirty_idtree_root, &dirty_seqtree_root);
-        if (dirty_idtree_root != BLK_NOT_FOUND) {
-            handle->trie->root_bid = dirty_idtree_root;
-        }
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-            if (dirty_seqtree_root != BLK_NOT_FOUND) {
-                if (handle->kvs) {
-                    handle->seqtrie->root_bid = dirty_seqtree_root;
-                } else {
-                    btree_init_from_bid(handle->seqtree,
-                                        handle->seqtree->blk_handle,
-                                        handle->seqtree->blk_ops,
-                                        handle->seqtree->kv_ops,
-                                        handle->seqtree->blksize,
-                                        dirty_seqtree_root);
-                }
-            }
-        }
+    if (dirty_update) {
+        filemgr_dirty_update_get_root(handle->file, dirty_update,
+                                      &dirty_idtree_root, &dirty_seqtree_root);
+        _fdb_import_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
         btreeblk_discard_blocks(handle->bhandle);
     }
-    return locked;
+
+    return;
+}
+
+static void _fdb_release_dirty_root(fdb_kvs_handle *handle)
+{
+    if (!handle->shandle) {
+        struct filemgr_dirty_update_node *dirty_update;
+        dirty_update = btreeblk_get_dirty_update(handle->bhandle);
+        if (dirty_update) {
+            filemgr_dirty_update_close_node(handle->file, dirty_update);
+            btreeblk_clear_dirty_update(handle->bhandle);
+        }
+    }
 }
 
 LIBFDB_API
@@ -2925,7 +2907,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     atomic_incr_uint64_t(&handle->op_stats->num_gets);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = _fdb_sync_dirty_root(handle);
+        _fdb_sync_dirty_root(handle);
 
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
@@ -2937,10 +2919,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         btreeblk_end(handle->bhandle);
         offset = _endian_decode(offset);
 
-        if (locked) {
-            // grab lock for writer if there are dirty updates
-            filemgr_mutex_unlock(handle->file);
-        }
+        _fdb_release_dirty_root(handle);
     }
 
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
@@ -3059,7 +3038,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     atomic_incr_uint64_t(&handle->op_stats->num_gets);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = _fdb_sync_dirty_root(handle);
+        _fdb_sync_dirty_root(handle);
 
         if (handle->kvs) {
             hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
@@ -3071,9 +3050,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
         btreeblk_end(handle->bhandle);
         offset = _endian_decode(offset);
 
-        if (locked) {
-            filemgr_mutex_unlock(handle->file);
-        }
+        _fdb_release_dirty_root(handle);
     }
 
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
@@ -3183,7 +3160,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     atomic_incr_uint64_t(&handle->op_stats->num_gets);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = _fdb_sync_dirty_root(handle);
+        _fdb_sync_dirty_root(handle);
 
         _seqnum = _endian_encode(doc->seqnum);
         if (handle->kvs) {
@@ -3207,9 +3184,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         btreeblk_end(handle->bhandle);
         offset = _endian_decode(offset);
 
-        if (locked) {
-            filemgr_mutex_unlock(handle->file);
-        }
+        _fdb_release_dirty_root(handle);
     }
 
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
@@ -3337,7 +3312,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     atomic_incr_uint64_t(&handle->op_stats->num_gets);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        bool locked = _fdb_sync_dirty_root(handle);
+        _fdb_sync_dirty_root(handle);
 
         _seqnum = _endian_encode(doc->seqnum);
         if (handle->kvs) {
@@ -3361,9 +3336,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         btreeblk_end(handle->bhandle);
         offset = _endian_decode(offset);
 
-        if (locked) {
-            filemgr_mutex_unlock(handle->file);
-        }
+        _fdb_release_dirty_root(handle);
     }
 
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
@@ -3727,29 +3700,6 @@ fdb_set_start:
             handle->dirty_updates = 1;
         }
 
-        // MUST ensure that 'file' is always 'handle->file',
-        // because this routine will not be executed during compaction.
-        filemgr_get_dirty_root(file, &dirty_idtree_root, &dirty_seqtree_root);
-
-        // other concurrent writer flushed WAL before commit,
-        // sync root node of each tree
-        if (dirty_idtree_root != BLK_NOT_FOUND) {
-            handle->trie->root_bid = dirty_idtree_root;
-        }
-        if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-            dirty_seqtree_root != BLK_NOT_FOUND) {
-            if (handle->kvs) {
-                handle->seqtrie->root_bid = dirty_seqtree_root;
-            } else {
-                btree_init_from_bid(handle->seqtree,
-                                    handle->seqtree->blk_handle,
-                                    handle->seqtree->blk_ops,
-                                    handle->seqtree->kv_ops,
-                                    handle->seqtree->blksize,
-                                    dirty_seqtree_root);
-            }
-        }
-
         if (wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
             union wal_flush_items flush_items;
 
@@ -3765,33 +3715,33 @@ fdb_set_start:
                 return wr;
             }
 
+            struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+
+            _fdb_dirty_update_ready(handle, &prev_node, &new_node,
+                                    &dirty_idtree_root, &dirty_seqtree_root, true);
+
             wr = wal_flush(file, (void *)handle,
                            _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                            _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
                            &flush_items);
+
             if (wr != FDB_RESULT_SUCCESS) {
+                btreeblk_clear_dirty_update(handle->bhandle);
+                filemgr_dirty_update_close_node(handle->file, prev_node);
+                filemgr_dirty_update_remove_node(handle->file, new_node);
                 filemgr_mutex_unlock(file);
                 atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                 return wr;
             }
+
+            _fdb_dirty_update_finalize(handle, prev_node, new_node,
+                                       &dirty_idtree_root, &dirty_seqtree_root, false);
+
             wal_set_dirty_status(file, FDB_WAL_PENDING);
             // it is ok to release flushed items becuase
             // these items are not actually committed yet.
             // they become visible after fdb_commit is invoked.
             wal_release_flushed_items(file, &flush_items);
-
-            // sync new root node
-            dirty_idtree_root = handle->trie->root_bid;
-            if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                if (handle->kvs) {
-                    dirty_seqtree_root = handle->seqtrie->root_bid;
-                } else {
-                    dirty_seqtree_root = handle->seqtree->root_bid;
-                }
-            }
-            filemgr_set_dirty_root(file,
-                                   dirty_idtree_root,
-                                   dirty_seqtree_root);
 
             wal_flushed = true;
             btreeblk_reset_subblock_info(handle->bhandle);
@@ -4072,7 +4022,8 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
     file_status_t fstatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
     bool wal_flushed = false;
-    bid_t dirty_idtree_root, dirty_seqtree_root;
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
     union wal_flush_items flush_items;
     fdb_status wr = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
@@ -4131,26 +4082,6 @@ fdb_commit_start:
                    &handle->log_callback);
     }
 
-    // sync dirty root nodes
-    filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
-                           &dirty_seqtree_root);
-    if (dirty_idtree_root != BLK_NOT_FOUND) {
-        handle->trie->root_bid = dirty_idtree_root;
-    }
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-        dirty_seqtree_root != BLK_NOT_FOUND) {
-        if (handle->kvs) {
-            handle->seqtrie->root_bid = dirty_seqtree_root;
-        } else {
-            btree_init_from_bid(handle->seqtree,
-                                handle->seqtree->blk_handle,
-                                handle->seqtree->blk_ops,
-                                handle->seqtree->kv_ops,
-                                handle->seqtree->blksize,
-                                dirty_seqtree_root);
-        }
-    }
-
     if (handle->dirty_updates) {
         // discard all cached writable b+tree nodes
         // to avoid data inconsistency with other writers
@@ -4166,16 +4097,28 @@ fdb_commit_start:
         //    (in this case, flush the rest of entries)
         // 3. user forces to manually flush wal
 
+        struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+
+        _fdb_dirty_update_ready(handle, &prev_node, &new_node,
+                                &dirty_idtree_root, &dirty_seqtree_root, false);
+
         wr = wal_flush(handle->file, (void *)handle,
                        _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                        _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
                        &flush_items);
+
         if (wr != FDB_RESULT_SUCCESS) {
+            btreeblk_clear_dirty_update(handle->bhandle);
+            filemgr_dirty_update_close_node(handle->file, prev_node);
+            filemgr_dirty_update_remove_node(handle->file, new_node);
             filemgr_mutex_unlock(handle->file);
             return wr;
         }
         wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
         wal_flushed = true;
+
+        _fdb_dirty_update_finalize(handle, prev_node, new_node,
+                                   &dirty_idtree_root, &dirty_seqtree_root, true);
     }
 
     // Note: Appending KVS header must be done after flushing WAL
@@ -4291,7 +4234,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     fdb_txn *earliest_txn;
     bool wal_flushed = false;
-    bid_t dirty_idtree_root, dirty_seqtree_root;
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
     union wal_flush_items flush_items;
     fdb_status status = FDB_RESULT_SUCCESS;
     struct filemgr *very_old_file;
@@ -4299,23 +4243,10 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     btreeblk_end(handle->bhandle);
 
     // sync dirty root nodes
-    filemgr_get_dirty_root(new_file, &dirty_idtree_root, &dirty_seqtree_root);
-    if (dirty_idtree_root != BLK_NOT_FOUND) {
-        handle->trie->root_bid = dirty_idtree_root;
-    }
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-        dirty_seqtree_root != BLK_NOT_FOUND) {
-        if (handle->kvs) {
-            handle->seqtrie->root_bid = dirty_seqtree_root;
-        } else {
-            btree_init_from_bid(handle->seqtree,
-                                handle->seqtree->blk_handle,
-                                handle->seqtree->blk_ops,
-                                handle->seqtree->kv_ops,
-                                handle->seqtree->blksize,
-                                dirty_seqtree_root);
-        }
-    }
+    struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+
+    _fdb_dirty_update_ready(handle, &prev_node, &new_node,
+                            &dirty_idtree_root, &dirty_seqtree_root, false);
 
     wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
     if (wal_get_num_flushable(new_file)) {
@@ -4330,6 +4261,9 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
         // empty WAL
         wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
     }
+
+    _fdb_dirty_update_finalize(handle, prev_node, new_node,
+                               &dirty_idtree_root, &dirty_seqtree_root, true);
 
     // Note: Appending KVS header must be done after flushing WAL
     //       because KVS stats info is updated during WAL flushing.
@@ -6664,9 +6598,11 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     size_t old_filename_len = 0;
     struct filemgr *old_file;
     struct btree *new_idtree = NULL;
-    bid_t dirty_idtree_root, dirty_seqtree_root;
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
     fdb_seqnum_t seqnum;
     uint64_t new_file_kv_info_offset = BLK_NOT_FOUND;
+    struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
 
     // Copy the old file's seqnum to the new file.
     // (KV instances' seq numbers will be copied along with the KV header)
@@ -6681,25 +6617,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                             &new_file_kv_info_offset, true);
     }
 
-    // sync dirty root nodes
-    filemgr_get_dirty_root(handle->file, &dirty_idtree_root,
-                           &dirty_seqtree_root);
-    if (dirty_idtree_root != BLK_NOT_FOUND) {
-        handle->trie->root_bid = dirty_idtree_root;
-    }
-    if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-        dirty_seqtree_root != BLK_NOT_FOUND) {
-        if (handle->kvs) {
-            handle->seqtrie->root_bid = dirty_seqtree_root;
-        } else {
-            btree_init_from_bid(handle->seqtree,
-                                handle->seqtree->blk_handle,
-                                handle->seqtree->blk_ops,
-                                handle->seqtree->kv_ops,
-                                handle->seqtree->blksize,
-                                dirty_seqtree_root);
-        }
-    }
+    _fdb_dirty_update_ready(handle, &prev_node, &new_node,
+                            &dirty_idtree_root, &dirty_seqtree_root, false);
 
     // flush WAL and set DB header
     wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
@@ -6708,6 +6627,9 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
               &flush_items);
     wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+
+    _fdb_dirty_update_finalize(handle, prev_node, new_node,
+                               &dirty_idtree_root, &dirty_seqtree_root, true);
 
     // mark name of new file in old file
     filemgr_set_compaction_state(handle->file, new_file, FILE_COMPACT_OLD);
@@ -6881,12 +6803,19 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // commit & flush those items. Now WAL contains only uncommitted
     // transactional items (or empty), so it is ready to migrate ongoing
     // transactions.
+    _fdb_dirty_update_ready(handle, &prev_node, &new_node,
+                            &dirty_idtree_root, &dirty_seqtree_root, false);
+
     wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
     wal_flush(handle->file, (void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
               &flush_items);
     btreeblk_end(handle->bhandle);
+
+    _fdb_dirty_update_finalize(handle, prev_node, new_node,
+                               &dirty_idtree_root, &dirty_seqtree_root, true);
+
     wal_release_flushed_items(handle->file, &flush_items);
     // reset last_wal_flush_hdr_bid
     handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
@@ -7226,6 +7155,9 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
 
     if (handle->shandle) { // must close wal_snapshot before file
         wal_snapshot_close(handle->shandle, handle->file);
+        filemgr_dirty_update_close_node(handle->file,
+            btreeblk_get_dirty_update(handle->bhandle));
+        btreeblk_clear_dirty_update(handle->bhandle);
     }
 
     fs = filemgr_close(handle->file, handle->config.cleanup_cache_onclose,

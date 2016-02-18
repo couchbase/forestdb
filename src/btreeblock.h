@@ -68,21 +68,43 @@ struct btreeblk_handle{
 
     uint32_t nsb;
     struct btreeblk_subblocks *sb;
-    struct dirty_snapshot_t *dirty_snapshot;
+    // dirty update entry for read
+    struct filemgr_dirty_update_node *dirty_update;
+    // dirty update entry for the current WAL flushing
+    struct filemgr_dirty_update_node *dirty_update_writer;
 };
 
 struct btree_blk_ops *btreeblk_get_ops();
 void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file,
                    uint32_t nodesize);
+
+INLINE void btreeblk_set_dirty_update(struct btreeblk_handle *handle,
+                                      struct filemgr_dirty_update_node *node)
+{
+    handle->dirty_update = node;
+}
+
+INLINE void btreeblk_set_dirty_update_writer(struct btreeblk_handle *handle,
+                                             struct filemgr_dirty_update_node *node)
+{
+    handle->dirty_update_writer = node;
+}
+
+INLINE void btreeblk_clear_dirty_update(struct btreeblk_handle *handle)
+{
+    handle->dirty_update = handle->dirty_update_writer = NULL;
+}
+
+INLINE struct filemgr_dirty_update_node*
+       btreeblk_get_dirty_update(struct btreeblk_handle *handle)
+{
+    return handle->dirty_update;
+}
+
 void btreeblk_reset_subblock_info(struct btreeblk_handle *handle);
 void btreeblk_free(struct btreeblk_handle *handle);
 void btreeblk_discard_blocks(struct btreeblk_handle *handle);
 fdb_status btreeblk_end(struct btreeblk_handle *handle);
-
-fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle);
-void btreeblk_clone_dirty_snapshot(struct btreeblk_handle *dst,
-                                   struct btreeblk_handle *src);
-void btreeblk_free_dirty_snapshot(struct btreeblk_handle *handle);
 
 #ifdef __cplusplus
 }

@@ -1401,26 +1401,6 @@ fdb_kvs_create_start:
         spin_unlock(&kv_header_new->lock);
     }
 
-    // sync dirty root nodes
-    bid_t dirty_idtree_root, dirty_seqtree_root;
-    filemgr_get_dirty_root(root_handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-    if (dirty_idtree_root != BLK_NOT_FOUND) {
-        root_handle->trie->root_bid = dirty_idtree_root;
-    }
-    if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-        dirty_seqtree_root != BLK_NOT_FOUND) {
-        if (root_handle->kvs) {
-            root_handle->seqtrie->root_bid = dirty_seqtree_root;
-        } else {
-            btree_init_from_bid(root_handle->seqtree,
-                                root_handle->seqtree->blk_handle,
-                                root_handle->seqtree->blk_ops,
-                                root_handle->seqtree->kv_ops,
-                                root_handle->seqtree->blksize,
-                                dirty_seqtree_root);
-        }
-    }
-
     // append system doc
     root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
 
@@ -2015,25 +1995,12 @@ fdb_kvs_remove_start:
     // discard all WAL entries
     wal_close_kv_ins(file, kv_id, &root_handle->log_callback);
 
-    // sync dirty root nodes
-    bid_t dirty_idtree_root, dirty_seqtree_root;
-    filemgr_get_dirty_root(root_handle->file, &dirty_idtree_root, &dirty_seqtree_root);
-    if (dirty_idtree_root != BLK_NOT_FOUND) {
-        root_handle->trie->root_bid = dirty_idtree_root;
-    }
-    if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-        dirty_seqtree_root != BLK_NOT_FOUND) {
-        if (root_handle->kvs) {
-            root_handle->seqtrie->root_bid = dirty_seqtree_root;
-        } else {
-            btree_init_from_bid(root_handle->seqtree,
-                                root_handle->seqtree->blk_handle,
-                                root_handle->seqtree->blk_ops,
-                                root_handle->seqtree->kv_ops,
-                                root_handle->seqtree->blksize,
-                                dirty_seqtree_root);
-        }
-    }
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+    struct filemgr_dirty_update_node *prev_node = NULL, *new_node = NULL;
+
+    _fdb_dirty_update_ready(root_handle, &prev_node, &new_node,
+                            &dirty_idtree_root, &dirty_seqtree_root, false);
 
     size_id = sizeof(fdb_kvs_id_t);
     size_chunk = root_handle->trie->chunksize;
@@ -2050,6 +2017,9 @@ fdb_kvs_remove_start:
         hbtrie_remove_partial(root_handle->seqtrie, _kv_id, size_id);
         btreeblk_end(root_handle->bhandle);
     }
+
+    _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
+                               &dirty_idtree_root, &dirty_seqtree_root, true);
 
     // append system doc
     root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);

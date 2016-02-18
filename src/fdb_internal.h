@@ -22,6 +22,7 @@
 #include "common.h"
 #include "internal_types.h"
 #include "avltree.h"
+#include "btreeblock.h"
 #include "hbtrie.h"
 #include "docio.h"
 #include "staleblock.h"
@@ -210,6 +211,110 @@ INLINE size_t _fdb_get_docsize(struct docio_length len)
 #endif
 
     return ret;
+}
+
+INLINE void _fdb_import_dirty_root(fdb_kvs_handle *handle,
+                                   bid_t dirty_idtree_root,
+                                   bid_t dirty_seqtree_root)
+{
+    if (dirty_idtree_root != BLK_NOT_FOUND) {
+        handle->trie->root_bid = dirty_idtree_root;
+    }
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        if (dirty_seqtree_root != BLK_NOT_FOUND) {
+            if (handle->kvs) {
+                handle->seqtrie->root_bid = dirty_seqtree_root;
+            } else {
+                btree_init_from_bid(handle->seqtree,
+                                    handle->seqtree->blk_handle,
+                                    handle->seqtree->blk_ops,
+                                    handle->seqtree->kv_ops,
+                                    handle->seqtree->blksize,
+                                    dirty_seqtree_root);
+            }
+        }
+    }
+}
+
+INLINE void _fdb_export_dirty_root(fdb_kvs_handle *handle,
+                                   bid_t *dirty_idtree_root,
+                                   bid_t *dirty_seqtree_root)
+{
+    *dirty_idtree_root = handle->trie->root_bid;
+    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
+        if (handle->kvs) {
+            *dirty_seqtree_root = handle->seqtrie->root_bid;
+        } else {
+            *dirty_seqtree_root = handle->seqtree->root_bid;
+        }
+    }
+}
+
+// 1. fetch dirty update if exist,
+// 2. and assign dirty root nodes to FDB handle
+INLINE void _fdb_dirty_update_ready(fdb_kvs_handle *handle,
+                                    struct filemgr_dirty_update_node **prev_node,
+                                    struct filemgr_dirty_update_node **new_node,
+                                    bid_t *dirty_idtree_root,
+                                    bid_t *dirty_seqtree_root,
+                                    bool dirty_wal_flush)
+{
+    *prev_node = *new_node = NULL;
+    *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
+
+    *prev_node = filemgr_dirty_update_get_latest(handle->file);
+
+    // create a new dirty update entry if previous one exists
+    // (if we don't this, we cannot identify which block on
+    //  dirty copy or actual file is more recent during the WAL flushing.)
+
+    // on dirty wal flush, create a new dirty update entry
+    // although there is no previous immutable dirty updates.
+
+    if (*prev_node || dirty_wal_flush) {
+        *new_node = filemgr_dirty_update_new_node(handle->file);
+        // sync dirty root nodes
+        filemgr_dirty_update_get_root(handle->file, *prev_node,
+                                      dirty_idtree_root, dirty_seqtree_root);
+    }
+    btreeblk_set_dirty_update(handle->bhandle, *prev_node);
+    btreeblk_set_dirty_update_writer(handle->bhandle, *new_node);
+
+    // assign dirty root nodes to FDB handle
+    _fdb_import_dirty_root(handle, *dirty_idtree_root, *dirty_seqtree_root);
+}
+
+// 1. get dirty root from FDB handle,
+// 2. update corresponding dirty update entry,
+// 3. make new_node immutable, and close previous immutable node
+INLINE void _fdb_dirty_update_finalize(fdb_kvs_handle *handle,
+                                       struct filemgr_dirty_update_node *prev_node,
+                                       struct filemgr_dirty_update_node *new_node,
+                                       bid_t *dirty_idtree_root,
+                                       bid_t *dirty_seqtree_root,
+                                       bool commit)
+{
+    // read dirty root nodes from FDB handle
+    _fdb_export_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
+    // assign dirty root nodes to dirty update entry
+    if (new_node) {
+        filemgr_dirty_update_set_root(handle->file, new_node,
+                                      *dirty_idtree_root, *dirty_seqtree_root);
+    }
+    // clear dirty update setting in bhandle
+    btreeblk_clear_dirty_update(handle->bhandle);
+    // finalize new_node
+    if (new_node) {
+        filemgr_dirty_update_set_immutable(handle->file, new_node);
+    }
+    // close previous immutable node
+    if (prev_node) {
+        filemgr_dirty_update_close_node(handle->file, prev_node);
+    }
+    if (commit) {
+        // write back new_node's dirty blocks
+        filemgr_dirty_update_commit(handle->file, &handle->log_callback);
+    }
 }
 
 #ifdef __cplusplus
