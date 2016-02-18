@@ -280,6 +280,38 @@ void basic_test()
     TEST_RESULT("basic test");
 }
 
+void init_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    fdb_status status;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    status = fdb_init(&fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+    TEST_RESULT("init test");
+}
+
 void set_get_max_keylen()
 {
     TEST_INIT();
@@ -4171,6 +4203,7 @@ void rekey_test()
 
 int main(){
     basic_test();
+    init_test();
     set_get_max_keylen();
     config_test();
     deleted_doc_get_api_test();
