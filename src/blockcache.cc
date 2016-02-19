@@ -554,13 +554,14 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
 #endif
             if (o_direct) {
                 if (count > 0 && !consecutive_blocks) {
-                    size_t bytes_written;
+                    int64_t bytes_written;
                     // Note that this path can be only executed in flush_all case.
-                    bytes_written = (size_t)filemgr_write_blocks(fname_item->curfile,
-                                                                 buf, count, start_bid);
-                    if (bytes_written != count * bcache_blocksize) {
+                    bytes_written = filemgr_write_blocks(fname_item->curfile,
+                                                         buf, count, start_bid);
+                    if ((uint64_t)bytes_written != count * bcache_blocksize) {
                         count = 0;
-                        status = FDB_RESULT_WRITE_FAIL;
+                        status = bytes_written < 0 ?
+                            (fdb_status) bytes_written : FDB_RESULT_WRITE_FAIL;
                         break;
                     }
                     // Start a new batch again.
@@ -579,7 +580,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                         !(sync && o_direct)) {
                         spin_unlock(&fname_item->shards[shard_num].lock);
                     }
-                    status = FDB_RESULT_WRITE_FAIL;
+                    status = ret < 0 ? (fdb_status) ret : FDB_RESULT_WRITE_FAIL;
                     break;
                 }
             }
@@ -617,7 +618,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                     ret = filemgr_write_blocks(fname_item->curfile, buf, count, start_bid);
                     if ((size_t)ret != count * bcache_blocksize) {
                         count = 0;
-                        status = FDB_RESULT_WRITE_FAIL;
+                        status = ret < 0 ? (fdb_status) ret : FDB_RESULT_WRITE_FAIL;
                         break;
                     }
                     count = 0;
@@ -635,7 +636,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         if (count > 0) {
             ret = filemgr_write_blocks(fname_item->curfile, buf, count, start_bid);
             if ((size_t)ret != count * bcache_blocksize) {
-                status = FDB_RESULT_WRITE_FAIL;
+                status = ret < 0 ? (fdb_status) ret : FDB_RESULT_WRITE_FAIL;
             }
         }
         _release_all_shard_locks(fname_item);

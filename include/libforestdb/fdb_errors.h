@@ -235,7 +235,129 @@ typedef enum {
      */
     FDB_RESULT_FILE_VERSION_NOT_SUPPORTED = -49,
 
-    FDB_RESULT_LAST = FDB_RESULT_FILE_VERSION_NOT_SUPPORTED // Last (minimum) fdb_status value
+
+    // All the error codes below correspond to errno values in Linux, OSX,
+    // and Windows, which can happen in file opeations.
+
+    /**
+     * EPERM errno
+     * A file operation is not permitted.
+     */
+    FDB_RESULT_EPERM = -50,
+    /**
+     * EIO errno
+     * A physical I/O error has occurred.
+     */
+    FDB_RESULT_EIO = -51,
+    /**
+     * ENXIO errno
+     * No such device or address error.
+     */
+    FDB_RESULT_ENXIO = -52,
+    /**
+     * EBADF errno
+     * Not a valid file descriptor.
+     */
+    FDB_RESULT_EBADF = -53,
+    /**
+     * ENOMEM errno
+     * Insufficient memory was available.
+     */
+    FDB_RESULT_ENOMEM = -54,
+    /**
+     * EACCES errno
+     * File access permission was denied.
+     */
+    FDB_RESULT_EACCESS = -55,
+    /**
+     * EFAULT errno
+     * Outside the process's accessible address space.
+     */
+    FDB_RESULT_EFAULT = -56,
+    /**
+     * EEXIST errno
+     * A file name already exists in the file system.
+     */
+    FDB_RESULT_EEXIST = -57,
+    /**
+     * ENODEV errno
+     * No corresponding device exists.
+     */
+    FDB_RESULT_ENODEV = -58,
+    /**
+     * ENOTDIR errno
+     * A directory component in a file path name is not a directory.
+     */
+    FDB_RESULT_ENOTDIR = -59,
+    /**
+     * EISDIR errno
+     * A file path name refers to a directory.
+     */
+    FDB_RESULT_EISDIR = -60,
+    /**
+     * EINVAL errno
+     * Arguments to a file operation are not valid.
+     */
+    FDB_RESULT_EINVAL = -61,
+    /**
+     * ENFILE errno
+     * The system-wide limit on the total number of open files has been reached.
+     */
+    FDB_RESULT_ENFILE = -62,
+    /**
+     * EMFILE errno
+     * The per-process limit on the number of open file descriptors has been reached.
+     */
+    FDB_RESULT_EMFILE = -63,
+    /**
+     * EFBIG errno
+     * A file is too large to be opened.
+     */
+    FDB_RESULT_EFBIG = -64,
+    /**
+     * ENOSPC errno
+     * No space left on device.
+     */
+    FDB_RESULT_ENOSPC = -65,
+    /**
+     * EROFS errno
+     * A file on a read-only filesystem and write access was requested.
+     */
+    FDB_RESULT_EROFS = -66,
+    /**
+     * EOPNOTSUPP errno
+     * A file operation is not supported.
+     */
+    FDB_RESULT_EOPNOTSUPP = -67,
+    /**
+     * ENOBUFS errno
+     * Insufficient buffer space was available in the system to perform a operation.
+     */
+    FDB_RESULT_ENOBUFS = -68,
+    /**
+     * ELOOP errno
+     * Too many symbolic links were encountered in resolving a file path name.
+     */
+    FDB_RESULT_ELOOP = -69,
+    /**
+     * ENAMETOOLONG errno
+     * A file path name was too long.
+     */
+    FDB_RESULT_ENAMETOOLONG = -70,
+    /**
+     * EOVERFLOW errno
+     * A file is too large to be opened.
+     */
+    FDB_RESULT_EOVERFLOW = -71,
+    /**
+     * EAGAIN errno
+     * Resource temporarily unavailable.
+     */
+    FDB_RESULT_EAGAIN = -72,
+
+    // Any new error codes can be added here.
+
+    FDB_RESULT_LAST = FDB_RESULT_EAGAIN // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus

@@ -37,11 +37,8 @@ int _filemgr_linux_open(const char *pathname, int flags, mode_t mode)
     } while (fd == -1 && errno == EINTR);
 
     if (fd < 0) {
-        if (errno == ENOENT) {
-            return (int) FDB_RESULT_NO_SUCH_FILE;
-        } else {
-            return (int) FDB_RESULT_OPEN_FAIL; // LCOV_EXCL_LINE
-        }
+        return (int) convert_errno_to_fdb_status(errno, // LCOV_EXCL_LINE
+                                                 FDB_RESULT_OPEN_FAIL);
     }
     return fd;
 }
@@ -54,7 +51,8 @@ ssize_t _filemgr_linux_pwrite(int fd, void *buf, size_t count, cs_off_t offset)
     } while (rv == -1 && errno == EINTR); // LCOV_EXCL_LINE
 
     if (rv < 0) {
-        return (ssize_t) FDB_RESULT_WRITE_FAIL; // LCOV_EXCL_LINE
+        return (ssize_t) convert_errno_to_fdb_status(errno, // LCOV_EXCL_LINE
+                                                     FDB_RESULT_WRITE_FAIL);
     }
     return rv;
 }
@@ -67,7 +65,8 @@ ssize_t _filemgr_linux_pread(int fd, void *buf, size_t count, cs_off_t offset)
     } while (rv == -1 && errno == EINTR); // LCOV_EXCL_LINE
 
     if (rv < 0) {
-        return (ssize_t) FDB_RESULT_READ_FAIL; // LCOV_EXCL_LINE
+        return (ssize_t) convert_errno_to_fdb_status(errno, // LCOV_EXCL_LINE
+                                                     FDB_RESULT_READ_FAIL);
     }
     return rv;
 }
@@ -82,7 +81,8 @@ int _filemgr_linux_close(int fd)
     }
 
     if (rv < 0) {
-        return FDB_RESULT_CLOSE_FAIL; // LCOV_EXCL_LINE
+        return (int) convert_errno_to_fdb_status(errno, // LCOV_EXCL_LINE
+                                                 FDB_RESULT_CLOSE_FAIL);
     }
 
     return FDB_RESULT_SUCCESS;
@@ -92,7 +92,8 @@ cs_off_t _filemgr_linux_goto_eof(int fd)
 {
     cs_off_t rv = lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (cs_off_t) FDB_RESULT_SEEK_FAIL; // LCOV_EXCL_LINE
+        return (cs_off_t) convert_errno_to_fdb_status(errno, // LCOV_EXCL_LINE
+                                                      FDB_RESULT_SEEK_FAIL);
     }
     return rv;
 }
@@ -102,7 +103,8 @@ cs_off_t _filemgr_linux_file_size(const char *filename)
 {
     struct stat st;
     if (stat(filename, &st) == -1) {
-        return (cs_off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) convert_errno_to_fdb_status(errno,
+                                                      FDB_RESULT_READ_FAIL);
     }
     return st.st_size;
 }
@@ -116,7 +118,8 @@ int _filemgr_linux_fsync(int fd)
     } while (rv == -1 && errno == EINTR); // LCOV_EXCL_LINE
 
     if (rv == -1) {
-        return FDB_RESULT_FSYNC_FAIL; // LCOV_EXCL_LINE
+        return (int) convert_errno_to_fdb_status(errno, // LCOV_EXCL_LINE
+                                                 FDB_RESULT_FSYNC_FAIL);
     }
 
     return FDB_RESULT_SUCCESS;
@@ -132,7 +135,8 @@ int _filemgr_linux_fdatasync(int fd)
     } while (rv == -1 && errno == EINTR);
 
     if (rv == -1) {
-        return FDB_RESULT_FSYNC_FAIL;
+        return (int) convert_errno_to_fdb_status(errno, // LCOV_EXCL_LINE
+                                                 FDB_RESULT_FSYNC_FAIL);
     }
 
     return FDB_RESULT_SUCCESS;

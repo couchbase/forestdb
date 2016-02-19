@@ -414,7 +414,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
         do {
             ssize_t rv = filemgr_read_block(file, buf, hdr_bid_local);
             if (rv != file->blocksize) {
-                status = FDB_RESULT_READ_FAIL;
+                status = (fdb_status) rv;
                 const char *msg = "Unable to read a database file '%s' with "
                     "blocksize %" _F64 "\n";
                 DBG(msg, file->filename, file->blocksize);
@@ -868,15 +868,15 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->fd = fd;
 
     cs_off_t offset = file->ops->goto_eof(file->fd);
-    if (offset == FDB_RESULT_SEEK_FAIL) {
-        _log_errno_str(file->ops, log_callback, FDB_RESULT_SEEK_FAIL, "SEEK_END", filename);
+    if (offset < 0) {
+        _log_errno_str(file->ops, log_callback, (fdb_status) offset, "SEEK_END", filename);
         file->ops->close(file->fd);
         free(file->wal);
         free(file->filename);
         free(file->config);
         free(file);
         spin_unlock(&filemgr_openlock);
-        result.rv = FDB_RESULT_SEEK_FAIL;
+        result.rv = (fdb_status) offset;
         return result;
     }
     atomic_init_uint64_t(&file->last_commit, offset);
@@ -1177,7 +1177,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                 "does NOT match FILEMGR_MAGIC %" _F64 "!",
                 magic, bid, file->filename, ver_get_latest_magic());
         _filemgr_release_temp_buf(_buf);
-        return FDB_RESULT_READ_FAIL;
+        return FDB_RESULT_FILE_CORRUPTION;
     }
     memcpy(&hdr_len,
             _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
@@ -2000,7 +2000,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 }
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "WRITE", file->filename);
-                return FDB_RESULT_WRITE_FAIL;
+                return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
             }
         }
         if (locked) {
@@ -2109,7 +2109,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                 }
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "WRITE", file->filename);
-                return FDB_RESULT_WRITE_FAIL;
+                return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
             }
         } else {
             // partially write buffer cache first
@@ -2117,7 +2117,12 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
-                uint64_t cur_file_pos = file->ops->goto_eof(file->fd);
+                int64_t cur_file_pos = file->ops->goto_eof(file->fd);
+                if (cur_file_pos < 0) {
+                    _log_errno_str(file->ops, log_callback,
+                                   (fdb_status) cur_file_pos, "EOF", file->filename);
+                    return (fdb_status) cur_file_pos;
+                }
                 bid_t cur_file_last_bid = cur_file_pos / file->blocksize;
                 void *_buf = _filemgr_get_temp_buf();
 
@@ -2139,7 +2144,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                         _filemgr_release_temp_buf(_buf);
                         _log_errno_str(file->ops, log_callback, (fdb_status) r,
                                        "READ", file->filename);
-                        return FDB_RESULT_READ_FAIL;
+                        return r < 0 ? (fdb_status) r : FDB_RESULT_READ_FAIL;
                     }
                 }
                 memcpy((uint8_t *)_buf + offset, buf, len);
@@ -2157,7 +2162,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     _filemgr_release_temp_buf(_buf);
                     _log_errno_str(file->ops, log_callback,
                             (fdb_status) r, "WRITE", file->filename);
-                    return FDB_RESULT_WRITE_FAIL;
+                    return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
                 }
 
                 _filemgr_release_temp_buf(_buf);
@@ -2192,7 +2197,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         r = file->ops->pwrite(file->fd, buf, len, pos);
         _log_errno_str(file->ops, log_callback, (fdb_status) r, "WRITE", file->filename);
         if ((uint64_t)r != len) {
-            return FDB_RESULT_WRITE_FAIL;
+            return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
         }
     } // block cache check
     return FDB_RESULT_SUCCESS;
@@ -2346,7 +2351,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
             _filemgr_release_temp_buf(buf);
             spin_unlock(&file->lock);
             filemgr_clear_io_inprog(file);
-            return FDB_RESULT_WRITE_FAIL;
+            return rv < 0 ? (fdb_status) rv : FDB_RESULT_WRITE_FAIL;
         }
 
         if (prev_bid) {
@@ -2681,15 +2686,15 @@ fdb_status filemgr_destroy_file(char *filename,
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
                 }
-                return FDB_RESULT_OPEN_FAIL;
+                return (fdb_status) file->fd;
             }
         } else { // file successfully opened, seek to end to get DB header
             cs_off_t offset = file->ops->goto_eof(file->fd);
-            if (offset == FDB_RESULT_SEEK_FAIL) {
+            if (offset < 0) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
                 }
-                return FDB_RESULT_SEEK_FAIL;
+                return (fdb_status) offset;
             } else { // Need to read DB header which contains old filename
                 atomic_store_uint64_t(&file->pos, offset);
                 // initialize CRC mode
@@ -3582,5 +3587,63 @@ void buf2buf(size_t chunksize_src, void *buf_src,
         memset(buf_dst, 0x0, chunksize_dst - chunksize_src);
         memcpy((uint8_t*)buf_dst + (chunksize_dst - chunksize_src),
                buf_src, chunksize_src);
+    }
+}
+
+fdb_status convert_errno_to_fdb_status(int errno_value,
+                                       fdb_status default_status)
+{
+    switch (errno_value) {
+    case EACCES:
+        return FDB_RESULT_EACCESS;
+    case EEXIST:
+        return FDB_RESULT_EEXIST;
+    case EFAULT:
+        return FDB_RESULT_EFAULT;
+    case EFBIG:
+        return FDB_RESULT_EFBIG;
+    case EINVAL:
+        return FDB_RESULT_EINVAL;
+    case EISDIR:
+        return FDB_RESULT_EISDIR;
+    case ELOOP:
+        return FDB_RESULT_ELOOP;
+    case EMFILE:
+        return FDB_RESULT_EMFILE;
+    case ENAMETOOLONG:
+        return FDB_RESULT_ENAMETOOLONG;
+    case ENFILE:
+        return FDB_RESULT_ENFILE;
+    case ENODEV:
+        return FDB_RESULT_ENODEV;
+    case ENOENT:
+        return FDB_RESULT_NO_SUCH_FILE;
+    case ENOMEM:
+        return FDB_RESULT_ENOMEM;
+    case ENOSPC:
+        return FDB_RESULT_ENOSPC;
+    case ENOTDIR:
+        return FDB_RESULT_ENOTDIR;
+    case ENXIO:
+        return FDB_RESULT_ENXIO;
+    case EOPNOTSUPP:
+        return FDB_RESULT_EOPNOTSUPP;
+    case EOVERFLOW:
+        return FDB_RESULT_EOVERFLOW;
+    case EPERM:
+        return FDB_RESULT_EPERM;
+    case EROFS:
+        return FDB_RESULT_EROFS;
+    case EBADF:
+        return FDB_RESULT_EBADF;
+    case EIO:
+        return FDB_RESULT_EIO;
+    case ENOBUFS:
+        return FDB_RESULT_ENOBUFS;
+    case EAGAIN:
+        return FDB_RESULT_EAGAIN;
+
+    default:
+        return default_status;
     }
 }

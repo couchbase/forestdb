@@ -845,7 +845,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
                     "file '%s', errno_message: %s\n",
                     (int)ret, metafile, errno_msg);
             ops->close(fd_meta);
-            return FDB_RESULT_WRITE_FAIL;
+            return (fdb_status) ret;
         }
         ret = ops->fsync(fd_meta);
         if (ret < 0) {
@@ -855,7 +855,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
                     "file '%s', errno_message: %s\n",
                     (int)ret, metafile, errno_msg);
             ops->close(fd_meta);
-            return FDB_RESULT_FSYNC_FAIL;
+            return (fdb_status) ret;
         }
         ops->close(fd_meta);
     } else {

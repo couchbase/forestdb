@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include <errno.h>
 
 #ifdef _ASYNC_IO
 #if !defined(WIN32) && !defined(_WIN32)
@@ -640,6 +641,18 @@ int _kvs_ops_stat_get(struct filemgr *file,
 void _init_op_stats(struct kvs_ops_stat *stat);
 struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
                                           struct kvs_info *info);
+
+/**
+ * Convert a given errno value to the corresponding fdb_status value.
+ *
+ * @param errno_value errno value
+ * @param default_status Default fdb_status value to be returned if
+ *        there is no corresponding fdb_status value for a given errno value.
+ * @return fdb_status value that corresponds to a given errno value
+ */
+fdb_status convert_errno_to_fdb_status(int errno_value,
+                                       fdb_status default_status);
+
 #ifdef __cplusplus
 }
 #endif
