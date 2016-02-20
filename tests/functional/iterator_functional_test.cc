@@ -2232,21 +2232,23 @@ void sequence_iterator_duplicate_test()
 
     // repeat until fail
     count = 0;
+    seqnum = 100;
     do {
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        if (count<50) {
-            // HB+trie
-            i = count*2 + 1;
-            seqnum = 100 + (count+1)*2;
-            sprintf(bodybuf, "body%d(second)", i);
-        } else {
-            // WAL
-            i = (count-50)*2;
-            seqnum = 200 + (count-50+1);
-            sprintf(bodybuf, "body%d(third)", i);
+        if (seqnum < 140) { // point where WAL range & trie range overlap ends!
+            seqnum += 2; // WAL overlap with trie, get unique trie keys only
+        } else { // beyond this even keys in trie are also in WAL but outside..
+            seqnum ++; // the iteration range, so they can be sequentially got
         }
 
+        if (seqnum <= 200) { // uptil WAL, unique trie items are returned...
+            i = seqnum - 101;
+            sprintf(bodybuf, "body%d(second)", i);
+        } else { // once seqnum enters WAL range only WAL elements are returned..
+            i = ((seqnum - 101) % n) * 2;
+            sprintf(bodybuf, "body%d(third)", i);
+        }
         TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
         TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
         TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
@@ -2256,7 +2258,7 @@ void sequence_iterator_duplicate_test()
         fdb_doc_free(rdoc);
         rdoc = NULL;
     } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
-    TEST_CHK(count==70);
+    TEST_CHK(count==n); // since 220 > n all keys should be iterated
     fdb_iterator_close(iterator);
 
     // close db file
@@ -2732,9 +2734,9 @@ void reverse_sequence_iterator_kvs_test()
     while (1) {
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
+        TEST_CMP(rdoc->key, doc[i]->key, rdoc->keylen);
+        TEST_CMP(rdoc->meta, doc[i]->meta, rdoc->metalen);
+        TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
         fdb_doc_free(rdoc);
         rdoc = NULL;
         if (i == 8) {
@@ -3201,7 +3203,7 @@ void iterator_after_wal_threshold()
     memleak_start();
 
     int i, r;
-    int n = 600;
+    int n = 6;
     char keybuf[256], bodybuf[256];
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db, *db2;
@@ -3210,7 +3212,7 @@ void iterator_after_wal_threshold()
     fdb_iterator *it;
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
-    fconfig.wal_threshold = 1024;
+    fconfig.wal_threshold = 10;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // remove previous iterator_test files
@@ -3951,8 +3953,8 @@ int main(){
     iterator_seek_wal_only_test();
     iterator_after_wal_threshold();
     iterator_manual_wal_flush();
-    sequence_iterator_seek_test(false);
     sequence_iterator_seek_test(true);
+    sequence_iterator_seek_test(false);
     iterator_concurrent_compaction();
     iterator_offset_access_test();
     iterator_deleted_doc_right_before_the_end_test();

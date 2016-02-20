@@ -2270,6 +2270,9 @@ void custom_compare_primitive_test()
 
 static int _cmp_variable(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
+    if (keylen1 < 6 || keylen2 < 6) {
+        return (keylen1 - keylen2);
+    }
     // compare only 3rd~8th bytes (ignore the others)
     return memcmp((uint8_t*)key1+2, (uint8_t*)key2+2, 6);
 }

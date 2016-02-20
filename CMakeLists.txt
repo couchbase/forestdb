@@ -166,7 +166,6 @@ SET(FORESTDB_CORE_SRC
             src/iterator.cc
             src/kv_instance.cc
             src/list.cc
-            src/snapshot.cc
             src/staleblock.cc
             src/superblock.cc
             src/transaction.cc

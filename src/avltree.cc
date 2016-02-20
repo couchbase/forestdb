@@ -416,6 +416,11 @@ void avl_init(struct avl_tree *tree, void *aux)
     tree->aux = aux;
 }
 
+void avl_set_aux(struct avl_tree *tree, void *aux)
+{
+    tree->aux = aux;
+}
+
 struct avl_node* avl_insert(struct avl_tree *tree,
                             struct avl_node *node,
                             avl_cmp_func *func)

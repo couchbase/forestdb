@@ -33,8 +33,8 @@ fdb_config get_default_config(void) {
     fconfig.blocksize = FDB_BLOCKSIZE;
     // 128MB by default.
     fconfig.buffercache_size = 134217728;
-    // 4096 WAL entries by default.
-    fconfig.wal_threshold = 4096;
+    // 80K WAL entries by default.
+    fconfig.wal_threshold = 81920;
     fconfig.wal_flush_before_commit = true;
     fconfig.auto_commit = false;
     // 0 second by default.

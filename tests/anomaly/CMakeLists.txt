@@ -28,7 +28,6 @@ add_executable(fdb_anomaly_test
                ${ROOT_SRC}/hash.cc
                ${ROOT_SRC}/wal.cc
                ${GETTIMEOFDAY_VS}
-               ${ROOT_SRC}/snapshot.cc
                ${ROOT_SRC}/transaction.cc
                ${ROOT_SRC}/kv_instance.cc
                ${ROOT_SRC}/version.cc

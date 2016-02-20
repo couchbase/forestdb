@@ -406,21 +406,21 @@ struct _fdb_iterator {
      */
     fdb_seqnum_t _seqnum;
     /**
-     * AVL tree for WAL entries.
+     * WAL Iterator to iterate over the shared sharded global WAL
      */
-    struct avl_tree *wal_tree;
+    struct wal_iterator *wal_itr;
     /**
-     * Cursor instance of AVL tree for WAL entries.
+     * Cursor instance of WAL iterator.
      */
-    struct avl_node *tree_cursor;
+    struct wal_item *tree_cursor;
     /**
-     * Start position of AVL tree cursor.
+     * Unique starting AVL node indicating the WAL iterator's start node.
      */
-    struct avl_node *tree_cursor_start;
+    struct wal_item *tree_cursor_start;
     /**
-     * Previous position of AVL tree cursor.
+     * Previous position of WAL cursor.
      */
-    struct avl_node *tree_cursor_prev;
+    struct wal_item *tree_cursor_prev;
     /**
      * Iterator start key.
      */
@@ -461,6 +461,10 @@ struct _fdb_iterator {
      * The last returned document info.
      */
     fdb_iterator_status_t status;
+    /**
+     * Was this iterator created on an pre-existing snapshot handle
+     */
+    bool snapshot_handle;
     /**
      * Current key pointed by the iterator.
      */

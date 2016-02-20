@@ -1991,6 +1991,7 @@ void auto_compaction_with_custom_cmp_function()
 
     // Open Database File
     config = fdb_get_default_config();
+    config.wal_threshold = 4096; // reset WAL threshold for correct file size estimation
     config.compaction_mode=FDB_COMPACTION_AUTO;
     config.compactor_sleep_duration = 1;
     config.compaction_threshold = 10;

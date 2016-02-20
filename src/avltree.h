@@ -51,6 +51,7 @@ struct avl_tree{
 typedef int avl_cmp_func (struct avl_node *a, struct avl_node *b, void *aux);
 
 void avl_init(struct avl_tree *tree, void *aux);
+void avl_set_aux(struct avl_tree *tree, void *aux);
 struct avl_node* avl_insert(struct avl_tree *tree,
                             struct avl_node *node,
                             avl_cmp_func *func);
@@ -69,7 +70,6 @@ struct avl_node* avl_first(struct avl_tree *tree);
 struct avl_node* avl_last(struct avl_tree *tree);
 struct avl_node* avl_next(struct avl_node *node);
 struct avl_node* avl_prev(struct avl_node *node);
-
 #ifdef __cplusplus
 }
 #endif

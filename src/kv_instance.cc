@@ -30,7 +30,6 @@
 #include "wal.h"
 #include "hbtrie.h"
 #include "btreeblock.h"
-#include "snapshot.h"
 #include "version.h"
 #include "staleblock.h"
 
@@ -1133,41 +1132,6 @@ void fdb_kvs_header_read(struct kvs_header *kv_header,
     free_docio_object(&doc, 1, 1, 1);
 }
 
-fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
-                                 fdb_kvs_id_t id)
-{
-    fdb_seqnum_t seqnum;
-    struct kvs_node query, *node;
-    struct avl_node *a;
-
-    spin_lock(&kv_header->lock);
-    query.id = id;
-    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
-    if (a) {
-        node = _get_entry(a, struct kvs_node, avl_id);
-        seqnum = node->seqnum;
-    } else {
-        // not existing KV ID.
-        // this is necessary for _fdb_restore_wal()
-        // not to restore documents in deleted KV store.
-        seqnum = 0;
-    }
-    spin_unlock(&kv_header->lock);
-
-    return seqnum;
-}
-
-fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
-                                fdb_kvs_id_t id)
-{
-    if (id == 0) {
-        // default KV instance
-        return filemgr_get_seqnum(file);
-    }
-
-    return _fdb_kvs_get_seqnum(file->kv_header, id);
-}
-
 fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
 {
     uint8_t *buf;
@@ -2047,7 +2011,7 @@ fdb_kvs_remove_start:
     }
 
     // discard all WAL entries
-    wal_close_kv_ins(file, kv_id);
+    wal_close_kv_ins(file, kv_id, &root_handle->log_callback);
 
     // sync dirty root nodes
     bid_t dirty_idtree_root, dirty_seqtree_root;

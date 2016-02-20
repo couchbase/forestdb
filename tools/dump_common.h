@@ -39,7 +39,6 @@
 #include "btreeblock.h"
 #include "common.h"
 #include "wal.h"
-#include "snapshot.h"
 #include "filemgr_ops.h"
 #include "configuration.h"
 #include "internal_types.h"

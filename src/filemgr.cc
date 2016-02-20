@@ -1417,7 +1417,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         }
 
         if (wal_is_initialized(file)) {
-            wal_close(file);
+            wal_close(file, log_callback);
         }
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
         filemgr_dump_latency_stat(file, log_callback);
@@ -1573,7 +1573,7 @@ void filemgr_free_func(struct hash_elem *h)
 
     // destroy WAL
     if (wal_is_initialized(file)) {
-        wal_shutdown(file);
+        wal_shutdown(file, NULL);
         size_t i = 0;
         size_t num_shards = wal_get_num_shards(file);
         // Free all WAL shards
@@ -3227,6 +3227,41 @@ int _kvs_stat_get_kv_header(struct kvs_header *kv_header,
         ret = -1;
     }
     return ret;
+}
+
+fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
+                                 fdb_kvs_id_t id)
+{
+    fdb_seqnum_t seqnum;
+    struct kvs_node query, *node;
+    struct avl_node *a;
+
+    spin_lock(&kv_header->lock);
+    query.id = id;
+    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        seqnum = node->seqnum;
+    } else {
+        // not existing KV ID.
+        // this is necessary for _fdb_restore_wal()
+        // not to restore documents in deleted KV store.
+        seqnum = 0;
+    }
+    spin_unlock(&kv_header->lock);
+
+    return seqnum;
+}
+
+fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
+                                fdb_kvs_id_t id)
+{
+    if (id == 0) {
+        // default KV instance
+        return filemgr_get_seqnum(file);
+    }
+
+    return _fdb_kvs_get_seqnum(file->kv_header, id);
 }
 
 int _kvs_stat_get(struct filemgr *file,
