@@ -2140,6 +2140,145 @@ void snapshot_markers_in_file_test(bool multi_kv)
     TEST_RESULT(bodybuf);
 }
 
+void snapshot_without_seqtree(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, r;
+    int n = 10;
+    int num_commits = 3, num_kvs = 3;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+    fdb_snapshot_info_t *markers;
+    uint64_t num_markers;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    char kv_name[8];
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.multi_kv_instances = multi_kv;
+    // for creating the strict number of snapshots, disable block reusing
+    fconfig.block_reusing_threshold = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    if (multi_kv) {
+        for (r = 0; r < num_kvs; ++r) {
+            sprintf(kv_name, "kv%d", r);
+            fdb_kvs_open(dbfile, &db[r], kv_name, &kvs_config);
+        }
+    } else {
+        num_kvs = 1;
+        fdb_kvs_open_default(dbfile, &db[0], &kvs_config);
+    }
+
+    // Load documents mulitple times
+    for (j=0; j < num_commits; ++j) {
+        for (i=0; i<n; i++){
+            sprintf(keybuf, "key%d", i);
+            sprintf(metabuf, "meta-%d-%d", j, i);
+            sprintf(bodybuf, "body-%d-%d", j, i);
+            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                           (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+            for (r = 0; r < num_kvs; ++r) {
+                fdb_set(db[r], doc[i]);
+            }
+            fdb_doc_free(doc[i]);
+        }
+        if (j % 2 == 0) {
+            fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        } else {
+            fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        }
+    }
+
+    status = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    if (!multi_kv) {
+        TEST_CHK(num_markers == 3);
+        for (r = 0; r < num_kvs; ++r) {
+            TEST_CHK(markers[r].num_kvs_markers == 1);
+            TEST_CHK(markers[r].kvs_markers[0].seqnum
+                     == (fdb_seqnum_t) (n * (num_commits - r)));
+        }
+    } else {
+        TEST_CHK(num_markers == 6);
+        for (r = 0; r < num_kvs; ++r) {
+            TEST_CHK(markers[r].num_kvs_markers == num_kvs);
+            for (i = 0; i < num_kvs; ++i) {
+                TEST_CHK(markers[r].kvs_markers[i].seqnum
+                         == (fdb_seqnum_t) (n * (num_commits - r)));
+                sprintf(kv_name, "kv%d", i);
+                TEST_CMP(markers[r].kvs_markers[i].kv_store_name, kv_name, 3);
+            }
+        }
+    }
+
+    fdb_kvs_handle *snap_db;
+    fdb_iterator *iterator;
+    fdb_doc *rdoc = NULL;
+    // Open the snapshot with the snapshot markers from the second commit
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_snapshot_open(db[r], &snap_db, markers[1].kvs_markers[r].seqnum);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Verify all the keys in the snapshot
+        status = fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        i=0;
+        do {
+            status = fdb_iterator_get(iterator, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            sprintf(keybuf, "key%d", i);
+            sprintf(metabuf, "meta-1-%d", i);
+            sprintf(bodybuf, "body-1-%d", i);
+            TEST_CMP(rdoc->key, keybuf, rdoc->keylen);
+            TEST_CMP(rdoc->meta, metabuf, rdoc->metalen);
+            TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
+            fdb_doc_free(rdoc);
+            rdoc = NULL;
+            i++;
+        } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+        TEST_CHK(i==n);
+        status = fdb_iterator_close(iterator);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Verify that a sequence-based iteration is not allowed.
+        status = fdb_iterator_sequence_init(snap_db, &iterator, 0, 0, FDB_ITR_NONE);
+        TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+        status = fdb_kvs_close(snap_db);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf, "snapshot without seqtree in %s",
+            multi_kv ? "multiple kv mode:" : "single kv mode:");
+    TEST_RESULT(bodybuf);
+}
+
 void snapshot_with_deletes_test()
 {
     TEST_INIT();
@@ -4588,6 +4727,140 @@ void rollback_drop_multi_files_kvs_test()
     TEST_RESULT("open multi files kvs test");
 }
 
+void rollback_without_seqtree(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, r;
+    int n = 10;
+    int num_commits = 5, num_kvs = 3;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+    fdb_snapshot_info_t *markers;
+    uint64_t num_markers;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+    char kv_name[8];
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.multi_kv_instances = multi_kv;
+    // for creating the strict number of snapshots, disable block reusing
+    fconfig.block_reusing_threshold = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    if (multi_kv) {
+        for (r = 0; r < num_kvs; ++r) {
+            sprintf(kv_name, "kv%d", r);
+            fdb_kvs_open(dbfile, &db[r], kv_name, &kvs_config);
+        }
+    } else {
+        num_kvs = 1;
+        fdb_kvs_open_default(dbfile, &db[0], &kvs_config);
+    }
+
+    // Load documents mulitple times
+    for (j=0; j < num_commits; ++j) {
+        for (i=0; i<n; i++){
+            sprintf(keybuf, "key%d", i);
+            sprintf(metabuf, "meta-%d-%d", j, i);
+            sprintf(bodybuf, "body-%d-%d", j, i);
+            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                           (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+            for (r = 0; r < num_kvs; ++r) {
+                fdb_set(db[r], doc[i]);
+            }
+            fdb_doc_free(doc[i]);
+        }
+        if (j % 2 == 0) {
+            fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        } else {
+            fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        }
+    }
+
+    status = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Rollback the first KV store to the second commit point
+    status = fdb_rollback(&db[0], markers[3].kvs_markers[0].seqnum);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_kvs_handle *snap_db;
+    fdb_iterator *iterator;
+    fdb_doc *rdoc = NULL;
+    // Create an in-memory snapshot for each KV store and verify all the keys.
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_snapshot_open(db[r], &snap_db, FDB_SNAPSHOT_INMEM);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Verify all the keys in the snapshot
+        status = fdb_iterator_init(snap_db, &iterator, NULL, 0, NULL, 0, FDB_ITR_NONE);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        i=0;
+        do {
+            status = fdb_iterator_get(iterator, &rdoc);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            sprintf(keybuf, "key%d", i);
+            if (r == 0) {
+                // The first KV store should only have KV items from the second commit.
+                sprintf(metabuf, "meta-1-%d", i);
+                sprintf(bodybuf, "body-1-%d", i);
+            } else {
+                sprintf(metabuf, "meta-%d-%d", num_commits - 1, i);
+                sprintf(bodybuf, "body-%d-%d", num_commits - 1, i);
+            }
+            TEST_CMP(rdoc->key, keybuf, rdoc->keylen);
+            TEST_CMP(rdoc->meta, metabuf, rdoc->metalen);
+            TEST_CMP(rdoc->body, bodybuf, rdoc->bodylen);
+            fdb_doc_free(rdoc);
+            rdoc = NULL;
+            i++;
+        } while (fdb_iterator_next(iterator) != FDB_RESULT_ITERATOR_FAIL);
+        TEST_CHK(i==n);
+        status = fdb_iterator_close(iterator);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        status = fdb_kvs_close(snap_db);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // Close all the KV store handles
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_kvs_close(db[r]);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+    // Rollback all the KV stores to the second commit point
+    status = fdb_rollback_all(dbfile, markers[3].marker);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf, "rollback without seqtree in %s",
+            multi_kv ? "multiple kv mode:" : "single kv mode:");
+    TEST_RESULT(bodybuf);
+}
+
 void tx_crash_recover_test()
 {
     TEST_INIT();
@@ -4783,6 +5056,8 @@ int main(){
     snapshot_markers_in_file_test(true); // multi kv instance mode
     snapshot_markers_in_file_test(false); // single kv instance mode
     snapshot_with_deletes_test();
+    snapshot_without_seqtree(true); // multi kv instance mode
+    snapshot_without_seqtree(false); // single kv instance mode
     rollback_during_ops_test(NULL);
     rollback_forward_seqnum();
     rollback_test(false); // single kv instance mode
@@ -4802,6 +5077,8 @@ int main(){
     rollback_to_wal_test(true); // multi kv instance mode
     rollback_to_wal_test(false); // single kv instance mode
     rollback_drop_multi_files_kvs_test();
+    rollback_without_seqtree(true); // multi kv instance mode
+    rollback_without_seqtree(false); // single kv instance mode
     tx_crash_recover_test();
     auto_compaction_snapshots_test(); // test snapshots with auto-compaction
 
