@@ -320,8 +320,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
 
                         // If say a snapshot is taken on a db handle after
                         // rollback, then skip WAL items after rollback point
-                        if (handle->config.seqtree_opt == FDB_SEQTREE_USE &&
-                            (mode == FDB_RESTORE_KV_INS || !handle->kvs) &&
+                        if ((mode == FDB_RESTORE_KV_INS || !handle->kvs) &&
                             doc.seqnum > handle->seqnum) {
                             free(doc.key);
                             free(doc.meta);
@@ -350,11 +349,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                 buf2kvid(handle->config.chunksize,
                                          wal_doc.key, &kv_id);
 
-                                if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                                    kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
-                                } else {
-                                    kv_seqnum = SEQNUM_NOT_USED;
-                                }
+                                kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
                                 if (doc.seqnum <= kv_seqnum &&
                                         ((mode == FDB_RESTORE_KV_INS &&
                                             kv_id == kv_id_req) ||
@@ -820,11 +815,6 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    // Sequence trees are a must for snapshot creation
-    if (handle_in->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_CONFIG;
-    }
-
 fdb_snapshot_open_start:
     if (!handle_in->shandle) {
         fdb_check_file_reopen(handle_in, &fstatus);
@@ -1011,11 +1001,6 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         return fdb_kvs_rollback(handle_ptr, seqnum);
     }
 
-    // Sequence trees are a must for rollback
-    if (handle_in->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_CONFIG;
-    }
-
     if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle_in->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: Rollback is not allowed on the read-only DB file '%s'.",
@@ -1154,11 +1139,6 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     kvs_config = super_handle->kvs_config;
     log_callback = super_handle->log_callback;
 
-    // Sequence trees are a must for rollback
-    if (super_handle->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_CONFIG;
-    }
-
     if (super_handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&super_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: Rollback is not allowed on the read-only DB file '%s'.",
@@ -1217,7 +1197,8 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     if (handle->config.multi_kv_instances) {
         filemgr_mutex_lock(handle->file);
         fdb_kvs_header_create(handle->file);
-        fdb_kvs_header_read(handle->file->kv_header, handle->dhandle, handle->kv_info_offset,
+        fdb_kvs_header_read(handle->file->kv_header, handle->dhandle,
+                            handle->kv_info_offset,
                             handle->file->version, false);
         filemgr_mutex_unlock(handle->file);
     }
@@ -1249,7 +1230,8 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     } else { // Rollback failed, restore KV header
         fdb_kvs_header_create(file);
         fdb_kvs_header_read(file->kv_header, super_handle->dhandle,
-                            super_handle->kv_info_offset, ver_get_latest_magic(),
+                            super_handle->kv_info_offset,
+                            ver_get_latest_magic(),
                             false);
     }
 
@@ -1342,9 +1324,8 @@ fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
         hbtrie_set_map_function(handle_out->trie, fdb_kvs_find_cmp_chunk);
     }
 
+    handle_out->seqnum = handle_in->seqnum;
     if (handle_out->config.seqtree_opt == FDB_SEQTREE_USE) {
-        handle_out->seqnum = handle_in->seqnum;
-
         if (handle_out->config.multi_kv_instances) {
             // multi KV instance mode .. HB+trie
             handle_out->seqtrie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
@@ -1844,9 +1825,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         hbtrie_set_map_function(handle->trie, fdb_kvs_find_cmp_chunk);
     }
 
+    handle->seqnum = seqnum;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        handle->seqnum = seqnum;
-
         if (handle->config.multi_kv_instances) {
             // multi KV instance mode .. HB+trie
             handle->seqtrie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
@@ -4092,11 +4072,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                     fdb_seqnum_t kv_seqnum;
                     buf2kvid(handle->config.chunksize, doc.key, &kv_id);
 
-                    if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-                        kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
-                    } else {
-                        kv_seqnum = SEQNUM_NOT_USED;
-                    }
+                    kv_seqnum = fdb_kvs_get_seqnum(handle->file, kv_id);
                     // Only pick up items written before any rollback
                     if (doc.seqnum > kv_seqnum) {
                         free(doc.key);
@@ -6399,9 +6375,6 @@ fdb_status fdb_compact_upto(fdb_file_handle *fhandle,
     if (!fhandle || !fhandle->root) {
         return FDB_RESULT_INVALID_ARGS;
     }
-    if (fhandle->root->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
 
     return _fdb_compact(fhandle, new_filename, marker, false, NULL);
 }
@@ -6413,9 +6386,6 @@ fdb_status fdb_compact_upto_with_cow(fdb_file_handle *fhandle,
 {
     if (!fhandle || !fhandle->root) {
         return FDB_RESULT_INVALID_ARGS;
-    }
-    if (fhandle->root->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_HANDLE;
     }
 
     return _fdb_compact(fhandle, new_filename, marker, true, NULL);

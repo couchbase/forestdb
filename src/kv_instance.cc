@@ -2120,11 +2120,6 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     config = handle_in->config;
     kvs_config = handle_in->kvs_config;
 
-    // Sequence trees are a must for rollback
-    if (handle_in->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_CONFIG;
-    }
-
     if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle_in->log_callback,
                        FDB_RESULT_RONLY_VIOLATION,
@@ -2233,21 +2228,23 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         }
         btreeblk_end(super_handle->bhandle);
 
-        // same as above for seq-trie
-        _kv_id = alca(uint8_t, size_id);
-        kvid2buf(size_id, handle->kvs->id, _kv_id);
-        hr = hbtrie_find_partial(handle->seqtrie, _kv_id,
-                                 size_id, &seq_root);
-        btreeblk_end(handle->bhandle);
-        if (hr == HBTRIE_RESULT_SUCCESS) {
-            hbtrie_insert_partial(super_handle->seqtrie,
-                                  _kv_id, size_id,
-                                  &seq_root, &dummy);
-        } else { // No seqtrie info in rollback header.
-                 // Erase kv store from super handle's seqtrie index.
-            hbtrie_remove_partial(super_handle->seqtrie, _kv_id, size_id);
+        if (config.seqtree_opt == FDB_SEQTREE_USE) {
+            // same as above for seq-trie
+            _kv_id = alca(uint8_t, size_id);
+            kvid2buf(size_id, handle->kvs->id, _kv_id);
+            hr = hbtrie_find_partial(handle->seqtrie, _kv_id,
+                                     size_id, &seq_root);
+            btreeblk_end(handle->bhandle);
+            if (hr == HBTRIE_RESULT_SUCCESS) {
+                hbtrie_insert_partial(super_handle->seqtrie,
+                                      _kv_id, size_id,
+                                      &seq_root, &dummy);
+            } else { // No seqtrie info in rollback header.
+                     // Erase kv store from super handle's seqtrie index.
+                hbtrie_remove_partial(super_handle->seqtrie, _kv_id, size_id);
+            }
+            btreeblk_end(super_handle->bhandle);
         }
-        btreeblk_end(super_handle->bhandle);
 
         old_seqnum = fdb_kvs_get_seqnum(handle_in->file,
                                         handle_in->kvs->id);
