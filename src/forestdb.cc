@@ -1185,7 +1185,7 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         filemgr_set_seqnum(handle_in->file, seqnum);
         filemgr_mutex_unlock(handle_in->file);
 
-        fs = _fdb_commit(handle, FDB_COMMIT_NORMAL,
+        fs = _fdb_commit(handle, FDB_COMMIT_MANUAL_WAL_FLUSH,
                 !(handle_in->config.durability_opt & FDB_DRB_ASYNC));
         if (fs == FDB_RESULT_SUCCESS) {
             if (handle_in->txn) {
