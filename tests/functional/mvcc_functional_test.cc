@@ -3880,7 +3880,7 @@ void rollback_to_wal_test(bool multi_kv)
     status = fdb_get(snap_db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
-    TEST_CHK(rdoc->seqnum == n + i + 1);
+    TEST_CHK(rdoc->seqnum == (fdb_seqnum_t)n + i + 1);
     fdb_doc_free(rdoc);
     fdb_kvs_close(snap_db);
 
