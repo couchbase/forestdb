@@ -3971,6 +3971,118 @@ void rollback_all_test(bool multi_kv)
     TEST_RESULT(bodybuf);
 }
 
+void rollback_to_wal_test(bool multi_kv)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 300;
+    int num_kvs = 1;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs);
+    fdb_kvs_handle *snap_db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[256], metabuf[256], bodybuf[256];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 256;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.multi_kv_instances = multi_kv;
+
+    // open db
+    fdb_open(&dbfile, "./mvcc_test8", &fconfig);
+
+    fdb_kvs_open_default(dbfile, &db[0], &kvs_config);
+
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                      (void *) "rollback_to_wal_test");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+   // ------- Setup test ----------------------------------
+    for (i=0; i<n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db[0], doc[i]);
+    } // after 256 items wal gets flushed before commit
+
+    // commit normal but as wal was flushed, this will cause a wal flush again!
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // update first half documents again
+    for (i = 0; i < n/2; i++){
+        fdb_doc_free(doc[i]);
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "META%d", i);
+        sprintf(bodybuf, "BODY%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db[0], doc[i]);
+    }
+
+    // commit again, this time wal threshold not hit so no wal flush on commit
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    // update remaining half documents
+    for (; i < n; i++){
+        fdb_doc_free(doc[i]);
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "Meta%d", i);
+        sprintf(bodybuf, "Body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db[0], doc[i]);
+    } // somewhere in this loop wal gets flushed before commit
+    // normal commit results in wal flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    status = fdb_rollback(&db[0], n + n/2);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    i = 1; // pick a document in the WAL section upon rollback
+    fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
+    status = fdb_snapshot_open(db[0], &snap_db, n + n/2);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_get(snap_db, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc->body, doc[i]->body, rdoc->bodylen);
+    TEST_CHK(rdoc->seqnum == n + i + 1);
+    fdb_doc_free(rdoc);
+    fdb_kvs_close(snap_db);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    sprintf(bodybuf, "rollback to wal test %s", multi_kv ? "multiple kv mode:"
+                                                         : "single kv mode:");
+    TEST_RESULT(bodybuf);
+}
+
 static fdb_compact_decision compaction_cb_count(fdb_file_handle *fhandle,
                             fdb_compaction_status status, const char *kv_name,
                             fdb_doc *doc, uint64_t old_offset,
@@ -3983,7 +4095,6 @@ static fdb_compact_decision compaction_cb_count(fdb_file_handle *fhandle,
     *count = *count + 1;
     return 0;
 }
-
 
 void auto_compaction_snapshots_test()
 {
@@ -4656,6 +4767,8 @@ int main(){
     rollback_to_zero_test(false); // single kv instance mode
     rollback_all_test(true); // multi kv instance mode
     rollback_all_test(false); // single kv instance mode
+    rollback_to_wal_test(true); // multi kv instance mode
+    rollback_to_wal_test(false); // single kv instance mode
     rollback_drop_multi_files_kvs_test();
     tx_crash_recover_test();
     auto_compaction_snapshots_test(); // test snapshots with auto-compaction
