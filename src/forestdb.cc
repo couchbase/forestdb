@@ -1113,7 +1113,11 @@ fdb_snapshot_open_start:
             }
         }
     }
-    LATENCY_STAT_END(file, FDB_LATENCY_SNAPSHOTS);
+    if (seqnum == FDB_SNAPSHOT_INMEM) {
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAPSHOTS);
+    } else {
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAPSHOT_DUR);
+    }
     return fs;
 }
 

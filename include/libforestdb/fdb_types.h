@@ -671,15 +671,14 @@ typedef struct {
  */
 typedef uint8_t fdb_latency_stat_type;
 enum {
-    FDB_LATENCY_SETS      = 0, // fdb_set API
-    FDB_LATENCY_GETS      = 1, // fdb_get API
-    FDB_LATENCY_COMMITS   = 2, // fdb_commit API
-    FDB_LATENCY_SNAPSHOTS = 3, // fdb_snapshot_open API
-    FDB_LATENCY_COMPACTS  = 4  // fdb_compact API
+    FDB_LATENCY_SETS         = 0, // fdb_set API
+    FDB_LATENCY_GETS         = 1, // fdb_get API
+    FDB_LATENCY_COMMITS      = 2, // fdb_commit API
+    FDB_LATENCY_SNAPSHOTS    = 3, // fdb_snapshot_open in-memory API
+    FDB_LATENCY_SNAPSHOT_DUR = 4, // fdb_snapshot_open durable API
+    FDB_LATENCY_COMPACTS     = 5, // fdb_compact API
+    FDB_LATENCY_NUM_STATS    = 6  // keep as last elem
 };
-
-// Number of latency stat types
-#define FDB_LATENCY_NUM_STATS 5
 
 /**
  * Latency statistics of a specific ForestDB api call

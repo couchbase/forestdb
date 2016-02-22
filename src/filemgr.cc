@@ -3415,11 +3415,12 @@ struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
 const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
 {
     switch(stat) {
-        case FDB_LATENCY_SETS:       return "sets     ";
-        case FDB_LATENCY_GETS:       return "gets     ";
-        case FDB_LATENCY_SNAPSHOTS:  return "snapshots";
-        case FDB_LATENCY_COMMITS:    return "commits  ";
-        case FDB_LATENCY_COMPACTS:   return "compact  ";
+        case FDB_LATENCY_SETS:          return "sets            ";
+        case FDB_LATENCY_GETS:          return "gets            ";
+        case FDB_LATENCY_SNAPSHOTS:     return "in-mem_snapshot ";
+        case FDB_LATENCY_SNAPSHOT_DUR:  return "durable_snapshot";
+        case FDB_LATENCY_COMMITS:       return "commits         ";
+        case FDB_LATENCY_COMPACTS:      return "compact         ";
     }
     return NULL;
 }
