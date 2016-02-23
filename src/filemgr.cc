@@ -3788,6 +3788,16 @@ const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
         case FDB_LATENCY_SNAPSHOT_DUR:  return "durable_snapshot";
         case FDB_LATENCY_COMMITS:       return "commits         ";
         case FDB_LATENCY_COMPACTS:      return "compact         ";
+        case FDB_LATENCY_ITR_INIT:      return "itr-init        ";
+        case FDB_LATENCY_ITR_SEQ_INIT:  return "itr-seq-ini     ";
+        case FDB_LATENCY_ITR_NEXT:      return "itr-next        ";
+        case FDB_LATENCY_ITR_PREV:      return "itr-prev        ";
+        case FDB_LATENCY_ITR_GET:       return "itr-get         ";
+        case FDB_LATENCY_ITR_GET_META:  return "itr-get-meta    ";
+        case FDB_LATENCY_ITR_SEEK:      return "itr-seek        ";
+        case FDB_LATENCY_ITR_SEEK_MAX:  return "itr-seek-max    ";
+        case FDB_LATENCY_ITR_SEEK_MIN:  return "itr-seek-min    ";
+        case FDB_LATENCY_ITR_CLOSE:     return "itr-close       ";
     }
     return NULL;
 }

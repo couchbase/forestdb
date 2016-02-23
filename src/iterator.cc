@@ -31,6 +31,7 @@
 #include "list.h"
 #include "internal_types.h"
 #include "btree_var_kv_ops.h"
+#include "timing.h"
 
 #include "memleak.h"
 
@@ -108,6 +109,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 {
     hbtrie_result hr;
     fdb_status fs;
+    LATENCY_STAT_START();
 
     if (handle == NULL ||
         start_keylen > FDB_MAX_KEYLEN ||
@@ -260,6 +262,8 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     ++iterator->handle->num_iterators; // Increment the iterator counter of the KV handle
     fdb_iterator_next(iterator); // position cursor at first key
 
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_INIT);
+
     return FDB_RESULT_SUCCESS;
 }
 
@@ -277,6 +281,8 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     uint8_t *start_seq_kv;
     struct wal_item query;
     struct wal_item_header query_key;
+    LATENCY_STAT_START();
+
     query.header = &query_key;
 
     if (handle == NULL || ptr_iterator == NULL ||
@@ -392,6 +398,8 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
 
     ++iterator->handle->num_iterators; // Increment the iterator counter of the KV handle
     fdb_iterator_next(iterator); // position cursor at first key
+
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_SEQ_INIT);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -736,6 +744,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     struct wal_item *snap_item = NULL, query;
     struct wal_item_header query_header;
     struct docio_object _doc;
+    fdb_status ret;
+    LATENCY_STAT_START();
 
     iterator->_dhandle = NULL; // setup for get() to return FAIL
 
@@ -1171,19 +1181,24 @@ fetch_hbtrie:
 
     if (next_op < 0) {
         atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-        return fdb_iterator_prev(iterator);
+        ret = fdb_iterator_prev(iterator);
     } else if (next_op > 0) {
         atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-        return fdb_iterator_next(iterator);
+        ret = fdb_iterator_next(iterator);
     } else {
         atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-        return FDB_RESULT_SUCCESS;
+        ret = FDB_RESULT_SUCCESS;
     }
+
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_SEEK);
+    return ret;
 }
 
 LIBFDB_API
 fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
     size_t size_chunk = iterator->handle->config.chunksize;
+    fdb_status ret;
+    LATENCY_STAT_START();
 
     if (!iterator || !iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1223,7 +1238,9 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
         iterator->status = FDB_ITR_IDX; // WAL is already set
     }
 
-    return fdb_iterator_next(iterator);
+    ret = fdb_iterator_next(iterator);
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_SEEK_MIN);
+    return ret;
 }
 
 fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
@@ -1371,11 +1388,15 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
 
 LIBFDB_API
 fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
+    fdb_status ret;
+    LATENCY_STAT_START();
     if (!iterator->hbtrie_iterator) {
-        return _fdb_iterator_seek_to_max_seq(iterator);
+        ret = _fdb_iterator_seek_to_max_seq(iterator);
+    } else {
+        ret = _fdb_iterator_seek_to_max_key(iterator);
     }
-
-    return _fdb_iterator_seek_to_max_key(iterator);
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_SEEK_MAX);
+    return ret;
 }
 
 static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator)
@@ -1746,6 +1767,7 @@ LIBFDB_API
 fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
+    LATENCY_STAT_START();
 
     if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
@@ -1772,6 +1794,7 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves);
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_PREV);
     return result;
 }
 
@@ -1779,6 +1802,7 @@ LIBFDB_API
 fdb_status fdb_iterator_next(fdb_iterator *iterator)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
+    LATENCY_STAT_START();
 
     if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
@@ -1805,6 +1829,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves);
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_NEXT);
     return result;
 }
 
@@ -1819,6 +1844,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     struct docio_handle *dhandle;
     size_t size_chunk = iterator->handle->config.chunksize;
     bool alloced_key, alloced_meta, alloced_body;
+    LATENCY_STAT_START();
 
     if (!iterator || !doc) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1901,6 +1927,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets);
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET);
     return ret;
 }
 
@@ -1915,6 +1942,7 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
     struct docio_handle *dhandle;
     size_t size_chunk = iterator->handle->config.chunksize;
     bool alloced_key, alloced_meta;
+    LATENCY_STAT_START();
 
     if (!iterator || !doc) {
         return FDB_RESULT_INVALID_ARGS;
@@ -1988,12 +2016,14 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets);
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET_META);
     return ret;
 }
 
 LIBFDB_API
 fdb_status fdb_iterator_close(fdb_iterator *iterator)
 {
+    LATENCY_STAT_START();
     if (iterator->hbtrie_iterator) {
         hbtrie_iterator_free(iterator->hbtrie_iterator);
         free(iterator->hbtrie_iterator);
@@ -2015,8 +2045,11 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         free(iterator->end_key);
     }
 
+
     --iterator->handle->num_iterators; // Decrement the iterator counter of the KV handle
     wal_itr_close(iterator->wal_itr);
+
+    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_CLOSE);
 
     if (!iterator->snapshot_handle) {
         // Close the opened handle in the iterator,
