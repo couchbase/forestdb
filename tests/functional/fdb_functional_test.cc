@@ -57,6 +57,7 @@ void basic_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.compaction_threshold = 0;
     fconfig.purging_interval = 1;
 
@@ -471,6 +472,7 @@ void deleted_doc_get_api_test()
     // open dbfile
     fconfig = fdb_get_default_config();
     fconfig.purging_interval = 1;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     kvs_config = fdb_get_default_kvs_config();
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -738,6 +740,7 @@ void set_get_meta_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.purging_interval = 1;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
@@ -1471,6 +1474,7 @@ void operational_stats_test(bool multi_kv)
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
 
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
@@ -2305,6 +2309,7 @@ void custom_compare_variable_test()
 
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.seqtree_opt = FDB_SEQTREE_USE;
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
@@ -2600,6 +2605,7 @@ void custom_seqnum_test(bool multi_kv)
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
     r = 0;

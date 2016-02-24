@@ -91,6 +91,7 @@ static fdb_encryption_algorithm_t cur_encryption;
 
 static fdb_config getDefaultConfig(void) {
     fdb_config c = fdb_get_default_config();
+    c.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree for get_byseq
     c.encryption_key.algorithm = cur_encryption;
     _set_random_string((char*)c.encryption_key.bytes, sizeof(c.encryption_key.bytes));
     return c;

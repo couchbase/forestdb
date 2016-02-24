@@ -994,7 +994,7 @@ static fdb_status _wal_flush(struct filemgr *file,
                         spin_unlock(&file->wal->key_shards[i].lock);
                         item->old_offset = get_old_offset(dbhandle, item);
                         spin_lock(&file->wal->key_shards[i].lock);
-                        if (item->old_offset == 0 && // doc not in main index
+                        if (item->old_offset == BLK_NOT_FOUND && // doc not in main index
                             item->action == WAL_ACT_REMOVE) {// insert & delete
                             // drop and release this item right away from WAL
                             _wal_release_item(file, i, item);

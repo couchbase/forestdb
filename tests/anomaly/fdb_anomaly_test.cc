@@ -427,6 +427,7 @@ void handle_busy_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.purging_interval = 0;
     fconfig.compaction_threshold = 0;

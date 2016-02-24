@@ -2099,12 +2099,17 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     uint64_t old_offset = 0;
 
-    hbtrie_find_offset(handle->trie,
+    hbtrie_result hr = hbtrie_find_offset(handle->trie,
                        item->header->key,
                        item->header->keylen,
                        (void*)&old_offset);
+
     btreeblk_end(handle->bhandle);
-    old_offset = _endian_decode(old_offset);
+    if (hr == HBTRIE_RESULT_SUCCESS) {
+        old_offset = _endian_decode(old_offset);
+    } else {
+        old_offset = BLK_NOT_FOUND;
+    }
 
     return old_offset;
 }
@@ -3067,7 +3072,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
     uint64_t offset = doc->offset;
     struct docio_object _doc;
 
-    if (!offset || offset == BLK_NOT_FOUND) {
+    if (offset == BLK_NOT_FOUND) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
