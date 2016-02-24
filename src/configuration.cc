@@ -39,8 +39,8 @@ fdb_config get_default_config(void) {
     fconfig.auto_commit = false;
     // 0 second by default.
     fconfig.purging_interval = 0;
-    // Use a seq btree by default.
-    fconfig.seqtree_opt = FDB_SEQTREE_USE;
+    // Sequnce trees are disabled by default.
+    fconfig.seqtree_opt = FDB_SEQTREE_NOT_USE;
     // Use a synchronous commit by default.
     fconfig.durability_opt = FDB_DRB_NONE;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;

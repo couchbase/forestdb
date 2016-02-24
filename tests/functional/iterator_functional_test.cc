@@ -340,6 +340,7 @@ void iterator_with_concurrent_updates_test()
 
     // open db1, db2, db3 on the same file
     fconfig = fdb_get_default_config();
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     kvs_config = fdb_get_default_kvs_config();
     fdb_open(&dbfile, "./iterator_test1", &fconfig);
 
@@ -425,6 +426,7 @@ void iterator_compact_uncommitted_db()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // remove previous iterator_test files
@@ -1950,6 +1952,7 @@ void sequence_iterator_test()
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.compaction_threshold = 0;
     fconfig.purging_interval = 1; // retain deletes until compaction
 
@@ -2186,6 +2189,7 @@ void sequence_iterator_duplicate_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.wal_threshold = 1024;
     fconfig.compaction_threshold = 0;
     fconfig.purging_interval = 1; // retain deletes until compaction
@@ -2303,6 +2307,7 @@ void sequence_iterator_range_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
 
     // open db
     fdb_open(&dbfile, "./iterator_test1", &fconfig);
@@ -2435,6 +2440,7 @@ void reverse_sequence_iterator_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
@@ -2594,6 +2600,7 @@ void reverse_sequence_iterator_kvs_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
@@ -2646,7 +2653,9 @@ void reverse_sequence_iterator_kvs_test()
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
     // iterate even docs on kv1
-    fdb_iterator_sequence_init(kv1, &iterator, 0, 0, FDB_ITR_NONE);
+    status = fdb_iterator_sequence_init(kv1, &iterator, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
     i=0;
     count = 0;
     while (1) {
@@ -2667,7 +2676,7 @@ void reverse_sequence_iterator_kvs_test()
     TEST_CHK(count==n/2);
 
     // iterate all docs over kv2
-    fdb_iterator_sequence_init(kv2, &iterator2, 0, 0, FDB_ITR_NONE);
+    status = fdb_iterator_sequence_init(kv2, &iterator2, 0, 0, FDB_ITR_NONE);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     while(1) {
         status = fdb_iterator_get(iterator2, &rdoc);
@@ -2730,7 +2739,8 @@ void reverse_sequence_iterator_kvs_test()
     // re-open iterator after commit should return all docs for kv1
     i = 0;
     count = 0;
-    fdb_iterator_sequence_init(kv1, &iterator, 0, 0, FDB_ITR_NONE);
+    status = fdb_iterator_sequence_init(kv1, &iterator, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
     while (1) {
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -3214,6 +3224,7 @@ void iterator_after_wal_threshold()
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 10;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
 
     // remove previous iterator_test files
     r = system(SHELL_DEL" iterator_test* > errorlog.txt");
@@ -3411,6 +3422,7 @@ void sequence_iterator_seek_test(bool multi_kv)
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.multi_kv_instances = multi_kv;
     fconfig.compaction_threshold = 0;
@@ -3552,6 +3564,7 @@ void iterator_concurrent_compaction()
     size_t valuelen_out;
 
     fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
 
     // remove previous iterator_test files

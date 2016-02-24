@@ -339,6 +339,7 @@ void replay(storage_t *st)
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.compaction_threshold = 10;
     fdb_iterator *it;
     fdb_status status;
@@ -853,6 +854,7 @@ void e2e_index_basic_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.durability_opt = FDB_DRB_ASYNC;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
 
     // test
     e2e_kvs_index_pattern(1, fconfig, true, false); // normal commit
@@ -875,6 +877,7 @@ void e2e_index_walflush_test_no_deletes_auto_compact()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.durability_opt = FDB_DRB_ASYNC;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
 
     // test
     e2e_kvs_index_pattern(10, fconfig, false, true);
@@ -896,6 +899,7 @@ void e2e_index_walflush_autocompact_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.durability_opt = FDB_DRB_ASYNC;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
 
     // test
     e2e_kvs_index_pattern(2, fconfig, true, true);
@@ -918,6 +922,7 @@ void e2e_index_normal_commit_autocompact_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.durability_opt = FDB_DRB_NONE;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
 
     // test
     e2e_kvs_index_pattern(2, fconfig, true, false);
@@ -957,6 +962,7 @@ void e2e_concurrent_scan_test()
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
     fconfig.durability_opt = FDB_DRB_ASYNC;
     fconfig.purging_interval = 30; // retain deleted docs for iteration
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
 
     // test
     e2e_concurrent_scan_pattern(3, 5, 5, fconfig, true);
@@ -978,6 +984,7 @@ void e2e_robust_test()
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_mode=FDB_COMPACTION_AUTO;
     fconfig.durability_opt = FDB_DRB_ASYNC;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     // to allow iterators to validate docs across async compaction
     // specify purging_interval so deleted docs are not dropped by
     // compactor immediately..

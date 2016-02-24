@@ -248,6 +248,7 @@ void crash_recovery_test(bool walflush)
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
@@ -379,6 +380,7 @@ void snapshot_test()
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
@@ -1743,6 +1745,7 @@ void snapshot_clone_test()
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
     fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
 
@@ -2582,6 +2585,7 @@ void rollback_forward_seqnum()
     (void)r;
 
     fconfig.wal_threshold = n;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
     fconfig.purging_interval = 5;
@@ -2696,6 +2700,7 @@ void rollback_test(bool multi_kv)
     fdb_config fconfig = fdb_get_default_config();
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.buffercache_size = 0;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
@@ -3632,6 +3637,7 @@ void rollback_prior_to_ops(bool walflush)
     (void)r;
 
     fconfig.wal_threshold = 1024;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 10;
     fconfig.purging_interval = 1; // retain deletes until compaction
@@ -4424,6 +4430,7 @@ void auto_compaction_snapshots_test()
     // Open Database File
     config = fdb_get_default_config();
     config.compaction_mode = FDB_COMPACTION_AUTO;
+    config.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
     config.compaction_cb = compaction_cb_count;
     config.compaction_cb_ctx = &num_compactions;
     config.compaction_cb_mask = FDB_CS_COMPLETE;
