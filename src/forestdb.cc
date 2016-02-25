@@ -73,7 +73,7 @@ static int _fdb_handle_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 #endif
 
 static volatile uint8_t fdb_initialized = 0;
-static volatile uint8_t fdb_open_inprog = 0;
+static volatile uint32_t fdb_open_inprog = 0;
 #ifdef SPIN_INITIALIZER
 static spin_t initial_lock = SPIN_INITIALIZER;
 #else
@@ -508,6 +508,25 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     return FDB_RESULT_SUCCESS;
 }
 
+#ifndef SPIN_INITIALIZER
+INLINE void init_initial_lock_status() {
+    // Note that only Windows passes through this routine
+    if (!fdb_initialized) {
+        if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
+            // atomically initialize spin lock only once
+            spin_init(&initial_lock);
+            initial_lock_status = 2;
+        } else {
+            // the others .. wait until initializing 'initial_lock' is done
+            // TODO: Need to devise a better way of synchronization on Windows
+            while (initial_lock_status != 2) {
+                Sleep(1);
+            }
+        }
+    }
+}
+#endif
+
 LIBFDB_API
 fdb_status fdb_init(fdb_config *config)
 {
@@ -535,17 +554,7 @@ fdb_status fdb_init(fdb_config *config)
 #endif
 
 #ifndef SPIN_INITIALIZER
-        // Note that only Windows passes through this routine
-        if (InterlockedCompareExchange(&initial_lock_status, 1, 0) == 0) {
-            // atomically initialize spin lock only once
-            spin_init(&initial_lock);
-            initial_lock_status = 2;
-        } else {
-            // the others .. wait until initializing 'initial_lock' is done
-            while (initial_lock_status != 2) {
-                Sleep(1);
-            }
-        }
+        init_initial_lock_status();
 #endif
 
     }
@@ -630,6 +639,10 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
+#ifndef SPIN_INITIALIZER
+    init_initial_lock_status();
+#endif
+
     spin_lock(&initial_lock);
     fdb_open_inprog++;
     spin_unlock(&initial_lock);
@@ -704,6 +717,10 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
         free(fhandle);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
+
+#ifndef SPIN_INITIALIZER
+    init_initial_lock_status();
+#endif
 
     spin_lock(&initial_lock);
     fdb_open_inprog++;
@@ -7096,9 +7113,7 @@ fdb_status fdb_shutdown()
 
         if (!fdb_initialized) {
             // ForestDB is already shut down
-#ifdef SPIN_INITIALIZER
             spin_unlock(&initial_lock);
-#endif
             return ret;
         }
         if (fdb_open_inprog) {
