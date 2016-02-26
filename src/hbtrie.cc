@@ -462,6 +462,14 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
             trie->btree_kv_ops,
             trie->btree_nodesize, trie->root_bid);
         btree.aux = trie->aux;
+        if (btree.ksize != trie->chunksize || btree.vsize != trie->valuelen) {
+            if (((trie->chunksize << 4) | trie->valuelen) == btree.ksize) {
+                // this is an old meta format
+                return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
+            }
+            // B+tree root node is corrupted.
+            return HBTRIE_RESULT_INDEX_CORRUPTED;
+        }
 
         item = (struct btreeit_item *)mempool_alloc(sizeof(
                                                     struct btreeit_item));
@@ -483,7 +491,7 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
         it->keylen = (item->chunkno+1) * trie->chunksize;
     }
 
-    while (hr == HBTRIE_RESULT_FAIL) {
+    while (hr != HBTRIE_RESULT_SUCCESS) {
         // get key-value from current b-tree iterator
         memset(k, 0, trie->chunksize);
         br = btree_prev(&item->btree_it, k, v);
@@ -744,6 +752,14 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             &btree, trie->btreeblk_handle, trie->btree_blk_ops, trie->btree_kv_ops,
             trie->btree_nodesize, trie->root_bid);
         btree.aux = trie->aux;
+        if (btree.ksize != trie->chunksize || btree.vsize != trie->valuelen) {
+            if (((trie->chunksize << 4) | trie->valuelen) == btree.ksize) {
+                // this is an old meta format
+                return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
+            }
+            // B+tree root node is corrupted.
+            return HBTRIE_RESULT_INDEX_CORRUPTED;
+        }
 
         item = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
         item->chunkno = 0;
@@ -764,7 +780,7 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
         it->keylen = (item->chunkno+1) * trie->chunksize;
     }
 
-    while(hr == HBTRIE_RESULT_FAIL) {
+    while(hr != HBTRIE_RESULT_SUCCESS) {
         // get key-value from current b-tree iterator
         memset(k, 0, trie->chunksize);
         br = btree_next(&item->btree_it, k, v);
@@ -981,7 +997,7 @@ hbtrie_result hbtrie_next_value_only(struct hbtrie_iterator *it,
     if (e) item = _get_entry(e, struct btreeit_item, le);
 
     hr = _hbtrie_next(it, item, NULL, 0, value_buf, HBTRIE_PREFIX_MATCH_ONLY);
-    if (hr == HBTRIE_RESULT_FAIL) {
+    if (hr != HBTRIE_RESULT_SUCCESS) {
         // this iterator reaches the end of hb-trie
         free(it->curkey);
         it->curkey = NULL;
@@ -1111,9 +1127,14 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
             return HBTRIE_RESULT_FAIL;
         }
         btree->aux = trie->aux;
-        fdb_assert(btree->ksize == trie->chunksize &&
-                   btree->vsize == trie->valuelen,
-                   btree->ksize, btree->vsize);
+        if (btree->ksize != trie->chunksize || btree->vsize != trie->valuelen) {
+            if (((trie->chunksize << 4) | trie->valuelen) == btree->ksize) {
+                // this is an old meta format
+                return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
+            }
+            // B+tree root node is corrupted.
+            return HBTRIE_RESULT_INDEX_CORRUPTED;
+        }
     }
 
     while (curchunkno < nchunk) {
@@ -1608,8 +1629,22 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
         if (r != BTREE_RESULT_SUCCESS) {
             return HBTRIE_RESULT_FAIL;
         }
+        if (btreeitem->btree.ksize != trie->chunksize ||
+            btreeitem->btree.vsize != trie->valuelen) {
+            if (((trie->chunksize << 4) | trie->valuelen) == btreeitem->btree.ksize) {
+                // this is an old meta format
+                return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
+            }
+            // B+tree root node is corrupted.
+            return HBTRIE_RESULT_INDEX_CORRUPTED;
+        }
     }
     btreeitem->btree.aux = trie->aux;
+
+    // set 'oldvalue_out' to 0xff..
+    if (oldvalue_out) {
+        memset(oldvalue_out, 0xff, trie->valuelen);
+    }
 
     while(curchunkno < nchunk){
         // get current chunk number
@@ -1776,7 +1811,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
             } else {
-                ret_result = HBTRIE_RESULT_UPDATE;
+                ret_result = HBTRIE_RESULT_SUCCESS;
             }
             break;
         }
@@ -1903,7 +1938,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
             } else {
-                ret_result = HBTRIE_RESULT_UPDATE;
+                ret_result = HBTRIE_RESULT_SUCCESS;
             }
             break;
         }
@@ -1956,7 +1991,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             curchunkno = midchunkno;
             btreeitem = btreeitem_new;
         }
-        if (ret_result == HBTRIE_RESULT_FAIL) {
+        if (ret_result != HBTRIE_RESULT_SUCCESS) {
             break;
         }
 

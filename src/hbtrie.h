@@ -35,8 +35,21 @@ typedef int hbtrie_cmp_func(void *key1, void *key2, void* aux);
 typedef hbtrie_cmp_func *hbtrie_cmp_map(void *chunk, void *aux);
 
 typedef enum {
+    /**
+     * HB+trie operation success.
+     */
     HBTRIE_RESULT_SUCCESS,
-    HBTRIE_RESULT_UPDATE,
+    /**
+     * Meta data in index node is corrupted.
+     */
+    HBTRIE_RESULT_INDEX_CORRUPTED,
+    /**
+     * Meta data format is too old.
+     */
+    HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED,
+    /**
+     * HB+trie operation fails.
+     */
     HBTRIE_RESULT_FAIL
 } hbtrie_result;
 

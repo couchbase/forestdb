@@ -737,7 +737,7 @@ start:
     offset = iterator->_offset;
     iterator->status = FDB_ITR_IDX;
 
-    if (hr == HBTRIE_RESULT_FAIL && !iterator->tree_cursor) {
+    if (hr != HBTRIE_RESULT_SUCCESS && !iterator->tree_cursor) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
@@ -745,7 +745,7 @@ start:
         // get the current item of avl-tree
         snap_item = _get_entry(iterator->tree_cursor, struct snap_wal_entry,
                                avl);
-        if (hr != HBTRIE_RESULT_FAIL) {
+        if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator, snap_item->key, snap_item->keylen,
                                key, keylen);
         } else {
@@ -899,7 +899,7 @@ start:
     offset = iterator->_offset;
     iterator->status = FDB_ITR_IDX;
 
-    if (hr == HBTRIE_RESULT_FAIL && iterator->tree_cursor == NULL) {
+    if (hr != HBTRIE_RESULT_SUCCESS && iterator->tree_cursor == NULL) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
@@ -907,7 +907,7 @@ start:
         // get the current item of avl-tree
         snap_item = _get_entry(iterator->tree_cursor, struct snap_wal_entry,
                                avl);
-        if (hr != HBTRIE_RESULT_FAIL) {
+        if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator, snap_item->key, snap_item->keylen,
                                key, keylen);
         } else {
@@ -1769,7 +1769,7 @@ start_seq:
                          (void *)&hboffset);
         btreeblk_end(iterator->handle->bhandle);
 
-        if (hr == HBTRIE_RESULT_FAIL) {
+        if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);
             free(_doc.meta);
             goto start_seq;
@@ -1961,7 +1961,7 @@ start_seq:
                          (void *)&hboffset);
         btreeblk_end(iterator->handle->bhandle);
 
-        if (hr == HBTRIE_RESULT_FAIL) {
+        if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);
             free(_doc.meta);
             goto start_seq;
