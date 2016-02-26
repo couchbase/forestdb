@@ -2525,7 +2525,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
         delta *= handle->config.blocksize;
         kvs_delta_stat->deltasize += delta;
 
-        if (hr == HBTRIE_RESULT_SUCCESS) {
+        if (old_offset == BLK_NOT_FOUND) {
             if (item->action == WAL_ACT_INSERT) {
                 ++kvs_delta_stat->ndocs;
             } else { // inserted a logical deleted doc into main index
@@ -2921,7 +2921,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
-         hr != HBTRIE_RESULT_FAIL) {
+         hr == HBTRIE_RESULT_SUCCESS) {
         bool alloced_meta = doc->meta ? false : true;
         bool alloced_body = doc->body ? false : true;
         if (handle->kvs) {
@@ -3054,7 +3054,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
-         hr != HBTRIE_RESULT_FAIL) {
+         hr == HBTRIE_RESULT_SUCCESS) {
         if (handle->kvs) {
             _doc.key = doc_kv.key;
             _doc.length.keylen = doc_kv.keylen;
@@ -4833,7 +4833,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
-    while( hr != HBTRIE_RESULT_FAIL ) {
+    while( hr == HBTRIE_RESULT_SUCCESS ) {
 
         hr = hbtrie_next_value_only(&it, (void*)&offset);
         fs = btreeblk_end(handle->bhandle);
@@ -4845,7 +4845,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
         }
         offset = _endian_decode(offset);
 
-        if ( hr != HBTRIE_RESULT_FAIL ) {
+        if ( hr == HBTRIE_RESULT_SUCCESS ) {
             // add to offset array
             offset_array[c] = offset;
             c++;
@@ -4855,7 +4855,7 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
         // there's no next item (hr == HBTRIE_RESULT_FAIL),
         // sort and move the documents in the array
         if (c >= offset_array_max ||
-            (c > 0 && hr == HBTRIE_RESULT_FAIL)) {
+            (c > 0 && hr != HBTRIE_RESULT_SUCCESS)) {
             // quick sort
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
 
@@ -5179,7 +5179,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
     hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
 
-    while( hr != HBTRIE_RESULT_FAIL ) {
+    while( hr == HBTRIE_RESULT_SUCCESS ) {
 
         hr = hbtrie_next_value_only(&it, (void*)&offset);
         fs = btreeblk_end(handle->bhandle);
@@ -5188,7 +5188,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         }
         offset = _endian_decode(offset);
 
-        if ( hr != HBTRIE_RESULT_FAIL ) {
+        if ( hr == HBTRIE_RESULT_SUCCESS ) {
             // add to offset array
             offset_array[c] = offset;
             c++;
@@ -5198,7 +5198,7 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
         // there's no next item (hr == HBTRIE_RESULT_FAIL),
         // sort and move the documents in the array
         if (c > offset_array_max ||
-            (c > 0 && hr == HBTRIE_RESULT_FAIL)) {
+            (c > 0 && hr != HBTRIE_RESULT_SUCCESS)) {
             // Sort offsets to minimize random accesses.
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
 

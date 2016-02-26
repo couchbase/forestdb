@@ -466,7 +466,7 @@ start:
     keylen = iterator->_keylen;
     offset = iterator->_offset;
 
-    if (hr == HBTRIE_RESULT_FAIL && !iterator->tree_cursor) {
+    if (hr != HBTRIE_RESULT_SUCCESS && !iterator->tree_cursor) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
@@ -486,7 +486,7 @@ start:
                 return FDB_RESULT_ITERATOR_FAIL;
             }
         }
-        if (hr != HBTRIE_RESULT_FAIL) {
+        if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator, snap_item->header->key,
                                snap_item->header->keylen,
                                key, keylen);
@@ -630,7 +630,7 @@ start:
     keylen = iterator->_keylen;
     offset = iterator->_offset;
 
-    if (hr == HBTRIE_RESULT_FAIL && iterator->tree_cursor == NULL) {
+    if (hr != HBTRIE_RESULT_SUCCESS && iterator->tree_cursor == NULL) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
@@ -649,7 +649,7 @@ start:
             }
         }
         // Compare key[WAL] with key[hb-trie]
-        if (hr != HBTRIE_RESULT_FAIL) {
+        if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator, snap_item->header->key,
                                snap_item->header->keylen,
                                key, keylen);
@@ -1520,7 +1520,7 @@ start_seq:
                          (void *)&hboffset);
         btreeblk_end(iterator->handle->bhandle);
 
-        if (hr == HBTRIE_RESULT_FAIL) {
+        if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);
             free(_doc.meta);
             goto start_seq;
@@ -1705,7 +1705,7 @@ start_seq:
                          (void *)&hboffset);
         btreeblk_end(iterator->handle->bhandle);
 
-        if (hr == HBTRIE_RESULT_FAIL) {
+        if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);
             free(_doc.meta);
             goto start_seq;
