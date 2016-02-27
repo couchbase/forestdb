@@ -160,6 +160,21 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_CRYPTO_ERROR:
             return "Encryption error";
 
+        case FDB_RESULT_COMPACTION_CANCELLATION:
+            return "Compaction canceled";
+
+        case FDB_RESULT_SB_INIT_FAIL:
+            return "Superblock initialization failed";
+
+        case FDB_RESULT_SB_RACE_CONDITION:
+            return "DB file is modified during superblock initialization";
+
+        case FDB_RESULT_SB_READ_FAIL:
+            return "Superblock is corrupted";
+
+        case FDB_RESULT_FILE_VERSION_NOT_SUPPORTED:
+            return "This version of DB file is not supported";
+
         default:
             return "unknown error";
     }

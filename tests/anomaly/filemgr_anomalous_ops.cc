@@ -59,6 +59,11 @@ static struct filemgr_ops *normal_filemgr_ops;
 static struct anomalous_callbacks *anon_cbs;
 static void *anon_ctx;
 
+void *get_normal_ops_ptr()
+{
+    return (void*)normal_filemgr_ops;
+}
+
 // Callbacks default behavior..
 int _open_cb(void *ctx, struct filemgr_ops *normal_ops,
              const char *pathname, int flags, mode_t mode)

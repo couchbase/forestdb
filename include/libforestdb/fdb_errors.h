@@ -217,8 +217,25 @@ typedef enum {
      * from the application.
      */
     FDB_RESULT_COMPACTION_CANCELLATION = -45,
+    /**
+     * Fail to initialize superblock.
+     */
+    FDB_RESULT_SB_INIT_FAIL = -46,
+    /**
+     * Other writer interfered during superblock is being written. This happens when
+     * write operation is invoked before the initialization of the file.
+     */
+    FDB_RESULT_SB_RACE_CONDITION = -47,
+    /**
+     * Fail to read superblock.
+     */
+    FDB_RESULT_SB_READ_FAIL = -48,
+    /**
+     * Fail to read old version database file.
+     */
+    FDB_RESULT_FILE_VERSION_NOT_SUPPORTED = -49,
 
-    FDB_RESULT_LAST = FDB_RESULT_CRYPTO_ERROR // Last (minimum) fdb_status value
+    FDB_RESULT_LAST = FDB_RESULT_FILE_VERSION_NOT_SUPPORTED // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus
