@@ -20,17 +20,25 @@
 
 bool ver_is_valid_magic(filemgr_magic_t magic)
 {
-    if (magic == FILEMGR_MAGIC_V1 ||
-        (magic >= FILEMGR_MAGIC_V2 && magic <= FILEMGR_LATEST_MAGIC)) {
+    if ( magic == FILEMGR_MAGIC_000 ||
+        (magic >= FILEMGR_MAGIC_001 && magic <= FILEMGR_LATEST_MAGIC)) {
         return true;
     }
     return false;
 }
 
-bool ver_is_atleast_v2(filemgr_magic_t magic)
+bool ver_is_magic_000(filemgr_magic_t magic)
 {
-    // All magic numbers since FILEMGR_MAGIC_V2
-    if (magic >= FILEMGR_MAGIC_V2 && magic <= FILEMGR_LATEST_MAGIC) {
+    if (magic == FILEMGR_MAGIC_000) {
+        return true;
+    }
+    return false;
+}
+
+bool ver_is_atleast_magic_001(filemgr_magic_t magic)
+{
+    // All magic numbers since FILEMGR_MAGIC_001
+    if (magic >= FILEMGR_MAGIC_001 && magic <= FILEMGR_LATEST_MAGIC) {
         return true;
     }
     return false;
@@ -38,8 +46,8 @@ bool ver_is_atleast_v2(filemgr_magic_t magic)
 
 bool ver_staletree_support(filemgr_magic_t magic)
 {
-    // All magic numbers since FILEMGR_MAGIC_V3
-    if (magic >= FILEMGR_MAGIC_V3 && magic <= FILEMGR_LATEST_MAGIC) {
+    // All magic numbers since FILEMGR_MAGIC_002
+    if (magic >= FILEMGR_MAGIC_002 && magic <= FILEMGR_LATEST_MAGIC) {
         return true;
     }
     return false;
@@ -47,8 +55,8 @@ bool ver_staletree_support(filemgr_magic_t magic)
 
 bool ver_non_consecutive_doc(filemgr_magic_t magic)
 {
-    // All magic numbers since FILEMGR_MAGIC_V3
-    if (magic >= FILEMGR_MAGIC_V3 && magic <= FILEMGR_LATEST_MAGIC) {
+    // All magic numbers since FILEMGR_MAGIC_002
+    if (magic >= FILEMGR_MAGIC_002 && magic <= FILEMGR_LATEST_MAGIC) {
         return true;
     }
     return false;
@@ -56,8 +64,8 @@ bool ver_non_consecutive_doc(filemgr_magic_t magic)
 
 bool ver_superblock_support(filemgr_magic_t magic)
 {
-    // All magic numbers since FILEMGR_MAGIC_V3
-    if (magic >= FILEMGR_MAGIC_V3 && magic <= FILEMGR_LATEST_MAGIC) {
+    // All magic numbers since FILEMGR_MAGIC_002
+    if (magic >= FILEMGR_MAGIC_002 && magic <= FILEMGR_LATEST_MAGIC) {
         return true;
     }
     return false;
@@ -65,28 +73,29 @@ bool ver_superblock_support(filemgr_magic_t magic)
 
 size_t ver_get_new_filename_off(filemgr_magic_t magic) {
     switch(magic) {
-        case FILEMGR_MAGIC_V1: return 64;
-        case FILEMGR_MAGIC_V2: return 72;
-        case FILEMGR_MAGIC_V3: return 80;
+        case FILEMGR_MAGIC_000: return 64;
+        case FILEMGR_MAGIC_001: return 72;
+        case FILEMGR_MAGIC_002: return 80;
     }
     return (size_t) -1;
 }
 
 size_t ver_get_last_wal_flush_hdr_off(filemgr_magic_t magic) {
     switch(magic) {
-        case FILEMGR_MAGIC_V1: return 40;
-        case FILEMGR_MAGIC_V2: return 48;
-        case FILEMGR_MAGIC_V3: return 56;
+        case FILEMGR_MAGIC_000: return 40;
+        case FILEMGR_MAGIC_001: return 48;
+        case FILEMGR_MAGIC_002: return 56;
     }
     return (size_t) -1;
 }
 
 const char* ver_get_version_string(filemgr_magic_t magic) {
     switch (magic) {
-    case FILEMGR_MAGIC_V1:
-    case FILEMGR_MAGIC_V2:
+    case FILEMGR_MAGIC_000:
+        return "ForestDB pre-v1.x format";
+    case FILEMGR_MAGIC_001:
         return "ForestDB v1.x format";
-    case FILEMGR_MAGIC_V3:
+    case FILEMGR_MAGIC_002:
         return "ForestDB v2.x format";
     }
     return "unknown";

@@ -136,12 +136,16 @@ struct kvs_stat {
 };
 
 // Versioning information...
-// Version 3 - added stale-block tree info
-#define FILEMGR_MAGIC_V3 (UINT64_C(0xdeadcafebeefc002))
-// Version 2 - added delta size to DB header and CRC-32C
-#define FILEMGR_MAGIC_V2 (UINT64_C(0xdeadcafebeefc001))
-#define FILEMGR_MAGIC_V1 (UINT64_C(0xdeadcafebeefbeef))
-#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_V3
+// Version 002 - added stale-block tree info
+#define FILEMGR_MAGIC_002 (UINT64_C(0xdeadcafebeefc002))
+// Version 001 - added delta size to DB header and CRC-32C
+#define FILEMGR_MAGIC_001 (UINT64_C(0xdeadcafebeefc001))
+// Version 000 - old format (It involves various DB header formats so that we cannot
+//               identify those different formats by using magic number. To avoid
+//               unexpected behavior or crash, this magic number is no longer
+//               supported.)
+#define FILEMGR_MAGIC_000 (UINT64_C(0xdeadcafebeefbeef))
+#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_002
 
 /**
  * Atomic counters of operational statistics in ForestDB KV store.

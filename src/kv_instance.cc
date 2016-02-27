@@ -837,7 +837,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
     kv_header->id_counter = id_counter;
 
     // Version control
-    if (!ver_is_atleast_v2(version)) {
+    if (!ver_is_atleast_magic_001(version)) {
         is_deltasize = false;
         _deltasize = 0;
         _ndeletes = 0;
@@ -937,7 +937,7 @@ fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
     bool is_deltasize;
     fdb_seqnum_t _seqnum;
     // Version control
-    if (!ver_is_atleast_v2(version)) {
+    if (!ver_is_atleast_magic_001(version)) {
         is_deltasize = false;
     } else {
         is_deltasize = true;
@@ -1008,7 +1008,7 @@ uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
     int64_t deltasize;
 
     // Version control
-    if (!ver_is_atleast_v2(version)) {
+    if (!ver_is_atleast_magic_001(version)) {
         is_deltasize = false;
     } else {
         is_deltasize = true;

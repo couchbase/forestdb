@@ -24,6 +24,8 @@ extern "C" {
 
 void filemgr_ops_set_anomalous(int behavior);
 
+void *get_normal_ops_ptr();
+
 // These callbacks allow test-suite to control how the file ops should behave
 // If these return 0, then normal operation will happen,
 // If these return a non-zero value, then the file ops will return the same result

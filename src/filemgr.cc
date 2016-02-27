@@ -433,6 +433,16 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                 magic = _endian_decode(magic);
 
                 if (ver_is_valid_magic(magic)) {
+
+                    if (ver_is_magic_000(magic)) {
+                        // Deny MAGIC_000 file as it doesn't have any version info
+                        status = FDB_RESULT_FILE_VERSION_NOT_SUPPORTED;
+                        const char *msg = "Denied reading a database file '%s': "
+                            "too old version\n";
+                        fdb_log(log_callback, status, msg, file->filename);
+                        break;
+                    }
+
                     memcpy(&len,
                            buf + file->blocksize - BLK_MARKER_SIZE -
                            sizeof(magic) - sizeof(len),
@@ -1192,7 +1202,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
         *seqnum = _endian_decode(_seqnum);
     }
 
-    if (ver_is_atleast_v2(magic)) {
+    if (ver_is_atleast_magic_001(magic)) {
         if (deltasize) {
             memcpy(&_deltasize, _buf + file->blocksize - BLK_MARKER_SIZE
                     - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
@@ -1354,7 +1364,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         memcpy(&_seqnum,
                _buf + hdr_len + sizeof(filemgr_header_revnum_t),
                sizeof(fdb_seqnum_t));
-        if (ver_is_atleast_v2(magic)) {
+        if (ver_is_atleast_magic_001(magic)) {
             if (deltasize) {
                 memcpy(&_deltasize,
                         _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic)

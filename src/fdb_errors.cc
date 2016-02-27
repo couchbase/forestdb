@@ -172,6 +172,10 @@ const char* fdb_error_msg(fdb_status err_code)
         case FDB_RESULT_SB_READ_FAIL:
             return "Superblock is corrupted";
 
+        case FDB_RESULT_FILE_VERSION_NOT_SUPPORTED:
+            return "This version of DB file is not supported";
+
+
         default:
             return "unknown error";
     }

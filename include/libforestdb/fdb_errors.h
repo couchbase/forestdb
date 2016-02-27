@@ -230,8 +230,12 @@ typedef enum {
      * Fail to read superblock.
      */
     FDB_RESULT_SB_READ_FAIL = -48,
+    /**
+     * Fail to read old version database file.
+     */
+    FDB_RESULT_FILE_VERSION_NOT_SUPPORTED = -49,
 
-    FDB_RESULT_LAST = FDB_RESULT_SB_READ_FAIL // Last (minimum) fdb_status value
+    FDB_RESULT_LAST = FDB_RESULT_FILE_VERSION_NOT_SUPPORTED // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus

@@ -195,7 +195,7 @@ void fdb_fetch_header(uint64_t version,
     seq_memcpy(ndocs, (uint8_t *)header_buf + offset,
                sizeof(uint64_t), offset);
     *ndocs = _endian_decode(*ndocs);
-    if (ver_is_atleast_v2(version)) {
+    if (ver_is_atleast_magic_001(version)) {
         seq_memcpy(ndeletes, (uint8_t *)header_buf + offset,
                    sizeof(uint64_t), offset);
         *ndeletes = _endian_decode(*ndeletes);
@@ -2057,7 +2057,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         handle->seqtree = NULL;
     }
 
-    // Stale-block tree (supported since V3)
+    // Stale-block tree (supported since MAGIC_002)
     // this tree is independent to multi/single KVS mode option
     if (ver_staletree_support(handle->file->version)) {
         // normal B+tree
@@ -3896,7 +3896,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum)
         offset += sizeof(uint64_t);
     }
 
-    // stale block tree root bid (V3)
+    // stale block tree root bid (MAGIC_002)
     if (ver_staletree_support(handle->file->version)) {
         _edn_safe_64 = _endian_encode(handle->staletree->root_bid);
         seq_memcpy(buf + offset, &_edn_safe_64,
@@ -6574,7 +6574,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
         if (handle->staletree) {
             stale_kv_ops = handle->staletree->kv_ops;
         } else {
-            // this happens when the old file's version is older than V3.
+            // this happens when the old file's version is older than MAGIC_002.
             stale_kv_ops = (struct btree_kv_ops*)calloc(1, sizeof(struct btree_kv_ops));
             stale_kv_ops = btree_kv_get_kb64_vb64(stale_kv_ops);
             stale_kv_ops->cmp = _cmp_uint64_t_endian_safe;

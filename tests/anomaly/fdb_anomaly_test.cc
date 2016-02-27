@@ -722,6 +722,77 @@ void copy_file_range_test()
     TEST_RESULT("copy file range test");
 }
 
+void read_old_file()
+{
+    TEST_INIT();
+    int n=200, i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[256];
+    void *normal_ops_ptr;
+
+    memleak_start();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    kvs_config = fdb_get_default_kvs_config();
+
+    struct anomalous_callbacks *cbs = get_default_anon_cbs();
+    filemgr_ops_anomalous_init(cbs, NULL);
+
+    normal_ops_ptr = get_normal_ops_ptr();
+
+    // create a file
+    s = fdb_open(&dbfile, "anomaly_test1", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%06d", i);
+        sprintf(valuebuf, "v%06d", i);
+        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 8);
+        s = fdb_set(db, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_doc_free(doc);
+    }
+
+    s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // hack the last 9 bytes (magic number + block marker) in the file
+    int fd = cbs->open_cb(NULL, (struct filemgr_ops*)normal_ops_ptr,
+                          "anomaly_test1", O_RDWR, 0644);
+    uint64_t offset = cbs->file_size_cb(NULL, (struct filemgr_ops*)normal_ops_ptr,
+                                        "anomaly_test1");
+    uint8_t magic[10] = {0xde, 0xad, 0xca, 0xfe, 0xbe, 0xef, 0xbe, 0xef, 0xee};
+    cbs->pwrite_cb(NULL, (struct filemgr_ops*)normal_ops_ptr, fd,
+                   (void*)magic, 9, offset-9);
+    cbs->close_cb(NULL, (struct filemgr_ops*)normal_ops_ptr, fd);
+
+    // reopen
+    s = fdb_open(&dbfile, "anomaly_test1", &config);
+    // should return version error
+    TEST_CHK(s == FDB_RESULT_FILE_VERSION_NOT_SUPPORTED);
+
+    s = fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("read an old file test");
+}
+
 int main(){
 
     /**
@@ -734,6 +805,7 @@ int main(){
     write_failure_test();
     read_failure_test();
     handle_busy_test();
+    read_old_file();
 
     return 0;
 }
