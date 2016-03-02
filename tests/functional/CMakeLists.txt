@@ -102,6 +102,18 @@ target_link_libraries(big_compaction_test ${PTHREAD_LIB} ${LIBM}
 set_target_properties(big_compaction_test PROPERTIES COMPILE_FLAGS
                       "-D_FDB_TOOLS")
 
+add_executable(staleblock_test
+               staleblock_test.cc
+               functional_util.cc
+               ${FORESTDB_CORE_SRC}
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
+               ${FORESTDB_UTILS_SRC}
+               ${GETTIMEOFDAY_VS})
+target_link_libraries(staleblock_test ${PTHREAD_LIB} ${LIBM}
+                      ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
+                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB})
+set_target_properties(staleblock_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 # add test target
 add_test(fdb_functional_test fdb_functional_test)
@@ -110,6 +122,7 @@ add_test(compact_functional_test compact_functional_test)
 add_test(iterator_functional_test iterator_functional_test)
 add_test(mvcc_functional_test mvcc_functional_test)
 add_test(multi_kv_functional_test multi_kv_functional_test)
+add_test(staleblock_test staleblock_test)
 
 
 ADD_CUSTOM_TARGET(functional_tests
