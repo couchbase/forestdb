@@ -1410,7 +1410,8 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
 
             // Grab the WAL key shard lock.
             shard_num = get_checksum((uint8_t*)item->header->key,
-                                     item->header->keylen) % file->wal->num_shards;
+                                     item->header->keylen)
+                                     % file->wal->num_shards;
             spin_lock(&file->wal->key_shards[shard_num].lock);
 
             _wal_release_items(file, shard_num, item);
@@ -1430,7 +1431,8 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
 
             // Grab the WAL key shard lock.
             shard_num = get_checksum((uint8_t*)item->header->key,
-                                     item->header->keylen) % file->wal->num_shards;
+                                     item->header->keylen)
+                                     % file->wal->num_shards;
             spin_lock(&file->wal->key_shards[shard_num].lock);
             _wal_release_items(file, shard_num, item);
             spin_unlock(&file->wal->key_shards[shard_num].lock);
@@ -1548,7 +1550,7 @@ static fdb_status _wal_flush(struct filemgr *file,
                 // Don't re-flush flushed items, try to free them up instead
                 if (item->flag & WAL_ITEM_FLUSHED_OUT) {
                     _wal_release_items(file, i, item);
-                    break;
+                    break; // most recent item is already reflected in trie
                 }
                 if (!(item->flag & WAL_ITEM_FLUSH_READY)) {
                     item->flag |= WAL_ITEM_FLUSH_READY;
@@ -1571,14 +1573,17 @@ static fdb_status _wal_flush(struct filemgr *file,
                         spin_lock(&file->wal->key_shards[i].lock);
                         if (item->old_offset == 0 && // doc not in main index
                             item->action == WAL_ACT_REMOVE) {// insert & delete
-                            // drop and release this item right away from WAL
-                            _wal_release_items(file, i, item);
-                            break;
-                        } else if (do_sort) {
+                            // just assign unique value to offsets to ensure
+                            // items don't get de-duplicated in avl_flush tree
+                            item->offset = (uint64_t)item;
+                            item->old_offset = BLK_NOT_FOUND;
+                        }
+                        if (do_sort) {
                             avl_insert(tree, &item->avl_flush, _wal_flush_cmp);
                         } else {
                             list_push_back(list_head, &item->list_elem_flush);
                         }
+                        break; // only pick one item per key
                     }
                 }
                 ee = ee_prev;
@@ -1601,6 +1606,10 @@ static fdb_status _wal_flush(struct filemgr *file,
         while (a) {
             item = _get_entry(a, struct wal_item, avl_flush);
             a = avl_next(a);
+            if (item->old_offset == BLK_NOT_FOUND && // doc not in main index
+                item->action == WAL_ACT_REMOVE) {// insert & immediate delete
+                continue; // need not flush this item into main index..
+            } // item exists solely for in-memory snapshots
             fs = _wal_do_flush(item, flush_func, dbhandle,
                                &stale_seqnum_list, &kvs_delta_stats);
             if (fs != FDB_RESULT_SUCCESS) {
@@ -1613,6 +1622,10 @@ static fdb_status _wal_flush(struct filemgr *file,
         while (a) {
             item = _get_entry(a, struct wal_item, list_elem_flush);
             a = list_next(a);
+            if (item->old_offset == BLK_NOT_FOUND && // doc not in main index
+                item->action == WAL_ACT_REMOVE) {// insert & immediate delete
+                continue; // need not flush this item into main index..
+            } // item exists solely for in-memory snapshots
             fs = _wal_do_flush(item, flush_func, dbhandle,
                                &stale_seqnum_list, &kvs_delta_stats);
             if (fs != FDB_RESULT_SUCCESS) {

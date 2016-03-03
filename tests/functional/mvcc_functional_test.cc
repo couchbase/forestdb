@@ -1084,6 +1084,142 @@ void in_memory_snapshot_test()
     TEST_RESULT("in-memory snapshot test");
 }
 
+void in_memory_snapshot_cleanup_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 20;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_kvs_handle *snap_db1, *snap_db2, *snap_db3;
+    fdb_kvs_handle *psnap_db1, *psnap_db2, *psnap_db3;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+
+    char keybuf[2560], metabuf[2560], bodybuf[2560];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.wal_threshold = 1024;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    status = fdb_open(&dbfile, "./mvcc_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "in_memory_snapshot_cleanup_test");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    i = 0;
+    sprintf(keybuf, "key%d", i);
+    sprintf(metabuf, "meta%d", i);
+    sprintf(bodybuf, "Body%d", i);
+    fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+    fdb_set(db, doc[i]);
+
+    // commit without a WAL flush
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    status = fdb_snapshot_open(db, &snap_db1, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set(db, doc[i]);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // commit without a WAL flush
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_snapshot_open(db, &snap_db2, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set(db, doc[i]);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // commit without a WAL flush
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set(db, doc[i]);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // commit without a WAL flush
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    sprintf((char*)doc[i]->key, "Key%d", i);
+    fdb_set(db, doc[i]);
+
+    status = fdb_snapshot_open(db, &snap_db3, FDB_SNAPSHOT_INMEM);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_doc_create(&rdoc, (void*)keybuf, strlen(keybuf), NULL, 0, NULL, 0);
+
+    status = fdb_get(snap_db1, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get(snap_db2, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get(snap_db3, rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_doc_free(rdoc);
+
+    status = fdb_snapshot_open(db, &psnap_db1, 1);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_snapshot_open(db, &psnap_db2, 2);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_snapshot_open(db, &psnap_db3, 3);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // close snapshot handle
+    fdb_kvs_close(snap_db1);
+    fdb_kvs_close(snap_db2);
+    fdb_kvs_close(snap_db3);
+
+    // commit without a WAL flush
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_kvs_close(psnap_db1);
+    fdb_kvs_close(psnap_db2);
+    fdb_kvs_close(psnap_db3);
+
+    // close db handle
+    fdb_kvs_close(db);
+
+    // close db file
+    fdb_close(dbfile);
+
+    fdb_doc_free(doc[i]);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("in-memory snapshot cleanup test");
+}
 
 void in_memory_snapshot_on_dirty_hbtrie_test()
 {
@@ -5037,6 +5173,7 @@ void drop_kv_on_snap_iterator_test(){
 
 int main(){
 
+    in_memory_snapshot_cleanup_test();
     drop_kv_on_snap_iterator_test();
     rollback_secondary_kvs();
     multi_version_test();
