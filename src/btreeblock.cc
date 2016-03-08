@@ -179,6 +179,14 @@ INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
     block->dirty = 1;
     block->age = 0;
 
+    // If a block is allocated but not written back into file (due to
+    // various reasons), the corresponding byte offset in the file is filled
+    // with garbage data so that it causes various unexpected behaviors.
+    // To avoid this issue, populate block cache for the given BID before use it.
+    uint8_t marker = BLK_MARKER_BNODE;
+    filemgr_write_offset(handle->file, block->bid, handle->file->blocksize - 1,
+                         1, &marker, false, handle->log_callback);
+
 #ifdef __CRC32
     memset((uint8_t *)block->addr + handle->nodesize - BLK_MARKER_SIZE,
            BLK_MARKER_BNODE, BLK_MARKER_SIZE);
