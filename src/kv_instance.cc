@@ -1401,6 +1401,19 @@ fdb_kvs_create_start:
         spin_unlock(&kv_header_new->lock);
     }
 
+    // since this function calls filemgr_commit() and appends a new DB header,
+    // we should finalize & flush the previous dirty update before commit.
+    bid_t dirty_idtree_root = BLK_NOT_FOUND;
+    bid_t dirty_seqtree_root = BLK_NOT_FOUND;
+    struct filemgr_dirty_update_node *prev_node = NULL;
+    struct filemgr_dirty_update_node *new_node = NULL;
+
+    _fdb_dirty_update_ready(root_handle, &prev_node, &new_node,
+                            &dirty_idtree_root, &dirty_seqtree_root, false);
+
+    _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
+                               &dirty_idtree_root, &dirty_seqtree_root, true);
+
     // append system doc
     root_handle->kv_info_offset = fdb_kvs_header_append(root_handle);
 
