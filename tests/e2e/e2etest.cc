@@ -241,8 +241,7 @@ void db_compare(fdb_kvs_handle *src, fdb_kvs_handle *replay) {
     fdb_get_kvs_info(replay, &info);
     ndoc2 = info.doc_count;
 
-    // TODO: once snapshot stats are implemented, enable this..
-    //TEST_CHK(ndoc1 == ndoc2);
+    TEST_CHK(ndoc1 == ndoc2);
 
     // all docs in replay db must be in source db with same status
     status = fdb_iterator_sequence_init(replay, &it, 0, 0, FDB_ITR_NONE);

@@ -312,13 +312,14 @@ INLINE fdb_status _wal_snapshot_init(struct snap_handle *shandle,
     shandle->snap_txn = txn;
     shandle->cmp_info = *key_cmp_info;
     atomic_incr_uint16_t(&shandle->ref_cnt_kvs);
+    _kvs_stat_get(file, shandle->id, &shandle->stat);
     if (seqnum == FDB_SNAPSHOT_INMEM) {
         shandle->seqnum = fdb_kvs_get_seqnum(file, shandle->id);
-        _kvs_stat_get(file, shandle->id, &shandle->stat);
         shandle->is_persisted_snapshot = false;
     } else {
         shandle->seqnum = seqnum;
-        memset(&shandle->stat, 0, sizeof(struct kvs_stat));
+        shandle->stat.wal_ndocs = 0;
+        shandle->stat.wal_ndeletes = 0;
         shandle->is_persisted_snapshot = true;
     }
     avl_init(&shandle->key_tree, &shandle->cmp_info);
@@ -441,6 +442,38 @@ INLINE bool _wal_can_discard(struct wal *_wal,
     return ret;
 }
 
+typedef enum _wal_update_type_t {
+    _WAL_NEW_DEL, // A new deleted item inserted into WAL
+    _WAL_NEW_SET, // A new non-deleted item inserted into WAL
+    _WAL_SET_TO_DEL, // A set item updated to be deleted
+    _WAL_DEL_TO_SET, // A deleted item updated to a set
+    _WAL_DROP_DELETE, // A deleted item is de-duplicated or dropped
+    _WAL_DROP_SET // A set item is de-duplicated or dropped
+} _wal_update_type;
+
+INLINE void _wal_update_stat(struct filemgr *file, fdb_kvs_id_t kv_id,
+                             _wal_update_type type)
+{
+    switch (type) {
+        case _WAL_NEW_DEL: // inserted deleted doc: ++wal_ndocs, ++wal_ndeletes
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
+        case _WAL_NEW_SET: // inserted new doc: ++wal_ndocs
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
+            break;
+        case _WAL_SET_TO_DEL: // update prev doc to deleted: ++wal_ndeletes
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
+            break;
+        case _WAL_DEL_TO_SET: // update prev deleted doc to set: --wal_ndeletes
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
+            break;
+        case _WAL_DROP_DELETE: // drop deleted item: --wal_ndocs,--wal_ndeletes
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
+        case _WAL_DROP_SET: // drop item: --wal_ndocs
+            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
+            break;
+    }
+}
+
 INLINE fdb_status _wal_insert(fdb_txn *txn,
                               struct filemgr *file,
                               struct _fdb_key_cmp_info *cmp_info,
@@ -530,6 +563,10 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                 }
 
                 if (doc->deleted) {
+                    if (item->txn == &file->global_txn &&
+                        item->action == WAL_ACT_INSERT) {
+                        _wal_update_stat(file, kv_id, _WAL_SET_TO_DEL);
+                    }
                     if (offset != BLK_NOT_FOUND && !immediate_remove) {
                         // purge interval not met yet
                         item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
@@ -546,6 +583,10 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                         doc_size_ondisk = 0;
                     }
                 } else {
+                    if (item->txn == &file->global_txn &&
+                        item->action != WAL_ACT_INSERT) {
+                        _wal_update_stat(file, kv_id, _WAL_DEL_TO_SET);
+                    }
                     item->action = WAL_ACT_INSERT;
                 }
                 atomic_add_uint64_t(&file->wal->datasize,
@@ -579,6 +620,9 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
             item->seqnum = doc->seqnum;
 
             if (doc->deleted) {
+                if (item->txn == &file->global_txn) {
+                    _wal_update_stat(file, kv_id, _WAL_NEW_DEL);
+                }
                 if (offset != BLK_NOT_FOUND && !immediate_remove) {
                     // purge interval not met yet
                     item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
@@ -594,6 +638,9 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                     offset = 0; // must process these first
                 }
             } else {
+                if (item->txn == &file->global_txn) {
+                    _wal_update_stat(file, kv_id, _WAL_NEW_SET);
+                }
                 item->action = WAL_ACT_INSERT;
             }
             item->offset = offset;
@@ -618,7 +665,8 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
             list_push_back(txn->items, &item->list_elem_txn);
 
             atomic_incr_uint32_t(&file->wal->size);
-            atomic_add_uint64_t(&file->wal->mem_overhead, sizeof(struct wal_item));
+            atomic_add_uint64_t(&file->wal->mem_overhead,
+                                sizeof(struct wal_item));
         }
     } else {
         // not exist .. create new one
@@ -652,6 +700,9 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         item->seqnum = doc->seqnum;
 
         if (doc->deleted) {
+            if (item->txn == &file->global_txn) {
+                _wal_update_stat(file, kv_id, _WAL_NEW_DEL);
+            }
             if (offset != BLK_NOT_FOUND && !immediate_remove) {// purge interval not met yet
                 item->action = WAL_ACT_LOGICAL_REMOVE;// insert deleted
             } else { // compactor purge deleted doc
@@ -666,6 +717,9 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                 offset = 0; // must process these first
             }
         } else {
+            if (item->txn == &file->global_txn) {
+                _wal_update_stat(file, kv_id, _WAL_NEW_SET);
+            }
             item->action = WAL_ACT_INSERT;
         }
         item->offset = offset;
@@ -691,9 +745,6 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         if (caller == WAL_INS_WRITER || caller == WAL_INS_COMPACT_PHASE2) {
             // also insert into transaction's list
             list_push_back(txn->items, &item->list_elem_txn);
-        } else {
-            // increase num_docs
-            _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
         }
 
         atomic_incr_uint32_t(&file->wal->size);
@@ -1169,9 +1220,16 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             }
 
             item->flag |= WAL_ITEM_COMMITTED;
-            // increase num_flushable if it is transactional update
             if (item->txn != &file->global_txn) {
+                // increase num_flushable if it is transactional update
                 atomic_incr_uint32_t(&file->wal->num_flushable);
+                // Also since a transaction doc was committed
+                // update global WAL stats to reflect this change..
+                if (item->action == WAL_ACT_INSERT) {
+                    _wal_update_stat(file, kv_id, _WAL_NEW_SET);
+                } else {
+                    _wal_update_stat(file, kv_id, _WAL_NEW_DEL);
+                }
             }
             // append commit mark if necessary
             if (func) {
@@ -1234,6 +1292,12 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                         atomic_sub_uint64_t(&file->wal->datasize,
                                             _item->doc_size);
                     }
+                    // simply reduce the stat count...
+                    if (_item->action == WAL_ACT_INSERT) {
+                        _wal_update_stat(file, kv_id, _WAL_DROP_SET);
+                    } else {
+                        _wal_update_stat(file, kv_id, _WAL_DROP_DELETE);
+                    }
                     mem_overhead += sizeof(struct wal_item);
                     _wal_free_item(_item, file->wal);
                 } else {
@@ -1242,24 +1306,6 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                             "item seqnum %" _F64 " keylen %d flags %x action %d"
                             "%s", _item->seqnum, item->header->keylen,
                             _item->flag, _item->action, file->filename);
-                }
-            }
-            if (!prev_commit) {
-                // there was no previous commit .. increase num_docs
-                _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, 1);
-                if (item->action == WAL_ACT_LOGICAL_REMOVE ||
-                    item->action == WAL_ACT_REMOVE) {
-                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
-                }
-            } else {
-                if (prev_action == WAL_ACT_INSERT &&
-                    (item->action == WAL_ACT_LOGICAL_REMOVE ||
-                     item->action == WAL_ACT_REMOVE)) {
-                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, 1);
-                } else if ((prev_action == WAL_ACT_LOGICAL_REMOVE ||
-                            prev_action == WAL_ACT_REMOVE) &&
-                            item->action == WAL_ACT_INSERT) {
-                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
                 }
             }
         }
@@ -2789,7 +2835,12 @@ static fdb_status _wal_close(struct filemgr *file,
                     if (item->action != WAL_ACT_REMOVE) {
                         atomic_sub_uint64_t(&file->wal->datasize, item->doc_size);
                     }
-                    if (item->txn == &file->global_txn) {
+                    if (item->txn == &file->global_txn || committed) {
+                        if (item->action != WAL_ACT_INSERT) {
+                            _wal_update_stat(file, kv_id, _WAL_DROP_DELETE);
+                        } else {
+                            _wal_update_stat(file, kv_id, _WAL_DROP_SET);
+                        }
                         atomic_decr_uint32_t(&file->wal->num_flushable);
                     }
                     free(item);
@@ -2809,16 +2860,6 @@ static fdb_status _wal_close(struct filemgr *file,
                 mem_overhead += sizeof(struct wal_item_header) + header->keylen;
                 free(header->key);
                 free(header);
-
-                if (committed) {
-                    // this document was committed
-                    // num_docs and num_deletes should be updated
-                    if (committed_item_action == WAL_ACT_LOGICAL_REMOVE ||
-                        committed_item_action == WAL_ACT_REMOVE) {
-                        _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
-                    }
-                    _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
-                }
             }
         }
         spin_unlock(&file->wal->key_shards[i].lock);
