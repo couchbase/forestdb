@@ -1113,6 +1113,7 @@ void in_memory_snapshot_cleanup_test()
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
+    fconfig.block_reusing_threshold = 0;
 
     // remove previous mvcc_test files
     r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
