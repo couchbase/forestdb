@@ -4207,6 +4207,240 @@ void rekey_test()
     TEST_RESULT("encryption rekey test");
 }
 
+void invalid_get_byoffset_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+    char keybuf[256], bodybuf[256];
+
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    // open dbfile
+    fconfig = fdb_get_default_config();
+    fconfig.purging_interval = 1;
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
+    kvs_config = fdb_get_default_kvs_config();
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    sprintf(keybuf, "key");
+    sprintf(bodybuf, "body");
+
+    /* Scenario 1: Fetch offset from empty file */
+
+    {
+        // Create a doc
+        fdb_doc_create(&rdoc, keybuf, strlen(keybuf),
+                NULL, 0, bodybuf, strlen(bodybuf));
+        status = fdb_set(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // close db file
+        fdb_kvs_close(db);
+        fdb_close(dbfile);
+
+        // open new dbfile
+        status = fdb_open(&dbfile, "./dummy1", &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // attempt to get key by previous offset,
+        // should fail as doc wasn't commited
+        status = fdb_get_byoffset(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+        fdb_doc_free(rdoc);
+    }
+
+    /* Scenario 2: Fetch invalid offset that points to a different data block
+       from same file */
+
+    {
+        // Create a doc
+        fdb_doc_create(&rdoc, keybuf, strlen(keybuf),
+                NULL, 0, bodybuf, strlen(bodybuf));
+        status = fdb_set(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Write 10 additional documents
+        fdb_doc **doc = alca(fdb_doc*, 10);
+        int i;
+        for (i = 0; i < 10; ++i) {
+            sprintf(keybuf, "key%d", i+1);
+            sprintf(bodybuf, "val%d", i+1);
+            fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+                           NULL, 0, (void*)bodybuf, strlen(bodybuf));
+            fdb_set(db, doc[i]);
+        }
+        uint64_t last_offset = doc[i-1]->offset;
+
+        // Commit the doc so it goes into main index
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Free all the additional documents
+        for (i = 0; i < 10; ++i) {
+            fdb_doc_free(doc[i]);
+        }
+
+        // Incorrectly set rdoc's offset to the last saved doc's offset
+        rdoc->offset = last_offset;
+
+        // attempt to get key by incorrect offset belonging to a different
+        // data block
+        status = fdb_get_byoffset(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+        fdb_doc_free(rdoc);
+    }
+
+    /* Scenario 3: Fetch old offset from compacted file */
+
+    {
+        // Create doc
+        fdb_doc_create(&rdoc, keybuf, strlen(keybuf),
+                NULL, 0, bodybuf, strlen(bodybuf));
+        status = fdb_set(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Delete the doc
+        status = fdb_del(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        fdb_doc_free(rdoc);
+        sprintf(keybuf, "key0");
+        sprintf(bodybuf, "body0");
+
+        // Create doc again
+        fdb_doc_create(&rdoc, keybuf, strlen(keybuf),
+                       NULL, 0, bodybuf, strlen(bodybuf));
+        status = fdb_set(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Commit the doc so it goes into main index
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // Compact file
+        fdb_compact(dbfile, "./dummy2");
+
+        // close db file
+        fdb_kvs_close(db);
+        fdb_close(dbfile);
+
+        // open new dbfile
+        status = fdb_open(&dbfile, "./dummy2", &fconfig);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        // attempt to get key by incorrect offset belonging to different file
+        status = fdb_get_byoffset(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    }
+
+    /* Scenario 4: Fetch invalid offset that points to an index block
+       on same file */
+
+    {
+        uint8_t buf[4096];
+        FILE* fd = fopen("./dummy2", "r");
+        int64_t offset = 0;
+#if !defined(WIN32) && !defined(_WIN32)
+        while (pread(fileno(fd), buf, 4096, offset) == 4096) {
+            if (buf[4095] == BLK_MARKER_BNODE) {
+                // This means this block was an index block
+                // (last byte of the block is 0xff)
+                break;
+            }
+            offset += 4096;
+        }
+        fclose(fd);
+#else
+        DWORD bytesread;
+        OVERLAPPED winoffs;
+        memset(&winoffs, 0, sizeof(winoffs));
+        winoffs.Offset = offset & 0xFFFFFFFF;
+        winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
+        while (ReadFile(fd, buf, 4096, &bytesread, &winoffs)) {
+            if (buf[4095] == BLK_MARKER_BNODE) {
+                // This means this block was an index block
+                // (last byte of the block is 0xff)
+                break;
+            }
+            offset += 4096;
+        }
+        fclose(fd);
+#endif
+
+        // Set doc's offset to that of the index block
+        rdoc->offset = offset;
+
+        // attempt to get key by incorrect offset belonging to an index block
+        // (offset points to start of an index block)
+        status = fdb_get_byoffset(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+        // Set doc's offset to a random spot within that index block
+        rdoc->offset = offset + (rand() % 4096);
+
+        // attempt to get key by incorrect offset belonging to an index block
+        // (offset points to somewhere within the index block)
+        status = fdb_get_byoffset(db, rdoc);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+        // Free the document
+        fdb_doc_free(rdoc);
+    }
+
+    /* Scenario 5: Fetch invalid offset that points to a transaction commit marker
+       on same file */
+    {
+        size_t i;
+
+        // insert 100 docs using transaction
+        status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
+        for (i=0;i<100;++i) {
+            sprintf(keybuf, "k%06d", (int)i);
+            sprintf(bodybuf, "v%06d", (int)i);
+            status = fdb_set_kv(db, keybuf, 8, bodybuf, 8);
+        }
+        status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
+
+        // try to retrieve all possible offsets
+        for (i=0;i<100000;++i) {
+            sprintf(keybuf, "k%06d", (int)i);
+            status = fdb_doc_create(&rdoc, NULL, 0 , NULL, 0, NULL, 0);
+            rdoc->offset = i;
+            status = fdb_get_byoffset(db, rdoc);
+            status = fdb_doc_free(rdoc);
+        }
+    }
+
+    // close db file
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("invalid get by-offset test");
+}
+
 int main(){
     basic_test();
     init_test();
@@ -4248,15 +4482,16 @@ int main(){
     auto_commit_test();
     last_wal_flush_header_test();
     long_key_test();
-    large_batch_write_no_commit_test();
     multi_thread_client_shutdown(NULL);
     multi_thread_kvs_client(NULL);
-    purge_logically_deleted_doc_test();
     operational_stats_test(false);
     operational_stats_test(true);
-    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
     open_multi_files_kvs_test();
     rekey_test();
+    invalid_get_byoffset_test();
+    purge_logically_deleted_doc_test();
+    large_batch_write_no_commit_test();
+    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;
 }

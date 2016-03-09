@@ -3084,7 +3084,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
     memset(&_doc, 0, sizeof(struct docio_object));
 
     uint64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc, true);
-    if (_offset == offset) {
+    if (_offset == offset || !_doc.key || (_doc.length.flag & DOCIO_TXN_COMMITTED)) {
         atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_KEY_NOT_FOUND;
     } else {
