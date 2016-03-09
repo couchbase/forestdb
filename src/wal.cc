@@ -1192,8 +1192,7 @@ fdb_status wal_txn_migration(void *dbhandle,
 fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                       wal_commit_mark_func *func, err_log_callback *log_callback)
 {
-    int prev_commit, can_overwrite;
-    wal_item_action prev_action;
+    int can_overwrite;
     struct wal_item *item, *_item;
     struct list_elem *e1, *e2;
     fdb_kvs_id_t kv_id;
@@ -1245,8 +1244,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                     return status;
                 }
             }
-            // remove previously committed item if no snapshots refer to it
-            prev_commit = 0;
+            // remove previously committed item if no snapshots refer to it,
             // move the committed item to the end of the wal_item_header's list
             list_remove(&item->header->items, &item->list_elem);
             list_push_back(&item->header->items, &item->list_elem);
@@ -1284,8 +1282,6 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                         filemgr_mark_stale(file, stale_offset, stale_len);
                     }
 
-                    prev_action = _item->action;
-                    prev_commit = 1;
                     atomic_decr_uint32_t(&file->wal->size);
                     atomic_decr_uint32_t(&file->wal->num_flushable);
                     if (item->action != WAL_ACT_REMOVE) {
@@ -2721,7 +2717,6 @@ static fdb_status _wal_close(struct filemgr *file,
     struct snap_handle *shandle;
     fdb_kvs_id_t kv_id, kv_id_req;
     bool committed;
-    wal_item_action committed_item_action;
     size_t i = 0, seq_shard_num;
     size_t num_shards = wal_get_num_shards(file);
     uint64_t mem_overhead = 0;
@@ -2823,7 +2818,6 @@ static fdb_status _wal_close(struct filemgr *file,
                     } else {
                         // committed item exists and will be removed
                         committed = true;
-                        committed_item_action = item->action;
                     }
                     // remove from seq hash table
                     seq_shard_num = item->seqnum % num_shards;
