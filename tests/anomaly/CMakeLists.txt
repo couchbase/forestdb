@@ -33,13 +33,7 @@ add_executable(fdb_anomaly_test
                ${ROOT_SRC}/version.cc
                ${ROOT_SRC}/staleblock.cc
                ${ROOT_SRC}/superblock.cc
-               ${ROOT_UTILS}/memleak.cc
-               ${ROOT_UTILS}/crc32.cc
-               ${ROOT_UTILS}/debug.cc
-               ${ROOT_UTILS}/partiallock.cc
-               ${ROOT_UTILS}/time_utils.cc
-               ${ROOT_UTILS}/timing.cc
-               ${ROOT_UTILS}/system_resource_stats.cc)
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(fdb_anomaly_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
                       ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
