@@ -361,7 +361,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
             break;
         } else if (cur_bmp_revnum == stop_bmp_revnum) {
 
-            if (handle->file->sb &&
+            if (!handle->shandle && handle->file->sb &&
                 handle->file->sb->last_hdr_bid != BLK_NOT_FOUND) {
                 hdr_off = (handle->file->sb->last_hdr_bid+1) * blocksize;
             }
