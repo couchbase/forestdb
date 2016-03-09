@@ -414,7 +414,8 @@ void config_test()
 
         // Since V3 magic number, 7 blocks are used:
         // 4 superblocks + KV name header + Stale-tree root node + DB header
-        TEST_CHK(bcache_space_used == fconfig.blocksize * 7);
+        // but DB header is never cached, so 6 blocks
+        TEST_CHK(bcache_space_used == fconfig.blocksize * 6);
 
         status = fdb_close(dbfile);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -431,7 +432,8 @@ void config_test()
 
     // Since V3 magic number, 8 blocks are used:
     // 7 blocks created eariler + document block for KV pair
-    TEST_CHK(bcache_space_used == fconfig.blocksize * 8);
+    // DB header not cached so 7
+    TEST_CHK(bcache_space_used == fconfig.blocksize * 7);
 
     fdb_close(dbfile);
 

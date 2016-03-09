@@ -1035,6 +1035,11 @@ int bcache_write(struct filemgr *file,
     struct bcache_item query;
     struct fnamedic_item *fname_new;
 
+    if (*((uint8_t *)buf + bcache_blocksize - BLK_MARKER_SIZE)
+        == BLK_MARKER_DBHEADER) {
+        return bcache_blocksize; // Never cache DB header in blockcache
+    }
+
     fname_new = file->bcache;
     if (fname_new == NULL) {
         spin_lock(&bcache_lock);
