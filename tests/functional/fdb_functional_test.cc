@@ -4361,14 +4361,6 @@ void invalid_get_byoffset_test()
         int64_t offset = 0;
 #if !defined(WIN32) && !defined(_WIN32)
         while (pread(fileno(fd), buf, 4096, offset) == 4096) {
-#else
-        DWORD bytesread;
-        OVERLAPPED winoffs;
-        memset(&winoffs, 0, sizeof(winoffs));
-        winoffs.Offset = offset & 0xFFFFFFFF;
-        winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
-        while (ReadFile(fd, buf, 4096, &bytesread, &winoffs)) {
-#endif
             if (buf[4095] == BLK_MARKER_BNODE) {
                 // This means this block was an index block
                 // (last byte of the block is 0xff)
@@ -4377,6 +4369,22 @@ void invalid_get_byoffset_test()
             offset += 4096;
         }
         fclose(fd);
+#else
+        DWORD bytesread;
+        OVERLAPPED winoffs;
+        memset(&winoffs, 0, sizeof(winoffs));
+        winoffs.Offset = offset & 0xFFFFFFFF;
+        winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
+        while (ReadFile(fd, buf, 4096, &bytesread, &winoffs)) {
+            if (buf[4095] == BLK_MARKER_BNODE) {
+                // This means this block was an index block
+                // (last byte of the block is 0xff)
+                break;
+            }
+            offset += 4096;
+        }
+        fclose(fd);
+#endif
 
         // Set doc's offset to that of the index block
         rdoc->offset = offset;
@@ -4393,14 +4401,38 @@ void invalid_get_byoffset_test()
         // (offset points to somewhere within the index block)
         status = fdb_get_byoffset(db, rdoc);
         TEST_CHK(status == FDB_RESULT_READ_FAIL);
+
+        // Free the document
+        fdb_doc_free(rdoc);
+    }
+
+    /* Scenario 5: Fetch invalid offset that points to a transaction commit marker
+       on same file */
+    {
+        size_t i;
+
+        // insert 100 docs using transaction
+        status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
+        for (i=0;i<100;++i) {
+            sprintf(keybuf, "k%06d", (int)i);
+            sprintf(bodybuf, "v%06d", (int)i);
+            status = fdb_set_kv(db, keybuf, 8, bodybuf, 8);
+        }
+        status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
+
+        // try to retrieve all possible offsets
+        for (i=0;i<100000;++i) {
+            sprintf(keybuf, "k%06d", (int)i);
+            status = fdb_doc_create(&rdoc, NULL, 0 , NULL, 0, NULL, 0);
+            rdoc->offset = i;
+            status = fdb_get_byoffset(db, rdoc);
+            status = fdb_doc_free(rdoc);
+        }
     }
 
     // close db file
     fdb_kvs_close(db);
     fdb_close(dbfile);
-
-    // Free the document
-    fdb_doc_free(rdoc);
 
     // free all resources
     fdb_shutdown();
@@ -4451,16 +4483,16 @@ int main(){
     auto_commit_test();
     last_wal_flush_header_test();
     long_key_test();
-    large_batch_write_no_commit_test();
     multi_thread_client_shutdown(NULL);
     multi_thread_kvs_client(NULL);
-    purge_logically_deleted_doc_test();
     operational_stats_test(false);
     operational_stats_test(true);
-    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
     open_multi_files_kvs_test();
     rekey_test();
     invalid_get_byoffset_test();
+    purge_logically_deleted_doc_test();
+    large_batch_write_no_commit_test();
+    multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
 
     return 0;
 }
