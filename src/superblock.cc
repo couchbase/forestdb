@@ -1484,8 +1484,21 @@ fdb_status sb_read_latest(struct filemgr *file,
 {
     size_t i, max_sb_no = sconfig.num_sb;
     uint64_t max_revnum = 0;
+    uint64_t revnum_limit = (uint64_t)0xffffffffffffffff;
     fdb_status fs;
     struct superblock *sb_arr;
+
+    if (file->sb) {
+        // Superblock is already read previously.
+        // This means that there are some problems with the current superblock
+        // so that we have to read another candidate.
+
+        // Note: 'sb->revnum' denotes the revnum of next superblock to be
+        // written, so we need to subtract 1 from it to get the revnum of
+        // the current superblock successfully read from the file.
+        revnum_limit = file->sb->revnum - 1;
+        sb_free(file);
+    }
 
     sb_arr = alca(struct superblock,
                   sconfig.num_sb * sizeof(struct superblock));
@@ -1497,7 +1510,8 @@ fdb_status sb_read_latest(struct filemgr *file,
         _sb_init(&sb_arr[i], sconfig);
         fs = _sb_read_given_no(file, i, &sb_arr[i], log_callback);
         if (fs == FDB_RESULT_SUCCESS &&
-            sb_arr[i].revnum >= max_revnum) {
+            sb_arr[i].revnum >= max_revnum &&
+            sb_arr[i].revnum < revnum_limit) {
             max_sb_no = i;
             max_revnum = sb_arr[i].revnum;
         }

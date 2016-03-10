@@ -947,44 +947,54 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         file->crc_mode = CRC_DEFAULT;
     }
 
-    // init or load superblock
-    status = _filemgr_load_sb(file, log_callback);
-    // we can tolerate SB_READ_FAIL for old version file
-    if (status != FDB_RESULT_SB_READ_FAIL &&
-        status != FDB_RESULT_SUCCESS) {
-        _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
-        file->ops->close(file->fd);
-        free(file->stale_list);
-        free(file->wal);
-        free(file->filename);
-        free(file->config);
-        free(file);
-        spin_unlock(&filemgr_openlock);
-        result.rv = status;
-        return result;
-    }
-
-    // read header
-    status = _filemgr_read_header(file, log_callback);
-    if (file->sb && status == FDB_RESULT_NO_DB_HEADERS) {
-        // this happens when user created & closed a file without any mutations,
-        // thus there is no other data but superblocks.
-        // we can also tolerate this case.
-    } else if (status != FDB_RESULT_SUCCESS) {
-        _log_errno_str(file->ops, log_callback, status, "READ", filename);
-        file->ops->close(file->fd);
-        if (file->sb) {
-            sb_ops.release(file);
+    do { // repeat until both superblock and DB header are correctly read
+        // init or load superblock
+        status = _filemgr_load_sb(file, log_callback);
+        // we can tolerate SB_READ_FAIL for old version file
+        if (status != FDB_RESULT_SB_READ_FAIL &&
+            status != FDB_RESULT_SUCCESS) {
+            _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
+            file->ops->close(file->fd);
+            free(file->stale_list);
+            free(file->wal);
+            free(file->filename);
+            free(file->config);
+            free(file);
+            spin_unlock(&filemgr_openlock);
+            result.rv = status;
+            return result;
         }
-        free(file->stale_list);
-        free(file->wal);
-        free(file->filename);
-        free(file->config);
-        free(file);
-        spin_unlock(&filemgr_openlock);
-        result.rv = status;
-        return result;
-    }
+
+        // read header
+        status = _filemgr_read_header(file, log_callback);
+        if (file->sb && status == FDB_RESULT_NO_DB_HEADERS) {
+            // this happens when user created & closed a file without any mutations,
+            // thus there is no other data but superblocks.
+            // we can also tolerate this case.
+        } else if (status != FDB_RESULT_SUCCESS) {
+            _log_errno_str(file->ops, log_callback, status, "READ", filename);
+            file->ops->close(file->fd);
+            if (file->sb) {
+                sb_ops.release(file);
+            }
+            free(file->stale_list);
+            free(file->wal);
+            free(file->filename);
+            free(file->config);
+            free(file);
+            spin_unlock(&filemgr_openlock);
+            result.rv = status;
+            return result;
+        }
+
+        if (file->sb && file->header.revnum != file->sb->last_hdr_revnum) {
+            // superblock exists but the corresponding DB header does not match.
+            // read another candidate.
+            continue;
+        }
+
+        break;
+    } while (true);
 
     // initialize WAL
     if (!wal_is_initialized(file)) {
