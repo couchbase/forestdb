@@ -783,8 +783,11 @@ void read_old_file()
 
     // reopen
     s = fdb_open(&dbfile, "anomaly_test1", &config);
-    // should return version error
-    TEST_CHK(s == FDB_RESULT_FILE_VERSION_NOT_SUPPORTED);
+    // successfully read
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     s = fdb_shutdown();
     memleak_end();

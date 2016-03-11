@@ -399,15 +399,6 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
 
                 if (ver_is_valid_magic(magic)) {
 
-                    if (ver_is_magic_000(magic)) {
-                        // Deny MAGIC_000 file as it doesn't have any version info
-                        status = FDB_RESULT_FILE_VERSION_NOT_SUPPORTED;
-                        const char *msg = "Denied reading a database file '%s': "
-                            "too old version\n";
-                        fdb_log(log_callback, status, msg, file->filename);
-                        break;
-                    }
-
                     memcpy(&len,
                            buf + file->blocksize - BLK_MARKER_SIZE -
                            sizeof(magic) - sizeof(len),
@@ -434,7 +425,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                         } else {
                             status = FDB_RESULT_SUCCESS;
 
-                            file->header.data = (void *)malloc(len);
+                            file->header.data = (void *)malloc(file->blocksize);
 
                             memcpy(file->header.data, buf, len);
                             memcpy(&file->header.revnum, buf + len,
@@ -923,9 +914,7 @@ uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len)
     spin_lock(&file->lock);
 
     if (file->header.data == NULL) {
-        file->header.data = (void *)malloc(len);
-    }else if (file->header.size < len){
-        file->header.data = (void *)realloc(file->header.data, len);
+        file->header.data = (void *)malloc(file->blocksize);
     }
     memcpy(file->header.data, buf, len);
     file->header.size = len;
@@ -2263,7 +2252,7 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     // very_old_file, maybe reallocate DB header buf to accomodate bigger value
     if (new_header_len > old_header_len) {
         very_old_file->header.data = realloc(very_old_file->header.data,
-                new_header_len);
+                new_file->blocksize);
     }
     very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
     past_filename = redirect_header_func(very_old_file,
