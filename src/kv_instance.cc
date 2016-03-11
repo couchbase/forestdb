@@ -626,7 +626,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
         _fdb_kvs_header_create(&kv_header);
         // read from 'handle->dhandle', and import into 'new_file'
         fdb_kvs_header_read(kv_header, handle->dhandle,
-                            handle->kv_info_offset, ver_get_latest_magic(), false);
+                            handle->kv_info_offset, handle->file->version, false);
 
         // write KV header in 'new_file' using 'new_dhandle'
         uint64_t new_kv_info_offset;

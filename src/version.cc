@@ -92,7 +92,7 @@ size_t ver_get_last_wal_flush_hdr_off(filemgr_magic_t magic) {
 const char* ver_get_version_string(filemgr_magic_t magic) {
     switch (magic) {
     case FILEMGR_MAGIC_000:
-        return "ForestDB pre-v1.x format";
+        return "ForestDB v1.x format";
     case FILEMGR_MAGIC_001:
         return "ForestDB v1.x format";
     case FILEMGR_MAGIC_002:
