@@ -4462,11 +4462,18 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                 memset(&doc, 0, sizeof(doc));
                 _offset = docio_read_doc(handle->dhandle, offset, &doc, true);
                 if (_offset < 0) {
-                    // Read error and should terminate the compaction
+                    // Read error
                     free(doc.key);
                     free(doc.meta);
                     free(doc.body);
-                    return (fdb_status) _offset;
+                    if (ver_non_consecutive_doc(handle->file->version)) {
+                        // Since MAGIC_002: should terminate the compaction.
+                        return (fdb_status) _offset;
+                    } else {
+                        // MAGIC_000, 001: due to garbage (allocated but not written)
+                        // block, false alarm should be tolerable.
+                        break;
+                    }
                 }
                 if (_offset == 0 ||
                     (!doc.key && !(doc.length.flag & DOCIO_TXN_COMMITTED))) {
@@ -6022,15 +6029,22 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 memset(&doc[c], 0, sizeof(struct docio_object));
                 _offset = docio_read_doc(handle->dhandle, offset, &doc[c], true);
                 if (_offset < 0) {
-                    // Read error and terminate the compaction.
-                    for (size_t i = 0; i <= c; ++i) {
-                        free(doc[i].key);
-                        free(doc[i].meta);
-                        free(doc[i].body);
+                    // Read error
+                    if (ver_non_consecutive_doc(handle->file->version)) {
+                        // Since MAGIC_002: should terminate the compaction.
+                        for (size_t i = 0; i <= c; ++i) {
+                            free(doc[i].key);
+                            free(doc[i].meta);
+                            free(doc[i].body);
+                        }
+                        free(doc);
+                        free(old_offset_array);
+                        return (fdb_status) offset;
+                    } else {
+                        // MAGIC_000, 001: due to garbage (allocated but not written)
+                        // block, false alarm should be tolerable.
+                        break;
                     }
-                    free(doc);
-                    free(old_offset_array);
-                    return (fdb_status) offset;
                 } else if (_offset == 0) { // Reach zero-filled sub-block and skip it
                     break;
                 }
