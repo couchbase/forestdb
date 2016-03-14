@@ -1428,7 +1428,6 @@ static void _rsv_free(struct sb_rsv_bmp *rsv)
     free(rsv->bmp);
     free(rsv->bmp_doc_offset);
     free(rsv->bmp_docs);
-    atomic_destroy_uint32_t(&rsv->status);
 }
 
 static void _sb_free(struct superblock *sb)

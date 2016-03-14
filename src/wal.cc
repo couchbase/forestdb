@@ -1050,8 +1050,6 @@ INLINE void _wal_free_item(struct wal_item *item, struct wal *_wal) {
                 shandle->snap_stop_idx, shandle->snap_tag_idx,
                 shandle->seqnum, shandle->id);
         avl_remove(&_wal->wal_snapshot_tree, &shandle->avl_id);
-        atomic_destroy_uint16_t(&shandle->ref_cnt_kvs);
-        atomic_destroy_uint64_t(&shandle->wal_ndocs);
         for (struct list_elem *e = list_begin(&shandle->active_txn_list); e;) {
             struct list_elem *e_next = list_next(e);
             struct wal_txn_wrapper *active_txn = _get_entry(e,
@@ -1891,7 +1889,6 @@ fdb_status wal_snapshot_close(struct snap_handle *shandle,
             spin_unlock(&file->wal->lock);
             return FDB_RESULT_SUCCESS;
         }
-        atomic_destroy_uint16_t(&shandle->ref_cnt_kvs);
         for (a = avl_first(&shandle->key_tree);
              a; a = nexta) {
             struct wal_item *item = _get_entry(a, struct wal_item, avl_keysnap);

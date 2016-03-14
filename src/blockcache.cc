@@ -871,11 +871,6 @@ static void _fname_free(struct fnamedic_item *fname)
 
     free(fname->shards);
     free(fname->filename);
-    atomic_destroy_uint32_t(&fname->ref_count);
-    atomic_destroy_uint64_t(&fname->nvictim);
-    atomic_destroy_uint64_t(&fname->nitems);
-    atomic_destroy_uint64_t(&fname->nimmutable);
-    atomic_destroy_uint64_t(&fname->access_timestamp);
     free(fname);
 }
 
@@ -1564,10 +1559,6 @@ INLINE void _bcache_free_fnamedic(struct hash_elem *h)
     free(item->shards);
     free(item->filename);
 
-    atomic_destroy_uint32_t(&item->ref_count);
-    atomic_destroy_uint64_t(&item->nvictim);
-    atomic_destroy_uint64_t(&item->nitems);
-    atomic_destroy_uint64_t(&item->access_timestamp);
     free(item);
 }
 // LCOV_EXCL_STOP

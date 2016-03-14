@@ -1585,9 +1585,6 @@ void filemgr_free_func(struct hash_elem *h)
             spin_destroy(&file->wal->seq_shards[i].lock);
         }
         spin_destroy(&file->wal->lock);
-        atomic_destroy_uint32_t(&file->wal->size);
-        atomic_destroy_uint32_t(&file->wal->num_flushable);
-        atomic_destroy_uint64_t(&file->wal->datasize);
         free(file->wal->key_shards);
         free(file->wal->seq_shards);
     }
@@ -1623,14 +1620,6 @@ void filemgr_free_func(struct hash_elem *h)
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
 
     mutex_destroy(&file->writer_lock.mutex);
-
-    atomic_destroy_uint64_t(&file->pos);
-    atomic_destroy_uint64_t(&file->last_commit);
-    atomic_destroy_uint64_t(&file->last_commit_bmp_revnum);
-    atomic_destroy_uint32_t(&file->throttling_delay);
-    atomic_destroy_uint64_t(&file->num_invalidated_blocks);
-    atomic_destroy_uint8_t(&file->io_in_prog);
-    atomic_destroy_uint8_t(&file->prefetch_status);
 
     // free superblock
     if (sb_ops.release) {
@@ -3823,10 +3812,7 @@ void filemgr_migrate_latency_stats(struct filemgr *src, struct filemgr *dst) {
 }
 
 void filemgr_destroy_latency_stat(struct latency_stat *val) {
-    atomic_destroy_uint32_t(&val->lat_max);
-    atomic_destroy_uint32_t(&val->lat_min);
-    atomic_destroy_uint64_t(&val->lat_num);
-    atomic_destroy_uint64_t(&val->lat_sum);
+    (void) val;
 }
 
 void filemgr_update_latency_stat(struct filemgr *file,

@@ -83,22 +83,6 @@ typedef struct {
 } atomic_uint8_t;
 
 
-INLINE void atomic_destroy_uint64_t(atomic_uint64_t *atomic_val) {
-    (void) atomic_val;
-}
-
-INLINE void atomic_destroy_uint32_t(atomic_uint32_t *atomic_val) {
-    (void) atomic_val;
-}
-
-INLINE void atomic_destroy_uint16_t(atomic_uint16_t *atomic_val) {
-    (void) atomic_val;
-}
-
-INLINE void atomic_destroy_uint8_t(atomic_uint8_t *atomic_val) {
-    (void) atomic_val;
-}
-
 INLINE uint64_t atomic_get_uint64_t(atomic_uint64_t *atomic_val) {
 #ifdef _MSC_VER
     #ifdef _M_IA64
