@@ -917,7 +917,31 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                     btree_iterator_init(&btree, &item_new->btree_it, NULL);
                 }
             } else {
-                btree_iterator_init(&btree, &item_new->btree_it, chunk);
+                bool null_btree_init_key = false;
+                if (!HBTRIE_ITR_IS_MOVED(it) &&
+                    ((uint64_t)item_new->chunkno+1) * trie->chunksize == it->keylen) {
+                    // Next chunk is the last chunk of the current iterator key
+                    // (happens only on iterator_init(), it internally calls next()).
+                    uint8_t *k_temp = alca(uint8_t, trie->chunksize);
+                    memset(k_temp, 0x0, trie->chunksize);
+                    k_temp[trie->chunksize - 1] = trie->chunksize;
+                    if (!memcmp(k_temp, chunk, trie->chunksize)) {
+                        // Extra chunk is same to the specific pattern
+                        // ([0x0] [0x0] ... [trie->chunksize])
+                        // which means that given iterator key is exactly aligned
+                        // to chunk size and shorter than the position of the
+                        // next chunk.
+                        // To guarantee lexicographical order between
+                        // NULL and zero-filled key (NULL < 0x0000...),
+                        // we should init btree iterator with NULL key.
+                        null_btree_init_key = true;
+                    }
+                }
+                if (null_btree_init_key) {
+                    btree_iterator_init(&btree, &item_new->btree_it, NULL);
+                } else {
+                    btree_iterator_init(&btree, &item_new->btree_it, chunk);
+                }
             }
             list_push_back(&it->btreeit_list, &item_new->le);
 

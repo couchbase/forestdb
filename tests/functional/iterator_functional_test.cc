@@ -3937,6 +3937,79 @@ void iterator_uncommited_seeks()
     TEST_RESULT("iterator single doc range");
 }
 
+void iterator_init_using_substring_test()
+{
+    // MB-18712
+    TEST_INIT();
+    memleak_start();
+
+    int i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_iterator *fit;
+    fdb_doc *rdoc;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_status s; (void)s;
+    char valuebuf[256], cmd[256];
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    kvs_config = fdb_get_default_kvs_config();
+
+    sprintf(cmd, SHELL_DEL " %s*", "./iterator_test");
+    r = system(cmd); (void)r;
+
+    s = fdb_open(&dbfile, "./iterator_test1", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    uint8_t key1[] = {0x73, 0x37, 0x35, 0x34, 0x36, 0x32, 0x34, 0xff, 0x00, 0x00, 0x00};
+    uint8_t key2[] = {0x73, 0x37, 0x35, 0x34, 0x36, 0x32, 0x34, 0xff, 0x00, 0x00, 0x01};
+    // skey is a substring of key1
+    uint8_t skey[] = {0x73, 0x37, 0x35, 0x34, 0x36, 0x32, 0x34, 0xff};
+    uint8_t ekey[] = {0x73, 0x37, 0x35, 0x34, 0x36, 0x32, 0x34, 0xff, 0xff};
+
+    sprintf(valuebuf, "key1");
+    s = fdb_set_kv(db, key1, 11, valuebuf, 4);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    sprintf(valuebuf, "key2");
+    s = fdb_set_kv(db, key2, 11, valuebuf, 4);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_iterator_init(db, &fit, skey, 8, ekey, 9,
+                          FDB_ITR_NO_DELETES | FDB_ITR_SKIP_MAX_KEY);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    i = 0;
+    do {
+        rdoc = NULL;
+        s = fdb_iterator_get(fit, &rdoc);
+        if (s != FDB_RESULT_SUCCESS) break;
+        i++;
+        fdb_doc_free(rdoc);
+    } while (fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    TEST_CHK(i == 2);
+
+    s = fdb_iterator_close(fit);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+
+    TEST_RESULT("iterator init using substring test");
+}
+
 int main(){
     int i, j;
 
@@ -3970,5 +4043,6 @@ int main(){
     iterator_offset_access_test();
     iterator_deleted_doc_right_before_the_end_test();
     iterator_uncommited_seeks();
+    iterator_init_using_substring_test();
     return 0;
 }
