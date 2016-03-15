@@ -255,3 +255,7 @@ endif()
 # add top-level testing dir
 enable_testing()
 add_subdirectory("${PROJECT_SOURCE_DIR}/tests")
+
+if (COUCHBASE_SERVER_BUILD)
+    ENABLE_CODE_COVERAGE_REPORT()
+endif()
