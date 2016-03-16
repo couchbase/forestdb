@@ -2766,7 +2766,7 @@ static fdb_status _wal_close(struct filemgr *file,
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
                         " with %" _F64 " docs in file %s", shandle->id,
-                        shandle->wal_ndocs, file->filename);
+                        atomic_get_uint64_t(&shandle->wal_ndocs), file->filename);
             }
             next_a = avl_next(a);
             avl_remove(&file->wal->wal_snapshot_tree, a);

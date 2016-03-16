@@ -151,6 +151,21 @@ struct kvs_stat {
  * Atomic counters of operational statistics in ForestDB KV store.
  */
 struct kvs_ops_stat {
+
+    kvs_ops_stat& operator=(const kvs_ops_stat& ops_stat) {
+        atomic_store_uint64_t(&num_sets, atomic_get_uint64_t(&ops_stat.num_sets));
+        atomic_store_uint64_t(&num_dels, atomic_get_uint64_t(&ops_stat.num_dels));
+        atomic_store_uint64_t(&num_commits, atomic_get_uint64_t(&ops_stat.num_commits));
+        atomic_store_uint64_t(&num_compacts, atomic_get_uint64_t(&ops_stat.num_compacts));
+        atomic_store_uint64_t(&num_gets, atomic_get_uint64_t(&ops_stat.num_gets));
+        atomic_store_uint64_t(&num_iterator_gets,
+                              atomic_get_uint64_t(&ops_stat.num_iterator_gets));
+        atomic_store_uint64_t(&num_iterator_moves,
+                              atomic_get_uint64_t(&ops_stat.num_iterator_moves));
+        return *this;
+    }
+
+    // TODO: Move these variables to private members as we refactor the code in C++.
     /**
      * Number of fdb_set operations.
      */
@@ -229,6 +244,48 @@ struct _fdb_key_cmp_info {
  * ForestDB KV store handle definition.
  */
 struct _fdb_kvs_handle {
+
+    _fdb_kvs_handle& operator=(const _fdb_kvs_handle& kv_handle) {
+        kvs_config = kv_handle.kvs_config;
+        kvs = kv_handle.kvs;
+        op_stats = kv_handle.op_stats;
+        fhandle = kv_handle.fhandle;
+        trie = kv_handle.trie;
+        staletree = kv_handle.staletree;
+        if (kv_handle.kvs) {
+            seqtrie = kv_handle.seqtrie;
+        } else {
+            seqtree = kv_handle.seqtree;
+        }
+        file = kv_handle.file;
+        dhandle = kv_handle.dhandle;
+        bhandle = kv_handle.bhandle;
+        btreeblkops = kv_handle.btreeblkops;
+        fileops = kv_handle.fileops;
+        config = kv_handle.config;
+        log_callback = kv_handle.log_callback;
+        cur_header_revnum = kv_handle.cur_header_revnum;
+        last_hdr_bid = kv_handle.last_hdr_bid;
+        last_wal_flush_hdr_bid = kv_handle.last_wal_flush_hdr_bid;
+        kv_info_offset = kv_handle.kv_info_offset;
+        shandle = kv_handle.shandle;
+        seqnum = kv_handle.seqnum;
+        max_seqnum = kv_handle.max_seqnum;
+        filename = kv_handle.filename;
+        txn = kv_handle.txn;
+        atomic_store_uint8_t(&handle_busy,
+                             atomic_get_uint8_t(&kv_handle.handle_busy));
+        dirty_updates = kv_handle.dirty_updates;
+        node = kv_handle.node;
+        num_iterators = kv_handle.num_iterators;
+#ifdef _TRACE_HANDLES
+        avl_trace = kv_handle.avl_trace;
+#endif
+        return *this;
+    }
+
+    // TODO: Move these variables to private members as we refactor the code in C++.
+
     /**
      * ForestDB KV store level config. (Please retain as first struct member)
      */

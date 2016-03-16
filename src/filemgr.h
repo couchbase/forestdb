@@ -32,6 +32,7 @@
 
 #include "libforestdb/fdb_errors.h"
 
+#include "atomic.h"
 #include "internal_types.h"
 #include "common.h"
 #include "hash.h"
@@ -55,6 +56,25 @@ extern "C" {
 #define FILEMGR_CANCEL_COMPACTION 0x40 // Cancel the compaction
 
 struct filemgr_config {
+
+    filemgr_config& operator=(const filemgr_config& config) {
+        blocksize = config.blocksize;
+        ncacheblock = config.ncacheblock;
+        flag = config.flag;
+        chunksize = config.chunksize;
+        options = config.options;
+        prefetch_duration = config.prefetch_duration;
+        num_wal_shards = config.num_wal_shards;
+        num_bcache_shards = config.num_bcache_shards;
+        encryption_key = config.encryption_key;
+        atomic_store_uint64_t(&block_reusing_threshold,
+                              atomic_get_uint64_t(&config.block_reusing_threshold));
+        atomic_store_uint64_t(&num_keeping_headers,
+                              atomic_get_uint64_t(&config.num_keeping_headers));
+        return *this;
+    }
+
+    // TODO: Move these variables to private members as we refactor the code in C++.
     int blocksize;
     int ncacheblock;
     int flag;
