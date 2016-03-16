@@ -103,12 +103,12 @@ set_target_properties(big_compaction_test PROPERTIES COMPILE_FLAGS
                       "-D_FDB_TOOLS")
 
 add_executable(staleblock_test
+               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
                staleblock_test.cc
                functional_util.cc
-               ${FORESTDB_CORE_SRC}
-               ${PROJECT_SOURCE_DIR}/${FORESTDB_FILE_OPS}
-               ${FORESTDB_UTILS_SRC}
-               ${GETTIMEOFDAY_VS})
+               ${GETTIMEOFDAY_VS}
+               $<TARGET_OBJECTS:FDB_TOOLS_CORE>
+               $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(staleblock_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
                       ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
