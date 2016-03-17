@@ -2878,13 +2878,13 @@ bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
 void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us)
 {
     atomic_store_uint32_t(&file->throttling_delay, delay_us,
-                          atomic_memory_order_relaxed);
+                          std::memory_order_relaxed);
 }
 
 uint32_t filemgr_get_throttling_delay(struct filemgr *file)
 {
     return atomic_get_uint32_t(&file->throttling_delay,
-                               atomic_memory_order_relaxed);
+                               std::memory_order_relaxed);
 }
 
 void filemgr_clear_stale_list(struct filemgr *file)
@@ -3804,16 +3804,16 @@ void filemgr_migrate_latency_stats(struct filemgr *src, struct filemgr *dst) {
     for (int type = 0; type < FDB_LATENCY_NUM_STATS; ++type) {
         atomic_store_uint32_t(&dst->lat_stats[type].lat_min,
                               atomic_get_uint32_t(&src->lat_stats[type].lat_min),
-                              atomic_memory_order_relaxed);
+                              std::memory_order_relaxed);
         atomic_store_uint32_t(&dst->lat_stats[type].lat_max,
                               atomic_get_uint32_t(&src->lat_stats[type].lat_max),
-                              atomic_memory_order_relaxed);
+                              std::memory_order_relaxed);
         atomic_store_uint64_t(&dst->lat_stats[type].lat_sum,
                               atomic_get_uint64_t(&src->lat_stats[type].lat_sum),
-                              atomic_memory_order_relaxed);
+                              std::memory_order_relaxed);
         atomic_store_uint64_t(&dst->lat_stats[type].lat_num,
                               atomic_get_uint64_t(&src->lat_stats[type].lat_num),
-                              atomic_memory_order_relaxed);
+                              std::memory_order_relaxed);
     }
 }
 
@@ -3828,7 +3828,7 @@ void filemgr_update_latency_stat(struct filemgr *file,
     bool retry;
     do {
         uint32_t lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max,
-                                               atomic_memory_order_relaxed);
+                                               std::memory_order_relaxed);
         if (lat_max < val) {
             retry = !atomic_cas_uint32_t(&file->lat_stats[type].lat_max,
                                          lat_max, val);
@@ -3838,7 +3838,7 @@ void filemgr_update_latency_stat(struct filemgr *file,
     } while (retry);
     do {
         uint32_t lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min,
-                                               atomic_memory_order_relaxed);
+                                               std::memory_order_relaxed);
         if (val < lat_min) {
             retry = !atomic_cas_uint32_t(&file->lat_stats[type].lat_min,
                                          lat_min, val);
@@ -3846,26 +3846,26 @@ void filemgr_update_latency_stat(struct filemgr *file,
             retry = false;
         }
     } while (retry);
-    atomic_add_uint64_t(&file->lat_stats[type].lat_sum, val, atomic_memory_order_relaxed);
-    atomic_incr_uint64_t(&file->lat_stats[type].lat_num, atomic_memory_order_relaxed);
+    atomic_add_uint64_t(&file->lat_stats[type].lat_sum, val, std::memory_order_relaxed);
+    atomic_incr_uint64_t(&file->lat_stats[type].lat_num, std::memory_order_relaxed);
 }
 
 void filemgr_get_latency_stat(struct filemgr *file, fdb_latency_stat_type type,
                               fdb_latency_stat *stat)
 {
     uint64_t num = atomic_get_uint64_t(&file->lat_stats[type].lat_num,
-                                       atomic_memory_order_relaxed);
+                                       std::memory_order_relaxed);
     if (!num) {
         memset(stat, 0, sizeof(fdb_latency_stat));
         return;
     }
     stat->lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max,
-                                        atomic_memory_order_relaxed);
+                                        std::memory_order_relaxed);
     stat->lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min,
-                                        atomic_memory_order_relaxed);
+                                        std::memory_order_relaxed);
     stat->lat_count = num;
     stat->lat_avg = atomic_get_uint64_t(&file->lat_stats[type].lat_sum,
-                                        atomic_memory_order_relaxed) / num;
+                                        std::memory_order_relaxed) / num;
 }
 
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
@@ -3887,17 +3887,17 @@ void filemgr_dump_latency_stat(struct filemgr *file,
     for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
         uint32_t avg;
         uint64_t num;
-        num = atomic_get_uint64_t(&file->lat_stats[i].lat_num, atomic_memory_order_relaxed);
+        num = atomic_get_uint64_t(&file->lat_stats[i].lat_num, std::memory_order_relaxed);
         if (!num) {
             continue;
         }
         avg = atomic_get_uint64_t(&file->lat_stats[i].lat_sum,
-                                  atomic_memory_order_relaxed) / num;
+                                  std::memory_order_relaxed) / num;
         fprintf(lat_file, "%s:\t\t%u\t\t%u\t\t%u\t\t%" _F64 "\n",
                 filemgr_latency_stat_name(i),
-                atomic_get_uint32_t(&file->lat_stats[i].lat_min, atomic_memory_order_relaxed),
+                atomic_get_uint32_t(&file->lat_stats[i].lat_min, std::memory_order_relaxed),
                 avg,
-                atomic_get_uint32_t(&file->lat_stats[i].lat_max, atomic_memory_order_relaxed),
+                atomic_get_uint32_t(&file->lat_stats[i].lat_max, std::memory_order_relaxed),
                 num);
     }
     fflush(lat_file);

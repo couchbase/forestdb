@@ -39,7 +39,7 @@ Database encryption is also supported and can be enabled at compilation time. Cu
 
 ## Compilation and Build
 
-We use [CMake](http://www.cmake.org/cmake/) to provide the build support for a wide range of platforms. Please follow the instructions below to install CMake in your target platform.
+We use [CMake](http://www.cmake.org/cmake/) to provide the build support for a wide range of platforms. Cmake version 3.1 is required at least to have C++11 support. Please follow the instructions below to install CMake in your target platform.
 
 * **Ubuntu**
 

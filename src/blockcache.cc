@@ -266,7 +266,7 @@ struct fnamedic_item *_bcache_get_victim()
      for (size_t i = 0; i < num_attempts && num_files; ++i) {
          victim_idx = rand() % num_files;
          victim_timestamp = atomic_get_uint64_t(&file_list[victim_idx]->access_timestamp,
-                                                atomic_memory_order_relaxed);
+                                                std::memory_order_relaxed);
          if (victim_timestamp < min_timestamp &&
              atomic_get_uint64_t(&file_list[victim_idx]->nitems)) {
              min_timestamp = victim_timestamp;
@@ -676,7 +676,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
     }
     fdb_assert(victim, victim, NULL);
 
-    atomic_incr_uint64_t(&victim->nvictim, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&victim->nvictim, std::memory_order_relaxed);
 
     // select the clean blocks from the victim file
     n_evict = 0;
@@ -914,7 +914,7 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
                                  // gettimeofday()
         atomic_store_uint64_t(&fname->access_timestamp,
                               (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                              atomic_memory_order_relaxed);
+                              std::memory_order_relaxed);
 
         size_t shard_num = bid % fname->num_shards;
         spin_lock(&fname->shards[shard_num].lock);
@@ -979,7 +979,7 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
         gettimeofday(&tp, NULL);
         atomic_store_uint64_t(&fname->access_timestamp,
                               (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                              atomic_memory_order_relaxed);
+                              std::memory_order_relaxed);
 
         size_t shard_num = bid % fname->num_shards;
         spin_lock(&fname->shards[shard_num].lock);
@@ -1049,7 +1049,7 @@ int bcache_write(struct filemgr *file,
     gettimeofday(&tp, NULL);
     atomic_store_uint64_t(&fname_new->access_timestamp,
                           (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                          atomic_memory_order_relaxed);
+                          std::memory_order_relaxed);
 
     size_t shard_num = bid % fname_new->num_shards;
     // set query
@@ -1172,7 +1172,7 @@ int bcache_write_partial(struct filemgr *file,
     gettimeofday(&tp, NULL);
     atomic_store_uint64_t(&fname_new->access_timestamp,
                           (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                          atomic_memory_order_relaxed);
+                          std::memory_order_relaxed);
 
     size_t shard_num = bid % fname_new->num_shards;
     // set query

@@ -473,7 +473,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
 
     uint64_t block_reusing_threshold =
         atomic_get_uint64_t(&handle->file->config->block_reusing_threshold,
-                            atomic_memory_order_relaxed);
+                            std::memory_order_relaxed);
     if (block_reusing_threshold == 0 || block_reusing_threshold >= 100) {
         // circular block reusing is disabled
         return SBD_NONE;
@@ -489,7 +489,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
     if (handle->cur_header_revnum <=
         sb->min_live_hdr_revnum +
         atomic_get_uint64_t(&handle->file->config->num_keeping_headers,
-                            atomic_memory_order_relaxed)) {
+                            std::memory_order_relaxed)) {
         return SBD_NONE;
     }
 

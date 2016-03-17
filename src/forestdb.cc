@@ -1419,10 +1419,10 @@ static void _fdb_init_file_config(const fdb_config *config,
     fconfig->encryption_key = config->encryption_key;
     atomic_store_uint64_t(&fconfig->block_reusing_threshold,
                           config->block_reusing_threshold,
-                          atomic_memory_order_relaxed);
+                          std::memory_order_relaxed);
     atomic_store_uint64_t(&fconfig->num_keeping_headers,
                           config->num_keeping_headers,
-                          atomic_memory_order_relaxed);
+                          std::memory_order_relaxed);
 }
 
 fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
@@ -2907,7 +2907,7 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_sync_db_header(handle);
     }
 
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         _fdb_sync_dirty_root(handle);
@@ -3038,7 +3038,7 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     if (!handle->shandle) {
         fdb_sync_db_header(handle);
     }
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         _fdb_sync_dirty_root(handle);
@@ -3160,7 +3160,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_sync_db_header(handle);
     }
 
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         _fdb_sync_dirty_root(handle);
@@ -3312,7 +3312,7 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_sync_db_header(handle);
     }
 
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         _fdb_sync_dirty_root(handle);
@@ -3445,7 +3445,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
         return FDB_RESULT_HANDLE_BUSY;
     }
 
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
     memset(&_doc, 0, sizeof(struct docio_object));
 
     int64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc, true);
@@ -3756,7 +3756,7 @@ fdb_set_start:
     LATENCY_STAT_END(file, FDB_LATENCY_SETS);
 
     if (!doc->deleted) {
-        atomic_incr_uint64_t(&handle->op_stats->num_sets, atomic_memory_order_relaxed);
+        atomic_incr_uint64_t(&handle->op_stats->num_sets, std::memory_order_relaxed);
     }
 
     if (wal_flushed && handle->config.auto_commit) {
@@ -3790,7 +3790,7 @@ fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
     _doc.bodylen = 0;
     _doc.body = NULL;
 
-    atomic_incr_uint64_t(&handle->op_stats->num_dels, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_dels, std::memory_order_relaxed);
 
     return fdb_set(handle, &_doc);
 }
@@ -4225,7 +4225,7 @@ fdb_commit_start:
     filemgr_mutex_unlock(handle->file);
 
     LATENCY_STAT_END(handle->file, FDB_LATENCY_COMMITS);
-    atomic_incr_uint64_t(&handle->op_stats->num_commits, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_commits, std::memory_order_relaxed);
     return fs;
 }
 
@@ -4361,7 +4361,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     filemgr_mutex_unlock(new_file);
 
-    atomic_incr_uint64_t(&handle->op_stats->num_compacts, atomic_memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_compacts, std::memory_order_relaxed);
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_COMPLETE) {
@@ -7699,9 +7699,9 @@ fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
     }
     filemgr *file = fhandle->root->file;
     atomic_store_uint64_t(&file->config->block_reusing_threshold,
-                          block_reusing_threshold, atomic_memory_order_relaxed);
+                          block_reusing_threshold, std::memory_order_relaxed);
     atomic_store_uint64_t(&file->config->num_keeping_headers, num_keeping_headers,
-                          atomic_memory_order_relaxed);
+                          std::memory_order_relaxed);
     return FDB_RESULT_SUCCESS;
 }
 

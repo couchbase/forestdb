@@ -761,7 +761,7 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     }
 
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves,
-                         atomic_memory_order_relaxed);
+                         std::memory_order_relaxed);
 
     if (iterator->handle->kvs) {
         seek_keylen_kv = seek_keylen + size_chunk;
@@ -1795,7 +1795,7 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves,
-                         atomic_memory_order_relaxed);
+                         std::memory_order_relaxed);
     LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_PREV);
     return result;
 }
@@ -1831,7 +1831,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves,
-                         atomic_memory_order_relaxed);
+                         std::memory_order_relaxed);
     LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_NEXT);
     return result;
 }
@@ -1930,7 +1930,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets,
-                         atomic_memory_order_relaxed);
+                         std::memory_order_relaxed);
     LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET);
     return ret;
 }
@@ -2020,7 +2020,7 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets,
-                         atomic_memory_order_relaxed);
+                         std::memory_order_relaxed);
     LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET_META);
     return ret;
 }
