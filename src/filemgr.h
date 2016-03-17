@@ -68,9 +68,13 @@ struct filemgr_config {
         num_bcache_shards = config.num_bcache_shards;
         encryption_key = config.encryption_key;
         atomic_store_uint64_t(&block_reusing_threshold,
-                              atomic_get_uint64_t(&config.block_reusing_threshold));
+                              atomic_get_uint64_t(&config.block_reusing_threshold,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
         atomic_store_uint64_t(&num_keeping_headers,
-                              atomic_get_uint64_t(&config.num_keeping_headers));
+                              atomic_get_uint64_t(&config.num_keeping_headers,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
         return *this;
     }
 

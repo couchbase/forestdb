@@ -47,6 +47,13 @@ extern "C" {
 #define atomic_uint32_t std::atomic<uint32_t>
 #define atomic_uint16_t std::atomic<uint16_t>
 #define atomic_uint8_t std::atomic<uint8_t>
+#define atomic_memory_order std::memory_order
+#define atomic_memory_order_relaxed std::memory_order_relaxed
+#define atomic_memory_order_consume std::memory_order_consume
+#define atomic_memory_order_acquire std::memory_order_acquire
+#define atomic_memory_order_release std::memory_order_release
+#define atomic_memory_order_acq_rel std::memory_order_acq_rel
+#define atomic_memory_order_seq_cst std::memory_order_seq_cst
 
 #else
 // For build environments that don't have C++11 yet.
@@ -92,13 +99,26 @@ typedef struct {
     volatile uint8_t val;
 #endif
 } atomic_uint8_t;
+
+// Note that memory_order doesn't make any difference in the C++ version older
+// than C++11.
+enum atomic_memory_order {
+    atomic_memory_order_relaxed,
+    atomic_memory_order_consume,
+    atomic_memory_order_acquire,
+    atomic_memory_order_release,
+    atomic_memory_order_acq_rel,
+    atomic_memory_order_seq_cst
+};
 #endif
 
 
-INLINE uint64_t atomic_get_uint64_t(const atomic_uint64_t *atomic_val) {
+INLINE uint64_t atomic_get_uint64_t(const atomic_uint64_t *atomic_val,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_load(atomic_val);
+    return std::atomic_load_explicit(atomic_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     #ifdef _M_IA64
         // Itanium platform
         return (uint64_t) InterlockedAdd64(&atomic_val->val, 0);
@@ -107,14 +127,17 @@ INLINE uint64_t atomic_get_uint64_t(const atomic_uint64_t *atomic_val) {
         return (uint64_t) InterlockedExchangeAdd64(&atomic_val->val, 0);
     #endif
 #else
+    (void) order;
     return fdb_sync_fetch_and_add_64(&atomic_val->val, 0);
 #endif
 }
 
-INLINE uint32_t atomic_get_uint32_t(const atomic_uint32_t *atomic_val) {
+INLINE uint32_t atomic_get_uint32_t(const atomic_uint32_t *atomic_val,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_load(atomic_val);
+    return std::atomic_load_explicit(atomic_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     #ifdef _M_IA64
         // Itanium platform
         return (uint32_t) InterlockedAdd(&atomic_val->val, 0);
@@ -123,14 +146,17 @@ INLINE uint32_t atomic_get_uint32_t(const atomic_uint32_t *atomic_val) {
         return (uint32_t) InterlockedExchangeAdd(&atomic_val->val, 0);
     #endif
 #else
+    (void) order;
     return fdb_sync_fetch_and_add_32(&atomic_val->val, 0);
 #endif
 }
 
-INLINE uint16_t atomic_get_uint16_t(const atomic_uint16_t *atomic_val) {
+INLINE uint16_t atomic_get_uint16_t(const atomic_uint16_t *atomic_val,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_load(atomic_val);
+    return std::atomic_load_explicit(atomic_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomic add for uint16_t
     #ifdef _M_IA64
         // Itanium platform
@@ -140,14 +166,17 @@ INLINE uint16_t atomic_get_uint16_t(const atomic_uint16_t *atomic_val) {
         return (uint16_t) InterlockedExchangeAdd((volatile LONG *) &atomic_val->val, 0);
     #endif
 #else
+    (void) order;
     return fdb_sync_fetch_and_add_16(&atomic_val->val, 0);
 #endif
 }
 
-INLINE uint8_t atomic_get_uint8_t(const atomic_uint8_t *atomic_val) {
+INLINE uint8_t atomic_get_uint8_t(const atomic_uint8_t *atomic_val,
+                                  atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_load(atomic_val);
+    return std::atomic_load_explicit(atomic_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomic add for uint8_t
     #ifdef _M_IA64
         // Itanium platform
@@ -157,47 +186,60 @@ INLINE uint8_t atomic_get_uint8_t(const atomic_uint8_t *atomic_val) {
         return (uint8_t) InterlockedExchangeAdd((volatile LONG *) &atomic_val->val, 0);
     #endif
 #else
+    (void) order;
     return fdb_sync_fetch_and_add_8(&atomic_val->val, 0);
 #endif
 }
 
-INLINE void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val) {
+INLINE void atomic_store_uint64_t(atomic_uint64_t *atomic_val, uint64_t new_val,
+                                  atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_store(atomic_val, new_val);
+    return std::atomic_store_explicit(atomic_val, new_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     InterlockedExchange64(&atomic_val->val, (LONG64) new_val);
 #else
+    (void) order;
     fdb_sync_lock_test_and_set_64(&atomic_val->val, new_val);
 #endif
 }
 
-INLINE void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val) {
+INLINE void atomic_store_uint32_t(atomic_uint32_t *atomic_val, uint32_t new_val,
+                                  atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_store(atomic_val, new_val);
+    return std::atomic_store_explicit(atomic_val, new_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     InterlockedExchange(&atomic_val->val, (LONG) new_val);
 #else
+    (void) order;
     fdb_sync_lock_test_and_set_32(&atomic_val->val, new_val);
 #endif
 }
 
-INLINE void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val) {
+INLINE void atomic_store_uint16_t(atomic_uint16_t *atomic_val, uint16_t new_val,
+                                  atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_store(atomic_val, new_val);
+    return std::atomic_store_explicit(atomic_val, new_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     InterlockedExchange16(&atomic_val->val, (SHORT) new_val);
 #else
+    (void) order;
     fdb_sync_lock_test_and_set_16(&atomic_val->val, new_val);
 #endif
 }
 
-INLINE void atomic_store_uint8_t(atomic_uint8_t *atomic_val, uint8_t new_val) {
+INLINE void atomic_store_uint8_t(atomic_uint8_t *atomic_val, uint8_t new_val,
+                                 atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_store(atomic_val, new_val);
+    return std::atomic_store_explicit(atomic_val, new_val, order);
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't support atomic store for uint8_t
     InterlockedExchange16(&atomic_val->val, (SHORT) new_val);
 #else
+    (void) order;
     fdb_sync_lock_test_and_set_8(&atomic_val->val, new_val);
 #endif
 }
@@ -311,92 +353,119 @@ INLINE bool atomic_cas_uint8_t(atomic_uint8_t *atomic_val,
     return rv;
 }
 
-INLINE uint64_t atomic_incr_uint64_t(atomic_uint64_t *atomic_val) {
+INLINE uint64_t atomic_incr_uint64_t(atomic_uint64_t *atomic_val,
+                                     atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint64_t>(1)) + 1;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint64_t>(1), order) + 1;
 #elif defined(_MSC_VER)
+    (void) order;
     return (uint64_t) InterlockedIncrement64(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_64(&atomic_val->val, 1);
 #endif
 }
 
-INLINE uint32_t atomic_incr_uint32_t(atomic_uint32_t *atomic_val) {
+INLINE uint32_t atomic_incr_uint32_t(atomic_uint32_t *atomic_val,
+                                     atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint32_t>(1)) + 1;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint32_t>(1), order) + 1;
 #elif defined(_MSC_VER)
+    (void) order;
     return (uint32_t) InterlockedIncrement(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_32(&atomic_val->val, 1);
 #endif
 }
 
-INLINE uint16_t atomic_incr_uint16_t(atomic_uint16_t *atomic_val) {
+INLINE uint16_t atomic_incr_uint16_t(atomic_uint16_t *atomic_val,
+                                     atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint16_t>(1)) + 1;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint16_t>(1), order) + 1;
 #elif defined(_MSC_VER)
+    (void) order;
     return (uint16_t) InterlockedIncrement16(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_16(&atomic_val->val, 1);
 #endif
 }
 
-INLINE uint8_t atomic_incr_uint8_t(atomic_uint8_t *atomic_val) {
+INLINE uint8_t atomic_incr_uint8_t(atomic_uint8_t *atomic_val,
+                                   atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint8_t>(1)) + 1;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint8_t>(1), order) + 1;
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomic incr for uint8_t
     return (uint8_t) InterlockedIncrement16(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_8(&atomic_val->val, 1);
 #endif
 }
 
-INLINE uint64_t atomic_decr_uint64_t(atomic_uint64_t *atomic_val) {
+INLINE uint64_t atomic_decr_uint64_t(atomic_uint64_t *atomic_val,
+                                     atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint64_t>(1)) - 1;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint64_t>(1), order) - 1;
 #elif defined(_MSC_VER)
+    (void) order;
     return (uint64_t) InterlockedDecrement64(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_64(&atomic_val->val, -1);
 #endif
 }
 
-INLINE uint32_t atomic_decr_uint32_t(atomic_uint32_t *atomic_val) {
+INLINE uint32_t atomic_decr_uint32_t(atomic_uint32_t *atomic_val,
+                                     atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint32_t>(1)) - 1;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint32_t>(1), order) - 1;
 #elif defined(_MSC_VER)
+    (void) order;
     return (uint32_t) InterlockedDecrement(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_32(&atomic_val->val, -1);
 #endif
 }
 
-INLINE uint16_t atomic_decr_uint16_t(atomic_uint16_t *atomic_val) {
+INLINE uint16_t atomic_decr_uint16_t(atomic_uint16_t *atomic_val,
+                                     atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint16_t>(1)) - 1;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint16_t>(1), order) - 1;
 #elif defined(_MSC_VER)
+    (void) order;
     return (uint16_t) InterlockedDecrement16(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_16(&atomic_val->val, -1);
 #endif
 }
 
-INLINE uint8_t atomic_decr_uint8_t(atomic_uint8_t *atomic_val) {
+INLINE uint8_t atomic_decr_uint8_t(atomic_uint8_t *atomic_val,
+                                   atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint8_t>(1)) - 1;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint8_t>(1), order) - 1;
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomic decr for uint8_t
     return (uint8_t) InterlockedDecrement16(&atomic_val->val);
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_8(&atomic_val->val, -1);
 #endif
 }
 
-INLINE uint64_t atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increment) {
+INLINE uint64_t atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increment,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint64_t>(increment)) + increment;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint64_t>(increment), order)
+        + increment;
 #elif defined(_MSC_VER)
+    (void) order;
     #ifdef _M_IA64
         // Itanium platform
         return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) increment);
@@ -407,14 +476,18 @@ INLINE uint64_t atomic_add_uint64_t(atomic_uint64_t *atomic_val, int64_t increme
                + increment;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_64(&atomic_val->val, increment);
 #endif
 }
 
-INLINE uint32_t atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increment) {
+INLINE uint32_t atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increment,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint32_t>(increment)) + increment;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint32_t>(increment), order)
+        + increment;
 #elif defined(_MSC_VER)
+    (void) order;
     #ifdef _M_IA64
         // Itanium platform
         return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) increment);
@@ -425,14 +498,18 @@ INLINE uint32_t atomic_add_uint32_t(atomic_uint32_t *atomic_val, int32_t increme
                + increment;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_32(&atomic_val->val, increment);
 #endif
 }
 
-INLINE uint16_t atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increment) {
+INLINE uint16_t atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increment,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint16_t>(increment)) + increment;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint16_t>(increment), order)
+        + increment;
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomic add for uint16_t
     #ifdef _M_IA64
         // Itanium platform
@@ -444,14 +521,18 @@ INLINE uint16_t atomic_add_uint16_t(atomic_uint16_t *atomic_val, int16_t increme
                + increment;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_16(&atomic_val->val, increment);
 #endif
 }
 
-INLINE uint8_t atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) {
+INLINE uint8_t atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment,
+                                  atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_add(atomic_val, static_cast<uint8_t>(increment)) + increment;
+    return std::atomic_fetch_add_explicit(atomic_val, static_cast<uint8_t>(increment), order)
+        + increment;
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomoic add for uint8_t
     #ifdef _M_IA64
         // Itanium platform
@@ -463,14 +544,18 @@ INLINE uint8_t atomic_add_uint8_t(atomic_uint8_t *atomic_val, int8_t increment) 
                + increment;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_8(&atomic_val->val, increment);
 #endif
 }
 
-INLINE uint64_t atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decrement) {
+INLINE uint64_t atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decrement,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint64_t>(decrement)) - decrement;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint64_t>(decrement), order)
+        - decrement;
 #elif defined(_MSC_VER)
+    (void) order;
     #ifdef _M_IA64
         // Itanium platform
         return (uint64_t) InterlockedAdd64(&atomic_val->val, (LONG64) -decrement);
@@ -481,14 +566,18 @@ INLINE uint64_t atomic_sub_uint64_t(atomic_uint64_t *atomic_val, int64_t decreme
                - decrement;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_64(&atomic_val->val, -decrement);
 #endif
 }
 
-INLINE uint32_t atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decrement) {
+INLINE uint32_t atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decrement,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint32_t>(decrement)) - decrement;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint32_t>(decrement), order)
+        - decrement;
 #elif defined(_MSC_VER)
+    (void) order;
     #ifdef _M_IA64
         // Itanium platform
         return (uint32_t) InterlockedAdd(&atomic_val->val, (LONG) -decrement);
@@ -499,14 +588,18 @@ INLINE uint32_t atomic_sub_uint32_t(atomic_uint32_t *atomic_val, int32_t decreme
                - decrement;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_32(&atomic_val->val, -decrement);
 #endif
 }
 
-INLINE uint16_t atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decrement) {
+INLINE uint16_t atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decrement,
+                                    atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint16_t>(decrement)) - decrement;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint16_t>(decrement), order)
+        - decrement;
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomic add for uint16_t
     #ifdef _M_IA64
         // Itanium platform
@@ -520,14 +613,18 @@ INLINE uint16_t atomic_sub_uint16_t(atomic_uint16_t *atomic_val, int16_t decreme
                - decrement;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_16(&atomic_val->val, -decrement);
 #endif
 }
 
-INLINE uint8_t atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement) {
+INLINE uint8_t atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement,
+                                  atomic_memory_order order = atomic_memory_order_seq_cst) {
 #if defined(_CXX11_SUPPORT)
-    return std::atomic_fetch_sub(atomic_val, static_cast<uint8_t>(decrement)) - decrement;
+    return std::atomic_fetch_sub_explicit(atomic_val, static_cast<uint8_t>(decrement), order)
+        - decrement;
 #elif defined(_MSC_VER)
+    (void) order;
     // Windows doesn't have a separate atomoic add for uint8_t
     #ifdef _M_IA64
         // Itanium platform
@@ -541,6 +638,7 @@ INLINE uint8_t atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement) 
                - decrement;
     #endif
 #else
+    (void) order;
     return fdb_sync_add_and_fetch_8(&atomic_val->val, -decrement);
 #endif
 }

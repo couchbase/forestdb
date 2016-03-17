@@ -2400,15 +2400,20 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
         root_stat = stat;
     }
 
-    info->num_sets = atomic_get_uint64_t(&stat.num_sets);
-    info->num_dels = atomic_get_uint64_t(&stat.num_dels);
-    info->num_gets = atomic_get_uint64_t(&stat.num_gets);
-    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets);
-    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets);
-    info->num_iterator_moves = atomic_get_uint64_t(&stat.num_iterator_moves);
+    info->num_sets = atomic_get_uint64_t(&stat.num_sets, atomic_memory_order_relaxed);
+    info->num_dels = atomic_get_uint64_t(&stat.num_dels, atomic_memory_order_relaxed);
+    info->num_gets = atomic_get_uint64_t(&stat.num_gets, atomic_memory_order_relaxed);
+    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets,
+                                                  atomic_memory_order_relaxed);
+    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets,
+                                                  atomic_memory_order_relaxed);
+    info->num_iterator_moves = atomic_get_uint64_t(&stat.num_iterator_moves,
+                                                   atomic_memory_order_relaxed);
 
-    info->num_commits = atomic_get_uint64_t(&root_stat.num_commits);
-    info->num_compacts = atomic_get_uint64_t(&root_stat.num_compacts);
+    info->num_commits = atomic_get_uint64_t(&root_stat.num_commits,
+                                            atomic_memory_order_relaxed);
+    info->num_compacts = atomic_get_uint64_t(&root_stat.num_compacts,
+                                             atomic_memory_order_relaxed);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -2538,7 +2543,8 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
     spin_unlock(&handle->file->fhandle_idx_lock);
 
     uint64_t num_keeping_headers =
-        atomic_get_uint64_t(&handle->file->config->num_keeping_headers);
+        atomic_get_uint64_t(&handle->file->config->num_keeping_headers,
+                            atomic_memory_order_relaxed);
     if (num_keeping_headers) {
         // backward scan previous header info to keep more headers
 

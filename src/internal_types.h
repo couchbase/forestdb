@@ -153,15 +153,34 @@ struct kvs_stat {
 struct kvs_ops_stat {
 
     kvs_ops_stat& operator=(const kvs_ops_stat& ops_stat) {
-        atomic_store_uint64_t(&num_sets, atomic_get_uint64_t(&ops_stat.num_sets));
-        atomic_store_uint64_t(&num_dels, atomic_get_uint64_t(&ops_stat.num_dels));
-        atomic_store_uint64_t(&num_commits, atomic_get_uint64_t(&ops_stat.num_commits));
-        atomic_store_uint64_t(&num_compacts, atomic_get_uint64_t(&ops_stat.num_compacts));
-        atomic_store_uint64_t(&num_gets, atomic_get_uint64_t(&ops_stat.num_gets));
+        atomic_store_uint64_t(&num_sets,
+                              atomic_get_uint64_t(&ops_stat.num_sets,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
+        atomic_store_uint64_t(&num_dels,
+                              atomic_get_uint64_t(&ops_stat.num_dels,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
+        atomic_store_uint64_t(&num_commits,
+                              atomic_get_uint64_t(&ops_stat.num_commits,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
+        atomic_store_uint64_t(&num_compacts,
+                              atomic_get_uint64_t(&ops_stat.num_compacts,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
+        atomic_store_uint64_t(&num_gets,
+                              atomic_get_uint64_t(&ops_stat.num_gets,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
         atomic_store_uint64_t(&num_iterator_gets,
-                              atomic_get_uint64_t(&ops_stat.num_iterator_gets));
+                              atomic_get_uint64_t(&ops_stat.num_iterator_gets,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
         atomic_store_uint64_t(&num_iterator_moves,
-                              atomic_get_uint64_t(&ops_stat.num_iterator_moves));
+                              atomic_get_uint64_t(&ops_stat.num_iterator_moves,
+                                                  atomic_memory_order_relaxed),
+                              atomic_memory_order_relaxed);
         return *this;
     }
 
