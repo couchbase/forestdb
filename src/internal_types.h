@@ -42,10 +42,47 @@ struct snap_handle;
 
 #define FDB_MAX_KEYLEN_INTERNAL (65520)
 
+// Versioning information...
+// Version 002 - added stale-block tree info
+#define FILEMGR_MAGIC_002 (UINT64_C(0xdeadcafebeefc002))
+// Version 001 - added delta size to DB header and CRC-32C
+#define FILEMGR_MAGIC_001 (UINT64_C(0xdeadcafebeefc001))
+// Version 000 - old format (It involves various DB header formats so that we cannot
+//               identify those different formats by using magic number. To avoid
+//               unexpected behavior or crash, this magic number is no longer
+//               supported.)
+#define FILEMGR_MAGIC_000 (UINT64_C(0xdeadcafebeefbeef))
+#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_002
+
+
 /**
  * Error logging callback struct definition.
  */
-typedef struct {
+class ErrLogCallback {
+public:
+    ErrLogCallback() :
+        callback(NULL), ctx_data(NULL) { }
+
+    ErrLogCallback(fdb_log_callback _callback, void *_ctx_data) :
+        callback(_callback), ctx_data(_ctx_data) { }
+
+    fdb_log_callback getCallback(void) const {
+        return callback;
+    }
+
+    void *getCtxData(void) const {
+        return ctx_data;
+    }
+
+    void setCallback(fdb_log_callback _callback) {
+        callback = _callback;
+    }
+
+    void setCtxData(void *_ctx_data) {
+        ctx_data = _ctx_data;
+    }
+
+private:
     /**
      * Error logging callback function.
      */
@@ -55,7 +92,7 @@ typedef struct {
      * function.
      */
     void *ctx_data;
-} err_log_callback;
+};
 
 typedef struct _fdb_transaction fdb_txn;
 
@@ -73,7 +110,39 @@ struct kvs_opened_node;
 /**
  * KV store info for each handle.
  */
-struct kvs_info {
+class KvsInfo {
+public:
+    KvsInfo() :
+        type(KVS_ROOT), id(0), root(NULL) { }
+
+    KvsInfo(kvs_type_t _type, fdb_kvs_id_t _id, fdb_kvs_handle *_root):
+        type(_type), id(_id), root(_root) { }
+
+    kvs_type_t getKvsType() const {
+        return type;
+    }
+
+    fdb_kvs_id_t getKvsId() const {
+        return id;
+    }
+
+    fdb_kvs_handle *getRootHandle() const {
+        return root;
+    }
+
+    void setKvsType(kvs_type_t _type) {
+        type = _type;
+    }
+
+    void setKvsId(fdb_kvs_id_t _id) {
+        id = _id;
+    }
+
+    void setRootHandle(fdb_kvs_handle *_root) {
+        root = _root;
+    }
+
+private:
     /**
      * KV store type.
      */
@@ -104,7 +173,12 @@ typedef enum {
 /**
  * KV store statistics.
  */
-struct kvs_stat {
+class KvsStat {
+public:
+    KvsStat() :
+        nlivenodes(0), ndocs(0), ndeletes(0), datasize(0),
+        wal_ndocs(0), wal_ndeletes(0), deltasize(0) { }
+
     /**
      * The number of live index nodes.
      */
@@ -135,56 +209,34 @@ struct kvs_stat {
     int64_t deltasize;
 };
 
-// Versioning information...
-// Version 002 - added stale-block tree info
-#define FILEMGR_MAGIC_002 (UINT64_C(0xdeadcafebeefc002))
-// Version 001 - added delta size to DB header and CRC-32C
-#define FILEMGR_MAGIC_001 (UINT64_C(0xdeadcafebeefc001))
-// Version 000 - old format (It involves various DB header formats so that we cannot
-//               identify those different formats by using magic number. To avoid
-//               unexpected behavior or crash, this magic number is no longer
-//               supported.)
-#define FILEMGR_MAGIC_000 (UINT64_C(0xdeadcafebeefbeef))
-#define FILEMGR_LATEST_MAGIC FILEMGR_MAGIC_002
-
 /**
  * Atomic counters of operational statistics in ForestDB KV store.
  */
-struct kvs_ops_stat {
+class KvsOpsStat {
+public:
+    KvsOpsStat() :
+        num_sets(0), num_dels(0), num_commits(0), num_compacts(0),
+        num_gets(0), num_iterator_gets(0), num_iterator_moves(0) { }
 
-    kvs_ops_stat& operator=(const kvs_ops_stat& ops_stat) {
-        atomic_store_uint64_t(&num_sets,
-                              atomic_get_uint64_t(&ops_stat.num_sets,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&num_dels,
-                              atomic_get_uint64_t(&ops_stat.num_dels,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&num_commits,
-                              atomic_get_uint64_t(&ops_stat.num_commits,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&num_compacts,
-                              atomic_get_uint64_t(&ops_stat.num_compacts,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&num_gets,
-                              atomic_get_uint64_t(&ops_stat.num_gets,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&num_iterator_gets,
-                              atomic_get_uint64_t(&ops_stat.num_iterator_gets,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&num_iterator_moves,
-                              atomic_get_uint64_t(&ops_stat.num_iterator_moves,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
+
+    KvsOpsStat& operator=(const KvsOpsStat& ops_stat) {
+        num_sets.store(ops_stat.num_sets.load(std::memory_order_relaxed),
+                       std::memory_order_relaxed);
+        num_dels.store(ops_stat.num_dels.load(std::memory_order_relaxed),
+                       std::memory_order_relaxed);
+        num_commits.store(ops_stat.num_commits.load( std::memory_order_relaxed),
+                          std::memory_order_relaxed);
+        num_compacts.store(ops_stat.num_compacts.load(std::memory_order_relaxed),
+                           std::memory_order_relaxed);
+        num_gets.store(ops_stat.num_gets.load(std::memory_order_relaxed),
+                       std::memory_order_relaxed);
+        num_iterator_gets.store(ops_stat.num_iterator_gets.load(std::memory_order_relaxed),
+                                std::memory_order_relaxed);
+        num_iterator_moves.store(ops_stat.num_iterator_moves.load(std::memory_order_relaxed),
+                                 std::memory_order_relaxed);
         return *this;
     }
 
-    // TODO: Move these variables to private members as we refactor the code in C++.
     /**
      * Number of fdb_set operations.
      */
@@ -256,7 +308,7 @@ struct _fdb_key_cmp_info {
     /**
      * KV store information.
      */
-    struct kvs_info *kvs;
+    KvsInfo *kvs;
 };
 
 /**
@@ -309,11 +361,11 @@ struct _fdb_kvs_handle {
     /**
      * KV store information. (Please retain as second struct member)
      */
-    struct kvs_info *kvs;
+    KvsInfo *kvs;
     /**
      * Operational statistics for this kv store.
      */
-    struct kvs_ops_stat *op_stats;
+    KvsOpsStat *op_stats;
     /**
      * Pointer to the corresponding file handle.
      */
@@ -361,7 +413,7 @@ struct _fdb_kvs_handle {
     /**
      * Error logging callback.
      */
-    err_log_callback log_callback;
+    ErrLogCallback log_callback;
     /**
      * File header revision number.
      */
@@ -658,11 +710,11 @@ struct kvs_node {
     /**
      * Operational CRUD statistics for this KV store (in-memory only).
      */
-    struct kvs_ops_stat op_stat;
+    KvsOpsStat op_stat;
     /**
      * Persisted KV store statistics.
      */
-    struct kvs_stat stat;
+    KvsStat stat;
     /**
      * Link to the global list of KV stores indexed by store name.
      */

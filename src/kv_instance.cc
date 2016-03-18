@@ -96,7 +96,7 @@ static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
         e = list_begin(file_handle->handles);
         while (e) {
             opened_node = _get_entry(e, struct kvs_opened_node, le);
-            if ((opened_node->handle->kvs && opened_node->handle->kvs->id == kv_id) ||
+            if ((opened_node->handle->kvs && opened_node->handle->kvs->getKvsId() == kv_id) ||
                 (kv_id == 0 && opened_node->handle->kvs == NULL)) // single KVS mode
             {
                 // there is an opened handle
@@ -495,10 +495,10 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 }
 
 void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file) {
-    handle->kvs->type = KVS_ROOT;
-    handle->kvs->root = handle->fhandle->root;
+    handle->kvs->setKvsType(KVS_ROOT);
+    handle->kvs->setRootHandle(handle->fhandle->root);
     // super handle's ID is always 0
-    handle->kvs->id = 0;
+    handle->kvs->setKvsId(0);
     // force custom cmp function
     spin_lock(&file->kv_header->lock);
     handle->kvs_config.custom_cmp = file->kv_header->default_kvs_cmp;
@@ -514,15 +514,15 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
     struct kvs_opened_node *opened_node;
     struct avl_node *a;
 
-    handle->kvs = (struct kvs_info*)calloc(1, sizeof(struct kvs_info));
+    handle->kvs = new KvsInfo();
 
     if (root_handle == NULL) {
         // 'handle' is a super handle
         _fdb_kvs_init_root(handle, file);
     } else {
         // 'handle' is a sub handle (i.e., KV instance in a DB instance)
-        handle->kvs->type = KVS_SUB;
-        handle->kvs->root = root_handle;
+        handle->kvs->setKvsType(KVS_SUB);
+        handle->kvs->setRootHandle(root_handle);
 
         if (kvs_name) {
             spin_lock(&file->kv_header->lock);
@@ -531,19 +531,19 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
                            _kvs_cmp_name);
             if (a == NULL) {
                 // KV instance name is not found
-                free(handle->kvs);
+                delete handle->kvs;
                 handle->kvs = NULL;
                 spin_unlock(&file->kv_header->lock);
                 return;
             }
             kvs_node = _get_entry(a, struct kvs_node, avl_name);
-            handle->kvs->id = kvs_node->id;
+            handle->kvs->setKvsId(kvs_node->id);
             // force custom cmp function
             handle->kvs_config.custom_cmp = kvs_node->custom_cmp;
             spin_unlock(&file->kv_header->lock);
         } else {
             // snapshot of the root handle
-            handle->kvs->id = 0;
+            handle->kvs->setKvsId(0);
         }
 
         opened_node = (struct kvs_opened_node *)
@@ -563,7 +563,7 @@ void fdb_kvs_info_free(fdb_kvs_handle *handle)
         return;
     }
 
-    free(handle->kvs);
+    delete handle->kvs;
     handle->kvs = NULL;
 }
 
@@ -1150,8 +1150,8 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
 
     buf = alca(uint8_t, file->config->blocksize);
 
-    if (handle->kvs && handle->kvs->id > 0) {
-        id = handle->kvs->id;
+    if (handle->kvs && handle->kvs->getKvsId() > 0) {
+        id = handle->kvs->getKvsId();
     }
 
     hdr_bid = filemgr_get_header_bid(file);
@@ -1190,7 +1190,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
                                    doc.length.bodylen, version, false);
             // get local sequence number for the KV instance
             seqnum = _fdb_kvs_get_seqnum(kv_header,
-                                         handle->kvs->id);
+                                         handle->kvs->getKvsId());
             _fdb_kvs_header_free(kv_header);
             free_docio_object(&doc, true, true, true);
         }
@@ -1225,12 +1225,12 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
         file = handle->file;
 
         if (handle->kvs == NULL ||
-            handle->kvs->id == 0) {
+            handle->kvs->getKvsId() == 0) {
             filemgr_mutex_lock(file);
             *seqnum = filemgr_get_seqnum(file);
             filemgr_mutex_unlock(file);
         } else {
-            *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id);
+            *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->getKvsId());
         }
     }
     atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
@@ -1306,7 +1306,7 @@ static fdb_status _fdb_kvs_create(fdb_kvs_handle *root_handle,
                        "store instance mode is disabled.",
                        kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
-    if (root_handle->kvs->type != KVS_ROOT) {
+    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
         return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
                        "Cannot open or create KV store instance '%s' because the handle "
                        "doesn't support multi-KV sotre instance mode.",
@@ -1444,7 +1444,7 @@ char* _fdb_kvs_get_name(fdb_kvs_handle *handle, struct filemgr *file)
         return NULL;
     }
 
-    query.id = handle->kvs->id;
+    query.id = handle->kvs->getKvsId();
     if (query.id == 0) { // default KV instance
         return NULL;
     }
@@ -1495,14 +1495,14 @@ fdb_status _fdb_kvs_clone_snapshot(fdb_kvs_handle *handle_in,
                                    fdb_kvs_handle *handle_out)
 {
     fdb_status fs;
-    fdb_kvs_handle *root_handle = handle_in->kvs->root;
+    fdb_kvs_handle *root_handle = handle_in->kvs->getRootHandle();
 
     if (!handle_out->kvs) {
         // create kvs_info
-        handle_out->kvs = (struct kvs_info*)calloc(1, sizeof(struct kvs_info));
-        handle_out->kvs->type = handle_in->kvs->type;
-        handle_out->kvs->id = handle_in->kvs->id;
-        handle_out->kvs->root = root_handle;
+        handle_out->kvs = new KvsInfo();
+        handle_out->kvs->setKvsType(handle_in->kvs->getKvsType());
+        handle_out->kvs->setKvsId(handle_in->kvs->getKvsId());
+        handle_out->kvs->setRootHandle(root_handle);
         handle_out->kvs_config.custom_cmp = handle_in->kvs_config.custom_cmp;
 
         struct kvs_opened_node *opened_node = (struct kvs_opened_node *)
@@ -1523,7 +1523,7 @@ fdb_status _fdb_kvs_clone_snapshot(fdb_kvs_handle *handle_in,
             spin_unlock(&root_handle->fhandle->lock);
             free(handle_out->node);
         }
-        free(handle_out->kvs);
+        delete handle_out->kvs;
     }
     return fs;
 }
@@ -1583,7 +1583,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
             spin_unlock(&root_handle->fhandle->lock);
             free(handle->node);
         } // 'handle->node == NULL' happens only during rollback
-        free(handle->kvs);
+        delete handle->kvs;
     }
     return fs;
 }
@@ -1722,7 +1722,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
                        "store instance mode is disabled.",
                        kvs_name ? kvs_name : DEFAULT_KVS_NAME);
     }
-    if (root_handle->kvs->type != KVS_ROOT) {
+    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
         return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_HANDLE,
                        "Cannot open KV store instance '%s' because the handle "
                        "doesn't support multi-KV sotre instance mode.",
@@ -1767,7 +1767,7 @@ fdb_status fdb_kvs_open_default(fdb_file_handle *fhandle,
 // 2) call _fdb_close().
 static fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
 {
-    fdb_kvs_handle *root_handle = handle->kvs->root;
+    fdb_kvs_handle *root_handle = handle->kvs->getRootHandle();
     fdb_status fs;
 
     if (handle->node) {
@@ -1847,7 +1847,7 @@ fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
     }
 
     if (handle->kvs == NULL ||
-        handle->kvs->type == KVS_ROOT) {
+        handle->kvs->getKvsType() == KVS_ROOT) {
         // the default KV store handle
 
         if (handle->fhandle->root == handle) {
@@ -1878,7 +1878,7 @@ fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
         }
     }
 
-    if (handle->kvs && handle->kvs->root == NULL) {
+    if (handle->kvs && handle->kvs->getRootHandle() == NULL) {
         return FDB_RESULT_INVALID_ARGS;
     }
     fs = _fdb_kvs_close(handle);
@@ -1914,7 +1914,7 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
         // cannot remove the KV instance under single DB instance mode
         return FDB_RESULT_INVALID_CONFIG;
     }
-    if (root_handle->kvs->type != KVS_ROOT) {
+    if (root_handle->kvs->getKvsType() != KVS_ROOT) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
@@ -2110,7 +2110,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     if (!handle_in->kvs) {
         return FDB_RESULT_INVALID_ARGS;
     }
-    super_handle = handle_in->kvs->root;
+    super_handle = handle_in->kvs->getRootHandle();
     fhandle = handle_in->fhandle;
     config = handle_in->config;
     kvs_config = handle_in->kvs_config;
@@ -2177,8 +2177,8 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     handle->fhandle = fhandle;
     atomic_init_uint8_t(&handle->handle_busy, 0);
 
-    if (handle_in->kvs->type == KVS_SUB) {
-        fs = _fdb_kvs_open(handle_in->kvs->root,
+    if (handle_in->kvs->getKvsType() == KVS_SUB) {
+        fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
                            &config,
                            &kvs_config,
                            handle_in->file,
@@ -2209,7 +2209,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         // read root BID of the KV instance from the old handle
         // and overwrite into the current handle
         _kv_id = alca(uint8_t, size_chunk);
-        kvid2buf(size_chunk, handle->kvs->id, _kv_id);
+        kvid2buf(size_chunk, handle->kvs->getKvsId(), _kv_id);
         hr = hbtrie_find_partial(handle->trie, _kv_id,
                                  size_chunk, &id_root);
         btreeblk_end(handle->bhandle);
@@ -2226,7 +2226,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         if (config.seqtree_opt == FDB_SEQTREE_USE) {
             // same as above for seq-trie
             _kv_id = alca(uint8_t, size_id);
-            kvid2buf(size_id, handle->kvs->id, _kv_id);
+            kvid2buf(size_id, handle->kvs->getKvsId(), _kv_id);
             hr = hbtrie_find_partial(handle->seqtrie, _kv_id,
                                      size_id, &seq_root);
             btreeblk_end(handle->bhandle);
@@ -2242,9 +2242,9 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
         }
 
         old_seqnum = fdb_kvs_get_seqnum(handle_in->file,
-                                        handle_in->kvs->id);
+                                        handle_in->kvs->getKvsId());
         fdb_kvs_set_seqnum(handle_in->file,
-                           handle_in->kvs->id, seqnum);
+                           handle_in->kvs->getKvsId(), seqnum);
         handle_in->seqnum = seqnum;
         filemgr_mutex_unlock(handle_in->file);
 
@@ -2263,7 +2263,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                     "number %" _F64, seqnum);
             filemgr_mutex_lock(handle_in->file);
             fdb_kvs_set_seqnum(handle_in->file,
-                               handle_in->kvs->id, old_seqnum);
+                               handle_in->kvs->getKvsId(), old_seqnum);
             filemgr_mutex_unlock(handle_in->file);
             _fdb_kvs_close(handle);
             fdb_kvs_info_free(handle);
@@ -2298,7 +2298,7 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     struct filemgr *file;
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
-    struct kvs_stat stat;
+    KvsStat stat;
 
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -2325,10 +2325,10 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
 
     } else {
         kv_header = file->kv_header;
-        kv_id = handle->kvs->id;
+        kv_id = handle->kvs->getKvsId();
         spin_lock(&kv_header->lock);
 
-        query.id = handle->kvs->id;
+        query.id = handle->kvs->getKvsId();
         a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
         if (a) { // sub handle
             node = _get_entry(a, struct kvs_node, avl_id);
@@ -2388,8 +2388,8 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
 {
     fdb_kvs_id_t kv_id;
     struct filemgr *file;
-    struct kvs_ops_stat stat;
-    struct kvs_ops_stat root_stat;
+    KvsOpsStat stat;
+    KvsOpsStat root_stat;
 
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -2414,7 +2414,7 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
     if (handle->kvs == NULL) {
         kv_id = 0;
     } else {
-        kv_id = handle->kvs->id;
+        kv_id = handle->kvs->getKvsId();
     }
 
     _kvs_ops_stat_get(file, kv_id, &stat);

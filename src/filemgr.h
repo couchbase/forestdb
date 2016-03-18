@@ -153,8 +153,8 @@ struct filemgr_header{
     filemgr_header_revnum_t revnum;
     atomic_uint64_t seqnum;
     atomic_uint64_t bid;
-    struct kvs_ops_stat op_stat; // op stats for default KVS
-    struct kvs_stat stat; // stats for the default KVS
+    KvsOpsStat op_stat; // op stats for default KVS
+    KvsStat stat; // stats for the default KVS
     void *data;
 };
 
@@ -301,7 +301,7 @@ struct filemgr_dirty_update_block {
 };
 
 typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
-                                                 err_log_callback *log_callback);
+                                                 ErrLogCallback *log_callback);
 typedef bool (*check_file_removal_func)(const char *filename);
 
 typedef struct {
@@ -338,7 +338,7 @@ INLINE void filemgr_incr_ref_count(struct filemgr *file) {
 filemgr_open_result filemgr_open(char *filename,
                                  struct filemgr_ops *ops,
                                  struct filemgr_config *config,
-                                 err_log_callback *log_callback);
+                                 ErrLogCallback *log_callback);
 
 uint64_t filemgr_update_header(struct filemgr *file,
                                void *buf,
@@ -372,17 +372,17 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 filemgr_header_revnum_t *header_revnum,
                                 uint64_t *deltasize, uint64_t *version,
                                 uint64_t *sb_bmp_revnum,
-                                err_log_callback *log_callback);
+                                ErrLogCallback *log_callback);
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
                                    uint64_t *sb_bmp_revnum,
-                                   err_log_callback *log_callback);
+                                   ErrLogCallback *log_callback);
 fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
                          const char *orig_file_name,
-                         err_log_callback *log_callback);
+                         ErrLogCallback *log_callback);
 
 void filemgr_remove_all_buffer_blocks(struct filemgr *file);
 void filemgr_free_func(struct hash_elem *h);
@@ -391,30 +391,30 @@ INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
 {
     return atomic_get_uint64_t(&file->pos) / file->blocksize;
 }
-bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback);
+bid_t filemgr_alloc(struct filemgr *file, ErrLogCallback *log_callback);
 void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
-                            bid_t *end, err_log_callback *log_callback);
+                            bid_t *end, ErrLogCallback *log_callback);
 bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nblock,
                                   bid_t *begin, bid_t *end,
-                                  err_log_callback *log_callback);
+                                  ErrLogCallback *log_callback);
 
 // Returns true if the block invalidated is from recent uncommited blocks
 bool filemgr_invalidate_block(struct filemgr *file, bid_t bid);
 bool filemgr_is_fully_resident(struct filemgr *file);
 // returns number of immutable blocks that remain in file
 uint64_t filemgr_flush_immutable(struct filemgr *file,
-                                 err_log_callback *log_callback);
+                                 ErrLogCallback *log_callback);
 
 fdb_status filemgr_read(struct filemgr *file,
                         bid_t bid, void *buf,
-                        err_log_callback *log_callback,
+                        ErrLogCallback *log_callback,
                         bool read_on_cache_miss);
 
 fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
                           uint64_t len, void *buf, bool final_write,
-                          err_log_callback *log_callback);
+                          ErrLogCallback *log_callback);
 fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
-                   err_log_callback *log_callback);
+                   ErrLogCallback *log_callback);
 ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_blocks, bid_t start_bid);
 int filemgr_is_writable(struct filemgr *file, bid_t bid);
 
@@ -431,7 +431,7 @@ INLINE void filemgr_clear_io_inprog(struct filemgr *file)
 }
 
 fdb_status filemgr_commit(struct filemgr *file, bool sync,
-                          err_log_callback *log_callback);
+                          ErrLogCallback *log_callback);
 /**
  * Commit DB file, and write a DB header at the given BID.
  *
@@ -445,9 +445,9 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
  */
 fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
                               uint64_t bmp_revnum, bool sync,
-                              err_log_callback *log_callback);
+                              ErrLogCallback *log_callback);
 fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
-                        err_log_callback *log_callback);
+                        ErrLogCallback *log_callback);
 
 fdb_status filemgr_shutdown();
 int filemgr_update_file_status(struct filemgr *file, file_status_t status,
@@ -457,7 +457,7 @@ void filemgr_set_compaction_state(struct filemgr *old_file,
                                   file_status_t status);
 void filemgr_remove_pending(struct filemgr *old_file,
                             struct filemgr *new_file,
-                            err_log_callback *log_callback);
+                            ErrLogCallback *log_callback);
 
 /**
  * Return name of the latency stat given its type.
@@ -519,14 +519,13 @@ void filemgr_get_latency_stat(struct filemgr *file,
  * @param log_callback Pointer to the log callback function
  */
 void filemgr_dump_latency_stat(struct filemgr *file,
-                               err_log_callback *log_callback);
+                               ErrLogCallback *log_callback);
 
 #endif // _LATENCY_STATS_DUMP_TO_FILE
 #endif // _LATENCY_STATS
 
-struct kvs_ops_stat *filemgr_migrate_op_stats(struct filemgr *old_file,
-                                              struct filemgr *new_file,
-                                              struct kvs_info *kvs);
+KvsOpsStat *filemgr_migrate_op_stats(struct filemgr *old_file,
+                                     struct filemgr *new_file);
 fdb_status filemgr_destroy_file(char *filename,
                                 struct filemgr_config *config,
                                 struct hash *destroy_set);
@@ -728,7 +727,7 @@ void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node);
  */
 void filemgr_dirty_update_commit(struct filemgr *file,
                                  struct filemgr_dirty_update_node *commit_node,
-                                 err_log_callback *log_callback);
+                                 ErrLogCallback *log_callback);
 
 /**
  * Complete the given dirty update entry and make it immutable. This API will
@@ -821,7 +820,7 @@ fdb_status filemgr_write_dirty(struct filemgr *file,
                                bid_t bid,
                                void *buf,
                                struct filemgr_dirty_update_node *node,
-                               err_log_callback *log_callback);
+                               ErrLogCallback *log_callback);
 
 /**
  * Read a block through the given dirty update entries. It first tries to read
@@ -845,34 +844,34 @@ fdb_status filemgr_read_dirty(struct filemgr *file,
                               void *buf,
                               struct filemgr_dirty_update_node *node_reader,
                               struct filemgr_dirty_update_node *node_writer,
-                              err_log_callback *log_callback,
+                              ErrLogCallback *log_callback,
                               bool read_on_cache_miss);
 
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,
-                   struct kvs_stat stat);
+                   KvsStat stat);
 void _kvs_stat_update_attr(struct filemgr *file,
                            fdb_kvs_id_t kv_id,
                            kvs_stat_attr_t attr,
                            int delta);
 int _kvs_stat_get_kv_header(struct kvs_header *kv_header,
                             fdb_kvs_id_t kv_id,
-                            struct kvs_stat *stat);
+                            KvsStat *stat);
 int _kvs_stat_get(struct filemgr *file,
                   fdb_kvs_id_t kv_id,
-                  struct kvs_stat *stat);
+                  KvsStat *stat);
 uint64_t _kvs_stat_get_sum(struct filemgr *file,
                            kvs_stat_attr_t attr);
 int _kvs_ops_stat_get_kv_header(struct kvs_header *kv_header,
                                 fdb_kvs_id_t kv_id,
-                                struct kvs_ops_stat *stat);
+                                KvsOpsStat *stat);
 int _kvs_ops_stat_get(struct filemgr *file,
                       fdb_kvs_id_t kv_id,
-                      struct kvs_ops_stat *stat);
+                      KvsOpsStat *stat);
 
-void _init_op_stats(struct kvs_ops_stat *stat);
-struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
-                                          struct kvs_info *info);
+void _init_op_stats(KvsOpsStat *stat);
+KvsOpsStat *filemgr_get_ops_stats(struct filemgr *file,
+                                  KvsInfo *info);
 
 /**
  * Convert a given errno value to the corresponding fdb_status value.

@@ -231,11 +231,11 @@ struct superblock {
 struct sb_ops {
     fdb_status (*init)(struct filemgr *file,
                        struct sb_config sconfig,
-                       err_log_callback *log_callback);
+                       ErrLogCallback *log_callback);
     struct sb_config (*get_default_config)();
     fdb_status (*read_latest)(struct filemgr *file,
                               struct sb_config sconfig,
-                              err_log_callback *log_callback);
+                              ErrLogCallback *log_callback);
     bid_t (*alloc_block)(struct filemgr *file);
     bool (*is_writable)(struct filemgr *file, bid_t bid);
     uint64_t (*get_bmp_revnum)(struct filemgr *file);
@@ -418,7 +418,7 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid);
  * @return FDB_RESULT_SUCCESS on success.
  */
 fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
-                   err_log_callback * log_callback);
+                   ErrLogCallback * log_callback);
 
 /**
  * Write a superblock with the given ID.
@@ -429,7 +429,7 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
  * @return FDB_RESULT_SUCCESS on success.
  */
 fdb_status sb_write(struct filemgr *file, size_t sb_no,
-                    err_log_callback * log_callback);
+                    ErrLogCallback * log_callback);
 
 /**
  * Read all superblocks and take the most recent superblock.
@@ -441,7 +441,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
  */
 fdb_status sb_read_latest(struct filemgr *file,
                           struct sb_config sconfig,
-                          err_log_callback *log_callback);
+                          ErrLogCallback *log_callback);
 
 /**
  * Allocate a free block by referring the bitmap in superblock, in a circular manner.

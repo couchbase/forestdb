@@ -174,12 +174,12 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 
         if (start_key == NULL) {
             start_key_temp = alca(uint8_t, size_chunk);
-            kvid2buf(size_chunk, iterator->handle->kvs->id, start_key_temp);
+            kvid2buf(size_chunk, iterator->handle->kvs->getKvsId(), start_key_temp);
             start_key = start_key_temp;
             start_keylen = size_chunk;
         } else {
             start_key_temp = alca(uint8_t, size_chunk + start_keylen);
-            kvid2buf(size_chunk, iterator->handle->kvs->id, start_key_temp);
+            kvid2buf(size_chunk, iterator->handle->kvs->getKvsId(), start_key_temp);
             memcpy(start_key_temp + size_chunk, start_key, start_keylen);
             start_key = start_key_temp;
             start_keylen += size_chunk;
@@ -190,12 +190,12 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
             // NULL key doesn't actually exist so that the iterator ends
             // at the last key of the current KV ID.
             end_key_temp = alca(uint8_t, size_chunk);
-            kvid2buf(size_chunk, iterator->handle->kvs->id+1, end_key_temp);
+            kvid2buf(size_chunk, iterator->handle->kvs->getKvsId() + 1, end_key_temp);
             end_key = end_key_temp;
             end_keylen = size_chunk;
         } else {
             end_key_temp = alca(uint8_t, size_chunk + end_keylen);
-            kvid2buf(size_chunk, iterator->handle->kvs->id, end_key_temp);
+            kvid2buf(size_chunk, iterator->handle->kvs->getKvsId(), end_key_temp);
             memcpy(end_key_temp + size_chunk, end_key, end_keylen);
             end_key = end_key_temp;
             end_keylen += size_chunk;
@@ -360,7 +360,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
         int size_chunk = handle->config.chunksize;
         // create an iterator handle for hb-trie
         start_seq_kv = alca(uint8_t, size_chunk + size_seq);
-        _kv_id = _endian_encode(iterator->handle->kvs->id);
+        _kv_id = _endian_encode(iterator->handle->kvs->getKvsId());
         memcpy(start_seq_kv, &_kv_id, size_id);
         memcpy(start_seq_kv + size_id, &_start_seq, size_seq);
 
@@ -371,7 +371,7 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                              start_seq_kv, size_id + size_seq);
 
         query_key.key = start_seq_kv;
-        kvid2buf(size_chunk, iterator->handle->kvs->id, start_seq_kv);
+        kvid2buf(size_chunk, iterator->handle->kvs->getKvsId(), start_seq_kv);
         memcpy(start_seq_kv + size_chunk, &start_seq, size_seq);
         query_key.keylen = size_chunk + size_seq;
         query.seqnum = start_seq;
@@ -676,7 +676,7 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     if (iterator->handle->kvs) {
         seek_keylen_kv = seek_keylen + size_chunk;
         seek_key_kv = alca(uint8_t, seek_keylen_kv);
-        kvid2buf(size_chunk, iterator->handle->kvs->id, seek_key_kv);
+        kvid2buf(size_chunk, iterator->handle->kvs->getKvsId(), seek_key_kv);
         memcpy(seek_key_kv + size_chunk, seek_key, seek_keylen);
     } else {
         seek_keylen_kv = seek_keylen;
@@ -838,7 +838,7 @@ fetch_hbtrie:
     if (iterator->handle->kvs) {
         fdb_kvs_id_t kv_id;
         buf2kvid(size_chunk, iterator->_key, &kv_id);
-        if (iterator->handle->kvs->id != kv_id) {
+        if (iterator->handle->kvs->getKvsId() != kv_id) {
             // seek is done beyond the KV ID
             hr = HBTRIE_RESULT_FAIL;
         }
@@ -1245,7 +1245,7 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
     if (iterator->handle->kvs) {
         // create an iterator handle for hb-trie
         uint8_t *end_seq_kv = alca(uint8_t, sizeof(size_t)*2);
-        fdb_kvs_id_t _kv_id = _endian_encode(iterator->handle->kvs->id);
+        fdb_kvs_id_t _kv_id = _endian_encode(iterator->handle->kvs->getKvsId());
         memcpy(end_seq_kv, &_kv_id, sizeof(size_t));
         memcpy(end_seq_kv + sizeof(size_t), &iterator->end_seqnum,
                 sizeof(size_t));
@@ -1272,7 +1272,7 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
         uint8_t *end_seq_kv = alca(uint8_t, size_chunk + size_seq);
         if (iterator->handle->kvs) {
             query_key.key = end_seq_kv;
-            kvid2buf(size_chunk, iterator->handle->kvs->id, end_seq_kv);
+            kvid2buf(size_chunk, iterator->handle->kvs->getKvsId(), end_seq_kv);
             memcpy(end_seq_kv + size_chunk, &iterator->end_seqnum, size_seq);
             query_key.keylen = size_chunk + size_seq;
         } else {
@@ -1370,7 +1370,7 @@ start_seq:
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
                 buf2kvid(size_id, seq_kv, &kv_id);
-                if (kv_id != iterator->handle->kvs->id) {
+                if (kv_id != iterator->handle->kvs->getKvsId()) {
                     // iterator is beyond the boundary
                     br = BTREE_RESULT_FAIL;
                 }
@@ -1546,7 +1546,7 @@ start_seq:
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
                 buf2kvid(size_id, seq_kv, &kv_id);
-                if (kv_id != iterator->handle->kvs->id) {
+                if (kv_id != iterator->handle->kvs->getKvsId()) {
                     // iterator is beyond the boundary
                     br = BTREE_RESULT_FAIL;
                 }

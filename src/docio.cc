@@ -95,7 +95,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
     size_t blocksize = handle->file->blocksize;
     size_t real_blocksize = blocksize;
     size_t remaining_space;
-    err_log_callback *log_callback = handle->log_callback;
+    ErrLogCallback *log_callback = handle->log_callback;
     bool non_consecutive = ver_non_consecutive_doc(handle->file->version);
     struct docblk_meta blk_meta;
 
@@ -520,7 +520,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
     struct docio_length length, _length;
-    err_log_callback *log_callback = handle->log_callback;
+    ErrLogCallback *log_callback = handle->log_callback;
 
     length = doc->length;
     length.bodylen_ondisk = length.bodylen;
@@ -685,7 +685,7 @@ bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *
 
 INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
                                              bid_t bid,
-                                             err_log_callback *log_callback,
+                                             ErrLogCallback *log_callback,
                                              bool read_on_cache_miss)
 {
     fdb_status status = FDB_RESULT_SUCCESS;
@@ -751,7 +751,7 @@ INLINE bool _docio_check_buffer(struct docio_handle *handle, uint64_t bmp_revnum
 static int64_t _docio_read_length(struct docio_handle *handle,
                                   uint64_t offset,
                                   struct docio_length *length,
-                                  err_log_callback *log_callback,
+                                  ErrLogCallback *log_callback,
                                   bool read_on_cache_miss)
 {
     size_t blocksize = handle->file->blocksize;
@@ -841,7 +841,7 @@ static int64_t _docio_read_doc_component(struct docio_handle *handle,
                                          uint64_t offset,
                                          uint32_t len,
                                          void *buf_out,
-                                         err_log_callback *log_callback)
+                                         ErrLogCallback *log_callback)
 {
     uint32_t rest_len;
     size_t blocksize = handle->file->blocksize;
@@ -916,7 +916,7 @@ static int64_t _docio_read_doc_component_comp(struct docio_handle *handle,
                                               uint32_t comp_len,
                                               void *buf_out,
                                               void *comp_data_out,
-                                              err_log_callback *log_callback)
+                                              ErrLogCallback *log_callback)
 {
     int ret;
     size_t uncomp_size;
@@ -966,12 +966,13 @@ static bool docio_validate_checksum(struct docio_handle *handle,
     uint8_t checksum;
     int64_t _offset;
     struct docio_length zero_length;
+    ErrLogCallback *log_callback = handle->log_callback;
 
     _offset = _docio_read_length(handle, *offset, length,
-                                 handle->log_callback, true);
+                                 log_callback, true);
     if (_offset < 0) {
         if (read_on_cache_miss) {
-            fdb_log(handle->log_callback, (fdb_status) _offset,
+            fdb_log(log_callback, (fdb_status) _offset,
                     "Error in reading the doc length metadata with "
                     "offset %" _F64 " from a database file '%s'",
                     *offset, handle->file->filename);
@@ -992,7 +993,7 @@ static bool docio_validate_checksum(struct docio_handle *handle,
     // checksum check
     checksum = _docio_length_checksum(*length, handle);
     if (checksum != length->checksum) {
-        fdb_log(handle->log_callback, FDB_RESULT_CHECKSUM_ERROR,
+        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
                 "doc_length checksum mismatch error in a database file '%s'"
                 " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
                 "bodylen_ondisk %d offset %" _F64, handle->file->filename,
@@ -1009,7 +1010,7 @@ fdb_status docio_read_doc_length(struct docio_handle *handle,
                                  struct docio_length *length,
                                  uint64_t offset)
 {
-    err_log_callback *log_callback = handle->log_callback;
+    ErrLogCallback *log_callback = handle->log_callback;
     fdb_status status = FDB_RESULT_SUCCESS;
     struct docio_length _length;
     int64_t _offset = offset;
@@ -1038,7 +1039,7 @@ fdb_status docio_read_doc_length(struct docio_handle *handle,
 fdb_status docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
                               keylen_t *keylen, void *keybuf)
 {
-    err_log_callback *log_callback = handle->log_callback;
+    ErrLogCallback *log_callback = handle->log_callback;
     fdb_status status = FDB_RESULT_SUCCESS;
     struct docio_length length, _length;
     int64_t _offset = offset;
@@ -1104,7 +1105,7 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle,
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
 
-    err_log_callback *log_callback = handle->log_callback;
+    ErrLogCallback *log_callback = handle->log_callback;
     fdb_status status = FDB_RESULT_SUCCESS;
     struct docio_length _length;
     int64_t _offset = offset;
@@ -1199,7 +1200,7 @@ int64_t docio_read_doc(struct docio_handle *handle,
     timestamp_t _timestamp;
     void *comp_body = NULL;
 
-    err_log_callback *log_callback = handle->log_callback;
+    ErrLogCallback *log_callback = handle->log_callback;
     fdb_status status = FDB_RESULT_SUCCESS;
     struct docio_length _length;
     int64_t _offset = offset;
@@ -1626,7 +1627,7 @@ bool docio_check_buffer(struct docio_handle *handle,
                         bid_t bid,
                         uint64_t sb_bmp_revnum)
 {
-    err_log_callback *log_callback = handle->log_callback;
+    ErrLogCallback *log_callback = handle->log_callback;
     _docio_read_through_buffer(handle, bid, log_callback, true);
     return _docio_check_buffer(handle, sb_bmp_revnum);
 }

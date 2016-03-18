@@ -68,7 +68,7 @@ INLINE int __wal_cmp_bykey(struct wal_item_header *aa,
         if (info->kvs) {
             // multi KV instance mode
             // KV ID should be compared separately
-            size_t size_chunk = info->kvs->root->config.chunksize;
+            size_t size_chunk = info->kvs->getRootHandle()->config.chunksize;
             fdb_kvs_id_t a_id, b_id;
             buf2kvid(size_chunk, aa->key, &a_id);
             buf2kvid(size_chunk, bb->key, &b_id);
@@ -1242,8 +1242,7 @@ fdb_status wal_txn_migration(void *dbhandle,
 }
 
 fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
-                      wal_commit_mark_func *func,
-                      err_log_callback *log_callback)
+                      wal_commit_mark_func *func, ErrLogCallback *log_callback)
 {
     int can_overwrite;
     struct wal_item *item, *_item;
@@ -1811,7 +1810,7 @@ fdb_status wal_snapshot_clone(struct snap_handle *shandle_in,
     return FDB_RESULT_INVALID_ARGS;
 }
 
-fdb_status snap_get_stat(struct snap_handle *shandle, struct kvs_stat *stat)
+fdb_status snap_get_stat(struct snap_handle *shandle, KvsStat *stat)
 {
     *stat = shandle->stat;
     return FDB_RESULT_SUCCESS;
@@ -1828,7 +1827,7 @@ fdb_status wal_dur_snapshot_open(fdb_seqnum_t seqnum,
     if (!key_cmp_info->kvs) {
         kv_id = 0;
     } else {
-        kv_id = key_cmp_info->kvs->id;
+        kv_id = key_cmp_info->kvs->getKvsId();
     }
     _shandle = _wal_snapshot_create(kv_id, 0, 0);
     if (!_shandle) { // LCOV_EXCL_START
@@ -2865,7 +2864,7 @@ typedef enum wal_discard_type {
 // discard all entries
 static fdb_status _wal_close(struct filemgr *file,
                              wal_discard_t type, void *aux,
-                             err_log_callback *log_callback)
+                             ErrLogCallback *log_callback)
 {
     struct wal_item *item;
     struct wal_item_header *header;
@@ -3025,13 +3024,13 @@ static fdb_status _wal_close(struct filemgr *file,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status wal_close(struct filemgr *file, err_log_callback *log_callback)
+fdb_status wal_close(struct filemgr *file, ErrLogCallback *log_callback)
 {
     return _wal_close(file, WAL_DISCARD_UNCOMMITTED_ONLY, NULL, log_callback);
 }
 
 // discard all WAL entries
-fdb_status wal_shutdown(struct filemgr *file, err_log_callback *log_callback)
+fdb_status wal_shutdown(struct filemgr *file, ErrLogCallback *log_callback)
 {
     fdb_status wr = _wal_close(file, WAL_DISCARD_ALL, NULL, log_callback);
     atomic_store_uint32_t(&file->wal->size, 0);
@@ -3044,7 +3043,7 @@ fdb_status wal_shutdown(struct filemgr *file, err_log_callback *log_callback)
 // discard all WAL entries belonging to KV_ID
 fdb_status wal_close_kv_ins(struct filemgr *file,
                             fdb_kvs_id_t kv_id,
-                            err_log_callback *log_callback)
+                            ErrLogCallback *log_callback)
 {
     return _wal_close(file, WAL_DISCARD_KV_INS, &kv_id, log_callback);
 }

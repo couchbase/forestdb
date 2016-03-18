@@ -1211,7 +1211,7 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
 }
 
 fdb_status sb_write(struct filemgr *file, size_t sb_no,
-                    err_log_callback * log_callback)
+                    ErrLogCallback * log_callback)
 {
     int r;
     int real_blocksize = file->blocksize;
@@ -1362,7 +1362,7 @@ static void _rsv_free(struct sb_rsv_bmp *rsv)
 static fdb_status _sb_read_given_no(struct filemgr *file,
                                     size_t sb_no,
                                     struct superblock *sb,
-                                    err_log_callback *log_callback)
+                                    ErrLogCallback *log_callback)
 {
     int r;
     int real_blocksize = file->blocksize;
@@ -1620,7 +1620,7 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
 
 fdb_status sb_read_latest(struct filemgr *file,
                           struct sb_config sconfig,
-                          err_log_callback *log_callback)
+                          ErrLogCallback *log_callback)
 {
     size_t i, max_sb_no = sconfig.num_sb;
     uint64_t max_revnum = 0;
@@ -1731,7 +1731,7 @@ struct sb_config sb_get_default_config()
 }
 
 fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
-                   err_log_callback * log_callback)
+                   ErrLogCallback * log_callback)
 {
     size_t i;
     bid_t sb_bid;

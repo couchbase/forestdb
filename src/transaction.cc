@@ -45,7 +45,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         return FDB_RESULT_TRANSACTION_FAIL;
     }
     if (handle->kvs) {
-        if (handle->kvs->type == KVS_SUB) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
             // deny transaction on sub handle
             return FDB_RESULT_INVALID_HANDLE;
         }
@@ -126,7 +126,7 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
         return FDB_RESULT_TRANSACTION_FAIL;
     }
     if (handle->kvs) {
-        if (handle->kvs->type == KVS_SUB) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
             // deny transaction on sub handle
             return FDB_RESULT_INVALID_HANDLE;
         }
@@ -182,7 +182,7 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
         return FDB_RESULT_TRANSACTION_FAIL;
     }
     if (handle->kvs) {
-        if (handle->kvs->type == KVS_SUB) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
             // deny transaction on sub handle
             return FDB_RESULT_INVALID_HANDLE;
         }

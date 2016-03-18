@@ -218,7 +218,7 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
     bool first_loop = true;
     filemgr_header_revnum_t _revnum;
     fdb_seqnum_t _seqnum;
-    struct kvs_stat stat;
+    KvsStat stat;
 
     /*
      * << stale block system doc structure >>
@@ -579,7 +579,7 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
     struct avl_node *avl;
     struct stale_data *item;
     struct list_elem *e, *e_last;
-    struct kvs_stat stat;
+    KvsStat stat;
 
     revnum_upto = stale_header.revnum;
 

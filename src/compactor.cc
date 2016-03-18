@@ -78,7 +78,7 @@ struct openfiles_elem {
     bool compaction_flag; // set when the file is being compacted
     bool daemon_compact_in_progress;
     bool removal_activated;
-    err_log_callback *log_callback;
+    ErrLogCallback *log_callback;
     struct avl_node avl;
     struct timeval last_compaction_timestamp;
     size_t interval;
@@ -573,11 +573,11 @@ void compactor_shutdown()
 
 static fdb_status _compactor_store_metafile(char *metafile,
                                             struct compactor_meta *metadata,
-                                            err_log_callback *log_callback);
+                                            ErrLogCallback *log_callback);
 
 fdb_status compactor_register_file(struct filemgr *file,
                                    fdb_config *config,
-                                   err_log_callback *log_callback)
+                                   ErrLogCallback *log_callback)
 {
     file_status_t fstatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -668,7 +668,7 @@ void compactor_deregister_file(struct filemgr *file)
 }
 
 fdb_status compactor_register_file_removing(struct filemgr *file,
-                                            err_log_callback *log_callback)
+                                            ErrLogCallback *log_callback)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a = NULL;
@@ -752,7 +752,7 @@ fdb_status compactor_set_compaction_interval(struct filemgr *file,
 
 struct compactor_meta * _compactor_read_metafile(char *metafile,
                                                  struct compactor_meta *metadata,
-                                                 err_log_callback *log_callback)
+                                                 ErrLogCallback *log_callback)
 {
     int fd_meta, fd_db;
     ssize_t ret;
@@ -821,7 +821,7 @@ struct compactor_meta * _compactor_read_metafile(char *metafile,
 
 static fdb_status _compactor_store_metafile(char *metafile,
                                             struct compactor_meta *metadata,
-                                            err_log_callback *log_callback)
+                                            ErrLogCallback*log_callback)
 {
     int fd_meta;
     ssize_t ret;
@@ -871,7 +871,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
 }
 
 void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
-                           err_log_callback *log_callback)
+                           ErrLogCallback *log_callback)
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
@@ -926,7 +926,7 @@ void compactor_get_virtual_filename(const char *filename,
 fdb_status compactor_get_actual_filename(const char *filename,
                                          char *actual_filename,
                                          fdb_compaction_mode_t comp_mode,
-                                         err_log_callback *log_callback)
+                                         ErrLogCallback *log_callback)
 {
     int i;
     int filename_len;

@@ -36,7 +36,7 @@ struct docio_handle {
     // for buffer purpose
     bid_t lastbid;
     void *readbuffer;
-    err_log_callback *log_callback;
+    ErrLogCallback *log_callback;
     bool compress_document_body;
 };
 

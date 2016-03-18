@@ -69,7 +69,7 @@ struct openfiles_elem {
     fdb_config config;
     uint32_t register_count;
     bool background_flush_in_progress;
-    err_log_callback *log_callback;
+    ErrLogCallback *log_callback;
     struct avl_node avl;
 };
 
@@ -88,7 +88,7 @@ static void * bgflusher_thread(void *voidargs)
     struct avl_node *a;
     struct filemgr *file;
     struct openfiles_elem *elem;
-    err_log_callback *log_callback = NULL;
+    ErrLogCallback *log_callback = NULL;
 
     while (1) {
         uint64_t num_blocks = 0;
@@ -228,7 +228,7 @@ void bgflusher_shutdown()
 
 fdb_status bgflusher_register_file(struct filemgr *file,
                                    fdb_config *config,
-                                   err_log_callback *log_callback)
+                                   ErrLogCallback *log_callback)
 {
     file_status_t fstatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -273,7 +273,7 @@ fdb_status bgflusher_register_file(struct filemgr *file,
 }
 
 void bgflusher_switch_file(struct filemgr *old_file, struct filemgr *new_file,
-                           err_log_callback *log_callback)
+                           ErrLogCallback *log_callback)
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;

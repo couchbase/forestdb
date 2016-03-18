@@ -43,7 +43,7 @@ size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf);
 size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf);
 int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux);
 
-fdb_status fdb_log(err_log_callback *callback,
+fdb_status fdb_log(ErrLogCallback *callback,
                    fdb_status status,
                    const char *format, ...);
 

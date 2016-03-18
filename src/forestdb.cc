@@ -311,7 +311,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     uint64_t cur_bmp_revnum = (uint64_t)-1;
     bid_t next_doc_block = BLK_NOT_FOUND;
     struct _fdb_key_cmp_info cmp_info;
-    err_log_callback *log_callback;
+    ErrLogCallback *log_callback;
 
     if (!hdr_off) { // Nothing to do if we don't have a header block offset
         return;
@@ -338,10 +338,10 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     // Temporarily disable the error logging callback as there are false positive
     // checksum errors in docio_read_doc.
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.
-    err_log_callback dummy_cb;
+    ErrLogCallback dummy_cb;
     log_callback = handle->dhandle->log_callback;
-    dummy_cb.callback = fdb_dummy_log_callback;
-    dummy_cb.ctx_data = NULL;
+    dummy_cb.setCallback(fdb_dummy_log_callback);
+    dummy_cb.setCtxData(NULL);
     handle->dhandle->log_callback = &dummy_cb;
 
     if (!handle->shandle) {
@@ -497,7 +497,7 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                                 fdb_kvs_id_t kv_id;
                                 buf2kvid(handle->config.chunksize,
                                          wal_doc.key, &kv_id);
-                                if (kv_id == handle->kvs->id) {
+                                if (kv_id == handle->kvs->getKvsId()) {
                                     // snapshot: insert ID matched documents only
                                     wal_snap_insert(handle->shandle,
                                                     &wal_doc, doc_offset);
@@ -563,8 +563,7 @@ INLINE fdb_status _fdb_recover_compaction(fdb_kvs_handle *handle,
     struct filemgr *new_file;
 
     memset(&new_db, 0, sizeof(new_db));
-    new_db.log_callback.callback = handle->log_callback.callback;
-    new_db.log_callback.ctx_data = handle->log_callback.ctx_data;
+    new_db.log_callback = handle->log_callback;
     config.flags |= FDB_OPEN_FLAG_RDONLY;
     new_db.fhandle = handle->fhandle;
     new_db.kvs_config = handle->kvs_config;
@@ -981,9 +980,9 @@ fdb_snapshot_open_start:
         fdb_sync_db_header(handle_in);
         file = handle_in->file;
 
-        if (handle_in->kvs && handle_in->kvs->type == KVS_SUB) {
+        if (handle_in->kvs && handle_in->kvs->getKvsType() == KVS_SUB) {
             handle_in->seqnum = fdb_kvs_get_seqnum(file,
-                                                   handle_in->kvs->id);
+                                                   handle_in->kvs->getKvsId());
         } else {
             handle_in->seqnum = filemgr_get_seqnum(file);
         }
@@ -1041,7 +1040,7 @@ fdb_snapshot_open_start:
             txn = &handle_in->file->global_txn;
         }
         if (handle_in->kvs) {
-            kv_id = handle_in->kvs->id;
+            kv_id = handle_in->kvs->getKvsId();
         }
         if (seqnum == FDB_SNAPSHOT_INMEM) {
             memset(&dummy_shandle, 0, sizeof(struct snap_handle));
@@ -1062,7 +1061,7 @@ fdb_snapshot_open_start:
         if (clone_snapshot) {
             fs = _fdb_kvs_clone_snapshot(handle_in, handle);
         } else {
-            fs = _fdb_kvs_open(handle_in->kvs->root,
+            fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
                               &config, &kvs_config, file,
                               file->filename,
                               _fdb_kvs_get_name(handle_in, file),
@@ -1310,8 +1309,8 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     struct filemgr *file;
     fdb_kvs_config kvs_config;
     fdb_status fs;
-    err_log_callback log_callback;
-    struct kvs_info *kvs;
+    ErrLogCallback log_callback;
+    KvsInfo *kvs;
     struct snap_handle shandle; // dummy snap handle
 
     if (!fhandle) {
@@ -1569,7 +1568,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const fdb_config *config)
 {
     struct filemgr_config fconfig;
-    struct kvs_stat stat, empty_stat;
+    KvsStat stat, empty_stat;
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
     bid_t stale_root_bid = BLK_NOT_FOUND;
@@ -1726,7 +1725,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             seqtree_opt = FDB_SEQTREE_NOT_USE;
         }
         // Retrieve seqnum for multi-kv mode
-        if (handle->kvs && handle->kvs->id > 0) {
+        if (handle->kvs && handle->kvs->getKvsId() > 0) {
             if (kv_info_offset != BLK_NOT_FOUND) {
                 if (!filemgr_get_kv_header(handle->file)) {
                     struct kvs_header *kv_header;
@@ -1740,7 +1739,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     }
                 }
                 seqnum = _fdb_kvs_get_seqnum(handle->file->kv_header,
-                                             handle->kvs->id);
+                                             handle->kvs->getKvsId());
             } else { // no kv_info offset, ok to set seqnum to zero
                 seqnum = 0;
             }
@@ -1801,10 +1800,10 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
 
         if (handle->max_seqnum) {
-            struct kvs_stat stat_ori;
+            KvsStat stat_ori;
             // backup original stats
             if (handle->kvs) {
-                _kvs_stat_get(handle->file, handle->kvs->id, &stat_ori);
+                _kvs_stat_get(handle->file, handle->kvs->getKvsId(), &stat_ori);
             } else {
                 _kvs_stat_get(handle->file, 0, &stat_ori);
             }
@@ -1842,11 +1841,11 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                  &compacted_filename, NULL);
                 handle->last_hdr_bid = hdr_bid;
 
-                if (!handle->kvs || handle->kvs->id == 0) {
+                if (!handle->kvs || handle->kvs->getKvsId() == 0) {
                     // single KVS mode OR default KVS
                     if (!handle->shandle) {
                         // rollback
-                        struct kvs_stat stat_dst;
+                        KvsStat stat_dst;
                         _kvs_stat_get(handle->file, 0, &stat_dst);
                         stat_dst.ndocs = ndocs;
                         stat_dst.ndeletes = ndeletes;
@@ -1875,16 +1874,16 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                            doc.length.bodylen, version, false);
                     // get local sequence number for the KV instance
                     seqnum = _fdb_kvs_get_seqnum(kv_header,
-                                                 handle->kvs->id);
+                                                 handle->kvs->getKvsId());
                     if (!handle->shandle) {
                         // rollback: replace kv_header stats
                         // read from the current header's kv_header
-                        struct kvs_stat stat_src, stat_dst;
+                        KvsStat stat_src, stat_dst;
                         _kvs_stat_get_kv_header(kv_header,
-                                                handle->kvs->id,
+                                                handle->kvs->getKvsId(),
                                                 &stat_src);
                         _kvs_stat_get(handle->file,
-                                      handle->kvs->id,
+                                      handle->kvs->getKvsId(),
                                       &stat_dst);
                         // update ndocs, datasize, nlivenodes
                         // into the current file's kv_header
@@ -1895,7 +1894,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                         stat_dst.datasize = stat_src.datasize;
                         stat_dst.nlivenodes = stat_src.nlivenodes;
                         _kvs_stat_set(handle->file,
-                                      handle->kvs->id,
+                                      handle->kvs->getKvsId(),
                                       stat_dst);
                     }
                     _fdb_kvs_header_free(kv_header);
@@ -1914,7 +1913,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             if (!header_len) { // Marker MUST match that of DB commit!
                 // rollback original stats
                 if (handle->kvs) {
-                    _kvs_stat_get(handle->file, handle->kvs->id, &stat_ori);
+                    _kvs_stat_get(handle->file, handle->kvs->getKvsId(), &stat_ori);
                 } else {
                     _kvs_stat_get(handle->file, 0, &stat_ori);
                 }
@@ -1934,7 +1933,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     // multi KV instance mode
                     // clear only WAL items belonging to the instance
                     wal_close_kv_ins(handle->file,
-                                     (handle->kvs)?(handle->kvs->id):(0),
+                                     (handle->kvs) ? handle->kvs->getKvsId() : 0,
                                      &handle->log_callback);
                 } else {
                     wal_shutdown(handle->file, &handle->log_callback);
@@ -2048,7 +2047,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         } else { // Multi KV instance mode, populate specific kv stats
             memset(&handle->shandle->stat, 0x0,
                     sizeof(handle->shandle->stat));
-            _kvs_stat_get(handle->file, handle->kvs->id,
+            _kvs_stat_get(handle->file, handle->kvs->getKvsId(),
                     &handle->shandle->stat);
             // Since wal is restored below, we have to reset
             // wal stats to zero.
@@ -2143,7 +2142,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         // restore only docs belonging to the KV instance
         // handle->kvs should not be NULL
         _fdb_restore_wal(handle, FDB_RESTORE_KV_INS,
-                         hdr_bid, (handle->kvs)?(handle->kvs->id):(0));
+                         hdr_bid, (handle->kvs) ? handle->kvs->getKvsId() : 0);
     } else {
         // normal restore
         _fdb_restore_wal(handle, FDB_RESTORE_NORMAL, hdr_bid, 0);
@@ -2166,9 +2165,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 // Open the old file with read-only mode.
                 // (Temporarily disable log callback at this time since
                 //  the old file might be already removed.)
-                err_log_callback dummy_cb;
-                dummy_cb.callback = fdb_dummy_log_callback;
-                dummy_cb.ctx_data = NULL;
+                ErrLogCallback dummy_cb(fdb_dummy_log_callback, NULL);
                 fconfig.options = FILEMGR_READONLY;
                 filemgr_open_result result = filemgr_open(prev_filename,
                                                           handle->fileops,
@@ -2219,8 +2216,8 @@ fdb_status fdb_set_log_callback(fdb_kvs_handle *handle,
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    handle->log_callback.callback = log_callback;
-    handle->log_callback.ctx_data = ctx_data;
+    handle->log_callback.setCallback(log_callback);
+    handle->log_callback.setCtxData(ctx_data);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -2791,7 +2788,7 @@ void fdb_sync_db_header(fdb_kvs_handle *handle)
             if (handle->kvs) {
                 // multiple KV instance mode AND sub handle
                 handle->seqnum = fdb_kvs_get_seqnum(handle->file,
-                                                    handle->kvs->id);
+                                                    handle->kvs->getKvsId());
             } else {
                 // super handle OR single KV instance mode
                 handle->seqnum = filemgr_get_seqnum(handle->file);
@@ -2947,7 +2944,7 @@ fdb_status _fdb_get(fdb_kvs_handle *handle, fdb_doc *doc,
         int size_chunk = handle->config.chunksize;
         doc_kv.keylen = doc->keylen + size_chunk;
         doc_kv.key = alca(uint8_t, doc_kv.keylen);
-        kvid2buf(size_chunk, handle->kvs->id, doc_kv.key);
+        kvid2buf(size_chunk, handle->kvs->getKvsId(), doc_kv.key);
         memcpy((uint8_t*)doc_kv.key + size_chunk, doc->key, doc->keylen);
     }
 
@@ -3124,7 +3121,7 @@ fdb_status _fdb_get_byseq(fdb_kvs_handle *handle,
     size_t key_len = doc->keylen;
     doc->keylen = 0;
     if (handle->kvs) {
-        wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, &cmp_info,
+        wr = wal_find_kv_id(txn, wal_file, handle->kvs->getKvsId(), &cmp_info,
                             handle->shandle, doc, &offset);
     } else {
         wr = wal_find(txn, wal_file, &cmp_info, handle->shandle, doc, &offset);
@@ -3147,7 +3144,7 @@ fdb_status _fdb_get_byseq(fdb_kvs_handle *handle,
             hbtrie_result hr;
             fdb_kvs_id_t _kv_id;
 
-            _kv_id = _endian_encode(handle->kvs->id);
+            _kv_id = _endian_encode(handle->kvs->getKvsId());
             size_id = sizeof(fdb_kvs_id_t);
             size_seq = sizeof(fdb_seqnum_t);
             kv_seqnum = alca(uint8_t, size_id + size_seq);
@@ -3318,7 +3315,7 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
         if (handle->kvs) {
             fdb_kvs_id_t kv_id;
             buf2kvid(handle->config.chunksize, _doc.key, &kv_id);
-            if (kv_id != handle->kvs->id) {
+            if (kv_id != handle->kvs->getKvsId()) {
                 atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                 free_docio_object(&_doc, true, true, true);
                 return FDB_RESULT_KEY_NOT_FOUND;
@@ -3431,11 +3428,11 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
         _doc.length.keylen = doc->keylen + size_chunk;
         _doc.key = alca(uint8_t, _doc.length.keylen);
         // copy ID
-        kvid2buf(size_chunk, handle->kvs->id, _doc.key);
+        kvid2buf(size_chunk, handle->kvs->getKvsId(), _doc.key);
         // copy key
         memcpy((uint8_t*)_doc.key + size_chunk, doc->key, doc->keylen);
 
-        if (handle->kvs->type == KVS_SUB) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
             sub_handle = true;
         } else {
             sub_handle = false;
@@ -3479,11 +3476,11 @@ fdb_set_start:
             doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
             doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
         } else {
-            doc->seqnum = fdb_kvs_get_seqnum(file, handle->kvs->id) + 1;
+            doc->seqnum = fdb_kvs_get_seqnum(file, handle->kvs->getKvsId()) + 1;
         }
         if (handle->seqnum < doc->seqnum) { // keep handle's seqnum the highest
             handle->seqnum = doc->seqnum;
-            fdb_kvs_set_seqnum(file, handle->kvs->id, handle->seqnum);
+            fdb_kvs_set_seqnum(file, handle->kvs->getKvsId(), handle->seqnum);
         }
     } else {
         // super handle OR single KV instance mode
@@ -3725,7 +3722,7 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum)
     uint64_t _edn_safe_64;
     size_t offset = 0;
     struct filemgr *cur_file;
-    struct kvs_stat stat;
+    KvsStat stat;
 
     cur_file = handle->file;
 
@@ -3912,7 +3909,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle,
     LATENCY_STAT_START();
 
     if (handle->kvs) {
-        if (handle->kvs->type == KVS_SUB) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
             // deny commit on sub handle
             return FDB_RESULT_INVALID_HANDLE;
         }
@@ -4232,7 +4229,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     // Migrate the operational statistics to the new_file, because
     // from this point onward all callers will re-open new_file
-    handle->op_stats = filemgr_migrate_op_stats(old_file, new_file, handle->kvs);
+    handle->op_stats = filemgr_migrate_op_stats(old_file, new_file);
     fdb_assert(handle->op_stats, 0, 0);
 #ifdef _LATENCY_STATS
     // Migrate latency stats from old file to new file..
@@ -4317,7 +4314,7 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
     uint64_t cur_bmp_revnum = (uint64_t)-1;
     struct _fdb_key_cmp_info cmp_info;
     fdb_compact_decision decision;
-    err_log_callback *log_callback;
+    ErrLogCallback *log_callback;
     fdb_status fs = FDB_RESULT_SUCCESS;
 
     gettimeofday(&tv, NULL);
@@ -5310,7 +5307,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     filemgr_header_revnum_t old_hdr_revnum = 0;
     filemgr_header_revnum_t last_hdr_revnum, marker_revnum;
     filemgr_header_revnum_t last_wal_hdr_revnum;
-    err_log_callback *log_callback = &rhandle->log_callback;
+    ErrLogCallback *log_callback = &rhandle->log_callback;
     uint64_t version = 0;
     fdb_status fs;
 
@@ -5361,7 +5358,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     // First, move all the docs belonging to a given marker to the new file.
     fdb_kvs_handle handle, new_handle;
     struct snap_handle shandle;
-    struct kvs_info kvs;
+    KvsInfo kvs;
     fdb_kvs_config kvs_config = rhandle->kvs_config;
     fdb_config config = rhandle->config;
     struct filemgr *file = rhandle->file;
@@ -5369,7 +5366,6 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
 
     memset(&handle, 0, sizeof(fdb_kvs_handle));
     memset(&shandle, 0, sizeof(struct snap_handle));
-    memset(&kvs, 0, sizeof(struct kvs_info));
     // Setup a temporary handle to look like a snapshot of the old_file
     // at the compaction marker.
     handle.last_hdr_bid = old_hdr_bid; // Fast rewind on open
@@ -5812,7 +5808,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     fdb_kvs_handle new_handle;
     timestamp_t cur_timestamp;
     fdb_status fs = FDB_RESULT_SUCCESS;
-    err_log_callback *log_callback;
+    ErrLogCallback *log_callback;
     uint8_t *hdr_buf = alca(uint8_t, blocksize);
 
     bid_t compactor_bid_prev, writer_bid_prev;
@@ -5976,12 +5972,12 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
         } else {
             bool first_doc_in_block = true;
             uint64_t offset_original = offset;
-            err_log_callback *original_cb;
-            err_log_callback dummy_cb;
+            ErrLogCallback *original_cb;
+            ErrLogCallback dummy_cb;
 
             original_cb = handle->dhandle->log_callback;
-            dummy_cb.callback = fdb_dummy_log_callback;
-            dummy_cb.ctx_data = NULL;
+            dummy_cb.setCallback(fdb_dummy_log_callback);
+            dummy_cb.setCtxData(NULL);
 
             do {
                 int64_t _offset;
@@ -6266,7 +6262,7 @@ fdb_status _fdb_compact_file_checks(fdb_kvs_handle *handle,
     }
 
     if (handle->kvs) {
-        if (handle->kvs->type == KVS_SUB) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
             // deny compaction on sub handle
             return FDB_RESULT_INVALID_HANDLE;
         }
@@ -6334,7 +6330,7 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
     struct btree *new_seqtree = NULL, *old_seqtree;
     struct btree *new_staletree = NULL, *old_staletree;
     struct hbtrie *new_seqtrie = NULL;
-    struct kvs_stat kvs_stat;
+    KvsStat kvs_stat;
     filemgr_open_result result;
     size_t filename_len;
     // Copy the incoming handle into the handle that is being reset
@@ -6497,8 +6493,7 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
 
     // reset in-memory stats and values
     handle->seqnum = 0;
-    memset(&kvs_stat, 0, sizeof(struct kvs_stat));
-    _kvs_stat_set(handle->file, handle->kvs ? handle->kvs->id : 0, kvs_stat);
+    _kvs_stat_set(handle->file, handle->kvs ? handle->kvs->getKvsId() : 0, kvs_stat);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -7208,9 +7203,9 @@ fdb_status _fdb_close_root(fdb_kvs_handle *handle)
         return FDB_RESULT_SUCCESS;
     }
     if (handle->kvs) {
-        if (handle->kvs->type == KVS_SUB) {
+        if (handle->kvs->getKvsType() == KVS_SUB) {
             return fdb_kvs_close(handle);
-        } else if (handle->kvs->type == KVS_ROOT) {
+        } else if (handle->kvs->getKvsType() == KVS_ROOT) {
             // close all sub-handles
             fs = fdb_kvs_close_all(handle);
             if (fs != FDB_RESULT_SUCCESS) {
@@ -7911,9 +7906,9 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "kvs_config: Create if missing = %d\n",
            h->kvs_config.create_if_missing);
 
-    fprintf(stderr, "kvs: id = %" _F64 "\n", h->kvs->id);
-    fprintf(stderr, "kvs: type = %d\n", h->kvs->type);
-    fprintf(stderr, "kvs: root_handle %p\n", (void *)h->kvs->root);
+    fprintf(stderr, "kvs: id = %" _F64 "\n", h->kvs->getKvsId());
+    fprintf(stderr, "kvs: type = %d\n", h->kvs->getKvsType());
+    fprintf(stderr, "kvs: root_handle %p\n", (void *)h->kvs->getRootHandle());
 
     fprintf(stderr, "fdb_file_handle: %p\n", (void *)h->fhandle);
     fprintf(stderr, "fhandle: root %p\n", (void*)h->fhandle->root);

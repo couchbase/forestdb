@@ -34,9 +34,9 @@ void bgflusher_init(struct bgflusher_config *config);
 void bgflusher_shutdown();
 fdb_status bgflusher_register_file(struct filemgr *file,
                                    fdb_config *config,
-                                   err_log_callback *log_callback);
+                                   ErrLogCallback *log_callback);
 void bgflusher_switch_file(struct filemgr *old_file, struct filemgr *new_file,
-                           err_log_callback *log_callback);
+                           ErrLogCallback *log_callback);
 void bgflusher_deregister_file(struct filemgr *file);
 
 #ifdef __cplusplus

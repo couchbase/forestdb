@@ -51,7 +51,7 @@ struct btreeblk_handle{
     struct list alc_list;
     struct list read_list;
     struct filemgr *file;
-    err_log_callback *log_callback;
+    ErrLogCallback *log_callback;
 
 #ifdef __BTREEBLK_READ_TREE
     struct avl_tree read_tree;

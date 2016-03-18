@@ -108,7 +108,7 @@ struct snap_handle {
     /**
      * Local DB stats for cloned snapshots
      */
-    struct kvs_stat stat;
+    KvsStat stat;
     /**
      * Custom compare function context and callback set by user.
      * TODO: Store original pointer on which snapshot was taken & use to clone
@@ -275,7 +275,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                              struct filemgr *new_file,
                              wal_doc_move_func *move_doc);
 fdb_status wal_commit(fdb_txn *txn, struct filemgr *file, wal_commit_mark_func *func,
-                      err_log_callback *log_callback);
+                      ErrLogCallback *log_callback);
 fdb_status wal_release_flushed_items(struct filemgr *file,
                                      union wal_flush_items *flush_items);
 
@@ -387,7 +387,7 @@ fdb_status wal_snapshot_close(struct snap_handle *shandle,
  * @param shandle - the WAL snapshot handle
  * @param stat - (OUT) returned stat
  */
-fdb_status snap_get_stat(struct snap_handle *shandle, struct kvs_stat *stat);
+fdb_status snap_get_stat(struct snap_handle *shandle, KvsStat *stat);
 
 /**
  * Persisted snapshots opened from disk needs to have its own immutable tree
@@ -467,8 +467,8 @@ struct wal_item *wal_itr_last(struct wal_iterator *wal_itr);
 fdb_status wal_itr_close(struct wal_iterator *wal_itr);
 
 fdb_status wal_discard(struct filemgr *file, fdb_txn *txn);
-fdb_status wal_close(struct filemgr *file, err_log_callback *log_callback);
-fdb_status wal_shutdown(struct filemgr *file, err_log_callback *log_callback);
+fdb_status wal_close(struct filemgr *file, ErrLogCallback *log_callback);
+fdb_status wal_shutdown(struct filemgr *file, ErrLogCallback *log_callback);
 
 /**
  * Free memory associated with wal data structures.
@@ -476,7 +476,7 @@ fdb_status wal_shutdown(struct filemgr *file, err_log_callback *log_callback);
 fdb_status wal_destroy(struct filemgr *file);
 
 fdb_status wal_close_kv_ins(struct filemgr *file,
-                            fdb_kvs_id_t kv_id, err_log_callback *log_callback);
+                            fdb_kvs_id_t kv_id, ErrLogCallback *log_callback);
 
 size_t wal_get_size(struct filemgr *file);
 size_t wal_get_num_shards(struct filemgr *file);
