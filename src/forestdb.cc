@@ -1099,7 +1099,7 @@ fdb_snapshot_open_start:
                 // increase ref count for dirty update
                 struct filemgr_dirty_update_node *dirty_update;
                 dirty_update = btreeblk_get_dirty_update(handle_in->bhandle);
-                filemgr_dirty_update_inc_ref_count(handle_in->file, dirty_update);
+                filemgr_dirty_update_inc_ref_count(dirty_update);
                 btreeblk_set_dirty_update(handle->bhandle, dirty_update);
             }
         }
@@ -7824,7 +7824,7 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->root_bid);
 
     fprintf(stderr, "file: filename %s\n", h->file->filename);
-    fprintf(stderr, "file: ref_count %d\n", h->file->ref_count);
+    fprintf(stderr, "file: ref_count %d\n", atomic_get_uint32_t(&h->file->ref_count));
     fprintf(stderr, "file: fflags %x\n", h->file->fflags);
     fprintf(stderr, "file: blocksize %d\n", h->file->blocksize);
     fprintf(stderr, "file: fd %d\n", h->file->fd);

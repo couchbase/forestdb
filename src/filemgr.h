@@ -175,7 +175,7 @@ typedef struct {
 
 struct filemgr {
     char *filename; // Current file name.
-    uint32_t ref_count;
+    atomic_uint32_t ref_count;
     uint8_t fflags;
     uint16_t filename_len;
     uint32_t blocksize;
@@ -265,7 +265,7 @@ struct filemgr_dirty_update_node {
     // flag indicating if this set of dirty blocks can be accessible.
     bool immutable;
     // number of threads (snapshots) accessing this dirty block set.
-    uint32_t ref_count;
+    atomic_uint32_t ref_count;
     // dirty root node BID for ID tree
     bid_t idtree_root;
     // dirty root node BID for sequence tree
@@ -311,9 +311,7 @@ bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
 size_t filemgr_get_ref_count(struct filemgr *file);
 
 INLINE void filemgr_incr_ref_count(struct filemgr *file) {
-    spin_lock(&file->lock);
-    ++file->ref_count;
-    spin_unlock(&file->lock);
+    atomic_incr_uint32_t(&file->ref_count);
 }
 
 filemgr_open_result filemgr_open(char *filename,
@@ -689,12 +687,10 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(struct filemgr
 /**
  * Increase the reference counter for the given dirty update entry.
  *
- * @param file Pointer to filemgr handle.
  * @param node Pointer to dirty update entry to increase reference counter.
  * @return void.
  */
-void filemgr_dirty_update_inc_ref_count(struct filemgr *file,
-                                        struct filemgr_dirty_update_node *node);
+void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node);
 
 /**
  * Commit the latest complete dirty update entry and write back all updated

@@ -557,7 +557,7 @@ size_t filemgr_get_ref_count(struct filemgr *file)
 {
     size_t ret = 0;
     spin_lock(&file->lock);
-    ret = file->ref_count;
+    ret = atomic_get_uint32_t(&file->ref_count);
     spin_unlock(&file->lock);
     return ret;
 }
@@ -739,7 +739,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         file = _get_entry(e, struct filemgr, e);
 
         spin_lock(&file->lock);
-        file->ref_count++;
+        atomic_incr_uint32_t(&file->ref_count);
 
         if (atomic_get_uint8_t(&file->status) == FILE_CLOSED) { // if file was closed before
             file_flag = O_RDWR;
@@ -772,7 +772,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 } else {
                     _log_errno_str(file->ops, log_callback,
                                   (fdb_status)file->fd, "OPEN", filename);
-                    file->ref_count--;
+                    atomic_decr_uint32_t(&file->ref_count);
                     spin_unlock(&file->lock);
                     spin_unlock(&filemgr_openlock);
                     result.rv = file->fd;
@@ -826,7 +826,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->filename = (char*)malloc(file->filename_len + 1);
     strcpy(file->filename, filename);
 
-    file->ref_count = 1;
+    atomic_init_uint32_t(&file->ref_count, 1);
     file->stale_list = NULL;
 
     status = fdb_init_encryptor(&file->encryption, &config->encryption_key);
@@ -1406,7 +1406,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
-    if (--(file->ref_count) == 0) {
+    if (atomic_decr_uint32_t(&file->ref_count) == 0) {
         if (global_config.ncacheblock > 0 &&
             atomic_get_uint8_t(&file->status) != FILE_REMOVED_PENDING) {
             spin_unlock(&file->lock);
@@ -1490,7 +1490,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                         elem_old = hash_find(&hash, &query_old.e);
                         if (elem_old) {
                             old_file = _get_entry(elem_old, struct filemgr, e);
-                            old_file_refcount = old_file->ref_count;
+                            old_file_refcount = atomic_get_uint32_t(&old_file->ref_count);
                         }
                     }
 
@@ -1649,7 +1649,7 @@ void filemgr_remove_file(struct filemgr *file, err_log_callback *log_callback)
 {
     struct hash_elem *ret;
 
-    if (!file || file->ref_count > 0) {
+    if (!file || atomic_get_uint32_t(&file->ref_count) > 0) {
         return;
     }
 
@@ -1673,7 +1673,7 @@ void *_filemgr_is_closed(struct hash_elem *h, void *ctx) {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
     void *ret;
     spin_lock(&file->lock);
-    if (file->ref_count != 0) {
+    if (atomic_get_uint32_t(&file->ref_count) != 0) {
         ret = (void *)file;
     } else {
         ret = NULL;
@@ -2430,7 +2430,8 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
             file->old_filename = old_filename;
         } else {
             ret = 0;
-            fdb_assert(file->ref_count, file->ref_count, 0);
+            fdb_assert(atomic_get_uint32_t(&file->ref_count),
+                       atomic_get_uint32_t(&file->ref_count), 0);
         }
     }
     spin_unlock(&file->lock);
@@ -2479,7 +2480,7 @@ void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
         // Incrementing reference counter below is the same as filemgr_open()
         // We need to do this to ensure that the pointer returned does not
         // get freed outside the filemgr_open lock
-        file->ref_count++;
+        atomic_incr_uint32_t(&file->ref_count);
         spin_unlock(&file->lock);
         return (void *)file;
     }
@@ -2541,7 +2542,7 @@ void filemgr_remove_pending(struct filemgr *old_file,
     }
 
     spin_lock(&old_file->lock);
-    if (old_file->ref_count > 0) {
+    if (atomic_get_uint32_t(&old_file->ref_count) > 0) {
         // delay removing
         old_file->new_file = new_file;
         atomic_store_uint8_t(&old_file->status, FILE_REMOVED_PENDING);
@@ -2624,7 +2625,7 @@ fdb_status filemgr_destroy_file(char *filename,
         file = _get_entry(e, struct filemgr, e);
 
         spin_lock(&file->lock);
-        if (file->ref_count) {
+        if (atomic_get_uint32_t(&file->ref_count)) {
             spin_unlock(&file->lock);
             status = FDB_RESULT_FILE_IS_BUSY;
             if (!destroy_file_set) { // top level or non-recursive call
@@ -3179,7 +3180,7 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *
            calloc(1, sizeof(struct filemgr_dirty_update_node));
     node->id = ++file->dirty_update_counter;
     node->immutable = false; // currently being written
-    node->ref_count = 0;
+    atomic_init_uint32_t(&node->ref_count, 0);
     node->idtree_root = node->seqtree_root = BLK_NOT_FOUND;
     avl_init(&node->dirty_blocks, NULL);
 
@@ -3199,23 +3200,19 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(struct filemgr
 
     node = file->latest_dirty_update;
     if (node) {
-        node->ref_count++;
+        atomic_incr_uint32_t(&node->ref_count);
     }
 
     spin_unlock(&file->dirty_update_lock);
     return node;
 }
 
-void filemgr_dirty_update_inc_ref_count(struct filemgr *file,
-                                        struct filemgr_dirty_update_node *node)
+void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node)
 {
-    if (!node ) {
+    if (!node) {
         return;
     }
-
-    spin_lock(&file->dirty_update_lock);
-    node->ref_count++;
-    spin_unlock(&file->dirty_update_lock);
+    atomic_incr_uint32_t(&node->ref_count);
 }
 
 INLINE void filemgr_dirty_update_flush(struct filemgr *file,
@@ -3265,7 +3262,7 @@ void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_cal
             }
 
             a = avl_prev(a);
-            if (node->ref_count == 0) {
+            if (atomic_get_uint32_t(&node->ref_count) == 0) {
                 _filemgr_dirty_update_remove_node(file, node);
             }
         } else {
@@ -3301,7 +3298,7 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
 
         prev_node = _get_entry(a_prev, struct filemgr_dirty_update_node, avl);
 
-        if (prev_node->immutable && prev_node->ref_count == 1) {
+        if (prev_node->immutable && atomic_get_uint32_t(&prev_node->ref_count) == 1) {
             // only the current thread is referring this dirty update entry.
             // we don't need to copy blocks; just migrate them directly.
             migration = true;
@@ -3354,7 +3351,7 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
             break;
         }
         a = avl_next(a);
-        if (cur_node->immutable && cur_node->ref_count == 0 &&
+        if (cur_node->immutable && atomic_get_uint32_t(&cur_node->ref_count) == 0 &&
             cur_node != file->latest_dirty_update) {
             _filemgr_dirty_update_remove_node(file, cur_node);
         }
@@ -3408,7 +3405,7 @@ void filemgr_dirty_update_close_node(struct filemgr *file,
     }
 
     spin_lock(&file->dirty_update_lock);
-    node->ref_count--;
+    atomic_decr_uint32_t(&node->ref_count);
 
     // remove all previous dirty updates whose ref_count == 0
     // (including 'node' only when 'node' is not the last immutable node)
@@ -3419,7 +3416,7 @@ void filemgr_dirty_update_close_node(struct filemgr *file,
             escape = true;
         }
         a = avl_next(a);
-        if (cur_node->immutable && cur_node->ref_count == 0 &&
+        if (cur_node->immutable && atomic_get_uint32_t(&cur_node->ref_count) == 0 &&
             cur_node != file->latest_dirty_update) {
             _filemgr_dirty_update_remove_node(file, cur_node);
         }
