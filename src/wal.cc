@@ -1892,11 +1892,6 @@ fdb_status wal_snapshot_close(struct snap_handle *shandle,
         struct avl_node *a, *nexta;
         if (!shandle->is_persisted_snapshot &&
             shandle->snap_tag_idx) { // the KVS did have items in WAL..
-            spin_lock(&file->wal->lock);
-            DBG("%s Snap close %" _F64 " to %" _F64 " kv_id %" _F64 "\n",
-                file->filename,
-                shandle->snap_stop_idx, shandle->snap_tag_idx, shandle->id);
-            spin_unlock(&file->wal->lock);
             return FDB_RESULT_SUCCESS;
         }
         for (a = avl_first(&shandle->key_tree);
