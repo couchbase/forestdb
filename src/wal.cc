@@ -1338,7 +1338,21 @@ static int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
         } else if (aa->offset > bb->offset) {
             return 1;
         } else {
-            return 0;
+            // Note: get_old_offset() may return same old_offset on different keys;
+            // this is because hbtrie_find_offset() (internally called by
+            // get_old_offset()) does not compare entire key string but just prefix
+            // only due to performance issue.
+            // As a result, this case (keys are different but both old_offset and
+            // offset are same) very rarely happens and causes crash.
+            // In this case, we need to additionally compare sequence numbers
+            // to distinguish those two different items.
+            if (aa->seqnum < bb->seqnum) {
+                return -1;
+            } else if (aa->seqnum > bb->seqnum) {
+                return 1;
+            } else {
+                return 0;
+            }
         }
     }
 }
