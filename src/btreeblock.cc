@@ -176,7 +176,7 @@ INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
     // To avoid this issue, populate block cache for the given BID before use it.
     uint8_t marker = BLK_MARKER_BNODE;
     filemgr_write_offset(handle->file, block->bid, handle->file->blocksize - 1,
-                         1, &marker, false, handle->log_callback);
+                         1, &marker, handle->log_callback);
 
 #ifdef __CRC32
     memset((uint8_t *)block->addr + handle->nodesize - BLK_MARKER_SIZE,
