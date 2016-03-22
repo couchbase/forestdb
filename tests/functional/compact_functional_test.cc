@@ -3185,6 +3185,30 @@ void compact_with_snapshot_open_multi_kvs_test()
     TEST_RESULT("compact with snapshot_open multi kvs test");
 }
 
+
+static bool cancel_test_signal_begin = false;
+static bool cancel_test_signal_end = false;
+static int cb_cancel_test(fdb_file_handle *fhandle,
+                          fdb_compaction_status status, const char *kv_name,
+                          fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
+                          void *ctx)
+{
+    (void) fhandle;
+    (void) kv_name;
+    (void) doc;
+    (void) old_offset;
+    (void) new_offset;
+    (void) ctx;
+
+    if (status == FDB_CS_BEGIN) {
+        cancel_test_signal_begin = true;
+    } else if (status == FDB_CS_END) {
+        cancel_test_signal_end = true;
+    }
+
+    return 0;
+}
+
 void *db_compact_during_compaction_cancellation(void *args)
 {
 
@@ -3196,12 +3220,17 @@ void *db_compact_during_compaction_cancellation(void *args)
 
     // Open Database File
     config = fdb_get_default_config();
+    config.compaction_cb = cb_cancel_test;
+    config.compaction_cb_ctx = NULL;
+    config.compaction_cb_mask = FDB_CS_BEGIN | FDB_CS_END;
+
     status = fdb_open(&dbfile, "compact_test", &config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     // compaction thread enters here
     status = fdb_compact(dbfile, NULL);
     TEST_CHK(status == FDB_RESULT_SUCCESS ||
-             status == FDB_RESULT_COMPACTION_CANCELLATION);
+             status == FDB_RESULT_COMPACTION_CANCELLATION ||
+             status == FDB_RESULT_FAIL_BY_ROLLBACK);
     fdb_close(dbfile);
 
     // shutdown
@@ -3209,13 +3238,18 @@ void *db_compact_during_compaction_cancellation(void *args)
     return NULL;
 }
 
-void compaction_cancellation_test()
+typedef enum {
+    COMPACTION_CANCEL_MODE = 0,
+    COMPACTION_ROLLBACK_MODE = 1
+} compaction_test_mode;
+
+void compaction_cancellation_test(compaction_test_mode mode)
 {
     TEST_INIT();
 
     memleak_start();
 
-    int i, r;
+    int i, r, n=100000;
     fdb_file_handle *file;
     fdb_kvs_handle *kvs;
     fdb_status status;
@@ -3236,7 +3270,7 @@ void compaction_cancellation_test()
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // Load kv pairs
-    for(i=0;i<100000;i++) {
+    for(i=0;i<n;i++) {
         char str[15];
         sprintf(str, "%d", i);
         status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
@@ -3250,11 +3284,49 @@ void compaction_cancellation_test()
 
     thread_t tid;
     void *thread_ret;
+    bool rollback_failed = false;
+
     thread_create(&tid, db_compact_during_compaction_cancellation, NULL);
-    usleep(10000); // Sleep for 10ms
-    // Cancel the compaction task
-    status = fdb_cancel_compaction(file);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // wait until compaction begins
+    while (!cancel_test_signal_begin) {
+        usleep(1000); // Sleep for 1ms
+    }
+
+    if (mode == COMPACTION_ROLLBACK_MODE) {
+        // append more mutations
+        for(i=0;i<n/10;i++) {
+            char str[15];
+            sprintf(str, "%d", i);
+            status = fdb_set_kv(kvs, str, strlen(str), (void*)"value", 5);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            // Commit every 100 SETs
+            if (i % 100 == 0) {
+                status = fdb_commit(file, FDB_COMMIT_NORMAL);
+                TEST_CHK(status == FDB_RESULT_SUCCESS);
+            }
+        }
+    }
+
+    if (mode == COMPACTION_CANCEL_MODE) {
+        // Cancel the compaction task
+        status = fdb_cancel_compaction(file);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    } else if (mode == COMPACTION_ROLLBACK_MODE) {
+        // Rollback
+
+        // wait until the 1st phase is done
+        while (!cancel_test_signal_end) {
+            usleep(1000); // Sleep for 1ms
+        }
+
+        status = fdb_rollback(&kvs, n/2 + 1);
+        if (status != FDB_RESULT_SUCCESS) {
+            // if compactor thread is done before reaching this line,
+            // rollback may fail.
+            rollback_failed = true;
+        }
+    }
     // join compactor
     thread_join(tid, &thread_ret);
 
@@ -3264,11 +3336,24 @@ void compaction_cancellation_test()
     char key[15];
     void *value;
     size_t val_size;
-    for(i=0;i<100000;i++) {
+
+    for(i=0;i<n;i++) {
         sprintf(key, "%d", i);
         status = fdb_get_kv(kvs, key, strlen(key), &value, &val_size);
-        TEST_CHK(status == FDB_RESULT_SUCCESS);
-        fdb_free_block(value);
+        if (mode == COMPACTION_CANCEL_MODE) {
+            // compaction cancel mode: all docs should be retrieved
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+            fdb_free_block(value);
+        } else if (mode == COMPACTION_ROLLBACK_MODE) {
+            // rollback mode: only the first half docs should be retrieved
+            if (i<=n/2 || rollback_failed) {
+                // if rollback failed, all doc should be retrieved
+                TEST_CHK(status == FDB_RESULT_SUCCESS);
+                fdb_free_block(value);
+            } else {
+                TEST_CHK(status != FDB_RESULT_SUCCESS);
+            }
+        }
     }
 
     status = fdb_close(file);
@@ -3278,7 +3363,11 @@ void compaction_cancellation_test()
 
     memleak_end();
 
-    TEST_RESULT("compaction cancellation test");
+    if (mode == COMPACTION_CANCEL_MODE) {
+        TEST_RESULT("compaction cancellation test");
+    } else if (mode == COMPACTION_ROLLBACK_MODE) {
+        TEST_RESULT("rollback during the 2nd phase of compaction test");
+    }
 }
 
 int main(){
@@ -3315,7 +3404,8 @@ int main(){
     auto_compaction_with_custom_cmp_function();
     compaction_daemon_test(20);
     auto_compaction_with_concurrent_insert_test(20);
-    compaction_cancellation_test();
+    compaction_cancellation_test(COMPACTION_CANCEL_MODE);
+    compaction_cancellation_test(COMPACTION_ROLLBACK_MODE);
 
     return 0;
 }

@@ -6118,7 +6118,31 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                     offset = _offset;
                     break;
                 }
+
+                // If the rollback operation is issued, abort the compaction task.
+                if (filemgr_is_rollback_on(handle->file)) {
+                    fs = FDB_RESULT_FAIL_BY_ROLLBACK;
+                    break;
+                }
+                if (filemgr_is_compaction_cancellation_requested(handle->file)) {
+                    fs = FDB_RESULT_COMPACTION_CANCELLATION;
+                    break;
+                }
+
             } while (offset + sizeof(struct docio_length) < doc_scan_limit);
+
+            if (fs == FDB_RESULT_FAIL_BY_ROLLBACK ||
+                fs == FDB_RESULT_COMPACTION_CANCELLATION) {
+                // abort compaction
+                for (size_t i = 0; i < c; ++i) {
+                    free(doc[i].key);
+                    free(doc[i].meta);
+                    free(doc[i].body);
+                }
+                free(doc);
+                free(old_offset_array);
+                return fs;
+            }
 
             // Due to non-consecutive doc blocks, offset value may decrease
             // and cause an infinite loop. To avoid this issue, we have to
@@ -6214,6 +6238,12 @@ static int64_t _fdb_doc_move(void *dbhandle,
 fdb_status _fdb_compact_file_checks(fdb_kvs_handle *handle,
                                     const char *new_filename)
 {
+    // First of all, update the handle for the case
+    // that compaction by other thread is already done
+    // (REMOVED_PENDING status).
+    fdb_check_file_reopen(handle, NULL);
+    fdb_sync_db_header(handle);
+
     // if the file is already compacted by other thread
     if (filemgr_get_file_status(handle->file) != FILE_NORMAL ||
         handle->file->new_file) {
