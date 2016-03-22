@@ -445,6 +445,80 @@ void config_test()
     TEST_RESULT("forestdb config test");
 }
 
+void delete_reopen_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    fdb_file_handle *fh;
+    fdb_kvs_handle *db;
+    fdb_status status;
+    fdb_config fconfig;
+
+    r = system(SHELL_DEL " dummy* > errorlog.txt");
+    (void)r;
+
+    fconfig = fdb_get_default_config();
+    fconfig.buffercache_size = 0;
+    fconfig.num_compactor_threads = 1;
+    status = fdb_open(&fh, "./dummy3", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_kvs_open_default(fh, &db, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_begin_transaction(fh, FDB_ISOLATION_READ_COMMITTED);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_set_kv(db, (void *) "foo", 3, (void *)"value", 5);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_end_transaction(fh, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    void *value;
+    size_t valueSize;
+    status = fdb_get_kv(db, (void*)"foo", 3, &value, &valueSize);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    TEST_CHK(valueSize == 5);
+    TEST_CMP(value, "value", 5);
+
+    status = fdb_begin_transaction(fh, FDB_ISOLATION_READ_COMMITTED);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_del_kv(db, "foo", 3);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_end_transaction(fh, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_kv(db, "foo", 3, &value, &valueSize);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+    status = fdb_close(fh);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Reopen:
+    status = fdb_open(&fh, "./dummy3", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_kvs_open_default(fh, &db, NULL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_get_kv(db, "foo", 3, &value, &valueSize);
+    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+
+    status = fdb_close(fh);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("end trans delete & reopen passed");
+}
+
 void deleted_doc_get_api_test()
 {
     TEST_INIT();
@@ -4446,6 +4520,7 @@ int main(){
     init_test();
     set_get_max_keylen();
     config_test();
+    delete_reopen_test();
     deleted_doc_get_api_test();
     deleted_doc_stat_test();
     complete_delete_test();

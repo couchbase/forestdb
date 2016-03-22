@@ -215,7 +215,6 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                             //  the file before calling wal_insert()).
                             filemgr_mark_stale(file, offset, doc_size_ondisk);
                         }
-                        offset = 0; // must process these first
                         doc_size_ondisk = 0;
                     }
                 } else {
@@ -263,7 +262,6 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                         //  the file before calling wal_insert()).
                         filemgr_mark_stale(file, offset, doc->size_ondisk);
                     }
-                    offset = 0; // must process these first
                 }
             } else {
                 item->action = WAL_ACT_INSERT;
@@ -334,7 +332,6 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                     //  calling wal_insert()).
                     filemgr_mark_stale(file, offset, doc->size_ondisk);
                 }
-                offset = 0; // must process these first
             }
         } else {
             item->action = WAL_ACT_INSERT;
@@ -1100,6 +1097,7 @@ fdb_status wal_snapshot(struct filemgr *file,
     fdb_seqnum_t copy_upto = *upto_seq;
     fdb_seqnum_t copied_seq = 0;
     fdb_doc doc;
+    uint64_t offset;
     size_t i = 0;
     size_t num_shards = file->wal->num_shards;
 
@@ -1164,9 +1162,14 @@ fdb_status wal_snapshot(struct filemgr *file,
                 doc.key = malloc(doc.keylen); // (freed in fdb_snapshot_close)
                 memcpy(doc.key, item->header->key, doc.keylen);
                 doc.seqnum = item->seqnum;
-                doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
-                               item->action == WAL_ACT_REMOVE);
-                snapshot_func(dbhandle, &doc, item->offset);
+                if (item->action == WAL_ACT_INSERT) {
+                    doc.deleted = false;
+                    offset = item->offset;
+                } else {
+                    doc.deleted = true;
+                    offset = 0;
+                }
+                snapshot_func(dbhandle, &doc, offset);
                 if (doc.seqnum > copied_seq) {
                     copied_seq = doc.seqnum;
                 }
