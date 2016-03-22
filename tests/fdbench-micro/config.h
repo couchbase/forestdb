@@ -15,6 +15,10 @@
  *   limitations under the License.
  */
 
+#ifdef __sun
+#include <alloca.h>
+#endif
+
 #include <libforestdb/forestdb.h>
 
 #include <string>
