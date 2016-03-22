@@ -579,7 +579,6 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                             //  the file before calling wal_insert()).
                             filemgr_mark_stale(file, offset, doc_size_ondisk);
                         }
-                        offset = 0; // must process these first
                         doc_size_ondisk = 0;
                     }
                 } else {
@@ -636,7 +635,6 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                         //  the file before calling wal_insert()).
                         filemgr_mark_stale(file, offset, doc->size_ondisk);
                     }
-                    offset = 0; // must process these first
                 }
             } else {
                 if (item->txn == &file->global_txn) {
@@ -716,7 +714,6 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                     //  calling wal_insert()).
                     filemgr_mark_stale(file, offset, doc->size_ondisk);
                 }
-                offset = 0; // must process these first
             }
         } else {
             if (item->txn == &file->global_txn) {
@@ -1641,9 +1638,6 @@ static fdb_status _wal_flush(struct filemgr *file,
                         spin_lock(&file->wal->key_shards[i].lock);
                         if (item->old_offset == 0 && // doc not in main index
                             item->action == WAL_ACT_REMOVE) {// insert & delete
-                            // just assign unique value to offsets to ensure
-                            // items don't get de-duplicated in avl_flush tree
-                            item->offset = (uint64_t)item;
                             item->old_offset = BLK_NOT_FOUND;
                         }
                         if (do_sort) {
