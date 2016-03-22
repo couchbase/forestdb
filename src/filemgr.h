@@ -241,7 +241,7 @@ struct filemgr {
     // in-memory index for a set of dirty index block updates
     struct avl_tree dirty_update_idx;
     // counter for the set of dirty index updates
-    uint64_t dirty_update_counter;
+    atomic_uint64_t dirty_update_counter;
     // latest dirty (immutable but not committed yet) update
     struct filemgr_dirty_update_node *latest_dirty_update;
     // spin lock for dirty_update_idx
@@ -258,8 +258,12 @@ struct filemgr {
 };
 
 struct filemgr_dirty_update_node {
-    // AVL-tree element
-    struct avl_node avl;
+    union {
+        // AVL-tree element
+        struct avl_node avl;
+        // list element
+        struct list_elem le;
+    };
     // ID from the counter number
     uint64_t id;
     // flag indicating if this set of dirty blocks can be accessible.

@@ -3137,7 +3137,7 @@ void filemgr_dirty_update_init(struct filemgr *file)
 {
     avl_init(&file->dirty_update_idx, NULL);
     spin_init(&file->dirty_update_lock);
-    file->dirty_update_counter = 0;
+    atomic_init_uint64_t(&file->dirty_update_counter, 0);
     file->latest_dirty_update = NULL;
 }
 
@@ -3149,6 +3149,7 @@ void filemgr_dirty_update_free(struct filemgr *file)
     while (a) {
         node = _get_entry(a, struct filemgr_dirty_update_node, avl);
         a = avl_next(a);
+        avl_remove(&file->dirty_update_idx, &node->avl);
         _filemgr_dirty_update_remove_node(file, node);
     }
     spin_destroy(&file->dirty_update_lock);
@@ -3178,7 +3179,7 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *
 
     node = (struct filemgr_dirty_update_node *)
            calloc(1, sizeof(struct filemgr_dirty_update_node));
-    node->id = ++file->dirty_update_counter;
+    node->id = atomic_incr_uint64_t(&file->dirty_update_counter);
     node->immutable = false; // currently being written
     atomic_init_uint32_t(&node->ref_count, 0);
     node->idtree_root = node->seqtree_root = BLK_NOT_FOUND;
@@ -3242,6 +3243,10 @@ void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_cal
     bool flushed = false;
     struct avl_node *a;
     struct filemgr_dirty_update_node *node;
+    struct list remove_queue;
+    struct list_elem *le;
+
+    list_init(&remove_queue);
 
     spin_lock(&file->dirty_update_lock);
 
@@ -3263,7 +3268,9 @@ void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_cal
 
             a = avl_prev(a);
             if (atomic_get_uint32_t(&node->ref_count) == 0) {
-                _filemgr_dirty_update_remove_node(file, node);
+                // detach from tree and insert into remove queue
+                avl_remove(&file->dirty_update_idx, &node->avl);
+                list_push_front(&remove_queue, &node->le);
             }
         } else {
             a = avl_prev(a);
@@ -3271,8 +3278,14 @@ void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_cal
     }
 
     file->latest_dirty_update = NULL;
-
     spin_unlock(&file->dirty_update_lock);
+
+    le = list_begin(&remove_queue);
+    while (le) {
+        node = _get_entry(le, struct filemgr_dirty_update_node, le);
+        le = list_remove(&remove_queue, &node->le);
+        _filemgr_dirty_update_remove_node(file, node);
+    }
 }
 
 void filemgr_dirty_update_set_immutable(struct filemgr *file,
@@ -3280,10 +3293,14 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
 {
     struct avl_node *a, *a_prev;
     struct filemgr_dirty_update_node *cur_node, *prev_node;
+    struct list remove_queue;
+    struct list_elem *le;
 
     if (!node) {
         return;
     }
+
+    list_init(&remove_queue);
 
     spin_lock(&file->dirty_update_lock);
     node->immutable = true;
@@ -3352,12 +3369,21 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
         }
         a = avl_next(a);
         if (cur_node->immutable && atomic_get_uint32_t(&cur_node->ref_count) == 0 &&
-            cur_node != file->latest_dirty_update) {
-            _filemgr_dirty_update_remove_node(file, cur_node);
+            cur_node != node) {
+            // detach from tree and insert into remove queue
+            avl_remove(&file->dirty_update_idx, &cur_node->avl);
+            list_push_front(&remove_queue, &cur_node->le);
         }
     }
 
     spin_unlock(&file->dirty_update_lock);
+
+    le = list_begin(&remove_queue);
+    while (le) {
+        cur_node = _get_entry(le, struct filemgr_dirty_update_node, le);
+        le = list_remove(&remove_queue, &cur_node->le);
+        _filemgr_dirty_update_remove_node(file, cur_node);
+    }
 }
 
 static void _filemgr_dirty_update_remove_node(struct filemgr *file,
@@ -3369,8 +3395,6 @@ static void _filemgr_dirty_update_remove_node(struct filemgr *file,
     if (!node) {
         return;
     }
-
-    avl_remove(&file->dirty_update_idx, &node->avl);
 
     // free all dirty blocks belonging to this node
     a = avl_first(&node->dirty_blocks);
@@ -3389,43 +3413,22 @@ void filemgr_dirty_update_remove_node(struct filemgr *file,
                                       struct filemgr_dirty_update_node *node)
 {
     spin_lock(&file->dirty_update_lock);
-    _filemgr_dirty_update_remove_node(file, node);
+    avl_remove(&file->dirty_update_idx, &node->avl);
     spin_unlock(&file->dirty_update_lock);
+
+    _filemgr_dirty_update_remove_node(file, node);
 }
 
 void filemgr_dirty_update_close_node(struct filemgr *file,
                                      struct filemgr_dirty_update_node *node)
 {
-    bool escape = false;
-    struct avl_node *a;
-    struct filemgr_dirty_update_node *cur_node;
-
     if (!node) {
         return;
     }
 
-    spin_lock(&file->dirty_update_lock);
+    // just decrease the ref count
+    // (any nodes whose ref_count==0 will be removed lazily)
     atomic_decr_uint32_t(&node->ref_count);
-
-    // remove all previous dirty updates whose ref_count == 0
-    // (including 'node' only when 'node' is not the last immutable node)
-    a = avl_first(&file->dirty_update_idx);
-    while (a) {
-        cur_node = _get_entry(a, struct filemgr_dirty_update_node, avl);
-        if (cur_node == node) {
-            escape = true;
-        }
-        a = avl_next(a);
-        if (cur_node->immutable && atomic_get_uint32_t(&cur_node->ref_count) == 0 &&
-            cur_node != file->latest_dirty_update) {
-            _filemgr_dirty_update_remove_node(file, cur_node);
-        }
-        if (escape) {
-            break;
-        }
-    }
-
-    spin_unlock(&file->dirty_update_lock);
 }
 
 fdb_status filemgr_write_dirty(struct filemgr *file, bid_t bid, void *buf,
