@@ -297,9 +297,6 @@ struct _fdb_kvs_handle {
         dirty_updates = kv_handle.dirty_updates;
         node = kv_handle.node;
         num_iterators = kv_handle.num_iterators;
-#ifdef _TRACE_HANDLES
-        avl_trace = kv_handle.avl_trace;
-#endif
         return *this;
     }
 
@@ -417,9 +414,6 @@ struct _fdb_kvs_handle {
      * Number of active iterator instances created from this handle
      */
     uint32_t num_iterators;
-#ifdef _TRACE_HANDLES
-    struct avl_node avl_trace;
-#endif
 };
 
 struct hbtrie_iterator;

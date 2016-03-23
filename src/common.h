@@ -82,25 +82,14 @@ struct docblk_meta {
 
 #define random_custom(prev, num) (prev) = ((prev)+811)&((num)-1)
 
-void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected);
 
-#ifdef _TRACE_HANDLES
-# ifndef _UNIT_TESTS
-void _fdb_dump_handles(void);
-#  define fdb_assert(cond, val, expected)\
-   if (!(cond)) { \
-     _dbg_assert(__LINE__, __FILE__, (uint64_t)(val), (uint64_t)(expected));\
-     _fdb_dump_handles();\
-     assert(cond);\
-   }
-# else // !_UNIT_TESTS
-#   define fdb_assert(cond, val, expected) assert(cond)
-# endif // !_UNIT_TESTS
-#else // if !_TRACE_HANDLES
-#  define fdb_assert(cond, val, expected)\
-   if (!(cond)) { \
-     _dbg_assert(__LINE__, __FILE__, (uint64_t)(val), (uint64_t)(expected));\
-     assert(cond);\
-   }
-#endif // _TRACE_HANDLES
-#endif
+/* Custom assert */
+
+void fdb_assert_die(const char* expression, const char* file, int line,
+                    uint64_t val, uint64_t expected);
+
+#define fdb_assert(cond, val, expected)   \
+    ((void)((cond) ? (void)0 : fdb_assert_die(#cond, __FILE__, __LINE__,\
+                                              (uint64_t)(val), (uint64_t)(expected))))
+
+#endif // _JSAHN_COMMON_H

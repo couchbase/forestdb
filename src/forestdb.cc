@@ -29,6 +29,7 @@
 #include "filemgr.h"
 #include "hbtrie.h"
 #include "list.h"
+#include "breakpad.h"
 #include "btree.h"
 #include "btree_kv.h"
 #include "btree_var_kv_ops.h"
@@ -59,17 +60,6 @@
 #endif
 #endif
 
-#ifdef _TRACE_HANDLES
-struct avl_tree open_handles;
-static spin_t open_handle_lock;
-static int _fdb_handle_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
-    struct _fdb_kvs_handle *aa, *bb;
-    aa = _get_entry(a, struct _fdb_kvs_handle, avl_trace);
-    bb = _get_entry(b, struct _fdb_kvs_handle, avl_trace);
-    return (aa > bb) ? 1 : -1;
-}
-#endif
 
 static volatile uint8_t fdb_initialized = 0;
 static volatile uint32_t fdb_open_inprog = 0;
@@ -666,10 +656,6 @@ fdb_status fdb_init(fdb_config *config)
     // global initialization
     // initialized only once at first time
     if (!fdb_initialized) {
-#ifdef _TRACE_HANDLES
-        spin_init(&open_handle_lock);
-        avl_init(&open_handles, NULL);
-#endif
 
 #ifndef SPIN_INITIALIZER
         init_initial_lock_status();
@@ -714,6 +700,9 @@ fdb_status fdb_init(fdb_config *config)
         // issue is resolved.
         bgf_config.num_threads = 0; //_config.num_bgflusher_threads;
         bgflusher_init(&bgf_config);
+
+        // Initialize breakpad
+        _dbg_set_minidump_dir(config->breakpad_minidump_dir);
 
         fdb_initialized = 1;
     }
@@ -1530,11 +1519,6 @@ fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
         fdb_log(&handle_in->log_callback, status, msg, handle_in->file->filename);
     }
 
-#ifdef _TRACE_HANDLES
-    spin_lock(&open_handle_lock);
-    avl_insert(&open_handles, &handle_out->avl_trace, _fdb_handle_cmp);
-    spin_unlock(&open_handle_lock);
-#endif
     return status;
 }
 
@@ -2161,11 +2145,6 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
     }
 
-#ifdef _TRACE_HANDLES
-    spin_lock(&open_handle_lock);
-    avl_insert(&open_handles, &handle->avl_trace, _fdb_handle_cmp);
-    spin_unlock(&open_handle_lock);
-#endif
     return status;
 }
 
@@ -7260,11 +7239,6 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
         handle->filename = NULL;
     }
 
-#ifdef _TRACE_HANDLES
-    spin_lock(&open_handle_lock);
-    avl_remove(&open_handles, &handle->avl_trace);
-    spin_unlock(&open_handle_lock);
-#endif
     return fs;
 }
 
@@ -7961,21 +7935,4 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
         fprintf(stderr, "txn: isolation %d\n", h->txn->isolation);
     }
     fprintf(stderr, "dirty_updates %d\n", h->dirty_updates);
-}
-
-void _fdb_dump_handles(void) {
-#ifdef _TRACE_HANDLES
-    struct avl_node *h = NULL;
-    int n = 0;
-    spin_lock(&open_handle_lock);
-    h = avl_first(&open_handles);
-    while(h) {
-        fdb_kvs_handle *handle = _get_entry(h, fdb_kvs_handle, avl_trace);
-        n++;
-        fprintf(stderr, "--------%d-Dumping Handle %p---------\n", n, handle);
-        _fdb_dump_handle(handle);
-        h = avl_next(h);
-    }
-    spin_unlock(&open_handle_lock);
-#endif
 }

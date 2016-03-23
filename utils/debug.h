@@ -25,4 +25,6 @@ void * _dbg_get_addr(int n);
 void _dbg_set_uint64_t(int n, uint64_t val);
 uint64_t _dbg_get_uint64_t(int n);
 
+void _dbg_set_minidump_dir(const char *pathname);
+
 #endif

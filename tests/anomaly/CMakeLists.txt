@@ -3,8 +3,10 @@
 SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/api_wrapper.cc
     ${PROJECT_SOURCE_DIR}/src/avltree.cc
+    ${PROJECT_SOURCE_DIR}/src/backtrace.cc
     ${PROJECT_SOURCE_DIR}/src/bgflusher.cc
     ${PROJECT_SOURCE_DIR}/src/blockcache.cc
+    ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
     ${PROJECT_SOURCE_DIR}/src/btree.cc
     ${PROJECT_SOURCE_DIR}/src/btree_kv.cc
     ${PROJECT_SOURCE_DIR}/src/btree_str_kv.cc
@@ -33,7 +35,8 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/wal.cc)
 
 add_library(FDB_TOOLS_CCORE OBJECT ${FORESTDB_COMMON_CORE_SRC})
-set_target_properties(FDB_TOOLS_CCORE PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
+set_target_properties(FDB_TOOLS_CCORE PROPERTIES
+                      COMPILE_FLAGS "-D_FDB_TOOLS ${CB_GNU_CXX11_OPTION}")
 
 add_executable(fdb_anomaly_test
                $<TARGET_OBJECTS:FDB_TOOLS_CCORE>
@@ -45,7 +48,8 @@ add_executable(fdb_anomaly_test
 target_link_libraries(fdb_anomaly_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
                       ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB})
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(fdb_anomaly_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(disk_sim_test
@@ -58,7 +62,8 @@ add_executable(disk_sim_test
 target_link_libraries(disk_sim_test ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
                       ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB})
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(disk_sim_test PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 # add test target

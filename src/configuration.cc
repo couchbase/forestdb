@@ -94,6 +94,9 @@ fdb_config get_default_config(void) {
     fconfig.encryption_key.algorithm = FDB_ENCRYPTION_NONE;
     memset(fconfig.encryption_key.bytes, 0, sizeof(fconfig.encryption_key.bytes));
 
+    // Breakpad minidump directory, set to current working dir
+    fconfig.breakpad_minidump_dir = ".";
+
     return fconfig;
 }
 

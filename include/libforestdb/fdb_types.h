@@ -476,6 +476,10 @@ typedef struct {
      * snapshot readers.
      */
     size_t num_keeping_headers;
+    /**
+     * Breakpad crash catcher settings
+     */
+    const char* breakpad_minidump_dir;
 
 } fdb_config;
 

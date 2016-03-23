@@ -59,6 +59,7 @@ if (COUCHBASE_SERVER_BUILD)
     set(PLATFORM_LIBRARY platform)
     set(DIRUTILS_LIBRARY dirutils)
     set(GTEST_LIBRARY gtest)
+
 else(COUCHBASE_SERVER_BUILD)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GNU_SOURCE -D__DEBUG")
     if (NOT WIN32)
@@ -74,11 +75,15 @@ endif(COUCHBASE_SERVER_BUILD)
 
 INCLUDE(FindAsyncIOLib)
 
-FIND_LIBRARY(EXECINFO_LIBRARY
-        NAMES execinfo)
+FIND_LIBRARY(EXECINFO_LIBRARY NAMES execinfo)
 if (EXECINFO_LIBRARY)
     set(BACKTRACE_LIBRARIES "${EXECINFO_LIBRARY}")
 endif (EXECINFO_LIBRARY)
+
+FIND_LIBRARY(DL_LIBRARY NAMES dl)
+if (DL_LIBRARY)
+    set(DL_LIBRARIES "${DL_LIBRARY}")
+endif (DL_LIBRARY)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
@@ -117,14 +122,6 @@ IF ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     ADD_DEFINITIONS(-D_LATENCY_STATS_DUMP_TO_FILE)
 ENDIF ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 
-# Uncomment the following define below to enable handle tracking on SIGABRT
-# set(_TRACK_HANDLES 1)
-#
-
-IF (_TRACK_HANDLES EQUAL 1)
-    ADD_DEFINITIONS(-D_TRACE_HANDLES=1)
-ENDIF()
-
 # Comment the line below to disable compiling Copy-On-Write (COW) optimizations
 ADD_DEFINITIONS (-D_COW_COMPACTION=1)
 
@@ -147,6 +144,30 @@ else()
     endif()
 endif()
 
+# Breakpad support with Couchbase Server Build only when on Windows/Linux.
+if (COUCHBASE_SERVER_BUILD)
+    if (BREAKPAD_FOUND)
+        INCLUDE_DIRECTORIES(AFTER ${BREAKPAD_INCLUDE_DIR})
+        if (WIN32)
+            SET(BREAKPAD_SRC src/breakpad_win32.cc)
+        elseif ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+            SET(BREAKPAD_SRC src/breakpad_linux.cc)
+            # Breakpad has headers (which are dependencies for our breakpad
+            # integration code) that don't compile cleanly as C++11, so the
+            # GNU standard is used instead.
+            SET_SOURCE_FILES_PROPERTIES(src/breakpad_linux.cc
+                                        PROPERTIES
+                                        COMPILE_FLAGS ${CB_GNU_CXX11_OPTION})
+        else()
+            SET(BREAKPAD_SRC src/breakpad_dummy.cc)
+        endif()
+    else (BREAKPAD_FOUND)
+        SET(BREAKPAD_SRC src/breakpad_dummy.cc)
+    endif(BREAKPAD_FOUND)
+else()
+    SET(BREAKPAD_SRC src/breakpad_dummy.cc)
+endif()
+
 if (NOT COUCHBASE_SERVER_BUILD)
    INCLUDE(ThreadSanitizer)
 endif()
@@ -158,8 +179,10 @@ ENDIF (_ENCRYPTION)
 SET(FORESTDB_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/api_wrapper.cc
     ${PROJECT_SOURCE_DIR}/src/avltree.cc
+    ${PROJECT_SOURCE_DIR}/src/backtrace.cc
     ${PROJECT_SOURCE_DIR}/src/bgflusher.cc
     ${PROJECT_SOURCE_DIR}/src/blockcache.cc
+    ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
     ${PROJECT_SOURCE_DIR}/src/btree.cc
     ${PROJECT_SOURCE_DIR}/src/btree_kv.cc
     ${PROJECT_SOURCE_DIR}/src/btree_str_kv.cc
@@ -204,8 +227,8 @@ add_library(forestdb SHARED
             ${FORESTDB_UTILS_SRC})
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${LIBRT}
-                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY} ${CRYPTO_LIB})
-
+                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 
 # Create objects libraries for the different "tools" parts forestdb, which can be reused
 # by various targets.
@@ -224,7 +247,8 @@ add_executable(forestdb_dump
                $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB})
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB} ${DL_LIBRARIES}
+                      ${BREAKPAD_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_hexamine
@@ -236,7 +260,8 @@ add_executable(forestdb_hexamine
                $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB})
+                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB} ${DL_LIBRARIES}
+                      ${BREAKPAD_LIBRARIES})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))
