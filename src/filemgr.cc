@@ -738,8 +738,15 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         // already opened (return existing structure)
         file = _get_entry(e, struct filemgr, e);
 
+        if (atomic_incr_uint32_t(&file->ref_count) > 1 &&
+            atomic_get_uint8_t(&file->status) != FILE_CLOSED) {
+            spin_unlock(&filemgr_openlock);
+            result.file = file;
+            result.rv = FDB_RESULT_SUCCESS;
+            return result;
+        }
+
         spin_lock(&file->lock);
-        atomic_incr_uint32_t(&file->ref_count);
 
         if (atomic_get_uint8_t(&file->status) == FILE_CLOSED) { // if file was closed before
             file_flag = O_RDWR;
