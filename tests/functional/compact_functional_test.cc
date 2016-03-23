@@ -3330,9 +3330,13 @@ void compaction_cancellation_test(compaction_test_mode mode)
     // join compactor
     thread_join(tid, &thread_ret);
 
-    // Compact the database
-    status = fdb_compact(file, NULL);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // if rollback failed, we don't need to compact the file again.
+    if (!rollback_failed) {
+        // Compact the database
+        status = fdb_compact(file, NULL);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
     char key[15];
     void *value;
     size_t val_size;
