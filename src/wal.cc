@@ -317,9 +317,9 @@ INLINE fdb_status _wal_snapshot_init(struct snap_handle *shandle,
         shandle->seqnum = fdb_kvs_get_seqnum(file, shandle->id);
         shandle->is_persisted_snapshot = false;
     } else {
+        shandle->stat.wal_ndocs = 0; // WAL copy will populate
+        shandle->stat.wal_ndeletes = 0; // these 2 stats
         shandle->seqnum = seqnum;
-        shandle->stat.wal_ndocs = 0;
-        shandle->stat.wal_ndeletes = 0;
         shandle->is_persisted_snapshot = true;
     }
     avl_init(&shandle->key_tree, &shandle->cmp_info);
@@ -1838,6 +1838,77 @@ fdb_status wal_snap_insert(struct snap_handle *shandle, fdb_doc *doc,
     return FDB_RESULT_SUCCESS;
 }
 
+fdb_status wal_copyto_snapshot(struct filemgr *file,
+                               struct snap_handle *shandle,
+                               bool is_multi_kv)
+{
+    struct list_elem *ee;
+    struct avl_node *a;
+    struct wal_item *item;
+    struct wal_item_header *header;
+    fdb_kvs_id_t kv_id = 0;
+    fdb_doc doc;
+    size_t i = 0;
+    size_t num_shards = file->wal->num_shards;
+
+    shandle->stat.wal_ndocs = 0; // WAL copy will populate
+    shandle->stat.wal_ndeletes = 0; // these 2 stats
+
+    // Get the list of active transactions now
+    for (; i < num_shards; ++i) {
+        spin_lock(&file->wal->key_shards[i].lock);
+        a = avl_first(&file->wal->key_shards[i]._map);
+        while (a) {
+            header = _get_entry(a, struct wal_item_header, avl_key);
+            if (is_multi_kv) {
+                buf2kvid(header->chunksize, header->key, &kv_id);
+                if (kv_id != shandle->id) {
+                    a = avl_next(a);
+                    continue;
+                }
+            }
+            ee = list_begin(&header->items);
+            while (ee) {
+                uint64_t offset;
+                item = _get_entry(ee, struct wal_item, list_elem);
+                // Skip any uncommitted item, if not part of either global or
+                // the current transaction
+                if (!(item->flag & WAL_ITEM_COMMITTED) &&
+                        item->txn != &file->global_txn &&
+                        item->txn != shandle->snap_txn) {
+                    ee = list_next(ee);
+                    continue;
+                }
+                // Skip the partially committed items too.
+                if (_wal_item_partially_committed(shandle->global_txn,
+                                                  &shandle->active_txn_list,
+                                                  shandle->snap_txn, item)) {
+                    ee = list_next(ee);
+                    continue;
+                }
+
+                doc.keylen = item->header->keylen;
+                doc.key = malloc(doc.keylen); // (freed in fdb_snapshot_close)
+                memcpy(doc.key, item->header->key, doc.keylen);
+                doc.seqnum = item->seqnum;
+                doc.deleted = (item->action == WAL_ACT_LOGICAL_REMOVE ||
+                               item->action == WAL_ACT_REMOVE);
+                if (item->action == WAL_ACT_REMOVE) {
+                    offset = 0;
+                } else {
+                    offset = item->offset;
+                }
+
+                wal_snap_insert(shandle, &doc, offset);
+                break; // We just require a single latest copy in the snapshot
+            }
+            a = avl_next(a);
+        }
+        spin_unlock(&file->wal->key_shards[i].lock);
+    }
+    return FDB_RESULT_SUCCESS;
+}
+
 static
 fdb_status _wal_snap_find(struct snap_handle *shandle, fdb_doc *doc,
                           uint64_t *offset)
@@ -1868,6 +1939,7 @@ fdb_status _wal_snap_find(struct snap_handle *shandle, fdb_doc *doc,
                     *offset = BLK_NOT_FOUND;
                 }
             }
+            doc->seqnum = item->seqnum;
             return FDB_RESULT_SUCCESS;
         }
     } else if (shandle->seq_tree.root) {

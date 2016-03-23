@@ -363,6 +363,17 @@ fdb_status wal_dur_snapshot_open(fdb_seqnum_t seqnum,
                                  _fdb_key_cmp_info *key_cmp_info,
                                  struct filemgr *file, fdb_txn *txn,
                                  struct snap_handle **shandle);
+/**
+ * Create an exclusive Snapshot of the WAL by copying all entries to
+ * immutable AVL trees
+ * @param file - the underlying file
+ * @param shandle - WAL snapshot handle created by wal_dur_snapshot_open()
+ * @param is_multi_kv - Does the WAL have multiple KV Stores
+ */
+
+fdb_status wal_copyto_snapshot(struct filemgr *file,
+                               struct snap_handle *shandle,
+                               bool is_multi_kv);
 
 /**
  * Closes a WAL snapshot

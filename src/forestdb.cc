@@ -1071,12 +1071,24 @@ fdb_snapshot_open_start:
             if (dirty_update) {
                 filemgr_dirty_update_get_root(handle->file, dirty_update,
                                        &dirty_idtree_root, &dirty_seqtree_root);
-                _fdb_import_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
+                _fdb_import_dirty_root(handle, dirty_idtree_root,
+                                       dirty_seqtree_root);
                 btreeblk_discard_blocks(handle->bhandle);
             }
             // Having synced the dirty root, make an in-memory WAL snapshot
-            fs = wal_snapshot_open(handle->file, txn, kv_id, seqnum, &cmp_info,
-                                   &handle->shandle);
+            // TODO: Re-enable WAL sharing once ready...
+#ifdef _MVCC_WAL_ENABLE
+            fs = wal_snapshot_open(handle->file, txn, kv_id, seqnum,
+                                   &cmp_info, &handle->shandle);
+#else
+            fs = wal_dur_snapshot_open(handle->seqnum, &cmp_info, file, txn,
+                                       &handle->shandle);
+            if (fs == FDB_RESULT_SUCCESS) {
+                fs = wal_copyto_snapshot(file, handle->shandle,
+                                        (bool)handle_in->kvs);
+            }
+            (void)kv_id;
+#endif // _MVCC_WAL_ENABLE
         } else if (clone_snapshot) {
             // Snapshot is created on the other snapshot handle
 

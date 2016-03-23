@@ -365,7 +365,7 @@ void indexer_pattern_test()
     disk_sim_cb->fsync_cb = &fsync_cb;
 
     // remove previous anomaly_test files
-    r = system(SHELL_DEL" " TEST_FILENAME "* > errorlog.txt");
+    r = system(SHELL_DEL" " TEST_FILENAME " > errorlog.txt");
     (void)r;
 
     // Reset anomalous behavior stats..
