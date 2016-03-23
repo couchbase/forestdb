@@ -1400,13 +1400,18 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 {
     int rv = FDB_RESULT_SUCCESS;
 
+    if (atomic_decr_uint32_t(&file->ref_count) > 0) {
+        // File is still accessed by other readers or writers.
+        return FDB_RESULT_SUCCESS;
+    }
+
     spin_lock(&filemgr_openlock); // Grab the filemgr lock to avoid the race with
                                   // filemgr_open() because file->lock won't
                                   // prevent the race condition.
 
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
-    if (atomic_decr_uint32_t(&file->ref_count) == 0) {
+    if (atomic_get_uint32_t(&file->ref_count) == 0) {
         if (global_config.ncacheblock > 0 &&
             atomic_get_uint8_t(&file->status) != FILE_REMOVED_PENDING) {
             spin_unlock(&file->lock);
