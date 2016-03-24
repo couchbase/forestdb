@@ -2313,10 +2313,19 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     fdb_kvs_handle *handle = (fdb_kvs_handle *)voidhandle;
     uint64_t old_offset = 0;
 
-    hbtrie_find_offset(handle->trie,
-                       item->header->key,
-                       item->header->keylen,
-                       (void*)&old_offset);
+    if (item->action == WAL_ACT_REMOVE) {
+        // For immediate remove, old_offset value is critical
+        // so that we should get an exact value.
+        hbtrie_find(handle->trie,
+                    item->header->key,
+                    item->header->keylen,
+                    (void*)&old_offset);
+    } else {
+        hbtrie_find_offset(handle->trie,
+                           item->header->key,
+                           item->header->keylen,
+                           (void*)&old_offset);
+    }
     btreeblk_end(handle->bhandle);
     old_offset = _endian_decode(old_offset);
 
