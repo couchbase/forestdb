@@ -480,6 +480,7 @@ void delete_reopen_test()
 
     TEST_CHK(valueSize == 5);
     TEST_CMP(value, "value", 5);
+    fdb_free_block(value);
 
     status = fdb_begin_transaction(fh, FDB_ISOLATION_READ_COMMITTED);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
