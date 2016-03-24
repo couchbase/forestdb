@@ -39,7 +39,7 @@ void logCallbackFunc(int err_code,
             (char *) pCtxData, err_code, err_msg);
 }
 
-#define TEST_FILENAME "disk_sim_test"
+#define TEST_FILENAME "disksim_testfile"
 #define PWRITE_SLEEP_MASK 0x01
 #define PWRITE_MAX_SLEEP  10
 
@@ -327,6 +327,7 @@ void indexer_pattern_test()
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     char temp[32];
 
+    // SETUP Configurations...
     NUM_DOCS = 10000;
     NUM_WRITER_ITERATIONS = 5;
     ITERATOR_BATCH_SIZE = 10;
@@ -373,13 +374,14 @@ void indexer_pattern_test()
 
     db.fconfig = fconfig;
     db.kvs_config = kvs_config;
-    //usleep(10000000);
 
     s = fdb_open(&db.fhandle, TEST_FILENAME, &db.fconfig);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     printf("Num docs %d Num iterations %d Commit freq %d Iterator batch %d\n",
            NUM_DOCS, NUM_WRITER_ITERATIONS, COMMIT_FREQ, ITERATOR_BATCH_SIZE);
+    printf("Wal size %" _F64 " Buffercache size %" _F64 "MB\n",
+           fconfig.wal_threshold, fconfig.buffercache_size/1024/1024);
     for (r = 0; r < NUM_WRITERS; ++r) {
         thread_create(&wtid[r], _writer_thread, &db);
     }
