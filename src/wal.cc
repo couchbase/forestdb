@@ -1768,7 +1768,9 @@ fdb_status wal_dur_snapshot_open(fdb_seqnum_t seqnum,
     if (!_shandle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
+    spin_lock(&file->wal->lock);
     _wal_snapshot_init(_shandle, file, txn, seqnum, key_cmp_info);
+    spin_unlock(&file->wal->lock);
     *shandle = _shandle;
     return FDB_RESULT_SUCCESS;
 }
