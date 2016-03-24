@@ -393,6 +393,9 @@ INLINE bool _wal_can_discard(struct wal *_wal,
                              struct wal_item *_item,
                              struct wal_item *covering_item)
 {
+#ifndef _MVCC_WAL_ENABLE
+    return true; // if WAL is never shared, this can never be false
+#endif // _MVCC_WAL_ENABLE
     struct snap_handle *shandle, *snext;
     wal_snapid_t snap_stop_idx;
     wal_snapid_t snap_tag_idx;
@@ -1191,7 +1194,8 @@ fdb_status wal_txn_migration(void *dbhandle,
 }
 
 fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
-                      wal_commit_mark_func *func, err_log_callback *log_callback)
+                      wal_commit_mark_func *func,
+                      err_log_callback *log_callback)
 {
     int can_overwrite;
     struct wal_item *item, *_item;
@@ -1269,7 +1273,8 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                 if (!(_item->flag & WAL_ITEM_FLUSH_READY)) {
                     // remove from list & hash
                     list_remove(&item->header->items, &_item->list_elem);
-                    size_t seq_shard_num = _item->seqnum % file->wal->num_shards;
+                    size_t seq_shard_num = _item->seqnum %
+                                           file->wal->num_shards;
                     spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
                     avl_remove(&file->wal->seq_shards[seq_shard_num]._map,
                                &_item->avl_seq);
@@ -1288,7 +1293,8 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                     atomic_decr_uint32_t(&file->wal->num_flushable);
                     if (item->action != WAL_ACT_REMOVE) {
                         atomic_sub_uint64_t(&file->wal->datasize,
-                                            _item->doc_size, std::memory_order_relaxed);
+                                            _item->doc_size,
+                                            std::memory_order_relaxed);
                     }
                     // simply reduce the stat count...
                     if (_item->action == WAL_ACT_INSERT) {
@@ -1301,7 +1307,8 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                 } else {
                     fdb_log(log_callback, status,
                             "Wal commit called when wal_flush in progress."
-                            "item seqnum %" _F64 " keylen %d flags %x action %d"
+                            "item seqnum %" _F64
+                            " keylen %d flags %x action %d"
                             "%s", _item->seqnum, item->header->keylen,
                             _item->flag, _item->action, file->filename);
                 }
