@@ -90,6 +90,7 @@
         #include <libkern/OSAtomic.h>
         #define spin_t OSSpinLock
         #define spin_lock(arg) OSSpinLockLock(arg)
+        #define spin_trylock(arg) OSSpinLockTry(arg)
         #define spin_unlock(arg) OSSpinLockUnlock(arg)
         #define SPIN_INITIALIZER (spin_t)(0)
         #define spin_init(arg) *(arg) = (spin_t)(0)
@@ -151,6 +152,8 @@
         #define spin_t pthread_mutex_t
         #define spin_init(arg) pthread_mutex_init(arg, NULL)
         #define spin_lock(arg) pthread_mutex_lock(arg)
+        #define spin_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_mutex_unlock(arg)
         #define spin_destroy(arg) pthread_mutex_destroy(arg)
         #define SPIN_INITIALIZER ((spin_t)PTHREAD_MUTEX_INITIALIZER)
@@ -230,6 +233,8 @@
         #define spin_t pthread_spinlock_t
         #define spin_init(arg) pthread_spin_init(arg, PTHREAD_PROCESS_SHARED)
         #define spin_lock(arg) pthread_spin_lock(arg)
+        #define spin_trylock(arg) \
+            (pthread_spin_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_spin_unlock(arg)
         #define spin_destroy(arg) pthread_spin_destroy(arg)
         #define SPIN_INITIALIZER (spin_t)(0)
@@ -305,6 +310,8 @@
         #define spin_t pthread_spinlock_t
         #define spin_init(arg) pthread_spin_init(arg, PTHREAD_PROCESS_SHARED)
         #define spin_lock(arg) pthread_spin_lock(arg)
+        #define spin_trylock(arg) \
+            (pthread_spin_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_spin_unlock(arg)
         #define spin_destroy(arg) pthread_spin_destroy(arg)
         #define SPIN_INITIALIZER (spin_t)(1)
@@ -385,6 +392,7 @@
         #define spin_t CRITICAL_SECTION
         #define spin_init(arg) InitializeCriticalSection(arg)
         #define spin_lock(arg) EnterCriticalSection(arg)
+        #define spin_trylock(arg) TryEnterCriticalSection(arg)
         #define spin_unlock(arg) LeaveCriticalSection(arg)
         #define spin_destroy(arg) DeleteCriticalSection(arg)
     #endif
@@ -443,6 +451,8 @@
         #define spin_t pthread_spinlock_t
         #define spin_init(arg) pthread_spin_init(arg, PTHREAD_PROCESS_SHARED)
         #define spin_lock(arg) pthread_spin_lock(arg)
+        #define spin_trylock(arg) \
+            (pthread_spin_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_spin_unlock(arg)
         #define spin_destroy(arg) pthread_spin_destroy(arg)
         #define SPIN_INITIALIZER (spin_t)(1)
@@ -512,6 +522,8 @@
         #define spin_t pthread_mutex_t
         #define spin_init(arg) pthread_mutex_init(arg, NULL)
         #define spin_lock(arg) pthread_mutex_lock(arg)
+        #define spin_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_mutex_unlock(arg)
         #define spin_destroy(arg) pthread_mutex_destroy(arg)
         #define SPIN_INITIALIZER PTHREAD_MUTEX_INITIALIZER
@@ -572,6 +584,8 @@
         #define spin_t pthread_mutex_t
         #define spin_init(arg) pthread_mutex_init(arg, NULL)
         #define spin_lock(arg) pthread_mutex_lock(arg)
+        #define spin_trylock(arg) \
+            (pthread_mutex_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_mutex_unlock(arg)
         #define spin_destroy(arg) pthread_mutex_destroy(arg)
         #define SPIN_INITIALIZER PTHREAD_MUTEX_INITIALIZER
