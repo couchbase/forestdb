@@ -1967,7 +1967,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                return (fdb_status)r;
+                return (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
             }
 #ifdef __CRC32
             status = _filemgr_crc32_check(file, buf);
@@ -2020,7 +2020,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         if (r != file->blocksize) {
             _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",
                            file->filename);
-            return (fdb_status)r;
+            return (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
         }
 
 #ifdef __CRC32
