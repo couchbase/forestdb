@@ -39,6 +39,9 @@ enum _op_ {
     COMMIT,
     GET,
     INMEMSNAP,
+    ITR_INIT,
+    ITR_GET,
+    ITR_CLOSE,
     NUM_STATS
 };
 
@@ -84,10 +87,15 @@ public:
 
         // Set up StatAggregator
         sa = new StatAggregator(NUM_STATS, 1);
+
         sa->t_stats[SET][0].name = "set";
         sa->t_stats[COMMIT][0].name = "commit";
         sa->t_stats[GET][0].name = "get";
         sa->t_stats[INMEMSNAP][0].name = "in-mem snapshot";
+
+        sa->t_stats[ITR_INIT][0].name = "iterator-init";
+        sa->t_stats[ITR_GET][0].name = "iterator-get";
+        sa->t_stats[ITR_CLOSE][0].name = "iterator-close";
 
         samples = 0;
         mutex_init(&statlock);
@@ -231,6 +239,7 @@ static void *invoke_writer_ops(void *args) {
     fdb_status status;
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
+
     while (true) {
         /* Acquire handles from pool */
         fdb_file_handle *dbfile = nullptr;
@@ -241,26 +250,29 @@ static void *invoke_writer_ops(void *args) {
         sprintf(keybuf, "key%d", i);
         sprintf(bodybuf, "body%d", i);
 
+        // Start transaction
         status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
         assert(status == FDB_RESULT_SUCCESS);
 
+        // Issue a set
         ts_nsec beginSet = get_monotonic_ts();
         status = fdb_set_kv(db,
-                            (void*)keybuf, strlen(keybuf) + 1,
-                            (void*)bodybuf, strlen(bodybuf) + 1);
+                (void*)keybuf, strlen(keybuf) + 1,
+                (void*)bodybuf, strlen(bodybuf) + 1);
         ts_nsec endSet = get_monotonic_ts();
         assert(status == FDB_RESULT_SUCCESS);
 
+        // End transaction (Commit)
         ts_nsec beginCommit = get_monotonic_ts();
         status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
         ts_nsec endCommit = get_monotonic_ts();
         assert(status == FDB_RESULT_SUCCESS);
 
-        /* Return resource to pool */
-        oa->fhp->returnResourceToPool(index);
-
         oa->fhp->collectStat(SET, ts_diff(beginSet, endSet));
         oa->fhp->collectStat(COMMIT, ts_diff(beginCommit, endCommit));
+
+        /* Return resource to pool */
+        oa->fhp->returnResourceToPool(index);
 
         ++i;
         end = std::chrono::system_clock::now();
@@ -281,6 +293,8 @@ static void *invoke_reader_ops(void *args) {
     fdb_status status;
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
+
+    int tracker = 0;
     while (true) {
         /* Acquire handles from pool */
         fdb_file_handle *dbfile = nullptr;
@@ -288,30 +302,68 @@ static void *invoke_reader_ops(void *args) {
         fdb_kvs_handle *snap_handle = nullptr;
         const int index = oa->fhp->getAvailableResource(&dbfile, &db);
 
-        // Try fetching a random doc
-        void *value = nullptr;
-        size_t valuelen;
-        char keybuf[256], bodybuf[256];
-        int i = rand() % 100;
-        sprintf(keybuf, "key%d", i);
-        sprintf(bodybuf, "body%d", i);
-        ts_nsec beginGet = get_monotonic_ts();
-        status = fdb_get_kv(db,
-                            (void*)keybuf, strlen(keybuf) + 1,
-                            &value, &valuelen);
-        ts_nsec endGet = get_monotonic_ts();
-        if (status == FDB_RESULT_SUCCESS) {
-            assert(memcmp(value, bodybuf, valuelen) == 0);
-            fdb_free_block(value);
-        } else {
-            assert(status == FDB_RESULT_KEY_NOT_FOUND);
-        }
-
         // Create an in-memory snapshot
         ts_nsec beginSnap = get_monotonic_ts();
         status = fdb_snapshot_open(db, &snap_handle, FDB_SNAPSHOT_INMEM);
         ts_nsec endSnap = get_monotonic_ts();
         assert(status == FDB_RESULT_SUCCESS);
+
+        oa->fhp->collectStat(INMEMSNAP, ts_diff(beginSnap, endSnap));
+
+        // Iterator ops using the snapshot handle once every 100 times
+        if (++tracker % 100 == 0) {
+            fdb_iterator *iterator = nullptr;
+            fdb_doc *rdoc = nullptr;
+
+            // Initialize iterator
+            ts_nsec beginInit = get_monotonic_ts();
+            status = fdb_iterator_init(snap_handle, &iterator, NULL, 0, NULL, 0,
+                                       FDB_ITR_NONE);
+            ts_nsec endInit = get_monotonic_ts();
+            assert(status == FDB_RESULT_SUCCESS);
+
+            oa->fhp->collectStat(ITR_INIT,ts_diff(beginInit, endInit));
+
+            // Get using iterator
+            ts_nsec beginGet = get_monotonic_ts();
+            status = fdb_iterator_get(iterator, &rdoc);
+            ts_nsec endGet = get_monotonic_ts();
+            if (status == FDB_RESULT_SUCCESS) {
+                fdb_doc_free(rdoc);
+                oa->fhp->collectStat(ITR_GET,ts_diff(beginGet, endGet));
+            } else {
+                assert(status == FDB_RESULT_ITERATOR_FAIL);
+            }
+
+            // Close iterator
+            ts_nsec beginClose = get_monotonic_ts();
+            status = fdb_iterator_close(iterator);
+            ts_nsec endClose = get_monotonic_ts();
+            assert(status == FDB_RESULT_SUCCESS);
+
+            oa->fhp->collectStat(ITR_CLOSE,ts_diff(beginClose, endClose));
+        } else {
+            // Try fetching a random doc, using the snapshot handle
+            void *value = nullptr;
+            size_t valuelen;
+            char keybuf[256], bodybuf[256];
+            int i = rand() % 100;
+            sprintf(keybuf, "key%d", i);
+            sprintf(bodybuf, "body%d", i);
+            ts_nsec beginGet = get_monotonic_ts();
+            status = fdb_get_kv(snap_handle,
+                                (void*)keybuf, strlen(keybuf) + 1,
+                                &value, &valuelen);
+            ts_nsec endGet = get_monotonic_ts();
+            if (status == FDB_RESULT_SUCCESS) {
+                assert(memcmp(value, bodybuf, valuelen) == 0);
+                fdb_free_block(value);
+            } else {
+                assert(status == FDB_RESULT_KEY_NOT_FOUND);
+            }
+
+            oa->fhp->collectStat(GET, ts_diff(beginGet, endGet));
+        }
 
         // Close snapshot handle
         status = fdb_kvs_close(snap_handle);
@@ -319,9 +371,6 @@ static void *invoke_reader_ops(void *args) {
 
         /* Return resource to pool */
         oa->fhp->returnResourceToPool(index);
-
-        oa->fhp->collectStat(GET, ts_diff(beginGet, endGet));
-        oa->fhp->collectStat(INMEMSNAP, ts_diff(beginSnap, endSnap));
 
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
@@ -336,9 +385,11 @@ static void *invoke_reader_ops(void *args) {
     return nullptr;
 }
 
-void single_writer_multi_reader_test(int nhandles,
-                                     int nthreads,
-                                     int time) {
+void reader_writer_shared_pool_test(int nhandles,
+                                    int writers,
+                                    int readers,
+                                    int time,
+                                    const char *title) {
     TEST_INIT();
     memleak_start();
 
@@ -353,16 +404,14 @@ void single_writer_multi_reader_test(int nhandles,
 
     FileHandlePool *fhp = new FileHandlePool(filename, nhandles);
 
-    assert(nthreads > 1);
-    thread_t *threads = new thread_t[nthreads];
-
-    int readers = nthreads - 1; // 1 writer
+    assert(writers + readers > 1);
+    thread_t *threads = new thread_t[writers + readers];
 
     struct ops_args oa{fhp, (float)time};
 
     int threadid = 0;
     // Spawn writer thread(s)
-    {
+    for (int i = 0; i < writers; ++i) {
         thread_create(&threads[threadid++], invoke_writer_ops, &oa);
     }
 
@@ -371,17 +420,17 @@ void single_writer_multi_reader_test(int nhandles,
         thread_create(&threads[threadid++], invoke_reader_ops, &oa);
     }
 
-    assert(threadid == nthreads);
+    assert(threadid == readers + writers);
 
     // Wait for child threads
-    for (int j = 0; j < nthreads; ++j) {
+    for (int j = 0; j < (readers + writers); ++j) {
         int r = thread_join(threads[j], nullptr);
         assert(r == 0);
     }
     delete[] threads;
 
     /* Print Collected Stats */
-    fhp->displayCollection("SINGLE_WRITER, MULTIPLE_READERS");
+    fhp->displayCollection(title);
 
 #ifdef __DEBUG_USECASE
     fhp->printHandleStats();
@@ -395,16 +444,26 @@ void single_writer_multi_reader_test(int nhandles,
     (void)r;
 
     memleak_end();
-    TEST_RESULT("single writer multi reader test");
+    TEST_RESULT(title);
 }
 
 int main() {
 
-    /* Test single writer with multi readers sharing a common
+    /* Test single writer with multiple readers sharing a common
        pool of file handles, for 30 seconds */
-    single_writer_multi_reader_test(10 /*number of handles*/,
-                                    5  /*thread count*/,
-                                    30 /*test time in seconds*/);
+    reader_writer_shared_pool_test(10 /*number of handles*/,
+                                   1        /*writer count*/,
+                                   4        /*reader count*/,
+                                   30       /*test time in seconds*/,
+                                   "1 WRITER - 4 READERS TEST");
+
+    /* Test multiple writers with multiple readers sharing a common
+       pool of file handles, for 30 seconds */
+    reader_writer_shared_pool_test(10       /*number of handles*/,
+                                   4        /*writer count*/,
+                                   4        /*reader count*/,
+                                   30       /*test time in seconds*/,
+                                   "4 WRITERS - 4 READERS TEST");
 
     return 0;
 }
