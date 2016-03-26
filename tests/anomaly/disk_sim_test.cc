@@ -55,6 +55,7 @@ void logCallbackFunc(int err_code,
 int MAX_NUM_SNAPSHOTS;
 int NUM_DOCS;
 int COMMIT_FREQ;
+int SNAPSHOT_FREQ;
 int NUM_ITERATORS;
 int NUM_WRITERS;
 int NUM_WRITER_ITERATIONS;
@@ -122,22 +123,22 @@ INLINE void make_key(char *buf, int i, int8_t key_ver) {
     sprintf(buf, "%08d %d", i, key_ver);
 }
 
-fdb_status indexer_set(storage_t *st, int i, bool isdel)
+fdb_status indexer_set(storage_t *st, int docid, int mutno, bool isdel)
 {
     TEST_INIT();
     char mainkey[16], backkey[16];
     fdb_status s;
     int8_t key_ver;
     fdb_doc *rdoc;
-    sprintf(backkey, "%08d", i);
+    sprintf(backkey, "%08d", docid);
     fdb_doc_create(&rdoc, (void *)backkey, strlen(backkey)+1, NULL,0, NULL,0);
     s = fdb_get(st->back, rdoc);
-    key_ver = st->keymap[i];
+    key_ver = st->keymap[docid];
     bool was_deleted = key_ver < 0 ? true : false;
 
     if (s == FDB_RESULT_SUCCESS) { // key was already inserted
         TEST_CHK(!was_deleted); // must be positive for non-deleted keys
-        make_key(mainkey, i, key_ver);
+        make_key(mainkey, docid, key_ver);
         TEST_CMP(rdoc->body, mainkey, rdoc->bodylen);
         // Use body from back index to delete key from main index
         s = fdb_del_kv(st->main, rdoc->body, rdoc->bodylen);
@@ -161,7 +162,7 @@ fdb_status indexer_set(storage_t *st, int i, bool isdel)
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         key_ver = -key_ver;
     } else { // update existing key in database, back index first, then main
-        make_key(mainkey, i, key_ver);
+        make_key(mainkey, docid, key_ver);
         s = fdb_set_kv(st->back, (void*)backkey, strlen(backkey)+1,
                 mainkey, strlen(mainkey)+1);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -170,25 +171,31 @@ fdb_status indexer_set(storage_t *st, int i, bool isdel)
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
 
-    if (i && i % COMMIT_FREQ) {
+    if (mutno && (mutno % COMMIT_FREQ) == 0) {
         s = fdb_commit(st->fhandle, FDB_COMMIT_NORMAL);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
     }
 
-    // Take a snapshot of main kv store as well as the key_map for reference
-    spin_lock(&st->lock);
-    st->latest_snap_idx = (st->latest_snap_idx + 1) % MAX_NUM_SNAPSHOTS;
-    st->keymap[i] = key_ver;
-    if (st->snaps[st->latest_snap_idx].snap) {
-        fdb_kvs_close(st->snaps[st->latest_snap_idx].snap);
+    if (mutno && (mutno % SNAPSHOT_FREQ) == 0) {
+        // Take a snapshot of main kv store as well as the key_map for reference
+        spin_lock(&st->lock);
+        st->latest_snap_idx = (st->latest_snap_idx + 1) % MAX_NUM_SNAPSHOTS;
+        st->keymap[docid] = key_ver;
+        if (st->snaps[st->latest_snap_idx].snap) {
+            fdb_kvs_close(st->snaps[st->latest_snap_idx].snap);
+        }
+
+        s = fdb_snapshot_open(st->main, &st->snaps[st->latest_snap_idx].snap,
+                              FDB_SNAPSHOT_INMEM);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        memcpy(st->snaps[st->latest_snap_idx]._key_map, st->keymap, NUM_DOCS);
+
+        spin_unlock(&st->lock);
+    } else { // just update the reference map
+        spin_lock(&st->lock);
+        st->keymap[docid] = key_ver;
+        spin_unlock(&st->lock);
     }
-
-    s = fdb_snapshot_open(st->main, &st->snaps[st->latest_snap_idx].snap,
-                          FDB_SNAPSHOT_INMEM);
-    TEST_CHK(s == FDB_RESULT_SUCCESS);
-    memcpy(st->snaps[st->latest_snap_idx]._key_map, st->keymap, NUM_DOCS);
-
-    spin_unlock(&st->lock);
 
     fdb_doc_free(rdoc);
 
@@ -220,15 +227,15 @@ static void *_writer_thread(void *voidargs)
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     for (int i = 0; i < NUM_DOCS; ++i) {
-        indexer_set(db, i, false);
+        indexer_set(db, i, i, false);
     }
     printf("--------LOADING COMPLETE------\n");
     for (int j = 0; j < NUM_WRITER_ITERATIONS * NUM_DOCS; ++j) {
         int i = rand() % NUM_DOCS;
         if (rand() % 100 > 80) {
-            indexer_set(db, i, true); // delete key
+            indexer_set(db, i, j, true); // delete key
         } else {
-            indexer_set(db, i, false); // update key
+            indexer_set(db, i, j, false); // update key
         }
     }
 
@@ -256,7 +263,10 @@ static void *_iterator_thread(void *voidargs)
     int8_t *key_snap = alca(int8_t, NUM_DOCS);
 
     s = fdb_open(&fhandle, TEST_FILENAME, &st->fconfig);
-    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    if (s != FDB_RESULT_SUCCESS) {
+        printf("Iterator failed to open file %s %d\n", TEST_FILENAME, s);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
 
     while (++j) {
         spin_lock(&st->lock);
@@ -330,8 +340,9 @@ void indexer_pattern_test()
     // SETUP Configurations...
     NUM_DOCS = 10000;
     NUM_WRITER_ITERATIONS = 5;
-    ITERATOR_BATCH_SIZE = 10;
     COMMIT_FREQ = NUM_DOCS/10;
+    SNAPSHOT_FREQ = 5;
+    ITERATOR_BATCH_SIZE = 10;
     NUM_ITERATORS = 7;
     MAX_NUM_SNAPSHOTS = 5;
     NUM_WRITERS = 1; // Do not bump this up not safe
@@ -339,7 +350,7 @@ void indexer_pattern_test()
     fconfig.buffercache_size = 8*1024*1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.purging_interval = 0;
-    fconfig.wal_threshold = 1024;
+    fconfig.wal_threshold = 4096;
     fconfig.num_compactor_threads = 1;
     //fconfig.block_reusing_threshold = 0;
     //fconfig.num_wal_partitions = 3;
@@ -378,8 +389,10 @@ void indexer_pattern_test()
     s = fdb_open(&db.fhandle, TEST_FILENAME, &db.fconfig);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    printf("Num docs %d Num iterations %d Commit freq %d Iterator batch %d\n",
-           NUM_DOCS, NUM_WRITER_ITERATIONS, COMMIT_FREQ, ITERATOR_BATCH_SIZE);
+    printf("Num docs %d Num iterations %d Commit freq %d Snapshot freq %d "
+           "Iterator batch %d\n",
+           NUM_DOCS, NUM_WRITER_ITERATIONS, COMMIT_FREQ, SNAPSHOT_FREQ,
+           ITERATOR_BATCH_SIZE);
     printf("Wal size %" _F64 " Buffercache size %" _F64 "MB\n",
            fconfig.wal_threshold, fconfig.buffercache_size/1024/1024);
     for (r = 0; r < NUM_WRITERS; ++r) {
