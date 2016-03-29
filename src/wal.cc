@@ -3015,9 +3015,15 @@ size_t wal_get_mem_overhead(struct filemgr *file)
     return atomic_get_uint64_t(&file->wal->mem_overhead, std::memory_order_relaxed);
 }
 
-void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status)
+void wal_set_dirty_status(struct filemgr *file,
+                          wal_dirty_t status,
+                          bool set_on_non_pending)
 {
     spin_lock(&file->wal->lock);
+    if (set_on_non_pending && file->wal->wal_dirty == FDB_WAL_PENDING) {
+        spin_unlock(&file->wal->lock);
+        return;
+    }
     file->wal->wal_dirty = status;
     spin_unlock(&file->wal->lock);
 }
