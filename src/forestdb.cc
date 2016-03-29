@@ -275,6 +275,12 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
         return;
     }
 
+    if (mode == FDB_RESTORE_NORMAL && !handle->shandle) {
+        // for normal WAL restore, set status to dirty
+        // (only when the previous status is clean or dirty)
+        wal_set_dirty_status(handle->file, FDB_WAL_DIRTY, true);
+    }
+
     // Temporarily disable the error logging callback as there are false positive
     // checksum errors in docio_read_doc.
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.

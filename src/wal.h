@@ -183,8 +183,21 @@ size_t wal_get_num_flushable(struct filemgr *file);
 size_t wal_get_num_docs(struct filemgr *file);
 size_t wal_get_num_deletes(struct filemgr *file);
 size_t wal_get_datasize(struct filemgr *file);
-void wal_set_dirty_status(struct filemgr *file, wal_dirty_t status);
+
+/**
+ * Set the dirty status of the WAL
+ *
+ * @param file Pointer to the file manager instance
+ * @param status New dirty status to be set
+ * @param set_on_non_pending Flag indicating the status can be only overriden
+ *        if the current status is not in FDB_WAL_PENDING
+ */
+void wal_set_dirty_status(struct filemgr *file,
+                          wal_dirty_t status,
+                          bool set_on_non_pending = false);
+
 wal_dirty_t wal_get_dirty_status(struct filemgr *file);
+
 void wal_add_transaction(struct filemgr *file, fdb_txn *txn);
 void wal_remove_transaction(struct filemgr *file, fdb_txn *txn);
 fdb_txn * wal_earliest_txn(struct filemgr *file, fdb_txn *cur_txn);
