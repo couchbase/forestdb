@@ -267,7 +267,7 @@ static void * _filemgr_get_temp_buf()
     if (e) {
         item = _get_entry(e, struct temp_buf_item, le);
     } else {
-        void *addr;
+        void *addr = NULL;
 
         malloc_align(addr, FDB_SECTOR_SIZE,
                      global_config.blocksize + sizeof(struct temp_buf_item));
