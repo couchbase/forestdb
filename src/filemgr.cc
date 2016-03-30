@@ -3195,6 +3195,7 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *
            calloc(1, sizeof(struct filemgr_dirty_update_node));
     node->id = atomic_incr_uint64_t(&file->dirty_update_counter);
     node->immutable = false; // currently being written
+    node->copied = false;
     atomic_init_uint32_t(&node->ref_count, 0);
     node->idtree_root = node->seqtree_root = BLK_NOT_FOUND;
     avl_init(&node->dirty_blocks, NULL);
@@ -3246,7 +3247,7 @@ INLINE void filemgr_dirty_update_flush(struct filemgr *file,
     while (a) {
         block = _get_entry(a, struct filemgr_dirty_update_block, avl);
         a = avl_next(a);
-        if (filemgr_is_writable(file, block->bid)) {
+        if (filemgr_is_writable(file, block->bid) && !block->immutable) {
             filemgr_write(file, block->bid, block->addr, log_callback);
         }
     }
@@ -3335,15 +3336,27 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
             migration = true;
         }
 
-        aa = avl_first(&prev_node->dirty_blocks);
+        if (prev_node->copied) {
+            // skip already copied node as its blocks are already in
+            // the new node or DB file
+            aa = NULL;
+        } else {
+            aa = avl_first(&prev_node->dirty_blocks);
+        }
+
         while (aa) {
             block = _get_entry(aa, struct filemgr_dirty_update_block, avl);
             aa = avl_next(aa);
 
-            if (!filemgr_is_writable(file, block->bid)) {
+            if (block->immutable || !filemgr_is_writable(file, block->bid)) {
                 // this block is already committed.
                 // it can happen when previous dirty update was flushed but
                 // was not closed as other handle was still referring it.
+
+                // ignore this block and set the flag to avoid future copy
+                // (filemgr_is_writable() alone is not enough because a block
+                //  can become writable again due to circular block reuse).
+                block->immutable = true;
                 continue;
             }
 
@@ -3363,11 +3376,15 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
                     malloc_align(addr, FDB_SECTOR_SIZE, file->blocksize);
                     block_copy->addr = addr;
                     block_copy->bid = block->bid;
+                    block_copy->immutable = block->immutable;
                     memcpy(block_copy->addr, block->addr, file->blocksize);
                 }
                 avl_insert(&node->dirty_blocks, &block_copy->avl, _dirty_blocks_cmp);
             }
         }
+
+        // now we don't need to copy blocks in this node in the future
+        prev_node->copied = true;
     }
 
     // set latest dirty update
@@ -3465,6 +3482,7 @@ fdb_status filemgr_write_dirty(struct filemgr *file, bid_t bid, void *buf,
         malloc_align(addr, FDB_SECTOR_SIZE, file->blocksize);
         block->addr = addr;
         block->bid = bid;
+        block->immutable = false;
         avl_insert(&node->dirty_blocks, &block->avl, _dirty_blocks_cmp);
     }
 

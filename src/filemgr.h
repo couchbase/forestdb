@@ -268,6 +268,8 @@ struct filemgr_dirty_update_node {
     uint64_t id;
     // flag indicating if this set of dirty blocks can be accessible.
     bool immutable;
+    // flag indicating if this set of dirty blocks are already copied to newer node.
+    bool copied;
     // number of threads (snapshots) accessing this dirty block set.
     atomic_uint32_t ref_count;
     // dirty root node BID for ID tree
@@ -279,9 +281,14 @@ struct filemgr_dirty_update_node {
 };
 
 struct filemgr_dirty_update_block {
+    // AVL-tree element
     struct avl_node avl;
+    // contents of the block
     void *addr;
+    // Block ID
     bid_t bid;
+    // flag indicating if this block is immutable
+    bool immutable;
 };
 
 typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
