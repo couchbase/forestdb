@@ -1120,13 +1120,16 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     int r;
     int real_blocksize = file->blocksize;
     int blocksize = file->blocksize - BLK_MARKER_SIZE;
-    uint8_t *buf = alca(uint8_t, real_blocksize);
+    uint8_t *buf;
     uint32_t crc, _crc;
     uint64_t enc_u64;
     uint64_t num_docs;
     size_t i, offset;
     fdb_status fs;
+	void *temp;
 
+	malloc_align(temp, FDB_SECTOR_SIZE, real_blocksize);
+	buf = (uint8_t *)temp;
     memset(buf, 0x0, real_blocksize);
 
     offset = 0;
@@ -1235,6 +1238,8 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
 
     // directly write a block bypassing block cache
     r = file->ops->pwrite(file->fd, buf, real_blocksize, sb_no * real_blocksize);
+
+	free_align(temp);
     if (r != real_blocksize) {
         char errno_msg[512];
         file->ops->get_errno_str(errno_msg, 512);
@@ -1260,12 +1265,15 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     int real_blocksize = file->blocksize;
     int blocksize = file->blocksize - BLK_MARKER_SIZE;
     size_t i, num_docs;
-    uint8_t *buf = alca(uint8_t, real_blocksize);
+    uint8_t *buf;
     uint32_t crc_file, crc, _crc;
     uint64_t enc_u64, version, offset, dummy64;
     fdb_status fs;
     struct sb_rsv_bmp *rsv = NULL;
+	void *temp;
 
+	malloc_align(temp, FDB_SECTOR_SIZE, real_blocksize);
+	buf = (uint8_t *)temp;
     memset(buf, 0x0, real_blocksize);
     offset = 0;
 
@@ -1278,6 +1286,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: file read failure (SB No.: %" _F64 "), %s",
                 sb_no, errno_msg);
+		free_align(temp);
         return fs;
     }
 
@@ -1288,6 +1297,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
                 "Failed to read the superblock: "
                 "incorrect block marker (marker: %x, SB No.: %" _F64 ")",
                 buf[blocksize], sb_no);
+		free_align(temp);
         return fs;
     }
 
@@ -1303,6 +1313,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
                 "Failed to read the superblock: "
                 "not supported version (magic: %" _F64 ", SB No.: %" _F64 ")",
                 version, sb_no);
+		free_align(temp);
         return fs;
     }
 
@@ -1408,6 +1419,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     crc = get_checksum(buf, offset, file->crc_mode);
     memcpy(&_crc, buf + offset, sizeof(_crc));
     crc_file = _endian_decode(_crc);
+	free_align(temp);
     if (crc != crc_file) {
         free(sb->bmp_doc_offset);
         free(sb->bmp_docs);
