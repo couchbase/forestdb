@@ -15,10 +15,10 @@
  *   limitations under the License.
  */
 
-#include <strings.h>
 #include <cstdio>
 
 #if defined(WIN32)
+#   include <windows.h>
 #   include <Dbghelp.h>
 # else
 #   include <execinfo.h>    // for backtrace()
@@ -51,12 +51,12 @@ static void describe_address(char* msg, size_t len, void* addr) {
 
     if (SymFromAddr(GetCurrentProcess(), (DWORD64)addr, &displacement,
                     sym_info)) {
-        snprintf(msg, len, "%s(%s+%lld) [0x%p]",
-                 module_info.ImageName ? module_info.ImageName : "",
-                 sym_info->Name, displacement, addr);
+        _snprintf(msg, len, "%s(%s+%lld) [0x%p]",
+                  module_info.ImageName ? module_info.ImageName : "",
+                  sym_info->Name, displacement, addr);
     } else {
         // No symbol found.
-        snprintf(msg, len, "[0x%p]", addr);
+        _snprintf(msg, len, "[0x%p]", addr);
     }
 #else // !WIN32
     Dl_info info;
