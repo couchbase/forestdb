@@ -4212,6 +4212,8 @@ fdb_commit_start:
         wal_release_flushed_items(handle->file, &flush_items);
     }
 
+    btreeblk_reset_subblock_info(handle->bhandle);
+
     handle->dirty_updates = 0;
     filemgr_mutex_unlock(handle->file);
 
