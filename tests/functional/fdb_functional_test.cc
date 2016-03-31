@@ -4515,6 +4515,101 @@ void invalid_get_byoffset_test()
     TEST_RESULT("invalid get by-offset test");
 }
 
+void dirty_index_consistency_test()
+{
+    TEST_INIT();
+    int i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db[2];
+    fdb_iterator *fit;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc, *rdoc;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[256];
+
+    memleak_start();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    config.wal_threshold = 100;
+    kvs_config = fdb_get_default_kvs_config();
+
+    // create a file
+    s = fdb_open(&dbfile, "dummy", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db[0], NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db[1], NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    memset(keybuf, 0x0, 256);
+    memset(valuebuf, 0x0, 256);
+
+    // insert docs & dirty WAL flushing
+    for (i=0; i<1000; i++) {
+        sprintf(keybuf, "k%06d", i);
+        sprintf(valuebuf, "v%06d", i);
+        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        s = fdb_set(db[1], doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_doc_free(doc);
+    }
+
+    // get docks
+    for (i=0; i<1000; i++) {
+        sprintf(keybuf, "k%06d", i);
+        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        s = fdb_get(db[0], doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_doc_free(doc);
+    }
+    // now dirty blocks are cached in db[0]'s (default) bhandle
+
+    // more dirty WAL flushing
+    for (i=1000; i<3000; i++) {
+        sprintf(keybuf, "k%06d", i);
+        sprintf(valuebuf, "v%06d", i);
+        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        s = fdb_set(db[1], doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_doc_free(doc);
+    }
+
+    // commit - WAL flushing is executed on the default handle
+    s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // count # docs
+    s = fdb_iterator_init(db[1], &fit, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    r = 0;
+    do {
+        rdoc = NULL;
+        s = fdb_iterator_get(fit, &rdoc);
+        if (s != FDB_RESULT_SUCCESS) break;
+        r++;
+        fdb_doc_free(rdoc);
+    } while (fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    s = fdb_iterator_close(fit);
+
+    TEST_CHK(r == 3000);
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("dirty index consistency test");
+}
+
 int main(){
     basic_test();
     init_test();
@@ -4564,6 +4659,7 @@ int main(){
     open_multi_files_kvs_test();
     rekey_test();
     invalid_get_byoffset_test();
+    dirty_index_consistency_test();
     purge_logically_deleted_doc_test();
     large_batch_write_no_commit_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);

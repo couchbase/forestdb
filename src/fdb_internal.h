@@ -264,6 +264,10 @@ INLINE void _fdb_dirty_update_ready(fdb_kvs_handle *handle,
 
     *prev_node = filemgr_dirty_update_get_latest(handle->file);
 
+    // discard all cached index blocks
+    // to avoid data inconsistency with other writers
+    btreeblk_discard_blocks(handle->bhandle);
+
     // create a new dirty update entry if previous one exists
     // (if we don't this, we cannot identify which block on
     //  dirty copy or actual file is more recent during the WAL flushing.)
@@ -314,6 +318,10 @@ INLINE void _fdb_dirty_update_finalize(fdb_kvs_handle *handle,
     if (commit) {
         // write back new_node's dirty blocks
         filemgr_dirty_update_commit(handle->file, &handle->log_callback);
+    } else {
+        // if this update set is still dirty,
+        // discard all cached index blocks to avoid data inconsistency.
+        btreeblk_discard_blocks(handle->bhandle);
     }
 }
 

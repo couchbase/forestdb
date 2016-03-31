@@ -3707,10 +3707,6 @@ fdb_set_start:
         if (wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
             union wal_flush_items flush_items;
 
-            // discard all cached writable blocks
-            // to avoid data inconsistency with other writers
-            btreeblk_discard_blocks(handle->bhandle);
-
             // commit only for non-transactional WAL entries
             wr = wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
             if (wr != FDB_RESULT_SUCCESS) {
@@ -4084,12 +4080,6 @@ fdb_commit_start:
         // non-transactional updates
         wal_commit(&handle->file->global_txn, handle->file, NULL,
                    &handle->log_callback);
-    }
-
-    if (handle->dirty_updates) {
-        // discard all cached writable b+tree nodes
-        // to avoid data inconsistency with other writers
-        btreeblk_discard_blocks(handle->bhandle);
     }
 
     if (wal_get_num_flushable(handle->file) > _fdb_get_wal_threshold(handle) ||
