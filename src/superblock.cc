@@ -1126,10 +1126,10 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     uint64_t num_docs;
     size_t i, offset;
     fdb_status fs;
-	void *temp;
+    void *temp;
 
-	malloc_align(temp, FDB_SECTOR_SIZE, real_blocksize);
-	buf = (uint8_t *)temp;
+    malloc_align(temp, FDB_SECTOR_SIZE, real_blocksize);
+    buf = (uint8_t *)temp;
     memset(buf, 0x0, real_blocksize);
 
     offset = 0;
@@ -1270,10 +1270,10 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     uint64_t enc_u64, version, offset, dummy64;
     fdb_status fs;
     struct sb_rsv_bmp *rsv = NULL;
-	void *temp;
+    void *temp;
 
-	malloc_align(temp, FDB_SECTOR_SIZE, real_blocksize);
-	buf = (uint8_t *)temp;
+    malloc_align(temp, FDB_SECTOR_SIZE, real_blocksize);
+    buf = (uint8_t *)temp;
     memset(buf, 0x0, real_blocksize);
     offset = 0;
 
