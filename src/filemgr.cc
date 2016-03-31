@@ -3195,7 +3195,7 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *
            calloc(1, sizeof(struct filemgr_dirty_update_node));
     node->id = atomic_incr_uint64_t(&file->dirty_update_counter);
     node->immutable = false; // currently being written
-    node->copied = false;
+    node->expired = false;
     atomic_init_uint32_t(&node->ref_count, 0);
     node->idtree_root = node->seqtree_root = BLK_NOT_FOUND;
     avl_init(&node->dirty_blocks, NULL);
@@ -3251,48 +3251,41 @@ INLINE void filemgr_dirty_update_flush(struct filemgr *file,
             filemgr_write(file, block->bid, block->addr, log_callback);
         }
     }
+    node->expired = true;
 }
 
-void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_callback)
+void filemgr_dirty_update_commit(struct filemgr *file,
+                                 struct filemgr_dirty_update_node *commit_node,
+                                 err_log_callback *log_callback)
 {
-    bool flushed = false;
     struct avl_node *a;
     struct filemgr_dirty_update_node *node;
     struct list remove_queue;
     struct list_elem *le;
 
+    // 1. write back all blocks in the given (committed) node
+    // 2. remove all other immutable dirty update entries
     list_init(&remove_queue);
+    if (commit_node) {
+        filemgr_dirty_update_flush(file, commit_node, log_callback);
+    }
 
     spin_lock(&file->dirty_update_lock);
+    file->latest_dirty_update = NULL;
 
-    // 1. write back all blocks in the latest dirty update entry
-    // 2. remove all other immutable dirty update entries
-    a = avl_last(&file->dirty_update_idx);
+    a = avl_first(&file->dirty_update_idx);
     while (a) {
         node = _get_entry(a, struct filemgr_dirty_update_node, avl);
+        a = avl_next(a);
 
-        if (node->immutable) {
-            if (!flushed) {
-                spin_unlock(&file->dirty_update_lock);
-
-                filemgr_dirty_update_flush(file, node, log_callback);
-                flushed = true;
-
-                spin_lock(&file->dirty_update_lock);
-            }
-
-            a = avl_prev(a);
-            if (atomic_get_uint32_t(&node->ref_count) == 0) {
-                // detach from tree and insert into remove queue
-                avl_remove(&file->dirty_update_idx, &node->avl);
-                list_push_front(&remove_queue, &node->le);
-            }
-        } else {
-            a = avl_prev(a);
+        if (node->immutable &&
+            atomic_get_uint32_t(&node->ref_count) == 0) {
+            // detach from tree and insert into remove queue
+            avl_remove(&file->dirty_update_idx, &node->avl);
+            list_push_front(&remove_queue, &node->le);
         }
     }
 
-    file->latest_dirty_update = NULL;
     spin_unlock(&file->dirty_update_lock);
 
     le = list_begin(&remove_queue);
@@ -3304,10 +3297,11 @@ void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_cal
 }
 
 void filemgr_dirty_update_set_immutable(struct filemgr *file,
+                                        struct filemgr_dirty_update_node *prev_node,
                                         struct filemgr_dirty_update_node *node)
 {
-    struct avl_node *a, *a_prev;
-    struct filemgr_dirty_update_node *cur_node, *prev_node;
+    struct avl_node *a;
+    struct filemgr_dirty_update_node *cur_node;
     struct list remove_queue;
     struct list_elem *le;
 
@@ -3322,13 +3316,10 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
 
     // absorb all blocks that exist in the previous dirty update
     // but not exist in the current dirty update
-    a_prev = avl_prev(&node->avl);
-    if (a_prev) {
+    if (prev_node) {
         bool migration = false;
         struct avl_node *aa, *bb;
         struct filemgr_dirty_update_block *block, *block_copy, query;
-
-        prev_node = _get_entry(a_prev, struct filemgr_dirty_update_node, avl);
 
         if (prev_node->immutable && atomic_get_uint32_t(&prev_node->ref_count) == 1) {
             // only the current thread is referring this dirty update entry.
@@ -3336,7 +3327,7 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
             migration = true;
         }
 
-        if (prev_node->copied) {
+        if (prev_node->expired) {
             // skip already copied node as its blocks are already in
             // the new node or DB file
             aa = NULL;
@@ -3384,7 +3375,7 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
         }
 
         // now we don't need to copy blocks in this node in the future
-        prev_node->copied = true;
+        prev_node->expired = true;
     }
 
     // set latest dirty update

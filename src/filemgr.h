@@ -269,7 +269,7 @@ struct filemgr_dirty_update_node {
     // flag indicating if this set of dirty blocks can be accessible.
     bool immutable;
     // flag indicating if this set of dirty blocks are already copied to newer node.
-    bool copied;
+    bool expired;
     // number of threads (snapshots) accessing this dirty block set.
     atomic_uint32_t ref_count;
     // dirty root node BID for ID tree
@@ -709,10 +709,13 @@ void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node);
  * dirty update entries whose reference counter is zero.
  *
  * @param file Pointer to filemgr handle.
+ * @param commit_node Pointer to dirty update entry to be flushed.
  * @param log_callback Pointer to the log callback function.
  * @return void.
  */
-void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_callback);
+void filemgr_dirty_update_commit(struct filemgr *file,
+                                 struct filemgr_dirty_update_node *commit_node,
+                                 err_log_callback *log_callback);
 
 /**
  * Complete the given dirty update entry and make it immutable. This API will
@@ -721,9 +724,11 @@ void filemgr_dirty_update_commit(struct filemgr *file, err_log_callback *log_cal
  *
  * @param file Pointer to filemgr handle.
  * @param node Pointer to dirty update entry to complete.
+ * @param node Pointer to previous dirty update entry.
  * @return void.
  */
 void filemgr_dirty_update_set_immutable(struct filemgr *file,
+                                        struct filemgr_dirty_update_node *prev_node,
                                         struct filemgr_dirty_update_node *node);
 
 /**

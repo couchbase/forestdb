@@ -309,7 +309,7 @@ INLINE void _fdb_dirty_update_finalize(fdb_kvs_handle *handle,
     btreeblk_clear_dirty_update(handle->bhandle);
     // finalize new_node
     if (new_node) {
-        filemgr_dirty_update_set_immutable(handle->file, new_node);
+        filemgr_dirty_update_set_immutable(handle->file, prev_node, new_node);
     }
     // close previous immutable node
     if (prev_node) {
@@ -317,7 +317,7 @@ INLINE void _fdb_dirty_update_finalize(fdb_kvs_handle *handle,
     }
     if (commit) {
         // write back new_node's dirty blocks
-        filemgr_dirty_update_commit(handle->file, &handle->log_callback);
+        filemgr_dirty_update_commit(handle->file, new_node, &handle->log_callback);
     } else {
         // if this update set is still dirty,
         // discard all cached index blocks to avoid data inconsistency.
