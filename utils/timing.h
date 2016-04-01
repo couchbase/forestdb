@@ -24,16 +24,15 @@
 #if !defined(WIN32) && !defined(_WIN32)
 #include <unistd.h>
 #endif
-
+#include "time_utils.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// Forestdb APIs wrappers where time taken in nano secs is returned on success
+
 static const long int ERR_NS = 0xFFFFFFFF;
-typedef  long int ts_nsec;
-ts_nsec get_monotonic_ts();
-ts_nsec ts_diff(ts_nsec start, ts_nsec end);
 ts_nsec timed_fdb_get(fdb_kvs_handle *kv, fdb_doc *doc);
 ts_nsec timed_fdb_set(fdb_kvs_handle *kv, fdb_doc *doc);
 ts_nsec timed_fdb_delete(fdb_kvs_handle *kv, fdb_doc *doc);

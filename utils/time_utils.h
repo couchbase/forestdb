@@ -30,6 +30,10 @@
 extern "C" {
 #endif
 
+typedef  long int ts_nsec;
+ts_nsec get_monotonic_ts();
+ts_nsec ts_diff(ts_nsec start, ts_nsec end);
+
 struct timeval _utime_gap(struct timeval a, struct timeval b);
 
 #if defined(WIN32) || defined(_WIN32)

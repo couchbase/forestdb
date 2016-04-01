@@ -15,9 +15,23 @@
  *   limitations under the License.
  */
 
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if defined(__APPLE__)
+#include <mach/mach_time.h>
+#endif
+#if defined(WIN32)
+#include <Windows.h>
+#else
+#include <sys/time.h>
+#endif
+#if !defined(WIN32) && !defined(_WIN32)
+#include <unistd.h>
+#endif
+
 #include "time_utils.h"
-#include "stdint.h"
-#include "string.h"
 
 struct timeval _utime_gap(struct timeval a, struct timeval b)
 {
@@ -81,4 +95,46 @@ void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {
     if (max_sleep_time < *sleep_time) {
         *sleep_time = max_sleep_time;
     }
+}
+
+/*
+    return a monotonically increasing value with a seconds frequency.
+*/
+ts_nsec get_monotonic_ts() {
+    ts_nsec ts = 0;
+#if defined(WIN32)
+    /* GetTickCound64 gives us near 60years of ticks...*/
+    ts =  GetTickCount64() * 1000;  // TODO: this is not true high-res microseconds on windows
+#elif defined(__APPLE__)
+    long time = mach_absolute_time();
+
+    static mach_timebase_info_data_t timebase;
+    if (timebase.denom == 0) {
+      mach_timebase_info(&timebase);
+    }
+
+    ts = (double)time * timebase.numer / timebase.denom;
+#elif defined(__linux__) || defined(__sun) || defined(__FreeBSD__)
+    /* Linux and Solaris can use clock_gettime */
+    struct timespec tm;
+    if (clock_gettime(CLOCK_MONOTONIC, &tm) == -1) {
+        abort();
+    }
+    ts = tm.tv_nsec;
+#else
+#error "Don't know how to build get_monotonic_ts"
+#endif
+
+    return ts;
+}
+
+ts_nsec ts_diff(ts_nsec start, ts_nsec end)
+{
+    ts_nsec diff = 0;
+    if ((end-start)<0) {
+        diff  = 1000000000+end-start;
+    } else {
+        diff = end-start;
+    }
+    return diff/1000;
 }
