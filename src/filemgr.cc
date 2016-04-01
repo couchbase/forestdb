@@ -3953,6 +3953,11 @@ const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
         case FDB_LATENCY_OPEN:          return "fdb_open        ";
         case FDB_LATENCY_KVS_OPEN:      return "fdb_kvs_open    ";
         case FDB_LATENCY_SNAP_CLONE:    return "clone-snapshot  ";
+        case FDB_LATENCY_WAL_INS:       return "wal_insert      ";
+        case FDB_LATENCY_WAL_FIND:      return "wal_find        ";
+        case FDB_LATENCY_WAL_COMMIT:    return "wal_commit      ";
+        case FDB_LATENCY_WAL_FLUSH:     return "wal_flush       ";
+        case FDB_LATENCY_WAL_RELEASE:   return "wal_releas_items";
     }
     return NULL;
 }

@@ -28,6 +28,7 @@
 #include "fdb_internal.h"
 
 #include "memleak.h"
+#include "time_utils.h"
 
 
 #ifdef __DEBUG
@@ -522,6 +523,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
     size_t shard_num;
     wal_snapid_t snap_tag;
     fdb_kvs_id_t kv_id;
+    LATENCY_STAT_START();
 
     if (file->kv_header) { // multi KV instance mode
         buf2kvid(file->config->chunksize, doc->key, &kv_id);
@@ -794,6 +796,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
 
+    LATENCY_STAT_END(file, FDB_LATENCY_WAL_INS);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -913,6 +916,7 @@ static fdb_status _wal_find(fdb_txn *txn,
     struct avl_node *node = NULL;
     void *key = doc->key;
     size_t keylen = doc->keylen;
+    LATENCY_STAT_START();
 
     if (doc->seqnum == SEQNUM_NOT_USED || (key && keylen>0)) {
         size_t chk_sum = get_checksum((uint8_t*)key, keylen);
@@ -992,6 +996,7 @@ static fdb_status _wal_find(fdb_txn *txn,
                 }
                 doc->seqnum = item->seqnum;
                 spin_unlock(&file->wal->key_shards[shard_num].lock);
+                LATENCY_STAT_END(file, FDB_LATENCY_WAL_FIND);
                 return FDB_RESULT_SUCCESS;
             }
         }
@@ -1036,12 +1041,14 @@ static fdb_status _wal_find(fdb_txn *txn,
                     }
                 }
                 spin_unlock(&file->wal->seq_shards[shard_num].lock);
+                LATENCY_STAT_END(file, FDB_LATENCY_WAL_FIND);
                 return FDB_RESULT_SUCCESS;
             }
         }
         spin_unlock(&file->wal->seq_shards[shard_num].lock);
     }
 
+    LATENCY_STAT_END(file, FDB_LATENCY_WAL_FIND);
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
@@ -1245,6 +1252,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
     fdb_status status = FDB_RESULT_SUCCESS;
     size_t shard_num;
     uint64_t mem_overhead = 0;
+    LATENCY_STAT_START();
 
     e1 = list_begin(txn->items);
     while(e1) {
@@ -1366,6 +1374,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
     atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead,
                         std::memory_order_relaxed);
 
+    LATENCY_STAT_END(file, FDB_LATENCY_WAL_COMMIT);
     return status;
 }
 
@@ -1512,6 +1521,7 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
 {
     struct wal_item *item;
     size_t shard_num;
+    LATENCY_STAT_START();
 
     _wal_snap_mark_flushed(file->wal); // Read-write barrier: items are in trie
 
@@ -1557,6 +1567,7 @@ fdb_status wal_release_flushed_items(struct filemgr *file,
         }
     }
 
+    LATENCY_STAT_END(file, FDB_LATENCY_WAL_RELEASE);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -1640,6 +1651,7 @@ static fdb_status _wal_flush(struct filemgr *file,
     struct fdb_root_info root_info;
     size_t i = 0;
     size_t num_shards = file->wal->num_shards;
+    LATENCY_STAT_START();
     bool do_sort = !filemgr_is_fully_resident(file);
 
     if (do_sort) {
@@ -1756,6 +1768,7 @@ static fdb_status _wal_flush(struct filemgr *file,
     delta_stats_func(file, &kvs_delta_stats);
 
     filemgr_clear_io_inprog(file);
+    LATENCY_STAT_END(file, FDB_LATENCY_WAL_FLUSH);
     return fs;
 }
 

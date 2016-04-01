@@ -694,7 +694,12 @@ enum {
     FDB_LATENCY_OPEN         = 16, // fdb_open API
     FDB_LATENCY_KVS_OPEN     = 17, // fdb_kvs_open API
     FDB_LATENCY_SNAP_CLONE   = 18, // fdb_snapshot_open from another snapshot
-    FDB_LATENCY_NUM_STATS    = 19  // Number of stats (keep as highest elem)
+    FDB_LATENCY_WAL_INS      = 19, // wal_insert()
+    FDB_LATENCY_WAL_FIND     = 20, // wal_find()
+    FDB_LATENCY_WAL_COMMIT   = 21, // wal_commit()
+    FDB_LATENCY_WAL_FLUSH    = 22, // _wal_flush()
+    FDB_LATENCY_WAL_RELEASE  = 23, // wal_release_flushed_items()
+    FDB_LATENCY_NUM_STATS    = 24  // Number of stats (keep as highest elem)
 };
 
 /**

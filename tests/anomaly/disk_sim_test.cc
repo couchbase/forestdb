@@ -177,20 +177,24 @@ fdb_status indexer_set(storage_t *st, int docid, int mutno, bool isdel)
     }
 
     if (mutno && (mutno % SNAPSHOT_FREQ) == 0) {
+        fdb_kvs_handle *new_snapshot, *old_snapshot;
+        s = fdb_snapshot_open(st->main, &new_snapshot, FDB_SNAPSHOT_INMEM);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+
         // Take a snapshot of main kv store as well as the key_map for reference
         spin_lock(&st->lock);
+
         st->latest_snap_idx = (st->latest_snap_idx + 1) % MAX_NUM_SNAPSHOTS;
         st->keymap[docid] = key_ver;
-        if (st->snaps[st->latest_snap_idx].snap) {
-            fdb_kvs_close(st->snaps[st->latest_snap_idx].snap);
-        }
-
-        s = fdb_snapshot_open(st->main, &st->snaps[st->latest_snap_idx].snap,
-                              FDB_SNAPSHOT_INMEM);
-        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        old_snapshot = st->snaps[st->latest_snap_idx].snap; // get old snapshot
+        st->snaps[st->latest_snap_idx].snap = new_snapshot; // swap with current
         memcpy(st->snaps[st->latest_snap_idx]._key_map, st->keymap, NUM_DOCS);
 
         spin_unlock(&st->lock);
+
+        if (old_snapshot) {
+            fdb_kvs_close(old_snapshot);
+        }
     } else { // just update the reference map
         spin_lock(&st->lock);
         st->keymap[docid] = key_ver;
@@ -289,10 +293,14 @@ static void *_iterator_thread(void *voidargs)
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         spin_unlock(&st->lock);
 
-        start_key = rand() % NUM_DOCS;
         num_keys = ITERATOR_BATCH_SIZE;
-        end_key = start_key + num_keys;
-        end_key = end_key >= NUM_DOCS ? NUM_DOCS - 1 : end_key;
+        if (num_keys == NUM_DOCS) { // full scan
+            start_key = 0;
+            end_key = NUM_DOCS - 1;
+        } else { // partial scan
+            start_key = rand() % (NUM_DOCS - num_keys); // ensure range bounds
+            end_key = start_key + num_keys;
+        }
 
         make_key(buf, start_key, 0);
         s = fdb_iterator_init(snapdb, &it, buf, strlen(buf) + 1, NULL, 0,
