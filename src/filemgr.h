@@ -149,7 +149,7 @@ typedef uint64_t filemgr_header_revnum_t;
 struct filemgr_header{
     filemgr_header_len_t size;
     filemgr_header_revnum_t revnum;
-    volatile fdb_seqnum_t seqnum;
+    atomic_uint64_t seqnum;
     atomic_uint64_t bid;
     struct kvs_ops_stat op_stat; // op stats for default KVS
     struct kvs_stat stat; // stats for the default KVS

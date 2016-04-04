@@ -488,7 +488,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                             file->header.revnum =
                                 _endian_decode(file->header.revnum);
                             file->header.seqnum =
-                                _endian_decode(file->header.seqnum);
+                                _endian_decode(file->header.seqnum.load());
                             file->header.size = len;
                             atomic_store_uint64_t(&file->header.bid, hdr_bid_local);
                             memset(&file->header.stat, 0x0, sizeof(file->header.stat));
@@ -2276,7 +2276,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         memcpy((uint8_t *)buf + header_len, &_revnum,
                sizeof(filemgr_header_revnum_t));
         // file's sequence number (default KVS seqnum)
-        _seqnum = _endian_encode(file->header.seqnum);
+        _seqnum = _endian_encode(file->header.seqnum.load());
         memcpy((uint8_t *)buf + header_len + sizeof(filemgr_header_revnum_t),
                &_seqnum, sizeof(fdb_seqnum_t));
 
