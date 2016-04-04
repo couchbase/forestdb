@@ -3186,8 +3186,9 @@ void compact_with_snapshot_open_multi_kvs_test()
 }
 
 
-static bool cancel_test_signal_begin = false;
-static bool cancel_test_signal_end = false;
+static atomic_uint8_t cancel_test_signal_begin(0);
+static atomic_uint8_t cancel_test_signal_end(0);
+
 static int cb_cancel_test(fdb_file_handle *fhandle,
                           fdb_compaction_status status, const char *kv_name,
                           fdb_doc *doc, uint64_t old_offset, uint64_t new_offset,
@@ -3201,9 +3202,9 @@ static int cb_cancel_test(fdb_file_handle *fhandle,
     (void) ctx;
 
     if (status == FDB_CS_BEGIN) {
-        cancel_test_signal_begin = true;
+        cancel_test_signal_begin = 1;
     } else if (status == FDB_CS_END) {
-        cancel_test_signal_end = true;
+        cancel_test_signal_end = 1;
     }
 
     return 0;
