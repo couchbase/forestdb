@@ -316,8 +316,9 @@ void filemgr_set_sb_operation(struct sb_ops ops);
 uint64_t filemgr_get_bcache_used_space(void);
 
 bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
-                           void (*free_kv_header)(struct filemgr *file),
-                           bool got_lock);
+                           void (*free_kv_header)(struct filemgr *file));
+
+struct kvs_header* filemgr_get_kv_header(struct filemgr *file);
 
 size_t filemgr_get_ref_count(struct filemgr *file);
 

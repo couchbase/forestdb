@@ -2460,13 +2460,11 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
 }
 
 bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
-                           void (*free_kv_header)(struct filemgr *file),
-                           bool got_lock)
+                           void (*free_kv_header)(struct filemgr *file))
 {
     bool ret;
-    if (!got_lock) {
-        spin_lock(&file->lock);
-    }
+    spin_lock(&file->lock);
+
     if (!file->kv_header) {
         file->kv_header = kv_header;
         file->free_kv_header = free_kv_header;
@@ -2474,10 +2472,19 @@ bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
     } else {
         ret = false;
     }
-    if (!got_lock) {
-        spin_unlock(&file->lock);
-    }
+
+    spin_unlock(&file->lock);
+
     return ret;
+}
+
+struct kvs_header *filemgr_get_kv_header(struct filemgr *file)
+{
+    struct kvs_header *kv_header = NULL;
+    spin_lock(&file->lock);
+    kv_header = file->kv_header;
+    spin_unlock(&file->lock);
+    return kv_header;
 }
 
 // Check if there is a file that still points to the old_file that is being

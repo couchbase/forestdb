@@ -639,8 +639,8 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
             *new_file_kv_info_offset = new_kv_info_offset;
         }
 
-        if (!filemgr_set_kv_header(new_file, kv_header, fdb_kvs_header_free,
-                                   false)) { // LCOV_EXCL_START
+        if (!filemgr_set_kv_header(new_file, kv_header, fdb_kvs_header_free)) {
+            // LCOV_EXCL_START
             _fdb_kvs_header_free(kv_header);
         } // LCOV_EXCL_STOP
         fdb_kvs_header_reset_all_stats(new_file);

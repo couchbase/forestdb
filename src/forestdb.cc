@@ -1688,14 +1688,14 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         // Retrieve seqnum for multi-kv mode
         if (handle->kvs && handle->kvs->id > 0) {
             if (kv_info_offset != BLK_NOT_FOUND) {
-                if (!handle->file->kv_header) {
+                if (!filemgr_get_kv_header(handle->file)) {
                     struct kvs_header *kv_header;
                     _fdb_kvs_header_create(&kv_header);
                     // KV header already exists but not loaded .. read & import
                     fdb_kvs_header_read(kv_header, handle->dhandle,
                                         kv_info_offset, version, false);
                     if (!filemgr_set_kv_header(handle->file, kv_header,
-                                          fdb_kvs_header_free, false)) {
+                                               fdb_kvs_header_free)) {
                         _fdb_kvs_header_free(kv_header);
                     }
                 }
