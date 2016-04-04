@@ -127,7 +127,7 @@ struct bcache_item {
     // list elem for {free, clean, dirty} lists
     struct list_elem list_elem;
     // flag
-    uint8_t flag;
+    atomic_uint8_t flag;
     // score
     uint8_t score;
 };
