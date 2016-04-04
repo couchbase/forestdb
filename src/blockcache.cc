@@ -52,7 +52,7 @@ static spin_t bcache_lock;
 static struct hash fnamedic;
 
 // free block list
-static volatile size_t freelist_count;
+static atomic_uint64_t freelist_count(0);
 static struct list freelist;
 static spin_t freelist_lock;
 
