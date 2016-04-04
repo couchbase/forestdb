@@ -2226,18 +2226,13 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
                               uint64_t bmp_revnum, bool sync,
                               err_log_callback *log_callback)
 {
-    uint16_t header_len = file->header.size;
-    uint16_t _header_len;
     struct avl_node *a;
     struct kvs_node *node;
-    struct kvs_header *kv_header = file->kv_header;
     bid_t prev_bid, _prev_bid;
     uint64_t _deltasize, _bmp_revnum;
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
-    filemgr_magic_t magic = file->version;
-    filemgr_magic_t _magic;
     bool block_reusing = false;
 
     filemgr_set_io_inprog(file);
@@ -2252,6 +2247,10 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
     }
 
     spin_lock(&file->lock);
+
+    uint16_t header_len = file->header.size;
+    struct kvs_header *kv_header = file->kv_header;
+    filemgr_magic_t magic = file->version;
 
     if (file->header.size > 0 && file->header.data) {
         void *buf = _filemgr_get_temp_buf();
@@ -2316,14 +2315,14 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
                - sizeof(header_len) - sizeof(_prev_bid) - BLK_MARKER_SIZE),
                &_prev_bid, sizeof(_prev_bid));
         // header length
-        _header_len = _endian_encode(header_len);
+        header_len = _endian_encode(header_len);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - BLK_MARKER_SIZE),
-               &_header_len, sizeof(header_len));
+               &header_len, sizeof(header_len));
         // magic number
-        _magic = _endian_encode(magic);
+        magic = _endian_encode(magic);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
-               - BLK_MARKER_SIZE), &_magic, sizeof(magic));
+               - BLK_MARKER_SIZE), &magic, sizeof(magic));
 
         // marker
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
@@ -2379,7 +2378,6 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         atomic_store_uint64_t(&file->last_commit_bmp_revnum,
                               bmp_revnum);
     }
-    file->version = magic;
 
     spin_unlock(&file->lock);
 
