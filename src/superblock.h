@@ -205,6 +205,10 @@ struct superblock {
      * Number of allocated blocks since the last superblock sync.
      */
     uint64_t num_alloc;
+    /**
+     * Lock for superblock initialization.
+     */
+    spin_t lock;
 };
 
 struct sb_ops {

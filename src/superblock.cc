@@ -339,13 +339,24 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
     struct superblock *sb = handle->file->sb;
     struct sb_rsv_bmp *rsv = NULL;
 
-    // skip if previous bitmap exists
+    // skip if previous bitmap exists OR
+    // there is no bitmap to be fetched (fast screening)
+    if (sb->bmp || sb->bmp_size == 0) {
+        return FDB_RESULT_SUCCESS;
+    }
+
+    spin_lock(&sb->lock);
+
+    // check once again if superblock is already initialized
+    // while the thread was blocked by the lock.
     if (sb->bmp) {
+        spin_unlock(&sb->lock);
         return FDB_RESULT_SUCCESS;
     }
 
     sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb->bmp_size);
     if (!num_docs) {
+        spin_unlock(&sb->lock);
         return FDB_RESULT_SUCCESS;
     }
 
@@ -365,6 +376,8 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
             // read fail
             free(sb->bmp);
             sb->bmp = NULL;
+
+            spin_unlock(&sb->lock);
             return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
         }
     }
@@ -376,6 +389,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         // reserved bitmap exists
         rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
         if (!num_docs) {
+            spin_unlock(&sb->lock);
             return FDB_RESULT_SUCCESS;
         }
 
@@ -396,6 +410,8 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
                 free(rsv->bmp);
                 free(sb->bmp);
                 rsv->bmp = sb->bmp = NULL;
+
+                spin_unlock(&sb->lock);
                 return r_offset < 0 ? (fdb_status) r_offset : FDB_RESULT_SB_READ_FAIL;
             }
         }
@@ -404,6 +420,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         atomic_store_uint32_t(&rsv->status, SB_RSV_READY);
     }
 
+    spin_unlock(&sb->lock);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -1449,6 +1466,7 @@ static void _sb_free(struct superblock *sb)
     // as key/body fields point to static memory regions.
     free(sb->bmp_docs);
     free(sb->config);
+    spin_destroy(&sb->lock);
 
     sb->bmp = NULL;
     sb->bmp_doc_offset = NULL;
@@ -1477,6 +1495,7 @@ void _sb_init(struct superblock *sb, struct sb_config sconfig)
     sb->num_alloc = 0;
     sb->rsv_bmp = NULL;
     avl_init(&sb->bmp_idx, NULL);
+    spin_init(&sb->lock);
 }
 
 fdb_status sb_read_latest(struct filemgr *file,
