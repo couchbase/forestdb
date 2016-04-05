@@ -83,12 +83,23 @@ INLINE int _cmp_uint64_t_endian_safe(void *key1, void *key2, void *aux)
 
 size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
+    fdb_status fs;
     keylen_t keylen;
+    struct docio_handle *dhandle = (struct docio_handle*)handle;
+
     offset = _endian_decode(offset);
-    if (docio_read_doc_key((struct docio_handle *)handle, offset, &keylen, buf) ==
-        FDB_RESULT_SUCCESS) {
+    fs = docio_read_doc_key(dhandle, offset, &keylen, buf);
+    if (fs == FDB_RESULT_SUCCESS) {
         return keylen;
     } else {
+        const char *msg = "docio_read_doc_key error: read failure on "
+            "offset %" _F64 " in a database file '%s' "
+            ": FDB status %d, lastbid 0x%" _X64 ", "
+            "curblock 0x%" _X64 ", curpos 0x%x\n";
+        fdb_log(NULL, FDB_RESULT_READ_FAIL, msg, offset,
+                dhandle->file->filename, fs, dhandle->lastbid,
+                dhandle->curblock, dhandle->curpos);
+        dbg_print_buf(dhandle->readbuffer, dhandle->file->blocksize, true, 16);
         return 0;
     }
 }
@@ -276,6 +287,14 @@ INLINE filemgr_header_revnum_t _fdb_get_bmp_revnum(fdb_kvs_handle *handle, bid_t
     return bmp_revnum;
 }
 
+void fdb_dummy_log_callback(int err_code, const char *err_msg, void *ctx_data)
+{
+    (void)err_code;
+    (void)err_msg;
+    (void)ctx_data;
+    return;
+}
+
 INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
                              fdb_restore_mode_t mode,
                              bid_t hdr_bid,
@@ -319,8 +338,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
     // Temporarily disable the error logging callback as there are false positive
     // checksum errors in docio_read_doc.
     // TODO: Need to adapt docio_read_doc to separate false checksum errors.
+    err_log_callback dummy_cb;
     log_callback = handle->dhandle->log_callback;
-    handle->dhandle->log_callback = NULL;
+    dummy_cb.callback = fdb_dummy_log_callback;
+    dummy_cb.ctx_data = NULL;
+    handle->dhandle->log_callback = &dummy_cb;
 
     if (!handle->shandle) {
         filemgr_mutex_lock(file);

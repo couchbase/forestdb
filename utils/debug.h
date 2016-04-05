@@ -30,4 +30,6 @@ fdb_status _dbg_install_handler(void);
 fdb_status _dbg_destroy_altstack(void);
 fdb_status _dbg_handle_crashes(const char *pathname);
 
+void dbg_print_buf(void *buf, uint64_t buflen, bool hex, int align);
+
 #endif

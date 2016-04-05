@@ -705,7 +705,7 @@ INLINE fdb_status _docio_read_through_buffer(struct docio_handle *handle,
         if (filemgr_is_writable(handle->file, bid)) {
             // this block can be modified later .. must be re-read
             handle->lastbid = BLK_NOT_FOUND;
-        }else{
+        } else {
             handle->lastbid = bid;
         }
     }

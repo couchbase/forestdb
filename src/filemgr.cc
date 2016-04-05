@@ -158,13 +158,16 @@ fdb_status fdb_log(err_log_callback *log_callback,
                    fdb_status status,
                    const char *format, ...)
 {
+    char msg[4096];
+    va_list args;
+    va_start(args, format);
+    vsprintf(msg, format, args);
+    va_end(args);
+
     if (log_callback && log_callback->callback) {
-        char msg[4096];
-        va_list args;
-        va_start(args, format);
-        vsprintf(msg, format, args);
-        va_end(args);
         log_callback->callback(status, msg, log_callback->ctx_data);
+    } else {
+        fprintf(stderr, "[FDB ERR] %s\n", msg);
     }
     return status;
 }
@@ -1985,6 +1988,10 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
+                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                    "doesn't exist in the cache and read_on_cache_miss flag is turned on.\n";
+                fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid,
+                        file->filename);
                 return FDB_RESULT_READ_FAIL;
             }
 
@@ -2002,7 +2009,14 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                return (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
+                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                    "is not read correctly: only %d bytes read.\n";
+                status = r < 0 ? (fdb_status)r : FDB_RESULT_READ_FAIL;
+                fdb_log(log_callback, status, msg, bid, file->filename, r);
+                if (!log_callback || !log_callback->callback) {
+                    dbg_print_buf(buf, file->blocksize, true, 16);
+                }
+                return status;
             }
 #ifdef __CRC32
             status = _filemgr_crc32_check(file, buf);
@@ -2017,6 +2031,13 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 #else
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
+                const char *msg = "Read error: checksum error on BID %" _F64 " in a database file '%s' "
+                    ": marker %x\n";
+                fdb_log(log_callback, status, msg, bid,
+                        file->filename, *((uint8_t*)buf + file->blocksize-1));
+                if (!log_callback || !log_callback->callback) {
+                    dbg_print_buf(buf, file->blocksize, true, 16);
                 }
                 return status;
             }
@@ -2034,7 +2055,14 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 }
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "WRITE", file->filename);
-                return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
+                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                    "is not written in cache correctly: only %d bytes written.\n";
+                status = r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
+                fdb_log(log_callback, status, msg, bid, file->filename, r);
+                if (!log_callback || !log_callback->callback) {
+                    dbg_print_buf(buf, file->blocksize, true, 16);
+                }
+                return status;
             }
         }
         if (locked) {
@@ -2048,6 +2076,10 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         }
     } else {
         if (!read_on_cache_miss) {
+            const char *msg = "Read error: BID %" _F64 " in a database file '%s':"
+                "block cache is not enabled.\n";
+            fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid,
+                    file->filename);
             return FDB_RESULT_READ_FAIL;
         }
 
@@ -2055,7 +2087,14 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         if (r != (ssize_t)file->blocksize) {
             _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",
                            file->filename);
-            return (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
+            const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                "is not read correctly: only %d bytes read (block cache disabled).\n";
+            status = (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
+            fdb_log(log_callback, status, msg, bid, file->filename, r);
+            if (!log_callback || !log_callback->callback) {
+                dbg_print_buf(buf, file->blocksize, true, 16);
+            }
+            return status;
         }
 
 #ifdef __CRC32
@@ -2063,6 +2102,13 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         if (status != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, status, "READ",
                            file->filename);
+            const char *msg = "Read error: checksum error on BID %" _F64 " in a database file '%s' "
+                ": marker %x (block cache disabled)\n";
+            fdb_log(log_callback, status, msg, bid,
+                    file->filename, *((uint8_t*)buf + file->blocksize-1));
+            if (!log_callback || !log_callback->callback) {
+                dbg_print_buf(buf, file->blocksize, true, 16);
+            }
             return status;
         }
 #endif

@@ -180,4 +180,42 @@ void fdb_assert_die(const char* expression, const char* file, int line,
     abort();
 }
 
+void dbg_print_buf(void *buf, uint64_t buflen, bool hex, int align)
+{
+    if (buf) {
+        if (!hex) {
+            // plaintext
+            fprintf(stderr, "%.*s\n", (int)buflen, (char*)buf);
+        } else {
+            // hex dump
+            size_t i, j;
+            fprintf(stderr, "(hex) 0x%" _X64 ", %" _F64 " (0x%" _X64 ") bytes\n",
+                    (uint64_t)buf, buflen, buflen);
+            for (i=0;i<buflen;i+=align) {
+                fprintf(stderr, "   %04x   ", (int)i);
+                for (j=i; j<i+align; ++j){
+                    if (j<buflen) {
+                        fprintf(stderr, "%02x ", ((uint8_t*)buf)[j]);
+                    } else {
+                        fprintf(stderr, "   ");
+                    }
+                    if ((j+1)%8 == 0) {
+                        fprintf(stderr, " ");
+                    }
+                }
+                fprintf(stderr, " ");
+                for (j=i; j<i+align && j<buflen; ++j){
+                    // print only readable ascii character
+                    fprintf(stderr, "%c",
+                     (0x20 <= ((char*)buf)[j] && ((char*)buf)[j] <= 0x7d)?
+                               ((char*)buf)[j] : '.'  );
+                }
+                fprintf(stderr, "\n");
+            }
+        }
+    } else {
+        fprintf(stderr, "(null)\n");
+    }
+}
+
 // LCOV_EXCL_STOP
