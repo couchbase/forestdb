@@ -26,6 +26,7 @@
 
 #include "libforestdb/forestdb.h"
 #include "fdb_internal.h"
+#include "file_handle.h"
 #include "filemgr.h"
 #include "hbtrie.h"
 #include "list.h"
@@ -774,14 +775,14 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
         config = get_default_config();
     }
 
-    fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
-    if (!fhandle) { // LCOV_EXCL_START
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
+    if (!handle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) { // LCOV_EXCL_START
-        free(fhandle);
+    fhandle = new FdbFileHandle(handle);
+    if (!fhandle) { // LCOV_EXCL_START
+        free(handle);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
@@ -800,13 +801,12 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     fdb_status fs = fdb_init(fconfig);
     if (fs != FDB_RESULT_SUCCESS) {
         free(handle);
-        free(fhandle);
+        delete fhandle;
         spin_lock(&initial_lock);
         fdb_open_inprog--;
         spin_unlock(&initial_lock);
         return fs;
     }
-    fdb_file_handle_init(fhandle, handle);
 
     fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -816,7 +816,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     } else {
         *ptr_fhandle = NULL;
         free(handle);
-        fdb_file_handle_free(fhandle);
+        delete fhandle;
     }
     spin_lock(&initial_lock);
     fdb_open_inprog--;
@@ -855,14 +855,14 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
         return FDB_RESULT_INVALID_CONFIG;
     }
 
-    fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
-    if (!fhandle) { // LCOV_EXCL_START
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
+    if (!handle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) { // LCOV_EXCL_START
-        free(fhandle);
+    fhandle = new FdbFileHandle(handle);
+    if (!fhandle) { // LCOV_EXCL_START
+        free(handle);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
@@ -881,17 +881,15 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     fdb_status fs = fdb_init(fconfig);
     if (fs != FDB_RESULT_SUCCESS) {
         free(handle);
-        free(fhandle);
+        delete fhandle;
         spin_lock(&initial_lock);
         fdb_open_inprog--;
         spin_unlock(&initial_lock);
         return fs;
     }
-    fdb_file_handle_init(fhandle, handle);
 
     // insert kvs_names and functions into fhandle's list
-    fdb_file_handle_parse_cmp_func(fhandle, num_functions,
-                                   kvs_names, functions);
+    fhandle->setCmpFunctionList(num_functions, kvs_names, functions);
 
     fs = _fdb_open(handle, filename, FDB_VFILENAME, &config);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -900,7 +898,7 @@ fdb_status fdb_open_custom_cmp(fdb_file_handle **ptr_fhandle,
     } else {
         *ptr_fhandle = NULL;
         free(handle);
-        fdb_file_handle_free(fhandle);
+        delete fhandle;
     }
     spin_lock(&initial_lock);
     fdb_open_inprog--;
@@ -920,23 +918,22 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     fdb_file_handle *fhandle;
     fdb_kvs_handle *handle;
 
-    fhandle = (fdb_file_handle*)calloc(1, sizeof(fdb_file_handle));
-    if (!fhandle) { // LCOV_EXCL_START
+    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
+    if (!handle) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    handle = (fdb_kvs_handle *) calloc(1, sizeof(fdb_kvs_handle));
-    if (!handle) { // LCOV_EXCL_START
-        free(fhandle);
+    fhandle = new FdbFileHandle(handle);
+    if (!fhandle) { // LCOV_EXCL_START
+        free(handle);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
     atomic_init_uint8_t(&handle->handle_busy, 0);
     handle->shandle = NULL;
 
-    fdb_file_handle_init(fhandle, handle);
     if (cmp_func_list && list_begin(cmp_func_list)) {
-        fdb_file_handle_clone_cmp_func_list(fhandle, cmp_func_list);
+        fhandle->setCmpFunctionList(cmp_func_list);
     }
     fdb_status fs = _fdb_open(handle, filename, FDB_VFILENAME, fconfig);
     if (fs == FDB_RESULT_SUCCESS) {
@@ -945,7 +942,7 @@ fdb_status fdb_open_for_compactor(fdb_file_handle **ptr_fhandle,
     } else {
         *ptr_fhandle = NULL;
         free(handle);
-        fdb_file_handle_free(fhandle);
+        delete fhandle;
     }
     return fs;
 }
@@ -1035,7 +1032,7 @@ fdb_snapshot_open_start:
     cmp_info.kvs = handle_in->kvs;
 
     if (!handle->shandle) {
-        txn = handle_in->fhandle->root->txn;
+        txn = handle_in->fhandle->getRootHandle()->txn;
         if (!txn) {
             txn = &handle_in->file->global_txn;
         }
@@ -1273,7 +1270,7 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
                 handle->txn = handle_in->txn;
                 handle_in->txn = NULL;
             }
-            handle_in->fhandle->root = handle;
+            handle_in->fhandle->setRootHandle(handle);
             _fdb_close_root(handle_in);
             handle->max_seqnum = 0;
             handle->seqnum = seqnum;
@@ -1317,7 +1314,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    super_handle = fhandle->root;
+    super_handle = fhandle->getRootHandle();
     kvs = super_handle->kvs;
 
     // fdb_rollback_all cannot be allowed when there are kv store instances
@@ -1746,10 +1743,12 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         }
         // other flags
         if (header_flags & FDB_FLAG_ROOT_INITIALIZED) {
-            handle->fhandle->flags |= FHANDLE_ROOT_INITIALIZED;
+            handle->fhandle->setFlags(handle->fhandle->getFlags() |
+                                      FHANDLE_ROOT_INITIALIZED);
         }
         if (header_flags & FDB_FLAG_ROOT_CUSTOM_CMP) {
-            handle->fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
+            handle->fhandle->setFlags(handle->fhandle->getFlags() |
+                                      FHANDLE_ROOT_CUSTOM_CMP);
         }
         // use existing setting for multi KV instance mode
         if (kv_info_offset == BLK_NOT_FOUND) {
@@ -2012,7 +2011,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         filemgr_mutex_unlock(handle->file);
 
         // validation check for key order of all KV stores
-        if (handle == handle->fhandle->root) {
+        if (handle == handle->fhandle->getRootHandle()) {
             fdb_status fs = fdb_kvs_cmp_check(handle);
             if (fs != FDB_RESULT_SUCCESS) { // cmp function mismatch
                 docio_free(handle->dhandle);
@@ -2950,7 +2949,7 @@ fdb_status _fdb_get(fdb_kvs_handle *handle, fdb_doc *doc,
 
     if (!handle->shandle) {
         fdb_check_file_reopen(handle, NULL);
-        txn = handle->fhandle->root->txn;
+        txn = handle->fhandle->getRootHandle()->txn;
         if (!txn) {
             txn = &handle->file->global_txn;
         }
@@ -3104,7 +3103,7 @@ fdb_status _fdb_get_byseq(fdb_kvs_handle *handle,
     if (!handle->shandle) {
         fdb_check_file_reopen(handle, NULL);
 
-        txn = handle->fhandle->root->txn;
+        txn = handle->fhandle->getRootHandle()->txn;
         if (!txn) {
             txn = &handle->file->global_txn;
         }
@@ -3390,7 +3389,7 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
     bool wal_flushed = false;
     bool immediate_remove = false;
     file_status_t fstatus;
-    fdb_txn *txn = handle->fhandle->root->txn;
+    fdb_txn *txn = handle->fhandle->getRootHandle()->txn;
     struct _fdb_key_cmp_info cmp_info;
     fdb_status wr = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
@@ -3620,7 +3619,7 @@ fdb_set_start:
 
     if (wal_flushed && handle->config.auto_commit) {
         atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-        return _fdb_commit(handle->fhandle->root, FDB_COMMIT_NORMAL,
+        return _fdb_commit(handle->fhandle->getRootHandle(), FDB_COMMIT_NORMAL,
                            false); // asynchronous commit only
     }
     atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
@@ -3669,11 +3668,11 @@ static uint64_t _fdb_export_header_flags(fdb_kvs_handle *handle)
         // seq tree is used
         rv |= FDB_FLAG_SEQTREE_USE;
     }
-    if (handle->fhandle->flags & FHANDLE_ROOT_INITIALIZED) {
+    if (handle->fhandle->getFlags() & FHANDLE_ROOT_INITIALIZED) {
         // the default KVS is once opened
         rv |= FDB_FLAG_ROOT_INITIALIZED;
     }
-    if (handle->fhandle->flags & FHANDLE_ROOT_CUSTOM_CMP) {
+    if (handle->fhandle->getFlags() & FHANDLE_ROOT_CUSTOM_CMP) {
         // the default KVS is based on custom key order
         rv |= FDB_FLAG_ROOT_CUSTOM_CMP;
     }
@@ -3884,8 +3883,8 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    return _fdb_commit(fhandle->root, opt,
-            !(fhandle->root->config.durability_opt & FDB_DRB_ASYNC));
+    return _fdb_commit(fhandle->getRootHandle(), opt,
+                       !(fhandle->getRootHandle()->config.durability_opt & FDB_DRB_ASYNC));
 }
 
 fdb_status _fdb_commit(fdb_kvs_handle *handle,
@@ -3897,7 +3896,7 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle,
     }
 
     uint64_t cur_bmp_revnum;
-    fdb_txn *txn = handle->fhandle->root->txn;
+    fdb_txn *txn = handle->fhandle->getRootHandle()->txn;
     fdb_txn *earliest_txn;
     file_status_t fstatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -6524,7 +6523,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     struct btree *new_seqtree = NULL, *old_seqtree;
     struct btree *new_staletree = NULL;
     struct hbtrie *new_seqtrie = NULL;
-    fdb_kvs_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->getRootHandle();
     fdb_status status;
     LATENCY_STAT_START();
 
@@ -6633,10 +6632,9 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     }
 
     status = _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
-                               new_trie, new_seqtrie, new_seqtree, new_staletree,
-                               marker_bid, clone_docs);
-    LATENCY_STAT_END(fhandle->root->file, FDB_LATENCY_COMPACTS);
-
+                              new_trie, new_seqtrie, new_seqtree, new_staletree,
+                              marker_bid, clone_docs);
+    LATENCY_STAT_END(fhandle->getRootHandle()->file, FDB_LATENCY_COMPACTS);
     return status;
 }
 
@@ -6977,11 +6975,11 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
                                bool clone_docs,
                                const fdb_encryption_key *new_encryption_key)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    fdb_kvs_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->getRootHandle();
     bool in_place_compaction = false;
     char nextfile[FDB_MAX_FILENAME_LEN];
     fdb_status fs;
@@ -7062,13 +7060,13 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
                                       fdb_compaction_mode_t mode,
                                       size_t new_threshold)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
     int ret;
     fdb_status fs;
-    fdb_kvs_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->getRootHandle();
     fdb_config config;
     char vfilename[FDB_MAX_FILENAME_LEN];
     char filename[FDB_MAX_FILENAME_LEN];
@@ -7153,11 +7151,11 @@ LIBFDB_API
 fdb_status fdb_set_daemon_compaction_interval(fdb_file_handle *fhandle,
                                               size_t interval)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    fdb_kvs_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->getRootHandle();
 
     if (handle->config.compaction_mode == FDB_COMPACTION_AUTO) {
         return compactor_set_compaction_interval(handle->file, interval);
@@ -7174,8 +7172,8 @@ fdb_status fdb_close(fdb_file_handle *fhandle)
     }
 
     fdb_status fs;
-    if (fhandle->root->config.auto_commit &&
-        filemgr_get_ref_count(fhandle->root->file) == 1) {
+    if (fhandle->getRootHandle()->config.auto_commit &&
+        filemgr_get_ref_count(fhandle->getRootHandle()->file) == 1) {
         // auto commit mode & the last handle referring the file
         // commit file before close
         fs = fdb_commit(fhandle, FDB_COMMIT_NORMAL);
@@ -7184,13 +7182,13 @@ fdb_status fdb_close(fdb_file_handle *fhandle)
         }
     }
 
-    filemgr_fhandle_remove(fhandle->root->file, fhandle);
-    fs = _fdb_close_root(fhandle->root);
+    filemgr_fhandle_remove(fhandle->getRootHandle()->file, fhandle);
+    fs = _fdb_close_root(fhandle->getRootHandle());
     if (fs == FDB_RESULT_SUCCESS) {
-        fdb_file_handle_close_all(fhandle);
-        fdb_file_handle_free(fhandle);
+        fhandle->closeAllKVHandles();
+        delete fhandle;
     } else {
-        filemgr_fhandle_add(fhandle->root->file, fhandle);
+        filemgr_fhandle_add(fhandle->getRootHandle()->file, fhandle);
     }
     return fs;
 }
@@ -7207,7 +7205,7 @@ fdb_status _fdb_close_root(fdb_kvs_handle *handle)
             return fdb_kvs_close(handle);
         } else if (handle->kvs->getKvsType() == KVS_ROOT) {
             // close all sub-handles
-            fs = fdb_kvs_close_all(handle);
+            fs = handle->fhandle->closeAllKVHandles();
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
             }
@@ -7354,7 +7352,7 @@ fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
                                  fdb_latency_stat *stat,
                                  fdb_latency_stat_type type)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
@@ -7362,12 +7360,12 @@ fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (!fhandle->root->file) {
+    if (!fhandle->getRootHandle()->file) {
         return FDB_RESULT_FILE_NOT_OPEN;
     }
 
 #ifdef _LATENCY_STATS
-    filemgr_get_latency_stat(fhandle->root->file, type, stat);
+    filemgr_get_latency_stat(fhandle->getRootHandle()->file, type, stat);
 #endif // _LATENCY_STATS
 
     return FDB_RESULT_SUCCESS;
@@ -7393,7 +7391,7 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
         return 0;
     }
 
-    handle = fhandle->root;
+    handle = fhandle->getRootHandle();
 
     fdb_check_file_reopen(handle, NULL);
     fdb_sync_db_header(handle);
@@ -7440,7 +7438,7 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
     if (!fhandle || !marker) {
         return 0;
     }
-    handle = fhandle->root;
+    handle = fhandle->getRootHandle();
     if (!handle->file) {
         fdb_log(&handle->log_callback, FDB_RESULT_FILE_NOT_OPEN,
                 "File not open.");
@@ -7525,7 +7523,7 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
     if (!info) {
         return FDB_RESULT_INVALID_ARGS;
     }
-    handle = fhandle->root;
+    handle = fhandle->getRootHandle();
 
     fdb_check_file_reopen(handle, NULL);
     fdb_sync_db_header(handle);
@@ -7623,7 +7621,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    handle = fhandle->root;
+    handle = fhandle->getRootHandle();
     if (!handle->file) {
         return FDB_RESULT_FILE_NOT_OPEN;
     }
@@ -7778,7 +7776,7 @@ fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle)
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    fdb_kvs_handle *super_handle = fhandle->root;
+    fdb_kvs_handle *super_handle = fhandle->getRootHandle();
 
     filemgr_mutex_lock(super_handle->file);
     filemgr_set_cancel_compaction(super_handle->file, true);
@@ -7802,10 +7800,10 @@ fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
                                         size_t block_reusing_threshold,
                                         size_t num_keeping_headers)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
-    filemgr *file = fhandle->root->file;
+    filemgr *file = fhandle->getRootHandle()->file;
     atomic_store_uint64_t(&file->config->block_reusing_threshold,
                           block_reusing_threshold, std::memory_order_relaxed);
     atomic_store_uint64_t(&file->config->num_keeping_headers, num_keeping_headers,
@@ -7870,10 +7868,10 @@ const char* fdb_get_lib_version()
 LIBFDB_API
 const char* fdb_get_file_version(fdb_file_handle *fhandle)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return "Error: file not opened yet!!!";
     }
-    return ver_get_version_string(fhandle->root->file->version);
+    return ver_get_version_string(fhandle->getRootHandle()->file->version);
 }
 
 void _fdb_dump_handle(fdb_kvs_handle *h) {
@@ -7911,8 +7909,8 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "kvs: root_handle %p\n", (void *)h->kvs->getRootHandle());
 
     fprintf(stderr, "fdb_file_handle: %p\n", (void *)h->fhandle);
-    fprintf(stderr, "fhandle: root %p\n", (void*)h->fhandle->root);
-    fprintf(stderr, "fhandle: flags %p\n", (void *)h->fhandle->flags);
+    fprintf(stderr, "fhandle: root %p\n", (void*)h->fhandle->getRootHandle());
+    fprintf(stderr, "fhandle: flags %p\n", (void *)h->fhandle->getFlags());
 
     fprintf(stderr, "hbtrie: %p\n", (void *)h->trie);
     fprintf(stderr, "hbtrie: chunksize %u\n", h->trie->chunksize);

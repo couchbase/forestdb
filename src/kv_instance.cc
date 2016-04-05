@@ -22,6 +22,7 @@
 #include "common.h"
 #include "internal_types.h"
 #include "fdb_internal.h"
+#include "file_handle.h"
 #include "configuration.h"
 #include "avltree.h"
 #include "list.h"
@@ -39,19 +40,6 @@
 
 static const char *default_kvs_name = DEFAULT_KVS_NAME;
 
-// list element for opened KV store handles
-// (in-memory data: managed by the file handle)
-struct kvs_opened_node {
-    fdb_kvs_handle *handle;
-    struct list_elem le;
-};
-
-// list element for custom cmp functions in fhandle
-struct cmp_func_node {
-    char *kvs_name;
-    fdb_custom_cmp_variable func;
-    struct list_elem le;
-};
 
 static int _kvs_cmp_name(struct avl_node *a, struct avl_node *b, void *aux)
 {
@@ -79,11 +67,9 @@ static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)
 static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
                                        fdb_kvs_id_t kv_id)
 {
-    struct filemgr *file = fhandle->root->file;
+    struct filemgr *file = fhandle->getRootHandle()->file;
     struct avl_node *a;
-    struct list_elem *e;
     struct filemgr_fhandle_idx_node *fhandle_node;
-    struct kvs_opened_node *opened_node;
     fdb_file_handle *file_handle;
 
     spin_lock(&file->fhandle_idx_lock);
@@ -92,137 +78,14 @@ static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
         fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
         a = avl_next(a);
         file_handle = (fdb_file_handle *) fhandle_node->fhandle;
-        spin_lock(&file_handle->lock);
-        e = list_begin(file_handle->handles);
-        while (e) {
-            opened_node = _get_entry(e, struct kvs_opened_node, le);
-            if ((opened_node->handle->kvs && opened_node->handle->kvs->getKvsId() == kv_id) ||
-                (kv_id == 0 && opened_node->handle->kvs == NULL)) // single KVS mode
-            {
-                // there is an opened handle
-                spin_unlock(&file_handle->lock);
-                spin_unlock(&file->fhandle_idx_lock);
-                return true;
-            }
-            e = list_next(e);
+        if (file_handle->checkAnyActiveKVHandle(kv_id)) {
+            spin_unlock(&file->fhandle_idx_lock);
+            return true;
         }
-        spin_unlock(&file_handle->lock);
     }
     spin_unlock(&file->fhandle_idx_lock);
 
     return false;
-}
-
-void fdb_file_handle_init(fdb_file_handle *fhandle,
-                           fdb_kvs_handle *root)
-{
-    fhandle->root = root;
-    fhandle->flags = 0x0;
-    root->fhandle = fhandle;
-    fhandle->handles = (struct list*)calloc(1, sizeof(struct list));
-    fhandle->cmp_func_list = NULL;
-    spin_init(&fhandle->lock);
-}
-
-void fdb_file_handle_close_all(fdb_file_handle *fhandle)
-{
-    struct list_elem *e;
-    struct kvs_opened_node *node;
-
-    spin_lock(&fhandle->lock);
-    e = list_begin(fhandle->handles);
-    while (e) {
-        node = _get_entry(e, struct kvs_opened_node, le);
-        e = list_next(e);
-        _fdb_close(node->handle);
-        free(node->handle);
-        free(node);
-    }
-    spin_unlock(&fhandle->lock);
-}
-
-void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
-                                    size_t n_func,
-                                    char **kvs_names,
-                                    fdb_custom_cmp_variable *functions)
-{
-    uint64_t i;
-    struct cmp_func_node *node;
-
-    if (n_func == 0 || !kvs_names || !functions) {
-        return;
-    }
-
-    fhandle->cmp_func_list = (struct list*)calloc(1, sizeof(struct list));
-    list_init(fhandle->cmp_func_list);
-
-    for (i=0;i<n_func;++i){
-        node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
-        if (kvs_names[i]) {
-            node->kvs_name = (char*)calloc(1, strlen(kvs_names[i])+1);
-            strcpy(node->kvs_name, kvs_names[i]);
-        } else {
-            // NULL .. default KVS
-            node->kvs_name = NULL;
-        }
-        node->func = functions[i];
-        list_push_back(fhandle->cmp_func_list, &node->le);
-    }
-}
-
-// clone all items in cmp_func_list to fhandle->cmp_func_list
-void fdb_file_handle_clone_cmp_func_list(fdb_file_handle *fhandle,
-                                         struct list *cmp_func_list)
-{
-    struct list_elem *e;
-    struct cmp_func_node *src, *dst;
-
-    if (fhandle->cmp_func_list || /* already exist */
-        !cmp_func_list) {
-        return;
-    }
-
-    fhandle->cmp_func_list = (struct list*)calloc(1, sizeof(struct list));
-    list_init(fhandle->cmp_func_list);
-
-    e = list_begin(cmp_func_list);
-    while (e) {
-        src = _get_entry(e, struct cmp_func_node, le);
-        dst = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
-        if (src->kvs_name) {
-            dst->kvs_name = (char*)calloc(1, strlen(src->kvs_name)+1);
-            strcpy(dst->kvs_name, src->kvs_name);
-        } else {
-            dst->kvs_name = NULL; // default KVS
-        }
-        dst->func = src->func;
-        list_push_back(fhandle->cmp_func_list, &dst->le);
-        e = list_next(&src->le);
-    }
-}
-
-void fdb_file_handle_add_cmp_func(fdb_file_handle *fhandle,
-                                  char *kvs_name,
-                                  fdb_custom_cmp_variable cmp_func)
-{
-    struct cmp_func_node *node;
-
-    // create list if not exist
-    if (!fhandle->cmp_func_list) {
-        fhandle->cmp_func_list = (struct list*)calloc(1, sizeof(struct list));
-        list_init(fhandle->cmp_func_list);
-    }
-
-    node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
-    if (kvs_name) {
-        node->kvs_name = (char*)calloc(1, strlen(kvs_name)+1);
-        strcpy(node->kvs_name, kvs_name);
-    } else {
-        // default KVS
-        node->kvs_name = NULL;
-    }
-    node->func = cmp_func;
-    list_push_back(fhandle->cmp_func_list, &node->le);
 }
 
 void fdb_cmp_func_list_from_filemgr(struct filemgr *file, struct list *cmp_func_list)
@@ -273,35 +136,6 @@ void fdb_free_cmp_func_list(struct list *cmp_func_list)
     }
 }
 
-static void _free_cmp_func_list(fdb_file_handle *fhandle)
-{
-    struct list_elem *e;
-    struct cmp_func_node *cmp_node;
-
-    if (!fhandle->cmp_func_list) {
-        return;
-    }
-
-    e = list_begin(fhandle->cmp_func_list);
-    while (e) {
-        cmp_node = _get_entry(e, struct cmp_func_node, le);
-        e = list_remove(fhandle->cmp_func_list, &cmp_node->le);
-
-        free(cmp_node->kvs_name);
-        free(cmp_node);
-    }
-    free(fhandle->cmp_func_list);
-    fhandle->cmp_func_list = NULL;
-}
-
-void fdb_file_handle_free(fdb_file_handle *fhandle)
-{
-    free(fhandle->handles);
-    _free_cmp_func_list(fhandle);
-    spin_destroy(&fhandle->lock);
-    free(fhandle);
-}
-
 fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
 {
     int ori_flag;
@@ -317,10 +151,10 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
     ori_flag = file->kv_header->custom_cmp_enabled;
     ori_custom_cmp = file->kv_header->default_kvs_cmp;
 
-    if (fhandle->cmp_func_list) {
+    if (fhandle->getCmpFunctionList()) {
         handle->kvs_config.custom_cmp = NULL;
 
-        e = list_begin(fhandle->cmp_func_list);
+        e = list_begin(fhandle->getCmpFunctionList());
         while (e) {
             cmp_node = _get_entry(e, struct cmp_func_node, le);
             if (cmp_node->kvs_name == NULL ||
@@ -349,8 +183,8 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
     // first check the default KVS
     // 1. root handle has not been opened yet: don't care
     // 2. root handle was opened before: must match the flag
-    if (fhandle->flags & FHANDLE_ROOT_INITIALIZED) {
-        if (fhandle->flags & FHANDLE_ROOT_CUSTOM_CMP &&
+    if (fhandle->getFlags() & FHANDLE_ROOT_INITIALIZED) {
+        if (fhandle->getFlags() & FHANDLE_ROOT_CUSTOM_CMP &&
             handle->kvs_config.custom_cmp == NULL) {
             // custom cmp function was assigned before,
             // but no custom cmp function is assigned
@@ -366,7 +200,7 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
                            "custom compare function enabled, without passing the same "
                            "custom compare function.", kvs_name);
         }
-        if (!(fhandle->flags & FHANDLE_ROOT_CUSTOM_CMP) &&
+        if (!(fhandle->getFlags() & FHANDLE_ROOT_CUSTOM_CMP) &&
               handle->kvs_config.custom_cmp) {
             // custom cmp function was not assigned before,
             // but custom cmp function is assigned from user
@@ -428,36 +262,6 @@ fdb_status fdb_kvs_cmp_check(fdb_kvs_handle *handle)
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_custom_cmp_variable fdb_kvs_find_cmp_name(fdb_kvs_handle *handle,
-                                              char *kvs_name)
-{
-    fdb_file_handle *fhandle;
-    struct list_elem *e;
-    struct cmp_func_node *cmp_node;
-
-    fhandle = handle->fhandle;
-    if (!fhandle->cmp_func_list) {
-        return NULL;
-    }
-
-    e = list_begin(fhandle->cmp_func_list);
-    while (e) {
-        cmp_node = _get_entry(e, struct cmp_func_node, le);
-        if (kvs_name == NULL ||
-            !strcmp(kvs_name, default_kvs_name)) {
-            if (cmp_node->kvs_name == NULL ||
-                !strcmp(cmp_node->kvs_name, default_kvs_name)) { // default KVS
-                return cmp_node->func;
-            }
-        } else if (cmp_node->kvs_name &&
-                   !strcmp(cmp_node->kvs_name, kvs_name)) {
-            return cmp_node->func;
-        }
-        e = list_next(&cmp_node->le);
-    }
-    return NULL;
-}
-
 hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 {
     fdb_kvs_id_t kv_id;
@@ -496,7 +300,7 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 
 void _fdb_kvs_init_root(fdb_kvs_handle *handle, struct filemgr *file) {
     handle->kvs->setKvsType(KVS_ROOT);
-    handle->kvs->setRootHandle(handle->fhandle->root);
+    handle->kvs->setRootHandle(handle->fhandle->getRootHandle());
     // super handle's ID is always 0
     handle->kvs->setKvsId(0);
     // force custom cmp function
@@ -551,9 +355,7 @@ void fdb_kvs_info_create(fdb_kvs_handle *root_handle,
         opened_node->handle = handle;
 
         handle->node = opened_node;
-        spin_lock(&root_handle->fhandle->lock);
-        list_push_back(root_handle->fhandle->handles, &opened_node->le);
-        spin_unlock(&root_handle->fhandle->lock);
+        root_handle->fhandle->addKVHandle(&opened_node->le);
     }
 }
 
@@ -1355,17 +1157,15 @@ fdb_kvs_create_start:
     node->flags = 0x0;
     _init_op_stats(&node->op_stat);
     // search fhandle's custom cmp func list first
-    node->custom_cmp = fdb_kvs_find_cmp_name(root_handle,
-                                             (char *)kvs_name);
+    node->custom_cmp = root_handle->fhandle->getCmpFunctionByName((char *)kvs_name);
     if (node->custom_cmp == NULL && kvs_config->custom_cmp) {
         // follow kvs_config's custom cmp next
         node->custom_cmp = kvs_config->custom_cmp;
         // if custom cmp function is given by user but
         // there is no corresponding function in fhandle's list
         // add it into the list
-        fdb_file_handle_add_cmp_func(root_handle->fhandle,
-                                     (char*)kvs_name,
-                                     kvs_config->custom_cmp);
+        root_handle->fhandle->addCmpFunction((char*) kvs_name,
+                                             kvs_config->custom_cmp);
     }
     if (node->custom_cmp) { // custom cmp function is used
         node->flags |= KVS_FLAG_CUSTOM_CMP;
@@ -1510,17 +1310,13 @@ fdb_status _fdb_kvs_clone_snapshot(fdb_kvs_handle *handle_in,
         opened_node->handle = handle_out;
         handle_out->node = opened_node;
 
-        spin_lock(&root_handle->fhandle->lock);
-        list_push_back(root_handle->fhandle->handles, &opened_node->le);
-        spin_unlock(&root_handle->fhandle->lock);
+        root_handle->fhandle->addKVHandle(&opened_node->le);
     }
 
     fs = _fdb_clone_snapshot(handle_in, handle_out);
     if (fs != FDB_RESULT_SUCCESS) {
         if (handle_out->node) {
-            spin_lock(&root_handle->fhandle->lock);
-            list_remove(root_handle->fhandle->handles, &handle_out->node->le);
-            spin_unlock(&root_handle->fhandle->lock);
+            root_handle->fhandle->removeKVHandle(&handle_out->node->le);
             free(handle_out->node);
         }
         delete handle_out->kvs;
@@ -1578,9 +1374,7 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
     fs = _fdb_open(handle, filename, FDB_AFILENAME, config);
     if (fs != FDB_RESULT_SUCCESS) {
         if (handle->node) {
-            spin_lock(&root_handle->fhandle->lock);
-            list_remove(root_handle->fhandle->handles, &handle->node->le);
-            spin_unlock(&root_handle->fhandle->lock);
+            root_handle->fhandle->removeKVHandle(&handle->node->le);
             free(handle->node);
         } // 'handle->node == NULL' happens only during rollback
         delete handle->kvs;
@@ -1611,15 +1405,14 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     fdb_status fs;
     fdb_kvs_handle *root_handle;
     fdb_kvs_config config_local;
-    struct filemgr *file = NULL;
-    struct filemgr *latest_file = NULL;
+
     LATENCY_STAT_START();
 
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    root_handle = fhandle->root;
+    root_handle = fhandle->getRootHandle();
     config = root_handle->config;
 
     if (kvs_config) {
@@ -1635,53 +1428,17 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     fdb_check_file_reopen(root_handle, NULL);
     fdb_sync_db_header(root_handle);
 
-    file = root_handle->file;
-    latest_file = root_handle->file;
 
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
         // return the default KV store handle
-        spin_lock(&fhandle->lock);
-        if (!(fhandle->flags & FHANDLE_ROOT_OPENED)) {
-            // the root handle is not opened yet
-            // just return the root handle
-            fdb_custom_cmp_variable default_kvs_cmp;
-
-            root_handle->kvs_config = config_local;
-
-            if (root_handle->file->kv_header) {
-                // search fhandle's custom cmp func list first
-                default_kvs_cmp = fdb_kvs_find_cmp_name(root_handle, (char *)kvs_name);
-
-                spin_lock(&root_handle->file->kv_header->lock);
-                root_handle->file->kv_header->default_kvs_cmp = default_kvs_cmp;
-
-                if (root_handle->file->kv_header->default_kvs_cmp == NULL &&
-                    root_handle->kvs_config.custom_cmp) {
-                    // follow kvs_config's custom cmp next
-                    root_handle->file->kv_header->default_kvs_cmp =
-                        root_handle->kvs_config.custom_cmp;
-                    fdb_file_handle_add_cmp_func(fhandle, NULL,
-                                                 root_handle->kvs_config.custom_cmp);
-                }
-
-                if (root_handle->file->kv_header->default_kvs_cmp) {
-                    root_handle->file->kv_header->custom_cmp_enabled = 1;
-                    fhandle->flags |= FHANDLE_ROOT_CUSTOM_CMP;
-                }
-                spin_unlock(&root_handle->file->kv_header->lock);
-            }
-
+        if (fhandle->activateRootHandle(kvs_name, config_local)) {
+            // If the root handle is not opened yet, then simply activate and return it.
             *ptr_handle = root_handle;
-            fhandle->flags |= FHANDLE_ROOT_INITIALIZED;
-            fhandle->flags |= FHANDLE_ROOT_OPENED;
-            fs = FDB_RESULT_SUCCESS;
-            spin_unlock(&fhandle->lock);
-
+            return FDB_RESULT_SUCCESS;
         } else {
             // the root handle is already opened
             // open new default KV store handle
-            spin_unlock(&fhandle->lock);
-            handle = (fdb_kvs_handle*)calloc(1, sizeof(fdb_kvs_handle));
+            handle = (fdb_kvs_handle*) calloc(1, sizeof(fdb_kvs_handle));
             handle->kvs_config = config_local;
             atomic_init_uint8_t(&handle->handle_busy, 0);
 
@@ -1693,25 +1450,21 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             }
 
             handle->fhandle = fhandle;
-            fs = _fdb_open(handle, file->filename, FDB_AFILENAME, &config);
+            fs = _fdb_open(handle, root_handle->file->filename, FDB_AFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 free(handle);
                 *ptr_handle = NULL;
             } else {
                 // insert into fhandle's list
-                struct kvs_opened_node *node;
-                node = (struct kvs_opened_node *)
-                       calloc(1, sizeof(struct kvs_opened_node));
+                struct kvs_opened_node *node = (struct kvs_opened_node *)
+                    calloc(1, sizeof(struct kvs_opened_node));
                 node->handle = handle;
-                spin_lock(&fhandle->lock);
-                list_push_front(fhandle->handles, &node->le);
-                spin_unlock(&fhandle->lock);
-
+                fhandle->addKVHandle(&node->le);
                 handle->node = node;
                 *ptr_handle = handle;
             }
         }
-        LATENCY_STAT_END(file, FDB_LATENCY_KVS_OPEN);
+        LATENCY_STAT_END(root_handle->file, FDB_LATENCY_KVS_OPEN);
         return fs;
     }
 
@@ -1744,14 +1497,14 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     atomic_init_uint8_t(&handle->handle_busy, 0);
     handle->fhandle = fhandle;
     fs = _fdb_kvs_open(root_handle, &config, &config_local,
-                       latest_file, file->filename, kvs_name, handle);
+                       root_handle->file, root_handle->file->filename, kvs_name, handle);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_handle = handle;
     } else {
         *ptr_handle = NULL;
         free(handle);
     }
-    LATENCY_STAT_END(file, FDB_LATENCY_KVS_OPEN);
+    LATENCY_STAT_END(root_handle->file, FDB_LATENCY_KVS_OPEN);
     return fs;
 }
 
@@ -1771,40 +1524,12 @@ static fdb_status _fdb_kvs_close(fdb_kvs_handle *handle)
     fdb_status fs;
 
     if (handle->node) {
-        spin_lock(&root_handle->fhandle->lock);
-        list_remove(root_handle->fhandle->handles, &handle->node->le);
-        spin_unlock(&root_handle->fhandle->lock);
+        root_handle->fhandle->removeKVHandle(&handle->node->le);
         free(handle->node);
     } // 'handle->node == NULL' happens only during rollback
 
     fs = _fdb_close(handle);
     return fs;
-}
-
-// close all sub-KV store handles belonging to the root handle
-fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle)
-{
-    fdb_status fs;
-    struct list_elem *e;
-    struct kvs_opened_node *node;
-
-    spin_lock(&root_handle->fhandle->lock);
-    e = list_begin(root_handle->fhandle->handles);
-    while (e) {
-        node = _get_entry(e, struct kvs_opened_node, le);
-        e = list_remove(root_handle->fhandle->handles, &node->le);
-        fs = _fdb_close(node->handle);
-        if (fs != FDB_RESULT_SUCCESS) {
-            spin_unlock(&root_handle->fhandle->lock);
-            return fs;
-        }
-        fdb_kvs_info_free(node->handle);
-        free(node->handle);
-        free(node);
-    }
-    spin_unlock(&root_handle->fhandle->lock);
-
-    return FDB_RESULT_SUCCESS;
 }
 
 // 1) identify whether the requested handle is for default KVS or not.
@@ -1850,29 +1575,23 @@ fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
         handle->kvs->getKvsType() == KVS_ROOT) {
         // the default KV store handle
 
-        if (handle->fhandle->root == handle) {
+        if (handle->fhandle->getRootHandle() == handle) {
             // do nothing for root handle
             // the root handle will be closed with fdb_close() API call.
-            spin_lock(&handle->fhandle->lock);
-            handle->fhandle->flags &= ~FHANDLE_ROOT_OPENED; // remove flag
-            spin_unlock(&handle->fhandle->lock);
+            handle->fhandle->setFlags(handle->fhandle->getFlags() & ~FHANDLE_ROOT_OPENED); // remove flag
             return FDB_RESULT_SUCCESS;
 
         } else {
             // the default KV store but not the root handle .. normally close
-            spin_lock(&handle->fhandle->lock);
             fs = _fdb_close(handle);
             if (fs == FDB_RESULT_SUCCESS) {
                 // remove from 'handles' list in the root node
                 if (handle->kvs) {
                     fdb_kvs_info_free(handle);
                 }
-                list_remove(handle->fhandle->handles, &handle->node->le);
-                spin_unlock(&handle->fhandle->lock);
+                handle->fhandle->removeKVHandle(&handle->node->le);
                 free(handle->node);
                 free(handle);
-            } else {
-                spin_unlock(&handle->fhandle->lock);
             }
             return fs;
         }
@@ -1904,11 +1623,11 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     struct kvs_node *node, query;
     struct kvs_header *kv_header;
 
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    root_handle = fhandle->root;
+    root_handle = fhandle->getRootHandle();
 
     if (root_handle->config.multi_kv_instances == false) {
         // cannot remove the KV instance under single DB instance mode
@@ -2063,7 +1782,7 @@ fdb_kvs_remove_start:
 bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
 {
     bool ret = false;
-    struct filemgr *file = fhandle->root->file;
+    struct filemgr *file = fhandle->getRootHandle()->file;
     struct avl_node *a;
     struct filemgr_fhandle_idx_node *fhandle_node;
     fdb_file_handle *file_handle;
@@ -2074,13 +1793,10 @@ bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
         fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
         a = avl_next(a);
         file_handle = (fdb_file_handle *) fhandle_node->fhandle;
-        spin_lock(&file_handle->lock);
-        if (list_begin(file_handle->handles) != NULL) {
+        if (!file_handle->isKVHandleListEmpty()) {
             ret = true;
-            spin_unlock(&file_handle->lock);
             break;
         }
-        spin_unlock(&file_handle->lock);
     }
     spin_unlock(&file->fhandle_idx_lock);
 
@@ -2399,7 +2115,7 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    fdb_kvs_handle *root_handle = handle->fhandle->root;
+    fdb_kvs_handle *root_handle = handle->fhandle->getRootHandle();
 
     // for snapshot handle do not reopen new file as user is interested in
     // reader stats from the old file
@@ -2462,7 +2178,7 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    root_handle = fhandle->root;
+    root_handle = fhandle->getRootHandle();
     kv_header = root_handle->file->kv_header;
 
     spin_lock(&kv_header->lock);
@@ -2599,11 +2315,10 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
     stale_header_info ret;
     struct avl_node *a;
     struct filemgr_fhandle_idx_node *fhandle_node;
-    struct list_elem *e;
-    struct kvs_opened_node *item;
 
-    ret.revnum = cur_revnum = handle->fhandle->root->cur_header_revnum;
-    ret.bid = handle->fhandle->root->last_hdr_bid;
+    fdb_kvs_handle *root_handle = handle->fhandle->getRootHandle();
+    ret.revnum = cur_revnum = root_handle->cur_header_revnum;
+    ret.bid = root_handle->last_hdr_bid;
 
     spin_lock(&handle->file->fhandle_idx_lock);
 
@@ -2613,21 +2328,12 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
         fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
         a = avl_next(a);
 
-        fhandle = (fdb_file_handle*)fhandle_node->fhandle;
-        spin_lock(&fhandle->lock);
+        fhandle = (fdb_file_handle*) fhandle_node->fhandle;
         // check all opened KVS handles belonging to the file handle
-        e = list_begin(fhandle->handles);
-        while (e) {
-
-            item = _get_entry(e, struct kvs_opened_node, le);
-            e = list_next(e);
-
-            if (item->handle->cur_header_revnum < ret.revnum) {
-                ret.revnum = item->handle->cur_header_revnum;
-                ret.bid = item->handle->last_hdr_bid;
-            }
+        stale_header_info oldest_header = fhandle->getOldestActiveHeader();
+        if (oldest_header.revnum < ret.revnum) {
+            ret = oldest_header;
         }
-        spin_unlock(&fhandle->lock);
     }
 
     spin_unlock(&handle->file->fhandle_idx_lock);

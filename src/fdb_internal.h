@@ -97,20 +97,6 @@ typedef enum {
     FDB_RESTORE_KV_INS,
 } fdb_restore_mode_t;
 
-void fdb_file_handle_init(fdb_file_handle *fhandle,
-                           fdb_kvs_handle *root);
-void fdb_file_handle_close_all(fdb_file_handle *fhandle);
-void fdb_file_handle_parse_cmp_func(fdb_file_handle *fhandle,
-                                    size_t n_func,
-                                    char **kvs_names,
-                                    fdb_custom_cmp_variable *functions);
-void fdb_file_handle_clone_cmp_func_list(fdb_file_handle *fhandle,
-                                         struct list *cmp_func_list);
-void fdb_file_handle_add_cmp_func(fdb_file_handle *fhandle,
-                                  char *kvs_name,
-                                  fdb_custom_cmp_variable cmp_func);
-void fdb_file_handle_free(fdb_file_handle *fhandle);
-
 void fdb_cmp_func_list_from_filemgr(struct filemgr *file,
                                     struct list *cmp_func_list);
 void fdb_free_cmp_func_list(struct list *cmp_func_list);
@@ -176,7 +162,6 @@ fdb_status _fdb_kvs_open(fdb_kvs_handle *root_handle,
                          const char *filename,
                          const char *kvs_name,
                          fdb_kvs_handle *handle);
-fdb_status fdb_kvs_close_all(fdb_kvs_handle *root_handle);
 
 fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
                                 fdb_kvs_id_t id);

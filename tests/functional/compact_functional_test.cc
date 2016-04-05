@@ -32,6 +32,7 @@
 #include "internal_types.h"
 #include "wal.h"
 #include "functional_util.h"
+#include "file_handle.h"
 
 #undef THREAD_SANITIZER
 #if __clang__
@@ -82,7 +83,7 @@ static fdb_compact_decision compaction_cb(fdb_file_handle *fhandle,
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         fdb_doc_free(rdoc);
 
-        if (fhandle->root->config.multi_kv_instances) {
+        if (fhandle->getRootHandle()->config.multi_kv_instances) {
             TEST_CMP(kv_name, "db", 2);
         } else {
             TEST_CMP(kv_name, "default", 7);
@@ -2462,7 +2463,7 @@ static int compaction_del_cb(fdb_file_handle *fhandle,
     } else if (status == FDB_CS_END) {
         TEST_CHK(!kv_name);
         if (db) { // At end of first phase, mutate more docs...
-            s = fdb_open(&dbfile, "./compact_test1", &fhandle->root->config);
+            s = fdb_open(&dbfile, "./compact_test1", &fhandle->getRootHandle()->config);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
             fdb_kvs_open_default(dbfile, &db, &db->kvs_config);
             for (i = 0; i < n; ++i){
@@ -2539,7 +2540,7 @@ void compact_deleted_doc_test()
     // At end of phase 1, all documents get deleted
     s = fdb_compact(dbfile, "compact_test2");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(wal_get_num_flushable(dbfile->root->file) == 0);
+    TEST_CHK(wal_get_num_flushable(dbfile->getRootHandle()->file) == 0);
 
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);

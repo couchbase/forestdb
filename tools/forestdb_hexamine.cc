@@ -216,7 +216,7 @@ int process_file(struct input_option *opt)
             printf("\nUnable to open %s\n", filename);
             return -1;
         }
-        print_header(dbfile->root);
+        print_header(dbfile->getRootHandle());
     }
     if (opt->headers_only) {
         for (uint64_t i = 0; i < num_blocks; ++i) {

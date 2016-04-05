@@ -194,6 +194,7 @@ SET(FORESTDB_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/fdb_errors.cc
     ${PROJECT_SOURCE_DIR}/src/filemgr.cc
     ${PROJECT_SOURCE_DIR}/src/filemgr_ops.cc
+    ${PROJECT_SOURCE_DIR}/src/file_handle.cc
     ${PROJECT_SOURCE_DIR}/src/forestdb.cc
     ${PROJECT_SOURCE_DIR}/src/hash.cc
     ${PROJECT_SOURCE_DIR}/src/hash_functions.cc

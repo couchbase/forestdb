@@ -31,6 +31,7 @@
 #include "libforestdb/forestdb.h"
 #include "fdb_internal.h"
 #include "filemgr.h"
+#include "file_handle.h"
 #include "list.h"
 #include "hbtrie.h"
 #include "btree.h"

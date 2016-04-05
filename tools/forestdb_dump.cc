@@ -250,14 +250,14 @@ int process_file(struct dump_option *opt)
         printf("\nUnable to open %s\n", filename);
         return -3;
     }
-    print_header(dbfile->root);
+    print_header(dbfile->getRootHandle());
     if (opt->print_header_only) {
         return 0;
     }
 
     kvs_config = fdb_get_default_kvs_config();
 
-    if (dbfile->root->config.multi_kv_instances) {
+    if (dbfile->getRootHandle()->config.multi_kv_instances) {
         fdb_get_kvs_name_list(dbfile, &name_list);
         for (i=0; (uint64_t)i<name_list.num_kvs_names; ++i) {
             if (opt->one_kvs &&

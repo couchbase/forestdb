@@ -267,36 +267,6 @@ public:
     atomic_uint64_t num_iterator_moves;
 };
 
-#define FHANDLE_ROOT_OPENED (0x1)
-#define FHANDLE_ROOT_INITIALIZED (0x2)
-#define FHANDLE_ROOT_CUSTOM_CMP (0x4)
-/**
- * ForestDB file handle definition.
- */
-struct _fdb_file_handle {
-    /**
-     * The root KV store handle.
-     */
-    fdb_kvs_handle *root;
-    /**
-     * List of opened default KV store handles
-     * (except for the root handle).
-     */
-    struct list *handles;
-    /**
-     * List of custom compare functions assigned by user
-     */
-    struct list *cmp_func_list;
-    /**
-     * Flags for the file handle.
-     */
-    uint64_t flags;
-    /**
-     * Spin lock for the file handle.
-     */
-    spin_t lock;
-};
-
 /**
  * ForestDB KV store key comparison callback context
  */
@@ -369,7 +339,7 @@ struct _fdb_kvs_handle {
     /**
      * Pointer to the corresponding file handle.
      */
-    fdb_file_handle *fhandle;
+    FdbFileHandle *fhandle;
     /**
      * HB+-Tree Trie instance.
      */

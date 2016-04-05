@@ -229,7 +229,7 @@ typedef struct fdb_doc_struct {
 /**
  * Opaque reference to a ForestDB file handle, which is exposed in public APIs.
  */
-typedef struct _fdb_file_handle fdb_file_handle;
+typedef struct FdbFileHandle fdb_file_handle;
 
 /**
  * Opaque reference to a ForestDB KV store handle, which is exposed in public APIs.

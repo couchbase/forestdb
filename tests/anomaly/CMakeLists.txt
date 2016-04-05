@@ -20,6 +20,7 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/encryption_bogus.cc
     ${PROJECT_SOURCE_DIR}/src/fdb_errors.cc
     ${PROJECT_SOURCE_DIR}/src/filemgr.cc
+    ${PROJECT_SOURCE_DIR}/src/file_handle.cc
     ${PROJECT_SOURCE_DIR}/src/forestdb.cc
     ${PROJECT_SOURCE_DIR}/src/hash.cc
     ${PROJECT_SOURCE_DIR}/src/hash_functions.cc

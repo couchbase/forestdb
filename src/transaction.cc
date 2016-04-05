@@ -21,6 +21,7 @@
 
 #include "libforestdb/forestdb.h"
 #include "fdb_internal.h"
+#include "file_handle.h"
 #include "internal_types.h"
 #include "filemgr.h"
 #include "common.h"
@@ -32,12 +33,12 @@ LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
     file_status_t fstatus;
-    fdb_kvs_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->getRootHandle();
     struct filemgr *file;
 
     if (handle->txn) {
@@ -109,7 +110,7 @@ fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    return _fdb_abort_transaction(fhandle->root);
+    return _fdb_abort_transaction(fhandle->getRootHandle());
 }
 
 fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
@@ -169,12 +170,12 @@ LIBFDB_API
 fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
                                fdb_commit_opt_t opt)
 {
-    if (!fhandle || !fhandle->root) {
+    if (!fhandle || !fhandle->getRootHandle()) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
     file_status_t fstatus;
-    fdb_kvs_handle *handle = fhandle->root;
+    fdb_kvs_handle *handle = fhandle->getRootHandle();
     struct filemgr *file;
 
     if (handle->txn == NULL) {

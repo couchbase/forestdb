@@ -33,6 +33,16 @@
 #include "debug.h"
 #include "bitwise_utils.h"
 
+// Stolen from http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml
+// A macro to disallow the copy constructor and operator= functions
+// This should be used in the private: declarations for a class
+#define DISALLOW_COPY_AND_ASSIGN(TypeName)      \
+    TypeName(const TypeName&);                  \
+    void operator=(const TypeName&)
+
+#define DISALLOW_ASSIGN(TypeName)               \
+    void operator=(const TypeName&)
+
 #ifndef _MEMPOOL
     #define mempool_alloc malloc
     #define mempool_free free
