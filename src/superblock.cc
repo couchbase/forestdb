@@ -434,19 +434,27 @@ bool sb_check_sync_period(fdb_kvs_handle *handle)
     return false;
 }
 
-void sb_update_header(fdb_kvs_handle *handle)
+bool sb_update_header(fdb_kvs_handle *handle)
 {
-    if (handle->file->sb) {
-        handle->file->sb->last_hdr_bid = handle->last_hdr_bid;
-        handle->file->sb->last_hdr_revnum = handle->cur_header_revnum;
+    bool ret = false;
+    struct superblock *sb = handle->file->sb;
+
+    if (sb && atomic_get_uint64_t(&sb->last_hdr_bid) != handle->last_hdr_bid &&
+        atomic_get_uint64_t(&sb->last_hdr_revnum) < handle->cur_header_revnum) {
+
+        atomic_store_uint64_t(&sb->last_hdr_bid, handle->last_hdr_bid);
+        atomic_store_uint64_t(&sb->last_hdr_revnum, handle->cur_header_revnum);
 
         uint64_t lc_revnum = atomic_get_uint64_t(&handle->file->last_commit_bmp_revnum);
-        if (lc_revnum == handle->file->sb->bmp_revnum &&
-            handle->file->sb->bmp_prev) {
-            free(handle->file->sb->bmp_prev);
-            handle->file->sb->bmp_prev = NULL;
+        if (lc_revnum == sb->bmp_revnum &&
+            sb->bmp_prev) {
+            free(sb->bmp_prev);
+            sb->bmp_prev = NULL;
         }
+        ret = true;
     }
+
+    return ret;
 }
 
 void sb_reset_num_alloc(fdb_kvs_handle *handle)
@@ -458,9 +466,12 @@ void sb_reset_num_alloc(fdb_kvs_handle *handle)
 
 fdb_status sb_sync_circular(fdb_kvs_handle *handle)
 {
+    uint64_t sb_revnum;
     fdb_status fs;
+
+    sb_revnum = atomic_get_uint64_t(&handle->file->sb->revnum);
     fs = sb_write(handle->file,
-                  handle->file->sb->revnum % handle->file->sb->config->num_sb,
+                  sb_revnum % handle->file->sb->config->num_sb,
                   &handle->log_callback);
     return fs;
 }
@@ -1153,7 +1164,8 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // revision number
-    enc_u64 = _endian_encode(file->sb->revnum);
+    uint64_t sb_revnum = atomic_get_uint64_t(&file->sb->revnum);
+    enc_u64 = _endian_encode(sb_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
@@ -1168,12 +1180,14 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // last header bid
-    enc_u64 = _endian_encode(file->sb->last_hdr_bid);
+    bid_t sb_last_hdr_bid = atomic_get_uint64_t(&file->sb->last_hdr_bid);
+    enc_u64 = _endian_encode(sb_last_hdr_bid);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // last header rev number
-    enc_u64 = _endian_encode(file->sb->last_hdr_revnum);
+    uint64_t sb_last_hdr_revnum = atomic_get_uint64_t(&file->sb->last_hdr_revnum);
+    enc_u64 = _endian_encode(sb_last_hdr_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
@@ -1263,7 +1277,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     }
 
     // increase superblock's revision number
-    file->sb->revnum++;
+    atomic_incr_uint64_t(&file->sb->revnum);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1326,7 +1340,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     // revision number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->revnum = _endian_decode(enc_u64);
+    atomic_store_uint64_t(&sb->revnum, _endian_decode(enc_u64));
 
     // bitmap's revision number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1341,12 +1355,12 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     // last header bid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->last_hdr_bid = _endian_decode(enc_u64);
+    atomic_store_uint64_t(&sb->last_hdr_bid, _endian_decode(enc_u64));
 
     // last header rev number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->last_hdr_revnum = _endian_decode(enc_u64);
+    atomic_store_uint64_t(&sb->last_hdr_revnum, _endian_decode(enc_u64));
 
     // minimum active header revnum
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1477,7 +1491,7 @@ static void _sb_free(struct superblock *sb)
 void _sb_init(struct superblock *sb, struct sb_config sconfig)
 {
     *sb->config = sconfig;
-    sb->revnum = 0;
+    atomic_init_uint64_t(&sb->revnum, 0);
     sb->bmp_revnum = 0;
     sb->bmp_size = 0;
     sb->bmp = NULL;
@@ -1485,17 +1499,44 @@ void _sb_init(struct superblock *sb, struct sb_config sconfig)
     sb->bmp_prev = NULL;
     sb->bmp_doc_offset = NULL;
     sb->bmp_docs = NULL;
+    sb->num_bmp_docs = 0;
     sb->num_init_free_blocks = 0;
     sb->num_free_blocks = 0;
     sb->cur_alloc_bid = BLK_NOT_FOUND;
-    sb->last_hdr_bid = BLK_NOT_FOUND;
+    atomic_init_uint64_t(&sb->last_hdr_bid, BLK_NOT_FOUND);
     sb->min_live_hdr_revnum = 0;
     sb->min_live_hdr_bid = BLK_NOT_FOUND;
-    sb->last_hdr_revnum = 0;
+    atomic_init_uint64_t(&sb->last_hdr_revnum, 0);
     sb->num_alloc = 0;
     sb->rsv_bmp = NULL;
     avl_init(&sb->bmp_idx, NULL);
     spin_init(&sb->lock);
+}
+
+INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
+{
+    // since variables in 'src' won't be freed, just copy its pointers
+    dst->config = src->config;
+    atomic_store_uint64_t(&dst->revnum, atomic_get_uint64_t(&src->revnum));
+    dst->bmp_revnum = src->bmp_revnum;
+    dst->bmp_size = src->bmp_size;
+    dst->bmp = src->bmp;
+    dst->bmp_prev_size = src->bmp_prev_size;
+    dst->bmp_prev = src->bmp_prev;
+    dst->bmp_idx = src->bmp_idx;
+    dst->bmp_doc_offset = src->bmp_doc_offset;
+    dst->bmp_docs = src->bmp_docs;
+    dst->num_bmp_docs = src->num_bmp_docs;
+    dst->num_init_free_blocks = src->num_init_free_blocks;
+    dst->num_free_blocks = src->num_free_blocks;
+    dst->rsv_bmp = src->rsv_bmp;
+    dst->cur_alloc_bid = src->cur_alloc_bid;
+    atomic_store_uint64_t(&dst->last_hdr_bid, atomic_get_uint64_t(&src->last_hdr_bid));
+    dst->min_live_hdr_revnum = src->min_live_hdr_revnum;
+    dst->min_live_hdr_bid = src->min_live_hdr_bid;
+    atomic_store_uint64_t(&dst->last_hdr_revnum, atomic_get_uint64_t(&src->last_hdr_revnum));
+    dst->num_alloc = src->num_alloc;
+    spin_init(&dst->lock);
 }
 
 fdb_status sb_read_latest(struct filemgr *file,
@@ -1516,7 +1557,7 @@ fdb_status sb_read_latest(struct filemgr *file,
         // Note: 'sb->revnum' denotes the revnum of next superblock to be
         // written, so we need to subtract 1 from it to get the revnum of
         // the current superblock successfully read from the file.
-        revnum_limit = file->sb->revnum - 1;
+        revnum_limit = atomic_get_uint64_t(&file->sb->revnum) - 1;
         sb_free(file);
     }
 
@@ -1529,11 +1570,13 @@ fdb_status sb_read_latest(struct filemgr *file,
         sb_arr[i].config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
         _sb_init(&sb_arr[i], sconfig);
         fs = _sb_read_given_no(file, i, &sb_arr[i], log_callback);
+
+        uint64_t cur_revnum = atomic_get_uint64_t(&sb_arr[i].revnum);
         if (fs == FDB_RESULT_SUCCESS &&
-            sb_arr[i].revnum >= max_revnum &&
-            sb_arr[i].revnum < revnum_limit) {
+            cur_revnum >= max_revnum &&
+            cur_revnum < revnum_limit) {
             max_sb_no = i;
-            max_revnum = sb_arr[i].revnum;
+            max_revnum = cur_revnum;
         }
     }
 
@@ -1549,7 +1592,7 @@ fdb_status sb_read_latest(struct filemgr *file,
     }
 
     file->sb = (struct superblock*)calloc(1, sizeof(struct superblock));
-    *file->sb = sb_arr[max_sb_no];
+    _sb_copy(file->sb, &sb_arr[max_sb_no]);
 
     // set last commit position
     if (file->sb->cur_alloc_bid != BLK_NOT_FOUND) {
@@ -1560,7 +1603,7 @@ fdb_status sb_read_latest(struct filemgr *file,
         // (already set by filemgr_open() function)
     }
 
-    file->sb->revnum++;
+    atomic_incr_uint64_t(&file->sb->revnum);
     avl_init(&file->sb->bmp_idx, NULL);
 
     // free the other superblocks

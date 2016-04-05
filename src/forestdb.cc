@@ -352,9 +352,13 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
             break;
         } else if (cur_bmp_revnum == stop_bmp_revnum) {
 
+            bid_t sb_last_hdr_bid = BLK_NOT_FOUND;
+            if (handle->file->sb) {
+                sb_last_hdr_bid = atomic_get_uint64_t(&handle->file->sb->last_hdr_bid);
+            }
             if (!handle->shandle && handle->file->sb &&
-                handle->file->sb->last_hdr_bid != BLK_NOT_FOUND) {
-                hdr_off = (handle->file->sb->last_hdr_bid+1) * blocksize;
+                sb_last_hdr_bid != BLK_NOT_FOUND) {
+                hdr_off = (sb_last_hdr_bid+1) * blocksize;
             }
 
             doc_scan_limit = hdr_off;
@@ -1737,9 +1741,10 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
         if (sb && sb->bmp) {
             dirty_data_exists = false;
-            if (sb->last_hdr_bid != BLK_NOT_FOUND) {
+            bid_t sb_last_hdr_bid = atomic_get_uint64_t(&sb->last_hdr_bid);
+            if (sb_last_hdr_bid != BLK_NOT_FOUND) {
                 // add 1 since we subtract 1 from 'hdr_bid' below soon
-                hdr_bid = sb->last_hdr_bid + 1;
+                hdr_bid = sb_last_hdr_bid + 1;
                 if (sb->cur_alloc_bid != hdr_bid) {
                     // seq number has been increased since the last commit
                     seqnum = fdb_kvs_get_committed_seqnum(handle);
@@ -7164,11 +7169,14 @@ fdb_status _fdb_close_root(fdb_kvs_handle *handle)
         _fdb_abort_transaction(handle);
     }
 
-    if (handle->file->sb) {
-        // sync superblock before close
+    if (handle->file->sb &&
+        !(handle->config.flags & FDB_OPEN_FLAG_RDONLY)) {
+        // sync superblock before close (only for writable handles)
         fdb_sync_db_header(handle);
-        sb_update_header(handle);
-        sb_sync_circular(handle);
+        bool updated = sb_update_header(handle);
+        if (updated) {
+            sb_sync_circular(handle);
+        }
     }
 
     fs = _fdb_close(handle);

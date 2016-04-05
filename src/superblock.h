@@ -118,6 +118,11 @@ struct sb_rsv_bmp {
 
 /**
  * Superblock structure definition.
+ *
+ * Note: following functions should be adapted
+ *       if this structure is changed:
+ *       _sb_init()
+ *       _sb_copy()
  */
 struct superblock {
     /**
@@ -128,7 +133,7 @@ struct superblock {
      * Current revision number of superblock. This value increases whenever superblock
      * is written back into file.
      */
-    uint64_t revnum;
+    atomic_uint64_t revnum;
     /**
      * Current revision number of bitmap in superblock. This value increases whenever
      * ForestDB reclaims stale blocks and accordingly bitmap is updated.
@@ -186,7 +191,7 @@ struct superblock {
     /**
      * BID of the last header.
      */
-    bid_t last_hdr_bid;
+    atomic_uint64_t last_hdr_bid;
     /**
      * Revision number of the oldest header that is not reclaimed yet and is currently
      * active in the file.
@@ -200,7 +205,7 @@ struct superblock {
     /**
      * Revision number of the last header.
      */
-    uint64_t last_hdr_revnum;
+    atomic_uint64_t last_hdr_revnum;
     /**
      * Number of allocated blocks since the last superblock sync.
      */
@@ -255,9 +260,9 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle);
  * Update in-memory structure of superblock using current header info.
  *
  * @param handle Pointer to ForestDB KV store handle.
- * @return void.
+ * @return True if superblock is updated.
  */
-void sb_update_header(fdb_kvs_handle *handle);
+bool sb_update_header(fdb_kvs_handle *handle);
 
 /**
  * Reset counter for the number of block allocation.

@@ -392,8 +392,9 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     if (file->sb) {
         // superblock exists .. file size does not start from zero.
         min_filesize = file->sb->config->num_sb * file->blocksize;
-        if (file->sb->last_hdr_bid != BLK_NOT_FOUND) {
-            hdr_bid = hdr_bid_local = file->sb->last_hdr_bid;
+        bid_t sb_last_hdr_bid = atomic_get_uint64_t(&file->sb->last_hdr_bid);
+        if (sb_last_hdr_bid != BLK_NOT_FOUND) {
+            hdr_bid = hdr_bid_local = sb_last_hdr_bid;
         }
         // if header info does not exist in superblock,
         // get DB header at the end of the file.
@@ -987,7 +988,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             return result;
         }
 
-        if (file->sb && file->header.revnum != file->sb->last_hdr_revnum) {
+        if (file->sb &&
+            file->header.revnum != atomic_get_uint64_t(&file->sb->last_hdr_revnum)) {
             // superblock exists but the corresponding DB header does not match.
             // read another candidate.
             continue;
