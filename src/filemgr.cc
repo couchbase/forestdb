@@ -1722,7 +1722,9 @@ fdb_status filemgr_shutdown()
             return ret;
         }
 
+        spin_lock(&filemgr_openlock);
         open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
+        spin_unlock(&filemgr_openlock);
         if (!open_file) {
             hash_free_active(&hash, filemgr_free_func);
             if (global_config.ncacheblock > 0) {
