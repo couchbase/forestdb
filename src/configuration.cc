@@ -59,8 +59,8 @@ fdb_config get_default_config(void) {
     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
     // Disable supporting multiple KV instances by default
     fconfig.multi_kv_instances = true;
-    // 30 seconds by default
-    fconfig.prefetch_duration = 30;
+    // TODO: Re-enable this after prefetch ThreadSanitizer fixes are in..
+    fconfig.prefetch_duration = 0;
 
     // Determine the number of WAL and buffer cache partitions by considering the
     // number of cores available in the host environment.
