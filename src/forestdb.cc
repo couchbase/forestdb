@@ -689,9 +689,8 @@ fdb_status fdb_init(fdb_config *config)
         if (ver_superblock_support(ver_get_latest_magic())) {
             struct sb_ops sb_ops = {sb_init, sb_get_default_config,
                                     sb_read_latest, sb_alloc_block,
-                                    sb_bmp_is_writable, sb_bmp_is_active_block,
-                                    sb_get_bmp_revnum, sb_get_min_live_revnum,
-                                    sb_free};
+                                    sb_bmp_is_writable, sb_get_bmp_revnum,
+                                    sb_get_min_live_revnum, sb_free};
             filemgr_set_sb_operation(sb_ops);
             sb_bmp_mask_init();
         }

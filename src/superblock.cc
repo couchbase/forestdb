@@ -1126,22 +1126,6 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
     return false;
 }
 
-bool sb_bmp_is_active_block(struct filemgr *file, bid_t bid)
-{
-    if (file->sb->bmp) {
-        if (bid < file->sb->bmp_size) {
-            return !_is_bmp_set(file->sb->bmp, bid);
-        } else {
-            // out-of-range .. always valid
-            // (this block is allocated after bitmap is created)
-            return true;
-        }
-    } else {
-        // always valid
-        return true;
-    }
-}
-
 fdb_status sb_write(struct filemgr *file, size_t sb_no,
                     err_log_callback * log_callback)
 {

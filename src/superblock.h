@@ -226,7 +226,6 @@ struct sb_ops {
                               err_log_callback *log_callback);
     bid_t (*alloc_block)(struct filemgr *file);
     bool (*is_writable)(struct filemgr *file, bid_t bid);
-    bool (*is_valid)(struct filemgr *file, bid_t bid);
     uint64_t (*get_bmp_revnum)(struct filemgr *file);
     uint64_t (*get_min_live_revnum)(struct filemgr *file);
     fdb_status (*release)(struct filemgr *file);
@@ -383,14 +382,6 @@ void sb_bmp_mask_init();
  * @return True if the block is writable.
  */
 bool sb_bmp_is_writable(struct filemgr *file, bid_t bid);
-/**
- * Investigate if the given block is active.
- *
- * @param file Pointer to filemgr handle.
- * @param bid ID of block.
- * @return True if the block is active (i.e., not stale).
- */
-bool sb_bmp_is_active_block(struct filemgr *file, bid_t bid);
 
 /**
  * Initialize superblock structure.
