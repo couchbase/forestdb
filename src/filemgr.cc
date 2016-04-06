@@ -859,6 +859,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->config->blocksize = global_config.blocksize;
     file->config->ncacheblock = global_config.ncacheblock;
     file->new_file = NULL;
+    file->prev_file = NULL;
     file->old_filename = NULL;
     file->fd = fd;
 
@@ -1561,6 +1562,24 @@ void _free_fhandle_idx(struct avl_tree *idx);
 void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
+
+    // Update new_file pointers of all previously redirected downstream files
+    struct filemgr *temp = file->prev_file;
+    while (temp != NULL) {
+        spin_lock(&temp->lock);
+        if (temp->new_file == file) {
+            temp->new_file = file->new_file;
+        }
+        spin_unlock(&temp->lock);
+        temp = temp->prev_file;
+    }
+    // Update prev_file pointer of the upstream file if any
+    if (file->new_file != NULL) {
+        spin_lock(&file->new_file->lock);
+        file->new_file->prev_file = file->prev_file;
+        spin_unlock(&file->new_file->lock);
+    }
+
     filemgr_prefetch_status_t prefetch_state =
                               atomic_get_uint8_t(&file->prefetch_status);
 
@@ -2461,6 +2480,12 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
     old_file->new_file = new_file;
     atomic_store_uint8_t(&old_file->status, status);
     spin_unlock(&old_file->lock);
+
+    if (new_file) {
+        spin_lock(&new_file->lock);
+        new_file->prev_file = old_file;
+        spin_unlock(&new_file->lock);
+    }
 }
 
 bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
@@ -2546,6 +2571,9 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                 new_file->blocksize);
     }
     very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
+    // Note that the prev_file pointer of the new_file is not updated, this
+    // is so that every file in the history is reachable from the current file.
+
     past_filename = redirect_header_func(very_old_file,
                                          (uint8_t *)very_old_file->header.data,
                                          new_file);//Update in-memory header
