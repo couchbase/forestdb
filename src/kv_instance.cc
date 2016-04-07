@@ -1977,12 +1977,13 @@ fdb_kvs_remove_start:
         kv_id = node->id;
 
         if (!rollback_recreate) {
+            spin_unlock(&kv_header->lock);
             if (_fdb_kvs_any_handle_opened(fhandle, kv_id)) {
                 // there is an opened handle
-                spin_unlock(&kv_header->lock);
                 filemgr_mutex_unlock(file);
                 return FDB_RESULT_KV_STORE_BUSY;
             }
+            spin_lock(&kv_header->lock);
 
             avl_remove(kv_header->idx_name, &node->avl_name);
             avl_remove(kv_header->idx_id, &node->avl_id);
