@@ -355,7 +355,7 @@ ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_block
 
 int filemgr_is_writable(struct filemgr *file, bid_t bid)
 {
-    if (file->sb && file->sb->bmp && sb_ops.is_writable) {
+    if (sb_bmp_exists(file->sb) && sb_ops.is_writable) {
         // block reusing is enabled
         return sb_ops.is_writable(file, bid);
     } else {
@@ -1301,7 +1301,7 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                    sizeof(filemgr_header_revnum_t));
             cur_revnum = _endian_decode(_revnum);
 
-            if (file->sb && file->sb->bmp) {
+            if (sb_bmp_exists(file->sb)) {
                 // first check revnum
                 if (cur_revnum <= sb_ops.get_min_live_revnum(file)) {
                     // previous headers already have been reclaimed
@@ -2135,7 +2135,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         return FDB_RESULT_WRITE_FAIL;
     }
 
-    if (file->sb && file->sb->bmp) {
+    if (sb_bmp_exists(file->sb)) {
         // block reusing is enabled
         if (!sb_ops.is_writable(file, bid)) {
             const char *msg = "Write error: trying to write at the offset %" _F64 " that is "
@@ -2446,12 +2446,12 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         _filemgr_release_temp_buf(buf);
     }
 
-    if (file->sb && file->sb->bmp &&
-        file->sb->cur_alloc_bid != BLK_NOT_FOUND &&
+    if (sb_bmp_exists(file->sb) &&
+        atomic_get_uint64_t(&file->sb->cur_alloc_bid) != BLK_NOT_FOUND &&
         atomic_get_uint8_t(&file->status) == FILE_NORMAL) {
         // block reusing is currently enabled
         atomic_store_uint64_t(&file->last_commit,
-                              file->sb->cur_alloc_bid * file->blocksize);
+                              atomic_get_uint64_t(&file->sb->cur_alloc_bid) * file->blocksize);
     } else {
         atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
     }

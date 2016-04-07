@@ -221,6 +221,60 @@ INLINE bool _is_bmp_set(uint8_t *bmp, bid_t bid)
     return (bmp[div8(bid)] & bmp_basic_mask[mod8(bid)]);
 }
 
+static void sb_bmp_barrier_on(struct superblock *sb)
+{
+    atomic_incr_uint64_t(&sb->bmp_rcount);
+    if (atomic_get_uint64_t(&sb->bmp_wcount)) {
+        // now bmp pointer & related variables are being changed.
+        // decrease count and grab lock until the change is done.
+        atomic_decr_uint64_t(&sb->bmp_rcount);
+        spin_lock(&sb->bmp_lock);
+
+        // got control: means that change is done.
+        // re-increase the count
+        atomic_incr_uint64_t(&sb->bmp_rcount);
+        spin_unlock(&sb->bmp_lock);
+    }
+}
+
+static void sb_bmp_barrier_off(struct superblock *sb)
+{
+    atomic_decr_uint64_t(&sb->bmp_rcount);
+}
+
+static void sb_bmp_change_begin(struct superblock *sb)
+{
+    // grab lock and increase writer count
+    // now new readers cannot increase the reader count
+    // (note that there is always one bitmap writer at a time)
+    spin_lock(&sb->bmp_lock);
+    atomic_incr_uint64_t(&sb->bmp_wcount);
+
+    // wait until previous BMP readers terminate
+    // (they are very short bitmap accessing routines so that
+    //  will not take long time).
+    size_t spin = 0;
+    while (atomic_get_uint64_t(&sb->bmp_rcount)) {
+       if (++spin > 64) {
+#ifdef HAVE_SCHED_H
+            sched_yield();
+#elif _MSC_VER
+            SwitchToThread();
+#endif
+       }
+    }
+
+    // now 1) all previous readers terminated
+    //     2) new readers will be blocked
+}
+
+static void sb_bmp_change_end(struct superblock *sb)
+{
+    atomic_decr_uint64_t(&sb->bmp_wcount);
+    spin_unlock(&sb->bmp_lock);
+    // now resume all pending readers
+}
+
 void sb_bmp_append_doc(fdb_kvs_handle *handle)
 {
     // == write bitmap into system docs ==
@@ -244,7 +298,8 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
         sb->bmp_docs = NULL;
     }
 
-    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb->bmp_size);
+    uint64_t sb_bmp_size = atomic_get_uint64_t(&sb->bmp_size);
+    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
     if (num_docs) {
         sb->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
         sb->bmp_docs = (struct docio_object*)
@@ -265,7 +320,7 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
         if (i == num_docs - 1) {
             // the last doc
             sb->bmp_docs[i].length.bodylen =
-                (sb->bmp_size / 8) % SB_MAX_BITMAP_DOC_SIZE;
+                (sb_bmp_size / 8) % SB_MAX_BITMAP_DOC_SIZE;
         } else {
             // otherwise: 1MB
             sb->bmp_docs[i].length.bodylen = SB_MAX_BITMAP_DOC_SIZE;
@@ -341,7 +396,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 
     // skip if previous bitmap exists OR
     // there is no bitmap to be fetched (fast screening)
-    if (sb->bmp || sb->bmp_size == 0) {
+    if (sb->bmp || atomic_get_uint64_t(&sb->bmp_size) == 0) {
         return FDB_RESULT_SUCCESS;
     }
 
@@ -354,14 +409,15 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         return FDB_RESULT_SUCCESS;
     }
 
-    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb->bmp_size);
+    uint64_t sb_bmp_size = atomic_get_uint64_t(&sb->bmp_size);
+    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
     if (!num_docs) {
         spin_unlock(&sb->lock);
         return FDB_RESULT_SUCCESS;
     }
 
     free(sb->bmp);
-    sb->bmp = (uint8_t*)calloc(1, (sb->bmp_size+7) / 8);
+    sb->bmp = (uint8_t*)calloc(1, (sb_bmp_size+7) / 8);
 
     for (i=0; i<num_docs; ++i) {
         memset(&sb->bmp_docs[i], 0x0, sizeof(struct docio_object));
@@ -382,7 +438,8 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         }
     }
 
-    _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb->bmp_size, sb->cur_alloc_bid);
+    _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb_bmp_size,
+                       atomic_get_uint64_t(&sb->cur_alloc_bid));
 
     rsv = sb->rsv_bmp;
     if (rsv && atomic_get_uint32_t(&rsv->status) == SB_RSV_INITIALIZING) {
@@ -530,7 +587,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
     ratio = (filesize - live_datasize) * 100 / filesize;
 
     if (ratio > block_reusing_threshold) {
-        if (sb->bmp == NULL) {
+        if (!sb_bmp_exists(sb)) {
             // block reusing has not been started yet
             return SBD_RECLAIM;
         } else {
@@ -576,29 +633,22 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     blist = fdb_get_reusable_block(handle, sheader);
 
     // update superblock's bitmap
+    uint8_t *new_bmp = NULL, *old_bmp = NULL;
     num_blocks = filemgr_get_pos(handle->file) / handle->file->blocksize;
     // 8 bitmaps per byte
     bmp_size_byte = (num_blocks+7) / 8;
     if (num_blocks) {
-        if (sb->bmp == NULL) {
-            sb->bmp = (uint8_t*)calloc(1, bmp_size_byte);
-        } else {
-            if (sb->bmp_size != num_blocks) {
-                sb->bmp = (uint8_t*)realloc(sb->bmp, bmp_size_byte);
-            }
-            // clear previous bitmap (including newly allocated region) to zero
-            sb_bmp_clear(sb->bmp, 0, num_blocks);
-        }
+        new_bmp = (uint8_t*)calloc(1, bmp_size_byte);
     }
-    sb->bmp_size = num_blocks;
 
     // free pre-existing bmp index
     _free_bmp_idx(&sb->bmp_idx);
 
     for (i=0; i<blist.n_blocks; ++i) {
-        sb_bmp_set(sb->bmp, blist.blocks[i].bid, blist.blocks[i].count);
-        if (i==0 && sb->cur_alloc_bid == BLK_NOT_FOUND) {
-            sb->cur_alloc_bid = blist.blocks[i].bid;
+        sb_bmp_set(new_bmp, blist.blocks[i].bid, blist.blocks[i].count);
+        if (i==0 &&
+            atomic_get_uint64_t(&sb->cur_alloc_bid) == BLK_NOT_FOUND) {
+            atomic_store_uint64_t(&sb->cur_alloc_bid, blist.blocks[i].bid);
         }
         sb->num_free_blocks += blist.blocks[i].count;
         // add info for supplementary bmp index
@@ -606,10 +656,16 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     }
     free(blist.blocks);
 
+    sb_bmp_change_begin(sb);
+    old_bmp = sb->bmp;
+    sb->bmp = new_bmp;
+    atomic_store_uint64_t(&sb->bmp_size, num_blocks);
     sb->min_live_hdr_revnum = sheader.revnum;
     sb->min_live_hdr_bid = sheader.bid;
     sb->bmp_revnum++;
     sb->num_init_free_blocks = sb->num_free_blocks;
+    sb_bmp_change_end(sb);
+    free(old_bmp);
 
     return true;
 }
@@ -685,7 +741,8 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
     }
 
     // re-insert all remaining bitmap into stale list
-    for (cur = sb->cur_alloc_bid; cur < sb->bmp_size; ++cur) {
+    uint64_t sb_bmp_size = atomic_get_uint64_t(&sb->bmp_size);
+    for (cur = atomic_get_uint64_t(&sb->cur_alloc_bid); cur < sb_bmp_size; ++cur) {
         if (_is_bmp_set(sb->bmp, cur)) {
             filemgr_add_stale_block(handle->file, cur, 1);
         }
@@ -717,13 +774,13 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
                 }
 
                 // no more reusable block
-                cur = sb->bmp_size;
+                cur = sb_bmp_size;
                 break;
             } while (true);
         }
     }
     sb->num_free_blocks = 0;
-    sb->cur_alloc_bid = BLK_NOT_FOUND;
+    atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
 
     // do the same work for the reserved blocks if exist
     rsv = sb->rsv_bmp;
@@ -906,26 +963,31 @@ bool sb_switch_reserved_blocks(struct filemgr *file)
 
     // free current bitmap idx
     _free_bmp_idx(&sb->bmp_idx);
+
     // temporarily keep current bitmap
+    sb_bmp_change_begin(sb);
+    uint8_t *old_prev_bmp = NULL;
     if (sb->bmp_prev) {
-        free(sb->bmp_prev);
+        old_prev_bmp = sb->bmp_prev;
     }
     sb->bmp_prev = sb->bmp;
-    sb->bmp_prev_size = sb->bmp_size;
+    sb->bmp_prev_size = atomic_get_uint64_t(&sb->bmp_size);
 
     // copy all pointers from rsv to sb
     sb->bmp_revnum = rsv->bmp_revnum;
-    sb->bmp_size = rsv->bmp_size;
+    atomic_store_uint64_t(&sb->bmp_size, rsv->bmp_size);
     sb->bmp = rsv->bmp;
     sb->bmp_idx = rsv->bmp_idx;
     sb->bmp_doc_offset = rsv->bmp_doc_offset;
     sb->bmp_docs = rsv->bmp_docs;
     sb->num_bmp_docs = rsv->num_bmp_docs;
     sb->num_free_blocks = sb->num_init_free_blocks = rsv->num_free_blocks;
-    sb->cur_alloc_bid = rsv->cur_alloc_bid;
+    atomic_store_uint64_t(&sb->cur_alloc_bid, rsv->cur_alloc_bid);
     sb->min_live_hdr_revnum = rsv->min_live_hdr_revnum;
     sb->min_live_hdr_bid = rsv->min_live_hdr_bid;
+    sb_bmp_change_end(sb);
 
+    free(old_prev_bmp);
     free(sb->rsv_bmp);
     sb->rsv_bmp = NULL;
 
@@ -942,7 +1004,7 @@ bid_t sb_alloc_block(struct filemgr *file)
 
     sb->num_alloc++;
 sb_alloc_start_over:
-    if (!sb->bmp) {
+    if (!sb_bmp_exists(sb)) {
         // no bitmap
         return BLK_NOT_FOUND;
     }
@@ -955,12 +1017,12 @@ sb_alloc_start_over:
         if (switched) {
             goto sb_alloc_start_over;
         } else {
-            sb->cur_alloc_bid = BLK_NOT_FOUND;
+            atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
             return BLK_NOT_FOUND;
         }
     }
 
-    ret = sb->cur_alloc_bid;
+    ret = atomic_get_uint64_t(&sb->cur_alloc_bid);
     sb->num_free_blocks--;
 
     if (sb->num_free_blocks == 0) {
@@ -969,7 +1031,7 @@ sb_alloc_start_over:
             switched = sb_switch_reserved_blocks(file);
         }
         if (!switched) {
-            sb->cur_alloc_bid = BLK_NOT_FOUND;
+            atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
         }
         return ret;
     }
@@ -982,12 +1044,12 @@ sb_alloc_start_over:
             bmp_idx = div8(i) + (node_idx * 32);
             bmp_off = mod8(i);
 
-            if (bmp_idx*8 + bmp_off >= sb->bmp_size) {
+            if (bmp_idx*8 + bmp_off >= atomic_get_uint64_t(&sb->bmp_size)) {
                 break;
             }
 
             if (sb->bmp[bmp_idx] & bmp_basic_mask[bmp_off]) {
-                sb->cur_alloc_bid = bmp_idx*8 + bmp_off;
+                atomic_store_uint64_t(&sb->cur_alloc_bid, bmp_idx*8 + bmp_off);
                 return ret;
             }
         }
@@ -1011,7 +1073,7 @@ sb_alloc_start_over:
                 switched = sb_switch_reserved_blocks(file);
             }
             if (!switched) {
-                sb->cur_alloc_bid = BLK_NOT_FOUND;
+                atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
             }
             break;
         }
@@ -1030,10 +1092,14 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
         return true;
     }
 
+    bool ret = false;
     bid_t last_commit = atomic_get_uint64_t(&file->last_commit) / file->blocksize;
     uint64_t lc_bmp_revnum = atomic_get_uint64_t(&file->last_commit_bmp_revnum);
     struct superblock *sb = file->sb;
 
+    sb_bmp_barrier_on(sb);
+
+    uint8_t *sb_bmp = sb->bmp;
     if (sb->bmp_revnum == lc_bmp_revnum) {
         // Same bitmap revision number: there are 2 possible cases
         //
@@ -1055,16 +1121,17 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
         //                             ^               ^         ^
         //                             last_commit     bmp_size  cur_alloc
 
-        if (bid < sb->bmp_size) {
+        if (bid < atomic_get_uint64_t(&sb->bmp_size)) {
             // BID is in the bitmap .. check if bitmap is set.
-            if (_is_bmp_set(sb->bmp, bid) &&
-                bid < sb->cur_alloc_bid && bid >= last_commit) {
-                return true;
+            if (_is_bmp_set(sb_bmp, bid) &&
+                bid < atomic_get_uint64_t(&sb->cur_alloc_bid) &&
+                bid >= last_commit) {
+                ret = true;
             }
         } else {
             // BID is out-of-range of the bitmap
             if (bid >= last_commit) {
-                return true;
+                ret = true;
             }
         }
     } else {
@@ -1108,22 +1175,23 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
             //                                     last_commit
             if (sb->bmp_prev && bid < sb->bmp_prev_size) {
                 if (_is_bmp_set(sb->bmp_prev, bid) ||
-                    _is_bmp_set(sb->bmp, bid)) {
-                    return true;
+                    _is_bmp_set(sb_bmp, bid)) {
+                    ret = true;
                 }
             } else {
-                return true;
+                ret = true;
             }
         }
-        if (_is_bmp_set(sb->bmp, bid) &&
-            bid < sb->cur_alloc_bid) {
-            return true;
-        } else {
-            return false;
+
+        if (_is_bmp_set(sb_bmp, bid) &&
+            bid < atomic_get_uint64_t(&sb->cur_alloc_bid)) {
+            ret = true;
         }
     }
 
-    return false;
+    sb_bmp_barrier_off(sb);
+
+    return ret;
 }
 
 fdb_status sb_write(struct filemgr *file, size_t sb_no,
@@ -1159,7 +1227,8 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // cur_alloc_bid
-    enc_u64 = _endian_encode(file->sb->cur_alloc_bid);
+    bid_t sb_cur_alloc_bid = atomic_get_uint64_t(&file->sb->cur_alloc_bid);
+    enc_u64 = _endian_encode(sb_cur_alloc_bid);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
@@ -1196,7 +1265,8 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // bitmap size
-    enc_u64 = _endian_encode(file->sb->bmp_size);
+    uint64_t sb_bmp_size = atomic_get_uint64_t(&file->sb->bmp_size);
+    enc_u64 = _endian_encode(sb_bmp_size);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
@@ -1221,7 +1291,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // bitmap doc offsets
-    num_docs = _bmp_size_to_num_docs(file->sb->bmp_size);
+    num_docs = _bmp_size_to_num_docs(sb_bmp_size);
     for (i=0; i<num_docs; ++i) {
         enc_u64 = _endian_encode(file->sb->bmp_doc_offset[i]);
         memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
@@ -1334,7 +1404,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     // cur_alloc_bid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->cur_alloc_bid = _endian_decode(enc_u64);
+    atomic_store_uint64_t(&sb->cur_alloc_bid, _endian_decode(enc_u64));
 
     // last header bid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1367,9 +1437,11 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     sb->num_free_blocks = _endian_decode(enc_u64);
 
     // bitmap size
+    uint64_t sb_bmp_size;
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    sb->bmp_size = _endian_decode(enc_u64);
+    sb_bmp_size = _endian_decode(enc_u64);
+    atomic_store_uint64_t(&sb->bmp_size, sb_bmp_size);
 
     // reserved bitmap size
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1388,7 +1460,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     // (it will be allocated by fetching function)
     sb->bmp = NULL;
 
-    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb->bmp_size);
+    sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
     if (num_docs) {
         sb->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
         sb->bmp_docs = (struct docio_object*)
@@ -1477,8 +1549,11 @@ void _sb_init(struct superblock *sb, struct sb_config sconfig)
     *sb->config = sconfig;
     atomic_init_uint64_t(&sb->revnum, 0);
     sb->bmp_revnum = 0;
-    sb->bmp_size = 0;
+    atomic_init_uint64_t(&sb->bmp_size, 0);
     sb->bmp = NULL;
+    atomic_init_uint64_t(&sb->bmp_rcount, 0);
+    atomic_init_uint64_t(&sb->bmp_wcount, 0);
+    spin_init(&sb->bmp_lock);
     sb->bmp_prev_size = 0;
     sb->bmp_prev = NULL;
     sb->bmp_doc_offset = NULL;
@@ -1486,7 +1561,7 @@ void _sb_init(struct superblock *sb, struct sb_config sconfig)
     sb->num_bmp_docs = 0;
     sb->num_init_free_blocks = 0;
     sb->num_free_blocks = 0;
-    sb->cur_alloc_bid = BLK_NOT_FOUND;
+    atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
     atomic_init_uint64_t(&sb->last_hdr_bid, BLK_NOT_FOUND);
     sb->min_live_hdr_revnum = 0;
     sb->min_live_hdr_bid = BLK_NOT_FOUND;
@@ -1503,8 +1578,11 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
     dst->config = src->config;
     atomic_store_uint64_t(&dst->revnum, atomic_get_uint64_t(&src->revnum));
     dst->bmp_revnum = src->bmp_revnum;
-    dst->bmp_size = src->bmp_size;
+    atomic_store_uint64_t(&dst->bmp_size, atomic_get_uint64_t(&src->bmp_size));
     dst->bmp = src->bmp;
+    atomic_store_uint64_t(&dst->bmp_rcount, atomic_get_uint64_t(&src->bmp_rcount));
+    atomic_store_uint64_t(&dst->bmp_wcount, atomic_get_uint64_t(&src->bmp_wcount));
+    spin_init(&dst->bmp_lock);
     dst->bmp_prev_size = src->bmp_prev_size;
     dst->bmp_prev = src->bmp_prev;
     dst->bmp_idx = src->bmp_idx;
@@ -1514,7 +1592,7 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
     dst->num_init_free_blocks = src->num_init_free_blocks;
     dst->num_free_blocks = src->num_free_blocks;
     dst->rsv_bmp = src->rsv_bmp;
-    dst->cur_alloc_bid = src->cur_alloc_bid;
+    atomic_store_uint64_t(&dst->cur_alloc_bid, atomic_get_uint64_t(&src->cur_alloc_bid));
     atomic_store_uint64_t(&dst->last_hdr_bid, atomic_get_uint64_t(&src->last_hdr_bid));
     dst->min_live_hdr_revnum = src->min_live_hdr_revnum;
     dst->min_live_hdr_bid = src->min_live_hdr_bid;
@@ -1579,9 +1657,10 @@ fdb_status sb_read_latest(struct filemgr *file,
     _sb_copy(file->sb, &sb_arr[max_sb_no]);
 
     // set last commit position
-    if (file->sb->cur_alloc_bid != BLK_NOT_FOUND) {
+    if (atomic_get_uint64_t(&file->sb->cur_alloc_bid) != BLK_NOT_FOUND) {
         atomic_store_uint64_t(&file->last_commit,
-                              file->sb->cur_alloc_bid * file->config->blocksize);
+                              atomic_get_uint64_t(&file->sb->cur_alloc_bid) *
+                              file->config->blocksize);
     } else {
         // otherwise, last_commit == file->pos
         // (already set by filemgr_open() function)

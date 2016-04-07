@@ -142,11 +142,23 @@ struct superblock {
     /**
      * Number of bits in the bitmap. Each bit represents a block.
      */
-    uint64_t bmp_size;
+    atomic_uint64_t bmp_size;
     /**
      * Pointer to the bitmap.
      */
     uint8_t *bmp;
+    /**
+     * Reference counter for bitmap readers.
+     */
+    atomic_uint64_t bmp_rcount;
+    /**
+     * Reference counter for bitmap writers.
+     */
+    atomic_uint64_t bmp_wcount;
+    /**
+     * Lock for bitmap modification.
+     */
+    spin_t bmp_lock;
     /**
      * Number of bits in the previous bitmap. Each bit represents a block.
      */
@@ -187,7 +199,7 @@ struct superblock {
     /**
      * BID of a block to be allocated next time.
      */
-    bid_t cur_alloc_bid;
+    atomic_uint64_t cur_alloc_bid;
     /**
      * BID of the last header.
      */
@@ -230,6 +242,20 @@ struct sb_ops {
     uint64_t (*get_min_live_revnum)(struct filemgr *file);
     fdb_status (*release)(struct filemgr *file);
 };
+
+/**
+ * Check if superblock has non-empty bitmap.
+ *
+ * @param sb Pointer to superblock structure.
+ * @return True if bitmap exists.
+ */
+INLINE bool sb_bmp_exists(struct superblock *sb)
+{
+    if (sb && atomic_get_uint64_t(&sb->bmp_size)) {
+        return true;
+    }
+    return false;
+}
 
 /**
  * Create system docs for bitmap and append them into the file.

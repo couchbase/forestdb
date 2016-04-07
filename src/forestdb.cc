@@ -1760,13 +1760,13 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
         bool dirty_data_exists = false;
         struct superblock *sb = handle->file->sb;
 
-        if (sb && sb->bmp) {
+        if (sb_bmp_exists(sb)) {
             dirty_data_exists = false;
             bid_t sb_last_hdr_bid = atomic_get_uint64_t(&sb->last_hdr_bid);
             if (sb_last_hdr_bid != BLK_NOT_FOUND) {
                 // add 1 since we subtract 1 from 'hdr_bid' below soon
                 hdr_bid = sb_last_hdr_bid + 1;
-                if (sb->cur_alloc_bid != hdr_bid) {
+                if (atomic_get_uint64_t(&sb->cur_alloc_bid) != hdr_bid) {
                     // seq number has been increased since the last commit
                     seqnum = fdb_kvs_get_committed_seqnum(handle);
                 }
