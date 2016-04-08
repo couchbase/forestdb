@@ -1476,6 +1476,24 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             spin_unlock(&file->lock);
             struct hash_elem *ret = hash_remove(&hash, &file->e);
             fdb_assert(ret, 0, 0);
+
+            // Update new_file pointers of all previously redirected downstream files
+            struct filemgr *temp = file->prev_file;
+            while (temp != NULL) {
+                spin_lock(&temp->lock);
+                if (temp->new_file == file) {
+                    temp->new_file = file->new_file;
+                }
+                spin_unlock(&temp->lock);
+                temp = temp->prev_file;
+            }
+            // Update prev_file pointer of the upstream file if any
+            if (file->new_file != NULL) {
+                spin_lock(&file->new_file->lock);
+                file->new_file->prev_file = file->prev_file;
+                spin_unlock(&file->new_file->lock);
+            }
+
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
@@ -1562,23 +1580,6 @@ void _free_fhandle_idx(struct avl_tree *idx);
 void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
-
-    // Update new_file pointers of all previously redirected downstream files
-    struct filemgr *temp = file->prev_file;
-    while (temp != NULL) {
-        spin_lock(&temp->lock);
-        if (temp->new_file == file) {
-            temp->new_file = file->new_file;
-        }
-        spin_unlock(&temp->lock);
-        temp = temp->prev_file;
-    }
-    // Update prev_file pointer of the upstream file if any
-    if (file->new_file != NULL) {
-        spin_lock(&file->new_file->lock);
-        file->new_file->prev_file = file->prev_file;
-        spin_unlock(&file->new_file->lock);
-    }
 
     filemgr_prefetch_status_t prefetch_state =
                               atomic_get_uint8_t(&file->prefetch_status);
