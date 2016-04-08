@@ -726,7 +726,7 @@ void variable_value_size_test() {
     const int ndocs = 3;
     int blen;
     char keybuf[256];
-    char bodybuf[1024 * 5120];
+    char *bodybuf = new char[1024 * 5120];
     void *rvalue;
     size_t rvalue_len;
     fdb_status status;
@@ -768,7 +768,7 @@ void variable_value_size_test() {
     status = fdb_snapshot_open(db, &snap_db, n);
     TEST_STATUS(status);
 
-    // update docs with sizes 1024 2048 3096
+    // update docs with sizes 1024, 2048, 3072
     i = 0;
     do {
         for (j = 1;j <= ndocs; j++) {
@@ -840,6 +840,8 @@ void variable_value_size_test() {
     TEST_CMP(bodybuf, rvalue, rvalue_len);
     status = fdb_free_block(rvalue);
     TEST_STATUS(status);
+
+    delete[] bodybuf;
 
     // cleanup
     status = fdb_kvs_close(db);
