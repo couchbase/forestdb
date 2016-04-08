@@ -1410,6 +1410,25 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     return bid;
 }
 
+static void update_file_pointers(struct filemgr *file) {
+    // Update new_file pointers of all previously redirected downstream files
+    struct filemgr *temp = file->prev_file;
+    while (temp != NULL) {
+        spin_lock(&temp->lock);
+        if (temp->new_file == file) {
+            temp->new_file = file->new_file;
+        }
+        spin_unlock(&temp->lock);
+        temp = temp->prev_file;
+    }
+    // Update prev_file pointer of the upstream file if any
+    if (file->new_file != NULL) {
+        spin_lock(&file->new_file->lock);
+        file->new_file->prev_file = file->prev_file;
+        spin_unlock(&file->new_file->lock);
+    }
+}
+
 fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                          const char *orig_file_name,
                          err_log_callback *log_callback)
@@ -1481,23 +1500,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             struct hash_elem *ret = hash_remove(&hash, &file->e);
             fdb_assert(ret, 0, 0);
 
-            // Update new_file pointers of all previously redirected downstream files
-            struct filemgr *temp = file->prev_file;
-            while (temp != NULL) {
-                spin_lock(&temp->lock);
-                if (temp->new_file == file) {
-                    temp->new_file = file->new_file;
-                }
-                spin_unlock(&temp->lock);
-                temp = temp->prev_file;
-            }
-            // Update prev_file pointer of the upstream file if any
-            if (file->new_file != NULL) {
-                spin_lock(&file->new_file->lock);
-                file->new_file->prev_file = file->prev_file;
-                spin_unlock(&file->new_file->lock);
-            }
-
+            update_file_pointers(file);
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
@@ -1553,7 +1556,10 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 // Clean up global hash table, WAL index, and buffer cache.
                 struct hash_elem *ret = hash_remove(&hash, &file->e);
                 fdb_assert(ret, file, 0);
+
+                update_file_pointers(file);
                 spin_unlock(&filemgr_openlock);
+
                 filemgr_free_func(&file->e);
                 return (fdb_status) rv;
             } else {
