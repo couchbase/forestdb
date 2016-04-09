@@ -309,9 +309,10 @@ static void _filemgr_shutdown_temp_buf()
 
 // Read a block from the file, decrypting if necessary.
 static ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid) {
-    ssize_t result = file->ops->pread(file->fd, buf, file->blocksize, file->blocksize*bid);
+    ssize_t result = file->ops->pread(file->fd, buf, file->blocksize,
+                                      file->blocksize*bid);
     if (file->encryption.ops && result > 0) {
-        if (result != file->blocksize)
+        if (result != (ssize_t)file->blocksize)
             return FDB_RESULT_READ_FAIL;
         fdb_status status = fdb_decrypt_block(&file->encryption, buf, result, bid);
         if (status != FDB_RESULT_SUCCESS)
@@ -416,7 +417,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
         size_t block_counter = 0;
         do {
             ssize_t rv = filemgr_read_block(file, buf, hdr_bid_local);
-            if (rv != file->blocksize) {
+            if (rv != (ssize_t)file->blocksize) {
                 status = (fdb_status) rv;
                 const char *msg = "Unable to read a database file '%s' with "
                     "blocksize %" _F64 "\n";
@@ -1989,7 +1990,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 
             // if normal file, just read a block
             r = filemgr_read_block(file, buf, bid);
-            if (r != file->blocksize) {
+            if (r != (ssize_t)file->blocksize) {
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "READ", file->filename);
                 if (locked) {
@@ -2051,7 +2052,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         }
 
         r = filemgr_read_block(file, buf, bid);
-        if (r != file->blocksize) {
+        if (r != (ssize_t)file->blocksize) {
             _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",
                            file->filename);
             return (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
@@ -2164,7 +2165,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     // we don't need to read previous block from file.
                 } else {
                     r = filemgr_read_block(file, _buf, bid);
-                    if (r != file->blocksize) {
+                    if (r != (ssize_t)file->blocksize) {
                         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                             plock_unlock(&file->plock, plock_entry);
@@ -2379,7 +2380,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         ssize_t rv = filemgr_write_blocks(file, buf, 1, bid);
         _log_errno_str(file->ops, log_callback, (fdb_status) rv,
                        "WRITE", file->filename);
-        if (rv != file->blocksize) {
+        if (rv != (ssize_t)file->blocksize) {
             _filemgr_release_temp_buf(buf);
             spin_unlock(&file->lock);
             filemgr_clear_io_inprog(file);

@@ -33,7 +33,7 @@
 
 bool track_stat(stat_history_t *stat, uint64_t lat) {
 
-    if (lat == ERR_NS) {
+    if (lat == (uint64_t)ERR_NS) {
       return false;
     }
 

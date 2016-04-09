@@ -140,9 +140,9 @@ void * worker(void *voidargs)
         if (ret <= 0) {
             ret = args->file->ops->pread(args->file->fd, buf,
                                          args->file->blocksize, bid * args->file->blocksize);
-            TEST_CHK(ret == args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blocksize);
             ret = bcache_write(args->file, bid, buf, BCACHE_REQ_CLEAN, false);
-            TEST_CHK(ret == args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blocksize);
         }
         crc_file = crc32_8(buf, sizeof(uint64_t)*2, 0);
         (void)crc_file;
@@ -161,7 +161,7 @@ void * worker(void *voidargs)
             memcpy(buf + sizeof(uint64_t)*2, &crc, sizeof(crc));
 
             ret = bcache_write(args->file, bid, buf, BCACHE_REQ_DIRTY, true);
-            TEST_CHK(ret == args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blocksize);
         } else { // have some of the reader threads flush dirty immutable blocks
             if (bid <= args->nblocks / 4) { // 25% probability
                 filemgr_flush_immutable(args->file, NULL);
