@@ -879,8 +879,10 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     filemgr_magic_t magic;
     fdb_status status = FDB_RESULT_SUCCESS;
 
+    *len = 0;
+
     if (!bid || bid == BLK_NOT_FOUND) {
-        *len = 0; // No other header available
+        // No other header available
         return FDB_RESULT_SUCCESS;
     }
     _buf = (uint8_t *)_filemgr_get_temp_buf();
@@ -957,8 +959,10 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     bid_t _prev_bid, prev_bid;
     int found = 0;
 
+    *len = 0;
+
     if (!bid || bid == BLK_NOT_FOUND) {
-        *len = 0; // No other header available
+        // No other header available
         return bid;
     }
     _buf = (uint8_t *)_filemgr_get_temp_buf();
