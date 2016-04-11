@@ -706,7 +706,7 @@ fdb_status fdb_init(fdb_config *config)
         bgflusher_init(&bgf_config);
 
         // Initialize breakpad
-        _dbg_set_minidump_dir(config->breakpad_minidump_dir);
+        _dbg_handle_crashes(config->breakpad_minidump_dir);
 
         fdb_initialized = 1;
     }
@@ -7773,6 +7773,7 @@ fdb_status fdb_shutdown()
         } else { // some file may be still open...
             spin_unlock(&initial_lock);
         }
+        _dbg_destroy_altstack();
     }
     return ret;
 }

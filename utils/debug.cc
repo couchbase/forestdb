@@ -55,9 +55,97 @@ int _dbg_is_sw_set(int n)
     return _global_dbg_switch[n];
 }
 
-void _dbg_set_minidump_dir(const char *pathname)
+// to profile first install perf
+// echo 0 > /proc/sys/kernel/kptr_restrict
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <string.h>
+#include <dlfcn.h>
+#include <ucontext.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <signal.h>
+
+void sigalrm_handler(int sig) {
+    fdb_assert(false, false, false);
+}
+
+static struct sigaction caller_sigact;
+static stack_t __sigstack;
+static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
+{
+    ucontext *u = (ucontext *)context;
+    unsigned char *pc = (unsigned char *)u->uc_mcontext.gregs[REG_RIP];
+    Dl_info info;
+    if (dladdr(pc, &info)) { // Determine location of the segfault..
+        if (strstr(info.dli_fname, "libforestdb")) {
+            fprintf(stderr,
+                    "Caught SIGSEGV in libforestdb at %s\n", info.dli_sname);
+            // first restore original handler whatever it may be..
+            // so that if BREAKPAD is not available we get a core dump..
+            sigaction(SIGSEGV, &caller_sigact, NULL);
+            initialize_breakpad(minidump_dir);
+            return; // let breakpad dump backtrace and crash..
+        }
+    }
+    // If not from forestdb, and caller has a signal handler, invoke it..
+    if (caller_sigact.sa_sigaction && caller_sigact.sa_flags & SA_SIGINFO) {
+        caller_sigact.sa_sigaction(sig, siginfo, context);
+    } else if (caller_sigact.sa_sigaction) { // Not in forestdb and no handler from caller
+        caller_sigact.sa_handler(sig);
+    } else {
+        // first restore original handler whatever it may be..
+        // so that if BREAKPAD is not available we get a core dump..
+        sigaction(SIGSEGV, &caller_sigact, NULL);
+        initialize_breakpad(minidump_dir); // let breakpad handle it..
+    }
+}
+
+INLINE fdb_status _dbg_init_altstack(void)
+{
+    __sigstack.ss_sp = malloc(SIGSTKSZ);
+    __sigstack.ss_size = SIGSTKSZ;
+    __sigstack.ss_flags = 0;
+    fprintf(stderr, "SIGSEGV stack registereted successfully\n");
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status _dbg_install_handler(void)
+{
+    // -- install segmentation fault handler using sigaction ---
+    struct sigaction sa;
+    if (sigaltstack(&__sigstack, NULL) == -1) {
+        printf("AltStack failed to register\n");
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    sigemptyset(&sa.sa_mask);
+    sa.sa_sigaction = sigsegv_handler;
+    sa.sa_flags = SA_RESTART | SA_ONSTACK | SA_SIGINFO;
+    if (sigaction(SIGSEGV, &sa, &caller_sigact) == -1) {
+        printf("SIGSEGV handler failed to register\n");
+        return FDB_RESULT_INVALID_ARGS;
+    }
+    printf("Installed signal handler\n");
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status _dbg_destroy_altstack()
+{
+    free(__sigstack.ss_sp);
+    return FDB_RESULT_SUCCESS;
+}
+
+# else
+fdb_status _dbg_init_altstack() { return FDB_RESULT_SUCCESS; }
+fdb_status _dbg_destroy_altstack() { return FDB_RESULT_SUCCESS; }
+fdb_status _dbg_install_handler() { return FDB_RESULT_SUCCESS; }
+#endif // #if defined(__linux__) && !defined(__ANDROID__)
+
+fdb_status _dbg_handle_crashes(const char *pathname)
 {
     minidump_dir = pathname;
+    _dbg_init_altstack(); // one time stack install
+    return _dbg_install_handler();
 }
 
 static void write_callback(void *ctx, const char *frame) {
