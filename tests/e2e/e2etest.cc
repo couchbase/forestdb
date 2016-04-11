@@ -20,8 +20,10 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
-#include <unistd.h>
 #include <errno.h>
+#if !defined(WIN32) && !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #include "filemgr_ops.h"
 
