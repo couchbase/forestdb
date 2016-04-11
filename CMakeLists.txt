@@ -75,16 +75,6 @@ endif(COUCHBASE_SERVER_BUILD)
 
 INCLUDE(FindAsyncIOLib)
 
-FIND_LIBRARY(EXECINFO_LIBRARY NAMES execinfo)
-if (EXECINFO_LIBRARY)
-    set(BACKTRACE_LIBRARIES "${EXECINFO_LIBRARY}")
-endif (EXECINFO_LIBRARY)
-
-FIND_LIBRARY(DL_LIBRARY NAMES dl)
-if (DL_LIBRARY)
-    set(DL_LIBRARIES "${DL_LIBRARY}")
-endif (DL_LIBRARY)
-
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
@@ -179,7 +169,6 @@ ENDIF (_ENCRYPTION)
 SET(FORESTDB_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/api_wrapper.cc
     ${PROJECT_SOURCE_DIR}/src/avltree.cc
-    ${PROJECT_SOURCE_DIR}/src/backtrace.cc
     ${PROJECT_SOURCE_DIR}/src/bgflusher.cc
     ${PROJECT_SOURCE_DIR}/src/blockcache.cc
     ${PROJECT_SOURCE_DIR}/${BREAKPAD_SRC}
@@ -227,8 +216,7 @@ add_library(forestdb SHARED
             ${FORESTDB_UTILS_SRC})
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${LIBRT}
-                      ${BACKTRACE_LIBRARIES} ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
-                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
 
 # Create objects libraries for the different "tools" parts forestdb, which can be reused
 # by various targets.
@@ -246,9 +234,8 @@ add_executable(forestdb_dump
                $<TARGET_OBJECTS:FDB_TOOLS_CORE>
                $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB} ${DL_LIBRARIES}
-                      ${BREAKPAD_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${PLATFORM_LIBRARY}
+                      ${LIBRT} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_hexamine
@@ -259,9 +246,8 @@ add_executable(forestdb_hexamine
                $<TARGET_OBJECTS:FDB_TOOLS_CORE>
                $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
-                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB} ${DL_LIBRARIES}
-                      ${BREAKPAD_LIBRARIES})
+                      ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${PLATFORM_LIBRARY}
+                      ${LIBRT} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))

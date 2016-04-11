@@ -7,9 +7,8 @@ add_executable(fdb_microbench
                ${GETTIMEOFDAY_VS})
 target_link_libraries(fdb_microbench ${PTHREAD_LIB} ${LIBM}
                       ${SNAPPY_LIBRARIES} ${ASYNC_IO_LIB}
-                      ${MALLOC_LIBRARIES} ${BACKTRACE_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${LIBRT} ${CRYPTO_LIB}
-                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
+                      ${MALLOC_LIBRARIES} ${PLATFORM_LIBRARY}
+                      ${LIBRT} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
 set_target_properties(fdb_microbench PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 

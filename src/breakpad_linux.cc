@@ -16,7 +16,7 @@
  */
 
 #include "breakpad.h"
-#include "backtrace.h"
+
 #include "client/linux/handler/exception_handler.h"
 
 #include <stdio.h>
@@ -25,19 +25,11 @@
 using namespace google_breakpad;
 static ExceptionHandler* handler = nullptr;
 
-/* Callback function to print to the logger */
-static void write_to_logger(void* ctx, const char* frame) {
-    fprintf(stderr, "\t%s\n", frame);
-}
-
 /* Called when an exception triggers a dump, outputs details to caller's logs */
 static bool dumpCallback(const MinidumpDescriptor& descriptor,
                          void* context, bool succeeded) {
     fprintf(stderr, "Breakpad caught a crash in forestdb. Writing crash dump "
             "to %s before terminating.\n", descriptor.path());
-
-    fprintf(stderr, "Stack backtrace of crashed thread:\n");
-    print_backtrace(write_to_logger, nullptr);
 
     return succeeded;
 }

@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include "time_utils.h"
 
-#include "backtrace.h"
 #include "breakpad.h"
 #include "fdb_internal.h"
 
@@ -148,19 +147,10 @@ fdb_status _dbg_handle_crashes(const char *pathname)
     return _dbg_install_handler();
 }
 
-static void write_callback(void *ctx, const char *frame) {
-    fprintf(stderr, "\t%s\n", frame);
-}
-
 void fdb_assert_die(const char* expression, const char* file, int line,
                     uint64_t val, uint64_t expected) {
     fprintf(stderr, "assertion failed [%s] at %s:%u (%p != %p)\n",
             expression, file, line, (void*)val, (void*)expected);
-
-    fprintf(stderr, "Called from:\n");
-    print_backtrace(write_callback, nullptr);
-
-    fflush(stderr);
 
     // Invoke the fatal error callback if registered.
     if (fatal_error_callback != nullptr) {
@@ -179,6 +169,8 @@ void fdb_assert_die(const char* expression, const char* file, int line,
     // Initialize breakpad to create minidump for the
     // following abort
     initialize_breakpad(minidump_dir);
+
+    fflush(stderr);
 
     abort();
 }
