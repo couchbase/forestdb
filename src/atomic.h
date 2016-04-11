@@ -25,6 +25,8 @@
 #include "config.h"
 #include "common.h"
 
+#include <string.h>
+
 #include <atomic>
 
 #ifdef __cplusplus
@@ -37,6 +39,14 @@ extern "C" {
 #define atomic_uint16_t std::atomic<uint16_t>
 #define atomic_uint8_t std::atomic<uint8_t>
 
+// RW Lock(s)
+#if !defined(WIN32) && !defined(_WIN32)
+#include <pthread.h>
+typedef pthread_rwlock_t fdb_rw_lock;
+#else   // WINDOWS
+#include <windows.h>
+typedef SRWLOCK fdb_rw_lock;
+#endif
 
 INLINE uint64_t atomic_get_uint64_t(const atomic_uint64_t *atomic_val,
                                     std::memory_order order = std::memory_order_seq_cst) {
@@ -202,71 +212,94 @@ INLINE uint8_t atomic_sub_uint8_t(atomic_uint8_t *atomic_val, int8_t decrement,
         - decrement;
 }
 
+// ---> RW Lock
 
-// Reader-Writer spinlock
-
-typedef atomic_uint32_t rw_spin_t;
-
-INLINE void thread_yield() {
-#ifdef HAVE_SCHED_H
-    sched_yield();
-#elif _MSC_VER
-    SwitchToThread();
+INLINE int init_rw_lock(fdb_rw_lock *lock) {
+#if !defined(WIN32) && !defined(_WIN32)
+    int rv = pthread_rwlock_init(lock, NULL);
+    return rv;
+#else
+    InitializeSRWLock(lock);
+    return 0;
 #endif
 }
 
-INLINE void rw_spin_init(rw_spin_t *rw_lock) {
-    atomic_store_uint32_t(rw_lock, 0);
+INLINE int destroy_rw_lock(fdb_rw_lock *lock) {
+#if !defined(WIN32) && !defined(_WIN32)
+    int rv = pthread_rwlock_destroy(lock);
+    return rv;
+#else
+    // Nothing to do on Windows
+    (void)lock;
+    return 0;
+#endif
 }
 
-INLINE void rw_spin_destroy(rw_spin_t *rw_lock) {
-    (void) rw_lock;
-}
-
-INLINE void rw_spin_read_lock(rw_spin_t *rw_lock) {
-    for(;;) {
-        // Wait for active writer to release the lock
-        while (std::atomic_load_explicit(rw_lock, std::memory_order_relaxed) &
-               0xfff00000) {
-            thread_yield();
-        }
-
-        if ((atomic_incr_uint32_t(rw_lock) & 0xfff00000) == 0) {
-            return;
-        }
-
-        atomic_decr_uint32_t(rw_lock);
+INLINE int reader_lock(fdb_rw_lock *lock) {
+#if !defined(WIN32) && !defined(_WIN32)
+    int result = pthread_rwlock_rdlock(lock);
+    if (result != 0) {
+        char buffer[64];
+        strerror_r(result, buffer, sizeof(buffer));
+        fprintf(stderr, "pthread_rwlock_rdlock returned %d (%s)\n",
+                result, buffer);
     }
+    return result;
+#else
+    AcquireSRWLockShared(lock);
+    return 0;
+#endif
 }
 
-INLINE void rw_spin_read_unlock(rw_spin_t *rw_lock) {
-     atomic_decr_uint32_t(rw_lock);
-}
-
-INLINE void rw_spin_write_lock(rw_spin_t *rw_lock) {
-    for(;;) {
-        // Wait for active writer to release the lock
-        while (std::atomic_load_explicit(rw_lock, std::memory_order_relaxed) &
-               0xfff00000) {
-            thread_yield();
-        }
-
-        if((atomic_add_uint32_t(rw_lock, 0x100000) & 0xfff00000) == 0x100000) {
-            // Wait until there's no more readers
-            while (std::atomic_load_explicit(rw_lock, std::memory_order_relaxed) &
-                   0x000fffff) {
-                thread_yield();
-            }
-            return;
-        }
-
-        atomic_sub_uint32_t(rw_lock, 0x100000);
+INLINE int reader_unlock(fdb_rw_lock *lock) {
+#if !defined(WIN32) && !defined(_WIN32)
+    int result = pthread_rwlock_unlock(lock);
+    if (result != 0) {
+        char buffer[64];
+        strerror_r(result, buffer, sizeof(buffer));
+        fprintf(stderr, "pthread_rwlock_unlock returned %d (%s)\n",
+                        result, buffer);
     }
+    return result;
+#else
+    ReleaseSRWLockShared(lock);
+    return 0;
+#endif
 }
 
-INLINE void rw_spin_write_unlock(rw_spin_t *rw_lock) {
-    atomic_sub_uint32_t(rw_lock, 0x100000);
+INLINE int writer_lock(fdb_rw_lock *lock) {
+#if !defined(WIN32) && !defined(_WIN32)
+    int result = pthread_rwlock_wrlock(lock);
+    if (result != 0) {
+        char buffer[64];
+        strerror_r(result, buffer, sizeof(buffer));
+        fprintf(stderr, "pthread_rwlock_wrlock returned %d (%s)\n",
+                        result, buffer);
+    }
+    return result;
+#else
+    AcquireSRWLockExclusive(lock);
+    return 0;
+#endif
 }
+
+INLINE int writer_unlock(fdb_rw_lock *lock) {
+#if !defined(WIN32) && !defined(_WIN32)
+    int result = pthread_rwlock_unlock(lock);
+    if (result != 0) {
+        char buffer[64];
+        strerror_r(result, buffer, sizeof(buffer));
+        fprintf(stderr, "pthread_rwlock_unlock returned %d (%s)\n",
+                        result, buffer);
+    }
+    return result;
+#else
+    ReleaseSRWLockExclusive(lock);
+    return 0;
+#endif
+}
+
+// <--- RW Lock
 
 #ifdef __cplusplus
 }
