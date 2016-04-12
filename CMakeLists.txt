@@ -87,6 +87,10 @@ if (NOT WIN32)
     if (NOT APPLE)
         set(LIBRT rt)
     endif (NOT APPLE)
+    FIND_LIBRARY(DL_LIBRARY NAMES dl)
+    if (DL_LIBRARY)
+        set(DL_LIBRARIES "${DL_LIBRARY}")
+    endif (DL_LIBRARY)
 else (NOT WIN32)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_windows.cc")
     set(GETTIMEOFDAY_VS "${PROJECT_SOURCE_DIR}/utils/gettimeofday_vs.cc")
@@ -216,7 +220,8 @@ add_library(forestdb SHARED
             ${FORESTDB_UTILS_SRC})
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${LIBRT}
-                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 
 # Create objects libraries for the different "tools" parts forestdb, which can be reused
 # by various targets.
@@ -235,7 +240,8 @@ add_executable(forestdb_dump
                $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_dump ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${PLATFORM_LIBRARY}
-                      ${LIBRT} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(forestdb_dump PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 add_executable(forestdb_hexamine
@@ -247,7 +253,8 @@ add_executable(forestdb_hexamine
                $<TARGET_OBJECTS:FDB_TOOLS_UTILS>)
 target_link_libraries(forestdb_hexamine ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${PLATFORM_LIBRARY}
-                      ${LIBRT} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${LIBRT} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(forestdb_hexamine PROPERTIES COMPILE_FLAGS "-D_FDB_TOOLS")
 
 if ((NOT COUCHBASE_SERVER_BUILD) OR (INSTALL_HEADER_FILES))

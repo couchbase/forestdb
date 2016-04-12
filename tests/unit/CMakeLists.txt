@@ -34,7 +34,8 @@ add_executable(bcache_test
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(bcache_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
 add_executable(atomic_test
@@ -68,7 +69,8 @@ add_executable(filemgr_test
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(filemgr_test ${PTHREAD_LIB} ${LIBM}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(filemgr_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
 add_executable(btreeblock_test
@@ -100,7 +102,8 @@ add_executable(btreeblock_test
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(btreeblock_test ${PTHREAD_LIB} ${LIBM}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(btreeblock_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
 add_executable(docio_test
@@ -130,7 +133,8 @@ add_executable(docio_test
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(docio_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(docio_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
 add_executable(hbtrie_test
@@ -165,7 +169,8 @@ add_executable(hbtrie_test
                ${ROOT_UTILS}/time_utils.cc)
 target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES}
-                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB} ${BREAKPAD_LIBRARIES})
+                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(hbtrie_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
 add_executable(btree_str_kv_test
