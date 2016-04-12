@@ -117,6 +117,7 @@ public:
 
         // Delete StatAggregator
         delete sa;
+        mutex_destroy(&statlock);
     }
 
     /**
