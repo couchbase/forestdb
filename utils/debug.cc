@@ -74,7 +74,12 @@ static stack_t __sigstack;
 static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
 {
     ucontext *u = (ucontext *)context;
+#ifdef REG_RIP // Test if the Program Counter is 64 bits
     unsigned char *pc = (unsigned char *)u->uc_mcontext.gregs[REG_RIP];
+#else // 32 bit machine, PC is stored in %eip register
+    unsigned char *pc = (unsigned char *)u->uc_mcontext.gregs[REG_EIP];
+#endif // REG_RIP for 64-bit machines
+
     Dl_info info;
     if (dladdr(pc, &info)) { // Determine location of the segfault..
         if (strstr(info.dli_fname, "libforestdb")) {
