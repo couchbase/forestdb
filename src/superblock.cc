@@ -396,7 +396,8 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 
     // skip if previous bitmap exists OR
     // there is no bitmap to be fetched (fast screening)
-    if (sb->bmp || atomic_get_uint64_t(&sb->bmp_size) == 0) {
+    if (sb->bmp.load(std::memory_order_relaxed) ||
+        atomic_get_uint64_t(&sb->bmp_size) == 0) {
         return FDB_RESULT_SUCCESS;
     }
 
@@ -404,7 +405,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
 
     // check once again if superblock is already initialized
     // while the thread was blocked by the lock.
-    if (sb->bmp) {
+    if (sb->bmp.load(std::memory_order_relaxed)) {
         spin_unlock(&sb->lock);
         return FDB_RESULT_SUCCESS;
     }
@@ -657,8 +658,8 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     free(blist.blocks);
 
     sb_bmp_change_begin(sb);
-    old_bmp = sb->bmp;
-    sb->bmp = new_bmp;
+    old_bmp = sb->bmp.load(std::memory_order_relaxed);
+    sb->bmp.store(new_bmp, std::memory_order_relaxed);
     atomic_store_uint64_t(&sb->bmp_size, num_blocks);
     sb->min_live_hdr_revnum = sheader.revnum;
     sb->min_live_hdr_bid = sheader.bid;
@@ -1579,7 +1580,7 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
     atomic_store_uint64_t(&dst->revnum, atomic_get_uint64_t(&src->revnum));
     dst->bmp_revnum = src->bmp_revnum;
     atomic_store_uint64_t(&dst->bmp_size, atomic_get_uint64_t(&src->bmp_size));
-    dst->bmp = src->bmp;
+    dst->bmp.store(src->bmp.load(std::memory_order_relaxed), std::memory_order_relaxed);
     atomic_store_uint64_t(&dst->bmp_rcount, atomic_get_uint64_t(&src->bmp_rcount));
     atomic_store_uint64_t(&dst->bmp_wcount, atomic_get_uint64_t(&src->bmp_wcount));
     spin_init(&dst->bmp_lock);

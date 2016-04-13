@@ -146,7 +146,7 @@ struct superblock {
     /**
      * Pointer to the bitmap.
      */
-    uint8_t *bmp;
+    std::atomic<uint8_t *> bmp;
     /**
      * Reference counter for bitmap readers.
      */
