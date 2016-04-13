@@ -1517,13 +1517,14 @@ void superblock_recovery_test() {
     TEST_CHK(num_markers > 5);
     status = fdb_compact_upto(dbfile, NULL, markers[4].marker);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    status = fdb_free_snap_markers(markers, num_markers);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // open snapshot on marker
     seqno = markers[4].kvs_markers->seqnum;
     status = fdb_snapshot_open(db, &snap_db, seqno);
     TEST_STATUS(status);
+
+    status = fdb_free_snap_markers(markers, num_markers);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // get known key
     sprintf(keybuf, "key0");
