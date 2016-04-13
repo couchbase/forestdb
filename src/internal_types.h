@@ -283,7 +283,7 @@ struct _fdb_kvs_handle {
         fileops = kv_handle.fileops;
         config = kv_handle.config;
         log_callback = kv_handle.log_callback;
-        cur_header_revnum = kv_handle.cur_header_revnum;
+        atomic_store_uint64_t(&cur_header_revnum, kv_handle.cur_header_revnum);
         last_hdr_bid = kv_handle.last_hdr_bid;
         last_wal_flush_hdr_bid = kv_handle.last_wal_flush_hdr_bid;
         kv_info_offset = kv_handle.kv_info_offset;
@@ -365,7 +365,7 @@ struct _fdb_kvs_handle {
     /**
      * File header revision number.
      */
-    uint64_t cur_header_revnum;
+    atomic_uint64_t cur_header_revnum;
     /**
      * Last header's block ID.
      */
