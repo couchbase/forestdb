@@ -1680,9 +1680,7 @@ void filemgr_free_func(struct hash_elem *h)
     filemgr_dirty_update_free(file);
 
     // free fhandle idx
-    spin_lock(&file->fhandle_idx_lock);
     _free_fhandle_idx(&file->fhandle_idx);
-    spin_unlock(&file->fhandle_idx_lock);
     spin_destroy(&file->fhandle_idx_lock);
 
     // free file structure
