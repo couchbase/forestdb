@@ -4281,6 +4281,14 @@ void rekey_test()
     TEST_RESULT("encryption rekey test");
 }
 
+void functional_test_dummy_cb(int err_code, const char *err_msg, void *ctx_data)
+{
+    (void)err_code;
+    (void)err_msg;
+    (void)ctx_data;
+    return;
+}
+
 void invalid_get_byoffset_test()
 {
     TEST_INIT();
@@ -4308,6 +4316,8 @@ void invalid_get_byoffset_test()
     status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    fdb_set_log_callback(db, functional_test_dummy_cb, NULL);
+
     sprintf(keybuf, "key");
     sprintf(bodybuf, "body");
 
@@ -4329,6 +4339,8 @@ void invalid_get_byoffset_test()
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        fdb_set_log_callback(db, functional_test_dummy_cb, NULL);
 
         // attempt to get key by previous offset,
         // should fail as doc wasn't commited
@@ -4419,6 +4431,8 @@ void invalid_get_byoffset_test()
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        fdb_set_log_callback(db, functional_test_dummy_cb, NULL);
 
         // attempt to get key by incorrect offset belonging to different file
         status = fdb_get_byoffset(db, rdoc);
