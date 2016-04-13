@@ -54,6 +54,19 @@ int _dbg_is_sw_set(int n)
     return _global_dbg_switch[n];
 }
 
+// Only if HANG_ON_CRASH is set in environment variable, hang process
+static void _dbg_hang_process(void)
+{
+    char *hang_process = getenv("HANG_ON_CRASH");
+    if (hang_process) {
+        fprintf(stderr, "Hanging process...");
+        fprintf(stderr, "\n");
+        while (1) {
+            usleep(1000);
+        }
+    }
+}
+
 // to profile first install perf
 // echo 0 > /proc/sys/kernel/kptr_restrict
 #if defined(__linux__) && !defined(__ANDROID__)
@@ -88,6 +101,7 @@ static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
             // first restore original handler whatever it may be..
             // so that if BREAKPAD is not available we get a core dump..
             sigaction(SIGSEGV, &caller_sigact, NULL);
+            _dbg_hang_process();
             initialize_breakpad(minidump_dir);
             return; // let breakpad dump backtrace and crash..
         }
@@ -101,6 +115,7 @@ static void sigsegv_handler(int sig, siginfo_t *siginfo, void *context)
         // first restore original handler whatever it may be..
         // so that if BREAKPAD is not available we get a core dump..
         sigaction(SIGSEGV, &caller_sigact, NULL);
+        _dbg_hang_process();
         initialize_breakpad(minidump_dir); // let breakpad handle it..
     }
 }
@@ -118,7 +133,7 @@ fdb_status _dbg_install_handler(void)
     // -- install segmentation fault handler using sigaction ---
     struct sigaction sa;
     if (sigaltstack(&__sigstack, NULL) == -1) {
-        fprintf(stderr, "AltStack failed to register\n");
+        fprintf(stderr, "SIGSEGV AltStack failed to register\n");
         return FDB_RESULT_INVALID_ARGS;
     }
     sigemptyset(&sa.sa_mask);
@@ -160,14 +175,7 @@ void fdb_assert_die(const char* expression, const char* file, int line,
         fatal_error_callback();
     }
 
-    char *hang_process = getenv("HANG_ON_ASSERTION");
-    if (hang_process) {
-        fprintf(stderr, "Hanging process...");
-        fprintf(stderr, "\n");
-        while (1) {
-            usleep(1000);
-        }
-    }
+    _dbg_hang_process(); // Only if HANG_ON_CRASH is set in env
 
     // Initialize breakpad to create minidump for the
     // following abort
