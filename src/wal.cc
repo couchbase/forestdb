@@ -1310,7 +1310,8 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                             "item seqnum %" _F64
                             " keylen %d flags %x action %d"
                             "%s", _item->seqnum, item->header->keylen,
-                            _item->flag, _item->action, file->filename);
+                            atomic_get_uint8_t(&_item->flag),
+                            _item->action, file->filename);
                 }
             }
         }

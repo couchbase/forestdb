@@ -136,7 +136,7 @@ struct wal_item{
     fdb_txn *txn;
     struct snap_handle *shandle; // Pointer into wal_snapshot_tree for KV Store
     wal_item_action action;
-    uint8_t flag;
+    atomic_uint8_t flag;
     uint32_t doc_size;
     uint64_t offset;
     fdb_seqnum_t seqnum;
