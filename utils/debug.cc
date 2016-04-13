@@ -110,7 +110,6 @@ INLINE fdb_status _dbg_init_altstack(void)
     __sigstack.ss_sp = malloc(SIGSTKSZ);
     __sigstack.ss_size = SIGSTKSZ;
     __sigstack.ss_flags = 0;
-    fprintf(stderr, "SIGSEGV stack registereted successfully\n");
     return FDB_RESULT_SUCCESS;
 }
 
@@ -119,17 +118,16 @@ fdb_status _dbg_install_handler(void)
     // -- install segmentation fault handler using sigaction ---
     struct sigaction sa;
     if (sigaltstack(&__sigstack, NULL) == -1) {
-        printf("AltStack failed to register\n");
+        fprintf(stderr, "AltStack failed to register\n");
         return FDB_RESULT_INVALID_ARGS;
     }
     sigemptyset(&sa.sa_mask);
     sa.sa_sigaction = sigsegv_handler;
     sa.sa_flags = SA_RESTART | SA_ONSTACK | SA_SIGINFO;
     if (sigaction(SIGSEGV, &sa, &caller_sigact) == -1) {
-        printf("SIGSEGV handler failed to register\n");
+        fprintf(stderr, "SIGSEGV handler failed to register\n");
         return FDB_RESULT_INVALID_ARGS;
     }
-    printf("Installed signal handler\n");
     return FDB_RESULT_SUCCESS;
 }
 
