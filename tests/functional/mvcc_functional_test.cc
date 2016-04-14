@@ -4466,7 +4466,7 @@ void auto_compaction_snapshots_test()
             // verify last doc set is captured in snapshot..
             fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
             rdoc->seqnum = seqnum;
-            status = fdb_get_byseq(kvs, rdoc);
+            status = fdb_get_byseq(snapshot, rdoc);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             TEST_CMP(rdoc->key, str, strlen(str));
             // free result document
@@ -4480,7 +4480,7 @@ void auto_compaction_snapshots_test()
             // verify last doc set is captured in snapshot..
             fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
             rdoc->seqnum = seqnum;
-            status = fdb_get_byseq(kvs, rdoc);
+            status = fdb_get_byseq(snapshot, rdoc);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             TEST_CMP(rdoc->key, str, strlen(str));
             // free result document
