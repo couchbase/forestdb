@@ -3555,7 +3555,7 @@ fdb_status filemgr_write_dirty(struct filemgr *file, bid_t bid, void *buf,
         // not exist .. create a new block for this update node
         block = (struct filemgr_dirty_update_block *)
                 calloc(1, sizeof(struct filemgr_dirty_update_block));
-        void *addr;
+        void *addr = NULL;
         malloc_align(addr, FDB_SECTOR_SIZE, file->blocksize);
         block->addr = addr;
         block->bid = bid;
