@@ -78,9 +78,9 @@ public:
             fdb_file_handle *dbfile;
             fdb_kvs_handle *db;
             status = fdb_open(&dbfile, filename, &fconfig);
-            assert(status == FDB_RESULT_SUCCESS);
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
             status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
-            assert(status == FDB_RESULT_SUCCESS);
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
             PoolEntry *pe = new PoolEntry(i, true, dbfile, db);
             pool_vector.push_back(pe);
         }
@@ -107,9 +107,11 @@ public:
             PoolEntry *pe = pool_vector.at(i);
             if (pe) {
                 status = fdb_kvs_close(pe->db);
-                assert(status == FDB_RESULT_SUCCESS);
+                fdb_assert(status == FDB_RESULT_SUCCESS,
+                           status, FDB_RESULT_SUCCESS);
                 status = fdb_close(pe->dbfile);
-                assert(status == FDB_RESULT_SUCCESS);
+                fdb_assert(status == FDB_RESULT_SUCCESS,
+                           status, FDB_RESULT_SUCCESS);
                 delete pe;
             }
         }
@@ -209,7 +211,8 @@ public:
                 memset(&stat, 0, sizeof(fdb_latency_stat));
                 status = fdb_get_latency_stats((pool_vector.at(j))->dbfile,
                                                &stat, i);
-                assert(status == FDB_RESULT_SUCCESS);
+                fdb_assert(status == FDB_RESULT_SUCCESS,
+                           status, FDB_RESULT_SUCCESS);
 
                 if (stat.lat_count > 0) {
                     s->t_stats[i][0].latencies.push_back(stat.lat_avg);
@@ -253,7 +256,7 @@ static void *invoke_writer_ops(void *args) {
 
         // Start transaction
         status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
-        assert(status == FDB_RESULT_SUCCESS);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
         // Issue a set
         ts_nsec beginSet = get_monotonic_ts();
@@ -261,13 +264,14 @@ static void *invoke_writer_ops(void *args) {
                 (void*)keybuf, strlen(keybuf) + 1,
                 (void*)bodybuf, strlen(bodybuf) + 1);
         ts_nsec endSet = get_monotonic_ts();
-        assert(status == FDB_RESULT_SUCCESS);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
         // End transaction (Commit)
         ts_nsec beginCommit = get_monotonic_ts();
         status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
         ts_nsec endCommit = get_monotonic_ts();
-        assert(status == FDB_RESULT_SUCCESS);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
 
         oa->fhp->collectStat(SET, ts_diff(beginSet, endSet));
         oa->fhp->collectStat(COMMIT, ts_diff(beginCommit, endCommit));
@@ -307,7 +311,7 @@ static void *invoke_reader_ops(void *args) {
         ts_nsec beginSnap = get_monotonic_ts();
         status = fdb_snapshot_open(db, &snap_handle, FDB_SNAPSHOT_INMEM);
         ts_nsec endSnap = get_monotonic_ts();
-        assert(status == FDB_RESULT_SUCCESS);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
         oa->fhp->collectStat(INMEMSNAP, ts_diff(beginSnap, endSnap));
 
@@ -321,7 +325,7 @@ static void *invoke_reader_ops(void *args) {
             status = fdb_iterator_init(snap_handle, &iterator, NULL, 0, NULL, 0,
                                        FDB_ITR_NONE);
             ts_nsec endInit = get_monotonic_ts();
-            assert(status == FDB_RESULT_SUCCESS);
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
             oa->fhp->collectStat(ITR_INIT,ts_diff(beginInit, endInit));
 
@@ -333,14 +337,15 @@ static void *invoke_reader_ops(void *args) {
                 fdb_doc_free(rdoc);
                 oa->fhp->collectStat(ITR_GET,ts_diff(beginGet, endGet));
             } else {
-                assert(status == FDB_RESULT_ITERATOR_FAIL);
+                fdb_assert(status == FDB_RESULT_ITERATOR_FAIL,
+                           status, FDB_RESULT_ITERATOR_FAIL);
             }
 
             // Close iterator
             ts_nsec beginClose = get_monotonic_ts();
             status = fdb_iterator_close(iterator);
             ts_nsec endClose = get_monotonic_ts();
-            assert(status == FDB_RESULT_SUCCESS);
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
             oa->fhp->collectStat(ITR_CLOSE,ts_diff(beginClose, endClose));
         } else {
@@ -360,7 +365,8 @@ static void *invoke_reader_ops(void *args) {
                 assert(memcmp(value, bodybuf, valuelen) == 0);
                 fdb_free_block(value);
             } else {
-                assert(status == FDB_RESULT_KEY_NOT_FOUND);
+                fdb_assert(status == FDB_RESULT_KEY_NOT_FOUND,
+                           status, FDB_RESULT_KEY_NOT_FOUND);
             }
 
             oa->fhp->collectStat(GET, ts_diff(beginGet, endGet));
@@ -368,7 +374,7 @@ static void *invoke_reader_ops(void *args) {
 
         // Close snapshot handle
         status = fdb_kvs_close(snap_handle);
-        assert(status == FDB_RESULT_SUCCESS);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
         /* Return resource to pool */
         oa->fhp->returnResourceToPool(index);
