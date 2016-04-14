@@ -61,6 +61,7 @@ struct filemgr_config {
         blocksize = config.blocksize;
         ncacheblock = config.ncacheblock;
         flag = config.flag;
+        seqtree_opt = config.seqtree_opt;
         chunksize = config.chunksize;
         options = config.options;
         prefetch_duration = config.prefetch_duration;
@@ -84,6 +85,7 @@ struct filemgr_config {
     int flag;
     int chunksize;
     uint8_t options;
+    uint8_t seqtree_opt;
     uint64_t prefetch_duration;
     uint16_t num_wal_shards;
     uint16_t num_bcache_shards;

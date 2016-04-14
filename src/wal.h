@@ -469,6 +469,12 @@ fdb_status wal_itr_close(struct wal_iterator *wal_itr);
 fdb_status wal_discard(struct filemgr *file, fdb_txn *txn);
 fdb_status wal_close(struct filemgr *file, err_log_callback *log_callback);
 fdb_status wal_shutdown(struct filemgr *file, err_log_callback *log_callback);
+
+/**
+ * Free memory associated with wal data structures.
+ */
+fdb_status wal_destroy(struct filemgr *file);
+
 fdb_status wal_close_kv_ins(struct filemgr *file,
                             fdb_kvs_id_t kv_id, err_log_callback *log_callback);
 

@@ -1629,16 +1629,7 @@ void filemgr_free_func(struct hash_elem *h)
     // destroy WAL
     if (wal_is_initialized(file)) {
         wal_shutdown(file, NULL);
-        size_t i = 0;
-        size_t num_shards = wal_get_num_shards(file);
-        // Free all WAL shards
-        for (; i < num_shards; ++i) {
-            spin_destroy(&file->wal->key_shards[i].lock);
-            spin_destroy(&file->wal->seq_shards[i].lock);
-        }
-        spin_destroy(&file->wal->lock);
-        free(file->wal->key_shards);
-        free(file->wal->seq_shards);
+        wal_destroy(file);
     }
     free(file->wal);
 

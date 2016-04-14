@@ -704,6 +704,7 @@ fdb_status fdb_init(fdb_config *config)
         // initialize file manager and block cache
         f_config.blocksize = _config.blocksize;
         f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
+        f_config.seqtree_opt = _config.seqtree_opt;
         filemgr_init(&f_config);
         filemgr_set_lazy_file_deletion(true,
                                        compactor_register_file_removing,
@@ -1424,6 +1425,8 @@ static void _fdb_init_file_config(const fdb_config *config,
     fconfig->chunksize = config->chunksize;
 
     fconfig->options = 0x0;
+    fconfig->seqtree_opt = config->seqtree_opt;
+
     if (config->flags & FDB_OPEN_FLAG_CREATE) {
         fconfig->options |= FILEMGR_CREATE;
     }
@@ -6687,7 +6690,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                             &dirty_idtree_root, &dirty_seqtree_root, false);
 
     // flush WAL and set DB header
-    wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
+    wal_commit(&handle->file->global_txn, handle->file, NULL,
+               &handle->log_callback);
     wal_flush(handle->file, (void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
@@ -6710,7 +6714,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     sb_return_reusable_blocks(handle);
 
     // last header should be appended at the end of the file
-    handle->last_hdr_bid = filemgr_get_pos(handle->file) / handle->file->blocksize;
+    handle->last_hdr_bid = filemgr_get_pos(handle->file) /
+                                             handle->file->blocksize;
     handle->last_wal_flush_hdr_bid = handle->last_hdr_bid;
 
     handle->cur_header_revnum = fdb_set_file_header(handle, true);
@@ -6756,7 +6761,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
 
     if (marker_bid != BLK_NOT_FOUND) {
         fs = _fdb_compact_move_docs_upto_marker(handle, new_file, new_trie,
-                                                new_idtree, target_seqtree, new_staletree,
+                                                new_idtree, target_seqtree,
+                                                new_staletree,
                                                 new_dhandle, new_bhandle,
                                                 marker_bid,
                                                 handle->last_hdr_bid, seqnum,
