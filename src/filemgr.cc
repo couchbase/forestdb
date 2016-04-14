@@ -1582,11 +1582,12 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 void filemgr_remove_all_buffer_blocks(struct filemgr *file)
 {
     // remove all cached blocks
-    if (global_config.ncacheblock > 0 && file->bcache) {
+    if (global_config.ncacheblock > 0 &&
+            file->bcache.load(std::memory_order_relaxed)) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
         bcache_remove_file(file);
-        file->bcache = NULL;
+        file->bcache.store(NULL, std::memory_order_relaxed);
     }
 }
 
@@ -1607,11 +1608,12 @@ void filemgr_free_func(struct hash_elem *h)
     }
 
     // remove all cached blocks
-    if (global_config.ncacheblock > 0 && file->bcache) {
+    if (global_config.ncacheblock > 0 &&
+            file->bcache.load(std::memory_order_relaxed)) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
         bcache_remove_file(file);
-        file->bcache = NULL;
+        file->bcache.store(NULL, std::memory_order_relaxed);
     }
 
     if (file->kv_header) {

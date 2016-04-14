@@ -809,7 +809,7 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
 
     // insert into fname dictionary
     hash_insert(&fnamedic, &fname_new->hash_elem);
-    file->bcache = fname_new;
+    file->bcache.store(fname_new, std::memory_order_relaxed);
 
     if (writer_lock(&filelist_lock) == 0) {
         if (num_files == file_array_capacity) {
@@ -921,7 +921,7 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
     // Note that we don't need to grab bcache_lock here as the block cache
     // is already created and binded when the file is created or opened for
     // the first time.
-    fname = file->bcache;
+    fname = file->bcache.load(std::memory_order_relaxed);
 
     if (fname) {
         // file exists

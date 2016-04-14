@@ -194,7 +194,7 @@ struct filemgr {
     struct filemgr *new_file;           // Pointer to new file upon compaction
     struct filemgr *prev_file;          // Pointer to prev file upon compaction
     char *old_filename;                 // Old file name before compaction
-    struct fnamedic_item *bcache;
+    std::atomic<struct fnamedic_item *> bcache;
     fdb_txn global_txn;
     bool in_place_compaction;
     filemgr_fs_type_t fs_type;
