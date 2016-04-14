@@ -2225,6 +2225,16 @@ void incomplete_block_test()
 static int _cmp_double(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
     double aa, bb;
+
+    if (!keylen1) {
+        // key1 not set
+        return -1;
+    }
+    if (!keylen2) {
+        // key2 not set
+        return 1;
+    }
+
     aa = *(double *)key1;
     bb = *(double *)key2;
 
