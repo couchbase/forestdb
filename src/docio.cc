@@ -514,7 +514,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
     uint32_t offset = 0;
     uint32_t crc;
     uint64_t docsize;
-    void *buf;
+    void *buf = NULL;
     bid_t ret_offset;
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
@@ -527,7 +527,7 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 #ifdef _DOC_COMP
     int ret;
     void *compbuf = NULL;
-    uint32_t compbuf_len;
+    uint32_t compbuf_len = 0;
     if (doc->length.bodylen > 0 && handle->compress_document_body) {
         compbuf_len = snappy_max_compressed_length(length.bodylen);
         compbuf = (void *)malloc(compbuf_len);
@@ -601,9 +601,11 @@ INLINE bid_t _docio_append_doc(struct docio_handle *handle, struct docio_object 
 #ifdef _DOC_COMP
         if (length.flag & DOCIO_COMPRESSED) {
             // compressed body
-            memcpy((uint8_t*)buf + offset, compbuf, compbuf_len);
-            offset += compbuf_len;
-            free(compbuf);
+            if (compbuf) {
+                memcpy((uint8_t*)buf + offset, compbuf, compbuf_len);
+                offset += compbuf_len;
+                free(compbuf);
+            }
         } else {
             memcpy((uint8_t *)buf + offset, doc->body, length.bodylen);
             offset += length.bodylen;

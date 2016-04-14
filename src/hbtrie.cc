@@ -575,7 +575,7 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                     // skipped prefix exists
                     // Note: all skipped chunks should be compared using the default
                     //       cmp function
-                    int i, offset_meta, offset_key, chunkcmp;
+                    int i, offset_meta = 0, offset_key = 0, chunkcmp = 0;
                     for (i=item->chunkno+1; i<item_new->chunkno; ++i) {
                         offset_meta = trie->chunksize * (i - (item->chunkno+1));
                         offset_key = trie->chunksize * i;
@@ -592,7 +592,7 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                             hr = HBTRIE_RESULT_FAIL;
                             HBTRIE_ITR_SET_MOVED(it);
                             break;
-                        } else if (chunkcmp > 0) {
+                        } else if (chunkcmp > 0 && trie->chunksize > 0) {
                             // start_key's prefix is gerater than the skipped prefix
                             // set largest key for next B+tree
                             chunk = alca(uint8_t, trie->chunksize);
@@ -626,7 +626,7 @@ static hbtrie_result _hbtrie_prev(struct hbtrie_iterator *it,
                 memset(chunk, 0xff, trie->chunksize);
             }
 
-            if (item_new->leaf && chunk) {
+            if (item_new->leaf && chunk && trie->chunksize > 0) {
                 uint8_t *k_temp = alca(uint8_t, trie->chunksize);
                 size_t _leaf_keylen, _leaf_keylen_raw = 0;
 
@@ -871,7 +871,7 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                     // skipped prefix exists
                     // Note: all skipped chunks should be compared using the default
                     //       cmp function
-                    int i, offset_meta, offset_key, chunkcmp;
+                    int i, offset_meta = 0, offset_key = 0, chunkcmp = 0;
                     for (i=item->chunkno+1; i<item_new->chunkno; ++i) {
                         offset_meta = trie->chunksize * (i - (item->chunkno+1));
                         offset_key = trie->chunksize * i;
@@ -901,14 +901,15 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                         continue;
                     }
                 }
-            }else{
+            } else {
                 // chunk number of the b-tree is longer than current iterator's key
                 // set smallest key
                 chunk = NULL;
             }
 
-            if (item_new->leaf && chunk) {
+            if (item_new->leaf && chunk && trie->chunksize > 0) {
                 uint8_t *k_temp = alca(uint8_t, trie->chunksize);
+                memset(k_temp, 0, trie->chunksize * sizeof(uint8_t));
                 size_t _leaf_keylen, _leaf_keylen_raw = 0;
 
                 _leaf_keylen = it->keylen - (item_new->chunkno * trie->chunksize);
@@ -925,7 +926,7 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                 }
             } else {
                 bool null_btree_init_key = false;
-                if (!HBTRIE_ITR_IS_MOVED(it) &&
+                if (!HBTRIE_ITR_IS_MOVED(it) && chunk && trie->chunksize > 0 &&
                     ((uint64_t)item_new->chunkno+1) * trie->chunksize == it->keylen) {
                     // Next chunk is the last chunk of the current iterator key
                     // (happens only on iterator_init(), it internally calls next()).
@@ -1240,7 +1241,9 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
         if ((cpt_node && rawkeylen == curchunkno * trie->chunksize) ||
             (!cpt_node && nchunk == curchunkno)) {
             // KEY is exactly same as tree's prefix .. return value in metasection
-            memcpy(valuebuf, hbmeta.value, trie->valuelen);
+            if (hbmeta.value && trie->valuelen > 0) {
+                memcpy(valuebuf, hbmeta.value, trie->valuelen);
+            }
             return HBTRIE_RESULT_SUCCESS;
         } else {
             chunk = (uint8_t*)key + curchunkno*trie->chunksize;
@@ -1379,7 +1382,7 @@ INLINE hbtrie_result _hbtrie_remove(struct hbtrie *trie,
     uint8_t *key = alca(uint8_t, nchunk * trie->chunksize);
     uint8_t *valuebuf = alca(uint8_t, trie->valuelen);
     hbtrie_result r;
-    btree_result br;
+    btree_result br = BTREE_RESULT_SUCCESS;
     struct list btreelist;
     struct btreelist_item *btreeitem;
     struct list_elem *e;
@@ -1393,9 +1396,9 @@ INLINE hbtrie_result _hbtrie_remove(struct hbtrie *trie,
         fdb_assert(e, trie, flag);
 
         btreeitem = _get_entry(e, struct btreelist_item, e);
-        if ( (btreeitem->leaf && rawkeylen ==
-                 btreeitem->chunkno * trie->chunksize) ||
-             (!(btreeitem->leaf) && nchunk == btreeitem->chunkno) ) {
+        if (btreeitem &&
+            ((btreeitem->leaf && rawkeylen == btreeitem->chunkno * trie->chunksize) ||
+             (!(btreeitem->leaf) && nchunk == btreeitem->chunkno)) ) {
             // key is exactly same as b-tree's prefix .. remove from metasection
             struct hbtrie_meta hbmeta;
             struct btree_meta meta;
@@ -1414,20 +1417,21 @@ INLINE hbtrie_result _hbtrie_remove(struct hbtrie *trie,
                     hbmeta.prefix, hbmeta.prefix_len, NULL, buf);
             btree_update_meta(&btreeitem->btree, &meta);
         } else {
-            if (btreeitem->leaf) {
+            if (btreeitem && btreeitem->leaf) {
                 // leaf b-tree
                 uint8_t *k = alca(uint8_t, trie->chunksize);
                 _set_leaf_key(k, key + btreeitem->chunkno * trie->chunksize,
                     rawkeylen - btreeitem->chunkno * trie->chunksize);
                 br = btree_remove(&btreeitem->btree, k);
                 _free_leaf_key(k);
-            } else {
+            } else if (btreeitem) {
                 // normal b-tree
                 br = btree_remove(&btreeitem->btree,
                                   key + trie->chunksize * btreeitem->chunkno);
             }
-            //assert(br != BTREE_RESULT_FAIL);
-            if (br == BTREE_RESULT_FAIL) r = HBTRIE_RESULT_FAIL;
+            if (br == BTREE_RESULT_FAIL) {
+                r = HBTRIE_RESULT_FAIL;
+            }
         }
         _hbtrie_btree_cascaded_update(trie, &btreelist, key, 1);
     } else {

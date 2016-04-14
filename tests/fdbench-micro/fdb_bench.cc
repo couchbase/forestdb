@@ -28,6 +28,7 @@
 
 #include "config.h"
 #include "timing.h"
+#include "test.h"
 
 #include <libforestdb/forestdb.h>
 
@@ -207,6 +208,7 @@ void deletes(fdb_kvs_handle *db, int pos) {
 
 void do_bench() {
 
+    TEST_INIT();
     int i, j, r;
     int n_loops = 5;
     int n_kvs = 16;
@@ -284,7 +286,7 @@ void do_bench() {
         // snap iterator read
         status = fdb_snapshot_open(db[0], &snap_db[0],
                                    FDB_SNAPSHOT_INMEM);
-        assert(status == FDB_RESULT_SUCCESS);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
         ctx[0].handle = snap_db[0];
         reader(&ctx[0]);
 
@@ -302,7 +304,7 @@ void do_bench() {
         for (i = 0; i < n_kvs; ++i){
             status = fdb_snapshot_open(db[i], &snap_db[i],
                                        FDB_SNAPSHOT_INMEM);
-            assert(status == FDB_RESULT_SUCCESS);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
             ctx[i].handle = snap_db[i];
             reader(&ctx[i]);
         }
@@ -383,6 +385,8 @@ void do_bench() {
     sprintf(cmd, "rm bench* > errorlog.txt");
     r = system(cmd);
     (void)r;
+
+    TEST_RESULT("Benchmark done");
 }
 
 /*

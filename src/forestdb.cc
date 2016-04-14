@@ -539,8 +539,11 @@ INLINE void _fdb_restore_wal(fdb_kvs_handle *handle,
         if (ver_superblock_support(handle->file->version) &&
             offset >= filesize) {
             // circular scan
-            offset = blocksize * handle->file->sb->config->num_sb;
-            cur_bmp_revnum++;
+            struct superblock *sb = handle->file->sb;
+            if (sb && sb->config) {
+                offset = blocksize * sb->config->num_sb;
+                cur_bmp_revnum++;
+            }
         }
     } while(true);
 
@@ -2518,11 +2521,11 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
         item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
 
-        hr = hbtrie_insert(handle->trie,
-                           item->header->key,
-                           item->header->keylen,
-                           (void *)&_offset,
-                           (void *)&old_offset);
+        hbtrie_insert(handle->trie,
+                      item->header->key,
+                      item->header->keylen,
+                      (void *)&_offset,
+                      (void *)&old_offset);
 
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
@@ -5407,7 +5410,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     filemgr_header_revnum_t last_hdr_revnum, marker_revnum;
     filemgr_header_revnum_t last_wal_hdr_revnum;
     err_log_callback *log_callback = &rhandle->log_callback;
-    uint64_t version;
+    uint64_t version = 0;
     fdb_status fs;
 
     last_hdr_revnum = _fdb_get_header_revnum(rhandle, last_hdr_bid);
@@ -5682,8 +5685,7 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
     }
 
     // copy out the last set of contiguous blocks
-    fs = filemgr_copy_file_range(file, new_file, src_bid, dst_bid,
-                                 1 + clone_len);
+    filemgr_copy_file_range(file, new_file, src_bid, dst_bid, 1 + clone_len);
     docio_reset(new_handle->dhandle);
 
     if (!got_lock) {
@@ -6453,7 +6455,7 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
             free(new_bhandle);
             free(new_dhandle);
             free(new_trie);
-            if (!handle->kvs) {
+            if (!handle->kvs && new_seqtree) {
                 free(new_seqtree->kv_ops);
             }
             return FDB_RESULT_ALLOC_FAIL;
@@ -6574,7 +6576,11 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     }
 
     new_file = result.file;
-    fdb_assert(new_file, handle, fconfig.options);
+
+    if (new_file == NULL) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_OPEN_FAIL;
+    }
 
     filemgr_fhandle_add(new_file, handle->fhandle);
 
@@ -6645,9 +6651,10 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     }
 
     status = _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
-                             new_trie, new_seqtrie, new_seqtree, new_staletree,
-                             marker_bid, clone_docs);
+                               new_trie, new_seqtrie, new_seqtree, new_staletree,
+                               marker_bid, clone_docs);
     LATENCY_STAT_END(fhandle->root->file, FDB_LATENCY_COMPACTS);
+
     return status;
 }
 

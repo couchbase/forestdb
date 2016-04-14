@@ -4501,21 +4501,21 @@ void invalid_get_byoffset_test()
         size_t i;
 
         // insert 100 docs using transaction
-        status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
+        fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
         for (i=0;i<100;++i) {
             sprintf(keybuf, "k%06d", (int)i);
             sprintf(bodybuf, "v%06d", (int)i);
-            status = fdb_set_kv(db, keybuf, 8, bodybuf, 8);
+            fdb_set_kv(db, keybuf, 8, bodybuf, 8);
         }
-        status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
+        fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
 
         // try to retrieve all possible offsets
         for (i=0;i<100000;++i) {
             sprintf(keybuf, "k%06d", (int)i);
-            status = fdb_doc_create(&rdoc, NULL, 0 , NULL, 0, NULL, 0);
+            fdb_doc_create(&rdoc, NULL, 0 , NULL, 0, NULL, 0);
             rdoc->offset = i;
-            status = fdb_get_byoffset(db, rdoc);
-            status = fdb_doc_free(rdoc);
+            fdb_get_byoffset(db, rdoc);
+            fdb_doc_free(rdoc);
         }
     }
 
@@ -4572,19 +4572,19 @@ void dirty_index_consistency_test()
     for (i=0; i<1000; i++) {
         sprintf(keybuf, "k%06d", i);
         sprintf(valuebuf, "v%06d", i);
-        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
         s = fdb_set(db[1], doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     }
 
     // get docks
     for (i=0; i<1000; i++) {
         sprintf(keybuf, "k%06d", i);
-        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
         s = fdb_get(db[0], doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     }
     // now dirty blocks are cached in db[0]'s (default) bhandle
 
@@ -4592,10 +4592,10 @@ void dirty_index_consistency_test()
     for (i=1000; i<3000; i++) {
         sprintf(keybuf, "k%06d", i);
         sprintf(valuebuf, "v%06d", i);
-        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
         s = fdb_set(db[1], doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     }
 
     // commit - WAL flushing is executed on the default handle
@@ -4613,14 +4613,14 @@ void dirty_index_consistency_test()
         r++;
         fdb_doc_free(rdoc);
     } while (fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
-    s = fdb_iterator_close(fit);
+    fdb_iterator_close(fit);
 
     TEST_CHK(r == 3000);
 
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    s = fdb_shutdown();
+    fdb_shutdown();
     memleak_end();
 
     TEST_RESULT("dirty index consistency test");

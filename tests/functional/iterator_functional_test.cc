@@ -2659,7 +2659,7 @@ void reverse_sequence_iterator_kvs_test()
     i=0;
     count = 0;
     while (1) {
-        status = fdb_iterator_get(iterator, &rdoc);
+        fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(!memcmp(rdoc->key, doc[i]->key, rdoc->keylen));
         TEST_CHK(!memcmp(rdoc->meta, doc[i]->meta, rdoc->metalen));
         TEST_CHK(!memcmp(rdoc->body, doc[i]->body, rdoc->bodylen));
@@ -3783,22 +3783,22 @@ void iterator_deleted_doc_right_before_the_end_test()
     sprintf(cmd, SHELL_DEL " %s*", "./dummy");
     r = system(cmd); (void)r;
 
-    s = fdb_open(&dbfile, "./dummy", &config);
-    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    fdb_open(&dbfile, "./dummy", &config);
+    fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
 
     // insert 3 docs
     for (i=0;i<3;++i) {
         sprintf(keybuf, "k%06d\n", i);
         sprintf(valuebuf, "v%06d\n", i);
-        s = fdb_set_kv(db, keybuf, 8, valuebuf, 8);
+        fdb_set_kv(db, keybuf, 8, valuebuf, 8);
     }
 
     // delete the middle doc
     i = 1;
     sprintf(keybuf, "k%06d\n", i);
-    s = fdb_del_kv(db, keybuf, 8);
+    fdb_del_kv(db, keybuf, 8);
 
-    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
 
     sprintf(keybuf, "a");
     sprintf(cmd, "z");
@@ -3827,7 +3827,7 @@ void iterator_deleted_doc_right_before_the_end_test()
     TEST_CMP(rdoc->key, keybuf, 8);
     fdb_doc_free(rdoc);
 
-    s = fdb_iterator_close(fit);
+    fdb_iterator_close(fit);
 
     // opposite case
     s = fdb_iterator_init(db, &fit, keybuf, 1, cmd, 1, FDB_ITR_NO_DELETES);
@@ -3855,10 +3855,10 @@ void iterator_deleted_doc_right_before_the_end_test()
     TEST_CMP(rdoc->key, keybuf, 8);
     fdb_doc_free(rdoc);
 
-    s = fdb_iterator_close(fit);
+    fdb_iterator_close(fit);
 
-    s = fdb_close(dbfile);
-    s = fdb_shutdown();
+    fdb_close(dbfile);
+    fdb_shutdown();
 
     memleak_end();
 

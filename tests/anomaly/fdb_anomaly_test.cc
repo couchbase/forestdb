@@ -685,7 +685,7 @@ void copy_file_range_test()
         status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value_out, value, valuelen);
-        status = fdb_free_block(value_out);
+        fdb_free_block(value_out);
     }
 
     // retrieve docs after append batched delta
@@ -695,7 +695,7 @@ void copy_file_range_test()
         status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         TEST_CMP(value_out, value, valuelen);
-        status = fdb_free_block(value_out);
+        fdb_free_block(value_out);
     }
 
     // check on phase 3 inserted documents..
@@ -704,14 +704,14 @@ void copy_file_range_test()
     status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CMP(value_out, value, valuelen);
-    status = fdb_free_block(value_out);
+    fdb_free_block(value_out);
 
     sprintf(key, "zzz%250d", i);
     status = fdb_get_kv(db, key, 253, &value_out, &valuelen);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     TEST_CMP(value_out, value, valuelen);
-    status = fdb_free_block(value_out);
+    fdb_free_block(value_out);
 
     // free all resources
     status = fdb_close(dbfile);
@@ -761,10 +761,10 @@ void read_old_file()
     for (i=0; i<n; ++i) {
         sprintf(keybuf, "k%06d", i);
         sprintf(valuebuf, "v%06d", i);
-        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 8);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 8);
         s = fdb_set(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     }
 
     s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
@@ -791,7 +791,7 @@ void read_old_file()
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    s = fdb_shutdown();
+    fdb_shutdown();
     memleak_end();
 
     TEST_RESULT("read an old file test");
@@ -836,10 +836,10 @@ void corrupted_header_correct_superblock_test()
         for (i=0; i<n; ++i) {
             sprintf(keybuf, "k%06d", i);
             sprintf(valuebuf, "v%d_%04d", j, i);
-            s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 8);
+            fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 8);
             s = fdb_set(db, doc);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
-            s = fdb_doc_free(doc);
+            fdb_doc_free(doc);
         }
         s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
@@ -872,17 +872,17 @@ void corrupted_header_correct_superblock_test()
     for (i=0; i<n; ++i) {
         sprintf(keybuf, "k%06d", i);
         sprintf(valuebuf, "v%d_%04d", j, i);
-        s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, NULL, 0);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, NULL, 0);
         s = fdb_get(db, doc);
         TEST_CHK(s == FDB_RESULT_SUCCESS);
         TEST_CMP(doc->body, valuebuf, doc->bodylen);
-        s = fdb_doc_free(doc);
+        fdb_doc_free(doc);
     }
 
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    s = fdb_shutdown();
+    fdb_shutdown();
     memleak_end();
 
     TEST_RESULT("corrupted DB header from correct superblock test");

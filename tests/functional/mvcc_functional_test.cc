@@ -4354,7 +4354,7 @@ void rollback_all_test(bool multi_kv)
         TEST_CHK(info.last_seqnum == rollback_seq);
         TEST_CHK(info.doc_count == rollback_seq);
         status = fdb_get(db[r], doc[n - 1]);
-        TEST_CHK(status = FDB_RESULT_KEY_NOT_FOUND);
+        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
         status = fdb_get_kv(db[r], doc[0]->key, doc[0]->keylen,
                             (void **)&body, &bodylen);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -5138,7 +5138,7 @@ void drop_kv_on_snap_iterator_test(){
     TEST_STATUS(status);
     status = fdb_set_kv(kv, (void *) "b", 1, NULL, 0);
     TEST_STATUS(status);
-    status = fdb_commit(f1, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    fdb_commit(f1, FDB_COMMIT_MANUAL_WAL_FLUSH);
 
     // open snapshot
     status = fdb_snapshot_open(kv, &snap_kv, 2);

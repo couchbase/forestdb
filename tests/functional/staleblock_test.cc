@@ -100,7 +100,7 @@ start_data_loading:
     // intermediate cleanup
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     // run again with different config
     if (fconfig.block_reusing_threshold == 65) {
@@ -242,7 +242,7 @@ void reuse_with_snapshot_test() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("reuse with snapshot test");
@@ -522,7 +522,7 @@ void snapshot_before_block_reuse_test(bool inmem) {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
 
@@ -606,7 +606,7 @@ void snapshot_after_block_reuse_test() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("snapshot after block reuse test");
@@ -711,7 +711,7 @@ void snapshot_inmem_before_block_reuse_test() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("snapshot inmem before block reuse test");
@@ -852,7 +852,7 @@ void variable_value_size_test() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("variable value size test");
@@ -941,7 +941,7 @@ void rollback_with_num_keeping_headers() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("rollback with num keeping headers");
@@ -1085,7 +1085,7 @@ void crash_and_recover_with_num_keeping_test() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("crash and recover with num keeping test");
@@ -1386,7 +1386,7 @@ void enter_reuse_via_separate_kvs_test() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("enter reuse via separate kvs test");
@@ -1542,7 +1542,7 @@ void superblock_recovery_test() {
     TEST_STATUS(status);
     status = fdb_close(dbfile);
     TEST_STATUS(status);
-    status = fdb_shutdown();
+    fdb_shutdown();
 
     memleak_end();
     TEST_RESULT("superblock recovery test");

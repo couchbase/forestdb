@@ -1467,7 +1467,7 @@ void e2e_multi_kvs_concurrent_wr() {
     fconfig.num_keeping_headers = 10;
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.compaction_mode  = FDB_COMPACTION_MANUAL;
-    status = fdb_open(&dbfile, "e2edb_main", &fconfig);
+    fdb_open(&dbfile, "e2edb_main", &fconfig);
 
     // open dbfiles
     for (i = 0; i < nf; i++) {
