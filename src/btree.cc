@@ -736,13 +736,18 @@ static int _btree_split_node(
     size_t nnode = nsplitnode;
     size_t j;
     int *nentry = alca(int, nnode);
+    memset(nentry, 0, nnode * sizeof(int));
     bid_t _bid;
     bid_t *new_bid = alca(bid_t, nnode);
+    memset(new_bid, 0, nnode * sizeof(bid_t));
     idx_t *split_idx = alca(idx_t, nnode+1);
+    memset(split_idx, 0, (nnode + 1) * sizeof(idx_t));
     idx_t *idx_ins = alca(idx_t, btree->height);
+    memset(idx_ins, 0, btree->height * sizeof(idx_t));
     struct list_elem *e;
     struct bnode **new_node = alca(struct bnode *, nnode);
-    struct kv_ins_item *kv_item;
+    memset(new_node, 0, nnode * sizeof(struct bnode*));
+    struct kv_ins_item *kv_item = NULL;
 
     // allocate new block(s)
     new_node[0] = node[i];

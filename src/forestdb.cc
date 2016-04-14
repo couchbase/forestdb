@@ -4920,7 +4920,7 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     fdb_seqnum_t old_seqnum = 0;
     filemgr_header_revnum_t revnum = 0;
     err_log_callback *log_callback = &rhandle->log_callback;
-    uint64_t version;
+    uint64_t version = 0;
     fdb_status fs;
 
     if (last_hdr_bid < marker_bid) {
@@ -5180,8 +5180,7 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
     }
 
     // copy out the last set of contiguous blocks
-    fs = filemgr_copy_file_range(file, new_file, src_bid, dst_bid,
-                                 1 + clone_len);
+    filemgr_copy_file_range(file, new_file, src_bid, dst_bid, 1 + clone_len);
     docio_reset(new_handle->dhandle);
 
     if (!got_lock) {
@@ -5820,7 +5819,7 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
             free(new_bhandle);
             free(new_dhandle);
             free(new_trie);
-            if (!handle->kvs) {
+            if (!handle->kvs && new_seqtree) {
                 free(new_seqtree->kv_ops);
             }
             return FDB_RESULT_ALLOC_FAIL;
@@ -5968,7 +5967,11 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     }
 
     new_file = result.file;
-    fdb_assert(new_file, handle, fconfig.options);
+
+    if (new_file == NULL) {
+        filemgr_mutex_unlock(handle->file);
+        return FDB_RESULT_OPEN_FAIL;
+    }
 
     filemgr_set_in_place_compaction(new_file, in_place_compaction);
     // prevent update to the new_file
@@ -6037,9 +6040,10 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     }
 
     status = _fdb_compact_file(handle, new_file, new_bhandle, new_dhandle,
-                             new_trie, new_seqtrie, new_seqtree, new_staletree,
-                             marker_bid, clone_docs);
+                               new_trie, new_seqtrie, new_seqtree, new_staletree,
+                               marker_bid, clone_docs);
     LATENCY_STAT_END(fhandle->root->file, FDB_LATENCY_COMPACTS);
+
     return status;
 }
 

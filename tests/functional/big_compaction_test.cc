@@ -92,9 +92,9 @@ static void *_compactor_thread(void *voidargs)
             }
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             sprintf(filename, "%s_%d.%d", TEST_FILENAME, i, revnum+1);
-            status = fdb_compact_upto(dbfile, filename,
-                     num_markers > 5 ? markers[5].marker
-                                     : markers[num_markers].marker);
+            fdb_compact_upto(dbfile, filename,
+                             num_markers > 5 ? markers[5].marker
+                                             : markers[num_markers].marker);
             fdb_free_snap_markers(markers, num_markers);
             fdb_close(dbfile);
         }

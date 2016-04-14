@@ -4487,21 +4487,21 @@ void invalid_get_byoffset_test()
         size_t i;
 
         // insert 100 docs using transaction
-        status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
+        fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
         for (i=0;i<100;++i) {
             sprintf(keybuf, "k%06d", (int)i);
             sprintf(bodybuf, "v%06d", (int)i);
-            status = fdb_set_kv(db, keybuf, 8, bodybuf, 8);
+            fdb_set_kv(db, keybuf, 8, bodybuf, 8);
         }
-        status = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
+        fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
 
         // try to retrieve all possible offsets
         for (i=0;i<100000;++i) {
             sprintf(keybuf, "k%06d", (int)i);
-            status = fdb_doc_create(&rdoc, NULL, 0 , NULL, 0, NULL, 0);
+            fdb_doc_create(&rdoc, NULL, 0 , NULL, 0, NULL, 0);
             rdoc->offset = i;
-            status = fdb_get_byoffset(db, rdoc);
-            status = fdb_doc_free(rdoc);
+            fdb_get_byoffset(db, rdoc);
+            fdb_doc_free(rdoc);
         }
     }
 

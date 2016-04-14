@@ -2445,7 +2445,7 @@ static int compaction_del_cb(fdb_file_handle *fhandle,
         if (db) { // At end of first phase, mutate more docs...
             s = fdb_open(&dbfile, "./compact_test1", &fhandle->root->config);
             TEST_CHK(s == FDB_RESULT_SUCCESS);
-            s = fdb_kvs_open_default(dbfile, &db, &db->kvs_config);
+            fdb_kvs_open_default(dbfile, &db, &db->kvs_config);
             for (i = 0; i < n; ++i){
                 sprintf(keybuf, "key%d", i);
                 s = fdb_del_kv(db, keybuf, strlen(keybuf));
