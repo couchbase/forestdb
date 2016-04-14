@@ -171,9 +171,16 @@ fdb_status wal_snapshot(struct filemgr *file,
                         void *dbhandle, fdb_txn *txn,
                         fdb_seqnum_t *upto_seq,
                         wal_snapshot_func *snapshot_func);
+
 fdb_status wal_discard(struct filemgr *file, fdb_txn *txn);
 fdb_status wal_close(struct filemgr *file);
 fdb_status wal_shutdown(struct filemgr *file);
+
+/**
+ * Free memory associated with wal data structures.
+ */
+fdb_status wal_destroy(struct filemgr *file);
+
 fdb_status wal_close_kv_ins(struct filemgr *file,
                             fdb_kvs_id_t kv_id);
 

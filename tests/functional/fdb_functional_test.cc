@@ -104,7 +104,8 @@ void basic_test()
     }
 
     // remove document #5
-    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta, doc[5]->metalen, NULL, 0);
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta,
+                   doc[5]->metalen, NULL, 0);
     status = fdb_del(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);
@@ -217,7 +218,8 @@ void basic_test()
     }
 
     // update document #5 with an empty doc body.
-    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta, doc[5]->metalen, NULL, 0);
+    fdb_doc_create(&rdoc, doc[5]->key, doc[5]->keylen, doc[5]->meta,
+                   doc[5]->metalen, NULL, 0);
     status = fdb_set(db, rdoc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
     fdb_doc_free(rdoc);

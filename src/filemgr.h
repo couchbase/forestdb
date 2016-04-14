@@ -58,6 +58,7 @@ struct filemgr_config {
     int flag;
     int chunksize;
     uint8_t options;
+    uint8_t seqtree_opt;
     uint64_t prefetch_duration;
     uint16_t num_wal_shards;
     uint16_t num_bcache_shards;
