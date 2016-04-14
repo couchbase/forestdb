@@ -6263,8 +6263,6 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset, &flush_items);
     btreeblk_end(handle->bhandle);
     wal_release_flushed_items(handle->file, &flush_items);
-    // reset last_wal_flush_hdr_bid
-    handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
 
     // copy old file's seqnum to new file (do this again due to delta)
     seqnum = filemgr_get_seqnum(handle->file);
@@ -6277,6 +6275,30 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
     // migrate uncommitted transactional items to new file
     wal_txn_migration((void*)handle, (void*)new_dhandle,
                       handle->file, new_file, _fdb_doc_move);
+
+    // last commit of the old file
+    // (we must do this due to potential dirty WAL flush
+    //  during the last loop of delta move; new index root node
+    //  should be stored in the DB header).
+    handle->cur_header_revnum = fdb_set_file_header(handle);
+    fs = filemgr_commit(handle->file, false, &handle->log_callback);
+    if (fs != FDB_RESULT_SUCCESS) {
+        filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
+        filemgr_mutex_unlock(handle->file);
+        filemgr_mutex_unlock(new_file);
+        btreeblk_reset_subblock_info(new_bhandle);
+        _fdb_cleanup_compact_err(handle, new_file, true, true, new_bhandle,
+                                 new_dhandle, new_trie, new_seqtrie,
+                                 new_seqtree);
+        if (file_switched) {
+            bgflusher_switch_file(new_file, handle->file,
+                                  &handle->log_callback);
+        }
+        return fs;
+    }
+
+    // reset last_wal_flush_hdr_bid
+    handle->last_wal_flush_hdr_bid = BLK_NOT_FOUND;
 
     old_file = handle->file;
     handle->file = new_file;
