@@ -33,6 +33,13 @@
 #include "wal.h"
 #include "functional_util.h"
 
+#undef THREAD_SANITIZER
+#if __clang__
+#   if defined(__has_feature) && __has_feature(thread_sanitizer)
+#define THREAD_SANITIZER
+#   endif
+#endif
+
 struct cb_args {
     int n_moved_docs;
     int n_batch_move;
@@ -3393,7 +3400,9 @@ int main(){
     compaction_callback_test(false); // single kv instance mode
     compact_wo_reopen_test();
     compact_with_reopen_test();
+#if !defined(THREAD_SANITIZER)
     compact_reopen_with_iterator();
+#endif
     compact_reopen_named_kvs();
     estimate_space_upto_test(false); // single kv instance in file
     estimate_space_upto_test(true); // multiple kv instance in file
