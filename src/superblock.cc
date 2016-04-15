@@ -1174,18 +1174,33 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
             // +-------------------------------------------+
             //                                     ^
             //                                     last_commit
-            if (sb->bmp_prev && bid < sb->bmp_prev_size) {
-                if (_is_bmp_set(sb->bmp_prev, bid) ||
+            if (sb->bmp_prev) {
+                if (bid < sb->bmp_prev_size &&
+                    _is_bmp_set(sb->bmp_prev, bid)) {
+                    ret = true;
+                }
+                if (bid < atomic_get_uint64_t(&sb->bmp_size) &&
                     _is_bmp_set(sb_bmp, bid)) {
                     ret = true;
                 }
+                if (bid >= atomic_get_uint64_t(&sb->bmp_size)) {
+                    // blocks newly allocated beyond the bitmap size:
+                    // always writable
+                    ret = true;
+                }
             } else {
+                // bmp_prev doesn't exist even though bmp_revnum is different
+                // this happens on the first block reclaim only
+                // so all blocks whose 'BID >= last_commit' are writable.
                 ret = true;
             }
         }
 
-        if (_is_bmp_set(sb_bmp, bid) &&
-            bid < atomic_get_uint64_t(&sb->cur_alloc_bid)) {
+        if (bid < atomic_get_uint64_t(&sb->bmp_size) &&
+            bid < atomic_get_uint64_t(&sb->cur_alloc_bid) &&
+            _is_bmp_set(sb_bmp, bid)) {
+            // 'cur_alloc_bid' is always smaller than 'bmp_size'
+            // except for the case 'cur_alloc_bid == BLK_NOT_FOUND'
             ret = true;
         }
     }
