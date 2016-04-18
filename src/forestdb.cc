@@ -1497,7 +1497,6 @@ fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
     atomic_store_uint64_t(&handle_out->cur_header_revnum, handle_in->cur_header_revnum);
     handle_out->last_wal_flush_hdr_bid = handle_in->last_wal_flush_hdr_bid;
     handle_out->kv_info_offset = handle_in->kv_info_offset;
-    handle_out->shandle->stat = handle_in->shandle->stat;
     handle_out->op_stats = handle_in->op_stats;
 
     // initialize the trie handle
