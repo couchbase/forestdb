@@ -638,9 +638,9 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     num_blocks = filemgr_get_pos(handle->file) / handle->file->blocksize;
     // 8 bitmaps per byte
     bmp_size_byte = (num_blocks+7) / 8;
-    if (num_blocks) {
-        new_bmp = (uint8_t*)calloc(1, bmp_size_byte);
-    }
+    fdb_assert(num_blocks >= SB_DEFAULT_NUM_SUPERBLOCKS,
+               num_blocks, SB_DEFAULT_NUM_SUPERBLOCKS);
+    new_bmp = (uint8_t*)calloc(1, bmp_size_byte);
 
     // free pre-existing bmp index
     _free_bmp_idx(&sb->bmp_idx);
