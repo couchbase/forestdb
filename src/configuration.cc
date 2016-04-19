@@ -48,7 +48,7 @@ fdb_config get_default_config(void) {
     fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MINSIZE;
     // Clean up cache entries when a file is closed.
     fconfig.cleanup_cache_onclose = true;
-    // Compress the body of documents using snappy.
+    // Compress the body of documents using snappy. Disabled by default.
     fconfig.compress_document_body = false;
     // Auto compaction is disabled by default
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
@@ -57,7 +57,7 @@ fdb_config get_default_config(void) {
     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default
     // 15 seconds by default
     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
-    // Disable supporting multiple KV instances by default
+    // Multi KV Instance mode is enabled by default
     fconfig.multi_kv_instances = true;
     // 30 seconds by default
     fconfig.prefetch_duration = 30;
