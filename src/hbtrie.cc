@@ -776,11 +776,12 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
         // if next sub b-tree exists
         item_new = _get_entry(e, struct btreeit_item, le);
         hr = _hbtrie_next(it, item_new, key_buf, keylen, value_buf, flag);
-        if (hr == HBTRIE_RESULT_SUCCESS) return hr;
-        it->keylen = (item->chunkno+1) * trie->chunksize;
+        if (hr != HBTRIE_RESULT_SUCCESS) {
+            it->keylen = (item->chunkno+1) * trie->chunksize;
+        }
     }
 
-    while(hr != HBTRIE_RESULT_SUCCESS) {
+    while (hr != HBTRIE_RESULT_SUCCESS) {
         // get key-value from current b-tree iterator
         memset(k, 0, trie->chunksize);
         br = btree_next(&item->btree_it, k, v);
@@ -971,8 +972,9 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
                 hr = _hbtrie_next(it, item_new, key_buf, keylen, value_buf, flag);
             }
             mempool_free(bmeta.data);
-            if (hr == HBTRIE_RESULT_SUCCESS)
+            if (hr == HBTRIE_RESULT_SUCCESS) {
                 return hr;
+            }
 
             // fail searching .. get back to parent tree
             // (this happens when the initial key is greater than
@@ -980,7 +982,7 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             // so return back to ITEM and retrieve next child)
             it->keylen = (item->chunkno+1) * trie->chunksize;
 
-        }else{
+        } else {
             // MSB is not set -> doc
             // read entire key and return the doc offset
             offset = trie->btree_kv_ops->value2bid(v);
@@ -998,7 +1000,8 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             return HBTRIE_RESULT_SUCCESS;
         }
     }
-    return HBTRIE_RESULT_FAIL;
+
+    return hr;
 }
 
 hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
@@ -1502,8 +1505,9 @@ static void _hbtrie_extend_leaf_tree(struct hbtrie *trie,
     br = btree_iterator_init(&btreeitem->btree, &it, NULL);
     while (br == BTREE_RESULT_SUCCESS) {
         // get key
-        if ((br = btree_next(&it, key_buf, value_buf)) ==
-            BTREE_RESULT_FAIL) break;
+        if ((br = btree_next(&it, key_buf, value_buf)) == BTREE_RESULT_FAIL) {
+            break;
+        }
 
         _get_leaf_key(key_buf, key_str, &keylen);
         _free_leaf_key(key_buf);
