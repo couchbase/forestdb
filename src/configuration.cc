@@ -48,16 +48,16 @@ fdb_config get_default_config(void) {
     fconfig.compaction_buf_maxsize = FDB_COMP_BUF_MINSIZE;
     // Clean up cache entries when a file is closed.
     fconfig.cleanup_cache_onclose = true;
-    // Compress the body of documents using snappy.
+    // Compress the body of documents using snappy. Disabled by default.
     fconfig.compress_document_body = false;
     // Auto compaction is disabled by default
     fconfig.compaction_mode = FDB_COMPACTION_MANUAL;
     // Compaction threshold, 30% by default
     fconfig.compaction_threshold = FDB_DEFAULT_COMPACTION_THRESHOLD;
     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default
-    // 15 seconds by default
+    // 8 hours by default
     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
-    // Disable supporting multiple KV instances by default
+    // Multi KV Instance mode is enabled by default
     fconfig.multi_kv_instances = true;
     // TODO: Re-enable this after prefetch ThreadSanitizer fixes are in..
     fconfig.prefetch_duration = 0;
@@ -88,7 +88,7 @@ fdb_config get_default_config(void) {
     fconfig.num_bgflusher_threads = DEFAULT_NUM_BGFLUSHER_THREADS;
     // Block reusing threshold, 65% by default (i.e., almost 3x space amplification)
     fconfig.block_reusing_threshold = 65;
-    // Keep at least 5 headers
+    // Keep at most 5 recent committed database snapshots
     fconfig.num_keeping_headers = 5;
 
     fconfig.encryption_key.algorithm = FDB_ENCRYPTION_NONE;
