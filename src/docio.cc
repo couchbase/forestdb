@@ -770,9 +770,12 @@ static int64_t _docio_read_length(struct docio_handle *handle,
     bid_t bid = offset / real_blocksize;
     uint32_t pos = offset % real_blocksize;
     void *buf = handle->readbuffer;
-    uint32_t restsize;
+    uint32_t restsize = 0;
 
-    restsize = blocksize - pos;
+    if (blocksize > pos) {
+        restsize = blocksize - pos;
+    }
+
     // read length structure
     fdb_status fs = _docio_read_through_buffer(handle, bid, log_callback,
                                                read_on_cache_miss);
@@ -795,7 +798,9 @@ static int64_t _docio_read_length(struct docio_handle *handle,
         pos += sizeof(struct docio_length);
 
     } else {
-        memcpy(length, (uint8_t *)buf + pos, restsize);
+        if (restsize > 0) {
+            memcpy(length, (uint8_t *)buf + pos, restsize);
+        }
         // read additional block
         if (non_consecutive) {
             memcpy(&blk_meta, (uint8_t*)buf + blocksize, sizeof(blk_meta));
