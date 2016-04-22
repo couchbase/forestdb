@@ -810,6 +810,10 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
     mempool_init();
 #endif
 
+    if (!handle_in || !ptr_handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     fdb_config config = handle_in->config;
     fdb_kvs_config kvs_config = handle_in->kvs_config;
     fdb_kvs_handle *handle;
@@ -817,10 +821,6 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
     filemgr *file;
     file_status_t fstatus = FILE_NORMAL;
     LATENCY_STAT_START();
-
-    if (!handle_in || !ptr_handle) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
 
 fdb_snapshot_open_start:
     if (!handle_in->shandle) {
@@ -998,10 +998,15 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     fdb_seqnum_t old_seqnum;
 
     if (!handle_ptr) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     handle_in = *handle_ptr;
+
+    if (!handle_in) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     config = handle_in->config;
 
     if (handle_in->kvs) {
@@ -1129,7 +1134,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     struct snap_handle shandle; // dummy snap handle
 
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     super_handle = fhandle->root;
@@ -1969,6 +1974,10 @@ fdb_status fdb_set_log_callback(fdb_kvs_handle *handle,
                                 fdb_log_callback log_callback,
                                 void *ctx_data)
 {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     handle->log_callback.callback = log_callback;
     handle->log_callback.ctx_data = ctx_data;
     return FDB_RESULT_SUCCESS;
@@ -2081,11 +2090,13 @@ LIBFDB_API
 void fdb_doc_set_seqnum(fdb_doc *doc,
                         const fdb_seqnum_t seqnum)
 {
-    doc->seqnum = seqnum;
-    if (seqnum != SEQNUM_NOT_USED) {
-        doc->flags |= FDB_CUSTOM_SEQNUM; // fdb_set will now use above seqnum
-    } else { // reset custom seqnum flag, fdb_set will now generate new seqnum
-        doc->flags &= ~FDB_CUSTOM_SEQNUM;
+    if (doc) {
+        doc->seqnum = seqnum;
+        if (seqnum != SEQNUM_NOT_USED) {
+            doc->flags |= FDB_CUSTOM_SEQNUM; // fdb_set will now use above seqnum
+        } else { // reset custom seqnum flag, fdb_set will now generate new seqnum
+            doc->flags &= ~FDB_CUSTOM_SEQNUM;
+        }
     }
 }
 
@@ -2511,7 +2522,10 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_doc doc_kv;
     LATENCY_STAT_START();
 
-    if (!handle || !doc || !doc->key || doc->keylen == 0 ||
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc || !doc->key || doc->keylen == 0 ||
         doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -2644,7 +2658,10 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_doc doc_kv;
     LATENCY_STAT_START();
 
-    if (!handle || !doc || !doc->key ||
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc || !doc->key ||
         doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -2769,7 +2786,10 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn;
     LATENCY_STAT_START();
 
-    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2917,7 +2937,10 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_seqnum_t _seqnum;
     fdb_txn *txn = handle->fhandle->root->txn;
 
-    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -3078,6 +3101,13 @@ INLINE void _remove_kv_id(fdb_kvs_handle *handle, struct docio_object *doc)
 LIBFDB_API
 fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
 {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     uint64_t offset = doc->offset;
     struct docio_object _doc;
 
@@ -3161,6 +3191,13 @@ INLINE uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
 LIBFDB_API
 fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     uint64_t offset;
     struct docio_object _doc;
     struct filemgr *file;
@@ -3423,6 +3460,13 @@ fdb_set_start:
 LIBFDB_API
 fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
 {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: DEL is not allowed on the read-only DB file '%s'.",
@@ -3656,12 +3700,20 @@ static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 LIBFDB_API
 fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
 {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     return _fdb_commit(fhandle->root, opt,
             !(fhandle->root->config.durability_opt & FDB_DRB_ASYNC));
 }
 
 fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
 {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     fdb_txn *txn = handle->fhandle->root->txn;
     fdb_txn *earliest_txn;
     file_status_t fstatus;
@@ -6364,6 +6416,10 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
                                bool clone_docs,
                                const fdb_encryption_key *new_encryption_key)
 {
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     fdb_kvs_handle *handle = fhandle->root;
     bool in_place_compaction = false;
     char nextfile[FDB_MAX_FILENAME_LEN];
@@ -6416,10 +6472,6 @@ fdb_status fdb_compact_upto(fdb_file_handle *fhandle,
                             const char *new_filename,
                             fdb_snapshot_marker_t marker)
 {
-    if (!fhandle || !fhandle->root) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
     return _fdb_compact(fhandle, new_filename, marker, false, NULL);
 }
 
@@ -6428,10 +6480,6 @@ fdb_status fdb_compact_upto_with_cow(fdb_file_handle *fhandle,
                                   const char *new_filename,
                                   fdb_snapshot_marker_t marker)
 {
-    if (!fhandle || !fhandle->root) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
     return _fdb_compact(fhandle, new_filename, marker, true, NULL);
 }
 
@@ -6449,16 +6497,19 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
 {
     int ret;
     fdb_status fs;
-    fdb_kvs_handle *handle = fhandle->root;
     fdb_config config;
     char vfilename[FDB_MAX_FILENAME_LEN];
     char filename[FDB_MAX_FILENAME_LEN];
     char metafile[FDB_MAX_FILENAME_LEN];
 
-    if (!handle || new_threshold > 100) {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (new_threshold > 100) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
+    fdb_kvs_handle *handle = fhandle->root;
     config = handle->config;
     if (handle->config.compaction_mode != mode) {
         if (filemgr_get_ref_count(handle->file) > 1) {
@@ -6535,7 +6586,7 @@ fdb_status fdb_close(fdb_file_handle *fhandle)
 {
     fdb_status fs;
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     if (fhandle->root->config.auto_commit &&
@@ -6706,7 +6757,10 @@ fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
                                  fdb_latency_stat *stat,
                                  fdb_latency_stat_type type)
 {
-    if (!fhandle || !stat ||!fhandle->root || type >= FDB_LATENCY_NUM_STATS) {
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!stat || type >= FDB_LATENCY_NUM_STATS) {
         return FDB_RESULT_INVALID_ARGS;
     }
     if (!fhandle->root->file) {
@@ -6863,7 +6917,10 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
     uint64_t ndocs, ndeletes;
     fdb_kvs_handle *handle;
 
-    if (!fhandle || !info) {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!info) {
         return FDB_RESULT_INVALID_ARGS;
     }
     handle = fhandle->root;
@@ -6955,7 +7012,10 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     file_status_t fstatus;
     fdb_status status = FDB_RESULT_SUCCESS;
 
-    if (!fhandle || !markers_out || !num_markers) {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!markers_out || !num_markers) {
         return FDB_RESULT_INVALID_ARGS;
     }
     handle = fhandle->root;
@@ -7084,7 +7144,7 @@ LIBFDB_API
 fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle)
 {
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_kvs_handle *super_handle = fhandle->root;

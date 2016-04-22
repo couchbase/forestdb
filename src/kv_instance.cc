@@ -2108,7 +2108,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     char *kvs_name;
 
     if (!handle_ptr) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     handle_in = *handle_ptr;
@@ -2304,7 +2304,10 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     struct kvs_header *kv_header;
     struct kvs_stat stat;
 
-    if (!handle || !info) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!info) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2392,7 +2395,10 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
     struct kvs_ops_stat root_stat;
     fdb_kvs_handle *root_handle = handle->fhandle->root;
 
-    if (!handle || !info) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!info) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2443,7 +2449,10 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
     struct kvs_node *node;
     struct avl_node *a;
 
-    if (!fhandle || !kvs_name_list) {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!kvs_name_list) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2503,6 +2512,7 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
     if (!kvs_name_list) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
     free(kvs_name_list->kvs_names);
     kvs_name_list->kvs_names = NULL;
     kvs_name_list->num_kvs_names = 0;

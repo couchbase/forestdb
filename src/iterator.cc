@@ -216,8 +216,10 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
 
-    if (handle == NULL ||
-        start_keylen > FDB_MAX_KEYLEN ||
+    if (handle == NULL) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (start_keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
            (start_keylen > handle->config.blocksize - HBTRIE_HEADROOM ||
             end_keylen > handle->config.blocksize - HBTRIE_HEADROOM) ) ||
@@ -475,16 +477,19 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     struct wal_item_header *wal_item_header;
     struct wal_item *wal_item;
     struct snap_wal_entry *snap_item;
+    if (handle == NULL) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (ptr_iterator == NULL ||
+        (end_seq && start_seq > end_seq)) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     fdb_status fs;
     fdb_seqnum_t _start_seq = _endian_encode(start_seq);
     fdb_kvs_id_t kv_id, _kv_id;
     size_t size_id, size_seq;
     uint8_t *start_seq_kv;
-
-    if (handle == NULL || ptr_iterator == NULL ||
-        (end_seq && start_seq > end_seq)) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
 
     // Sequence trees are a must for byseq operations
     if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
@@ -678,7 +683,7 @@ static fdb_status _fdb_iterator_prev(fdb_iterator *iterator)
     if (iterator->direction == FDB_ITR_FORWARD) {
         iterator->_offset = BLK_NOT_FOUND; // need to re-examine Trie/trees
         if (!iterator->tree_cursor && iterator->tree_cursor_prev) {
-            // this only happens right after seek operation
+            // this only happens right after HANDLE operation
             // (when seek is executed using a key larger than
             //  the largest key in WAL)
             if (iterator->status == FDB_ITR_WAL) {
@@ -988,6 +993,10 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                              const size_t seek_keylen,
                              const fdb_iterator_seek_opt_t seek_pref)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     int cmp, cmp2; // intermediate results of comparison
     int next_op = 0; // 0: none, -1: prev(), 1: next();
     int size_chunk = iterator->handle->config.chunksize;
@@ -1456,11 +1465,14 @@ fetch_hbtrie:
 
 LIBFDB_API
 fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
-    size_t size_chunk = iterator->handle->config.chunksize;
-
-    if (!iterator || !iterator->_key) {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    size_t size_chunk = iterator->handle->config.chunksize;
 
     // Initialize direction iteration to FORWARD just in case this function was
     // called right after fdb_iterator_init() so the cursor gets positioned
@@ -1559,7 +1571,7 @@ fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
 
 fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
     if (!iterator) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     iterator->direction = FDB_ITR_REVERSE; // only reverse iteration possible
@@ -1621,6 +1633,9 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
 
 LIBFDB_API
 fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
     if (!iterator->hbtrie_iterator) {
         return _fdb_iterator_seek_to_max_seq(iterator);
     }
@@ -2000,6 +2015,10 @@ start_seq:
 LIBFDB_API
 fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     fdb_status result = FDB_RESULT_SUCCESS;
 
     if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
@@ -2043,6 +2062,10 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 LIBFDB_API
 fdb_status fdb_iterator_next(fdb_iterator *iterator)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     fdb_status result = FDB_RESULT_SUCCESS;
 
     if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
@@ -2089,16 +2112,19 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
 LIBFDB_API
 fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     struct docio_object _doc;
     fdb_status ret = FDB_RESULT_SUCCESS;
     uint64_t offset;
     struct docio_handle *dhandle;
     size_t size_chunk = iterator->handle->config.chunksize;
     bool alloced_key, alloced_meta, alloced_body;
-
-    if (!iterator || !doc) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
 
     dhandle = iterator->_dhandle;
     if (!dhandle || iterator->_get_offset == BLK_NOT_FOUND) {
@@ -2184,16 +2210,19 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 LIBFDB_API
 fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+    if (!doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     struct docio_object _doc;
     fdb_status ret = FDB_RESULT_SUCCESS;
     uint64_t offset, _offset;
     struct docio_handle *dhandle;
     size_t size_chunk = iterator->handle->config.chunksize;
     bool alloced_key, alloced_meta;
-
-    if (!iterator || !doc) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
 
     dhandle = iterator->_dhandle;
     if (!dhandle || iterator->_get_offset == BLK_NOT_FOUND) {
@@ -2272,6 +2301,9 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     struct avl_node *a;
     struct snap_wal_entry *snap_item;
 
+    if (!iterator) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
     if (iterator->hbtrie_iterator) {
         hbtrie_iterator_free(iterator->hbtrie_iterator);
         free(iterator->hbtrie_iterator);
@@ -2317,6 +2349,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     if (iterator->start_key) {
         free(iterator->start_key);
     }
+
     if (iterator->end_key) {
         free(iterator->end_key);
     }
