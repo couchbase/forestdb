@@ -61,7 +61,7 @@
 #endif
 
 
-static volatile uint8_t fdb_initialized = 0;
+static atomic_uint8_t fdb_initialized(0);
 static volatile uint32_t fdb_open_inprog = 0;
 #ifdef SPIN_INITIALIZER
 static spin_t initial_lock = SPIN_INITIALIZER;
