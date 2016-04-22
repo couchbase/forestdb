@@ -4636,6 +4636,69 @@ void dirty_index_consistency_test()
     TEST_RESULT("dirty index consistency test");
 }
 
+void apis_with_invalid_handles_test() {
+    TEST_INIT();
+    fdb_file_handle *dbfile = NULL;
+    fdb_kvs_handle *db = NULL, *db1 = NULL;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_encryption_key new_key;
+    new_key.algorithm = FDB_ENCRYPTION_NONE;
+    memset(new_key.bytes, 0, sizeof(new_key.bytes));
+
+    memleak_start();
+
+    // remove previous dummy files
+    int r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+
+    TEST_CHK(FDB_RESULT_SUCCESS == fdb_open(&dbfile, "dummy", &config));
+    TEST_CHK(FDB_RESULT_SUCCESS == fdb_kvs_open(dbfile, &db, NULL, &kvs_config));
+
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_snapshot_open(db, NULL,
+                                                          FDB_SNAPSHOT_INMEM));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_snapshot_open(NULL, NULL,
+                                                          FDB_SNAPSHOT_INMEM));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_rollback(&db1, 10));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_set_log_callback(NULL,
+                                                             logCallbackFunc,
+                                                             NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_get_byoffset(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_set(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_del(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_commit(NULL, FDB_COMMIT_NORMAL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_compact(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_compact_with_cow(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_rekey(NULL, new_key));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_seek(NULL, "key", 3, 0));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_seek_to_min(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_seek_to_max(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_prev(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_next(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_get(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_get_metaonly(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_kvs_open(NULL, NULL, NULL,
+                                                     &kvs_config));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_kvs_close(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_begin_transaction(NULL,
+                                                FDB_ISOLATION_READ_COMMITTED));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_abort_transaction(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_end_transaction(NULL,
+                                                FDB_COMMIT_NORMAL));
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("apis with invalid handles test");
+}
+
 int main(){
     basic_test();
     init_test();
@@ -4689,6 +4752,7 @@ int main(){
     purge_logically_deleted_doc_test();
     large_batch_write_no_commit_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
+    apis_with_invalid_handles_test();
 
     return 0;
 }

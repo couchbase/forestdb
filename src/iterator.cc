@@ -107,10 +107,6 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              size_t end_keylen,
                              fdb_iterator_opt_t opt)
 {
-    hbtrie_result hr;
-    fdb_status fs;
-    LATENCY_STAT_START();
-
     if (handle == NULL ||
         start_keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
@@ -124,6 +120,10 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
         (opt & FDB_ITR_SKIP_MAX_KEY && (!end_key || !end_keylen))) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    hbtrie_result hr;
+    fdb_status fs;
+    LATENCY_STAT_START();
 
     if (!handle->shandle) {
         // If compaction is already done before this line,
@@ -274,6 +274,11 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                                       const fdb_seqnum_t end_seq,
                                       fdb_iterator_opt_t opt)
 {
+    if (handle == NULL || ptr_iterator == NULL ||
+        (end_seq && start_seq > end_seq)) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     fdb_status fs;
     fdb_seqnum_t _start_seq = _endian_encode(start_seq);
     fdb_kvs_id_t _kv_id;
@@ -284,11 +289,6 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     LATENCY_STAT_START();
 
     query.header = &query_key;
-
-    if (handle == NULL || ptr_iterator == NULL ||
-        (end_seq && start_seq > end_seq)) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
 
     // Sequence trees are a must for byseq operations
     if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
@@ -733,6 +733,10 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                              const size_t seek_keylen,
                              const fdb_iterator_seek_opt_t seek_pref)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     int cmp, cmp2; // intermediate results of comparison
     int next_op = 0; // 0: none, -1: prev(), 1: next();
     int size_chunk = iterator->handle->config.chunksize;
@@ -1196,14 +1200,15 @@ fetch_hbtrie:
 }
 
 LIBFDB_API
-fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator) {
-    size_t size_chunk = iterator->handle->config.chunksize;
-    fdb_status ret;
-    LATENCY_STAT_START();
-
+fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
+{
     if (!iterator || !iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    size_t size_chunk = iterator->handle->config.chunksize;
+    fdb_status ret;
+    LATENCY_STAT_START();
 
     // Initialize direction iteration to FORWARD just in case this function was
     // called right after fdb_iterator_init() so the cursor gets positioned
@@ -1388,9 +1393,15 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
 }
 
 LIBFDB_API
-fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator) {
+fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator)
+{
+    if (!iterator) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     fdb_status ret;
     LATENCY_STAT_START();
+
     if (!iterator->hbtrie_iterator) {
         ret = _fdb_iterator_seek_to_max_seq(iterator);
     } else {
@@ -1767,6 +1778,10 @@ start_seq:
 LIBFDB_API
 fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     fdb_status result = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
 
@@ -1803,6 +1818,10 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 LIBFDB_API
 fdb_status fdb_iterator_next(fdb_iterator *iterator)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     fdb_status result = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
 
@@ -1841,6 +1860,10 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
 LIBFDB_API
 fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 {
+    if (!iterator || !doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     struct docio_object _doc;
     fdb_status ret = FDB_RESULT_SUCCESS;
     uint64_t offset;
@@ -1848,10 +1871,6 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     size_t size_chunk = iterator->handle->config.chunksize;
     bool alloced_key, alloced_meta, alloced_body;
     LATENCY_STAT_START();
-
-    if (!iterator || !doc) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
 
     dhandle = iterator->_dhandle;
     if (!dhandle || iterator->_get_offset == BLK_NOT_FOUND) {
@@ -1939,6 +1958,10 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 LIBFDB_API
 fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 {
+    if (!iterator || !doc) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     struct docio_object _doc;
     fdb_status ret = FDB_RESULT_SUCCESS;
     uint64_t offset;
@@ -1947,10 +1970,6 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
     size_t size_chunk = iterator->handle->config.chunksize;
     bool alloced_key, alloced_meta;
     LATENCY_STAT_START();
-
-    if (!iterator || !doc) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
 
     dhandle = iterator->_dhandle;
     if (!dhandle || iterator->_get_offset == BLK_NOT_FOUND) {
@@ -2028,6 +2047,10 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 LIBFDB_API
 fdb_status fdb_iterator_close(fdb_iterator *iterator)
 {
+    if (!iterator) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     LATENCY_STAT_START();
     if (iterator->hbtrie_iterator) {
         hbtrie_iterator_free(iterator->hbtrie_iterator);
@@ -2046,10 +2069,10 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     if (iterator->start_key) {
         free(iterator->start_key);
     }
+
     if (iterator->end_key) {
         free(iterator->end_key);
     }
-
 
     --iterator->handle->num_iterators; // Decrement the iterator counter of the KV handle
     wal_itr_close(iterator->wal_itr);

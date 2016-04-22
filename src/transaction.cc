@@ -32,6 +32,10 @@ LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
 {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     file_status_t fstatus;
     fdb_kvs_handle *handle = fhandle->root;
     struct filemgr *file;
@@ -101,11 +105,19 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
 LIBFDB_API
 fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
 {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     return _fdb_abort_transaction(fhandle->root);
 }
 
 fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
 {
+    if (!handle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     file_status_t fstatus;
     struct filemgr *file;
 
@@ -157,6 +169,10 @@ LIBFDB_API
 fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
                                fdb_commit_opt_t opt)
 {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
     file_status_t fstatus;
     fdb_kvs_handle *handle = fhandle->root;
     struct filemgr *file;

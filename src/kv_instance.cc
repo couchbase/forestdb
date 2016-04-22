@@ -1200,10 +1200,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
 LIBFDB_API
 fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
 {
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-    if (!seqnum) {
+    if (!handle || !seqnum) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1612,7 +1609,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     struct filemgr *latest_file = NULL;
 
     if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+        return FDB_RESULT_INVALID_ARGS;
     }
     root_handle = fhandle->root;
     config = root_handle->config;
@@ -1820,7 +1817,7 @@ fdb_status fdb_kvs_close(fdb_kvs_handle *handle)
     fdb_status fs;
 
     if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
+        return FDB_RESULT_INVALID_ARGS;
     }
     if (handle->num_iterators) {
         // There are still active iterators created from this handle
@@ -1898,7 +1895,7 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     struct kvs_header *kv_header;
 
     if (!fhandle) {
-        return FDB_RESULT_INVALID_HANDLE;
+        return FDB_RESULT_INVALID_ARGS;
     }
     root_handle = fhandle->root;
 
@@ -2489,6 +2486,7 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
     if (!kvs_name_list) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
     free(kvs_name_list->kvs_names);
     kvs_name_list->kvs_names = NULL;
     kvs_name_list->num_kvs_names = 0;
