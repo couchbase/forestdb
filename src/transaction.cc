@@ -32,8 +32,8 @@ LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
 {
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     file_status_t fstatus;
@@ -106,7 +106,7 @@ LIBFDB_API
 fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
 {
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     return _fdb_abort_transaction(fhandle->root);
@@ -115,7 +115,7 @@ fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
 fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
 {
     if (!handle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     file_status_t fstatus;
@@ -169,8 +169,8 @@ LIBFDB_API
 fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
                                fdb_commit_opt_t opt)
 {
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     file_status_t fstatus;

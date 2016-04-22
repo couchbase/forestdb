@@ -107,11 +107,14 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
                              size_t end_keylen,
                              fdb_iterator_opt_t opt)
 {
-    if (handle == NULL ||
-        start_keylen > FDB_MAX_KEYLEN ||
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (start_keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
            (start_keylen > handle->config.blocksize - HBTRIE_HEADROOM ||
-            end_keylen > handle->config.blocksize - HBTRIE_HEADROOM) ) ||
+            end_keylen > handle->config.blocksize - HBTRIE_HEADROOM)) ||
         end_keylen > FDB_MAX_KEYLEN) {
         return FDB_RESULT_INVALID_ARGS;
     }
@@ -274,8 +277,11 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
                                       const fdb_seqnum_t end_seq,
                                       fdb_iterator_opt_t opt)
 {
-    if (handle == NULL || ptr_iterator == NULL ||
-        (end_seq && start_seq > end_seq)) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (ptr_iterator == NULL || (end_seq && start_seq > end_seq)) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -733,8 +739,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                              const size_t seek_keylen,
                              const fdb_iterator_seek_opt_t seek_pref)
 {
-    if (!iterator) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     int cmp, cmp2; // intermediate results of comparison
@@ -753,7 +759,7 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
 
     iterator->_dhandle = NULL; // setup for get() to return FAIL
 
-    if (!iterator || !seek_key || !iterator->_key ||
+    if (!seek_key || !iterator->_key ||
         seek_keylen > FDB_MAX_KEYLEN ||
         (iterator->handle->kvs_config.custom_cmp &&
          seek_keylen > iterator->handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -1202,7 +1208,11 @@ fetch_hbtrie:
 LIBFDB_API
 fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
 {
-    if (!iterator || !iterator->_key) {
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1252,7 +1262,11 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
 fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
     int cmp;
     size_t size_chunk = iterator->handle->config.chunksize;
-    if (!iterator || !iterator->_key) {
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!iterator->_key) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1319,8 +1333,8 @@ fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
 }
 
 fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
-    if (!iterator) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     iterator->direction = FDB_ITR_REVERSE; // only reverse iteration possible
@@ -1395,8 +1409,8 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
 LIBFDB_API
 fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator)
 {
-    if (!iterator) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_status ret;
@@ -1778,8 +1792,8 @@ start_seq:
 LIBFDB_API
 fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 {
-    if (!iterator) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_status result = FDB_RESULT_SUCCESS;
@@ -1818,8 +1832,8 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
 LIBFDB_API
 fdb_status fdb_iterator_next(fdb_iterator *iterator)
 {
-    if (!iterator) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_status result = FDB_RESULT_SUCCESS;
@@ -1860,7 +1874,11 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
 LIBFDB_API
 fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 {
-    if (!iterator || !doc) {
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1958,7 +1976,11 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
 LIBFDB_API
 fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 {
-    if (!iterator || !doc) {
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -2047,8 +2069,8 @@ fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 LIBFDB_API
 fdb_status fdb_iterator_close(fdb_iterator *iterator)
 {
-    if (!iterator) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!iterator || !iterator->handle) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     LATENCY_STAT_START();

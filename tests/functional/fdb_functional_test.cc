@@ -4658,36 +4658,36 @@ void apis_with_invalid_handles_test() {
     TEST_CHK(FDB_RESULT_SUCCESS == fdb_open(&dbfile, "dummy", &config));
     TEST_CHK(FDB_RESULT_SUCCESS == fdb_kvs_open(dbfile, &db, NULL, &kvs_config));
 
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_snapshot_open(db, NULL,
-                                                          FDB_SNAPSHOT_INMEM));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_snapshot_open(NULL, NULL,
-                                                          FDB_SNAPSHOT_INMEM));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_rollback(&db1, 10));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_set_log_callback(NULL,
-                                                             logCallbackFunc,
-                                                             NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_get_byoffset(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_set(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_del(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_commit(NULL, FDB_COMMIT_NORMAL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_compact(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_compact_with_cow(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_rekey(NULL, new_key));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_seek(NULL, "key", 3, 0));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_seek_to_min(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_seek_to_max(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_prev(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_next(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_get(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_iterator_get_metaonly(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_kvs_open(NULL, NULL, NULL,
-                                                     &kvs_config));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_kvs_close(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_begin_transaction(NULL,
-                                                FDB_ISOLATION_READ_COMMITTED));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_abort_transaction(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_ARGS == fdb_end_transaction(NULL,
-                                                FDB_COMMIT_NORMAL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_snapshot_open(db, NULL,
+                                                            FDB_SNAPSHOT_INMEM));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_snapshot_open(NULL, NULL,
+                                                            FDB_SNAPSHOT_INMEM));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_rollback(&db1, 10));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_set_log_callback(NULL,
+                                                               logCallbackFunc,
+                                                               NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_get_byoffset(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_set(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_del(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_commit(NULL, FDB_COMMIT_NORMAL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_compact(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_compact_with_cow(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_rekey(NULL, new_key));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_seek(NULL, "key", 3, 0));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_seek_to_min(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_seek_to_max(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_prev(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_next(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_get(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_get_metaonly(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_kvs_open(NULL, NULL, NULL,
+                                                       &kvs_config));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_kvs_close(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_begin_transaction(NULL,
+                                                  FDB_ISOLATION_READ_COMMITTED));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_abort_transaction(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_end_transaction(NULL,
+                                                  FDB_COMMIT_NORMAL));
 
     fdb_kvs_close(db);
     fdb_close(dbfile);

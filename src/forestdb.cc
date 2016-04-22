@@ -958,7 +958,7 @@ fdb_status fdb_snapshot_open(fdb_kvs_handle *handle_in,
 #endif
 
     if (!handle_in || !ptr_handle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_config config = handle_in->config;
@@ -1174,13 +1174,13 @@ fdb_status fdb_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     fdb_seqnum_t old_seqnum;
 
     if (!handle_ptr) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     handle_in = *handle_ptr;
 
     if (!handle_in) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     config = handle_in->config;
@@ -1310,7 +1310,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     struct snap_handle shandle; // dummy snap handle
 
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     super_handle = fhandle->root;
@@ -2191,7 +2191,7 @@ fdb_status fdb_set_log_callback(fdb_kvs_handle *handle,
                                 void *ctx_data)
 {
     if (!handle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     handle->log_callback.callback = log_callback;
@@ -2901,7 +2901,11 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_doc doc_kv;
     LATENCY_STAT_START();
 
-    if (!handle || !doc || !doc->key || doc->keylen == 0 ||
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc || !doc->key || doc->keylen == 0 ||
         doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -3034,7 +3038,11 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_doc doc_kv;
     LATENCY_STAT_START();
 
-    if (!handle || !doc || !doc->key ||
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc || !doc->key ||
         doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -3159,7 +3167,11 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     struct _fdb_key_cmp_info cmp_info;
     LATENCY_STAT_START();
 
-    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -3312,7 +3324,11 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_txn *txn;
     struct _fdb_key_cmp_info cmp_info;
 
-    if (!handle || !doc || doc->seqnum == SEQNUM_NOT_USED) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -3477,7 +3493,11 @@ INLINE void _remove_kv_id(fdb_kvs_handle *handle, struct docio_object *doc)
 LIBFDB_API
 fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
 {
-    if (!handle || !doc) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -3564,8 +3584,8 @@ INLINE uint64_t _fdb_get_wal_threshold(fdb_kvs_handle *handle)
 LIBFDB_API
 fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
 {
-    if (!handle || !doc) {
-        return FDB_RESULT_INVALID_ARGS;
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     uint64_t offset;
@@ -3589,8 +3609,8 @@ fdb_status fdb_set(fdb_kvs_handle *handle, fdb_doc *doc)
                        handle->file->filename);
     }
 
-    if ( doc->key == NULL || doc->keylen == 0 ||
-        doc->keylen > FDB_MAX_KEYLEN ||
+    if (!doc || doc->key == NULL ||
+        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
         (doc->metalen > 0 && doc->meta == NULL) ||
         (doc->bodylen > 0 && doc->body == NULL) ||
         (handle->kvs_config.custom_cmp &&
@@ -3818,7 +3838,11 @@ fdb_set_start:
 LIBFDB_API
 fdb_status fdb_del(fdb_kvs_handle *handle, fdb_doc *doc)
 {
-    if (!handle || !doc) {
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!doc) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -4065,7 +4089,7 @@ LIBFDB_API
 fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
 {
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     return _fdb_commit(fhandle->root, opt,
@@ -4075,7 +4099,7 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
 fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
 {
     if (!handle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     uint64_t cur_bmp_revnum;
@@ -7024,7 +7048,7 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
                                const fdb_encryption_key *new_encryption_key)
 {
     if (!fhandle || !fhandle->root) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_kvs_handle *handle = fhandle->root;
@@ -7094,10 +7118,6 @@ LIBFDB_API
 fdb_status fdb_rekey(fdb_file_handle *fhandle,
                      fdb_encryption_key new_key)
 {
-    if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
     return _fdb_compact(fhandle, NULL, BLK_NOT_FOUND, false, &new_key);
 }
 
@@ -7106,6 +7126,10 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
                                       fdb_compaction_mode_t mode,
                                       size_t new_threshold)
 {
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
     int ret;
     fdb_status fs;
     fdb_kvs_handle *handle = fhandle->root;
@@ -7114,7 +7138,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
     char filename[FDB_MAX_FILENAME_LEN];
     char metafile[FDB_MAX_FILENAME_LEN];
 
-    if (!handle || new_threshold > 100) {
+    if (new_threshold > 100) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -7194,7 +7218,7 @@ fdb_status fdb_set_daemon_compaction_interval(fdb_file_handle *fhandle,
                                               size_t interval)
 {
     if (!fhandle || !fhandle->root) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_kvs_handle *handle = fhandle->root;
@@ -7209,11 +7233,11 @@ fdb_status fdb_set_daemon_compaction_interval(fdb_file_handle *fhandle,
 LIBFDB_API
 fdb_status fdb_close(fdb_file_handle *fhandle)
 {
-    fdb_status fs;
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
+    fdb_status fs;
     if (fhandle->root->config.auto_commit &&
         filemgr_get_ref_count(fhandle->root->file) == 1) {
         // auto commit mode & the last handle referring the file
@@ -7394,15 +7418,22 @@ fdb_status fdb_get_latency_stats(fdb_file_handle *fhandle,
                                  fdb_latency_stat *stat,
                                  fdb_latency_stat_type type)
 {
-    if (!fhandle || !stat ||!fhandle->root || type >= FDB_LATENCY_NUM_STATS) {
+    if (!fhandle || !fhandle->root) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!stat || type >= FDB_LATENCY_NUM_STATS) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
     if (!fhandle->root->file) {
         return FDB_RESULT_FILE_NOT_OPEN;
     }
+
 #ifdef _LATENCY_STATS
     filemgr_get_latency_stat(fhandle->root->file, type, stat);
 #endif // _LATENCY_STATS
+
     return FDB_RESULT_SUCCESS;
 }
 
@@ -7551,7 +7582,11 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
     uint64_t ndocs, ndeletes;
     fdb_kvs_handle *handle;
 
-    if (!fhandle || !info) {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!info) {
         return FDB_RESULT_INVALID_ARGS;
     }
     handle = fhandle->root;
@@ -7644,9 +7679,14 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     filemgr_header_revnum_t revnum;
     fdb_status status = FDB_RESULT_SUCCESS;
 
-    if (!fhandle || !markers_out || !num_markers) {
+    if (!fhandle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!markers_out || !num_markers) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
     handle = fhandle->root;
     if (!handle->file) {
         return FDB_RESULT_FILE_NOT_OPEN;
@@ -7781,7 +7821,7 @@ LIBFDB_API
 fdb_status fdb_cancel_compaction(fdb_file_handle *fhandle)
 {
     if (!fhandle) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
 
     fdb_kvs_handle *super_handle = fhandle->root;
@@ -7809,7 +7849,7 @@ fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
                                         size_t num_keeping_headers)
 {
     if (!fhandle || !fhandle->root) {
-        return FDB_RESULT_INVALID_ARGS;
+        return FDB_RESULT_INVALID_HANDLE;
     }
     filemgr *file = fhandle->root->file;
     atomic_store_uint64_t(&file->config->block_reusing_threshold,
