@@ -1599,6 +1599,7 @@ void bcache_shutdown()
     struct bcache_item *item;
     struct list_elem *e;
 
+    spin_lock(&freelist_lock);
     e = list_begin(&freelist);
     while(e) {
         item = _get_entry(e, struct bcache_item, list_elem);
@@ -1606,7 +1607,9 @@ void bcache_shutdown()
         freelist_count--;
         free(item);
     }
+    spin_unlock(&freelist_lock);
 
+    writer_lock(&filelist_lock);
     // Force clean zombies if any
     e = list_begin(&file_zombies);
     while (e) {
@@ -1616,6 +1619,7 @@ void bcache_shutdown()
     }
     // Free the file list array
     free(file_list);
+    writer_unlock(&filelist_lock);
 
     // Free entire buffercache memory
     free(buffercache_addr);
