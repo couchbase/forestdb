@@ -2935,7 +2935,6 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     fdb_status wr;
     btree_result br = BTREE_RESULT_FAIL;
     fdb_seqnum_t _seqnum;
-    fdb_txn *txn = handle->fhandle->root->txn;
 
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -2943,6 +2942,8 @@ fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    fdb_txn *txn = handle->fhandle->root->txn;
 
     // Sequence trees are a must for byseq operations
     if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {

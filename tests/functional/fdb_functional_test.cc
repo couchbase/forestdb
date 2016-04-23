@@ -4547,6 +4547,7 @@ void apis_with_invalid_handles_test() {
                                                              logCallbackFunc,
                                                              NULL));
     TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_get_byoffset(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_get_metaonly_byseq(NULL, NULL));
     TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_set(NULL, NULL));
     TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_del(NULL, NULL));
     TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_commit(NULL, FDB_COMMIT_NORMAL));
