@@ -365,6 +365,10 @@ void *bad_thread(void *voidargs) {
         TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
         s = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
         TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
+        s = fdb_end_transaction(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_TRANSACTION_FAIL);
     } else {
         s = fdb_iterator_next(itr);
         TEST_CHK(s == FDB_RESULT_HANDLE_BUSY);
