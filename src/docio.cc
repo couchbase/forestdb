@@ -117,7 +117,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
     if (handle->curblock == BLK_NOT_FOUND) {
         // allocate new block
         handle->cur_bmp_revnum_hash =
-            filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
+            filemgr_get_sb_bmp_revnum(handle->file) & BMP_REVNUM_MASK;
         handle->curblock = filemgr_alloc(handle->file, log_callback);
         handle->curpos = 0;
     }
@@ -131,7 +131,7 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
         }
         // allocate new block
         handle->cur_bmp_revnum_hash =
-            filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
+            filemgr_get_sb_bmp_revnum(handle->file) & BMP_REVNUM_MASK;
         handle->curblock = filemgr_alloc(handle->file, log_callback);
         handle->curpos = 0;
     }
@@ -265,7 +265,8 @@ bid_t docio_append_doc_raw(struct docio_handle *handle, uint64_t size, void *buf
 
             block_list_size = nblock + ((new_block)?1:0);
             for (i=0; i<block_list_size; ++i) {
-                bmp_revnum_list[i] = filemgr_get_sb_bmp_revnum(handle->file) & 0xff;
+                bmp_revnum_list[i] = filemgr_get_sb_bmp_revnum(handle->file) &
+                                     BMP_REVNUM_MASK;
                 block_list[i] = filemgr_alloc(handle->file, log_callback);
 
                 if (i == 0 && handle->curblock != BLK_NOT_FOUND &&
@@ -738,7 +739,7 @@ INLINE bool _docio_check_buffer(struct docio_handle *handle, uint64_t bmp_revnum
 
     if (non_consecutive && bmp_revnum != (uint64_t)-1) {
         uint16_t revnum_hash = _endian_decode(blk_meta.sb_bmp_revnum_hash);
-        if (revnum_hash == (bmp_revnum & 0xff)) {
+        if (revnum_hash == (bmp_revnum & BMP_REVNUM_MASK)) {
             return true;
         } else {
             return false;
