@@ -188,10 +188,6 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
         }
     }
 
-    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (list_begin(handle->txn->items)) {
         fs = _fdb_commit(handle, opt,
@@ -225,6 +221,5 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
         filemgr_mutex_unlock(file);
     }
 
-    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return fs;
 }

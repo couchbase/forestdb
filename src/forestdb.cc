@@ -4126,6 +4126,10 @@ fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
                        handle->file->filename);
     }
 
+    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
 fdb_commit_start:
     fdb_check_file_reopen(handle, NULL);
     filemgr_mutex_lock(handle->file);
@@ -4133,6 +4137,7 @@ fdb_commit_start:
 
     if (filemgr_is_rollback_on(handle->file)) {
         filemgr_mutex_unlock(handle->file);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
@@ -4147,6 +4152,7 @@ fdb_commit_start:
     fs = btreeblk_end(handle->bhandle);
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_mutex_unlock(handle->file);
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         return fs;
     }
 
@@ -4157,6 +4163,7 @@ fdb_commit_start:
                         &handle->log_callback);
         if (wr != FDB_RESULT_SUCCESS) {
             filemgr_mutex_unlock(handle->file);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return wr;
         }
         if (wal_get_dirty_status(handle->file)== FDB_WAL_CLEAN) {
@@ -4192,6 +4199,7 @@ fdb_commit_start:
             filemgr_dirty_update_close_node(handle->file, prev_node);
             filemgr_dirty_update_remove_node(handle->file, new_node);
             filemgr_mutex_unlock(handle->file);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return wr;
         }
         wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
@@ -4305,6 +4313,7 @@ fdb_commit_start:
 
     LATENCY_STAT_END(handle->file, FDB_LATENCY_COMMITS);
     atomic_incr_uint64_t(&handle->op_stats->num_commits, std::memory_order_relaxed);
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return fs;
 }
 
@@ -4444,9 +4453,11 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_COMPLETE) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(handle->fhandle, FDB_CS_COMPLETE,
                                      NULL, NULL, BLK_NOT_FOUND, BLK_NOT_FOUND,
                                      handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
     return status;
 }
@@ -4635,10 +4646,12 @@ static fdb_status _fdb_move_wal_docs(fdb_kvs_handle *handle,
                                                    wal_doc.key, &key_offset);
                     wal_doc.keylen -= key_offset;
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
+                    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                     decision = handle->config.compaction_cb(
                                handle->fhandle, FDB_CS_MOVE_DOC,
                                kvs_name, &wal_doc, offset, BLK_NOT_FOUND,
                                handle->config.compaction_cb_ctx);
+                    atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
                     wal_doc.keylen += key_offset;
                 } else {
@@ -4857,8 +4870,10 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
     }
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
                                      0, 0, handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 
     gettimeofday(&tv, NULL);
@@ -4962,10 +4977,12 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
                                                      wal_doc.key, &key_offset);
                     wal_doc.keylen -= key_offset;
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
+                    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                     decision = handle->config.compaction_cb(
                                handle->fhandle, FDB_CS_MOVE_DOC,
                                kvs_name, &wal_doc, _offset, BLK_NOT_FOUND,
                                handle->config.compaction_cb_ctx);
+                    atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
                     wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
                     wal_doc.keylen += key_offset;
                 } else {
@@ -5030,10 +5047,12 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
 
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
+                    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                     handle->config.compaction_cb(handle->fhandle,
                                                  FDB_CS_BATCH_MOVE, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
+                    atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
                 }
             } // repeat until no more offset in the offset_array
 
@@ -5074,10 +5093,12 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
 
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+                    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                     handle->config.compaction_cb(handle->fhandle,
                                                  FDB_CS_FLUSH_WAL, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
+                    atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
                 }
             }
 
@@ -5113,9 +5134,11 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
                                      NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 
     return fs;
@@ -5184,8 +5207,10 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
                                      0, 0, handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 
     gettimeofday(&tv, NULL);
@@ -5303,12 +5328,14 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                         wal_doc.keylen -= key_offset;
                         wal_doc.key = (void *)((uint8_t*)wal_doc.key
                                     + key_offset);
+                        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                         decision = handle->config.compaction_cb(
                                    handle->fhandle, FDB_CS_MOVE_DOC,
                                    kvs_name, &wal_doc,
                                    offset_array[start_idx + j],
                                    BLK_NOT_FOUND,
                                    handle->config.compaction_cb_ctx);
+                        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
                         wal_doc.key = (void *)((uint8_t*)wal_doc.key
                                     - key_offset);
                         wal_doc.keylen += key_offset;
@@ -5348,10 +5375,12 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
                 if (handle->config.compaction_cb &&
                     handle->config.compaction_cb_mask & FDB_CS_BATCH_MOVE) {
+                    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                     handle->config.compaction_cb(handle->fhandle,
                                                  FDB_CS_BATCH_MOVE, NULL, NULL,
                                                  old_offset, new_offset,
                                                  handle->config.compaction_cb_ctx);
+                    atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
                 }
 
                 // === flush WAL entries by compactor ===
@@ -5390,19 +5419,26 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
                     if (handle->config.compaction_cb &&
                         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+                        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
                         handle->config.compaction_cb(handle->fhandle,
-                                                     FDB_CS_FLUSH_WAL, NULL, NULL,
+                                                     FDB_CS_FLUSH_WAL, NULL,
+                                                     NULL,
                                                      old_offset, new_offset,
-                                                     handle->config.compaction_cb_ctx);
+                                                     handle->
+                                                     config.compaction_cb_ctx);
+                        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
                     }
                 }
 
                 writer_curr_bid = filemgr_get_pos(handle->file) /
                                   handle->file->config->blocksize;
-                compactor_curr_bid = filemgr_get_pos(new_file) / new_file->config->blocksize;
+                compactor_curr_bid = filemgr_get_pos(new_file)
+                                   / new_file->config->blocksize;
                 _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
-                                           &writer_prev_bid, &compactor_prev_bid,
-                                           prob, handle->config.max_writer_lock_prob);
+                                           &writer_prev_bid,
+                                           &compactor_prev_bid,
+                                           prob,
+                                           handle->config.max_writer_lock_prob);
 
                 // If the rollback operation is issued, abort the compaction task.
                 if (filemgr_is_rollback_on(handle->file)) {
@@ -5434,9 +5470,11 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
                                      NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 
     return fs;
@@ -5717,11 +5755,13 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
                                                  wal_doc.key, &key_offset);
             wal_doc.keylen -= key_offset;
             wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             handle->config.compaction_cb(handle->fhandle, FDB_CS_MOVE_DOC,
                                          kvs_name, &wal_doc,
                                          old_offset_array[i],
                                          doc_offset,
                                          handle->config.compaction_cb_ctx);
+            atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
             wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
             wal_doc.keylen += key_offset;
             if (locked) {
@@ -5773,10 +5813,12 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(
             handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
             old_offset_array[i], doc_offset,
             handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 }
 #endif // _COW_COMPACTION
@@ -5840,10 +5882,12 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
                                                 wal_doc.key, &key_offset);
             wal_doc.keylen -= key_offset;
             wal_doc.key = (void *)((uint8_t*)wal_doc.key + key_offset);
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             decision = handle->config.compaction_cb(
                        handle->fhandle, FDB_CS_MOVE_DOC,
                        kvs_name, &wal_doc, old_offset_array[i],
                        BLK_NOT_FOUND, handle->config.compaction_cb_ctx);
+            atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
             wal_doc.key = (void *)((uint8_t*)wal_doc.key - key_offset);
             wal_doc.keylen += key_offset;
             if (got_lock) {
@@ -5907,10 +5951,12 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_FLUSH_WAL) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(
             handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
             old_offset_array[i], doc_offset,
             handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 }
 
@@ -5953,8 +5999,10 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_BEGIN) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(handle->fhandle, FDB_CS_BEGIN, NULL, NULL,
                                      0, 0, handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 
     // Temporarily disable log callback function
@@ -6261,9 +6309,11 @@ move_delta_next_loop:
 
     if (handle->config.compaction_cb &&
         handle->config.compaction_cb_mask & FDB_CS_END) {
+        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(handle->fhandle, FDB_CS_END,
                                      NULL, NULL, old_offset, new_offset,
                                      handle->config.compaction_cb_ctx);
+        atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
 
     handle->dhandle->log_callback = log_callback;
@@ -7056,6 +7106,10 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
     char nextfile[FDB_MAX_FILENAME_LEN];
     fdb_status fs;
 
+    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+        return FDB_RESULT_HANDLE_BUSY;
+    }
+
     if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
         // manual compaction
         if (!new_filename) { // In-place compaction.
@@ -7070,6 +7124,7 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
         // set compaction flag
         ret = compactor_switch_compaction_flag(handle->file, true);
         if (!ret) {
+            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             // the file is already being compacted by other thread
             return FDB_RESULT_FILE_IS_BUSY;
         }
@@ -7081,6 +7136,7 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
         ret = compactor_switch_compaction_flag(handle->file, false);
         (void)ret;
     }
+    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
     return fs;
 }
 
