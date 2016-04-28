@@ -1514,7 +1514,7 @@ void superblock_recovery_test() {
     // compact upto marker
     status = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    TEST_CHK(num_markers > 5);
+    TEST_CHK(num_markers == fconfig.num_keeping_headers);
     status = fdb_compact_upto(dbfile, NULL, markers[4].marker);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 

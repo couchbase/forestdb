@@ -766,6 +766,7 @@ void estimate_space_upto_test(bool multi_kv)
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
+    fconfig.block_reusing_threshold = 0;
 
     // remove previous compact_test files
     r = system(SHELL_DEL" compact_test* > errorlog.txt");
@@ -3448,6 +3449,9 @@ void compact_upto_with_circular_reuse_test()
 
     s = fdb_get_all_snap_markers(dbfile, &markers_out, &num_markers);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // num_markers should be equal to or smaller than num_keeping_headers
+    TEST_CHK(num_markers <= config.num_keeping_headers);
 
     s = fdb_compact_upto(dbfile, "compact_test_compact", markers_out[5].marker);
     TEST_CHK(s == FDB_RESULT_SUCCESS);

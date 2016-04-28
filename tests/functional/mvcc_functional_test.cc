@@ -4216,6 +4216,7 @@ void rollback_all_test(bool multi_kv)
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.compaction_threshold = 0;
     fconfig.multi_kv_instances = multi_kv;
+    fconfig.block_reusing_threshold = 0;
 
     fdb_open(&dbfile, "./mvcc_test6", &fconfig);
     if (multi_kv) {

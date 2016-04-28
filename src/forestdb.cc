@@ -7845,8 +7845,20 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     header_len = handle->file->header.size;
     size = 0;
 
+    uint64_t num_keeping_headers =
+        atomic_get_uint64_t(&handle->file->config->num_keeping_headers,
+                            std::memory_order_relaxed);
+
     // Reverse scan the file to locate the DB header with seqnum marker
     for (i = 0; header_len; ++i, ++size) {
+        if (handle->config.block_reusing_threshold > 0 &&
+            handle->config.block_reusing_threshold < 100 &&
+            size >= num_keeping_headers) {
+            // if block reuse is enabled,
+            // do not allow to scan beyond the config parameter
+            break;
+        }
+
         if (i == 0) {
             status = filemgr_fetch_header(handle->file, handle->last_hdr_bid,
                                           header_buf, &header_len, NULL,
@@ -7854,8 +7866,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
                                           &handle->log_callback);
         } else {
             if ((uint64_t)i >= array_size) {
-                header_len = 0;
-                continue;
+                break;
             }
             hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                                 header_buf, &header_len,
@@ -7863,11 +7874,11 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
                                                 NULL, &handle->log_callback);
         }
         if (header_len == 0) {
-            continue; // header doesn't exist, terminate iteration
+            break; // header doesn't exist, terminate iteration
         }
         if (ver_superblock_support(version) &&
             revnum < handle->file->sb->min_live_hdr_revnum) {
-            continue; // eariler than the last block reclaiming
+            break; // eariler than the last block reclaiming
         }
 
         fdb_fetch_header(version, header_buf,
@@ -7917,7 +7928,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     }
 
     *markers_out = markers;
-    *num_markers = size ? size - 1 : 0;
+    *num_markers = size;
 
     return status;
 }
