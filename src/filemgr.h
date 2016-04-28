@@ -240,6 +240,12 @@ struct filemgr {
 
     // temporary in-memory list of stale blocks
     struct list *stale_list;
+    // in-memory clone of system docs for reusable block info
+    // (they are pointed to by stale-block-tree)
+    struct avl_tree stale_info_tree;
+    // temporary tree for merging stale regions
+    struct avl_tree mergetree;
+    std::atomic<bool> stale_info_tree_loaded;
 
     // in-memory index for a set of dirty index block updates
     struct avl_tree dirty_update_idx;
@@ -589,6 +595,9 @@ INLINE void filemgr_set_stale_list(struct filemgr *file,
     file->stale_list = stale_list;
 }
 void filemgr_clear_stale_list(struct filemgr *file);
+void filemgr_clear_stale_info_tree(struct filemgr *file);
+void filemgr_clear_mergetree(struct filemgr *file);
+
 INLINE struct list * filemgr_get_stale_list(struct filemgr *file)
 {
     return file->stale_list;

@@ -906,6 +906,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     spin_init(&file->lock);
     file->stale_list = (struct list*)calloc(1, sizeof(struct list));
     list_init(file->stale_list);
+    avl_init(&file->stale_info_tree, NULL);
+    avl_init(&file->mergetree, NULL);
+    file->stale_info_tree_loaded = false;
 
     filemgr_dirty_update_init(file);
 
@@ -1673,6 +1676,8 @@ void filemgr_free_func(struct hash_elem *h)
     // free file structure
     struct list *stale_list = filemgr_get_stale_list(file);
     filemgr_clear_stale_list(file);
+    filemgr_clear_stale_info_tree(file);
+    filemgr_clear_mergetree(file);
     free(stale_list);
     free(file->config);
     free(file);
@@ -3001,6 +3006,45 @@ void filemgr_clear_stale_list(struct filemgr *file)
             free(item);
         }
         file->stale_list = NULL;
+    }
+}
+
+void filemgr_clear_stale_info_tree(struct filemgr *file)
+{
+    struct avl_node *a;
+    struct list_elem *e;
+    struct stale_info_commit *commit;
+    struct stale_info_entry *entry;
+
+    a = avl_first(&file->stale_info_tree);
+    while (a) {
+        commit = _get_entry(a, struct stale_info_commit, avl);
+        a = avl_next(&commit->avl);
+        avl_remove(&file->stale_info_tree, &commit->avl);
+
+        e = list_begin(&commit->doc_list);
+        while (e) {
+            entry = _get_entry(e, struct stale_info_entry, le);
+            e = list_next(&entry->le);
+            list_remove(&commit->doc_list, &entry->le);
+            free(entry->ctx);
+            free(entry);
+        }
+        free(commit);
+    }
+}
+
+void filemgr_clear_mergetree(struct filemgr *file)
+{
+    struct avl_node *a;
+    struct stale_data *entry;
+
+    a = avl_first(&file->mergetree);
+    while (a) {
+        entry = _get_entry(a, struct stale_data, avl);
+        a = avl_next(&entry->avl);
+        avl_remove(&file->mergetree, &entry->avl);
+        free(entry);
     }
 }
 

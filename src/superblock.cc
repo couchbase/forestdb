@@ -836,7 +836,7 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
 
     // re-store into stale tree using next header's revnum
     filemgr_header_revnum_t revnum = handle->cur_header_revnum;
-    fdb_gather_stale_blocks(handle, revnum+1, BLK_NOT_FOUND, BLK_NOT_FOUND, 0, NULL);
+    fdb_gather_stale_blocks(handle, revnum+1, BLK_NOT_FOUND, BLK_NOT_FOUND, 0, NULL, false);
 }
 
 void sb_bmp_mask_init()

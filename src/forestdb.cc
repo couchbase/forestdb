@@ -2083,11 +2083,11 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                            handle->btreeblkops, seq_kv_ops,
                            handle->config.blocksize, sizeof(fdb_seqnum_t),
                            OFFSET_SIZE, 0x0, NULL);
-             }else{
-                 btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
-                                     handle->btreeblkops, seq_kv_ops,
-                                     handle->config.blocksize, seq_root_bid);
-             }
+            }else{
+                btree_init_from_bid(handle->seqtree, (void *)handle->bhandle,
+                                    handle->btreeblkops, seq_kv_ops,
+                                    handle->config.blocksize, seq_root_bid);
+            }
         }
     }else{
         handle->seqtree = NULL;
@@ -2112,6 +2112,8 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
             btree_init_from_bid(handle->staletree, (void *)handle->bhandle,
                                 handle->btreeblkops, stale_kv_ops,
                                 handle->config.blocksize, stale_root_bid);
+            // prefetch stale info into memory
+            fdb_load_inmem_stale_info(handle);
          }
     } else {
         handle->staletree = NULL;
@@ -4222,7 +4224,7 @@ fdb_commit_start:
                                 handle->last_hdr_bid,
                                 handle->kv_info_offset,
                                 filemgr_get_seqnum(handle->file),
-                                NULL);
+                                NULL, false);
     }
 
     // Note: Getting header BID must be done after
@@ -4368,7 +4370,7 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
                             filemgr_get_header_bid(handle->file),
                             handle->kv_info_offset,
                             filemgr_get_seqnum(handle->file),
-                            NULL);
+                            NULL, false);
     handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
     if (wal_get_dirty_status(new_file) == FDB_WAL_CLEAN) {
         earliest_txn = wal_earliest_txn(new_file,
@@ -6153,7 +6155,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                                         new_handle.last_hdr_bid,
                                         new_handle.kv_info_offset,
                                         filemgr_get_seqnum(new_file),
-                                        NULL);
+                                        NULL, false);
                 // If synchrouns commit is enabled, then disable it temporarily for each
                 // commit header as synchronous commit is not required in the new file
                 // during the compaction.
