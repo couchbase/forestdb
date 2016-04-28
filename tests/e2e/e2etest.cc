@@ -132,9 +132,9 @@ void update_index(storage_t *st, bool checkpointing) {
                     e2e_fdb_del_person(st, p);
                     n++;
                 }
+                free(p);
+                p=NULL;
             }
-            free(p);
-            p=NULL;
             fdb_doc_free(rdoc);
             rdoc=NULL;
         }
