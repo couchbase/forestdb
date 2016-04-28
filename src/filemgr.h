@@ -184,7 +184,7 @@ struct filemgr {
     int fd;
     atomic_uint64_t pos;
     atomic_uint64_t last_commit;
-    atomic_uint64_t last_commit_bmp_revnum;
+    atomic_uint64_t last_writable_bmp_revnum;
     atomic_uint64_t num_invalidated_blocks;
     atomic_uint8_t io_in_prog;
     struct wal *wal;

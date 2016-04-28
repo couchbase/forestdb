@@ -503,8 +503,8 @@ bool sb_update_header(fdb_kvs_handle *handle)
         atomic_store_uint64_t(&sb->last_hdr_bid, handle->last_hdr_bid);
         atomic_store_uint64_t(&sb->last_hdr_revnum, handle->cur_header_revnum);
 
-        uint64_t lc_revnum = atomic_get_uint64_t(&handle->file->last_commit_bmp_revnum);
-        if (lc_revnum == sb->bmp_revnum &&
+        uint64_t lw_revnum = atomic_get_uint64_t(&handle->file->last_writable_bmp_revnum);
+        if (lw_revnum == sb->bmp_revnum &&
             sb->bmp_prev) {
             free(sb->bmp_prev);
             sb->bmp_prev = NULL;
@@ -1095,13 +1095,13 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
 
     bool ret = false;
     bid_t last_commit = atomic_get_uint64_t(&file->last_commit) / file->blocksize;
-    uint64_t lc_bmp_revnum = atomic_get_uint64_t(&file->last_commit_bmp_revnum);
+    uint64_t lw_bmp_revnum = atomic_get_uint64_t(&file->last_writable_bmp_revnum);
     struct superblock *sb = file->sb;
 
     sb_bmp_barrier_on(sb);
 
     uint8_t *sb_bmp = sb->bmp;
-    if (sb->bmp_revnum == lc_bmp_revnum) {
+    if (sb->bmp_revnum == lw_bmp_revnum) {
         // Same bitmap revision number: there are 2 possible cases
         //
         // (1) normal case

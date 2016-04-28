@@ -369,6 +369,15 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
     }
 }
 
+uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file)
+{
+    if (file->sb && sb_ops.get_bmp_revnum) {
+        return sb_ops.get_bmp_revnum(file);
+    } else {
+        return 0;
+    }
+}
+
 static fdb_status _filemgr_read_header(struct filemgr *file,
                                        err_log_callback *log_callback)
 {
@@ -477,17 +486,11 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                                     sizeof(fdb_seqnum_t));
 
                             if (ver_superblock_support(magic)) {
-                                // sb bmp revnum
-                                uint64_t _bmp_revnum;
-                                memcpy(&_bmp_revnum,
-                                    (uint8_t *)buf + (file->blocksize
-                                    - sizeof(filemgr_magic_t) - sizeof(len)
-                                    - sizeof(bid_t) - sizeof(uint64_t)
-                                    - sizeof(_bmp_revnum)
-                                    - BLK_MARKER_SIZE),
-                                    sizeof(_bmp_revnum));
-                                atomic_store_uint64_t(&file->last_commit_bmp_revnum,
-                                                      _endian_decode(_bmp_revnum));
+                                // last_writable_bmp_revnum should be same with
+                                // the current bmp_revnum (since it indicates the
+                                // 'bmp_revnum' of 'sb->cur_alloc_bid').
+                                atomic_store_uint64_t(&file->last_writable_bmp_revnum,
+                                                      filemgr_get_sb_bmp_revnum(file));
                             }
 
                             file->header.revnum =
@@ -880,7 +883,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         return result;
     }
     atomic_init_uint64_t(&file->last_commit, offset);
-    atomic_init_uint64_t(&file->last_commit_bmp_revnum, 0);
+    atomic_init_uint64_t(&file->last_writable_bmp_revnum, 0);
     atomic_init_uint64_t(&file->pos, offset);
     atomic_init_uint32_t(&file->throttling_delay, 0);
     atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
@@ -1118,15 +1121,6 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
     spin_unlock(&file->lock);
 
     return buf;
-}
-
-uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file)
-{
-    if (file->sb && sb_ops.get_bmp_revnum) {
-        return sb_ops.get_bmp_revnum(file);
-    } else {
-        return 0;
-    }
 }
 
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
@@ -2442,13 +2436,18 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         atomic_get_uint8_t(&file->status) == FILE_NORMAL) {
         // block reusing is currently enabled
         atomic_store_uint64_t(&file->last_commit,
-                              atomic_get_uint64_t(&file->sb->cur_alloc_bid) * file->blocksize);
+            atomic_get_uint64_t(&file->sb->cur_alloc_bid) * file->blocksize);
     } else {
         atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
     }
     if (file->sb) {
-        atomic_store_uint64_t(&file->last_commit_bmp_revnum,
-                              bmp_revnum);
+        // Since some more blocks may be allocated after the header block
+        // (for storing BMP data or system docs for stale info)
+        // so that the block pointed to by 'cur_alloc_bid' may have
+        // different BMP revision number. So we have to use the
+        // up-to-date bmp_revnum here.
+        atomic_store_uint64_t(&file->last_writable_bmp_revnum,
+                              filemgr_get_sb_bmp_revnum(file));
     }
 
     spin_unlock(&file->lock);
