@@ -239,10 +239,8 @@ INLINE int reader_lock(fdb_rw_lock *lock) {
 #if !defined(WIN32) && !defined(_WIN32)
     int result = pthread_rwlock_rdlock(lock);
     if (result != 0) {
-        char buffer[64];
-        strerror_r(result, buffer, sizeof(buffer));
         fprintf(stderr, "pthread_rwlock_rdlock returned %d (%s)\n",
-                result, buffer);
+                result, strerror(result));
     }
     return result;
 #else
@@ -255,10 +253,8 @@ INLINE int reader_unlock(fdb_rw_lock *lock) {
 #if !defined(WIN32) && !defined(_WIN32)
     int result = pthread_rwlock_unlock(lock);
     if (result != 0) {
-        char buffer[64];
-        strerror_r(result, buffer, sizeof(buffer));
         fprintf(stderr, "pthread_rwlock_unlock returned %d (%s)\n",
-                        result, buffer);
+                result, strerror(result));
     }
     return result;
 #else
@@ -271,10 +267,8 @@ INLINE int writer_lock(fdb_rw_lock *lock) {
 #if !defined(WIN32) && !defined(_WIN32)
     int result = pthread_rwlock_wrlock(lock);
     if (result != 0) {
-        char buffer[64];
-        strerror_r(result, buffer, sizeof(buffer));
         fprintf(stderr, "pthread_rwlock_wrlock returned %d (%s)\n",
-                        result, buffer);
+                result, strerror(result));
     }
     return result;
 #else
@@ -287,10 +281,8 @@ INLINE int writer_unlock(fdb_rw_lock *lock) {
 #if !defined(WIN32) && !defined(_WIN32)
     int result = pthread_rwlock_unlock(lock);
     if (result != 0) {
-        char buffer[64];
-        strerror_r(result, buffer, sizeof(buffer));
         fprintf(stderr, "pthread_rwlock_unlock returned %d (%s)\n",
-                        result, buffer);
+                result, strerror(result));
     }
     return result;
 #else
