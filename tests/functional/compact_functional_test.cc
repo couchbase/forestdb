@@ -2581,6 +2581,7 @@ void compact_upto_twice_test()
     fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
     fconfig.wal_threshold = 1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.block_reusing_threshold = 0;
 
     // open db
     fdb_open(&dbfile, "./compact_test1", &fconfig);
@@ -2850,6 +2851,7 @@ void compact_upto_overwrite_test(int opt)
     config.wal_flush_before_commit = true;
     config.multi_kv_instances = true;
     config.buffercache_size = 0;
+    config.block_reusing_threshold = 0;
 
     commit_opt = (opt)?FDB_COMMIT_NORMAL:FDB_COMMIT_MANUAL_WAL_FLUSH;
 
@@ -3382,6 +3384,109 @@ void compaction_cancellation_test(compaction_test_mode mode)
     }
 }
 
+void compact_upto_with_circular_reuse_test()
+{
+    TEST_INIT();
+    int batch=100, n_batch=64, n_dbs=3, i, j, r, k, idx;
+    int n_repeat = 4;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db[3];
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[512];
+
+    memleak_start();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    config.num_keeping_headers = 10;
+    kvs_config = fdb_get_default_kvs_config();
+
+    // create a file
+    s = fdb_open(&dbfile, "compact_test", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db[0], NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db[1], "db1", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db[2], "db2", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    memset(valuebuf, 'x', 256);
+    valuebuf[256] = 0;
+    for (k=0; k<n_repeat; ++k) {
+        for (r=0; r<n_batch; ++r) {
+            for (j=1; j<n_dbs; ++j) {
+                for (i=0; i<batch; ++i) {
+                    idx = r*batch + i;
+                    sprintf(keybuf, "k%06d", idx);
+                    sprintf(valuebuf, "v%d_%04d_%d", j, idx, k);
+                    s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 257);
+                    TEST_CHK(s == FDB_RESULT_SUCCESS);
+                    s = fdb_set(db[j], doc);
+                    TEST_CHK(s == FDB_RESULT_SUCCESS);
+                    s = fdb_doc_free(doc);
+                    TEST_CHK(s == FDB_RESULT_SUCCESS);
+                }
+            }
+            s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    fdb_snapshot_info_t *markers_out;
+    uint64_t num_markers;
+
+    s = fdb_get_all_snap_markers(dbfile, &markers_out, &num_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_compact_upto(dbfile, "compact_test_compact", markers_out[5].marker);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_free_snap_markers(markers_out, num_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // all docs should be retrieved correclty.
+    k = n_repeat - 1;
+    for (r=0; r<n_batch; ++r) {
+        for (j=1; j<n_dbs; ++j) {
+            for (i=0; i<batch; ++i) {
+                idx = r*batch + i;
+                sprintf(keybuf, "k%06d", idx);
+                sprintf(valuebuf, "v%d_%04d_%d", j, idx, k);
+                s = fdb_doc_create(&doc, keybuf, 8, NULL, 0, NULL, 0);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
+                s = fdb_get(db[j], doc);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
+                TEST_CMP(doc->body, valuebuf, doc->bodylen);
+                s = fdb_doc_free(doc);
+                TEST_CHK(s == FDB_RESULT_SUCCESS);
+            }
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+
+    TEST_RESULT("compact upto with circular reuse test");
+}
+
 int main(){
     int i;
 
@@ -3389,6 +3494,7 @@ int main(){
     compact_upto_test(false); // single kv instance in file
     compact_upto_test(true); // multiple kv instance in file
     wal_delete_compact_upto_test();
+    compact_upto_with_circular_reuse_test();
     for (i=0;i<4;++i) {
         compact_upto_overwrite_test(i);
     }

@@ -5524,6 +5524,10 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     old_seqnum = last_seq;
     old_hdr_revnum = last_hdr_revnum;
 
+    uint64_t num_keeping_headers =
+        atomic_get_uint64_t(&rhandle->file->config->num_keeping_headers,
+                            std::memory_order_relaxed);
+
     while (marker_revnum < old_hdr_revnum) {
         old_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
                                                 old_hdr_bid, NULL, &header_len,
@@ -5533,8 +5537,22 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
             return FDB_RESULT_READ_FAIL;
         } // LCOV_EXCL_STOP
 
-        if (old_hdr_bid < marker_bid) { // gone past the snapshot marker.
-            return FDB_RESULT_NO_DB_INSTANCE;
+        if (rhandle->config.block_reusing_threshold > 0 &&
+            rhandle->config.block_reusing_threshold < 100) {
+            // block reuse is enabled
+            if (old_hdr_revnum + num_keeping_headers < last_hdr_revnum) {
+                // gone past the keeping header limit
+                // ('last_hdr_revnum' indicates the new header appended at the
+                //  beginning of the compaction, so we need to use '<'
+                //  instead of '<=').
+                return FDB_RESULT_NO_DB_INSTANCE;
+            }
+        } else {
+            // block reuse is disabled
+            if (old_hdr_bid < marker_bid) {
+                // gone past the snapshot marker
+                return FDB_RESULT_NO_DB_INSTANCE;
+            }
         }
     }
 
@@ -6151,15 +6169,65 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
             }
 
         } else {
+            bool first_doc_in_block = true;
             uint64_t offset_original = offset;
+            err_log_callback *original_cb;
+            err_log_callback dummy_cb;
+
+            original_cb = handle->dhandle->log_callback;
+            dummy_cb.callback = fdb_dummy_log_callback;
+            dummy_cb.ctx_data = NULL;
+
             do {
                 int64_t _offset;
                 uint64_t doc_offset;
                 memset(&doc[c], 0, sizeof(struct docio_object));
+
+                if (first_doc_in_block) {
+                    // if we read this doc block first time (offset 0),
+                    // checksum error should be tolerable.
+                    handle->dhandle->log_callback = &dummy_cb;
+                } else {
+                    handle->dhandle->log_callback = original_cb;
+                }
+
                 _offset = docio_read_doc(handle->dhandle, offset, &doc[c], true);
                 if (_offset < 0) {
                     // Read error
-                    if (ver_non_consecutive_doc(handle->file->version)) {
+
+                    // NOTE: during the delta phase of compact_upto(),
+                    // following case can happen:
+                    // (this is also explained in _fdb_restore_wal())
+
+                    // Writer handles W1 and W2
+                    // W1: write docs consecutively in BID 101, 102, 4, 5
+                    // W2: write docs consecutively in BID 103, 104, 6, 7
+
+                    // Note that consecutive doc blocks are linked using doc block's
+                    // meta section.
+
+                    // In this case, after we scan blocks 101 and 102, then jump to
+                    // BID 4 following the linked list. But we should not miss BID
+                    // 103 and 104, so we remember the last offset (i.e.,
+                    // offset_original), BID 102 in this case. After we read BID
+                    // 4 and 5, the linked list ends. Then we return back to BID 102,
+                    // and start to scan from BID 103.
+
+                    // However, after scanning BID 103, 104, 6, and 7, then we try
+                    // to read BID 105, but BID 105 is not a document block. So
+                    // the cursor moves to the first block in the bitmap in a
+                    // circular manner, BID 4 in this case. But BID 4 is an
+                    // intermediate block of the series of consecutive doc blocks
+                    // (101, 102, 4, 5), so reading a doc from offset 0 of BID 4
+                    // will cause checksum error.
+
+                    // Hence, we need to tolerate this kinds of doc read errors.
+
+                    // Note that BID 4, 5, 6, 7 are already read, so just ignoring
+                    // those doc blocks will not cause any problem.
+
+                    if (ver_non_consecutive_doc(handle->file->version) &&
+                        !first_doc_in_block) {
                         // Since MAGIC_002: should terminate the compaction.
                         for (size_t i = 0; i <= c; ++i) {
                             free(doc[i].key);
@@ -6177,6 +6245,15 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                 } else if (_offset == 0) { // Reach zero-filled sub-block and skip it
                     break;
                 }
+
+                if ((uint64_t)_offset < offset) {
+                    // due to circular reuse, cursor moves to the front of the file.
+                    // remember the last offset before moving the cursor.
+                    offset_original = offset;
+                }
+
+                first_doc_in_block = false;
+
                 if (doc[c].key || (doc[c].length.flag & DOCIO_TXN_COMMITTED)) {
                     // check if the doc is transactional or not, and
                     // also check if the doc contains system info
@@ -6186,7 +6263,8 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                             // commit mark .. read doc offset
                             doc_offset = doc[c].doc_offset;
                             // read the previously skipped doc
-                            _offset = docio_read_doc(handle->dhandle, doc_offset, &doc[c], true);
+                            _offset = docio_read_doc(handle->dhandle, doc_offset,
+                                                     &doc[c], true);
                             if (_offset <= 0) { // doc read error
                                 // Should terminate the compaction
                                 for (size_t i = 0; i <= c; ++i) {
@@ -6221,10 +6299,10 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                             c = sum_docsize = 0;
                             writer_curr_bid = filemgr_get_pos(handle->file) / blocksize;
                             compactor_curr_bid = offset / blocksize;
-                            _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
-                                                       &writer_bid_prev, &compactor_bid_prev,
-                                                       prob,
-                                                       handle->config.max_writer_lock_prob);
+                            _fdb_update_block_distance(
+                                writer_curr_bid, compactor_curr_bid,
+                                &writer_bid_prev, &compactor_bid_prev,
+                                prob, handle->config.max_writer_lock_prob);
                             distance_updated = true;
                         }
 
