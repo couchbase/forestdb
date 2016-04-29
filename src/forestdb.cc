@@ -2903,14 +2903,13 @@ static void _fdb_release_dirty_root(fdb_kvs_handle *handle)
     }
 }
 
-LIBFDB_API
-fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
+fdb_status _fdb_get(fdb_kvs_handle *handle, fdb_doc *doc,
+                    bool metaOnly)
 {
     uint64_t offset;
-    int64_t _offset;
     struct docio_object _doc;
-    struct filemgr *wal_file = NULL;
     struct docio_handle *dhandle;
+    struct filemgr *wal_file = NULL;
     struct _fdb_key_cmp_info cmp_info;
     fdb_status wr;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
@@ -2922,8 +2921,8 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    if (!doc || !doc->key || doc->keylen == 0 ||
-        doc->keylen > FDB_MAX_KEYLEN ||
+    if (!doc || !doc->key ||
+        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
         (handle->kvs_config.custom_cmp &&
             doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
         return FDB_RESULT_INVALID_ARGS;
@@ -2971,7 +2970,8 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
         fdb_sync_db_header(handle);
     }
 
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
+    atomic_incr_uint64_t(&handle->op_stats->num_gets,
+                         std::memory_order_relaxed);
 
     if (wr == FDB_RESULT_KEY_NOT_FOUND) {
         _fdb_sync_dirty_root(handle);
@@ -2990,33 +2990,44 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     }
 
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
-         hr == HBTRIE_RESULT_SUCCESS) {
-        bool alloced_meta = doc->meta ? false : true;
-        bool alloced_body = doc->body ? false : true;
+        hr == HBTRIE_RESULT_SUCCESS) {
+
+        uint8_t alloced_meta = doc->meta ? 0 : 1;
+        uint8_t alloced_body = (metaOnly || doc->body) ? 0 : 1;
+
         if (handle->kvs) {
             _doc.key = doc_kv.key;
             _doc.length.keylen = doc_kv.keylen;
-            doc->deleted = doc_kv.deleted; // update deleted field if wal_find
+            if (!metaOnly) {
+                doc->deleted = doc_kv.deleted; // update deleted field if wal_find
+            }
         } else {
             _doc.key = doc->key;
             _doc.length.keylen = doc->keylen;
         }
+
         _doc.meta = doc->meta;
         _doc.body = doc->body;
 
-        if (wr == FDB_RESULT_SUCCESS && doc->deleted) {
+        if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
             atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        _offset = docio_read_doc(dhandle, offset, &_doc, true);
+        int64_t _offset = 0;
+        if (metaOnly) {
+            _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
+        } else {
+            _offset = docio_read_doc(dhandle, offset, &_doc, true);
+        }
+
         if (_offset <= 0) {
             atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (_doc.length.keylen != doc_kv.keylen ||
-            _doc.length.flag & DOCIO_DELETED) {
+        if ((_doc.length.keylen != doc_kv.keylen) ||
+            (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
             free_docio_object(&_doc, 0, alloced_meta, alloced_body);
             atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
@@ -3040,132 +3051,17 @@ fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
+LIBFDB_API
+fdb_status fdb_get(fdb_kvs_handle *handle, fdb_doc *doc)
+{
+    return _fdb_get(handle, doc, /*metaOnly*/false);
+}
+
 // search document metadata using key
 LIBFDB_API
 fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
 {
-    uint64_t offset;
-    struct docio_object _doc;
-    struct docio_handle *dhandle;
-    struct filemgr *wal_file = NULL;
-    fdb_status wr;
-    hbtrie_result hr = HBTRIE_RESULT_FAIL;
-    fdb_txn *txn;
-    struct _fdb_key_cmp_info cmp_info;
-    fdb_doc doc_kv;
-    LATENCY_STAT_START();
-
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    if (!doc || !doc->key ||
-        doc->keylen == 0 || doc->keylen > FDB_MAX_KEYLEN ||
-        (handle->kvs_config.custom_cmp &&
-            doc->keylen > handle->config.blocksize - HBTRIE_HEADROOM)) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    doc_kv = *doc;
-
-    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    if (handle->kvs) {
-        // multi KV instance mode
-        int size_chunk = handle->config.chunksize;
-        doc_kv.keylen = doc->keylen + size_chunk;
-        doc_kv.key = alca(uint8_t, doc_kv.keylen);
-        kvid2buf(size_chunk, handle->kvs->id, doc_kv.key);
-        memcpy((uint8_t*)doc_kv.key + size_chunk, doc->key, doc->keylen);
-    }
-
-    if (!handle->shandle) {
-        fdb_check_file_reopen(handle, NULL);
-        txn = handle->fhandle->root->txn;
-        if (!txn) {
-            txn = &handle->file->global_txn;
-        }
-    } else {
-        txn = handle->shandle->snap_txn;
-    }
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-    wal_file = handle->file;
-    dhandle = handle->dhandle;
-
-    if (handle->kvs) {
-        wr = wal_find(txn, wal_file, &cmp_info, handle->shandle, &doc_kv,
-                      &offset);
-    } else {
-        wr = wal_find(txn, wal_file, &cmp_info, handle->shandle, doc, &offset);
-    }
-
-    if (!handle->shandle) {
-        fdb_sync_db_header(handle);
-    }
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
-
-    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        _fdb_sync_dirty_root(handle);
-
-        if (handle->kvs) {
-            hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
-                             (void *)&offset);
-        } else {
-            hr = hbtrie_find(handle->trie, doc->key, doc->keylen,
-                             (void *)&offset);
-        }
-        btreeblk_end(handle->bhandle);
-        offset = _endian_decode(offset);
-
-        _fdb_release_dirty_root(handle);
-    }
-
-    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
-         hr == HBTRIE_RESULT_SUCCESS) {
-        if (handle->kvs) {
-            _doc.key = doc_kv.key;
-            _doc.length.keylen = doc_kv.keylen;
-        } else {
-            _doc.key = doc->key;
-            _doc.length.keylen = doc->keylen;
-        }
-        bool alloced_meta = doc->meta ? false : true;
-        _doc.meta = doc->meta;
-        _doc.body = doc->body;
-
-        int64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
-                                                       true);
-        if (body_offset <= 0){
-            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-            return body_offset < 0 ? (fdb_status)body_offset : FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        if (_doc.length.keylen != doc_kv.keylen) {
-            free_docio_object(&_doc, 0, alloced_meta, 0);
-            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        doc->seqnum = _doc.seqnum;
-        doc->metalen = _doc.length.metalen;
-        doc->bodylen = _doc.length.bodylen;
-        doc->meta = _doc.meta;
-        doc->body = _doc.body;
-        doc->deleted = _doc.length.flag & DOCIO_DELETED;
-        doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        doc->offset = offset;
-
-        LATENCY_STAT_END(handle->file, FDB_LATENCY_GETS);
-        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-        return FDB_RESULT_SUCCESS;
-    }
-
-    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-    return FDB_RESULT_KEY_NOT_FOUND;
+    return _fdb_get(handle, doc, /*metaOnly*/true);
 }
 
 // search document using sequence number
