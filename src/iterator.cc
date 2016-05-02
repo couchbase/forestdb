@@ -410,7 +410,13 @@ fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
     return FDB_RESULT_SUCCESS;
 }
 
-static fdb_status _fdb_iterator_prev(fdb_iterator *iterator)
+enum itr_seek_t {
+    ITR_SEEK_PREV = 0x00,
+    ITR_SEEK_NEXT = 0x01
+};
+
+static fdb_status _fdb_iterate(fdb_iterator *iterator,
+                               itr_seek_t seek_type)
 {
     int cmp;
     void *key;
@@ -420,7 +426,7 @@ static fdb_status _fdb_iterator_prev(fdb_iterator *iterator)
     struct docio_handle *dhandle;
     struct wal_item *snap_item = NULL;
 
-    if (iterator->direction != FDB_ITR_REVERSE) {
+    if (seek_type == ITR_SEEK_PREV && iterator->direction != FDB_ITR_REVERSE) {
         iterator->_offset = BLK_NOT_FOUND; // need to re-examine Trie/trees
         if (iterator->tree_cursor) {
             // just turn around
@@ -439,150 +445,8 @@ static fdb_status _fdb_iterator_prev(fdb_iterator *iterator)
                                              iterator->tree_cursor_prev);
             iterator->status = FDB_ITR_IDX;
         } // else Don't move - seek()/init() has already positioned cursor
-    }
-start:
-    key = iterator->_key;
-    dhandle = iterator->handle->dhandle;
 
-    // retrieve from hb-trie
-    if (iterator->_offset == BLK_NOT_FOUND) {
-        // no key waiting for being returned
-        // get next key from hb-trie (or idtree)
-        struct docio_object _doc;
-        // Move Main index Cursor backward...
-        int64_t _offset;
-        do {
-            hr = hbtrie_prev(iterator->hbtrie_iterator, key,
-                             &iterator->_keylen, (void*)&iterator->_offset);
-            btreeblk_end(iterator->handle->bhandle);
-            iterator->_offset = _endian_decode(iterator->_offset);
-            if (!(iterator->opt & FDB_ITR_NO_DELETES) ||
-                  hr != HBTRIE_RESULT_SUCCESS) {
-                break;
-            }
-            // deletion check
-            memset(&_doc, 0x0, sizeof(struct docio_object));
-            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset,
-                                              &_doc, true);
-            if (_offset <= 0) { // read fail
-                continue; // get prev doc
-            }
-            if (_doc.length.flag & DOCIO_DELETED) { // deleted doc
-                free(_doc.key);
-                free(_doc.meta);
-                continue; // get prev doc
-            }
-            free(_doc.key);
-            free(_doc.meta);
-            break;
-        } while (1);
-    }
-    keylen = iterator->_keylen;
-    offset = iterator->_offset;
-
-    if (hr != HBTRIE_RESULT_SUCCESS && !iterator->tree_cursor) {
-        return FDB_RESULT_ITERATOR_FAIL;
-    }
-
-    // Move the WAL cursor backward...
-    while (iterator->tree_cursor) {
-        if (iterator->status == FDB_ITR_WAL) {
-            iterator->tree_cursor_prev = iterator->tree_cursor;
-            iterator->tree_cursor = wal_itr_prev(iterator->wal_itr);
-        }// else don't move - seek()/ init() has already positioned cursor
-
-        // get the current item of avl-tree
-        snap_item = iterator->tree_cursor;
-        if (!snap_item) {
-            if (hr == HBTRIE_RESULT_SUCCESS) {
-                break;
-            } else {
-                return FDB_RESULT_ITERATOR_FAIL;
-            }
-        }
-        if (hr == HBTRIE_RESULT_SUCCESS) {
-            cmp = _fdb_key_cmp(iterator, snap_item->header->key,
-                               snap_item->header->keylen,
-                               key, keylen);
-        } else {
-            // no more docs in hb-trie
-            cmp = 1;
-        }
-
-        if (cmp >= 0) {
-            // key[WAL] >= key[hb-trie] .. take key[WAL] first
-            uint8_t drop_logical_deletes =
-                (snap_item->action == WAL_ACT_LOGICAL_REMOVE) &&
-                (iterator->opt & FDB_ITR_NO_DELETES);
-            iterator->status = FDB_ITR_WAL;
-            if (cmp > 0) {
-                if (snap_item->action == WAL_ACT_REMOVE ||
-                    drop_logical_deletes) {
-                    // this key is removed .. get prev key[WAL]
-                    continue;
-                }
-            } else { // same key found in WAL
-                iterator->_offset = BLK_NOT_FOUND; // drop key from trie
-                if (snap_item->action == WAL_ACT_REMOVE || drop_logical_deletes) {
-                    // the key is removed .. start over again
-                    goto start;
-                }
-            }
-
-            key = snap_item->header->key;
-            keylen = snap_item->header->keylen;
-            // key[hb-trie] is stashed in iterator->_key for future call
-            offset = snap_item->offset;
-        }
-        break;
-    }
-
-    if (offset == iterator->_offset) {
-        // take key[hb-trie] & and fetch the prev key[hb-trie] at next turn
-        iterator->_offset = BLK_NOT_FOUND;
-        iterator->status = FDB_ITR_IDX;
-    }
-
-    if (iterator->start_key) {
-        cmp = _fdb_key_cmp(iterator, iterator->start_key,
-                           iterator->start_keylen, key, keylen);
-
-        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
-            // current key (KEY) is lexicographically less than START_KEY
-            // OR it is the start key and user wishes to skip it..
-            // terminate the iteration
-            return FDB_RESULT_ITERATOR_FAIL;
-        }
-    }
-
-    if (iterator->end_key) {
-        cmp = _fdb_key_cmp(iterator, iterator->end_key,
-                           iterator->end_keylen, key, keylen);
-
-        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
-            // key is the end_key but users wishes to skip it, redo..
-            // OR current key (KEY) is lexicographically greater than END_KEY
-            goto start;
-        }
-    }
-
-    iterator->_dhandle = dhandle; // store for fdb_iterator_get()
-    iterator->_get_offset = offset; // store for fdb_iterator_get()
-
-    return FDB_RESULT_SUCCESS;
-}
-
-static fdb_status _fdb_iterator_next(fdb_iterator *iterator)
-{
-    int cmp;
-    void *key;
-    size_t keylen;
-    uint64_t offset;
-    hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
-    struct docio_handle *dhandle;
-    struct wal_item *snap_item = NULL;
-
-    if (iterator->direction != FDB_ITR_FORWARD) {
+    } else if (seek_type == ITR_SEEK_NEXT && iterator->direction != FDB_ITR_FORWARD) {
         iterator->_offset = BLK_NOT_FOUND; // need to re-examine Trie/trees
         // just turn around and face forward..
         if (iterator->tree_cursor) {
@@ -601,6 +465,7 @@ static fdb_status _fdb_iterator_next(fdb_iterator *iterator)
                                              iterator->tree_cursor_prev);
             iterator->status = FDB_ITR_IDX;
         } // else Don't move - seek()/init() has already positioned cursor
+
     }
 
 start:
@@ -609,14 +474,19 @@ start:
 
     // retrieve from hb-trie
     if (iterator->_offset == BLK_NOT_FOUND) {
-        // no key waiting for being returned
+        // no key waiting to being returned
         // get next key from hb-trie (or idtree)
         struct docio_object _doc;
-        // Move Main index Cursor forward...
+        // Move Main index Cursor backward or forward based on seek type...
         int64_t _offset;
         do {
-            hr = hbtrie_next(iterator->hbtrie_iterator, key,
-                             &iterator->_keylen, (void*)&iterator->_offset);
+            if (seek_type == ITR_SEEK_PREV) {
+                hr = hbtrie_prev(iterator->hbtrie_iterator, key,
+                                 &iterator->_keylen, (void*)&iterator->_offset);
+            } else { // seek_type == ITR_SEEK_NEXT
+                hr = hbtrie_next(iterator->hbtrie_iterator, key,
+                                 &iterator->_keylen, (void*)&iterator->_offset);
+            }
             btreeblk_end(iterator->handle->bhandle);
             iterator->_offset = _endian_decode(iterator->_offset);
             if (!(iterator->opt & FDB_ITR_NO_DELETES) ||
@@ -625,15 +495,15 @@ start:
             }
             // deletion check
             memset(&_doc, 0x0, sizeof(struct docio_object));
-            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset, &_doc,
-                                              true);
+            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset,
+                                              &_doc, true);
             if (_offset <= 0) { // read fail
-                continue; // get next doc
+                continue; // get prev/next doc
             }
             if (_doc.length.flag & DOCIO_DELETED) { // deleted doc
                 free(_doc.key);
                 free(_doc.meta);
-                continue; // get next doc
+                continue; // get prev/next doc
             }
             free(_doc.key);
             free(_doc.meta);
@@ -644,16 +514,21 @@ start:
     keylen = iterator->_keylen;
     offset = iterator->_offset;
 
-    if (hr != HBTRIE_RESULT_SUCCESS && iterator->tree_cursor == NULL) {
+    if (hr != HBTRIE_RESULT_SUCCESS && !iterator->tree_cursor) {
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
-    // Move WAL Cursor forward...
+    // Move the WAL cursor backward/forward based on seek type...
     while (iterator->tree_cursor) {
         if (iterator->status == FDB_ITR_WAL) {
             iterator->tree_cursor_prev = iterator->tree_cursor;
-            iterator->tree_cursor = wal_itr_next(iterator->wal_itr);
-        } // else Don't move - seek()/ init() has already positioned cursor
+            iterator->tree_cursor = (seek_type == ITR_SEEK_PREV) ?
+                                    wal_itr_prev(iterator->wal_itr) :
+                                    wal_itr_next(iterator->wal_itr);
+
+        } // else don't move - seek()/ init() has already positioned cursor
+
+        // get the current item of avl-tree
         snap_item = iterator->tree_cursor;
         if (!snap_item) {
             if (hr == HBTRIE_RESULT_SUCCESS) {
@@ -662,6 +537,7 @@ start:
                 return FDB_RESULT_ITERATOR_FAIL;
             }
         }
+
         // Compare key[WAL] with key[hb-trie]
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator, snap_item->header->key,
@@ -669,38 +545,47 @@ start:
                                key, keylen);
         } else {
             // no more docs in hb-trie
-            cmp = -1;
+            cmp = (seek_type == ITR_SEEK_PREV) ? 1 : -1;
         }
 
-        if (cmp <= 0) {
-            // key[WAL] <= key[hb-trie] .. take key[WAL] first
+        if (((seek_type == ITR_SEEK_PREV) && cmp >= 0) ||
+            ((seek_type == ITR_SEEK_NEXT) && cmp <= 0)) {
+            /**
+             * In case of ITR_SEEK_PREV:
+             *      key[WAL] >= key[hb-trie] .. take key[WAL] first
+             * In case of ITR_SEEK_NEXT:
+             *      key[WAL] <= key[hb-trie] .. take key[WAL] first
+             */
             uint8_t drop_logical_deletes =
-                (snap_item->action == WAL_ACT_LOGICAL_REMOVE) &&
-                (iterator->opt & FDB_ITR_NO_DELETES);
+                            (snap_item->action == WAL_ACT_LOGICAL_REMOVE) &&
+                            (iterator->opt & FDB_ITR_NO_DELETES);
             iterator->status = FDB_ITR_WAL;
-            if (cmp < 0) {
+
+            if (cmp != 0) {
                 if (snap_item->action == WAL_ACT_REMOVE ||
                     drop_logical_deletes) {
-                    // this key is removed .. get next key[WAL]
+                    // this key is removed .. get prev/next key[WAL]
                     continue;
                 }
-            } else { // Same key from trie also found from WAL
+            } else { // same key (from trie) found in WAL
                 iterator->_offset = BLK_NOT_FOUND; // drop key from trie
-                if (snap_item->action == WAL_ACT_REMOVE || drop_logical_deletes) {
+                if (snap_item->action == WAL_ACT_REMOVE ||
+                    drop_logical_deletes) {
                     // the key is removed .. start over again
                     goto start;
                 }
             }
+
             key = snap_item->header->key;
             keylen = snap_item->header->keylen;
-            // key[hb-trie] is stashed in iterator->key for next call
+            // key[hb-trie] is stashed in iterator->_key for next call
             offset = snap_item->offset;
         }
         break;
     }
 
     if (offset == iterator->_offset) {
-        // take key[hb-trie] & and fetch the next key[hb-trie] at next turn
+        // take key[hb-trie] & and fetch the prev/next key[hb-trie] in next turn
         iterator->_offset = BLK_NOT_FOUND;
         iterator->status = FDB_ITR_IDX;
     }
@@ -710,20 +595,35 @@ start:
                            iterator->start_keylen, key, keylen);
 
         if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
-            // If user wishes to skip start key, redo first step
-            // OR current key (KEY) is lexicographically smaller than START_KEY
-            goto start;
+            if (seek_type == ITR_SEEK_PREV) {
+                // current key (KEY) is lexicographically less than START_KEY
+                // OR it is the start key and user wishes to skip it..
+                // terminate the iteration
+                return FDB_RESULT_ITERATOR_FAIL;
+            } else { // seek_type == ITR_SEEK_NEXT
+                // If user wishes to skip start key, redo first step
+                // OR current key (KEY) is lexicographically smaller than START_KEY
+                goto start;
+            }
         }
     }
 
     if (iterator->end_key) {
-        cmp = _fdb_key_cmp(iterator, iterator->end_key, iterator->end_keylen,
+        cmp = _fdb_key_cmp(iterator,
+                           iterator->end_key, iterator->end_keylen,
                            key, keylen);
+
         if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
-            // current key (KEY) is lexicographically greater than END_KEY
-            // OR it is the end_key and user wishes to skip it
-            // terminate the iteration
-            return FDB_RESULT_ITERATOR_FAIL;
+            if (seek_type == ITR_SEEK_PREV) {
+                // key is the end_key but users wishes to skip it, redo..
+                // OR current key (KEY) is lexicographically greater than END_KEY
+                goto start;
+            } else { // seek_type == ITR_SEEK_NEXT
+                // current key (KEY) is lexicographically greater than END_KEY
+                // OR it is the end_key and user wishes to skip it
+                // terminate the iteration
+                return FDB_RESULT_ITERATOR_FAIL;
+            }
         }
     }
 
@@ -1806,7 +1706,7 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
     }
 
     if (iterator->hbtrie_iterator) {
-        while ((result = _fdb_iterator_prev(iterator)) ==
+        while ((result = _fdb_iterate(iterator, ITR_SEEK_PREV)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
     } else {
         while ((result = _fdb_iterator_seq_prev(iterator)) ==
@@ -1846,7 +1746,7 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
     }
 
     if (iterator->hbtrie_iterator) {
-        while ((result = _fdb_iterator_next(iterator)) ==
+        while ((result = _fdb_iterate(iterator, ITR_SEEK_NEXT)) ==
                 FDB_RESULT_KEY_NOT_FOUND);
     } else {
         while ((result = _fdb_iterator_seq_next(iterator)) ==
