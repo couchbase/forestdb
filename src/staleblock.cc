@@ -370,7 +370,6 @@ void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
                 //  will change the 'revnum').
                 sprintf(doc_key, "stale_blocks_%" _F64, revnum);
                 doc.key = (void*)doc_key;
-                doc.meta = NULL;
                 doc.body = buf;
                 doc.length.keylen = strlen(doc_key) + 1;
                 doc.length.metalen = 0;
