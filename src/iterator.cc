@@ -1771,11 +1771,9 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
     return result;
 }
 
-// DOC returned by this function must be freed by fdb_doc_free
-// if it was allocated because the incoming doc was pointing to NULL
-LIBFDB_API
-fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
-{
+fdb_status _fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc,
+                             bool metaOnly) {
+
     if (!iterator || !iterator->handle) {
         return FDB_RESULT_INVALID_HANDLE;
     }
@@ -1815,33 +1813,32 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
         _doc.body = NULL;
         alloced_key = true;
         alloced_meta = true;
-        alloced_body = true;
+        alloced_body = metaOnly ? false : true;
     } else {
         _doc.key = (*doc)->key;
         _doc.meta = (*doc)->meta;
-        _doc.body = (*doc)->body;
+        _doc.body = metaOnly ? NULL : (*doc)->body;
         alloced_key = _doc.key ? false : true;
         alloced_meta = _doc.meta ? false : true;
-        alloced_body = _doc.body ? false : true;
+        alloced_body = (metaOnly || _doc.body) ? false : true;
     }
 
-    int64_t _offset = docio_read_doc(dhandle, offset, &_doc, true);
+    int64_t _offset = 0;
+    if (metaOnly) {
+        _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
+    } else {
+        _offset = docio_read_doc(dhandle, offset, &_doc, true);
+    }
+
     if (_offset <= 0) {
         atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
         return _offset < 0 ? (fdb_status) _offset : FDB_RESULT_KEY_NOT_FOUND;
     }
-    if (_doc.length.flag & DOCIO_DELETED &&
+    if ((_doc.length.flag & DOCIO_DELETED) &&
         (iterator->opt & FDB_ITR_NO_DELETES)) {
-        if (alloced_key) {
-            free(_doc.key);
-        }
-        if (alloced_meta) {
-            free(_doc.meta);
-        }
-        if (alloced_body) {
-            free(_doc.body);
-        }
+
         atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
+        free_docio_object(&_doc, alloced_key, alloced_meta, alloced_body);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
 
@@ -1860,6 +1857,7 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     if (alloced_body) {
         (*doc)->body = _doc.body;
     }
+
     (*doc)->keylen = _doc.length.keylen;
     (*doc)->metalen = _doc.length.metalen;
     (*doc)->bodylen = _doc.length.bodylen;
@@ -1870,102 +1868,28 @@ fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
     atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
     atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets,
                          std::memory_order_relaxed);
-    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET);
+    if (metaOnly) {
+        LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET_META);
+    } else {
+        LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET);
+    }
+
     return ret;
+}
+
+// DOC returned by this function must be freed by fdb_doc_free
+// if it was allocated because the incoming doc was pointing to NULL
+LIBFDB_API
+fdb_status fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc)
+{
+    return _fdb_iterator_get(iterator, doc, /*metaOnly*/false);
 }
 
 // DOC returned by this function must be freed using 'fdb_doc_free'
 LIBFDB_API
 fdb_status fdb_iterator_get_metaonly(fdb_iterator *iterator, fdb_doc **doc)
 {
-    if (!iterator || !iterator->handle) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    if (!doc) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    struct docio_object _doc;
-    fdb_status ret = FDB_RESULT_SUCCESS;
-    uint64_t offset;
-    int64_t _offset;
-    struct docio_handle *dhandle;
-    size_t size_chunk = iterator->handle->config.chunksize;
-    bool alloced_key, alloced_meta;
-    LATENCY_STAT_START();
-
-    dhandle = iterator->_dhandle;
-    if (!dhandle || iterator->_get_offset == BLK_NOT_FOUND) {
-        return FDB_RESULT_ITERATOR_FAIL;
-    }
-
-    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    offset = iterator->_get_offset;
-
-    if (*doc == NULL) {
-        ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
-        if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
-            atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-            return ret;
-        } // LCOV_EXCL_STOP
-        _doc.key = NULL;
-        _doc.length.keylen = 0;
-        _doc.meta = NULL;
-        _doc.body = NULL;
-        alloced_key = true;
-        alloced_meta = true;
-    } else {
-        _doc.key = (*doc)->key;
-        _doc.meta = (*doc)->meta;
-        _doc.body = NULL;
-        alloced_key = _doc.key ? false : true;
-        alloced_meta = _doc.meta ? false : true;
-    }
-
-    _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
-    if (_offset <= 0) {
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-        return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
-    }
-    if (_doc.length.flag & DOCIO_DELETED &&
-            (iterator->opt & FDB_ITR_NO_DELETES)) {
-        if (alloced_key) {
-            free(_doc.key);
-        }
-        if (alloced_meta) {
-            free(_doc.meta);
-        }
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-        return FDB_RESULT_KEY_NOT_FOUND;
-    }
-
-    if (iterator->handle->kvs) {
-        // eliminate KV ID from key
-        _doc.length.keylen -= size_chunk;
-        memmove(_doc.key, (uint8_t*)_doc.key + size_chunk, _doc.length.keylen);
-    }
-    if (alloced_key) {
-        (*doc)->key = _doc.key;
-    }
-    if (alloced_meta) {
-        (*doc)->meta = _doc.meta;
-    }
-    (*doc)->keylen = _doc.length.keylen;
-    (*doc)->metalen = _doc.length.metalen;
-    (*doc)->bodylen = _doc.length.bodylen;
-    (*doc)->seqnum = _doc.seqnum;
-    (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
-    (*doc)->offset = offset;
-
-    atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets,
-                         std::memory_order_relaxed);
-    LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET_META);
-    return ret;
+    return _fdb_iterator_get(iterator, doc, /*metaOnly*/true);
 }
 
 LIBFDB_API
