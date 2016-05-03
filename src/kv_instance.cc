@@ -1424,6 +1424,7 @@ fdb_kvs_create_start:
         fs = filemgr_commit(root_handle->file,
                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
                  &root_handle->log_callback);
+        btreeblk_reset_subblock_info(root_handle->bhandle);
     }
 
     filemgr_mutex_unlock(file);
@@ -2047,6 +2048,7 @@ fdb_kvs_remove_start:
         fs = filemgr_commit(root_handle->file,
                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
                 &root_handle->log_callback);
+        btreeblk_reset_subblock_info(root_handle->bhandle);
     }
 
     filemgr_mutex_unlock(file);

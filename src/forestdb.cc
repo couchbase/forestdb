@@ -4449,6 +4449,8 @@ static fdb_status _fdb_commit_and_remove_pending(fdb_kvs_handle *handle,
     // They will be cleaned up later.
     filemgr_close(old_file, 0, handle->filename, &handle->log_callback);
 
+    btreeblk_reset_subblock_info(handle->bhandle);
+
     filemgr_mutex_unlock(new_file);
 
     atomic_incr_uint64_t(&handle->op_stats->num_compacts, std::memory_order_relaxed);
@@ -5681,6 +5683,8 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     fs = filemgr_commit(new_handle.file, false, // asynchronous commit is ok
                         log_callback);
     btreeblk_end(handle.bhandle);
+    btreeblk_reset_subblock_info(new_handle.bhandle);
+
     handle.shandle = NULL;
     _fdb_close(&handle);
     return fs;
@@ -6168,6 +6172,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                             new_file->filename);
                     return fs;
                 }
+                btreeblk_reset_subblock_info(new_handle.bhandle);
             }
 
         } else {
@@ -6926,6 +6931,8 @@ fdb_status _fdb_compact_file(fdb_kvs_handle *handle,
                                  new_seqtree, new_staletree);
         return fs;
     }
+
+    btreeblk_reset_subblock_info(handle->bhandle);
 
     if (handle->file->sb) {
         // sync superblock
