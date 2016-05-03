@@ -31,18 +31,20 @@
 
 #include "stat_aggregator.h"
 
-// NUM_STATS to always be the last entry in the following
+// _num_stats_ to always be the last entry in the following
 // enum class to keep a count of the number of stats tracked
 // in the use case tests.
 enum _op_ {
     SET,
     COMMIT,
     GET,
-    INMEMSNAP,
+    IN_MEM_SNAP,
+    CLONE_SNAP,
     ITR_INIT,
+    ITR_SEEK,
     ITR_GET,
     ITR_CLOSE,
-    NUM_STATS
+    _num_stats_
 };
 
 /**
@@ -73,6 +75,7 @@ public:
     FileHandlePool(const char *filename, int count) {
         fdb_status status;
         fdb_config fconfig = fdb_get_default_config();
+        fconfig.multi_kv_instances = false;
         fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
         for (int i = 0; i < count; ++i) {
             fdb_file_handle *dbfile;
@@ -85,20 +88,21 @@ public:
             pool_vector.push_back(pe);
         }
 
+        mutex_init(&statlock);
+
         // Set up StatAggregator
-        sa = new StatAggregator(NUM_STATS, 1);
+        sa = new StatAggregator(_num_stats_, 1);
 
         sa->t_stats[SET][0].name = "set";
         sa->t_stats[COMMIT][0].name = "commit";
         sa->t_stats[GET][0].name = "get";
-        sa->t_stats[INMEMSNAP][0].name = "in-mem snapshot";
+        sa->t_stats[IN_MEM_SNAP][0].name = "in-mem snapshot";
 
         sa->t_stats[ITR_INIT][0].name = "iterator-init";
         sa->t_stats[ITR_GET][0].name = "iterator-get";
         sa->t_stats[ITR_CLOSE][0].name = "iterator-close";
 
         samples = 0;
-        mutex_init(&statlock);
     }
 
     ~FileHandlePool() {
@@ -119,11 +123,12 @@ public:
 
         // Delete StatAggregator
         delete sa;
+
         mutex_destroy(&statlock);
     }
 
     /**
-     * Acquire a handle set and its index that is currently available,
+     * Acquire a handle-set and its index that is currently available,
      * in the process, the handle set will be marked as unavailable for
      * any other user.
      */
@@ -141,7 +146,7 @@ public:
     }
 
     /**
-     * Set the handle set at an index to available, indicating the current
+     * Set the handle-set at an index to available, indicating the current
      * user will not be using the handles anymore.
      */
     void returnResourceToPool(int index) {
@@ -157,12 +162,20 @@ public:
         }
     }
 
+    void addStatToAgg(int index, const char* name) {
+        mutex_lock(&statlock);
+        if (sa) {
+            sa->t_stats[index][0].name = name;
+        }
+        mutex_unlock(&statlock);
+    }
+
     /**
      * Collects stats - invoked by concurrent threads, hence the mutex.
      */
     void collectStat(int index, uint64_t diff) {
         mutex_lock(&statlock);
-        if (sa && index < NUM_STATS) {
+        if (sa && index < _num_stats_) {
             sa->t_stats[index][0].latencies.push_back(diff);
             ++samples;
         }
@@ -232,39 +245,134 @@ private:
     mutex_t statlock;
 };
 
+/**
+ * This class inherits functionality of FileHandlePool and in
+ * addition to this maintains a pool of snapshot handles.
+ */
+class SnapHandlePool : public FileHandlePool {
+public:
+    SnapHandlePool(const char *filename, int count)
+        : FileHandlePool(filename, count) {
+        snap_pool_vector.resize(count, nullptr);
+        mutex_init(&snaplock);
+
+        addStatToAgg(CLONE_SNAP, "clone snapshot");
+        addStatToAgg(ITR_SEEK, "iterator-seek");
+    }
+
+    ~SnapHandlePool() {
+        fdb_status status;
+        mutex_lock(&snaplock);
+        for (size_t i = 0; i < snap_pool_vector.size(); ++i) {
+            PoolEntry *pe = snap_pool_vector.at(i);
+            if (pe) {
+                status = fdb_kvs_close(pe->db);
+                fdb_assert(status == FDB_RESULT_SUCCESS,
+                           status, FDB_RESULT_SUCCESS);
+                delete pe;
+            }
+        }
+        snap_pool_vector.clear();
+        mutex_unlock(&snaplock);
+
+        mutex_destroy(&snaplock);
+    }
+
+    /**
+     * Adds a new snapshot handle to the vector at the specified
+     * index of the snapshot handle pool. If one is already in place,
+     * the older handle is closed and replaced with the new handle.
+     */
+    void addNewSnapHandle(int index, fdb_kvs_handle *kvsHandle) {
+        fdb_kvs_handle *snap_handle = nullptr;
+        ts_nsec beginSnap = get_monotonic_ts();
+        fdb_status status = fdb_snapshot_open(kvsHandle,
+                                              &snap_handle,
+                                              FDB_SNAPSHOT_INMEM);
+        ts_nsec endSnap = get_monotonic_ts();
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+        collectStat(IN_MEM_SNAP, ts_diff(beginSnap, endSnap));
+
+        mutex_lock(&snaplock);
+        PoolEntry *pe = snap_pool_vector.at(index);
+        if (pe) {
+            status = fdb_kvs_close(pe->db);
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+            delete pe;
+        }
+        snap_pool_vector[index] = new PoolEntry(index, true,
+                                                nullptr, snap_handle);
+        mutex_unlock(&snaplock);
+    }
+
+    /**
+     * Acquires a clone of the snapshot handle at a random index in
+     * the snapshot handle pool.
+     */
+    fdb_kvs_handle *getCloneOfASnapHandle() {
+        fdb_kvs_handle *snapClone = nullptr;
+        mutex_lock(&snaplock);
+        int index = rand() % snap_pool_vector.size();
+        PoolEntry *pe = snap_pool_vector.at(index);
+        if (pe) {
+            ts_nsec beginClone = get_monotonic_ts();
+            fdb_status status = fdb_snapshot_open(pe->db, &snapClone,
+                                                  FDB_SNAPSHOT_INMEM);
+            ts_nsec endClone = get_monotonic_ts();
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+            collectStat(CLONE_SNAP, ts_diff(beginClone, endClone));
+        }
+        mutex_unlock(&snaplock);
+        return snapClone;
+    }
+
+private:
+    std::vector<PoolEntry *> snap_pool_vector;
+    mutex_t snaplock;
+};
+
 struct ops_args {
-    FileHandlePool *fhp;
+    FileHandlePool *hp;
     const float time;
+    bool snapPoolAvailable;
 };
 
 static void *invoke_writer_ops(void *args) {
     struct ops_args *oa = static_cast<ops_args *>(args);
-    int i = 0;
+    int i = 0, j;
     fdb_status status;
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
 
     while (true) {
-        /* Acquire handles from pool */
+        // Acquire handles from pool
         fdb_file_handle *dbfile = nullptr;
         fdb_kvs_handle *db = nullptr;
-        const int index = oa->fhp->getAvailableResource(&dbfile, &db);
+        const int index = oa->hp->getAvailableResource(&dbfile, &db);
 
         char keybuf[256], bodybuf[256];
-        sprintf(keybuf, "key%d", i);
-        sprintf(bodybuf, "body%d", i);
 
         // Start transaction
         status = fdb_begin_transaction(dbfile, FDB_ISOLATION_READ_COMMITTED);
         fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
-        // Issue a set
-        ts_nsec beginSet = get_monotonic_ts();
-        status = fdb_set_kv(db,
-                (void*)keybuf, strlen(keybuf) + 1,
-                (void*)bodybuf, strlen(bodybuf) + 1);
-        ts_nsec endSet = get_monotonic_ts();
-        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+        // Issue a batch of 10 sets
+        j = 10;
+        while (--j != 0) {
+            sprintf(keybuf, "key%d", i);
+            sprintf(bodybuf, "body%d", i);
+
+            ts_nsec beginSet = get_monotonic_ts();
+            status = fdb_set_kv(db,
+                                (void*)keybuf, strlen(keybuf) + 1,
+                                (void*)bodybuf, strlen(bodybuf) + 1);
+            ts_nsec endSet = get_monotonic_ts();
+            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+            oa->hp->collectStat(SET, ts_diff(beginSet, endSet));
+            ++i;
+        }
 
         // End transaction (Commit)
         ts_nsec beginCommit = get_monotonic_ts();
@@ -272,14 +380,16 @@ static void *invoke_writer_ops(void *args) {
         ts_nsec endCommit = get_monotonic_ts();
         fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
 
+        oa->hp->collectStat(COMMIT, ts_diff(beginCommit, endCommit));
 
-        oa->fhp->collectStat(SET, ts_diff(beginSet, endSet));
-        oa->fhp->collectStat(COMMIT, ts_diff(beginCommit, endCommit));
+        // Create a snapshot handle if snap handle pool is in use
+        if (oa->snapPoolAvailable) {
+            (static_cast<SnapHandlePool*>(oa->hp))->addNewSnapHandle(index, db);
+        }
 
-        /* Return resource to pool */
-        oa->fhp->returnResourceToPool(index);
+        // Return resource to pool
+        oa->hp->returnResourceToPool(index);
 
-        ++i;
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
         if (elapsed_seconds.count() > oa->time) {
@@ -293,91 +403,171 @@ static void *invoke_writer_ops(void *args) {
     return nullptr;
 }
 
+void file_handle_reader_ops(FileHandlePool *fhp, int tracker) {
+    fdb_status status;
+
+    // Acquire handles from pool
+    fdb_file_handle *dbfile = nullptr;
+    fdb_kvs_handle *db = nullptr;
+    fdb_kvs_handle *snap_handle = nullptr;
+    const int index = fhp->getAvailableResource(&dbfile, &db);
+
+    // Create an in-memory snapshot
+    ts_nsec beginSnap = get_monotonic_ts();
+    status = fdb_snapshot_open(db, &snap_handle, FDB_SNAPSHOT_INMEM);
+    ts_nsec endSnap = get_monotonic_ts();
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+    fhp->collectStat(IN_MEM_SNAP, ts_diff(beginSnap, endSnap));
+
+    // Iterator ops using the snapshot handle once every 100 times
+    if (tracker % 100 == 0) {
+        fdb_iterator *iterator = nullptr;
+        fdb_doc *rdoc = nullptr;
+        ts_nsec begin, end;
+
+        // Initialize iterator
+        begin = get_monotonic_ts();
+        status = fdb_iterator_init(snap_handle, &iterator,
+                                   nullptr, 0, nullptr, 0,
+                                   FDB_ITR_NONE);
+        end = get_monotonic_ts();
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+        fhp->collectStat(ITR_INIT, ts_diff(begin, end));
+
+        // Get using iterator
+        begin = get_monotonic_ts();
+        status = fdb_iterator_get(iterator, &rdoc);
+        end = get_monotonic_ts();
+        if (status == FDB_RESULT_SUCCESS) {
+            fdb_doc_free(rdoc);
+            fhp->collectStat(ITR_GET, ts_diff(begin, end));
+        } else {
+            // Block not found, no keys available
+            fdb_assert(status == FDB_RESULT_ITERATOR_FAIL,
+                       status, FDB_RESULT_ITERATOR_FAIL);
+        }
+
+        // Close iterator
+        begin = get_monotonic_ts();
+        status = fdb_iterator_close(iterator);
+        end = get_monotonic_ts();
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+        fhp->collectStat(ITR_CLOSE, ts_diff(begin, end));
+    } else {
+        // Try fetching a random doc, using the snapshot handle
+        void *value = nullptr;
+        size_t valuelen;
+        char keybuf[256], bodybuf[256];
+
+        fdb_file_info info;
+        status = fdb_get_file_info(dbfile, &info);
+        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+        int i = (info.doc_count > 0) ? rand() % info.doc_count : 0;
+
+        sprintf(keybuf, "key%d", i);
+        sprintf(bodybuf, "body%d", i);
+        ts_nsec beginGet = get_monotonic_ts();
+        status = fdb_get_kv(snap_handle,
+                            (void*)keybuf, strlen(keybuf) + 1,
+                            &value, &valuelen);
+        ts_nsec endGet = get_monotonic_ts();
+        if (status == FDB_RESULT_SUCCESS) {
+            assert(memcmp(value, bodybuf, valuelen) == 0);
+            fdb_free_block(value);
+            fhp->collectStat(GET, ts_diff(beginGet, endGet));
+        } else { // If doc_count is zero
+            fdb_assert(status == FDB_RESULT_KEY_NOT_FOUND,
+                       status, FDB_RESULT_KEY_NOT_FOUND);
+        }
+    }
+
+    // Close snapshot handle
+    status = fdb_kvs_close(snap_handle);
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+    // Return resource to pool
+    fhp->returnResourceToPool(index);
+}
+
+void snap_handle_reader_ops(SnapHandlePool *shp) {
+    fdb_status status;
+    fdb_kvs_handle *snapClone = shp->getCloneOfASnapHandle();
+    if (!snapClone) {
+        // No snapshot handle available yet
+        return;
+    }
+
+    fdb_iterator *iterator = nullptr;
+    fdb_doc *rdoc = nullptr;
+    ts_nsec begin, end;
+
+    // Initialize iterator
+    begin = get_monotonic_ts();
+    status = fdb_iterator_init(snapClone, &iterator,
+                               nullptr, 0, nullptr, 0,
+                               FDB_ITR_NONE);
+    end = get_monotonic_ts();
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+    shp->collectStat(ITR_INIT, ts_diff(begin, end));
+
+    // Seek random key with iterator
+    char keybuf[256];
+    int i = rand() % 100;
+    sprintf(keybuf, "key%d", i);
+    begin = get_monotonic_ts();
+    status = fdb_iterator_seek(iterator,
+                               (void*)keybuf, strlen(keybuf),
+                               FDB_ITR_SEEK_HIGHER);
+    end = get_monotonic_ts();
+    if (status == FDB_RESULT_SUCCESS) {
+        shp->collectStat(ITR_SEEK, ts_diff(begin, end));
+    } else {
+        // Block not found, no keys available
+        fdb_assert(status == FDB_RESULT_ITERATOR_FAIL,
+                   status, FDB_RESULT_ITERATOR_FAIL);
+    }
+
+    // Get using iterator
+    begin = get_monotonic_ts();
+    status = fdb_iterator_get(iterator, &rdoc);
+    end = get_monotonic_ts();
+    if (status == FDB_RESULT_SUCCESS) {
+        fdb_doc_free(rdoc);
+        shp->collectStat(ITR_GET, ts_diff(begin, end));
+    } else {
+        fdb_assert(status == FDB_RESULT_ITERATOR_FAIL,
+                   status, FDB_RESULT_ITERATOR_FAIL);
+    }
+
+    // Close iterator
+    begin = get_monotonic_ts();
+    status = fdb_iterator_close(iterator);
+    end = get_monotonic_ts();
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+
+    shp->collectStat(ITR_CLOSE, ts_diff(begin, end));
+
+    // Close snapshot clone
+    status = fdb_kvs_close(snapClone);
+    fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
+}
+
 static void *invoke_reader_ops(void *args) {
     struct ops_args *oa = static_cast<ops_args *>(args);
-    fdb_status status;
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
 
     int tracker = 0;
     while (true) {
-        /* Acquire handles from pool */
-        fdb_file_handle *dbfile = nullptr;
-        fdb_kvs_handle *db = nullptr;
-        fdb_kvs_handle *snap_handle = nullptr;
-        const int index = oa->fhp->getAvailableResource(&dbfile, &db);
-
-        // Create an in-memory snapshot
-        ts_nsec beginSnap = get_monotonic_ts();
-        status = fdb_snapshot_open(db, &snap_handle, FDB_SNAPSHOT_INMEM);
-        ts_nsec endSnap = get_monotonic_ts();
-        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-
-        oa->fhp->collectStat(INMEMSNAP, ts_diff(beginSnap, endSnap));
-
-        // Iterator ops using the snapshot handle once every 100 times
-        if (++tracker % 100 == 0) {
-            fdb_iterator *iterator = nullptr;
-            fdb_doc *rdoc = nullptr;
-
-            // Initialize iterator
-            ts_nsec beginInit = get_monotonic_ts();
-            status = fdb_iterator_init(snap_handle, &iterator, NULL, 0, NULL, 0,
-                                       FDB_ITR_NONE);
-            ts_nsec endInit = get_monotonic_ts();
-            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-
-            oa->fhp->collectStat(ITR_INIT,ts_diff(beginInit, endInit));
-
-            // Get using iterator
-            ts_nsec beginGet = get_monotonic_ts();
-            status = fdb_iterator_get(iterator, &rdoc);
-            ts_nsec endGet = get_monotonic_ts();
-            if (status == FDB_RESULT_SUCCESS) {
-                fdb_doc_free(rdoc);
-                oa->fhp->collectStat(ITR_GET,ts_diff(beginGet, endGet));
-            } else {
-                fdb_assert(status == FDB_RESULT_ITERATOR_FAIL,
-                           status, FDB_RESULT_ITERATOR_FAIL);
-            }
-
-            // Close iterator
-            ts_nsec beginClose = get_monotonic_ts();
-            status = fdb_iterator_close(iterator);
-            ts_nsec endClose = get_monotonic_ts();
-            fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-
-            oa->fhp->collectStat(ITR_CLOSE,ts_diff(beginClose, endClose));
+        if (!oa->snapPoolAvailable) {
+            file_handle_reader_ops(oa->hp, ++tracker);
         } else {
-            // Try fetching a random doc, using the snapshot handle
-            void *value = nullptr;
-            size_t valuelen;
-            char keybuf[256], bodybuf[256];
-            int i = rand() % 100;
-            sprintf(keybuf, "key%d", i);
-            sprintf(bodybuf, "body%d", i);
-            ts_nsec beginGet = get_monotonic_ts();
-            status = fdb_get_kv(snap_handle,
-                                (void*)keybuf, strlen(keybuf) + 1,
-                                &value, &valuelen);
-            ts_nsec endGet = get_monotonic_ts();
-            if (status == FDB_RESULT_SUCCESS) {
-                assert(memcmp(value, bodybuf, valuelen) == 0);
-                fdb_free_block(value);
-            } else {
-                fdb_assert(status == FDB_RESULT_KEY_NOT_FOUND,
-                           status, FDB_RESULT_KEY_NOT_FOUND);
-            }
-
-            oa->fhp->collectStat(GET, ts_diff(beginGet, endGet));
+            snap_handle_reader_ops(static_cast<SnapHandlePool*>(oa->hp));
         }
-
-        // Close snapshot handle
-        status = fdb_kvs_close(snap_handle);
-        fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
-
-        /* Return resource to pool */
-        oa->fhp->returnResourceToPool(index);
 
         end = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed_seconds = end - start;
@@ -392,11 +582,18 @@ static void *invoke_reader_ops(void *args) {
     return nullptr;
 }
 
-void reader_writer_shared_pool_test(int nhandles,
-                                    int writers,
-                                    int readers,
-                                    int time,
-                                    const char *title) {
+/**
+ * Test that invokes reader(s) and writer(s) that work
+ * with the shared file handle pool or writers(s) that
+ * work with the file handle pool and readers(s) that
+ * work with the snap handle pool.
+ */
+void test_readers_writers_with_handle_pool(int nhandles,
+                                           int writers,
+                                           int readers,
+                                           bool useSnapHandlePool,
+                                           int time,
+                                           const char *title) {
     TEST_INIT();
     memleak_start();
 
@@ -405,16 +602,25 @@ void reader_writer_shared_pool_test(int nhandles,
     r = system(SHELL_DEL" usecase_test* > errorlog.txt");
     (void)r;
 
-
-    /* prepare handle pool */
+    // Set filename
     const char *filename = "./usecase_test1";
 
-    FileHandlePool *fhp = new FileHandlePool(filename, nhandles);
+    if (writers + readers < 1) {
+        fprintf(stderr, "[ERROR] Invalid number of reader/writers!");
+        return;
+    }
 
-    assert(writers + readers > 1);
+    // Prepare handle pool
+    FileHandlePool *hp;
+    if (!useSnapHandlePool) {
+        hp = new FileHandlePool(filename, nhandles);
+    } else {
+        hp = new SnapHandlePool(filename, nhandles);
+    }
+
     thread_t *threads = new thread_t[writers + readers];
 
-    struct ops_args oa{fhp, (float)time};
+    struct ops_args oa{hp, (float)time, useSnapHandlePool};
 
     int threadid = 0;
     // Spawn writer thread(s)
@@ -437,18 +643,20 @@ void reader_writer_shared_pool_test(int nhandles,
     delete[] threads;
 
     /* Print Collected Stats */
-    fhp->displayCollection(title);
+    hp->displayCollection(title);
 
 #ifdef __DEBUG_USECASE
-    fhp->printHandleStats();
+    hp->printHandleStats();
 #endif
 
     /* cleanup */
-    delete fhp;
+    delete hp;
     fdb_shutdown();
 
+#ifndef __DEBUG_USECASE
     r = system(SHELL_DEL" usecase_test* > errorlog.txt");
     (void)r;
+#endif
 
     memleak_end();
     TEST_RESULT(title);
@@ -458,19 +666,31 @@ int main() {
 
     /* Test single writer with multiple readers sharing a common
        pool of file handles, for 30 seconds */
-    reader_writer_shared_pool_test(10 /*number of handles*/,
-                                   1        /*writer count*/,
-                                   4        /*reader count*/,
-                                   30       /*test time in seconds*/,
-                                   "1 WRITER - 4 READERS TEST");
+    test_readers_writers_with_handle_pool(10       /*number of handles*/,
+                                          1        /*writer count*/,
+                                          4        /*reader count*/,
+                                          false    /*do not use snap handle pool*/,
+                                          30       /*test time in seconds*/,
+                                          "1 RW, 4 RO - Shared Pool test");
 
     /* Test multiple writers with multiple readers sharing a common
        pool of file handles, for 30 seconds */
-    reader_writer_shared_pool_test(10       /*number of handles*/,
-                                   4        /*writer count*/,
-                                   4        /*reader count*/,
-                                   30       /*test time in seconds*/,
-                                   "4 WRITERS - 4 READERS TEST");
+    test_readers_writers_with_handle_pool(10       /*number of handles*/,
+                                          4        /*writer count*/,
+                                          4        /*reader count*/,
+                                          false    /*do not use snap handle pool*/,
+                                          30       /*test time in seconds*/,
+                                          "4 RW, 4 RO - Shared Pool test");
+
+    /* Test multiple writers sharing a common pool of file handles
+       and multiple readers sharing a common pool of snapshot handles,
+       for 30 seconds */
+    test_readers_writers_with_handle_pool(5        /*number of handles*/,
+                                          4        /*writer count*/,
+                                          4        /*reader count*/,
+                                          true     /*use snap handle pool*/,
+                                          30       /*test time in seconds*/,
+                                          "4 WR, 4 RO - Separate Pool test");
 
     return 0;
 }
