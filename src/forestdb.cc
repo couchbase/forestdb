@@ -7886,7 +7886,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
             break; // header doesn't exist, terminate iteration
         }
         if (ver_superblock_support(version) &&
-            revnum < handle->file->sb->min_live_hdr_revnum) {
+            revnum < sb_get_min_live_revnum(handle->file)) {
             break; // eariler than the last block reclaiming
         }
 
