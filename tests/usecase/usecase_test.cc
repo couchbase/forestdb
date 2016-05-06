@@ -72,7 +72,7 @@ struct PoolEntry {
  */
 class FileHandlePool {
 public:
-    FileHandlePool(const char *filename, int count) {
+    FileHandlePool(std::vector<std::string> filenames, int count) {
         fdb_status status;
         fdb_config fconfig = fdb_get_default_config();
         fconfig.multi_kv_instances = false;
@@ -80,7 +80,9 @@ public:
         for (int i = 0; i < count; ++i) {
             fdb_file_handle *dbfile;
             fdb_kvs_handle *db;
-            status = fdb_open(&dbfile, filename, &fconfig);
+            status = fdb_open(&dbfile,
+                              filenames.at(i % filenames.size()).c_str(),
+                              &fconfig);
             fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
             status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
             fdb_assert(status == FDB_RESULT_SUCCESS, status, FDB_RESULT_SUCCESS);
@@ -251,8 +253,8 @@ private:
  */
 class SnapHandlePool : public FileHandlePool {
 public:
-    SnapHandlePool(const char *filename, int count)
-        : FileHandlePool(filename, count) {
+    SnapHandlePool(std::vector<std::string> filenames, int count)
+        : FileHandlePool(filenames, count) {
         snap_pool_vector.resize(count, nullptr);
         mutex_init(&snaplock);
 
@@ -589,11 +591,11 @@ static void *invoke_reader_ops(void *args) {
  * work with the snap handle pool.
  */
 void test_readers_writers_with_handle_pool(int nhandles,
+                                           int nfiles,
                                            int writers,
                                            int readers,
                                            bool useSnapHandlePool,
-                                           int time,
-                                           const char *title) {
+                                           int time) {
     TEST_INIT();
     memleak_start();
 
@@ -602,20 +604,30 @@ void test_readers_writers_with_handle_pool(int nhandles,
     r = system(SHELL_DEL" usecase_test* > errorlog.txt");
     (void)r;
 
-    // Set filename
-    const char *filename = "./usecase_test1";
+    if (nfiles < 1) {
+        fprintf(stderr, "[ERROR] Invalid number of files: %d!", nfiles);
+        return;
+    }
+
+    // Set filename(s)
+    std::vector<std::string> files;
+    for (int i = 1; i <= nfiles; ++i) {
+        std::string filename("./usecase_test" + std::to_string(i));
+        files.push_back(filename);
+    }
 
     if (writers + readers < 1) {
-        fprintf(stderr, "[ERROR] Invalid number of reader/writers!");
+        fprintf(stderr, "[ERROR] Invalid number of readers (%d)/writers (%d)!",
+                readers, writers);
         return;
     }
 
     // Prepare handle pool
     FileHandlePool *hp;
     if (!useSnapHandlePool) {
-        hp = new FileHandlePool(filename, nhandles);
+        hp = new FileHandlePool(files, nhandles);
     } else {
-        hp = new SnapHandlePool(filename, nhandles);
+        hp = new SnapHandlePool(files, nhandles);
     }
 
     thread_t *threads = new thread_t[writers + readers];
@@ -642,8 +654,14 @@ void test_readers_writers_with_handle_pool(int nhandles,
     }
     delete[] threads;
 
+    std::string test_title(std::to_string(nhandles) + "H, " +
+                           std::to_string(nfiles) + "F, " +
+                           std::to_string(writers) + "RW, " +
+                           std::to_string(readers) + "RO - ");
+    test_title += useSnapHandlePool ? "Seperate Pool test" : "Shared Pool test";
+
     /* Print Collected Stats */
-    hp->displayCollection(title);
+    hp->displayCollection(test_title.c_str());
 
 #ifdef __DEBUG_USECASE
     hp->printHandleStats();
@@ -651,6 +669,8 @@ void test_readers_writers_with_handle_pool(int nhandles,
 
     /* cleanup */
     delete hp;
+
+    /* shutdown */
     fdb_shutdown();
 
 #ifndef __DEBUG_USECASE
@@ -659,38 +679,48 @@ void test_readers_writers_with_handle_pool(int nhandles,
 #endif
 
     memleak_end();
-    TEST_RESULT(title);
+    TEST_RESULT(test_title.c_str());
 }
 
 int main() {
 
     /* Test single writer with multiple readers sharing a common
-       pool of file handles, for 30 seconds */
+       pool of file handles, over single file for 30 seconds */
     test_readers_writers_with_handle_pool(10       /*number of handles*/,
+                                          1        /*number of files*/,
                                           1        /*writer count*/,
                                           4        /*reader count*/,
                                           false    /*do not use snap handle pool*/,
-                                          30       /*test time in seconds*/,
-                                          "1 RW, 4 RO - Shared Pool test");
+                                          30       /*test time in seconds*/);
 
     /* Test multiple writers with multiple readers sharing a common
-       pool of file handles, for 30 seconds */
+       pool of file handles, over single file for 30 seconds */
     test_readers_writers_with_handle_pool(10       /*number of handles*/,
+                                          1        /*number of files*/,
                                           4        /*writer count*/,
                                           4        /*reader count*/,
                                           false    /*do not use snap handle pool*/,
-                                          30       /*test time in seconds*/,
-                                          "4 RW, 4 RO - Shared Pool test");
+                                          30       /*test time in seconds*/);
 
     /* Test multiple writers sharing a common pool of file handles
        and multiple readers sharing a common pool of snapshot handles,
-       for 30 seconds */
+       over single file for 30 seconds */
     test_readers_writers_with_handle_pool(5        /*number of handles*/,
+                                          1        /*number of files*/,
                                           4        /*writer count*/,
                                           4        /*reader count*/,
                                           true     /*use snap handle pool*/,
-                                          30       /*test time in seconds*/,
-                                          "4 WR, 4 RO - Separate Pool test");
+                                          30       /*test time in seconds*/);
+
+    /* Test multiple writers sharing a common pool of file handles
+       and multiple readers sharing a common pool of snapshot handles,
+       over multiple files for 30 seconds */
+    test_readers_writers_with_handle_pool(10       /*number of handles*/,
+                                          5        /*number of files*/,
+                                          4        /*writer count*/,
+                                          4        /*reader count*/,
+                                          true     /*use snap handle pool*/,
+                                          30       /*test time in seconds*/);
 
     return 0;
 }

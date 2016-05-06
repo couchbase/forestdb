@@ -529,6 +529,10 @@ void compactor_shutdown()
     struct avl_node *a = NULL;
     struct openfiles_elem *elem;
 
+    if (!compactor_tids) {
+        return;
+    }
+
     // set terminate signal
     mutex_lock(&sync_mutex);
     compactor_terminate_signal = 1;
@@ -539,6 +543,7 @@ void compactor_shutdown()
         thread_join(compactor_tids[i], &ret);
     }
     free(compactor_tids);
+    compactor_tids = NULL;
 
     mutex_lock(&cpt_lock);
     // free all elems in the tree

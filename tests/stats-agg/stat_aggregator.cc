@@ -59,7 +59,7 @@ void StatAggregator::aggregateAndPrintStats(const char* title, int count,
     }
 
     int printed = 0;
-    printf("\n========== Avg Latencies (%s) - %d samples (%s) %n",
+    printf("\n===== Avg Latencies (%s) - %d samples (%s) %n",
             title, count, unit, &printed);
     fillLineWith('=', 88-printed);
 

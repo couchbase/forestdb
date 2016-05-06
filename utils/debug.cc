@@ -148,7 +148,10 @@ fdb_status _dbg_install_handler(void)
 
 fdb_status _dbg_destroy_altstack()
 {
-    free(__sigstack.ss_sp);
+    if (__sigstack.ss_sp) {
+        free(__sigstack.ss_sp);
+        __sigstack.ss_sp = NULL;
+    }
     return FDB_RESULT_SUCCESS;
 }
 
