@@ -955,38 +955,70 @@ static int64_t _docio_read_doc_component_comp(struct docio_handle *handle,
 
 #endif
 
+/**
+ * Helper function that validates offset and checksum
+ */
+static bool docio_validate_checksum(struct docio_handle *handle,
+                                    bool read_on_cache_miss,
+                                    int64_t *offset,
+                                    struct docio_length *length,
+                                    fdb_status *status) {
+    uint8_t checksum;
+    int64_t _offset;
+    struct docio_length zero_length;
+
+    _offset = _docio_read_length(handle, *offset, length,
+                                 handle->log_callback, true);
+    if (_offset < 0) {
+        if (read_on_cache_miss) {
+            fdb_log(handle->log_callback, (fdb_status) _offset,
+                    "Error in reading the doc length metadata with "
+                    "offset %" _F64 " from a database file '%s'",
+                    *offset, handle->file->filename);
+        }
+        *status = (fdb_status) _offset;
+        return false;;
+    }
+    *offset = _offset;
+
+    memset(&zero_length, 0x0, sizeof(struct docio_length));
+    if (memcmp(length, &zero_length, sizeof(struct docio_length)) == 0) {
+        // If all the fields in docio_length are zero, then it means that the rest of
+        // the current block, which starts at offset, is zero-filled and can be skipped.
+        *status = FDB_RESULT_SUCCESS;
+        return false;
+    }
+
+    // checksum check
+    checksum = _docio_length_checksum(*length, handle);
+    if (checksum != length->checksum) {
+        fdb_log(handle->log_callback, FDB_RESULT_CHECKSUM_ERROR,
+                "doc_length checksum mismatch error in a database file '%s'"
+                " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
+                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
+                checksum, length->checksum, length->keylen, length->metalen,
+                length->bodylen, length->bodylen_ondisk, offset);
+        *status = FDB_RESULT_CHECKSUM_ERROR;
+        return false;
+    }
+
+    return true;
+}
+
 fdb_status docio_read_doc_length(struct docio_handle *handle,
                                  struct docio_length *length,
                                  uint64_t offset)
 {
-    uint8_t checksum;
-    int64_t _offset;
-    struct docio_length _length, zero_length;
     err_log_callback *log_callback = handle->log_callback;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    struct docio_length _length;
+    int64_t _offset = offset;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback, true);
-    if (_offset < 0) {
-        return (fdb_status) _offset;
-    }
-
-    memset(&zero_length, 0x0, sizeof(struct docio_length));
-    if (memcmp(&_length, &zero_length, sizeof(struct docio_length)) == 0) {
-        // If all the fields in docio_length are zero, then it means that the rest of
-        // the current block, which starts at offset, is zero-filled and can be skipped.
-        *length = zero_length;
-        return FDB_RESULT_SUCCESS;
-    }
-
-    // checksum check
-    checksum = _docio_length_checksum(_length, handle);
-    if (checksum != _length.checksum) {
-        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
-                "doc_length checksum mismatch error in a database file '%s'"
-                " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.checksum, _length.keylen, _length.metalen,
-                _length.bodylen, _length.bodylen_ondisk, offset);
-        return FDB_RESULT_CHECKSUM_ERROR;
+    if (!docio_validate_checksum(handle, true, &_offset, &_length, &status)) {
+        if (status == FDB_RESULT_SUCCESS) {
+            *length = _length;
+        }
+        return status;
     }
 
     *length = _docio_length_decode(_length);
@@ -995,7 +1027,7 @@ fdb_status docio_read_doc_length(struct docio_handle *handle,
                 "Error in decoding the doc length metadata in file %s"
                 " crc %x keylen %d metalen %d bodylen %d "
                 "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.keylen, _length.metalen,
+                _length.checksum, _length.keylen, _length.metalen,
                 _length.bodylen, _length.bodylen_ondisk, offset);
         return FDB_RESULT_FILE_CORRUPTION;
     }
@@ -1006,38 +1038,16 @@ fdb_status docio_read_doc_length(struct docio_handle *handle,
 fdb_status docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
                               keylen_t *keylen, void *keybuf)
 {
-    uint8_t checksum;
-    int64_t _offset;
-    struct docio_length length, _length, zero_length;
     err_log_callback *log_callback = handle->log_callback;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    struct docio_length length, _length;
+    int64_t _offset = offset;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback, true);
-    if (_offset < 0) {
-        fdb_log(log_callback, (fdb_status) _offset,
-                "Error in reading the doc length metadata with offset %" _F64 " from "
-                "a database file '%s'",
-                offset, handle->file->filename);
-        return (fdb_status) _offset;
-    }
-
-    memset(&zero_length, 0x0, sizeof(struct docio_length));
-    if (memcmp(&_length, &zero_length, sizeof(struct docio_length)) == 0) {
-        // If all the fields in docio_length are zero, then it means that the rest of
-        // the current block, which starts at offset, is zero-filled and can be skipped.
-        *keylen = 0;
-        return FDB_RESULT_SUCCESS;
-    }
-
-    // checksum check
-    checksum = _docio_length_checksum(_length, handle);
-    if (checksum != _length.checksum) {
-        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
-                "doc_length key checksum mismatch error in a database file '%s'"
-                " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.checksum, _length.keylen, _length.metalen,
-                _length.bodylen, _length.bodylen_ondisk, offset);
-        return FDB_RESULT_CHECKSUM_ERROR;
+    if (!docio_validate_checksum(handle, true, &_offset, &_length, &status)) {
+        if (status == FDB_RESULT_SUCCESS) {
+            *keylen = 0;
+        }
+        return status;
     }
 
     length = _docio_length_decode(_length);
@@ -1046,7 +1056,7 @@ fdb_status docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
                 "Error in decoding the doc key length metadata in file %s"
                 " crc %x keylen %d metalen %d bodylen %d "
                 "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.keylen, _length.metalen,
+                _length.checksum, _length.keylen, _length.metalen,
                 _length.bodylen, _length.bodylen_ondisk, offset);
         return FDB_RESULT_FILE_CORRUPTION;
     }
@@ -1085,48 +1095,26 @@ void free_docio_object(struct docio_object *doc, bool key_alloc,
     }
 }
 
-int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
+int64_t docio_read_doc_key_meta(struct docio_handle *handle,
+                                uint64_t offset,
                                 struct docio_object *doc,
                                 bool read_on_cache_miss)
 {
-    uint8_t checksum;
-    int64_t _offset;
     bool key_alloc = false, meta_alloc = false;
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
-    struct docio_length _length, zero_length;
+
     err_log_callback *log_callback = handle->log_callback;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    struct docio_length _length;
+    int64_t _offset = offset;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback,
-                                 read_on_cache_miss);
-    if (_offset < 0) {
-        if (read_on_cache_miss) {
-            fdb_log(log_callback, (fdb_status) _offset,
-                    "Error in reading the doc length metadata with offset %" _F64 " from "
-                    "a database file '%s'",
-                    offset, handle->file->filename);
+    if (!docio_validate_checksum(handle, read_on_cache_miss,
+                                 &_offset, &_length, &status)) {
+        if (status == FDB_RESULT_SUCCESS) {
+            doc->length = _length;
         }
-        return _offset;
-    }
-
-    memset(&zero_length, 0x0, sizeof(struct docio_length));
-    if (memcmp(&_length, &zero_length, sizeof(struct docio_length)) == 0) {
-        // If all the fields in docio_length are zero, then it means that the rest of
-        // the current block, which starts at offset, is zero-filled and can be skipped.
-        doc->length = zero_length;
-        return (int64_t) FDB_RESULT_SUCCESS;
-    }
-
-    // checksum check
-    checksum = _docio_length_checksum(_length, handle);
-    if (checksum != _length.checksum) {
-        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
-                "doc_length meta checksum mismatch error in a database file '%s'"
-                " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.checksum, _length.keylen, _length.metalen,
-                _length.bodylen, _length.bodylen_ondisk, offset);
-        return (int64_t) FDB_RESULT_CHECKSUM_ERROR;
+        return (int64_t) status;
     }
 
     doc->length = _docio_length_decode(_length);
@@ -1201,49 +1189,27 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
     return _offset;
 }
 
-int64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
+int64_t docio_read_doc(struct docio_handle *handle,
+                       uint64_t offset,
                        struct docio_object *doc,
                        bool read_on_cache_miss)
 {
-    uint8_t checksum;
-    int64_t _offset;
     bool key_alloc = false, meta_alloc = false, body_alloc = false;
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
     void *comp_body = NULL;
-    struct docio_length _length, zero_length;
+
     err_log_callback *log_callback = handle->log_callback;
+    fdb_status status = FDB_RESULT_SUCCESS;
+    struct docio_length _length;
+    int64_t _offset = offset;
 
-    _offset = _docio_read_length(handle, offset, &_length, log_callback,
-                                 read_on_cache_miss);
-    if (_offset < 0) {
-        if (read_on_cache_miss) {
-            fdb_log(log_callback, (fdb_status) _offset,
-                    "Error in reading the doc length metadata with offset %" _F64 " from "
-                    "a database file '%s'",
-                    offset, handle->file->filename);
+    if (!docio_validate_checksum(handle, read_on_cache_miss,
+                                 &_offset, &_length, &status)) {
+        if (status == FDB_RESULT_SUCCESS) {
+            doc->length = _length;
         }
-        return _offset;
-    }
-
-    memset(&zero_length, 0x0, sizeof(struct docio_length));
-    if (memcmp(&_length, &zero_length, sizeof(struct docio_length)) == 0) {
-        // If all the fields in docio_length are zero, then it means that the rest of
-        // the current block, which starts at offset, is zero-filled and can be skipped.
-        doc->length = zero_length;
-        return (int64_t) FDB_RESULT_SUCCESS;
-    }
-
-    // checksum check
-    checksum = _docio_length_checksum(_length, handle);
-    if (checksum != _length.checksum) {
-        fdb_log(log_callback, FDB_RESULT_CHECKSUM_ERROR,
-                "doc_length body checksum mismatch error in a database file '%s'"
-                " crc %x != %x (crc in doc) keylen %d metalen %d bodylen %d "
-                "bodylen_ondisk %d offset %" _F64, handle->file->filename,
-                checksum, _length.checksum, _length.keylen, _length.metalen,
-                _length.bodylen, _length.bodylen_ondisk, offset);
-        return (int64_t) FDB_RESULT_CHECKSUM_ERROR;
+        return (int64_t) status;
     }
 
     doc->length = _docio_length_decode(_length);
