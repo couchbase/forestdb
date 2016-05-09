@@ -107,7 +107,7 @@ public:
         samples = 0;
     }
 
-    ~FileHandlePool() {
+    virtual ~FileHandlePool() {
         fdb_status status;
         for (size_t i = 0; i < pool_vector.size(); ++i) {
             PoolEntry *pe = pool_vector.at(i);
@@ -262,7 +262,7 @@ public:
         addStatToAgg(ITR_SEEK, "iterator-seek");
     }
 
-    ~SnapHandlePool() {
+    virtual ~SnapHandlePool() {
         fdb_status status;
         mutex_lock(&snaplock);
         for (size_t i = 0; i < snap_pool_vector.size(); ++i) {
