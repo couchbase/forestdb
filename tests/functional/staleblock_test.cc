@@ -248,7 +248,7 @@ void reuse_with_snapshot_test() {
     TEST_RESULT("reuse with snapshot test");
 }
 
-void verify_zero_num_keeping_headers_param_test() {
+void verify_minimum_num_keeping_headers_param_test() {
     memleak_start();
     TEST_INIT();
 
@@ -266,12 +266,19 @@ void verify_zero_num_keeping_headers_param_test() {
 
     // init
     fconfig.compaction_threshold = 0;
+
+    // open with zero num_keeping_headers parameter
     fconfig.num_keeping_headers = 0;
+    status = fdb_open(&dbfile, (char *)"./staleblktest1", &fconfig);
+    // should fail
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // open with single keeping header
+    fconfig.num_keeping_headers = 1;
     status = fdb_open(&dbfile, (char *)"./staleblktest1", &fconfig);
     TEST_STATUS(status);
     status = fdb_kvs_open(dbfile, &db, (char *)"num_keep", &kvs_config);
     TEST_STATUS(status);
-
 
     const char *key = "key";
     const char *val = "val";
@@ -321,7 +328,7 @@ void verify_zero_num_keeping_headers_param_test() {
     TEST_STATUS(status);
 
     memleak_end();
-    TEST_RESULT("verify zero num keeping headers param test");
+    TEST_RESULT("verify minimum num keeping headers param test");
 }
 
 void verify_high_num_keeping_headers_param_test() {
@@ -599,9 +606,13 @@ void snapshot_after_block_reuse_test() {
     low_seq += 6;
     status = fdb_snapshot_open(db, &snap_db, low_seq);
     TEST_STATUS(status);
-
     status = fdb_kvs_close(snap_db);
     TEST_STATUS(status);
+
+    // open snapshot using seqno already reclaimed
+    status = fdb_snapshot_open(db, &snap_db, low_seq-1);
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
     status = fdb_kvs_close(db);
     TEST_STATUS(status);
     status = fdb_close(dbfile);
@@ -1558,7 +1569,7 @@ int main() {
 
     /* Test reclaiming of stale blocks while varying
        num_keeping_headers */
-    verify_zero_num_keeping_headers_param_test();
+    verify_minimum_num_keeping_headers_param_test();
     verify_high_num_keeping_headers_param_test();
 
     /* Test to verify in-memory and disk snapshots before

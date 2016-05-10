@@ -1820,6 +1820,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 hdr_bid = filemgr_get_header_bid(handle->file);
             }
             // Reverse scan the file to locate the DB header with seqnum marker
+            header_revnum = latest_header_revnum;
             while (header_len && seqnum != handle->max_seqnum) {
                 hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
                                           header_buf, &header_len, &seqnum,
@@ -1896,6 +1897,15 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                     free_docio_object(&doc, 1, 1, 1);
                 }
             }
+
+            if (header_len && // header exists
+                config->block_reusing_threshold > 0 && // block reuse is enabled
+                config->block_reusing_threshold < 100 &&
+                header_revnum < sb_get_min_live_revnum(handle->file)) {
+                // cannot perform rollback/snapshot beyond the last live header
+                header_len = 0;
+            }
+
             if (!header_len) { // Marker MUST match that of DB commit!
                 // rollback original stats
                 if (handle->kvs) {
@@ -5528,10 +5538,6 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
     old_seqnum = last_seq;
     old_hdr_revnum = last_hdr_revnum;
 
-    uint64_t num_keeping_headers =
-        atomic_get_uint64_t(&rhandle->file->config->num_keeping_headers,
-                            std::memory_order_relaxed);
-
     while (marker_revnum < old_hdr_revnum) {
         old_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
                                                 old_hdr_bid, NULL, &header_len,
@@ -5544,11 +5550,8 @@ _fdb_compact_move_docs_upto_marker(fdb_kvs_handle *rhandle,
         if (rhandle->config.block_reusing_threshold > 0 &&
             rhandle->config.block_reusing_threshold < 100) {
             // block reuse is enabled
-            if (old_hdr_revnum + num_keeping_headers < last_hdr_revnum) {
-                // gone past the keeping header limit
-                // ('last_hdr_revnum' indicates the new header appended at the
-                //  beginning of the compaction, so we need to use '<'
-                //  instead of '<=').
+            if (old_hdr_revnum < sb_get_min_live_revnum(rhandle->file)) {
+                // gone past the last live header
                 return FDB_RESULT_NO_DB_INSTANCE;
             }
         } else {

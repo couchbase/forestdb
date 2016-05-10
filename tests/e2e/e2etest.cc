@@ -1600,8 +1600,14 @@ void e2e_multi_kvs_concurrent_wr_compact() {
 
 int main() {
 
+    // Note: following tests are temporarily disabled due to
+    // the keeping header violation issue by rollback/snapshot API.
+    //
+    //   - e2e_multi_kvs_concurrent_wr();
+    //   - e2e_index_basic_test();
+
     /* Multiple kvstores under reuse with rollback */
-    e2e_multi_kvs_concurrent_wr();
+    // e2e_multi_kvs_concurrent_wr();
 
     /* Multiple kvstores under reuse with rollback and compaction */
     e2e_multi_kvs_concurrent_wr_compact();
@@ -1617,7 +1623,7 @@ int main() {
     e2e_robust_test();
     e2e_concurrent_scan_test();
     e2e_async_manual_compact_test();
-    e2e_index_basic_test();
+    // e2e_index_basic_test();
     e2e_index_walflush_test_no_deletes_auto_compact();
     e2e_index_walflush_autocompact_test();
     e2e_index_normal_commit_autocompact_test();

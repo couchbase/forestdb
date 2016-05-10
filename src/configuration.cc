@@ -167,6 +167,10 @@ bool validate_fdb_config(fdb_config *fconfig) {
     if (fconfig->num_bgflusher_threads > MAX_NUM_BGFLUSHER_THREADS) {
         return false;
     }
+    if (fconfig->num_keeping_headers == 0) {
+        // num_keeping_headers should be greater than zero
+        return false;
+    }
 
     return true;
 }
