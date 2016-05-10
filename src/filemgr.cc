@@ -168,7 +168,7 @@ fdb_status fdb_log(err_log_callback *log_callback,
         log_callback->callback(status, msg, log_callback->ctx_data);
     } else {
         if (status != FDB_RESULT_SUCCESS) {
-            fprintf(stderr, "[FDB ERR] %s\n", msg);
+            fprintf(stderr, "[FDB ERR: %d] %s\n", status, msg);
         } else {
             fprintf(stderr, "[FDB INFO] %s\n", msg);
         }
