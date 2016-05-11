@@ -395,6 +395,15 @@ void replay(storage_t *st) {
             printf("rollback to %llu\n", chk->seqnum_all);
 #endif
             status = fdb_rollback(&st->all_docs, rollback_seqnum);
+            if (status == FDB_RESULT_NO_DB_INSTANCE) {
+                free(chk);
+                // drop replay kvs
+                status = fdb_kvs_close(replay_kvs);
+                TEST_CHK(status == FDB_RESULT_SUCCESS);
+                status = fdb_kvs_remove(dbfile, kvsbuf);
+                TEST_CHK(status == FDB_RESULT_SUCCESS);
+                break;
+            }
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             free(chk);
             chk=NULL;
@@ -1604,7 +1613,6 @@ int main() {
     // the keeping header violation issue by rollback/snapshot API.
     //
     //   - e2e_multi_kvs_concurrent_wr();
-    //   - e2e_index_basic_test();
 
     /* Multiple kvstores under reuse with rollback */
     // e2e_multi_kvs_concurrent_wr();
@@ -1623,7 +1631,7 @@ int main() {
     e2e_robust_test();
     e2e_concurrent_scan_test();
     e2e_async_manual_compact_test();
-    // e2e_index_basic_test();
+    e2e_index_basic_test();
     e2e_index_walflush_test_no_deletes_auto_compact();
     e2e_index_walflush_autocompact_test();
     e2e_index_normal_commit_autocompact_test();
