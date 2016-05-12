@@ -33,6 +33,7 @@
 #include "wal.h"
 #include "functional_util.h"
 #include "file_handle.h"
+#include "kvs_handle.h"
 
 #undef THREAD_SANITIZER
 #if __clang__

@@ -38,7 +38,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
     }
 
     file_status_t fstatus;
-    fdb_kvs_handle *handle = fhandle->getRootHandle();
+    FdbKvsHandle *handle = fhandle->getRootHandle();
     struct filemgr *file;
 
     if (handle->txn) {
@@ -116,7 +116,7 @@ fdb_status fdb_abort_transaction(fdb_file_handle *fhandle)
     return _fdb_abort_transaction(fhandle->getRootHandle());
 }
 
-fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
+fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
 {
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -180,7 +180,7 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
     }
 
     file_status_t fstatus;
-    fdb_kvs_handle *handle = fhandle->getRootHandle();
+    FdbKvsHandle *handle = fhandle->getRootHandle();
     struct filemgr *file;
 
     if (handle->txn == NULL) {

@@ -263,7 +263,7 @@ INLINE bool sb_bmp_exists(struct superblock *sb)
  * @param handle Pointer to ForestDB KV store handle.
  * @return void.
  */
-void sb_bmp_append_doc(fdb_kvs_handle *handle);
+void sb_bmp_append_doc(FdbKvsHandle *handle);
 
 /**
  * Create system docs for reserved bitmap and append them into the file.
@@ -271,7 +271,7 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle);
  * @param handle Pointer to ForestDB KV store handle.
  * @return void.
  */
-void sb_rsv_append_doc(fdb_kvs_handle *handle);
+void sb_rsv_append_doc(FdbKvsHandle *handle);
 
 /**
  * Read bitmap docs from file and reconstruct bitmap.
@@ -279,7 +279,7 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle);
  * @param handle Pointer to ForestDB KV store handle.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle);
+fdb_status sb_bmp_fetch_doc(FdbKvsHandle *handle);
 
 /**
  * Update in-memory structure of superblock using current header info.
@@ -287,7 +287,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle);
  * @param handle Pointer to ForestDB KV store handle.
  * @return True if superblock is updated.
  */
-bool sb_update_header(fdb_kvs_handle *handle);
+bool sb_update_header(FdbKvsHandle *handle);
 
 /**
  * Reset counter for the number of block allocation.
@@ -295,7 +295,7 @@ bool sb_update_header(fdb_kvs_handle *handle);
  * @param handle Pointer to ForestDB KV store handle.
  * @return void.
  */
-void sb_reset_num_alloc(fdb_kvs_handle *handle);
+void sb_reset_num_alloc(FdbKvsHandle *handle);
 
 /**
  * Write back superblock info into the file.
@@ -303,14 +303,14 @@ void sb_reset_num_alloc(fdb_kvs_handle *handle);
  * @param handle Pointer to ForestDB KV store handle.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status sb_sync_circular(fdb_kvs_handle *handle);
+fdb_status sb_sync_circular(FdbKvsHandle *handle);
 /**
  * Check if superblock needs to be written back into the file.
  *
  * @param handle Pointer to ForestDB KV store handle.
  * @return True if superblock meets the sync period.
  */
-bool sb_check_sync_period(fdb_kvs_handle *handle);
+bool sb_check_sync_period(FdbKvsHandle *handle);
 
 /**
  * Reusable block reclaim logic decision.
@@ -340,7 +340,7 @@ typedef enum {
  * @param handle Pointer to ForestDB KV store handle.
  * @return True if block reusing is necessary.
  */
-sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle);
+sb_decision_t sb_check_block_reusing(FdbKvsHandle *handle);
 
 /**
  * Reclaim stale blocks and update the in-memory structure of bitmap in superblock.
@@ -348,7 +348,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle);
  * @param handle Pointer to ForestDB KV store handle.
  * @return True if block reclaiming succeeded.
  */
-bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle);
+bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle);
 
 /**
  * Switch reserved blocks to currently being used blocks.
@@ -365,7 +365,7 @@ bool sb_switch_reserved_blocks(struct filemgr *file);
  * @param handle Pointer to ForestDB KV store handle.
  * @return True if block reclaiming succeeded.
  */
-bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle);
+bool sb_reserve_next_reusable_blocks(FdbKvsHandle *handle);
 
 /**
  * Restore all remaining reusable blocks including reserved blocks
@@ -374,7 +374,7 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle);
  * @param handle Pointer to ForestDB KV store handle.
  * @return void.
  */
-void sb_return_reusable_blocks(fdb_kvs_handle *handle);
+void sb_return_reusable_blocks(FdbKvsHandle *handle);
 
 /**
  * Set bitmap bits for the given blocks.

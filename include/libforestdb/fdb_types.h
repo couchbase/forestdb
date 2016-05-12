@@ -234,7 +234,7 @@ typedef struct FdbFileHandle fdb_file_handle;
 /**
  * Opaque reference to a ForestDB KV store handle, which is exposed in public APIs.
  */
-typedef struct _fdb_kvs_handle fdb_kvs_handle;
+typedef struct FdbKvsHandle fdb_kvs_handle;
 
 /**
  * Compaction status for callback function.

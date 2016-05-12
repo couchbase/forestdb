@@ -29,6 +29,7 @@
 #include "filemgr.h"
 #include "staleblock.h"
 #include "internal_types.h"
+#include "kvs_handle.h"
 #include "libforestdb/forestdb.h"
 #include "functional_util.h"
 

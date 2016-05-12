@@ -51,7 +51,7 @@ static int _inmem_stale_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 }
 
-static void fdb_add_inmem_stale_info(fdb_kvs_handle *handle,
+static void fdb_add_inmem_stale_info(FdbKvsHandle *handle,
                                      filemgr_header_revnum_t revnum,
                                      struct docio_object *doc,
                                      uint64_t doc_offset,
@@ -129,7 +129,7 @@ static void fdb_add_inmem_stale_info(fdb_kvs_handle *handle,
     list_push_back(&item->doc_list, &entry->le);
 }
 
-void fdb_load_inmem_stale_info(fdb_kvs_handle *handle)
+void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
 {
     uint8_t keybuf[64];
     int64_t ret;
@@ -195,7 +195,7 @@ void fdb_load_inmem_stale_info(fdb_kvs_handle *handle)
     filemgr_mutex_unlock(file);
 }
 
-void fdb_gather_stale_blocks(fdb_kvs_handle *handle,
+void fdb_gather_stale_blocks(FdbKvsHandle *handle,
                              filemgr_header_revnum_t revnum,
                              bid_t prev_hdr,
                              uint64_t kv_info_offset,
@@ -555,7 +555,7 @@ static void _fetch_stale_info_doc(void *ctx,
     }
 }
 
-reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
+reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
                                            stale_header_info stale_header)
 {
     int64_t delta;
@@ -905,7 +905,7 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
     return ret;
 }
 
-void fdb_rollback_stale_blocks(fdb_kvs_handle *handle,
+void fdb_rollback_stale_blocks(FdbKvsHandle *handle,
                                filemgr_header_revnum_t cur_revnum)
 {
     btree_result br;

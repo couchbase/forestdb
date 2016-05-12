@@ -22,6 +22,7 @@
 #include "fdb_internal.h"
 #include "filemgr.h"
 #include "file_handle.h"
+#include "kvs_handle.h"
 
 
 FdbFileHandle::FdbFileHandle() :
@@ -29,7 +30,7 @@ FdbFileHandle::FdbFileHandle() :
     spin_init(&lock);
 }
 
-FdbFileHandle::FdbFileHandle(struct _fdb_kvs_handle *_root) : root(_root) {
+FdbFileHandle::FdbFileHandle(FdbKvsHandle *_root) : root(_root) {
     root->fhandle = this;
     handles = (struct list*) calloc(1, sizeof(struct list));
     cmpFuncList = NULL;
@@ -212,8 +213,7 @@ fdb_status FdbFileHandle::closeAllKVHandles() {
             spin_unlock(&lock);
             return fs;
         }
-        delete node->handle->kvs;
-        free(node->handle);
+        delete node->handle;
         free(node);
     }
     spin_unlock(&lock);

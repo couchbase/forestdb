@@ -25,6 +25,8 @@
 #include "list.h"
 #include "staleblock.h"
 
+class FdbKvsHandle;
+
 // list element for custom cmp functions in FdbFileHandle
 struct cmp_func_node {
     char *kvs_name;
@@ -35,7 +37,7 @@ struct cmp_func_node {
 // list element for opened KV store handles
 // (in-memory data: managed by the file handle)
 struct kvs_opened_node {
-    fdb_kvs_handle *handle;
+    FdbKvsHandle *handle;
     struct list_elem le;
 };
 
@@ -50,11 +52,11 @@ class FdbFileHandle {
 public:
     FdbFileHandle();
 
-    FdbFileHandle(struct _fdb_kvs_handle *_root);
+    FdbFileHandle(FdbKvsHandle *_root);
 
     ~FdbFileHandle();
 
-    struct _fdb_kvs_handle* getRootHandle() const {
+    FdbKvsHandle* getRootHandle() const {
         return root;
     }
 
@@ -72,7 +74,7 @@ public:
         return flags;
     }
 
-    void setRootHandle(struct _fdb_kvs_handle* _root) {
+    void setRootHandle(FdbKvsHandle* _root) {
         root = _root;
     }
 
@@ -132,7 +134,7 @@ private:
     /**
      * The root KV store handle.
      */
-    struct _fdb_kvs_handle *root;
+    FdbKvsHandle *root;
     /**
      * List of opened default KV store handles
      * (except for the root handle).

@@ -82,7 +82,10 @@ if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
 
-if (NOT WIN32)
+if (WIN32)
+    set(FORESTDB_FILE_OPS "src/filemgr_ops_windows.cc")
+    set(GETTIMEOFDAY_VS "${PROJECT_SOURCE_DIR}/utils/gettimeofday_vs.cc")
+else (WIN32)
     set ( CMAKE_CXX_FLAGS_DEBUG "-O0 -Wunused-variable -Wall -pedantic ${STD_VERSION} -Wredundant-decls")
     set(PTHREAD_LIB pthread)
     set(LIBM m)
@@ -94,10 +97,7 @@ if (NOT WIN32)
     if (DL_LIBRARY)
         set(DL_LIBRARIES "${DL_LIBRARY}")
     endif (DL_LIBRARY)
-else (NOT WIN32)
-    set(FORESTDB_FILE_OPS "src/filemgr_ops_windows.cc")
-    set(GETTIMEOFDAY_VS "${PROJECT_SOURCE_DIR}/utils/gettimeofday_vs.cc")
-endif(NOT WIN32)
+endif(WIN32)
 
 IF (_MVCC_WAL EQUAL 1)
     ADD_DEFINITIONS(-D_MVCC_WAL_ENABLE=1)
@@ -203,6 +203,7 @@ SET(FORESTDB_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/hash_functions.cc
     ${PROJECT_SOURCE_DIR}/src/hbtrie.cc
     ${PROJECT_SOURCE_DIR}/src/iterator.cc
+    ${PROJECT_SOURCE_DIR}/src/kvs_handle.cc
     ${PROJECT_SOURCE_DIR}/src/kv_instance.cc
     ${PROJECT_SOURCE_DIR}/src/list.cc
     ${PROJECT_SOURCE_DIR}/src/staleblock.cc

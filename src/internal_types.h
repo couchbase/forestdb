@@ -38,6 +38,8 @@ struct docio_handle;
 struct btree_blk_ops;
 struct snap_handle;
 
+class FdbKvsHandle;
+
 #define OFFSET_SIZE (sizeof(uint64_t))
 
 #define FDB_MAX_KEYLEN_INTERNAL (65520)
@@ -115,7 +117,10 @@ public:
     KvsInfo() :
         type(KVS_ROOT), id(0), root(NULL) { }
 
-    KvsInfo(kvs_type_t _type, fdb_kvs_id_t _id, fdb_kvs_handle *_root):
+    KvsInfo(const KvsInfo &info) :
+        type(info.type), id(info.id), root(info.root) { }
+
+    KvsInfo(kvs_type_t _type, fdb_kvs_id_t _id, FdbKvsHandle *_root):
         type(_type), id(_id), root(_root) { }
 
     kvs_type_t getKvsType() const {
@@ -126,7 +131,7 @@ public:
         return id;
     }
 
-    fdb_kvs_handle *getRootHandle() const {
+    FdbKvsHandle *getRootHandle() const {
         return root;
     }
 
@@ -138,7 +143,7 @@ public:
         id = _id;
     }
 
-    void setRootHandle(fdb_kvs_handle *_root) {
+    void setRootHandle(FdbKvsHandle *_root) {
         root = _root;
     }
 
@@ -154,7 +159,7 @@ private:
     /**
      * Pointer to root handle.
      */
-    fdb_kvs_handle *root;
+    FdbKvsHandle *root;
 };
 
 /**
@@ -281,166 +286,6 @@ struct _fdb_key_cmp_info {
     KvsInfo *kvs;
 };
 
-/**
- * ForestDB KV store handle definition.
- */
-struct _fdb_kvs_handle {
-
-    _fdb_kvs_handle& operator=(const _fdb_kvs_handle& kv_handle) {
-        kvs_config = kv_handle.kvs_config;
-        kvs = kv_handle.kvs;
-        op_stats = kv_handle.op_stats;
-        fhandle = kv_handle.fhandle;
-        trie = kv_handle.trie;
-        staletree = kv_handle.staletree;
-        if (kv_handle.kvs) {
-            seqtrie = kv_handle.seqtrie;
-        } else {
-            seqtree = kv_handle.seqtree;
-        }
-        file = kv_handle.file;
-        dhandle = kv_handle.dhandle;
-        bhandle = kv_handle.bhandle;
-        btreeblkops = kv_handle.btreeblkops;
-        fileops = kv_handle.fileops;
-        config = kv_handle.config;
-        log_callback = kv_handle.log_callback;
-        cur_header_revnum.store(kv_handle.cur_header_revnum.load());
-        last_hdr_bid = kv_handle.last_hdr_bid;
-        last_wal_flush_hdr_bid = kv_handle.last_wal_flush_hdr_bid;
-        kv_info_offset = kv_handle.kv_info_offset;
-        shandle = kv_handle.shandle;
-        seqnum = kv_handle.seqnum;
-        max_seqnum = kv_handle.max_seqnum;
-        filename = kv_handle.filename;
-        txn = kv_handle.txn;
-        handle_busy = kv_handle.handle_busy.load();
-        dirty_updates = kv_handle.dirty_updates;
-        node = kv_handle.node;
-        num_iterators = kv_handle.num_iterators;
-        return *this;
-    }
-
-    // TODO: Move these variables to private members as we refactor the code in C++.
-
-    /**
-     * ForestDB KV store level config. (Please retain as first struct member)
-     */
-    fdb_kvs_config kvs_config;
-    /**
-     * KV store information. (Please retain as second struct member)
-     */
-    KvsInfo *kvs;
-    /**
-     * Operational statistics for this kv store.
-     */
-    KvsOpsStat *op_stats;
-    /**
-     * Pointer to the corresponding file handle.
-     */
-    FdbFileHandle *fhandle;
-    /**
-     * HB+-Tree Trie instance.
-     */
-    struct hbtrie *trie;
-    /**
-     * Stale block B+-Tree instance.
-     * Maps from 'commit revision number' to 'stale block info' system document.
-     */
-    struct btree *staletree;
-    /**
-     * Sequence B+-Tree instance.
-     */
-    union {
-        struct btree *seqtree; // single KV instance mode
-        struct hbtrie *seqtrie; // multi KV instance mode
-    };
-    /**
-     * File manager instance.
-     */
-    struct filemgr *file;
-    /**
-     * Doc IO handle instance.
-     */
-    struct docio_handle *dhandle;
-    /**
-     * B+-Tree handle instance.
-     */
-    struct btreeblk_handle *bhandle;
-    /**
-     * B+-Tree block operation handle.
-     */
-    struct btree_blk_ops *btreeblkops;
-    /**
-     * File manager IO operation handle.
-     */
-    struct filemgr_ops *fileops;
-    /**
-     * ForestDB file level config.
-     */
-    fdb_config config;
-    /**
-     * Error logging callback.
-     */
-    ErrLogCallback log_callback;
-    /**
-     * File header revision number.
-     */
-    std::atomic<uint64_t> cur_header_revnum;
-    /**
-     * Header revision number of rollback point.
-     */
-    uint64_t rollback_revnum;
-    /**
-     * Last header's block ID.
-     */
-    uint64_t last_hdr_bid;
-    /**
-     * Block ID of a header created with most recent WAL flush.
-     */
-    uint64_t last_wal_flush_hdr_bid;
-    /**
-     * File offset of a document containing KV instance info.
-     */
-    uint64_t kv_info_offset;
-    /**
-     * Snapshot Information.
-     */
-    struct snap_handle *shandle;
-    /**
-     * KV store's current sequence number.
-     */
-    fdb_seqnum_t seqnum;
-    /**
-     * KV store's max sequence number for snapshot or rollback.
-     */
-    fdb_seqnum_t max_seqnum;
-    /**
-     * Virtual filename (DB instance filename given by users).
-     */
-    char *filename;
-    /**
-     * Transaction handle.
-     */
-    fdb_txn *txn;
-    /**
-     * Atomic flag to detect if handles are being shared among threads.
-     */
-    std::atomic<uint8_t> handle_busy;
-    /**
-     * Flag that indicates whether this handle made dirty updates or not.
-     */
-    uint8_t dirty_updates;
-    /**
-     * List element that will be inserted into 'handles' list in the root handle.
-     */
-    struct kvs_opened_node *node;
-    /**
-     * Number of active iterator instances created from this handle
-     */
-    uint32_t num_iterators;
-};
-
 struct hbtrie_iterator;
 struct avl_tree;
 struct avl_node;
@@ -486,7 +331,7 @@ struct _fdb_iterator {
     /**
      * ForestDB KV store handle.
      */
-    fdb_kvs_handle *handle;
+    FdbKvsHandle *handle;
     /**
      * HB+Trie iterator instance.
      */
@@ -595,7 +440,7 @@ struct _fdb_transaction {
     /**
      * ForestDB KV store handle.
      */
-    fdb_kvs_handle *handle;
+    FdbKvsHandle *handle;
     /**
      * Block ID of the last header before the transaction begins.
      */

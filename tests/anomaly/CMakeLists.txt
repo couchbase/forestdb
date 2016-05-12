@@ -26,6 +26,7 @@ SET(FORESTDB_COMMON_CORE_SRC
     ${PROJECT_SOURCE_DIR}/src/hash_functions.cc
     ${PROJECT_SOURCE_DIR}/src/hbtrie.cc
     ${PROJECT_SOURCE_DIR}/src/iterator.cc
+    ${PROJECT_SOURCE_DIR}/src/kvs_handle.cc
     ${PROJECT_SOURCE_DIR}/src/kv_instance.cc
     ${PROJECT_SOURCE_DIR}/src/list.cc
     ${PROJECT_SOURCE_DIR}/src/staleblock.cc

@@ -275,7 +275,7 @@ static void sb_bmp_change_end(struct superblock *sb)
     // now resume all pending readers
 }
 
-void sb_bmp_append_doc(fdb_kvs_handle *handle)
+void sb_bmp_append_doc(FdbKvsHandle *handle)
 {
     // == write bitmap into system docs ==
     // calculate # docs (1MB by default)
@@ -331,7 +331,7 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
     }
 }
 
-void sb_rsv_append_doc(fdb_kvs_handle *handle)
+void sb_rsv_append_doc(FdbKvsHandle *handle)
 {
     size_t i;
     uint64_t num_docs;
@@ -383,7 +383,7 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
     rsv->status = SB_RSV_READY;
 }
 
-fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
+fdb_status sb_bmp_fetch_doc(FdbKvsHandle *handle)
 {
     // == read bitmap from system docs ==
     size_t i;
@@ -481,7 +481,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
     return FDB_RESULT_SUCCESS;
 }
 
-bool sb_check_sync_period(fdb_kvs_handle *handle)
+bool sb_check_sync_period(FdbKvsHandle *handle)
 {
     struct superblock *sb = handle->file->sb;
 
@@ -491,7 +491,7 @@ bool sb_check_sync_period(fdb_kvs_handle *handle)
     return false;
 }
 
-bool sb_update_header(fdb_kvs_handle *handle)
+bool sb_update_header(FdbKvsHandle *handle)
 {
     bool ret = false;
     struct superblock *sb = handle->file->sb;
@@ -514,14 +514,14 @@ bool sb_update_header(fdb_kvs_handle *handle)
     return ret;
 }
 
-void sb_reset_num_alloc(fdb_kvs_handle *handle)
+void sb_reset_num_alloc(FdbKvsHandle *handle)
 {
     if (handle->file->sb) {
         handle->file->sb->num_alloc = 0;
     }
 }
 
-fdb_status sb_sync_circular(fdb_kvs_handle *handle)
+fdb_status sb_sync_circular(FdbKvsHandle *handle)
 {
     uint64_t sb_revnum;
     fdb_status fs;
@@ -533,7 +533,7 @@ fdb_status sb_sync_circular(fdb_kvs_handle *handle)
     return fs;
 }
 
-sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
+sb_decision_t sb_check_block_reusing(FdbKvsHandle *handle)
 
 {
     // start block reusing when
@@ -610,7 +610,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
     return SBD_NONE;
 }
 
-bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
+bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle)
 {
     size_t i;
     uint64_t num_blocks, bmp_size_byte;
@@ -666,7 +666,7 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     return true;
 }
 
-bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
+bool sb_reserve_next_reusable_blocks(FdbKvsHandle *handle)
 {
     size_t i;
     uint64_t num_blocks, bmp_size_byte;
@@ -722,7 +722,7 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
 }
 
 static void _rsv_free(struct sb_rsv_bmp *rsv);
-void sb_return_reusable_blocks(fdb_kvs_handle *handle)
+void sb_return_reusable_blocks(FdbKvsHandle *handle)
 {
     uint64_t node_id;
     bid_t cur;

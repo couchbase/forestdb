@@ -1576,7 +1576,7 @@ INLINE fdb_status _wal_do_flush(struct wal_item *item,
     if (item->flag & WAL_ITEM_FLUSH_READY) {
         fdb_status fs = flush_func(dbhandle, item, stale_seqnum_list, kvs_delta_stats);
         if (fs != FDB_RESULT_SUCCESS) {
-            fdb_kvs_handle *handle = (fdb_kvs_handle *) dbhandle;
+            FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
             fdb_log(&handle->log_callback, fs,
                     "Failed to flush WAL item (key '%s') into a database file '%s'",
                     (const char *) item->header->key, handle->file->filename);
@@ -1595,7 +1595,7 @@ struct fdb_root_info {
 INLINE void _wal_backup_root_info(void *voidhandle,
                                   struct fdb_root_info *root_info)
 {
-    fdb_kvs_handle *handle = (fdb_kvs_handle*)voidhandle;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
 
     root_info->orig_id_root = handle->trie->root_bid;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -1613,7 +1613,7 @@ INLINE void _wal_backup_root_info(void *voidhandle,
 INLINE void _wal_restore_root_info(void *voidhandle,
                                    struct fdb_root_info *root_info)
 {
-    fdb_kvs_handle *handle = (fdb_kvs_handle*)voidhandle;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
 
     handle->trie->root_bid = root_info->orig_id_root;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {

@@ -99,7 +99,7 @@ static int _fdb_key_cmp(fdb_iterator *iterator, void *key1, size_t keylen1,
 }
 
 LIBFDB_API
-fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
+fdb_status fdb_iterator_init(FdbKvsHandle *handle,
                              fdb_iterator **ptr_iterator,
                              const void *start_key,
                              size_t start_keylen,
@@ -271,7 +271,7 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
 }
 
 LIBFDB_API
-fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
+fdb_status fdb_iterator_sequence_init(FdbKvsHandle *handle,
                                       fdb_iterator **ptr_iterator,
                                       const fdb_seqnum_t start_seq,
                                       const fdb_seqnum_t end_seq,
@@ -1951,7 +1951,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
 }
 
 LIBFDB_API
-fdb_status fdb_changes_since(fdb_kvs_handle *handle,
+fdb_status fdb_changes_since(FdbKvsHandle *handle,
                              fdb_seqnum_t since,
                              fdb_iterator_opt_t opt,
                              fdb_changes_callback_fn callback,

@@ -30,6 +30,7 @@
 #include "filemgr_anomalous_ops.h"
 #include "filemgr.h"
 #include "internal_types.h"
+#include "kvs_handle.h"
 
 void logCallbackFunc(int err_code,
                      const char *err_msg,
