@@ -2385,7 +2385,6 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
     struct filemgr *file;
     struct kvs_ops_stat stat;
     struct kvs_ops_stat root_stat;
-    fdb_kvs_handle *root_handle = handle->fhandle->root;
 
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -2394,6 +2393,8 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
     if (!info) {
         return FDB_RESULT_INVALID_ARGS;
     }
+
+    fdb_kvs_handle *root_handle = handle->fhandle->root;
 
     // for snapshot handle do not reopen new file as user is interested in
     // reader stats from the old file
@@ -2436,6 +2437,7 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
 fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
                                  fdb_kvs_name_list *kvs_name_list)
 {
