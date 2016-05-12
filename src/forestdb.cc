@@ -6547,7 +6547,7 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
 
     atomic_init_uint8_t(&handle->handle_busy, 0);
 
-    filename_len = strlen(handle->filename)+1;
+    filename_len = strlen(handle_in->filename)+1;
     handle->filename = (char *) malloc(filename_len);
     if (!handle->filename) { // LCOV_EXCL_START
         return FDB_RESULT_ALLOC_FAIL;
