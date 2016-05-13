@@ -763,6 +763,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     fdb_config config;
     fdb_file_handle *fhandle;
     fdb_kvs_handle *handle;
+    LATENCY_STAT_START();
 
     if (fconfig) {
         if (validate_fdb_config(fconfig)) {
@@ -812,6 +813,7 @@ fdb_status fdb_open(fdb_file_handle **ptr_fhandle,
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_fhandle = fhandle;
         filemgr_fhandle_add(handle->file, fhandle);
+        LATENCY_STAT_END(handle->file, FDB_LATENCY_OPEN);
     } else {
         *ptr_fhandle = NULL;
         free(handle);
@@ -1151,10 +1153,13 @@ fdb_snapshot_open_start:
             }
         }
     }
-    if (seqnum == FDB_SNAPSHOT_INMEM) {
-        LATENCY_STAT_END(file, FDB_LATENCY_SNAPSHOTS);
+
+    if (handle_in->shandle) {
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_CLONE);
+    } else if (seqnum == FDB_SNAPSHOT_INMEM) {
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_INMEM);
     } else {
-        LATENCY_STAT_END(file, FDB_LATENCY_SNAPSHOT_DUR);
+        LATENCY_STAT_END(file, FDB_LATENCY_SNAP_DUR);
     }
     return fs;
 }

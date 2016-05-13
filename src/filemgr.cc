@@ -3936,8 +3936,8 @@ const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
     switch(stat) {
         case FDB_LATENCY_SETS:          return "sets            ";
         case FDB_LATENCY_GETS:          return "gets            ";
-        case FDB_LATENCY_SNAPSHOTS:     return "in-mem_snapshot ";
-        case FDB_LATENCY_SNAPSHOT_DUR:  return "durable_snapshot";
+        case FDB_LATENCY_SNAP_INMEM:    return "in-mem_snapshot ";
+        case FDB_LATENCY_SNAP_DUR:      return "durable_snapshot";
         case FDB_LATENCY_COMMITS:       return "commits         ";
         case FDB_LATENCY_COMPACTS:      return "compact         ";
         case FDB_LATENCY_ITR_INIT:      return "itr-init        ";
@@ -3950,6 +3950,9 @@ const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
         case FDB_LATENCY_ITR_SEEK_MAX:  return "itr-seek-max    ";
         case FDB_LATENCY_ITR_SEEK_MIN:  return "itr-seek-min    ";
         case FDB_LATENCY_ITR_CLOSE:     return "itr-close       ";
+        case FDB_LATENCY_OPEN:          return "fdb_open        ";
+        case FDB_LATENCY_KVS_OPEN:      return "fdb_kvs_open    ";
+        case FDB_LATENCY_SNAP_CLONE:    return "clone-snapshot  ";
     }
     return NULL;
 }

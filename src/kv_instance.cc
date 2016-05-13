@@ -34,6 +34,7 @@
 #include "staleblock.h"
 
 #include "memleak.h"
+#include "timing.h"
 #include "time_utils.h"
 
 static const char *default_kvs_name = DEFAULT_KVS_NAME;
@@ -1612,6 +1613,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     fdb_kvs_config config_local;
     struct filemgr *file = NULL;
     struct filemgr *latest_file = NULL;
+    LATENCY_STAT_START();
 
     if (!fhandle || !fhandle->root) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -1709,6 +1711,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
                 *ptr_handle = handle;
             }
         }
+        LATENCY_STAT_END(file, FDB_LATENCY_KVS_OPEN);
         return fs;
     }
 
@@ -1748,6 +1751,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         *ptr_handle = NULL;
         free(handle);
     }
+    LATENCY_STAT_END(file, FDB_LATENCY_KVS_OPEN);
     return fs;
 }
 
