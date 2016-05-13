@@ -873,6 +873,20 @@ LIBFDB_API
 fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
                                     fdb_snapshot_info_t **markers,
                                     uint64_t *size);
+
+/**
+ * Returns the last available rollback sequence number for a given
+ * sequence number of a KV store.
+ *
+ * @param handle Pointer to ForestDB kvs handle.
+ * @param request_seqno Sequence number to rollback to.
+ * @return last available rollback sequence number.
+ *
+ */
+LIBFDB_API
+fdb_seqnum_t fdb_get_available_rollback_seq(fdb_kvs_handle *handle,
+                                            uint64_t request_seqno);
+
 /**
  * Free a kv snapshot_info array allocated by fdb_get_all_snap_markers API.
  *

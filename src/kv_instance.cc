@@ -2525,6 +2525,65 @@ fdb_status fdb_free_kvs_name_list(fdb_kvs_name_list *kvs_name_list)
     return FDB_RESULT_SUCCESS;
 }
 
+LIBFDB_API
+fdb_seqnum_t fdb_get_available_rollback_seq(fdb_kvs_handle *handle,
+                                            uint64_t request_seqno) {
+
+    if (!handle) {
+        // FDB_RESULT_INVALID_HANDLE;
+        return (fdb_seqnum_t) 0;
+    }
+
+    if (request_seqno == 0) {
+        // Avoid unnecessary fetching of snapshot markers
+        return (fdb_seqnum_t) 0;
+    }
+
+    fdb_snapshot_info_t *markers;
+    uint64_t marker_count;
+    fdb_status status = FDB_RESULT_SUCCESS;
+
+    // Fetch all available snapshot markers
+    status = fdb_get_all_snap_markers(handle->fhandle, &markers, &marker_count);
+    if (status != FDB_RESULT_SUCCESS) {
+        // No markers available / Allocation failure perhaps
+        return (fdb_seqnum_t) 0;
+    }
+
+    const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
+    fdb_seqnum_t rollback_seqno = 0;
+
+    // Iterate over the retrieved markers to find the closest available
+    // rollback sequence number to the request_seqno for the provided
+    // KV store
+    for (uint64_t i = 0; i < marker_count; ++i) {
+        for (int64_t j = 0; j < markers[i].num_kvs_markers; ++j) {
+            if (kvs_name == NULL) { // Default KVS
+                if (markers[i].kvs_markers[j].kv_store_name == NULL) {
+                    rollback_seqno = markers[i].kvs_markers[j].seqnum;
+                    break;
+                }
+            } else if (strcmp(kvs_name,
+                              markers[i].kvs_markers[j].kv_store_name) == 0) {
+                rollback_seqno = markers[i].kvs_markers[j].seqnum;
+                break;
+            }
+        }
+        if (rollback_seqno <= request_seqno) {
+            break;
+        }
+    }
+
+    fdb_free_snap_markers(markers, marker_count);
+
+    if (rollback_seqno > request_seqno) {
+        // No header/marker available to rollback to
+        rollback_seqno = 0;
+    }
+
+    return rollback_seqno;
+}
+
 stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
 {
     uint8_t *hdr_buf = alca(uint8_t, handle->config.blocksize);

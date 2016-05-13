@@ -7717,8 +7717,15 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
         }
     }
 
-    *markers_out = markers;
     *num_markers = size;
+
+    if (size == 0) {
+        // No Snap Markers found
+        fdb_free_snap_markers(markers, array_size);
+        return FDB_RESULT_NO_DB_INSTANCE;
+    }
+
+    *markers_out = markers;
 
     return status;
 }

@@ -4699,6 +4699,97 @@ void apis_with_invalid_handles_test() {
     TEST_RESULT("apis with invalid handles test");
 }
 
+void available_rollback_seqno_test(const char *kvs) {
+    TEST_INIT();
+    memleak_start();
+
+    int r, n = 30;
+    fdb_status status;
+    fdb_file_handle *dbfile = NULL;
+    fdb_kvs_handle *db = NULL;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    status = fdb_init(&fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    if (kvs) {
+        status = fdb_kvs_open(dbfile, &db, kvs, &kvs_config);
+    } else {
+        // Default kv store
+        status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    }
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    uint64_t requestSeqno, rollbackSeqno;
+
+    requestSeqno = 5;
+    rollbackSeqno = fdb_get_available_rollback_seq(db, requestSeqno);
+    // No markers were found
+    TEST_CHK(rollbackSeqno == 0);
+
+    char keybuf[64], metabuf[64], bodybuf[64];
+    fdb_doc *rdoc = NULL;
+    for (int i = 1; i <= n; ++i) {
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&rdoc,
+                       (void*)keybuf, strlen(keybuf),
+                       (void*)metabuf, strlen(metabuf),
+                       (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, rdoc);
+        fdb_doc_free(rdoc);
+        if (i % 5 == 0) {
+            // Commit after every 5 mutations
+            status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+            TEST_CHK(status == FDB_RESULT_SUCCESS);
+        }
+    }
+
+    requestSeqno = 20;
+    rollbackSeqno = fdb_get_available_rollback_seq(db, requestSeqno);
+    // Expect available rollback seqno to be equal to requestSeqno,
+    // because markers were created for every 5 insertions.
+    TEST_CHK(rollbackSeqno == requestSeqno);
+
+    requestSeqno = 27;
+    rollbackSeqno = fdb_get_available_rollback_seq(db, requestSeqno);
+    // Expect available rollback seqno to be 25,
+    // because markers were created for every 5 insertions.
+    TEST_CHK(rollbackSeqno == 25);
+
+    requestSeqno = 4;
+    rollbackSeqno = fdb_get_available_rollback_seq(db, requestSeqno);
+    // Expect available rollback seqno to be 0,
+    // because markers were created for every 5 insertions.
+    TEST_CHK(rollbackSeqno == 0);
+
+    requestSeqno = 7;
+    rollbackSeqno = fdb_get_available_rollback_seq(db, requestSeqno);
+    // Expect available rollback seqno to be 0,
+    // because default config has num_keeping_headers = 5,
+    // and the last existing markers would be at seqnos: 30, 25, 20, 15, 10.
+    TEST_CHK(rollbackSeqno == 0);
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+
+    memleak_end();
+    if (kvs) {
+        TEST_RESULT("test fdb_get_available_rollback_seq with regular kvs");
+    } else {
+        TEST_RESULT("test fdb_get_available_rollback_seq with default kvs");
+    }
+}
+
 int main(){
     basic_test();
     init_test();
@@ -4753,6 +4844,9 @@ int main(){
     large_batch_write_no_commit_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
     apis_with_invalid_handles_test();
+
+    available_rollback_seqno_test(NULL);
+    available_rollback_seqno_test("kvs");
 
     return 0;
 }
