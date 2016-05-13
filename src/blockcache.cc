@@ -31,6 +31,7 @@
 #include "blockcache.h"
 #include "avltree.h"
 #include "atomic.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -1390,6 +1391,8 @@ void bcache_init(int nblock, int blocksize)
     int i;
     struct bcache_item *item;
     uint8_t *block_ptr;
+    struct timeval begin, end;
+    gettimeofday(&begin, NULL);
 
     list_init(&freelist);
     list_init(&file_zombies);
@@ -1404,7 +1407,7 @@ void bcache_init(int nblock, int blocksize)
 
     int rv = init_rw_lock(&filelist_lock);
     if (rv != 0) {
-        fprintf(stderr, "Error in bcache_init(): "
+        fdb_log(NULL, FDB_RESULT_ALLOC_FAIL , "Error in bcache_init(): "
                         "RW Lock initialization failed; ErrorCode: %d\n", rv);
     }
 
@@ -1429,6 +1432,12 @@ void bcache_init(int nblock, int blocksize)
         list_push_front(&freelist, &item->list_elem);
         freelist_count++;
     }
+
+    gettimeofday(&end, NULL);
+    long elapsed = (end.tv_sec - begin.tv_sec) * 1000000 + (end.tv_usec - begin.tv_usec);
+    fdb_log(NULL, FDB_RESULT_SUCCESS, "Forestdb blockcache size %" _F64
+            " initialized in %ld us\n", (uint64_t)bcache_blocksize * nblock,
+            elapsed);
 }
 
 uint64_t bcache_get_num_free_blocks()

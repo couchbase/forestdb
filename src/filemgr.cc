@@ -167,7 +167,11 @@ fdb_status fdb_log(err_log_callback *log_callback,
     if (log_callback && log_callback->callback) {
         log_callback->callback(status, msg, log_callback->ctx_data);
     } else {
-        fprintf(stderr, "[FDB ERR] %s\n", msg);
+        if (status != FDB_RESULT_SUCCESS) {
+            fprintf(stderr, "[FDB ERR] %s\n", msg);
+        } else {
+            fprintf(stderr, "[FDB INFO] %s\n", msg);
+        }
     }
     return status;
 }
@@ -1046,6 +1050,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     result.file = file;
     result.rv = FDB_RESULT_SUCCESS;
+    fdb_log(log_callback, FDB_RESULT_SUCCESS, "Forestdb opened database file %s",
+            filename);
+
     return result;
 }
 
@@ -1440,6 +1447,9 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         // File is still accessed by other readers or writers.
         return FDB_RESULT_SUCCESS;
     }
+
+    fdb_log(log_callback, (fdb_status)rv, "Forestdb closed database file %s",
+            file->filename);
 
     spin_lock(&filemgr_openlock); // Grab the filemgr lock to avoid the race with
                                   // filemgr_open() because file->lock won't
