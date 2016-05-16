@@ -2161,11 +2161,14 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 // Open the old file with read-only mode.
                 // (Temporarily disable log callback at this time since
                 //  the old file might be already removed.)
+                err_log_callback dummy_cb;
+                dummy_cb.callback = fdb_dummy_log_callback;
+                dummy_cb.ctx_data = NULL;
                 fconfig.options = FILEMGR_READONLY;
                 filemgr_open_result result = filemgr_open(prev_filename,
                                                           handle->fileops,
                                                           &fconfig,
-                                                          NULL);
+                                                          &dummy_cb);
                 if (result.file) {
                     filemgr_remove_pending(result.file, handle->file,
                                            &handle->log_callback);
