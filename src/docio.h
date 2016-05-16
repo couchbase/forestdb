@@ -181,8 +181,8 @@ bool docio_check_buffer(struct docio_handle *handle,
 INLINE void docio_reset(struct docio_handle *dhandle) {
     dhandle->curblock = BLK_NOT_FOUND;
 }
-void free_docio_object(struct docio_object *doc, uint8_t key_alloc,
-                       uint8_t meta_alloc, uint8_t body_alloc);
+void free_docio_object(struct docio_object *doc, bool key_alloc,
+                       bool meta_alloc, bool body_alloc);
 
 #ifdef __cplusplus
 }

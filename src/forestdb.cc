@@ -1899,7 +1899,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                                       stat_dst);
                     }
                     _fdb_kvs_header_free(kv_header);
-                    free_docio_object(&doc, 1, 1, 1);
+                    free_docio_object(&doc, true, true, true);
                 }
             }
 
@@ -2992,8 +2992,8 @@ fdb_status _fdb_get(fdb_kvs_handle *handle, fdb_doc *doc,
     if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
         hr == HBTRIE_RESULT_SUCCESS) {
 
-        uint8_t alloced_meta = doc->meta ? 0 : 1;
-        uint8_t alloced_body = (metaOnly || doc->body) ? 0 : 1;
+        bool alloced_meta = doc->meta ? false : true;
+        bool alloced_body = (metaOnly || doc->body) ? false : true;
 
         if (handle->kvs) {
             _doc.key = doc_kv.key;
@@ -3028,7 +3028,7 @@ fdb_status _fdb_get(fdb_kvs_handle *handle, fdb_doc *doc,
 
         if ((_doc.length.keylen != doc_kv.keylen) ||
             (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
-            free_docio_object(&_doc, 0, alloced_meta, alloced_body);
+            free_docio_object(&_doc, false, alloced_meta, alloced_body);
             atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -3064,12 +3064,11 @@ fdb_status fdb_get_metaonly(fdb_kvs_handle *handle, fdb_doc *doc)
     return _fdb_get(handle, doc, /*metaOnly*/true);
 }
 
-// search document using sequence number
-LIBFDB_API
-fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
+fdb_status _fdb_get_byseq(fdb_kvs_handle *handle,
+                          fdb_doc *doc,
+                          bool metaOnly)
 {
     uint64_t offset;
-    int64_t _offset;
     struct docio_object _doc;
     struct docio_handle *dhandle;
     struct filemgr *wal_file = NULL;
@@ -3171,33 +3170,41 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
         }
         alloc_meta = doc->meta ? false : true;
         _doc.meta = doc->meta;
-        alloc_body = doc->body ? false : true;
+        alloc_body = (metaOnly || doc->body) ? false : true;
         _doc.body = doc->body;
 
-        if (wr == FDB_RESULT_SUCCESS && doc->deleted) {
+        if (!metaOnly && wr == FDB_RESULT_SUCCESS && doc->deleted) {
             atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        _offset = docio_read_doc(dhandle, offset, &_doc, true);
+        int64_t _offset = 0;
+        if (metaOnly) {
+            _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
+        } else {
+            _offset = docio_read_doc(dhandle, offset, &_doc, true);
+        }
+
         if (_offset <= 0) {
             atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
         }
 
-        if (_doc.length.flag & DOCIO_DELETED) {
-            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-            free_docio_object(&_doc, alloc_key, alloc_meta, alloc_body);
-            return FDB_RESULT_KEY_NOT_FOUND;
+        if ((metaOnly && doc->seqnum != _doc.seqnum) ||
+            (!metaOnly && (_doc.length.flag & DOCIO_DELETED))) {
+                atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+                free_docio_object(&_doc, alloc_key, alloc_meta, alloc_body);
+                return FDB_RESULT_KEY_NOT_FOUND;
         }
 
         doc->seqnum = _doc.seqnum;
+
         if (handle->kvs) {
             int size_chunk = handle->config.chunksize;
             doc->keylen = _doc.length.keylen - size_chunk;
             if (doc->key) { // doc->key is given by user
                 memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
-                free_docio_object(&_doc, 1, 0, 0);
+                free_docio_object(&_doc, true, false, false);
             } else {
                 doc->key = _doc.key;
                 memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
@@ -3206,6 +3213,7 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
             doc->keylen = _doc.length.keylen;
             doc->key = _doc.key;
         }
+
         doc->metalen = _doc.length.metalen;
         doc->bodylen = _doc.length.bodylen;
         doc->meta = _doc.meta;
@@ -3223,152 +3231,18 @@ fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
     return FDB_RESULT_KEY_NOT_FOUND;
 }
 
+// search document using sequence number
+LIBFDB_API
+fdb_status fdb_get_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
+{
+    return _fdb_get_byseq(handle, doc, /*metaOnly*/false);
+}
+
 // search document metadata using sequence number
 LIBFDB_API
 fdb_status fdb_get_metaonly_byseq(fdb_kvs_handle *handle, fdb_doc *doc)
 {
-    uint64_t offset;
-    struct docio_object _doc;
-    struct docio_handle *dhandle;
-    struct filemgr *wal_file = NULL;
-    fdb_status wr;
-    btree_result br = BTREE_RESULT_FAIL;
-    fdb_seqnum_t _seqnum;
-    fdb_txn *txn;
-    struct _fdb_key_cmp_info cmp_info;
-
-    if (!handle) {
-        return FDB_RESULT_INVALID_HANDLE;
-    }
-
-    if (!doc || doc->seqnum == SEQNUM_NOT_USED) {
-        return FDB_RESULT_INVALID_ARGS;
-    }
-
-    // Sequence trees are a must for byseq operations
-    if (handle->config.seqtree_opt != FDB_SEQTREE_USE) {
-        return FDB_RESULT_INVALID_CONFIG;
-    }
-
-    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
-        return FDB_RESULT_HANDLE_BUSY;
-    }
-
-    if (!handle->shandle) {
-        fdb_check_file_reopen(handle, NULL);
-
-        txn = handle->fhandle->root->txn;
-        if (!txn) {
-            txn = &handle->file->global_txn;
-        }
-    } else {
-        txn = handle->shandle->snap_txn;
-    }
-
-    cmp_info.kvs_config = handle->kvs_config;
-    cmp_info.kvs = handle->kvs;
-    wal_file = handle->file;
-    dhandle = handle->dhandle;
-
-    // prevent searching by key in WAL if 'doc' is not empty
-    size_t key_len = doc->keylen;
-    doc->keylen = 0;
-    if (handle->kvs) {
-        wr = wal_find_kv_id(txn, wal_file, handle->kvs->id, &cmp_info,
-                            handle->shandle, doc, &offset);
-    } else {
-        wr = wal_find(txn, wal_file, &cmp_info, handle->shandle, doc, &offset);
-    }
-    doc->keylen = key_len;
-    if (!handle->shandle) {
-        fdb_sync_db_header(handle);
-    }
-
-    atomic_incr_uint64_t(&handle->op_stats->num_gets, std::memory_order_relaxed);
-
-    if (wr == FDB_RESULT_KEY_NOT_FOUND) {
-        _fdb_sync_dirty_root(handle);
-
-        _seqnum = _endian_encode(doc->seqnum);
-        if (handle->kvs) {
-            int size_id, size_seq;
-            uint8_t *kv_seqnum;
-            hbtrie_result hr;
-            fdb_kvs_id_t _kv_id;
-
-            _kv_id = _endian_encode(handle->kvs->id);
-            size_id = sizeof(fdb_kvs_id_t);
-            size_seq = sizeof(fdb_seqnum_t);
-            kv_seqnum = alca(uint8_t, size_id + size_seq);
-            memcpy(kv_seqnum, &_kv_id, size_id);
-            memcpy(kv_seqnum + size_id, &_seqnum, size_seq);
-            hr = hbtrie_find(handle->seqtrie, (void *)kv_seqnum,
-                             size_id + size_seq, (void *)&offset);
-            br = (hr == HBTRIE_RESULT_SUCCESS)?(BTREE_RESULT_SUCCESS):(br);
-        } else {
-            br = btree_find(handle->seqtree, (void *)&_seqnum, (void *)&offset);
-        }
-        btreeblk_end(handle->bhandle);
-        offset = _endian_decode(offset);
-
-        _fdb_release_dirty_root(handle);
-    }
-
-    if ((wr == FDB_RESULT_SUCCESS && offset != BLK_NOT_FOUND) ||
-         br != BTREE_RESULT_FAIL) {
-        bool alloc_key, alloc_meta;
-        if (!handle->kvs) { // single KVS mode
-            _doc.key = doc->key;
-            _doc.length.keylen = doc->keylen;
-            alloc_key = doc->key ? false : true;
-        } else {
-            _doc.key = NULL;
-            alloc_key = true;
-        }
-        _doc.meta = doc->meta;
-        alloc_meta = doc->meta ? false : true;
-        _doc.body = doc->body;
-
-        int64_t body_offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
-                                                       true);
-        if (body_offset <= 0 ) {
-            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-            return body_offset < 0 ? (fdb_status)body_offset : FDB_RESULT_KEY_NOT_FOUND;
-        }
-        if (doc->seqnum != _doc.seqnum) {
-            free_docio_object(&_doc, alloc_key, alloc_meta, false);
-            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-            return FDB_RESULT_KEY_NOT_FOUND;
-        }
-
-        if (handle->kvs) {
-            int size_chunk = handle->config.chunksize;
-            doc->keylen = _doc.length.keylen - size_chunk;
-            if (doc->key) { // doc->key is given by user
-                memcpy(doc->key, (uint8_t*)_doc.key + size_chunk, doc->keylen);
-                free_docio_object(&_doc, 1, 0, 0);
-            } else {
-                doc->key = _doc.key;
-                memmove(doc->key, (uint8_t*)doc->key + size_chunk, doc->keylen);
-            }
-        } else {
-            doc->keylen = _doc.length.keylen;
-            doc->key = _doc.key;
-        }
-        doc->metalen = _doc.length.metalen;
-        doc->bodylen = _doc.length.bodylen;
-        doc->meta = _doc.meta;
-        doc->body = _doc.body;
-        doc->deleted = _doc.length.flag & DOCIO_DELETED;
-        doc->size_ondisk = _fdb_get_docsize(_doc.length);
-        doc->offset = offset;
-
-        atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-        return FDB_RESULT_SUCCESS;
-    }
-
-    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-    return FDB_RESULT_KEY_NOT_FOUND;
+    return _fdb_get_byseq(handle, doc, /*metaOnly*/true);
 }
 
 static uint8_t equal_docs(fdb_doc *doc, struct docio_object *_doc) {
@@ -3438,13 +3312,13 @@ fdb_status fdb_get_byoffset(fdb_kvs_handle *handle, fdb_doc *doc)
             buf2kvid(handle->config.chunksize, _doc.key, &kv_id);
             if (kv_id != handle->kvs->id) {
                 atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
-                free_docio_object(&_doc, 1, 1, 1);
+                free_docio_object(&_doc, true, true, true);
                 return FDB_RESULT_KEY_NOT_FOUND;
             }
             _remove_kv_id(handle, &_doc);
         }
         if (!equal_docs(doc, &_doc)) {
-            free_docio_object(&_doc, 1, 1, 1);
+            free_docio_object(&_doc, true, true, true);
             atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
             return FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -7615,7 +7489,7 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
                 ret += _kvs_stat_get_sum_attr(doc.body, version,
                                               KVS_STAT_DELTASIZE);
 
-                free_docio_object(&doc, 1, 1, 1);
+                free_docio_object(&doc, true, true, true);
             }
         }
     }
@@ -7836,7 +7710,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
                 // do not count default KVS .. decrease it by one.
                 markers[i].num_kvs_markers--;
             }
-            free_docio_object(&doc, 1, 1, 1);
+            free_docio_object(&doc, true, true, true);
         }
     }
 

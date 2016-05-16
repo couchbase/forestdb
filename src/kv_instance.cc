@@ -1132,7 +1132,7 @@ void fdb_kvs_header_read(struct kvs_header *kv_header,
 
     _fdb_kvs_header_import(kv_header, doc.body, doc.length.bodylen,
                            version, only_seq_nums);
-    free_docio_object(&doc, 1, 1, 1);
+    free_docio_object(&doc, true, true, true);
 }
 
 fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
@@ -1192,7 +1192,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
             seqnum = _fdb_kvs_get_seqnum(kv_header,
                                          handle->kvs->id);
             _fdb_kvs_header_free(kv_header);
-            free_docio_object(&doc, 1, 1, 1);
+            free_docio_object(&doc, true, true, true);
         }
     }
     return seqnum;

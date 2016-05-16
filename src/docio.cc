@@ -1065,8 +1065,8 @@ fdb_status docio_read_doc_key(struct docio_handle *handle, uint64_t offset,
     return FDB_RESULT_SUCCESS;
 }
 
-void free_docio_object(struct docio_object *doc, uint8_t key_alloc,
-                       uint8_t meta_alloc, uint8_t body_alloc) {
+void free_docio_object(struct docio_object *doc, bool key_alloc,
+                       bool meta_alloc, bool body_alloc) {
     if (!doc) {
         return;
     }
@@ -1091,8 +1091,7 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
 {
     uint8_t checksum;
     int64_t _offset;
-    int key_alloc = 0;
-    int meta_alloc = 0;
+    bool key_alloc = false, meta_alloc = false;
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
     struct docio_length _length, zero_length;
@@ -1140,11 +1139,11 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
 
     if (doc->key == NULL) {
         doc->key = (void *)malloc(doc->length.keylen);
-        key_alloc = 1;
+        key_alloc = true;
     }
     if (doc->meta == NULL && doc->length.metalen) {
         doc->meta = (void *)malloc(doc->length.metalen);
-        meta_alloc = 1;
+        meta_alloc = true;
     }
 
     _offset = _docio_read_doc_component(handle, _offset, doc->length.keylen,
@@ -1154,7 +1153,7 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
                 "Error in reading a key with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, doc->length.keylen,
                 handle->file->filename);
-        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
 
@@ -1167,7 +1166,7 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
                 "Error in reading a timestamp with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, sizeof(timestamp_t),
                 handle->file->filename);
-        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
     doc->timestamp = _endian_decode(_timestamp);
@@ -1180,7 +1179,7 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
                 "Error in reading a sequence number with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, sizeof(fdb_seqnum_t),
                 handle->file->filename);
-        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
     doc->seqnum = _endian_decode(_seqnum);
@@ -1192,12 +1191,12 @@ int64_t docio_read_doc_key_meta(struct docio_handle *handle, uint64_t offset,
                 "Error in reading the doc metadata with offset %" _F64 ", length %d "
                 "from a database file '%s'", offset, doc->length.metalen,
                 handle->file->filename);
-        free_docio_object(doc, key_alloc, meta_alloc, 0);
+        free_docio_object(doc, key_alloc, meta_alloc, false);
         return _offset;
     }
 
-    uint8_t free_meta = meta_alloc && !doc->length.metalen;
-    free_docio_object(doc, 0, free_meta, 0);
+    bool free_meta = meta_alloc && !doc->length.metalen;
+    free_docio_object(doc, false, free_meta, false);
 
     return _offset;
 }
@@ -1208,9 +1207,7 @@ int64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 {
     uint8_t checksum;
     int64_t _offset;
-    int key_alloc = 0;
-    int meta_alloc = 0;
-    int body_alloc = 0;
+    bool key_alloc = false, meta_alloc = false, body_alloc = false;
     fdb_seqnum_t _seqnum;
     timestamp_t _timestamp;
     void *comp_body = NULL;
@@ -1302,15 +1299,15 @@ int64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
     if (doc->key == NULL) {
         doc->key = (void *)malloc(doc->length.keylen);
-        key_alloc = 1;
+        key_alloc = true;
     }
     if (doc->meta == NULL && doc->length.metalen) {
         doc->meta = (void *)malloc(doc->length.metalen);
-        meta_alloc = 1;
+        meta_alloc = true;
     }
     if (doc->body == NULL && doc->length.bodylen) {
         doc->body = (void *)malloc(doc->length.bodylen);
-        body_alloc = 1;
+        body_alloc = true;
     }
 
     _offset = _docio_read_doc_component(handle, _offset,
@@ -1473,7 +1470,7 @@ int64_t docio_read_doc(struct docio_handle *handle, uint64_t offset,
 
     uint8_t free_meta = meta_alloc && !doc->length.metalen;
     uint8_t free_body = body_alloc && !doc->length.bodylen;
-    free_docio_object(doc, 0, free_meta, free_body);
+    free_docio_object(doc, false, free_meta, free_body);
 
     return _offset;
 }
