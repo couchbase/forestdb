@@ -1943,3 +1943,66 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     free(iterator);
     return FDB_RESULT_SUCCESS;
 }
+
+LIBFDB_API
+fdb_status fdb_changes_since(fdb_kvs_handle *handle,
+                             fdb_seqnum_t since,
+                             fdb_iterator_opt_t opt,
+                             fdb_changes_callback_fn callback,
+                             void *ctx)
+{
+    if (!handle) {
+        return FDB_RESULT_INVALID_HANDLE;
+    }
+
+    if (!callback) {
+        // Callback function not provided
+        return FDB_RESULT_INVALID_ARGS;
+    }
+
+    fdb_status status = FDB_RESULT_SUCCESS;
+    fdb_iterator *iterator;
+    const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
+    if (!kvs_name) {
+        kvs_name = DEFAULT_KVS_NAME;
+    }
+
+    // Create an iterator to traverse by seqno range
+    status = fdb_iterator_sequence_init(handle, &iterator, since, 0, opt);
+    if (status != FDB_RESULT_SUCCESS) {
+        fdb_log(&handle->log_callback, status,
+                "Failed to initialize iterator to traverse by sequence number "
+                "range: (%llu - MAX_SEQ) over KV store '%s' database file '%s'",
+                since, kvs_name, handle->file->filename);
+        return status;
+    }
+
+    int result = 0;
+    do {
+        fdb_doc *doc = NULL;
+        if (opt & FDB_ITR_NO_VALUES) {
+            status = fdb_iterator_get_metaonly(iterator, &doc);
+        } else {
+            status = fdb_iterator_get(iterator, &doc);
+        }
+        if (status != FDB_RESULT_SUCCESS) {
+            break;
+        }
+        result = callback(handle, doc, ctx);
+        if (result == FDB_CHANGES_CLEAN) {
+            fdb_doc_free(doc);
+        } else if (result == FDB_CHANGES_CANCEL) {
+            fdb_doc_free(doc);
+            fdb_log(&handle->log_callback, status,
+                    "Changes callback returned a negative value: %d, while "
+                    "iterating over KV store '%s' in database file '%s'",
+                    result, kvs_name, handle->file->filename);
+            break;
+        }
+    } while (fdb_iterator_next(iterator) == FDB_RESULT_SUCCESS);
+
+    // Close iterator
+    fdb_iterator_close(iterator);
+
+    return status;
+}

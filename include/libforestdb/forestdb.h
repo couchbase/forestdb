@@ -479,16 +479,15 @@ fdb_status fdb_iterator_init(fdb_kvs_handle *handle,
  * @param max_seq Largest document sequence number of the iteration.
  *        Passing 0 means that it wants iteration to end with the latest
  *        mutation
- *
  * @param opt Iterator option.
  * @return FDB_RESULT_SUCCESS on success.
  */
 LIBFDB_API
 fdb_status fdb_iterator_sequence_init(fdb_kvs_handle *handle,
-                             fdb_iterator **iterator,
-                             const fdb_seqnum_t min_seq,
-                             const fdb_seqnum_t max_seq,
-                             fdb_iterator_opt_t opt);
+                                      fdb_iterator **iterator,
+                                      const fdb_seqnum_t min_seq,
+                                      const fdb_seqnum_t max_seq,
+                                      fdb_iterator_opt_t opt);
 
 /**
  * Move the iterator backward by one.
@@ -605,6 +604,24 @@ fdb_status fdb_iterator_seek_to_max(fdb_iterator *iterator);
  */
 LIBFDB_API
 fdb_status fdb_iterator_close(fdb_iterator *iterator);
+
+/**
+ * Iterate through the changes since sequence number `since` with a provided
+ * callback function.
+ *
+ * @param handle Pointer to ForestDB KV store instance.
+ * @param since The sequence number to start iterating from.
+ * @param opt Iterator option.
+ * @param callback The callback function used to iterate over all changes.
+ * @param ctx Client context (passed to the callback).
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+LIBFDB_API
+fdb_status fdb_changes_since(fdb_kvs_handle *handle,
+                             fdb_seqnum_t since,
+                             fdb_iterator_opt_t opt,
+                             fdb_changes_callback_fn callback,
+                             void *ctx);
 
 /**
  * Compact the current file and create a new compacted file.

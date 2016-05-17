@@ -19,10 +19,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <limits.h>
 #include <time.h>
 #if !defined(WIN32) && !defined(_WIN32)
 #include <unistd.h>
 #endif
+
+#include <string>
+#include <vector>
 
 #include "libforestdb/forestdb.h"
 #include "test.h"
@@ -4790,6 +4794,162 @@ void available_rollback_seqno_test(const char *kvs) {
     }
 }
 
+struct changes_ctx {
+    changes_ctx() : cancelOnSize(UINT_MAX) { }
+
+    const char *kvs_name;
+    std::vector<std::string> keys;
+    std::vector<std::string> metas;
+    std::vector<std::string> values;
+    size_t cancelOnSize;
+};
+
+fdb_changes_decision changes_cb(fdb_kvs_handle *handle, fdb_doc* doc, void *ctx) {
+    struct changes_ctx *cc = static_cast<struct changes_ctx *>(ctx);
+    fdb_kvs_info info;
+    fdb_get_kvs_info(handle, &info);
+    cc->kvs_name = info.name;
+    cc->keys.push_back(std::string((char*)doc->key, doc->keylen));
+    cc->metas.push_back(std::string((char*)doc->meta, doc->metalen));
+    if (doc->body) {
+        cc->values.push_back(std::string((char*)doc->body, doc->bodylen));
+    }
+    if (cc->keys.size() >= cc->cancelOnSize) {
+        return FDB_CHANGES_CANCEL;
+    } else {
+        return FDB_CHANGES_CLEAN;
+    }
+}
+
+void changes_since_test(const char *kvs) {
+    TEST_INIT();
+    memleak_start();
+
+    int r;
+    size_t i, j, n = 20;
+    fdb_status status;
+    fdb_file_handle *dbfile = NULL;
+    fdb_kvs_handle *db = NULL;
+    fdb_config fconfig = fdb_get_default_config();
+    fconfig.seqtree_opt = FDB_SEQTREE_USE; // enable seqtree since get_byseq
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    status = fdb_init(&fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    if (kvs) {
+        status = fdb_kvs_open(dbfile, &db, kvs, &kvs_config);
+    } else {
+        // Default kv store
+        status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    }
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    char keybuf[64], metabuf[64], bodybuf[64];
+    fdb_doc *rdoc = NULL;
+    for (i = 1; i <= n; ++i) {
+        sprintf(keybuf, "key%lu", i);
+        sprintf(metabuf, "meta%lu", i);
+        sprintf(bodybuf, "body%lu", i);
+        fdb_doc_create(&rdoc,
+                       (void*)keybuf, strlen(keybuf),
+                       (void*)metabuf, strlen(metabuf),
+                       (void*)bodybuf, strlen(bodybuf));
+        fdb_set(db, rdoc);
+        fdb_doc_free(rdoc);
+    }
+
+    // Commit
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    struct changes_ctx ctx;
+    // Fetch documents from seqnum 11
+    fdb_seqnum_t since = 11;
+
+    // Expect INVALID_HANDLE with NULL handle
+    status = fdb_changes_since(NULL, since, FDB_ITR_NONE,
+                               changes_cb, &ctx);
+    TEST_CHK(status == FDB_RESULT_INVALID_HANDLE);
+
+    // Expect INVALID_ARGS with NULL callback
+    status = fdb_changes_since(db, since, FDB_ITR_NONE,
+                               NULL, &ctx);
+    TEST_CHK(status == FDB_RESULT_INVALID_ARGS);
+
+    // Expect SUCCESS
+    status = fdb_changes_since(db, since, FDB_ITR_NONE,
+                               changes_cb, &ctx);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Check kvs name
+    if (!kvs) {
+        TEST_CHK(!strcmp(ctx.kvs_name, DEFAULT_KVS_NAME));
+    } else {
+        TEST_CHK(!strcmp(ctx.kvs_name, kvs));
+    }
+
+    // Should've fetched (n - 10) keys/metas/values, as since = 11
+    TEST_CHK(ctx.keys.size() == n - 10);
+    TEST_CHK(ctx.metas.size() == n - 10);
+    TEST_CHK(ctx.values.size() == n - 10);
+
+    // Check key names
+    j = since;
+    for (i = 0; i < ctx.keys.size(); ++i, ++j) {
+        TEST_CHK(ctx.keys.at(i) == std::string("key" + std::to_string(j)));
+        TEST_CHK(ctx.metas.at(i) == std::string("meta" + std::to_string(j)));
+        TEST_CHK(ctx.values.at(i) == std::string("body" + std::to_string(j)));
+    }
+
+    // Set context for limited iteration & keys only
+    ctx.keys.clear();
+    ctx.metas.clear();
+    ctx.values.clear();
+    ctx.cancelOnSize = 5;
+
+    // Expect SUCCESS
+    status = fdb_changes_since(db, since, FDB_ITR_NO_VALUES,
+                               changes_cb, &ctx);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // Check kvs name
+    if (!kvs) {
+        TEST_CHK(!strcmp(ctx.kvs_name, DEFAULT_KVS_NAME));
+    } else {
+        TEST_CHK(!strcmp(ctx.kvs_name, kvs));
+    }
+
+    // Fetched key/meta/value count should be cancelOnSize
+    TEST_CHK(ctx.keys.size() == ctx.cancelOnSize);
+    TEST_CHK(ctx.metas.size() == ctx.cancelOnSize);
+    TEST_CHK(ctx.values.size() == 0);
+
+    // Check key names
+    j = since;
+    for (i = 0; i < ctx.keys.size(); ++i, ++j) {
+        TEST_CHK(ctx.keys.at(i) == std::string("key" + std::to_string(j)));
+        TEST_CHK(ctx.metas.at(i) == std::string("meta" + std::to_string(j)));
+    }
+
+    fdb_kvs_close(db);
+    fdb_close(dbfile);
+
+    fdb_shutdown();
+
+    memleak_end();
+    if (kvs) {
+        TEST_RESULT("test fdb_changes_since with regular kvs");
+    } else {
+        TEST_RESULT("test fdb_changes_since with default kvs");
+    }
+}
+
 int main(){
     basic_test();
     init_test();
@@ -4847,6 +5007,8 @@ int main(){
 
     available_rollback_seqno_test(NULL);
     available_rollback_seqno_test("kvs");
+    changes_since_test(NULL);
+    changes_since_test("kvs");
 
     return 0;
 }

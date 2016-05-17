@@ -528,7 +528,11 @@ enum {
     /**
      * The highest key specified will not be returned by the iterator.
      */
-    FDB_ITR_SKIP_MAX_KEY = 0x08
+    FDB_ITR_SKIP_MAX_KEY = 0x08,
+    /**
+     * Return Keys and Metadata only for fdb_changes_since API.
+     */
+    FDB_ITR_NO_VALUES = 0x10
 };
 
 /**
@@ -551,6 +555,43 @@ enum {
  * in public APIs.
  */
 typedef struct _fdb_iterator fdb_iterator;
+
+/**
+ * Return type for the fdb_changes_since API's callback: fdb_changes_function_fn
+ */
+typedef int fdb_changes_decision;
+enum {
+    /**
+     * This return value means that the fdb_doc instance passed to the callback
+     * function will not to be freed in the fdb_changes_since API, the caller
+     * would have to take care of it.
+     */
+    FDB_CHANGES_PRESERVE = 1,
+    /**
+     * This return value means that the fdb_doc instance passed to the callback
+     * function will automatically be freed in the fdb_changes_since API.
+     */
+    FDB_CHANGES_CLEAN = 0,
+    /**
+     * This return value means that the fdb_doc instance passed to the callback
+     * function will automatically be freed in the fdb_changes_since API and
+     * the iteration within the API will be stopped.
+     */
+    FDB_CHANGES_CANCEL = -1
+};
+
+/**
+ * The callback function used by fdb_changes_since() to iterate through
+ * the documents.
+ *
+ * @param handle Pointer to ForestDB KV store instance
+ * @param doc Pointer to the current document
+ * @param ctx Client context
+ */
+typedef fdb_changes_decision (*fdb_changes_callback_fn)(
+                                                 fdb_kvs_handle *handle,
+                                                 fdb_doc *doc,
+                                                 void *ctx);
 
 /**
  * Using off_t turned out to be a real challenge. On "unix-like" systems
