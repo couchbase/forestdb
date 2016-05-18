@@ -1352,6 +1352,13 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     return FDB_RESULT_SUCCESS;
 }
 
+static void _rsv_free(struct sb_rsv_bmp *rsv)
+{
+    free(rsv->bmp);
+    free(rsv->bmp_doc_offset);
+    free(rsv->bmp_docs);
+}
+
 static fdb_status _sb_read_given_no(struct filemgr *file,
                                     size_t sb_no,
                                     struct superblock *sb,
@@ -1505,6 +1512,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
             offset += sizeof(enc_u64);
             rsv->bmp_doc_offset[i] = _endian_decode(enc_u64);
         }
+        sb->rsv_bmp = rsv;
     }
 
     // CRC
@@ -1526,13 +1534,6 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     }
 
     return FDB_RESULT_SUCCESS;
-}
-
-static void _rsv_free(struct sb_rsv_bmp *rsv)
-{
-    free(rsv->bmp);
-    free(rsv->bmp_doc_offset);
-    free(rsv->bmp_docs);
 }
 
 static void _sb_free(struct superblock *sb)
