@@ -5621,7 +5621,7 @@ INLINE void _fdb_clone_batched_delta(fdb_kvs_handle *handle,
         atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(
             handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
-            old_offset_array[i], doc_offset,
+            old_offset_array[i-1], doc_offset,
             handle->config.compaction_cb_ctx);
         atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
@@ -5759,7 +5759,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
         handle->config.compaction_cb(
             handle->fhandle, FDB_CS_FLUSH_WAL, NULL, NULL,
-            old_offset_array[i], doc_offset,
+            old_offset_array[i-1], doc_offset,
             handle->config.compaction_cb_ctx);
         atomic_cas_uint8_t(&handle->handle_busy, 0, 1);
     }
