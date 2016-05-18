@@ -354,10 +354,15 @@ typedef enum {
      * Resource temporarily unavailable.
      */
     FDB_RESULT_EAGAIN = -72,
+    /**
+     * Execution stopped by client
+     * (API notified through a callback).
+     */
+    FDB_RESULT_CANCELLED = -73,
 
     // Any new error codes can be added here.
 
-    FDB_RESULT_LAST = FDB_RESULT_EAGAIN // Last (minimum) fdb_status value
+    FDB_RESULT_LAST = FDB_RESULT_CANCELLED // Last (minimum) fdb_status value
 } fdb_status;
 
 #ifdef __cplusplus

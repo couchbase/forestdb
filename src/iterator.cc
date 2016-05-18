@@ -1993,6 +1993,7 @@ fdb_status fdb_changes_since(fdb_kvs_handle *handle,
             fdb_doc_free(doc);
         } else if (result == FDB_CHANGES_CANCEL) {
             fdb_doc_free(doc);
+            status = FDB_RESULT_CANCELLED;
             fdb_log(&handle->log_callback, status,
                     "Changes callback returned a negative value: %d, while "
                     "iterating over KV store '%s' in database file '%s'",

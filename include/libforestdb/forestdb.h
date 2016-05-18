@@ -614,7 +614,8 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator);
  * @param opt Iterator option.
  * @param callback The callback function used to iterate over all changes.
  * @param ctx Client context (passed to the callback).
- * @return FDB_RESULT_SUCCESS on success.
+ * @return FDB_RESULT_SUCCESS on success, FDB_RESULT_CANCELLED if cancelled
+ *         by caller through callback.
  */
 LIBFDB_API
 fdb_status fdb_changes_since(fdb_kvs_handle *handle,

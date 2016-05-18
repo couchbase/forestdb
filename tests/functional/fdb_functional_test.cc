@@ -4913,10 +4913,10 @@ void changes_since_test(const char *kvs) {
     ctx.values.clear();
     ctx.cancelOnSize = 5;
 
-    // Expect SUCCESS
+    // Expect CANCELLED
     status = fdb_changes_since(db, since, FDB_ITR_NO_VALUES,
                                changes_cb, &ctx);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CHK(status == FDB_RESULT_CANCELLED);
 
     // Check kvs name
     if (!kvs) {

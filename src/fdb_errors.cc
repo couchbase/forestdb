@@ -229,6 +229,8 @@ const char* fdb_error_msg(fdb_status err_code)
             return "A file is too large to be opened";
         case FDB_RESULT_EAGAIN:
             return "Resource temporarily unavailable";
+        case FDB_RESULT_CANCELLED:
+            return "Execution cancelled";
 
         default:
             return "unknown error";
