@@ -675,19 +675,17 @@ void filemgr_prefetch(struct filemgr *file,
     // block cache should have free space larger than FILEMGR_PREFETCH_UNIT
     spin_lock(&file->lock);
     if (atomic_get_uint64_t(&file->last_commit) > 0 &&
-        bcache_free_space >= FILEMGR_PREFETCH_UNIT) {
+        bcache_free_space >= FILEMGR_PREFETCH_UNIT &&
+        atomic_cas_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_IDLE,
+                           FILEMGR_PREFETCH_RUNNING)) {
         // invoke prefetch thread
         struct filemgr_prefetch_args *args;
         args = (struct filemgr_prefetch_args *)
-               calloc(1, sizeof(struct filemgr_prefetch_args));
+            calloc(1, sizeof(struct filemgr_prefetch_args));
         args->file = file;
         args->duration = config->prefetch_duration;
         args->log_callback = log_callback;
-
-        if (atomic_cas_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_IDLE,
-                               FILEMGR_PREFETCH_RUNNING)) {
-            thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
-        }
+        thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
     }
     spin_unlock(&file->lock);
 }
