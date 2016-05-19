@@ -1560,6 +1560,128 @@ void superblock_recovery_test() {
 }
 #endif
 
+void reclaim_rollback_point_test() {
+    memleak_start();
+    TEST_INIT();
+
+    int i, r;
+    int low_seq = 0;
+    int nheaders=5;
+    int ndocs=30000;
+    char keybuf[16];
+
+    fdb_file_handle* dbfile;
+    fdb_kvs_handle* db;
+    fdb_status status;
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fdb_file_info file_info;
+
+    void *value_out;
+    size_t valuelen_out;
+
+    r = system(SHELL_DEL" staleblktest* > errorlog.txt");
+    (void)r;
+
+    // init
+    fconfig.compaction_threshold = 0;
+    fconfig.num_keeping_headers = nheaders;
+    status = fdb_open(&dbfile, "./staleblktest1", &fconfig);
+    TEST_STATUS(status);
+    status = fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    TEST_STATUS(status);
+
+    const char *key = "key";
+    const char *val = "val";
+
+    // load n docs
+    for (i=0; i<ndocs; ++i) {
+        sprintf(keybuf, "key%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), (char *)"reu", 4);
+        TEST_STATUS(status);
+    }
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_STATUS(status);
+    low_seq = i;
+
+    // load until exceeding SB_MIN_BLOCK_REUSING_FILESIZE
+    i = 0;
+    do {
+        status = fdb_set_kv(db, key, strlen(key) + 1, val, strlen(val) + 1);
+        TEST_STATUS(status);
+        i++;
+        status = fdb_get_file_info(dbfile, &file_info);
+        TEST_STATUS(status);
+    } while (file_info.file_size <= SB_MIN_BLOCK_REUSING_FILESIZE);
+
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_STATUS(status);
+
+    // overwrite n docs
+    for (i=0; i<ndocs; ++i) {
+        sprintf(keybuf, "key%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), (char *)"reu2", 5);
+        TEST_STATUS(status);
+    }
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_STATUS(status);
+
+    // rollback to the first commit
+    status = fdb_rollback(&db, low_seq);
+    TEST_STATUS(status);
+
+    // retrieve docs
+    for (i=0; i<ndocs; ++i) {
+        sprintf(keybuf, "key%d", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value_out, &valuelen_out);
+        TEST_STATUS(status);
+        free(value_out);
+    }
+
+    // create nheaders
+    for (i = 0; i < nheaders; ++i) {
+        sprintf(keybuf, "key%d", i);
+        status = fdb_set_kv(db, keybuf, strlen(keybuf), (char *)"reu", 4);
+        TEST_STATUS(status);
+        status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_STATUS(status);
+    }
+
+    // append some data & commit
+    // now old blocks will be reclaimed
+    for (i=0; i<ndocs; ++i) {
+        status = fdb_set_kv(db, key, strlen(key) + 1, val, strlen(val) + 1);
+        TEST_STATUS(status);
+    }
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_STATUS(status);
+
+    // append more data .. now reusable blocks are overwritten
+    for (i=0; i<ndocs; ++i) {
+        status = fdb_set_kv(db, key, strlen(key) + 1, val, strlen(val) + 1);
+        TEST_STATUS(status);
+    }
+    status = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_STATUS(status);
+
+    // retrieve docs
+    for (i=0; i<ndocs; ++i) {
+        sprintf(keybuf, "key%d", i);
+        status = fdb_get_kv(db, keybuf, strlen(keybuf), &value_out, &valuelen_out);
+        TEST_STATUS(status);
+        free(value_out);
+    }
+
+    status = fdb_kvs_close(db);
+    TEST_STATUS(status);
+    status = fdb_close(dbfile);
+    TEST_STATUS(status);
+    fdb_shutdown();
+
+    memleak_end();
+    TEST_RESULT("reclaim rollback point test");
+}
+
 int main() {
 
     /* Test resuse of stale blocks with block_reusing_threshold
@@ -1603,6 +1725,8 @@ int main() {
     /* Test rollback, verify snapshot, manual compaction upon recovery
        after crash */
     crash_and_recover_with_num_keeping_test();
+
+    reclaim_rollback_point_test();
 
     return 0;
 }

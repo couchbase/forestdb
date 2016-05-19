@@ -108,5 +108,15 @@ reusable_block_list fdb_get_reusable_block(fdb_kvs_handle *handle,
  */
 void fdb_load_inmem_stale_info(fdb_kvs_handle *handle);
 
+/**
+ * Remove all stale-tree entries since the rollback point.
+ *
+ * @param handle Pointer to ForestDB KV store handle.
+ * @param cur_revnum Revision number of the header that will be appended next.
+ * @return void.
+ */
+void fdb_rollback_stale_blocks(fdb_kvs_handle *handle,
+                               filemgr_header_revnum_t cur_revnum);
+
 #endif /* _FDB_STALEBLOCK_H */
 

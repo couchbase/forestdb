@@ -1971,11 +1971,16 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     btreeblk_init(handle->bhandle, handle->file, handle->file->blocksize);
 
-    if (header_revnum && !filemgr_is_rollback_on(handle->file)) {
-        // only for snapshot (excluding rollback)
-        handle->cur_header_revnum = header_revnum;
-    } else {
-        handle->cur_header_revnum = latest_header_revnum;
+    handle->cur_header_revnum = latest_header_revnum;
+    if (header_revnum) {
+        if (filemgr_is_rollback_on(handle->file)) {
+            // rollback mode
+            // set rollback header revnum
+            handle->rollback_revnum = header_revnum;
+        } else {
+            // snapshot mode (only for snapshot)
+            handle->cur_header_revnum = header_revnum;
+        }
     }
     handle->last_wal_flush_hdr_bid = last_wal_flush_hdr_bid;
 
@@ -3886,7 +3891,9 @@ fdb_status fdb_commit(fdb_file_handle *fhandle, fdb_commit_opt_t opt)
             !(fhandle->root->config.durability_opt & FDB_DRB_ASYNC));
 }
 
-fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync)
+fdb_status _fdb_commit(fdb_kvs_handle *handle,
+                       fdb_commit_opt_t opt,
+                       bool sync)
 {
     if (!handle) {
         return FDB_RESULT_INVALID_HANDLE;
@@ -4006,9 +4013,19 @@ fdb_commit_start:
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
+    filemgr_header_revnum_t next_revnum;
+    next_revnum = filemgr_get_header_revnum(handle->file)+1;
+
+    if (handle->rollback_revnum) {
+        // if this commit is called by rollback API,
+        // remove all stale-tree entries related to the rollback
+        fdb_rollback_stale_blocks(handle, next_revnum);
+        handle->rollback_revnum = 0;
+    }
+
     if (wal_flushed) {
         fdb_gather_stale_blocks(handle,
-                                filemgr_get_header_revnum(handle->file)+1,
+                                next_revnum,
                                 handle->last_hdr_bid,
                                 handle->kv_info_offset,
                                 filemgr_get_seqnum(handle->file),
