@@ -55,7 +55,9 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                      const fdb_config *config);
 fdb_status _fdb_close_root(fdb_kvs_handle *handle);
 fdb_status _fdb_close(fdb_kvs_handle *handle);
-fdb_status _fdb_commit(fdb_kvs_handle *handle, fdb_commit_opt_t opt, bool sync);
+fdb_status _fdb_commit(fdb_kvs_handle *handle,
+                       fdb_commit_opt_t opt,
+                       bool sync);
 
 fdb_status fdb_check_file_reopen(fdb_kvs_handle *handle, file_status_t *status);
 void fdb_sync_db_header(fdb_kvs_handle *handle);

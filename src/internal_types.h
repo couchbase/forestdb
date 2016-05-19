@@ -367,6 +367,10 @@ struct _fdb_kvs_handle {
      */
     atomic_uint64_t cur_header_revnum;
     /**
+     * Header revision number of rollback point.
+     */
+    uint64_t rollback_revnum;
+    /**
      * Last header's block ID.
      */
     uint64_t last_hdr_bid;
