@@ -103,8 +103,9 @@ void decaying_usleep(unsigned int *sleep_time, unsigned int max_sleep_time) {
 ts_nsec get_monotonic_ts() {
     ts_nsec ts = 0;
 #if defined(WIN32)
-    /* GetTickCound64 gives us near 60years of ticks...*/
-    ts =  GetTickCount64() * 1000;  // TODO: this is not true high-res microseconds on windows
+    LARGE_INTEGER _ts;
+    QueryPerformanceCounter(&_ts);
+    ts = _ts.QuadPart * 1000;
 #elif defined(__APPLE__)
     long time = mach_absolute_time();
 
