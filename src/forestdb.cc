@@ -3471,25 +3471,33 @@ fdb_set_start:
 
     if (sub_handle) {
         // multiple KV instance mode AND sub handle
+        fdb_seqnum_t kv_seqnum = fdb_kvs_get_seqnum(file,
+                                                    handle->kvs->getKvsId());
         if (doc->seqnum != SEQNUM_NOT_USED &&
             doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
+            if (kv_seqnum < doc->seqnum) { // track highest seqnum in handle,kv
+                handle->seqnum = doc->seqnum;
+                fdb_kvs_set_seqnum(file, handle->kvs->getKvsId(),
+                                   handle->seqnum);
+            }
             doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
-        } else {
-            doc->seqnum = fdb_kvs_get_seqnum(file, handle->kvs->getKvsId()) + 1;
-        }
-        if (handle->seqnum < doc->seqnum) { // keep handle's seqnum the highest
-            handle->seqnum = doc->seqnum;
+        } else { // normal monotonically increasing sequence numbers..
+            doc->seqnum = ++kv_seqnum;
+            handle->seqnum = doc->seqnum; // keep handle's seqnum the highest
             fdb_kvs_set_seqnum(file, handle->kvs->getKvsId(), handle->seqnum);
         }
     } else {
+        fdb_seqnum_t kv_seqnum = filemgr_get_seqnum(file);
         // super handle OR single KV instance mode
         if (doc->seqnum != SEQNUM_NOT_USED &&
             doc->flags & FDB_CUSTOM_SEQNUM) { // User specified own seqnum
+            if (kv_seqnum < doc->seqnum) { // track highest seqnum in handle,kv
+                handle->seqnum = doc->seqnum;
+                filemgr_set_seqnum(file, handle->seqnum);
+            }
             doc->flags &= ~FDB_CUSTOM_SEQNUM; // clear flag for fdb_doc reuse
-        } else {
-            doc->seqnum = filemgr_get_seqnum(file) + 1;
-        }
-        if (handle->seqnum < doc->seqnum) { // keep handle's seqnum the highest
+        } else { // normal monotonically increasing sequence numbers..
+            doc->seqnum = ++kv_seqnum;
             handle->seqnum = doc->seqnum;
             filemgr_set_seqnum(file, handle->seqnum);
         }
