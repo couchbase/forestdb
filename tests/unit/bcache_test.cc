@@ -39,16 +39,12 @@ void basic_test()
     TEST_INIT();
 
     struct filemgr *file;
-    struct filemgr_config config;
+    FileMgrConfig config(4096, 5, 0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
+                         0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
     int i;
     uint8_t buf[4096];
     char *fname = (char *) "./bcache_testfile";
 
-    memset(&config, 0, sizeof(config));
-    config.blocksize = 4096;
-    config.ncacheblock = 5;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
@@ -85,7 +81,8 @@ void basic_test2()
     TEST_INIT();
 
     struct filemgr *file;
-    struct filemgr_config config;
+    FileMgrConfig config(4096, 5, 0x0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
+                         0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
     int i;
     uint8_t buf[4096];
     char *fname = (char *) "./bcache_testfile";
@@ -93,12 +90,6 @@ void basic_test2()
     r = system(SHELL_DEL " bcache_testfile");
     (void)r;
 
-    memset(&config, 0, sizeof(config));
-    config.blocksize = 4096;
-    config.ncacheblock = 5;
-    config.flag = 0x0;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
@@ -187,13 +178,17 @@ void * worker(void *voidargs)
     return NULL;
 }
 
-void multi_thread_test(
-    int nblocks, int cachesize, int blocksize, int time_sec, int nwriters, int nreaders)
+void multi_thread_test(int nblocks, int cachesize,
+                       int blocksize, int time_sec,
+                       int nwriters, int nreaders)
 {
     TEST_INIT();
 
     struct filemgr *file;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, cachesize, 0x0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE, 0x00,
+                         0, 0);
+
     int n = nwriters + nreaders;
     uint64_t i, j;
     uint32_t crc;
@@ -212,12 +207,6 @@ void multi_thread_test(
     buf = (uint8_t *)malloc(4096);
     memset(buf, 0, 4096);
 
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = cachesize;
-    config.flag = 0x0;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 

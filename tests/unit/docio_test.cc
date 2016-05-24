@@ -50,7 +50,9 @@ void basic_test()
     char metabuf[1024];
     char bodybuf[4096];
     struct docio_object doc;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, 1024, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
     char *fname = (char *) "./docio_testfile";
 
     handle.log_callback = NULL;
@@ -59,11 +61,6 @@ void basic_test()
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
 
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = 1024;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     r = system(SHELL_DEL " docio_testfile");
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);

@@ -95,7 +95,9 @@ void basic_test()
     struct filemgr *file;
     struct hbtrie trie;
     struct docio_object doc;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t), FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
     uint64_t offset, offset_old, _offset;
     uint32_t docsize;
     char keybuf[256], metabuf[256], bodybuf[256];
@@ -119,14 +121,6 @@ void basic_test()
     doc.key = (void*)keybuf;
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
-
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = 0;
-    config.flag = 0x0;
-    config.options = FILEMGR_CREATE;
-    config.chunksize = sizeof(uint64_t);
-    config.num_wal_shards = 8;
 
     filemgr_open_result result = filemgr_open((char *) "./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
@@ -212,7 +206,9 @@ void large_test()
     struct filemgr *file;
     struct hbtrie trie;
     struct docio_object doc;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, 0 * 1024 * 128, 0, sizeof(uint64_t),
+                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
+                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
     uint32_t docsize;
     char keybuf[256], metabuf[256], bodybuf[256];
     char dockey[256], meta[256], body[256];
@@ -231,14 +227,6 @@ void large_test()
     doc.key = (void*)keybuf;
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
-
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = 0 * 1024 * 128;
-    config.flag = 0;
-    config.options = FILEMGR_CREATE;
-    config.chunksize = sizeof(uint64_t);
-    config.num_wal_shards = 8;
 
     DBG("filemgr, bcache init .. \n");
     rr = system(SHELL_DEL" hbtrie_testfile");
@@ -372,7 +360,10 @@ void skew_basic_test()
     struct docio_handle dhandle;
     struct filemgr *file;
     struct hbtrie trie;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t),
+                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
+                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+
     uint8_t value_buf[8];
     struct hbtrie_iterator it;
     hbtrie_result hr;
@@ -418,14 +409,6 @@ void skew_basic_test()
 
     rr = system(SHELL_DEL " hbtrie_testfile");
     (void)rr;
-
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = 0;
-    config.flag = 0x0;
-    config.options = FILEMGR_CREATE;
-    config.chunksize = sizeof(uint64_t);
-    config.num_wal_shards = 8;
 
     filemgr_open_result result = filemgr_open((char*)"./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
@@ -581,7 +564,10 @@ void hbtrie_reverse_iterator_test()
     struct btreeblk_handle bhandle;
     struct hbtrie trie;
     struct hbtrie_iterator hit;
-    struct filemgr_config config;
+    FileMgrConfig config(nodesize, 0, 0, ksize,
+                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
+                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+
     hbtrie_result hr;
     filemgr_open_result fr;
     char *fname = (char *) "./hbtrie_testfile";
@@ -589,12 +575,6 @@ void hbtrie_reverse_iterator_test()
     r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
     memleak_start();
-
-    memset(&config, 0, sizeof(config));
-    config.blocksize = nodesize;
-    config.options = FILEMGR_CREATE;
-    config.chunksize = ksize;
-    config.num_wal_shards = 8;
 
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
@@ -740,7 +720,10 @@ void hbtrie_partial_update_test()
     struct filemgr *file;
     struct btreeblk_handle bhandle;
     struct hbtrie trie;
-    struct filemgr_config config;
+    FileMgrConfig config(nodesize, 0, 0, ksize,
+                         FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
+                         FDB_ENCRYPTION_NONE, 0x00, 0, 0);
+
     hbtrie_result hr;
     filemgr_open_result fr;
     char *fname = (char *) "./hbtrie_testfile";
@@ -749,12 +732,6 @@ void hbtrie_partial_update_test()
 
     r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
-
-    memset(&config, 0, sizeof(config));
-    config.blocksize = nodesize;
-    config.options = FILEMGR_CREATE;
-    config.chunksize = ksize;
-    config.num_wal_shards = 8;
 
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;

@@ -44,21 +44,19 @@ void basic_test()
     struct filemgr *file;
     struct btreeblk_handle btree_handle;
     struct btree btree;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
+
     int i, r;
     uint64_t k,v;
     char *fname = (char *) "./btreeblock_testfile";
 
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = 0;
-    config.flag = 0x0;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
@@ -138,20 +136,17 @@ void iterator_test()
     struct btreeblk_handle btree_handle;
     struct btree btree;
     struct btree_iterator bi;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
     btree_result br;
     int i, r;
     uint64_t k,v;
     char *fname = (char *) "./btreeblock_testfile";
 
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = 0;
-    config.flag = 0x0;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btreeblk_init(&btree_handle, file, nodesize);
@@ -221,17 +216,14 @@ void two_btree_test()
     struct filemgr *file;
     struct btreeblk_handle btreeblk_handle;
     struct btree btree_a, btree_b;
-    struct filemgr_config config;
+    FileMgrConfig config(blocksize, 1024, 0x0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
     uint64_t k,v;
     char *fname = (char *) "./btreeblock_testfile";
     int r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
-    memset(&config, 0, sizeof(config));
-    config.blocksize = blocksize;
-    config.ncacheblock = 1024;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btreeblk_init(&btreeblk_handle, file, nodesize);
@@ -268,18 +260,15 @@ void range_test()
     struct filemgr *file;
     struct btreeblk_handle bhandle;
     struct btree btree;
-    struct filemgr_config fconfig;
+    FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
+                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                          0x00, 0, 0);
     uint64_t key, value, key_end;
     char *fname = (char *) "./btreeblock_testfile";
 
-    memset(&fconfig, 0, sizeof(fconfig));
-    fconfig.blocksize = blocksize;
-    fconfig.ncacheblock = 0;
-    fconfig.options = FILEMGR_CREATE;
-    fconfig.num_wal_shards = 8;
-
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
+
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     btreeblk_init(&bhandle, file, blocksize);
@@ -341,14 +330,11 @@ void subblock_test()
     struct btreeblk_handle bhandle;
     struct btree_kv_ops *ops;
     struct btree btree, btree_arr[64];
-    struct filemgr_config fconfig;
+    FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
+                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                          0x00, 0, 0);
     struct btree_meta meta;
 
-    memset(&fconfig, 0, sizeof(fconfig));
-    fconfig.blocksize = blocksize;
-    fconfig.ncacheblock = 0;
-    fconfig.options = FILEMGR_CREATE;
-    fconfig.num_wal_shards = 8;
     ops = btree_kv_get_kb64_vb64(NULL);
 
     // btree initialization using large metadata test
@@ -590,7 +576,9 @@ void btree_reverse_iterator_test()
     struct btreeblk_handle bhandle;
     struct btree btree;
     struct btree_iterator bi;
-    struct filemgr_config config;
+    FileMgrConfig config(nodesize, 0, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
+                         0x00, 0, 0);
     struct btree_kv_ops *kv_ops;
     btree_result br;
     filemgr_open_result fr;
@@ -603,10 +591,6 @@ void btree_reverse_iterator_test()
 
     memleak_start();
 
-    memset(&config, 0, sizeof(config));
-    config.blocksize = nodesize;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
 

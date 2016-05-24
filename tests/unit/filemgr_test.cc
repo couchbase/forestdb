@@ -28,19 +28,12 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     TEST_INIT();
 
     struct filemgr *file;
-    struct filemgr_config config;
+    FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
+                         FDB_SEQTREE_NOT_USE, 0, 8, 0, encryption,
+                         0x55, 0, 0);
     const char *dbheader = "dbheader";
     const char *dbheader2 = "dbheader2222222222";
     char buf[256];
-
-    memset(&config, 0, sizeof(config));
-    config.blocksize = 4096;
-    config.ncacheblock = 1024;
-    config.options = FILEMGR_CREATE;
-    config.num_wal_shards = 8;
-
-    config.encryption_key.algorithm = encryption;
-    memset(&config.encryption_key.bytes, 0x55, sizeof(config.encryption_key.bytes));
 
     filemgr_open_result result = filemgr_open((char *) "./filemgr_testfile",
                                               get_filemgr_ops(), &config, NULL);

@@ -404,7 +404,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
     bool data_block_completed = false;
     struct avl_tree dirty_blocks; // Cross-shard dirty block list for sequential writes.
 
-    if (fname_item->curfile->config->flag & _ARCH_O_DIRECT) {
+    if (fname_item->curfile->config->getFlag() & _ARCH_O_DIRECT) {
         o_direct = true;
     }
 
@@ -785,8 +785,8 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
     atomic_init_uint64_t(&fname_new->nimmutable, 0);
     atomic_init_uint32_t(&fname_new->ref_count, 0);
     atomic_init_uint64_t(&fname_new->access_timestamp, 0);
-    if (file->config->num_bcache_shards) {
-        fname_new->num_shards = file->config->num_bcache_shards;
+    if (file->config->getNumBcacheShards()) {
+        fname_new->num_shards = file->config->getNumBcacheShards();
     } else {
         fname_new->num_shards = DEFAULT_NUM_BCACHE_PARTITIONS;
     }

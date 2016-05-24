@@ -114,7 +114,7 @@ size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
 
     size_id = sizeof(fdb_kvs_id_t);
     size_seq = sizeof(fdb_seqnum_t);
-    size_chunk = dhandle->file->config->chunksize;
+    size_chunk = dhandle->file->config->getChunkSize();
     memset(&doc, 0, sizeof(struct docio_object));
 
     offset = _endian_decode(offset);
@@ -671,7 +671,7 @@ fdb_status fdb_init(fdb_config *config)
     fdb_config _config;
     compactor_config c_config;
     bgflusher_config bgf_config;
-    struct filemgr_config f_config;
+    FileMgrConfig f_config;
 
     if (config) {
         if (validate_fdb_config(config)) {
@@ -705,9 +705,9 @@ fdb_status fdb_init(fdb_config *config)
         }
 #endif
         // initialize file manager and block cache
-        f_config.blocksize = _config.blocksize;
-        f_config.ncacheblock = _config.buffercache_size / _config.blocksize;
-        f_config.seqtree_opt = _config.seqtree_opt;
+        f_config.setBlockSize(_config.blocksize);
+        f_config.setNcacheBlock(_config.buffercache_size / _config.blocksize);
+        f_config.setSeqtreeOpt(_config.seqtree_opt);
         filemgr_init(&f_config);
         filemgr_set_lazy_file_deletion(true,
                                        compactor_register_file_removing,
@@ -1428,40 +1428,36 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
 }
 
 static void _fdb_init_file_config(const fdb_config *config,
-                                  struct filemgr_config *fconfig) {
-    fconfig->blocksize = config->blocksize;
-    fconfig->ncacheblock = config->buffercache_size / config->blocksize;
-    fconfig->chunksize = config->chunksize;
+                                  FileMgrConfig *fconfig) {
+    fconfig->setBlockSize(config->blocksize);
+    fconfig->setNcacheBlock(config->buffercache_size / config->blocksize);
+    fconfig->setChunkSize(config->chunksize);
 
-    fconfig->options = 0x0;
-    fconfig->seqtree_opt = config->seqtree_opt;
+    fconfig->addOptions(0x0);
+    fconfig->setSeqtreeOpt(config->seqtree_opt);
 
     if (config->flags & FDB_OPEN_FLAG_CREATE) {
-        fconfig->options |= FILEMGR_CREATE;
+        fconfig->addOptions(FILEMGR_CREATE);
     }
     if (config->flags & FDB_OPEN_FLAG_RDONLY) {
-        fconfig->options |= FILEMGR_READONLY;
+        fconfig->addOptions(FILEMGR_READONLY);
     }
     if (!(config->durability_opt & FDB_DRB_ASYNC)) {
-        fconfig->options |= FILEMGR_SYNC;
+        fconfig->addOptions(FILEMGR_SYNC);
     }
 
-    fconfig->flag = 0x0;
+    fconfig->setFlag(0x0);
     if ((config->durability_opt & FDB_DRB_ODIRECT) &&
         config->buffercache_size) {
-        fconfig->flag |= _ARCH_O_DIRECT;
+        fconfig->addFlag(_ARCH_O_DIRECT);
     }
 
-    fconfig->prefetch_duration = config->prefetch_duration;
-    fconfig->num_wal_shards = config->num_wal_partitions;
-    fconfig->num_bcache_shards = config->num_bcache_partitions;
-    fconfig->encryption_key = config->encryption_key;
-    atomic_store_uint64_t(&fconfig->block_reusing_threshold,
-                          config->block_reusing_threshold,
-                          std::memory_order_relaxed);
-    atomic_store_uint64_t(&fconfig->num_keeping_headers,
-                          config->num_keeping_headers,
-                          std::memory_order_relaxed);
+    fconfig->setPrefetchDuration(config->prefetch_duration);
+    fconfig->setNumWalShards(config->num_wal_partitions);
+    fconfig->setNumBcacheShards(config->num_bcache_partitions);
+    fconfig->setEncryptionKey(config->encryption_key);
+    fconfig->setBlockReusingThreshold(config->block_reusing_threshold);
+    fconfig->setNumKeepingHeaders(config->num_keeping_headers);
 }
 
 fdb_status _fdb_clone_snapshot(fdb_kvs_handle *handle_in,
@@ -1564,7 +1560,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                      fdb_filename_mode_t filename_mode,
                      const fdb_config *config)
 {
-    struct filemgr_config fconfig;
+    FileMgrConfig fconfig;
     KvsStat stat, empty_stat;
     bid_t trie_root_bid = BLK_NOT_FOUND;
     bid_t seq_root_bid = BLK_NOT_FOUND;
@@ -1633,7 +1629,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
 
     // If the user is requesting legacy CRC pass that down to filemgr
     if(config->flags & FDB_OPEN_WITH_LEGACY_CRC) {
-        fconfig.options |= FILEMGR_CREATE_CRC32;
+        fconfig.addOptions(FILEMGR_CREATE_CRC32);
     }
 
     handle->fileops = get_filemgr_ops();
@@ -2165,7 +2161,7 @@ fdb_status _fdb_open(fdb_kvs_handle *handle,
                 // (Temporarily disable log callback at this time since
                 //  the old file might be already removed.)
                 ErrLogCallback dummy_cb(fdb_dummy_log_callback, NULL);
-                fconfig.options = FILEMGR_READONLY;
+                fconfig.setOptions(FILEMGR_READONLY);
                 filemgr_open_result result = filemgr_open(prev_filename,
                                                           handle->fileops,
                                                           &fconfig,
@@ -4668,17 +4664,17 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
 
     timestamp_t cur_timestamp;
     fdb_status fs = FDB_RESULT_SUCCESS;
-    blocksize = handle->file->config->blocksize;
+    blocksize = handle->file->config->getBlockSize();
 
     compactor_prev_bid = 0;
     writer_prev_bid = filemgr_get_pos(handle->file) /
-                      handle->file->config->blocksize;
+                      handle->file->config->getBlockSize();
 
     // Init AIO buffer, callback, event instances.
     struct async_io_handle *aio_handle_ptr = NULL;
     struct async_io_handle aio_handle;
     aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
-    aio_handle.block_size = handle->file->config->blocksize;
+    aio_handle.block_size = handle->file->config->getBlockSize();
     aio_handle.fd = handle->file->fd;
     if (handle->file->ops->aio_init(&aio_handle) == FDB_RESULT_SUCCESS) {
         aio_handle_ptr = &aio_handle;
@@ -4918,9 +4914,9 @@ static fdb_status _fdb_compact_clone_docs(fdb_kvs_handle *handle,
             }
 
             writer_curr_bid = filemgr_get_pos(handle->file) /
-                              handle->file->config->blocksize;
+                              handle->file->config->getBlockSize();
             compactor_curr_bid = filemgr_get_pos(new_file) /
-                                 new_file->config->blocksize;
+                                 new_file->config->getBlockSize();
             _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
                     &writer_prev_bid, &compactor_prev_bid,
                     prob, handle->config.max_writer_lock_prob);
@@ -5008,13 +5004,13 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
 
     compactor_prev_bid = 0;
     writer_prev_bid = filemgr_get_pos(handle->file) /
-                      handle->file->config->blocksize;
+                      handle->file->config->getBlockSize();
 
     // Init AIO buffer, callback, event instances.
     struct async_io_handle *aio_handle_ptr = NULL;
     struct async_io_handle aio_handle;
     aio_handle.queue_depth = ASYNC_IO_QUEUE_DEPTH;
-    aio_handle.block_size = handle->file->config->blocksize;
+    aio_handle.block_size = handle->file->config->getBlockSize();
     aio_handle.fd = handle->file->fd;
     if (handle->file->ops->aio_init(&aio_handle) == FDB_RESULT_SUCCESS) {
         aio_handle_ptr = &aio_handle;
@@ -5246,9 +5242,9 @@ static fdb_status _fdb_compact_move_docs(fdb_kvs_handle *handle,
                 }
 
                 writer_curr_bid = filemgr_get_pos(handle->file) /
-                                  handle->file->config->blocksize;
+                                  handle->file->config->getBlockSize();
                 compactor_curr_bid = filemgr_get_pos(new_file)
-                                   / new_file->config->blocksize;
+                                   / new_file->config->getBlockSize();
                 _fdb_update_block_distance(writer_curr_bid, compactor_curr_bid,
                                            &writer_prev_bid,
                                            &compactor_prev_bid,
@@ -5672,7 +5668,7 @@ INLINE void _fdb_append_batched_delta(fdb_kvs_handle *handle,
         // Copy on write is a file-system / disk optimization, so it can't be
         // invoked if the blocks of the old-file have not been synced to disk
         bool flushed_blocks = (!got_lock || // blocks before committed DB header
-                !handle->file->config->ncacheblock); // buffer cache is disabled
+                !handle->file->config->getNcacheBlock()); // buffer cache is disabled
         if (flushed_blocks &&
             filemgr_is_cow_supported(handle->file, new_handle->file)) {
             _fdb_clone_batched_delta(handle, new_handle, doc,
@@ -5811,7 +5807,7 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
     uint64_t start_bmp_revnum, stop_bmp_revnum;
     uint64_t cur_bmp_revnum = (uint64_t)-1;
     size_t c;
-    size_t blocksize = handle->file->config->blocksize;
+    size_t blocksize = handle->file->config->getBlockSize();
     struct timeval tv;
     struct docio_object *doc;
     fdb_kvs_handle new_handle;
@@ -6336,7 +6332,7 @@ static void _fdb_cleanup_compact_err(fdb_kvs_handle *handle,
 
 static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
 {
-    struct filemgr_config fconfig;
+    FileMgrConfig fconfig;
     struct btreeblk_handle *new_bhandle;
     struct docio_handle *new_dhandle;
     struct hbtrie *new_trie = NULL;
@@ -6484,7 +6480,7 @@ static fdb_status _fdb_reset(fdb_kvs_handle *handle, fdb_kvs_handle *handle_in)
 
     // set filemgr configuration
     _fdb_init_file_config(&handle->config, &fconfig);
-    fconfig.options |= FILEMGR_CREATE;
+    fconfig.addOptions(FILEMGR_CREATE);
 
     // open same file again, so the root kv handle can be redirected to this
     result = filemgr_open((char *)handle->filename,
@@ -6530,7 +6526,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
                             const fdb_encryption_key *new_encryption_key)
 {
     struct filemgr *new_file;
-    struct filemgr_config fconfig;
+    FileMgrConfig fconfig;
     struct btreeblk_handle *new_bhandle;
     struct docio_handle *new_dhandle;
     struct hbtrie *new_trie = NULL;
@@ -6555,9 +6551,9 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
 
     // set filemgr configuration
     _fdb_init_file_config(&handle->config, &fconfig);
-    fconfig.options |= FILEMGR_CREATE;
+    fconfig.addOptions(FILEMGR_CREATE);
     if (new_encryption_key) {
-        fconfig.encryption_key = *new_encryption_key;
+        fconfig.setEncryptionKey(*new_encryption_key);
     }
 
     // open new file
@@ -7312,7 +7308,7 @@ fdb_status fdb_destroy(const char *fname,
 #endif
 
     fdb_config config;
-    struct filemgr_config fconfig;
+    FileMgrConfig fconfig;
     fdb_status status = FDB_RESULT_SUCCESS;
     char *filename = (char *)alca(uint8_t, FDB_MAX_FILENAME_LEN);
 
@@ -7659,9 +7655,7 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
     header_len = handle->file->header.size;
     size = 0;
 
-    uint64_t num_keeping_headers =
-        atomic_get_uint64_t(&handle->file->config->num_keeping_headers,
-                            std::memory_order_relaxed);
+    uint64_t num_keeping_headers = handle->file->config->getNumKeepingHeaders();
 
     // Reverse scan the file to locate the DB header with seqnum marker
     for (i = 0; header_len; ++i, ++size) {
@@ -7818,10 +7812,8 @@ fdb_status fdb_set_block_reusing_params(fdb_file_handle *fhandle,
         return FDB_RESULT_INVALID_HANDLE;
     }
     filemgr *file = fhandle->getRootHandle()->file;
-    atomic_store_uint64_t(&file->config->block_reusing_threshold,
-                          block_reusing_threshold, std::memory_order_relaxed);
-    atomic_store_uint64_t(&file->config->num_keeping_headers, num_keeping_headers,
-                          std::memory_order_relaxed);
+    file->config->setBlockReusingThreshold(block_reusing_threshold);
+    file->config->setNumKeepingHeaders(num_keeping_headers);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -7951,18 +7943,18 @@ void _fdb_dump_handle(fdb_kvs_handle *h) {
     fprintf(stderr, "file: fd %d\n", h->file->fd);
     fprintf(stderr, "file: pos %" _F64"\n", atomic_get_uint64_t(&h->file->pos));
     fprintf(stderr, "file: status %d\n", atomic_get_uint8_t(&h->file->status));
-    fprintf(stderr, "file: config: blocksize %d\n", h->file->config->blocksize);
+    fprintf(stderr, "file: config: blocksize %d\n", h->file->config->getBlockSize());
     fprintf(stderr, "file: config: ncacheblock %d\n",
-           h->file->config->ncacheblock);
-    fprintf(stderr, "file: config: flag %d\n", h->file->config->flag);
-    fprintf(stderr, "file: config: chunksize %d\n", h->file->config->chunksize);
-    fprintf(stderr, "file: config: options %x\n", h->file->config->options);
+           h->file->config->getNcacheBlock());
+    fprintf(stderr, "file: config: flag %d\n", h->file->config->getFlag());
+    fprintf(stderr, "file: config: chunksize %d\n", h->file->config->getChunkSize());
+    fprintf(stderr, "file: config: options %x\n", h->file->config->getOptions());
     fprintf(stderr, "file: config: prefetch_duration %" _F64 "\n",
-           h->file->config->prefetch_duration);
+           h->file->config->getPrefetchDuration());
     fprintf(stderr, "file: config: num_wal_shards %d\n",
-           h->file->config->num_wal_shards);
+           h->file->config->getNumWalShards());
     fprintf(stderr, "file: config: num_bcache_shards %d\n",
-           h->file->config->num_bcache_shards);
+           h->file->config->getNumBcacheShards());
     fprintf(stderr, "file: new_file %p\n", (void *)h->file->new_file);
     fprintf(stderr, "file: old_filename %p\n", (void *)h->file->old_filename);
     fprintf(stderr, "file: fnamedic_item: bcache %p\n",

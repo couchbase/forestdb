@@ -1,6 +1,6 @@
 /* -*- Mode: C++; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
- *     Copyright 2010 Couchbase, Inc
+ *     Copyright 2016 Couchbase, Inc
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -32,7 +32,6 @@
 
 #include "libforestdb/fdb_errors.h"
 
-#include "atomic.h"
 #include "internal_types.h"
 #include "common.h"
 #include "hash.h"
@@ -42,6 +41,8 @@
 #include "filemgr_ops.h"
 #include "encryption.h"
 #include "superblock.h"
+
+#include <atomic>
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,9 +56,48 @@ extern "C" {
 #define FILEMGR_CREATE_CRC32 0x20 // Used in testing upgrade path
 #define FILEMGR_CANCEL_COMPACTION 0x40 // Cancel the compaction
 
-struct filemgr_config {
+class FileMgrConfig {
+public:
+    FileMgrConfig()
+        : blocksize(FDB_BLOCKSIZE), ncacheblock(0), flag(0),
+          chunksize(sizeof(uint64_t)), options(0x00),
+          seqtree_opt(FDB_SEQTREE_NOT_USE), prefetch_duration(0),
+          num_wal_shards(DEFAULT_NUM_WAL_PARTITIONS),
+          num_bcache_shards(DEFAULT_NUM_BCACHE_PARTITIONS),
+          block_reusing_threshold(65/*default*/),
+          num_keeping_headers(5/*default*/)
+    {
+        encryption_key.algorithm = FDB_ENCRYPTION_NONE;
+        memset(encryption_key.bytes, 0, sizeof(encryption_key.bytes));
+    }
 
-    filemgr_config& operator=(const filemgr_config& config) {
+    FileMgrConfig(int _blocksize, int _ncacheblock, int _flag,
+                  int _chunksize, uint8_t _options, uint8_t _seqtree_opt,
+                  uint64_t _prefetch_duration, uint64_t _num_wal_shards,
+                  uint64_t _num_bcache_shards,
+                  fdb_encryption_algorithm_t _algorithm,
+                  uint8_t _encryption_bytes,
+                  uint64_t _block_reusing_threshold,
+                  uint64_t _num_keeping_headers)
+        : blocksize(_blocksize),
+          ncacheblock(_ncacheblock),
+          flag(_flag),
+          chunksize(_chunksize),
+          options(_options),
+          seqtree_opt(_seqtree_opt),
+          prefetch_duration(_prefetch_duration),
+          num_wal_shards(_num_wal_shards),
+          num_bcache_shards(_num_bcache_shards),
+          block_reusing_threshold(_block_reusing_threshold),
+          num_keeping_headers(_num_keeping_headers)
+    {
+        encryption_key.algorithm = _algorithm;
+        memset(encryption_key.bytes,
+               _encryption_bytes,
+               sizeof(encryption_key.bytes));
+    }
+
+    void operator=(const FileMgrConfig& config) {
         blocksize = config.blocksize;
         ncacheblock = config.ncacheblock;
         flag = config.flag;
@@ -68,18 +108,123 @@ struct filemgr_config {
         num_wal_shards = config.num_wal_shards;
         num_bcache_shards = config.num_bcache_shards;
         encryption_key = config.encryption_key;
-        atomic_store_uint64_t(&block_reusing_threshold,
-                              atomic_get_uint64_t(&config.block_reusing_threshold,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&num_keeping_headers,
-                              atomic_get_uint64_t(&config.num_keeping_headers,
-                                                  std::memory_order_relaxed),
-                              std::memory_order_relaxed);
-        return *this;
+        block_reusing_threshold.store(config.block_reusing_threshold.load(),
+                                      std::memory_order_relaxed);
+        num_keeping_headers.store(config.num_keeping_headers.load(),
+                                  std::memory_order_relaxed);
     }
 
-    // TODO: Move these variables to private members as we refactor the code in C++.
+    void setBlockSize(int to) {
+        blocksize = to;
+    }
+
+    void setNcacheBlock(int to) {
+        ncacheblock = to;
+    }
+
+    void setFlag(int to) {
+        flag = to;
+    }
+
+    void addFlag(int to) {
+        flag |= to;
+    }
+
+    void setChunkSize(int to) {
+        chunksize = to;
+    }
+
+    void setOptions(uint8_t option) {
+        options = option;
+    }
+
+    void addOptions(uint8_t option) {
+        options |= option;
+    }
+
+    void setSeqtreeOpt(uint8_t to) {
+        seqtree_opt = to;
+    }
+
+    void setPrefetchDuration(uint64_t to) {
+        prefetch_duration = to;
+    }
+
+    void setNumWalShards(uint16_t to) {
+        num_wal_shards = to;
+    }
+
+    void setNumBcacheShards(uint16_t to) {
+        num_bcache_shards = to;
+    }
+
+    void setEncryptionKey(fdb_encryption_algorithm_t to,
+                          uint8_t byte) {
+        encryption_key.algorithm = to;
+        memset(encryption_key.bytes, byte, sizeof(encryption_key.bytes));
+    }
+
+    void setEncryptionKey(const fdb_encryption_key &key) {
+        encryption_key = key;
+    }
+
+    void setBlockReusingThreshold(uint64_t to) {
+        block_reusing_threshold.store(to, std::memory_order_relaxed);
+    }
+
+    void setNumKeepingHeaders(uint64_t to) {
+        num_keeping_headers.store(to, std::memory_order_relaxed);
+    }
+
+    int getBlockSize() const {
+        return blocksize;
+    }
+
+    int getNcacheBlock() const {
+        return ncacheblock;
+    }
+
+    int getFlag() const {
+        return flag;
+    }
+
+    int getChunkSize() const {
+        return chunksize;
+    }
+
+    uint8_t getOptions() const {
+        return options;
+    }
+
+    uint8_t getSeqtreeOpt() const {
+        return seqtree_opt;
+    }
+
+    uint64_t getPrefetchDuration() const {
+        return prefetch_duration;
+    }
+
+    uint16_t getNumWalShards() const {
+        return num_wal_shards;
+    }
+
+    uint8_t getNumBcacheShards() const {
+        return num_bcache_shards;
+    }
+
+    fdb_encryption_key* getEncryptionKey() {
+        return &encryption_key;
+    }
+
+    uint64_t getBlockReusingThreshold() const {
+        return block_reusing_threshold.load(std::memory_order_relaxed);
+    }
+
+    uint64_t getNumKeepingHeaders() const {
+        return num_keeping_headers.load(std::memory_order_relaxed);
+    }
+
+private:
     int blocksize;
     int ncacheblock;
     int flag;
@@ -91,10 +236,10 @@ struct filemgr_config {
     uint16_t num_bcache_shards;
     fdb_encryption_key encryption_key;
     // Stale block reusing threshold
-    atomic_uint64_t block_reusing_threshold;
+    std::atomic<uint64_t> block_reusing_threshold;
     // Number of the last commit headders whose stale blocks should
     // be kept for snapshot readers.
-    atomic_uint64_t num_keeping_headers;
+    std::atomic<uint64_t> num_keeping_headers;
 };
 
 #ifndef _LATENCY_STATS
@@ -192,7 +337,7 @@ struct filemgr {
     struct filemgr_ops *ops;
     struct hash_elem e;
     atomic_uint8_t status;
-    struct filemgr_config *config;
+    FileMgrConfig *config;
     struct filemgr *new_file;           // Pointer to new file upon compaction
     struct filemgr *prev_file;          // Pointer to prev file upon compaction
     char *old_filename;                 // Old file name before compaction
@@ -309,7 +454,7 @@ typedef struct {
     int rv;
 } filemgr_open_result;
 
-void filemgr_init(struct filemgr_config *config);
+void filemgr_init(FileMgrConfig *config);
 void filemgr_set_lazy_file_deletion(bool enable,
                                     register_file_removal_func regis_func,
                                     check_file_removal_func check_func);
@@ -337,7 +482,7 @@ INLINE void filemgr_incr_ref_count(struct filemgr *file) {
 
 filemgr_open_result filemgr_open(char *filename,
                                  struct filemgr_ops *ops,
-                                 struct filemgr_config *config,
+                                 FileMgrConfig *config,
                                  ErrLogCallback *log_callback);
 
 uint64_t filemgr_update_header(struct filemgr *file,
@@ -527,7 +672,7 @@ void filemgr_dump_latency_stat(struct filemgr *file,
 KvsOpsStat *filemgr_migrate_op_stats(struct filemgr *old_file,
                                      struct filemgr *new_file);
 fdb_status filemgr_destroy_file(char *filename,
-                                struct filemgr_config *config,
+                                FileMgrConfig *config,
                                 struct hash *destroy_set);
 
 struct filemgr *filemgr_search_stale_links(struct filemgr *cur_file);
@@ -574,7 +719,7 @@ void filemgr_set_in_place_compaction(struct filemgr *file,
                                      bool in_place_compaction);
 bool filemgr_is_in_place_compaction_set(struct filemgr *file);
 
-void filemgr_mutex_openlock(struct filemgr_config *config);
+void filemgr_mutex_openlock(FileMgrConfig *config);
 void filemgr_mutex_openunlock(void);
 
 void filemgr_mutex_lock(struct filemgr *file);

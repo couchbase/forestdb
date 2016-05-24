@@ -63,7 +63,7 @@ static spin_t initial_lock;
 
 static volatile uint8_t filemgr_initialized = 0;
 extern volatile uint8_t bgflusher_initialized;
-static struct filemgr_config global_config;
+static FileMgrConfig global_config;
 static struct hash hash;
 static spin_t filemgr_openlock;
 
@@ -208,7 +208,7 @@ static int _file_cmp(struct hash_elem *a, struct hash_elem *b)
     return strcmp(aa->filename, bb->filename);
 }
 
-void filemgr_init(struct filemgr_config *config)
+void filemgr_init(FileMgrConfig *config)
 {
     // global initialization
     // initialized only once at first time
@@ -232,8 +232,9 @@ void filemgr_init(struct filemgr_config *config)
             memset(&sb_ops, 0x0, sizeof(sb_ops));
             global_config = *config;
 
-            if (global_config.ncacheblock > 0)
-                bcache_init(global_config.ncacheblock, global_config.blocksize);
+            if (global_config.getNcacheBlock() > 0)
+                bcache_init(global_config.getNcacheBlock(),
+                            global_config.getBlockSize());
 
             hash_init(&hash, NBUCKET, _file_hash, _file_cmp);
 
@@ -278,9 +279,10 @@ static void * _filemgr_get_temp_buf()
         void *addr = NULL;
 
         malloc_align(addr, FDB_SECTOR_SIZE,
-                     global_config.blocksize + sizeof(struct temp_buf_item));
+                     global_config.getBlockSize() + sizeof(struct temp_buf_item));
 
-        item = (struct temp_buf_item *)((uint8_t *) addr + global_config.blocksize);
+        item = (struct temp_buf_item *)((uint8_t *) addr +
+                                        global_config.getBlockSize());
         item->addr = addr;
     }
     spin_unlock(&temp_buf_lock);
@@ -293,7 +295,8 @@ static void _filemgr_release_temp_buf(void *buf)
     struct temp_buf_item *item;
 
     spin_lock(&temp_buf_lock);
-    item = (struct temp_buf_item*)((uint8_t *)buf + global_config.blocksize);
+    item = (struct temp_buf_item*)((uint8_t *)buf +
+                                   global_config.getBlockSize());
     list_push_front(&temp_buf, &item->le);
     spin_unlock(&temp_buf_lock);
 }
@@ -580,10 +583,10 @@ size_t filemgr_get_ref_count(struct filemgr *file)
 uint64_t filemgr_get_bcache_used_space(void)
 {
     uint64_t bcache_free_space = 0;
-    if (global_config.ncacheblock) { // If buffer cache is indeed configured
+    if (global_config.getNcacheBlock()) { // If buffer cache is indeed configured
         bcache_free_space = bcache_get_num_free_blocks();
-        bcache_free_space = (global_config.ncacheblock - bcache_free_space)
-                          * global_config.blocksize;
+        bcache_free_space = (global_config.getNcacheBlock() - bcache_free_space)
+                                * global_config.getBlockSize();
     }
     return bcache_free_space;
 }
@@ -665,7 +668,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
 
 // prefetch the given DB file
 void filemgr_prefetch(struct filemgr *file,
-                      struct filemgr_config *config,
+                      FileMgrConfig *config,
                       ErrLogCallback *log_callback)
 {
     uint64_t bcache_free_space;
@@ -684,7 +687,7 @@ void filemgr_prefetch(struct filemgr *file,
         args = (struct filemgr_prefetch_args *)
             calloc(1, sizeof(struct filemgr_prefetch_args));
         args->file = file;
-        args->duration = config->prefetch_duration;
+        args->duration = config->getPrefetchDuration();
         args->log_callback = log_callback;
         thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
     }
@@ -722,13 +725,13 @@ static fdb_status _filemgr_load_sb(struct filemgr *file,
 }
 
 filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
-                                 struct filemgr_config *config,
+                                 FileMgrConfig *config,
                                  ErrLogCallback *log_callback)
 {
     struct filemgr *file = NULL;
     struct filemgr query;
     struct hash_elem *e = NULL;
-    bool create = config->options & FILEMGR_CREATE;
+    bool create = config->getOptions() & FILEMGR_CREATE;
     int file_flag = 0x0;
     int fd = -1;
     fdb_status status;
@@ -736,7 +739,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     filemgr_init(config);
 
-    if (config->encryption_key.algorithm != FDB_ENCRYPTION_NONE && global_config.ncacheblock <= 0) {
+    if (config->getEncryptionKey()->algorithm != FDB_ENCRYPTION_NONE &&
+        global_config.getNcacheBlock() <= 0) {
         // cannot use encryption without a block cache
         result.rv = FDB_RESULT_CRYPTO_ERROR;
         return result;
@@ -767,9 +771,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 file_flag |= O_CREAT;
             }
             *file->config = *config;
-            file->config->blocksize = global_config.blocksize;
-            file->config->ncacheblock = global_config.ncacheblock;
-            file_flag |= config->flag;
+            file->config->setBlockSize(global_config.getBlockSize());
+            file->config->setNcacheBlock(global_config.getNcacheBlock());
+            file_flag |= config->getFlag();
             file->fd = file->ops->open(file->filename, file_flag, 0666);
             if (file->fd < 0) {
                 if (file->fd == FDB_RESULT_NO_SUCH_FILE) {
@@ -800,7 +804,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 }
             } else { // Reopening the closed file is succeed.
                 atomic_store_uint8_t(&file->status, FILE_NORMAL);
-                if (config->options & FILEMGR_SYNC) {
+                if (config->getOptions() & FILEMGR_SYNC) {
                     file->fflags |= FILEMGR_SYNC;
                 } else {
                     file->fflags &= ~FILEMGR_SYNC;
@@ -815,7 +819,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             }
         } else { // file is already opened.
 
-            if (config->options & FILEMGR_SYNC) {
+            if (config->getOptions() & FILEMGR_SYNC) {
                 file->fflags |= FILEMGR_SYNC;
             } else {
                 file->fflags &= ~FILEMGR_SYNC;
@@ -833,7 +837,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     if (create) {
         file_flag |= O_CREAT;
     }
-    file_flag |= config->flag;
+    file_flag |= config->getFlag();
     fd = ops->open(filename, file_flag, 0666);
     if (fd < 0) {
         _log_errno_str(ops, log_callback, (fdb_status)fd, "OPEN", filename);
@@ -849,7 +853,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint32_t(&file->ref_count, 1);
     file->stale_list = NULL;
 
-    status = fdb_init_encryptor(&file->encryption, &config->encryption_key);
+    status = fdb_init_encryptor(&file->encryption,
+                                config->getEncryptionKey());
     if (status != FDB_RESULT_SUCCESS) {
         ops->close(fd);
         free(file);
@@ -862,12 +867,12 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->wal->flag = 0;
 
     file->ops = ops;
-    file->blocksize = global_config.blocksize;
+    file->blocksize = global_config.getBlockSize();
     atomic_init_uint8_t(&file->status, FILE_NORMAL);
-    file->config = (struct filemgr_config*)malloc(sizeof(struct filemgr_config));
+    file->config = new FileMgrConfig();
     *file->config = *config;
-    file->config->blocksize = global_config.blocksize;
-    file->config->ncacheblock = global_config.ncacheblock;
+    file->config->setBlockSize(global_config.getBlockSize());
+    file->config->setNcacheBlock(global_config.getNcacheBlock());
     file->new_file = NULL;
     file->prev_file = NULL;
     file->old_filename = NULL;
@@ -879,7 +884,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         file->ops->close(file->fd);
         free(file->wal);
         free(file->filename);
-        free(file->config);
+        delete file->config;
         free(file);
         spin_unlock(&filemgr_openlock);
         result.rv = (fdb_status) offset;
@@ -956,7 +961,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     // Note: CRC must be initialized before superblock loading
     // initialize CRC mode
-    if (file->config && file->config->options & FILEMGR_CREATE_CRC32) {
+    if (file->config && file->config->getOptions() & FILEMGR_CREATE_CRC32) {
         file->crc_mode = CRC32;
     } else {
         file->crc_mode = CRC_DEFAULT;
@@ -973,7 +978,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             free(file->stale_list);
             free(file->wal);
             free(file->filename);
-            free(file->config);
+            delete file->config;
             free(file);
             spin_unlock(&filemgr_openlock);
             result.rv = status;
@@ -995,7 +1000,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             free(file->stale_list);
             free(file->wal);
             free(file->filename);
-            free(file->config);
+            delete file->config;
             free(file);
             spin_unlock(&filemgr_openlock);
             result.rv = status;
@@ -1035,13 +1040,13 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     wal_add_transaction(file, &file->global_txn);
 
     hash_insert(&hash, &file->e);
-    if (config->prefetch_duration > 0) {
+    if (config->getPrefetchDuration() > 0) {
         filemgr_prefetch(file, config, log_callback);
     }
 
     spin_unlock(&filemgr_openlock);
 
-    if (config->options & FILEMGR_SYNC) {
+    if (config->getOptions() & FILEMGR_SYNC) {
         file->fflags |= FILEMGR_SYNC;
     } else {
         file->fflags &= ~FILEMGR_SYNC;
@@ -1457,7 +1462,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
     if (atomic_get_uint32_t(&file->ref_count) == 0) {
-        if (global_config.ncacheblock > 0 &&
+        if (global_config.getNcacheBlock() > 0 &&
             atomic_get_uint8_t(&file->status) != FILE_REMOVED_PENDING) {
             spin_unlock(&file->lock);
             // discard all dirty blocks belonged to this file
@@ -1588,7 +1593,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 void filemgr_remove_all_buffer_blocks(struct filemgr *file)
 {
     // remove all cached blocks
-    if (global_config.ncacheblock > 0 &&
+    if (global_config.getNcacheBlock() > 0 &&
             file->bcache.load(std::memory_order_relaxed)) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
@@ -1614,7 +1619,7 @@ void filemgr_free_func(struct hash_elem *h)
     }
 
     // remove all cached blocks
-    if (global_config.ncacheblock > 0 &&
+    if (global_config.getNcacheBlock() > 0 &&
             file->bcache.load(std::memory_order_relaxed)) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
@@ -1688,7 +1693,7 @@ void filemgr_free_func(struct hash_elem *h)
     filemgr_clear_stale_info_tree(file);
     filemgr_clear_mergetree(file);
     free(stale_list);
-    free(file->config);
+    delete file->config;
     free(file);
 }
 
@@ -1762,7 +1767,7 @@ fdb_status filemgr_shutdown()
         spin_unlock(&filemgr_openlock);
         if (!open_file) {
             hash_free_active(&hash, filemgr_free_func);
-            if (global_config.ncacheblock > 0) {
+            if (global_config.getNcacheBlock() > 0) {
                 bcache_shutdown();
             }
             filemgr_initialized = 0;
@@ -1800,7 +1805,7 @@ bid_t filemgr_alloc(struct filemgr *file, ErrLogCallback *log_callback)
         atomic_add_uint64_t(&file->pos, file->blocksize);
     }
 
-    if (global_config.ncacheblock <= 0) {
+    if (global_config.getNcacheBlock() <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
@@ -1822,7 +1827,7 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
     *end = *begin + nblock - 1;
     atomic_add_uint64_t(&file->pos, file->blocksize * nblock);
 
-    if (global_config.ncacheblock <= 0) {
+    if (global_config.getNcacheBlock() <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
@@ -1845,7 +1850,7 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
         *end = *begin + nblock - 1;
         atomic_add_uint64_t(&file->pos, file->blocksize * nblock);
 
-        if (global_config.ncacheblock <= 0) {
+        if (global_config.getNcacheBlock() <= 0) {
             // if block cache is turned off, write the allocated block before use
             uint8_t _buf = 0x0;
             ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
@@ -1887,7 +1892,7 @@ bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
     } else {
         ret = false; // a block from the past is invalidated (committed)
     }
-    if (global_config.ncacheblock > 0) {
+    if (global_config.getNcacheBlock() > 0) {
         bcache_invalidate_block(file, bid);
     }
     return ret;
@@ -1896,7 +1901,7 @@ bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 bool filemgr_is_fully_resident(struct filemgr *file)
 {
     bool ret = false;
-    if (global_config.ncacheblock > 0) {
+    if (global_config.getNcacheBlock() > 0) {
         //TODO: A better thing to do is to track number of document blocks
         // and only compare those with the cached document block count
         double num_cached_blocks = (double)bcache_get_num_blocks(file);
@@ -1914,7 +1919,7 @@ uint64_t filemgr_flush_immutable(struct filemgr *file,
                                    ErrLogCallback *log_callback)
 {
     uint64_t ret = 0;
-    if (global_config.ncacheblock > 0) {
+    if (global_config.getNcacheBlock() > 0) {
         if (atomic_get_uint8_t(&file->io_in_prog)) {
             return 0;
         }
@@ -1951,7 +1956,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         return FDB_RESULT_READ_FAIL;
     }
 
-    if (global_config.ncacheblock > 0) {
+    if (global_config.getNcacheBlock() > 0) {
         lock_no = bid % DLOCK_MAX;
         (void)lock_no;
 
@@ -2042,7 +2047,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
             }
 #endif
             r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN, false);
-            if (r != global_config.blocksize) {
+            if (r != global_config.getBlockSize()) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                     plock_unlock(&file->plock, plock_entry);
@@ -2157,7 +2162,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         }
     }
 
-    if (global_config.ncacheblock > 0) {
+    if (global_config.getNcacheBlock() > 0) {
         lock_no = bid % DLOCK_MAX;
         (void)lock_no;
 
@@ -2176,7 +2181,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
             r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY, final_write);
-            if (r != global_config.blocksize) {
+            if (r != global_config.getBlockSize()) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                     plock_unlock(&file->plock, plock_entry);
@@ -2228,7 +2233,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                 }
                 memcpy((uint8_t *)_buf + offset, buf, len);
                 r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY, final_write);
-                if (r != global_config.blocksize) {
+                if (r != global_config.getBlockSize()) {
                     if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                         plock_unlock(&file->plock, plock_entry);
@@ -2316,7 +2321,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
     bool block_reusing = false;
 
     filemgr_set_io_inprog(file);
-    if (global_config.ncacheblock > 0) {
+    if (global_config.getNcacheBlock() > 0) {
         result = bcache_flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
@@ -2479,7 +2484,7 @@ fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
                         ErrLogCallback *log_callback)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
-    if (global_config.ncacheblock > 0) {
+    if (global_config.getNcacheBlock() > 0) {
         result = bcache_flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
@@ -2701,7 +2706,7 @@ KvsOpsStat *filemgr_migrate_op_stats(struct filemgr *old_file,
 
 // Note: filemgr_openlock should be held before calling this function.
 fdb_status filemgr_destroy_file(char *filename,
-                                struct filemgr_config *config,
+                                FileMgrConfig *config,
                                 struct hash *destroy_file_set)
 {
     struct filemgr *file = NULL;
@@ -2772,10 +2777,11 @@ fdb_status filemgr_destroy_file(char *filename,
         file->filename = filename;
         file->ops = get_filemgr_ops();
         file->fd = file->ops->open(file->filename, O_RDWR, 0666);
-        file->blocksize = global_config.blocksize;
-        file->config = (struct filemgr_config *)alca(struct filemgr_config, 1);
+        file->blocksize = global_config.getBlockSize();
+        FileMgrConfig fmc;
+        file->config = &fmc;
         *file->config = *config;
-        fdb_init_encryptor(&file->encryption, &config->encryption_key);
+        fdb_init_encryptor(&file->encryption, config->getEncryptionKey());
         if (file->fd < 0) {
             if (file->fd != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call
@@ -2793,7 +2799,7 @@ fdb_status filemgr_destroy_file(char *filename,
             } else { // Need to read DB header which contains old filename
                 atomic_store_uint64_t(&file->pos, offset);
                 // initialize CRC mode
-                if (file->config && file->config->options & FILEMGR_CREATE_CRC32) {
+                if (file->config && file->config->getOptions() & FILEMGR_CREATE_CRC32) {
                     file->crc_mode = CRC32;
                 } else {
                     file->crc_mode = CRC_DEFAULT;
@@ -2921,7 +2927,7 @@ bool filemgr_is_in_place_compaction_set(struct filemgr *file)
     return ret;
 }
 
-void filemgr_mutex_openlock(struct filemgr_config *config)
+void filemgr_mutex_openlock(FileMgrConfig *config)
 {
     filemgr_init(config);
 

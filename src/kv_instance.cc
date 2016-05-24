@@ -954,7 +954,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(fdb_kvs_handle *handle)
     char *compacted_filename = NULL;
     struct filemgr *file = handle->file;
 
-    buf = alca(uint8_t, file->config->blocksize);
+    buf = alca(uint8_t, file->config->getBlockSize());
 
     if (handle->kvs && handle->kvs->getKvsId() > 0) {
         id = handle->kvs->getKvsId();
@@ -2342,9 +2342,7 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
 
     spin_unlock(&handle->file->fhandle_idx_lock);
 
-    uint64_t num_keeping_headers =
-        atomic_get_uint64_t(&handle->file->config->num_keeping_headers,
-                            std::memory_order_relaxed);
+    uint64_t num_keeping_headers = handle->file->config->getNumKeepingHeaders();
     if (num_keeping_headers) {
         // backward scan previous header info to keep more headers
 

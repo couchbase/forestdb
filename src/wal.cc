@@ -186,8 +186,8 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
     list_init(&file->wal->txn_list);
     spin_init(&file->wal->lock);
 
-    if (file->config->num_wal_shards) {
-        file->wal->num_shards = file->config->num_wal_shards;
+    if (file->config->getNumWalShards()) {
+        file->wal->num_shards = file->config->getNumWalShards();
     } else {
         file->wal->num_shards = DEFAULT_NUM_WAL_PARTITIONS;
     }
@@ -196,7 +196,7 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
     file->wal->key_shards = (wal_shard *)
         malloc(sizeof(struct wal_shard) * num_shards);
 
-    if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+    if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         file->wal->seq_shards = (wal_shard *)
             malloc(sizeof(struct wal_shard) * num_shards);
     } else {
@@ -206,7 +206,7 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
     for (int i = num_shards - 1; i >= 0; --i) {
         avl_init(&file->wal->key_shards[i]._map, NULL);
         spin_init(&file->wal->key_shards[i].lock);
-        if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+        if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             avl_init(&file->wal->seq_shards[i]._map, NULL);
             spin_init(&file->wal->seq_shards[i].lock);
         }
@@ -225,13 +225,13 @@ fdb_status wal_destroy(struct filemgr *file)
     // Free all WAL shards
     for (; i < num_shards; ++i) {
         spin_destroy(&file->wal->key_shards[i].lock);
-        if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+        if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             spin_destroy(&file->wal->seq_shards[i].lock);
         }
     }
     spin_destroy(&file->wal->lock);
     free(file->wal->key_shards);
-    if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+    if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         free(file->wal->seq_shards);
     }
     return FDB_RESULT_SUCCESS;
@@ -526,7 +526,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
     LATENCY_STAT_START();
 
     if (file->kv_header) { // multi KV instance mode
-        buf2kvid(file->config->chunksize, doc->key, &kv_id);
+        buf2kvid(file->config->getChunkSize(), doc->key, &kv_id);
     } else {
         kv_id = 0;
     }
@@ -561,7 +561,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                 item->shandle->snap_tag_idx == snap_tag) {
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
 
-                if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+                if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                     // Re-index the item by new sequence number..
                     size_t seq_shard_num = item->seqnum % file->wal->num_shards;
                     if (caller == WAL_INS_WRITER) {
@@ -686,7 +686,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                                     std::memory_order_relaxed);
             }
 
-            if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+            if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                 size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
                 if (caller == WAL_INS_WRITER) {
                     spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
@@ -711,7 +711,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         // create new header and new item
         header = (struct wal_item_header*)malloc(sizeof(struct wal_item_header));
         list_init(&header->items);
-        header->chunksize = file->config->chunksize;
+        header->chunksize = file->config->getChunkSize();
         header->keylen = keylen;
         header->key = (void *)malloc(header->keylen);
         memcpy(header->key, key, header->keylen);
@@ -767,7 +767,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                                 std::memory_order_relaxed);
         }
 
-        if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+        if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             size_t seq_shard_num = doc->seqnum % file->wal->num_shards;
             if (caller == WAL_INS_WRITER) {
                 spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
@@ -1002,15 +1002,15 @@ static fdb_status _wal_find(fdb_txn *txn,
         }
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     } else {
-        if (file->config->seqtree_opt != FDB_SEQTREE_USE) {
+        if (file->config->getSeqtreeOpt() != FDB_SEQTREE_USE) {
             return FDB_RESULT_INVALID_CONFIG;
         }
         // search by seqnum
         struct wal_item_header temp_header;
 
         if (file->kv_header) { // multi KV instance mode
-            temp_header.key = (void*)alca(uint8_t, file->config->chunksize);
-            kvid2buf(file->config->chunksize, kv_id, temp_header.key);
+            temp_header.key = (void*)alca(uint8_t, file->config->getChunkSize());
+            kvid2buf(file->config->getChunkSize(), kv_id, temp_header.key);
             item_query.header = &temp_header;
         }
         item_query.seqnum = doc->seqnum;
@@ -1164,7 +1164,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                     wal_insert(item->txn, new_file, &cmp_info, &doc, offset,
                                WAL_INS_WRITER);
 
-                    if (old_file->config->seqtree_opt == FDB_SEQTREE_USE) {
+                    if (old_file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                         // remove from seq map
                         size_t shard_num = item->seqnum % num_shards;
                         spin_lock(&old_file->wal->seq_shards[shard_num].lock);
@@ -1321,7 +1321,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                 if (!(_item->flag & WAL_ITEM_FLUSH_READY)) {
                     // remove from list & hash
                     list_remove(&item->header->items, &_item->list_elem);
-                    if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+                    if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                         size_t seq_shard_num = _item->seqnum
                                              % file->wal->num_shards;
                         spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
@@ -1416,7 +1416,7 @@ static int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 INLINE void _wal_release_item(struct filemgr *file, size_t shard_num,
                               fdb_kvs_id_t kv_id, struct wal_item *item) {
     list_remove(&item->header->items, &item->list_elem);
-    if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+    if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         size_t seq_shard_num;
         seq_shard_num = item->seqnum % file->wal->num_shards;
         spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
@@ -2080,7 +2080,7 @@ fdb_status wal_itr_init(struct filemgr *file,
         wal_itr->by_key = true;
     } else {
         // Otherwise wal iteration is requested over sequence range
-        if (file->config->seqtree_opt != FDB_SEQTREE_USE) {
+        if (file->config->getSeqtreeOpt() != FDB_SEQTREE_USE) {
             return FDB_RESULT_INVALID_CONFIG;
         }
         wal_itr->map_shards = file->wal->seq_shards;
@@ -2809,7 +2809,7 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
                                  file->wal->num_shards;
         spin_lock(&file->wal->key_shards[shard_num].lock);
 
-        if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+        if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             // remove from seq map
             seq_shard_num = item->seqnum % file->wal->num_shards;
             spin_lock(&file->wal->seq_shards[seq_shard_num].lock);
@@ -2976,7 +2976,7 @@ static fdb_status _wal_close(struct filemgr *file,
                         committed = true;
                     }
 
-                    if (file->config->seqtree_opt == FDB_SEQTREE_USE) {
+                    if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                         // remove from seq hash table
                         seq_shard_num = item->seqnum % num_shards;
                         spin_lock(&file->wal->seq_shards[seq_shard_num].lock);

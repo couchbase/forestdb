@@ -558,8 +558,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
     }
 
     uint64_t block_reusing_threshold =
-        atomic_get_uint64_t(&handle->file->config->block_reusing_threshold,
-                            std::memory_order_relaxed);
+                        handle->file->config->getBlockReusingThreshold();
     if (block_reusing_threshold == 0 || block_reusing_threshold >= 100) {
         // circular block reusing is disabled
         return SBD_NONE;
@@ -573,9 +572,7 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
     // at least # keeping headers should exist
     // since the last block reusing
     if (handle->cur_header_revnum <=
-        sb->min_live_hdr_revnum +
-        atomic_get_uint64_t(&handle->file->config->num_keeping_headers,
-                            std::memory_order_relaxed)) {
+        sb->min_live_hdr_revnum + handle->file->config->getNumKeepingHeaders()) {
         return SBD_NONE;
     }
 
@@ -603,8 +600,8 @@ sb_decision_t sb_check_block_reusing(fdb_kvs_handle *handle)
                 }
             } else if ( (sb->num_free_blocks * 100 <
                          sb->num_init_free_blocks * SB_PRE_RECLAIM_RATIO)) {
-                if (sb->num_init_free_blocks * handle->file->config->blocksize >
-                    SB_MIN_BLOCK_REUSING_FILESIZE)  {
+                if (sb->num_init_free_blocks * handle->file->config->getBlockSize()
+                    > SB_MIN_BLOCK_REUSING_FILESIZE)  {
                     return SBD_RESERVE;
                 }
             }
@@ -1678,7 +1675,7 @@ fdb_status sb_read_latest(struct filemgr *file,
     if (atomic_get_uint64_t(&file->sb->cur_alloc_bid) != BLK_NOT_FOUND) {
         atomic_store_uint64_t(&file->last_commit,
                               atomic_get_uint64_t(&file->sb->cur_alloc_bid) *
-                              file->config->blocksize);
+                              file->config->getBlockSize());
     } else {
         // otherwise, last_commit == file->pos
         // (already set by filemgr_open() function)
