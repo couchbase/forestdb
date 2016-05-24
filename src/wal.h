@@ -146,6 +146,12 @@ struct wal_kvs_snaps {
 #define WAL_ITEM_FLUSH_READY (0x02)
 #define WAL_ITEM_MULTI_KV_INS_MODE (0x04)
 #define WAL_ITEM_FLUSHED_OUT (0x08)
+// not all wal_items are indexed into their KV Store's snapshot handles
+// (for example uncommitted transactional items)
+// this flag is only set in those items which are inserted into their snapshot
+// It is used during updates when one item is replaced with another
+#define WAL_ITEM_IN_SNAP_TREE (0x10)
+
 struct wal_item{
     struct list_elem list_elem; // for wal_item_header's 'items'
     struct avl_node avl_seq; // used for indexing by sequence number
@@ -163,8 +169,9 @@ struct wal_item{
         struct list_elem list_elem_txn; // for transaction
         struct avl_node avl_flush;
         struct list_elem list_elem_flush;
-        struct avl_node avl_keysnap; // for durable snapshot unique key lookup
     };
+    struct avl_node avl_keysnap; // for durable snapshot unique key lookup
+    struct avl_node avl_seqsnap; // for durable snapshot unique seqnum lookup
 };
 
 typedef fdb_status wal_flush_func(void *dbhandle, struct wal_item *item,
@@ -522,6 +529,13 @@ private:
                                                struct snap_handle *shandle);
 
     void _wal_free_item(struct wal_item *item, bool gotlock);
+    /*
+     * Given a key, return the version of the key which was valid at the
+     * time of the given snapshot creation
+     */
+    static wal_item *getSnapItemHdr_Wal(struct wal_item_header *header,
+                                        struct snap_handle *shandle);
+
     bool _wal_are_items_sorted(union wal_flush_items *flush_items);
     fdb_status _wal_do_flush(struct wal_item *item,
                              wal_flush_func *flush_func,
@@ -563,9 +577,9 @@ public:
      * @param shandle - pointer to snap_handle created by snapshot_open
      * @param by_key - is the iteration done by key or by sequence number
      */
-     WalItr(FileMgr *fileWal,
-            struct snap_handle *shandle,
-            bool by_key);
+    WalItr(FileMgr *fileWal,
+           struct snap_handle *shandle,
+           bool by_key);
 
      ~WalItr();
 
@@ -575,7 +589,7 @@ public:
       * @param wal_itr - the wal iterator snapshot whose cursor needs to be set.
       * @param wal_item - the avl pointer of the query wal_item.
       */
-     struct wal_item *searchGreater_WalItr(struct wal_item *query_item);
+    struct wal_item *searchGreater_WalItr(struct wal_item *query_item);
 
      /**
       * Position the sharded WAL iterator to a key/seqnum smaller than the query
@@ -583,55 +597,55 @@ public:
       * @param wal_itr - the wal iterator snapshot whose cursor needs to be set.
       * @param wal_item - the pointer of the query wal_item.
       */
-     struct wal_item *searchSmaller_WalItr(struct wal_item *query_item);
+    struct wal_item *searchSmaller_WalItr(struct wal_item *query_item);
 
      /**
       * Position the sharded WAL iterator to the next key/seqnum than current pos
       * @param wal_itr - the wal iterator snapshot whose cursor needs to be set.
       */
-     struct wal_item *next_WalItr(void);
+    struct wal_item *next_WalItr(void);
 
      /**
       * Position the sharded WAL iterator to the previous key/seqnum from current pos
       * @param wal_itr - the wal iterator snapshot whose cursor needs to be set.
       */
-     struct wal_item *prev_WalItr(void);
+    struct wal_item *prev_WalItr(void);
      /**
       * Position the sharded WAL iterator to the first key/seqnum in KV Store snapshot
       * @param wal_itr - the wal iterator snapshot whose cursor needs to be set.
       */
-     struct wal_item *first_WalItr(void);
+    struct wal_item *first_WalItr(void);
      /**
       * Position the sharded WAL iterator to the last key/seqnum in KV Store snapshot
       * @param wal_itr - the wal iterator snapshot whose cursor needs to be set.
       */
-     struct wal_item *last_WalItr(void);
+    struct wal_item *last_WalItr(void);
 
 private:
-     struct wal_item * _searchGreaterByKey_WalItr(struct wal_item *q);
-     struct wal_item * _searchGreaterBySeq_WalItr(struct wal_item *q);
-     struct wal_item * _searchSmallerByKey_WalItr(struct wal_item *q);
-     struct wal_item * _searchSmallerBySeq_WalItr(struct wal_item *q);
-     struct wal_item * _nextByKey_WalItr(void);
-     struct wal_item * _nextBySeq_WalItr(void);
-     struct wal_item * _prevByKey_WalItr(void);
-     struct wal_item * _prevBySeq_WalItr(void);
-     struct wal_item * _firstByKey_WalItr(void);
-     struct wal_item * _firstBySeq_WalItr(void);
-     struct wal_item * _lastByKey_WalItr(void);
-     struct wal_item * _lastBySeq_WalItr(void);
+    struct wal_item * _searchGreaterByKey_WalItr(struct wal_item *q);
+    struct wal_item * _searchGreaterBySeq_WalItr(struct wal_item *q);
+    struct wal_item * _searchSmallerByKey_WalItr(struct wal_item *q);
+    struct wal_item * _searchSmallerBySeq_WalItr(struct wal_item *q);
+    struct wal_item * _nextByKey_WalItr(void);
+    struct wal_item * _nextBySeq_WalItr(void);
+    struct wal_item * _prevByKey_WalItr(void);
+    struct wal_item * _prevBySeq_WalItr(void);
+    struct wal_item * _firstByKey_WalItr(void);
+    struct wal_item * _firstBySeq_WalItr(void);
+    struct wal_item * _lastByKey_WalItr(void);
+    struct wal_item * _lastBySeq_WalItr(void);
 
     Wal *_wal; // Pointer to global WAL
     struct wal_shard *map_shards; // pointer to the shared WAL key/seq shards
-    size_t num_shards; // number of WAL shards in file
     struct snap_handle *shandle; // Pointer to KVS snapshot handle.
     bool by_key; // if not set means iteration is by sequence number range
     bool multi_kvs; // single kv mode vs multi kv instance mode
     uint8_t direction; // forward/backward/none to avoid grabbing all locks
-    struct avl_tree merge_tree; // AVL tree to perform merge-sort over cursors
-    struct avl_node *cursor_pos; // points to shard that returns current item
-    struct wal_item *item_prev; // points to previous iterator item returned
-    struct wal_cursor *cursors; // cursor to item from each shard's tree
+    size_t numCursors; // number of shared kvs snapshots from the global WAL
+    struct avl_tree mergeTree; // AVL tree to perform merge-sort over mergeCursors
+    struct wal_cursor *mergeCursors; // cursor to item from each snapshot's tree
+    struct avl_node *cursorPos; // points to snapshot that returns current item
+    struct wal_item *prevItem; // points to previous iterator item returned
 };
 
 struct wal_txn_wrapper {

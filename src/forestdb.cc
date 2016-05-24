@@ -1018,7 +1018,7 @@ fdb_snapshot_open_start:
     if (handle_in->shandle) {
         handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
         fs = file->getWal()->snapshotClone_Wal(handle_in->shandle,
-                                          &handle->shandle, seqnum);
+                                               &handle->shandle, seqnum);
         if (fs == FDB_RESULT_SUCCESS) {
             clone_snapshot = true;
             handle->max_seqnum = FDB_SNAPSHOT_INMEM; // temp value to skip WAL
@@ -1102,8 +1102,20 @@ fdb_snapshot_open_start:
             // Having synced the dirty root, make an in-memory WAL snapshot
             // TODO: Re-enable WAL sharing once ready...
 #ifdef _MVCC_WAL_ENABLE
-            fs = file->getWal()->snapshotOpen_Wal(txn, kv_id, seqnum,
-                                             &cmp_info, &handle->shandle);
+            if (txn == handle_in->file->getGlobalTxn()) {
+
+                fs = file->getWal()->snapshotOpen_Wal(txn, kv_id, seqnum,
+                                                 &cmp_info, &handle->shandle);
+            } else { // Snapshots from uncommitted transactions are isolated
+                fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
+                                                          &cmp_info, txn,
+                                                          &handle->shandle);
+                if (fs == FDB_RESULT_SUCCESS) {
+                    fs = file->getWal()->copy2Snapshot_Wal(handle->shandle,
+                                                      (bool)handle_in->kvs);
+                }
+                (void)kv_id;
+            }
 #else
             fs = file->getWal()->snapshotOpenPersisted_Wal(handle->seqnum,
                                                       &cmp_info, txn,

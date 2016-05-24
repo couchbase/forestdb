@@ -362,7 +362,7 @@ void indexer_pattern_test()
     fconfig.buffercache_size = 8*1024*1024;
     fconfig.flags = FDB_OPEN_FLAG_CREATE;
     fconfig.purging_interval = 0;
-    fconfig.wal_threshold = 4096;
+    fconfig.wal_threshold = 40960;
     fconfig.num_compactor_threads = 1;
     //fconfig.block_reusing_threshold = 0;
     //fconfig.num_wal_partitions = 3;
