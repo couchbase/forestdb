@@ -217,6 +217,23 @@ int process_file(struct input_option *opt)
             return -1;
         }
         print_header(dbfile->getRootHandle());
+        fdb_snapshot_info_t *markers;
+        uint64_t num_markers;
+        fs = fdb_get_all_snap_markers(dbfile, &markers, &num_markers);
+        if (fs != FDB_RESULT_SUCCESS) {
+            printf("\nNo commit headers found in file %s\n", filename);
+            return -2;
+        }
+        for (uint64_t i = 0; i < num_markers; ++i) {
+            printf("DB Header at bid %" _F64 ": with %ld kv stores\n",
+                markers[i].marker, markers[i].num_kvs_markers);
+            for (int64_t j = 0; j < markers[i].num_kvs_markers; ++j) {
+                printf("\t KVS %s at seqnum %" _F64 "\n",
+                    markers[i].kvs_markers[j].kv_store_name,
+                    markers[i].kvs_markers[j].seqnum);
+            }
+        }
+        fdb_free_snap_markers(markers, num_markers);
     }
     if (opt->headers_only) {
         for (uint64_t i = 0; i < num_blocks; ++i) {
