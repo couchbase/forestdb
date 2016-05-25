@@ -3995,9 +3995,11 @@ uint64_t fdb_set_file_header(fdb_kvs_handle *handle, bool inc_revnum)
     _edn_safe_64 = _endian_encode(stat.ndocs);
     seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
 
-    // # deleted docs
-    _edn_safe_64 = _endian_encode(stat.ndeletes);
-    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
+    // # deleted docs (since MAGIC_001)
+    if (ver_is_atleast_magic_001(handle->file->version)) {
+        _edn_safe_64 = _endian_encode(stat.ndeletes);
+        seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
+    }
 
     // # live nodes
     _edn_safe_64 = _endian_encode(stat.nlivenodes);
