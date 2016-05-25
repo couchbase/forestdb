@@ -1394,7 +1394,8 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         fs = FDB_RESULT_SB_READ_FAIL;
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: "
-                "incorrect block marker (marker: %x, SB No.: %" _F64 ")",
+                "incorrect block marker (marker: %x, SB No.: %" _F64 "). "
+                "Note: this message might be a false alarm if upgrade is running.",
                 buf[blocksize], sb_no);
         return fs;
     }
