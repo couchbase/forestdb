@@ -672,7 +672,7 @@ void fdb_kvs_header_copy(fdb_kvs_handle *handle,
 
 // export KV header info to raw data
 static void _fdb_kvs_header_export(struct kvs_header *kv_header,
-                                   void **data, size_t *len)
+                                   void **data, size_t *len, uint64_t version)
 {
     /* << raw data structure >>
      * [# KV instances]:        8 bytes
@@ -686,8 +686,8 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
      * [# docs]:                8 bytes
      * [data size]:             8 bytes
      * [flags]:                 8 bytes
-     * [delta size]:            8 bytes
-     * [# deleted docs]:        8 bytes
+     * [delta size]:            8 bytes (since MAGIC_001)
+     * [# deleted docs]:        8 bytes (since MAGIC_001)
      * ...
      *    Please note that if the above format is changed, please also change...
      *    _fdb_kvs_get_snap_info()
@@ -731,8 +731,10 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
         size += sizeof(node->stat.ndocs); // # docs
         size += sizeof(node->stat.datasize); // data size
         size += sizeof(node->flags); // flags
-        size += sizeof(node->stat.deltasize); // delta size since commit
-        size += sizeof(node->stat.ndeletes); // # deleted docs
+        if (ver_is_atleast_magic_001(version)) {
+            size += sizeof(node->stat.deltasize); // delta size since commit
+            size += sizeof(node->stat.ndeletes); // # deleted docs
+        }
         a = avl_next(a);
     }
 
@@ -792,15 +794,17 @@ static void _fdb_kvs_header_export(struct kvs_header *kv_header,
         memcpy((uint8_t*)*data + offset, &_flags, sizeof(_flags));
         offset += sizeof(_flags);
 
-        // # delta index nodes + docsize created after last commit
-        _deltasize = _endian_encode(node->stat.deltasize);
-        memcpy((uint8_t*)*data + offset, &_deltasize, sizeof(_deltasize));
-        offset += sizeof(_deltasize);
+        if (ver_is_atleast_magic_001(version)) {
+            // # delta index nodes + docsize created after last commit
+            _deltasize = _endian_encode(node->stat.deltasize);
+            memcpy((uint8_t*)*data + offset, &_deltasize, sizeof(_deltasize));
+            offset += sizeof(_deltasize);
 
-        // # deleted documents
-        _ndeletes = _endian_encode(node->stat.ndeletes);
-        memcpy((uint8_t*)*data + offset, &_ndeletes, sizeof(_ndeletes));
-        offset += sizeof(_ndeletes);
+            // # deleted documents
+            _ndeletes = _endian_encode(node->stat.ndeletes);
+            memcpy((uint8_t*)*data + offset, &_ndeletes, sizeof(_ndeletes));
+            offset += sizeof(_ndeletes);
+        }
 
         a = avl_next(a);
     }
@@ -1084,7 +1088,7 @@ uint64_t fdb_kvs_header_append(fdb_kvs_handle *handle)
     struct filemgr *file = handle->file;
     struct docio_handle *dhandle = handle->dhandle;
 
-    _fdb_kvs_header_export(file->kv_header, &data, &len);
+    _fdb_kvs_header_export(file->kv_header, &data, &len, file->version);
 
     prev_offset = handle->kv_info_offset;
 
