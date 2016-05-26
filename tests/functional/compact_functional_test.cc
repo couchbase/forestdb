@@ -3492,12 +3492,90 @@ void compact_upto_with_circular_reuse_test()
     TEST_RESULT("compact upto with circular reuse test");
 }
 
+void compact_upto_last_wal_flush_bid_check()
+{
+    TEST_INIT();
+    int i, j;
+    int r;
+    int ndocs=1000;
+    int ncommit=20;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[512];
+
+    memleak_start();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    config.num_keeping_headers = 20;
+    kvs_config = fdb_get_default_kvs_config();
+
+    // create a file
+    s = fdb_open(&dbfile, "compact_test", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db, "db", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    memset(valuebuf, 'x', 200);
+    for (i=0; i<ncommit; ++i) {
+        for (j=0; j<ndocs; ++j) {
+            sprintf(keybuf, "k%06d", j);
+            sprintf(valuebuf, "v%d_%04d", i, j);
+            s = fdb_set_kv(db, keybuf, strlen(keybuf)+1, valuebuf, 200);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    fdb_snapshot_info_t *markers_out;
+    uint64_t num_markers;
+
+    s = fdb_get_all_snap_markers(dbfile, &markers_out, &num_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // compact_upto() will copy DB headers to be kept
+    s = fdb_compact_upto(dbfile, "compact_test2", markers_out[15].marker);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_free_snap_markers(markers_out, num_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_get_all_snap_markers(dbfile, &markers_out, &num_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // call compact_upto() again
+    // copying the previous DB headers should be done correctly.
+    s = fdb_compact_upto(dbfile, "compact_test3", markers_out[15].marker);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_free_snap_markers(markers_out, num_markers);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    memleak_end();
+
+    TEST_RESULT("compact upto last WAL flush bid check test");
+}
+
 int main(){
     int i;
 
     compact_deleted_doc_test();
     compact_upto_test(false); // single kv instance in file
     compact_upto_test(true); // multiple kv instance in file
+    compact_upto_last_wal_flush_bid_check();
     wal_delete_compact_upto_test();
     compact_upto_with_circular_reuse_test();
     for (i=0;i<4;++i) {
