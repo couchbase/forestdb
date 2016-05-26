@@ -6189,15 +6189,19 @@ static fdb_status _fdb_compact_move_delta(fdb_kvs_handle *handle,
                     // multi KV instance mode .. append up-to-date KV header
                     new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
                 }
-                new_handle.last_hdr_bid = filemgr_get_next_alloc_block(new_file);
-                new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
-                new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
+
+                // Note: calling fdb_gather_stale_blocks() MUST be called BEFORE
+                // calling filemgr_get_next_alloc_block(), because the system doc for
+                // stale block info should be written BEFORE 'new_handle.last_hdr_bid'.
                 fdb_gather_stale_blocks(&new_handle,
                                         filemgr_get_header_revnum(new_file)+1,
                                         new_handle.last_hdr_bid,
                                         new_handle.kv_info_offset,
                                         filemgr_get_seqnum(new_file),
                                         NULL, false);
+                new_handle.last_hdr_bid = filemgr_get_next_alloc_block(new_file);
+                new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
+                new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);
                 // If synchrouns commit is enabled, then disable it temporarily for each
                 // commit header as synchronous commit is not required in the new file
                 // during the compaction.
