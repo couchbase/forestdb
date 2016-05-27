@@ -105,7 +105,7 @@ ts_nsec get_monotonic_ts() {
 #if defined(WIN32)
     LARGE_INTEGER _ts;
     QueryPerformanceCounter(&_ts);
-    ts = _ts.QuadPart * 1000;
+    ts = _ts.QuadPart;
 #elif defined(__APPLE__)
     long time = mach_absolute_time();
 
@@ -137,5 +137,11 @@ ts_nsec ts_diff(ts_nsec start, ts_nsec end)
     } else {
         diff = end-start;
     }
+#if defined(WIN32)
+    LARGE_INTEGER Pf;
+    QueryPerformanceFrequency(&Pf);
+    return diff / (Pf.QuadPart/1000000);
+#else
     return diff/1000;
+#endif // defined(WIN32)
 }
