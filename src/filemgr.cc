@@ -372,8 +372,8 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
         // 1) both file->pos and file->last_commit are only incremented.
         // 2) file->last_commit is updated using the value of file->pos,
         //    and always equal to or smaller than file->pos.
-        return (pos <  atomic_get_uint64_t(&file->pos) &&
-                pos >= atomic_get_uint64_t(&file->last_commit));
+        return (pos <  file->pos.load() &&
+                pos >= file->last_commit.load());
     }
 }
 
@@ -407,7 +407,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
         check_crc32_open_rule = true;
     }
 
-    hdr_bid = atomic_get_uint64_t(&file->pos) / file->blocksize - 1;
+    hdr_bid = (file->pos.load() / file->blocksize) - 1;
     hdr_bid_local = hdr_bid;
 
     if (file->sb) {
@@ -421,12 +421,12 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
         // get DB header at the end of the file.
     }
 
-    if (atomic_get_uint64_t(&file->pos) > min_filesize) {
+    if (file->pos.load() > min_filesize) {
         // Crash Recovery Test 1: unaligned last block write
-        uint64_t remain = atomic_get_uint64_t(&file->pos) % file->blocksize;
+        uint64_t remain = file->pos.load() % file->blocksize;
         if (remain) {
-            atomic_sub_uint64_t(&file->pos, remain);
-            atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
+            file->pos.fetch_sub(remain);
+            file->last_commit.store(file->pos.load());
             const char *msg = "Crash Detected: %" _F64 " non-block aligned bytes discarded "
                 "from a database file '%s'\n";
             DBG(msg, remain, file->filename);
@@ -497,16 +497,16 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                                 // last_writable_bmp_revnum should be same with
                                 // the current bmp_revnum (since it indicates the
                                 // 'bmp_revnum' of 'sb->cur_alloc_bid').
-                                atomic_store_uint64_t(&file->last_writable_bmp_revnum,
+                                file->last_writable_bmp_revnum.store(
                                                       filemgr_get_sb_bmp_revnum(file));
                             }
 
                             file->header.revnum =
                                 _endian_decode(file->header.revnum);
-                            file->header.seqnum =
-                                _endian_decode(file->header.seqnum.load());
+                            file->header.seqnum.store(
+                                _endian_decode(file->header.seqnum.load()));
                             file->header.size = len;
-                            atomic_store_uint64_t(&file->header.bid, hdr_bid_local);
+                            file->header.bid.store(hdr_bid_local);
                             memset(&file->header.stat, 0x0, sizeof(file->header.stat));
 
                             // release temp buffer
@@ -548,12 +548,12 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                 }
             }
 
-            atomic_store_uint64_t(&file->last_commit, hdr_bid_local * file->blocksize);
+            file->last_commit.store(hdr_bid_local * file->blocksize);
             // traverse headers in a circular manner
             if (hdr_bid_local) {
                 hdr_bid_local--;
             } else {
-                hdr_bid_local = atomic_get_uint64_t(&file->pos) / file->blocksize - 1;
+                hdr_bid_local = (file->pos.load() / file->blocksize) - 1;
             }
         } while (hdr_bid_local != hdr_bid);
     }
@@ -565,7 +565,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     file->header.revnum = 0;
     file->header.seqnum = 0;
     file->header.data = NULL;
-    atomic_store_uint64_t(&file->header.bid, 0);
+    file->header.bid = 0;
     memset(&file->header.stat, 0x0, sizeof(file->header.stat));
     file->version = magic;
     return status;
@@ -575,7 +575,7 @@ size_t filemgr_get_ref_count(struct filemgr *file)
 {
     size_t ret = 0;
     spin_lock(&file->lock);
-    ret = atomic_get_uint32_t(&file->ref_count);
+    ret = file->ref_count.load();
     spin_unlock(&file->lock);
     return ret;
 }
@@ -609,7 +609,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
     struct timeval begin, cur, gap;
 
     spin_lock(&args->file->lock);
-    cur_pos = atomic_get_uint64_t(&args->file->last_commit);
+    cur_pos = args->file->last_commit.load();
     spin_unlock(&args->file->lock);
     if (cur_pos < FILEMGR_PREFETCH_UNIT) {
         terminate = true;
@@ -628,8 +628,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
             bcache_free_space = bcache_get_num_free_blocks();
             bcache_free_space *= args->file->blocksize;
 
-            if (atomic_get_uint8_t(&args->file->prefetch_status)
-                == FILEMGR_PREFETCH_ABORT ||
+            if (args->file->prefetch_status.load() == FILEMGR_PREFETCH_ABORT ||
                 gap.tv_sec >= (int64_t)args->duration ||
                 bcache_free_space < FILEMGR_PREFETCH_UNIT) {
                 // terminate thread when
@@ -660,8 +659,9 @@ static void *_filemgr_prefetch_thread(void *voidargs)
         }
     }
 
-    atomic_cas_uint8_t(&args->file->prefetch_status, FILEMGR_PREFETCH_RUNNING,
-                       FILEMGR_PREFETCH_IDLE);
+    filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_RUNNING;
+    args->file->prefetch_status.compare_exchange_strong(cond,
+                                                        FILEMGR_PREFETCH_IDLE);
     free(args);
     return NULL;
 }
@@ -678,14 +678,15 @@ void filemgr_prefetch(struct filemgr *file,
 
     // block cache should have free space larger than FILEMGR_PREFETCH_UNIT
     spin_lock(&file->lock);
-    if (atomic_get_uint64_t(&file->last_commit) > 0 &&
+    filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_IDLE;
+    if (file->last_commit.load() > 0 &&
         bcache_free_space >= FILEMGR_PREFETCH_UNIT &&
-        atomic_cas_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_IDLE,
-                           FILEMGR_PREFETCH_RUNNING)) {
+        file->prefetch_status.compare_exchange_strong(cond,
+                                                      FILEMGR_PREFETCH_RUNNING)) {
         // invoke prefetch thread
         struct filemgr_prefetch_args *args;
         args = (struct filemgr_prefetch_args *)
-            calloc(1, sizeof(struct filemgr_prefetch_args));
+                                calloc(1, sizeof(struct filemgr_prefetch_args));
         args->file = file;
         args->duration = config->getPrefetchDuration();
         args->log_callback = log_callback;
@@ -755,8 +756,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         // already opened (return existing structure)
         file = _get_entry(e, struct filemgr, e);
 
-        if (atomic_incr_uint32_t(&file->ref_count) > 1 &&
-            atomic_get_uint8_t(&file->status) != FILE_CLOSED) {
+        if ((++file->ref_count) > 1 &&
+            file->status.load() != FILE_CLOSED) {
             spin_unlock(&filemgr_openlock);
             result.file = file;
             result.rv = FDB_RESULT_SUCCESS;
@@ -765,7 +766,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
         spin_lock(&file->lock);
 
-        if (atomic_get_uint8_t(&file->status) == FILE_CLOSED) { // if file was closed before
+        if (file->status.load() == FILE_CLOSED) { // if file was closed before
             file_flag = O_RDWR;
             if (create) {
                 file_flag |= O_CREAT;
@@ -796,14 +797,14 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 } else {
                     _log_errno_str(file->ops, log_callback,
                                   (fdb_status)file->fd, "OPEN", filename);
-                    atomic_decr_uint32_t(&file->ref_count);
+                    file->ref_count--;
                     spin_unlock(&file->lock);
                     spin_unlock(&filemgr_openlock);
                     result.rv = file->fd;
                     return result;
                 }
             } else { // Reopening the closed file is succeed.
-                atomic_store_uint8_t(&file->status, FILE_NORMAL);
+                file->status.store(FILE_NORMAL);
                 if (config->getOptions() & FILEMGR_SYNC) {
                     file->fflags |= FILEMGR_SYNC;
                 } else {
@@ -850,7 +851,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->filename = (char*)malloc(file->filename_len + 1);
     strcpy(file->filename, filename);
 
-    atomic_init_uint32_t(&file->ref_count, 1);
+    file->ref_count = 1;
     file->stale_list = NULL;
 
     status = fdb_init_encryptor(&file->encryption,
@@ -868,7 +869,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     file->ops = ops;
     file->blocksize = global_config.getBlockSize();
-    atomic_init_uint8_t(&file->status, FILE_NORMAL);
+    file->status = FILE_NORMAL;
     file->config = new FileMgrConfig();
     *file->config = *config;
     file->config->setBlockSize(global_config.getBlockSize());
@@ -890,12 +891,12 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         result.rv = (fdb_status) offset;
         return result;
     }
-    atomic_init_uint64_t(&file->last_commit, offset);
-    atomic_init_uint64_t(&file->last_writable_bmp_revnum, 0);
-    atomic_init_uint64_t(&file->pos, offset);
-    atomic_init_uint32_t(&file->throttling_delay, 0);
-    atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
-    atomic_init_uint8_t(&file->io_in_prog, 0);
+    file->last_commit = offset;
+    file->last_writable_bmp_revnum = 0;
+    file->pos = offset;
+    file->throttling_delay = 0;
+    file->num_invalidated_blocks = 0;
+    file->io_in_prog = 0;
 
 #ifdef _LATENCY_STATS
     for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
@@ -906,9 +907,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->bcache = NULL;
     file->in_place_compaction = false;
     file->kv_header = NULL;
-    atomic_init_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_IDLE);
+    file->prefetch_status = FILEMGR_PREFETCH_IDLE;
 
-    atomic_init_uint64_t(&file->header.bid, 0);
+    file->header.bid = 0;
     _init_op_stats(&file->header.op_stat);
 
     spin_init(&file->lock);
@@ -1027,9 +1028,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                malloc(sizeof(struct wal_txn_wrapper));
     file->global_txn.wrapper->txn = &file->global_txn;
     file->global_txn.handle = NULL;
-    if (atomic_get_uint64_t(&file->pos)) {
-        file->global_txn.prev_hdr_bid =
-            (atomic_get_uint64_t(&file->pos) / file->blocksize) - 1;
+    if (file->pos.load()) {
+        file->global_txn.prev_hdr_bid = (file->pos.load() / file->blocksize) - 1;
     } else {
         file->global_txn.prev_hdr_bid = BLK_NOT_FOUND;
     }
@@ -1447,7 +1447,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 {
     int rv = FDB_RESULT_SUCCESS;
 
-    if (atomic_decr_uint32_t(&file->ref_count) > 0) {
+    if ((--file->ref_count) > 0) {
         // File is still accessed by other readers or writers.
         return FDB_RESULT_SUCCESS;
     }
@@ -1461,9 +1461,9 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
-    if (atomic_get_uint32_t(&file->ref_count) == 0) {
+    if (file->ref_count.load() == 0) {
         if (global_config.getNcacheBlock() > 0 &&
-            atomic_get_uint8_t(&file->status) != FILE_REMOVED_PENDING) {
+            file->status.load() != FILE_REMOVED_PENDING) {
             spin_unlock(&file->lock);
             // discard all dirty blocks belonged to this file
             bcache_remove_dirty_blocks(file);
@@ -1483,7 +1483,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 
         spin_lock(&file->lock);
 
-        if (atomic_get_uint8_t(&file->status) == FILE_REMOVED_PENDING) {
+        if (file->status.load() == FILE_REMOVED_PENDING) {
 
             bool foreground_deletion = false;
 
@@ -1547,7 +1547,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                         elem_old = hash_find(&hash, &query_old.e);
                         if (elem_old) {
                             old_file = _get_entry(elem_old, struct filemgr, e);
-                            old_file_refcount = atomic_get_uint32_t(&old_file->ref_count);
+                            old_file_refcount = old_file->ref_count.load();
                         }
                     }
 
@@ -1578,7 +1578,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 filemgr_free_func(&file->e);
                 return (fdb_status) rv;
             } else {
-                atomic_store_uint8_t(&file->status, FILE_CLOSED);
+                file->status.store(FILE_CLOSED);
             }
         }
     }
@@ -1607,10 +1607,9 @@ void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
 
-    filemgr_prefetch_status_t prefetch_state =
-                              atomic_get_uint8_t(&file->prefetch_status);
+    filemgr_prefetch_status_t prefetch_state = file->prefetch_status.load();
 
-    atomic_store_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_ABORT);
+    file->prefetch_status.store(FILEMGR_PREFETCH_ABORT);
     if (prefetch_state == FILEMGR_PREFETCH_RUNNING) {
         // prefetch thread was running
         void *ret;
@@ -1703,7 +1702,7 @@ void filemgr_remove_file(struct filemgr *file, ErrLogCallback *log_callback)
 {
     struct hash_elem *ret;
 
-    if (!file || atomic_get_uint32_t(&file->ref_count) > 0) {
+    if (!file || file->ref_count.load() > 0) {
         return;
     }
 
@@ -1727,7 +1726,7 @@ void *_filemgr_is_closed(struct hash_elem *h, void *ctx) {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
     void *ret;
     spin_lock(&file->lock);
-    if (atomic_get_uint32_t(&file->ref_count) != 0) {
+    if (file->ref_count.load() != 0) {
         ret = (void *)file;
     } else {
         ret = NULL;
@@ -1801,8 +1800,8 @@ bid_t filemgr_alloc(struct filemgr *file, ErrLogCallback *log_callback)
         bid = sb_ops.alloc_block(file);
     }
     if (bid == BLK_NOT_FOUND) {
-        bid = atomic_get_uint64_t(&file->pos) / file->blocksize;
-        atomic_add_uint64_t(&file->pos, file->blocksize);
+        bid = file->pos.load() / file->blocksize;
+        file->pos.fetch_add(file->blocksize);
     }
 
     if (global_config.getNcacheBlock() <= 0) {
@@ -1823,15 +1822,15 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
                             bid_t *end, ErrLogCallback *log_callback)
 {
     spin_lock(&file->lock);
-    *begin = atomic_get_uint64_t(&file->pos) / file->blocksize;
+    *begin = file->pos.load() / file->blocksize;
     *end = *begin + nblock - 1;
-    atomic_add_uint64_t(&file->pos, file->blocksize * nblock);
+    file->pos.fetch_add(file->blocksize * nblock);
 
     if (global_config.getNcacheBlock() <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
-                                       atomic_get_uint64_t(&file->pos) - 1);
+                                       file->pos.load() - 1);
         _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
     }
     spin_unlock(&file->lock);
@@ -1844,17 +1843,16 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
 {
     bid_t bid;
     spin_lock(&file->lock);
-    bid = atomic_get_uint64_t(&file->pos) / file->blocksize;
+    bid = file->pos.load() / file->blocksize;
     if (bid == nextbid) {
-        *begin = atomic_get_uint64_t(&file->pos) / file->blocksize;
+        *begin = file->pos.load() / file->blocksize;
         *end = *begin + nblock - 1;
-        atomic_add_uint64_t(&file->pos, file->blocksize * nblock);
+        file->pos.fetch_add(file->blocksize * nblock);
 
         if (global_config.getNcacheBlock() <= 0) {
             // if block cache is turned off, write the allocated block before use
             uint8_t _buf = 0x0;
-            ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
-                                           atomic_get_uint64_t(&file->pos));
+            ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1, file->pos.load());
             _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
         }
     }else{
@@ -1887,7 +1885,7 @@ INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
 bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
 {
     bool ret;
-    if (atomic_get_uint64_t(&file->last_commit) < bid * file->blocksize) {
+    if (file->last_commit.load() < bid * file->blocksize) {
         ret = true; // block invalidated was allocated recently (uncommitted)
     } else {
         ret = false; // a block from the past is invalidated (committed)
@@ -1905,8 +1903,7 @@ bool filemgr_is_fully_resident(struct filemgr *file)
         //TODO: A better thing to do is to track number of document blocks
         // and only compare those with the cached document block count
         double num_cached_blocks = (double)bcache_get_num_blocks(file);
-        uint64_t num_blocks = atomic_get_uint64_t(&file->pos)
-                                 / file->blocksize;
+        uint64_t num_blocks = file->pos.load() / file->blocksize;
         double num_fblocks = (double)num_blocks;
         if (num_cached_blocks > num_fblocks * FILEMGR_RESIDENT_THRESHOLD) {
             ret = true;
@@ -1920,7 +1917,7 @@ uint64_t filemgr_flush_immutable(struct filemgr *file,
 {
     uint64_t ret = 0;
     if (global_config.getNcacheBlock() > 0) {
-        if (atomic_get_uint8_t(&file->io_in_prog)) {
+        if (file->io_in_prog.load()) {
             return 0;
         }
         ret = bcache_get_num_immutable(file);
@@ -1946,7 +1943,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
     ssize_t r;
     uint64_t pos = bid * file->blocksize;
     fdb_status status = FDB_RESULT_SUCCESS;
-    uint64_t curr_pos = atomic_get_uint64_t(&file->pos);
+    uint64_t curr_pos = file->pos.load();
 
     if (pos >= curr_pos) {
         const char *msg = "Read error: read offset %" _F64 " exceeds the file's "
@@ -2128,7 +2125,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
     size_t lock_no;
     ssize_t r = 0;
     uint64_t pos = bid * file->blocksize + offset;
-    uint64_t curr_commit_pos = atomic_get_uint64_t(&file->last_commit);
+    uint64_t curr_commit_pos = file->last_commit.load();
 
     if (offset + len > file->blocksize) {
         const char *msg = "Write error: trying to write the buffer data "
@@ -2394,7 +2391,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         }
 
         // prev header bid
-        prev_bid = atomic_get_uint64_t(&file->header.bid);
+        prev_bid = file->header.bid.load();
         _prev_bid = _endian_encode(prev_bid);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - sizeof(_prev_bid) - BLK_MARKER_SIZE),
@@ -2416,7 +2413,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
 
         if (bid == BLK_NOT_FOUND) {
             // append header at the end of file
-            bid = atomic_get_uint64_t(&file->pos) / file->blocksize;
+            bid = file->pos.load() / file->blocksize;
             block_reusing = false;
         } else {
             // write header in the allocated (reused) block
@@ -2439,12 +2436,13 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
 
         if (prev_bid) {
             // mark prev DB header as stale
-            filemgr_add_stale_block(file, prev_bid * file->blocksize, file->blocksize);
+            filemgr_add_stale_block(file, prev_bid * file->blocksize,
+                                    file->blocksize);
         }
 
-        atomic_store_uint64_t(&file->header.bid, bid);
+        file->header.bid.store(bid);
         if (!block_reusing) {
-            atomic_add_uint64_t(&file->pos, file->blocksize);
+            file->pos.fetch_add(file->blocksize);
         }
 
         _filemgr_release_temp_buf(buf);
@@ -2452,12 +2450,12 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
 
     if (sb_bmp_exists(file->sb) &&
         atomic_get_uint64_t(&file->sb->cur_alloc_bid) != BLK_NOT_FOUND &&
-        atomic_get_uint8_t(&file->status) == FILE_NORMAL) {
+        file->status.load() == FILE_NORMAL) {
         // block reusing is currently enabled
-        atomic_store_uint64_t(&file->last_commit,
-            atomic_get_uint64_t(&file->sb->cur_alloc_bid) * file->blocksize);
+        file->last_commit.store(atomic_get_uint64_t(&file->sb->cur_alloc_bid)
+                                * file->blocksize);
     } else {
-        atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
+        file->last_commit.store(file->pos.load());
     }
     if (file->sb) {
         // Since some more blocks may be allocated after the header block
@@ -2465,8 +2463,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         // so that the block pointed to by 'cur_alloc_bid' may have
         // different BMP revision number. So we have to use the
         // up-to-date bmp_revnum here.
-        atomic_store_uint64_t(&file->last_writable_bmp_revnum,
-                              filemgr_get_sb_bmp_revnum(file));
+        file->last_writable_bmp_revnum.store(filemgr_get_sb_bmp_revnum(file));
     }
 
     spin_unlock(&file->lock);
@@ -2517,7 +2514,7 @@ fdb_status filemgr_copy_file_range(struct filemgr *src_file,
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
-    atomic_store_uint64_t(&dst_file->pos, (dst_bid + clone_len) * blocksize);
+    dst_file->pos.store((dst_bid + clone_len) * blocksize);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -2526,14 +2523,13 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
 {
     int ret = 1;
     spin_lock(&file->lock);
-    atomic_store_uint8_t(&file->status, status);
+    file->status = status;
     if (old_filename) {
         if (!file->old_filename) {
             file->old_filename = old_filename;
         } else {
             ret = 0;
-            fdb_assert(atomic_get_uint32_t(&file->ref_count),
-                       atomic_get_uint32_t(&file->ref_count), 0);
+            fdb_assert(file->ref_count.load(), file->ref_count.load(), 0);
         }
     }
     spin_unlock(&file->lock);
@@ -2545,7 +2541,7 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
 {
     spin_lock(&old_file->lock);
     old_file->new_file = new_file;
-    atomic_store_uint8_t(&old_file->status, status);
+    old_file->status = status;
     spin_unlock(&old_file->lock);
 
     if (new_file) {
@@ -2590,12 +2586,12 @@ void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
     struct filemgr *cur_file = (struct filemgr *)ctx;
     struct filemgr *file = _get_entry(h, struct filemgr, e);
     spin_lock(&file->lock);
-    if (atomic_get_uint8_t(&file->status) == FILE_REMOVED_PENDING &&
+    if (file->status.load() == FILE_REMOVED_PENDING &&
         file->new_file == cur_file) {
         // Incrementing reference counter below is the same as filemgr_open()
         // We need to do this to ensure that the pointer returned does not
         // get freed outside the filemgr_open lock
-        atomic_incr_uint32_t(&file->ref_count);
+        file->ref_count++;
         spin_unlock(&file->lock);
         return (void *)file;
     }
@@ -2660,10 +2656,10 @@ void filemgr_remove_pending(struct filemgr *old_file,
     }
 
     spin_lock(&old_file->lock);
-    if (atomic_get_uint32_t(&old_file->ref_count) > 0) {
+    if (old_file->ref_count.load() > 0) {
         // delay removing
         old_file->new_file = new_file;
-        atomic_store_uint8_t(&old_file->status, FILE_REMOVED_PENDING);
+        old_file->status.store(FILE_REMOVED_PENDING);
 
 #if !(defined(WIN32) || defined(_WIN32))
         // Only for Posix
@@ -2742,7 +2738,7 @@ fdb_status filemgr_destroy_file(char *filename,
         file = _get_entry(e, struct filemgr, e);
 
         spin_lock(&file->lock);
-        if (atomic_get_uint32_t(&file->ref_count)) {
+        if (file->ref_count.load()) {
             spin_unlock(&file->lock);
             status = FDB_RESULT_FILE_IS_BUSY;
             if (!destroy_file_set) { // top level or non-recursive call
@@ -2797,7 +2793,7 @@ fdb_status filemgr_destroy_file(char *filename,
                 }
                 return (fdb_status) offset;
             } else { // Need to read DB header which contains old filename
-                atomic_store_uint64_t(&file->pos, offset);
+                file->pos.store(offset);
                 // initialize CRC mode
                 if (file->config && file->config->getOptions() & FILEMGR_CREATE_CRC32) {
                     file->crc_mode = CRC32;
@@ -2996,14 +2992,12 @@ bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
 
 void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us)
 {
-    atomic_store_uint32_t(&file->throttling_delay, delay_us,
-                          std::memory_order_relaxed);
+    file->throttling_delay.store(delay_us, std::memory_order_relaxed);
 }
 
 uint32_t filemgr_get_throttling_delay(struct filemgr *file)
 {
-    return atomic_get_uint32_t(&file->throttling_delay,
-                               std::memory_order_relaxed);
+    return file->throttling_delay.load(std::memory_order_relaxed);
 }
 
 void filemgr_clear_stale_list(struct filemgr *file)
@@ -3294,7 +3288,7 @@ void filemgr_dirty_update_init(struct filemgr *file)
 {
     avl_init(&file->dirty_update_idx, NULL);
     spin_init(&file->dirty_update_lock);
-    atomic_init_uint64_t(&file->dirty_update_counter, 0);
+    file->dirty_update_counter = 0;
     file->latest_dirty_update = NULL;
 }
 
@@ -3336,10 +3330,10 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *
 
     node = (struct filemgr_dirty_update_node *)
            calloc(1, sizeof(struct filemgr_dirty_update_node));
-    node->id = atomic_incr_uint64_t(&file->dirty_update_counter);
+    node->id = ++file->dirty_update_counter;
     node->immutable = false; // currently being written
     node->expired = false;
-    atomic_init_uint32_t(&node->ref_count, 0);
+    node->ref_count = 0;
     node->idtree_root = node->seqtree_root = BLK_NOT_FOUND;
     avl_init(&node->dirty_blocks, NULL);
 
@@ -3359,7 +3353,7 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(struct filemgr
 
     node = file->latest_dirty_update;
     if (node) {
-        atomic_incr_uint32_t(&node->ref_count);
+        node->ref_count++;
     }
 
     spin_unlock(&file->dirty_update_lock);
@@ -3371,7 +3365,7 @@ void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node)
     if (!node) {
         return;
     }
-    atomic_incr_uint32_t(&node->ref_count);
+    node->ref_count++;
 }
 
 INLINE void filemgr_dirty_update_flush(struct filemgr *file,
@@ -3421,8 +3415,7 @@ void filemgr_dirty_update_commit(struct filemgr *file,
         node = _get_entry(a, struct filemgr_dirty_update_node, avl);
         a = avl_next(a);
 
-        if (node->immutable &&
-            atomic_get_uint32_t(&node->ref_count) == 0) {
+        if (node->immutable && node->ref_count.load() == 0) {
             // detach from tree and insert into remove queue
             avl_remove(&file->dirty_update_idx, &node->avl);
             list_push_front(&remove_queue, &node->le);
@@ -3464,7 +3457,7 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
         struct avl_node *aa, *bb;
         struct filemgr_dirty_update_block *block, *block_copy, query;
 
-        if (prev_node->immutable && atomic_get_uint32_t(&prev_node->ref_count) == 1) {
+        if (prev_node->immutable && prev_node->ref_count.load() == 1) {
             // only the current thread is referring this dirty update entry.
             // we don't need to copy blocks; just migrate them directly.
             migration = true;
@@ -3533,7 +3526,7 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
             break;
         }
         a = avl_next(a);
-        if (cur_node->immutable && atomic_get_uint32_t(&cur_node->ref_count) == 0 &&
+        if (cur_node->immutable && cur_node->ref_count.load() == 0 &&
             cur_node != node) {
             // detach from tree and insert into remove queue
             avl_remove(&file->dirty_update_idx, &cur_node->avl);
@@ -3593,7 +3586,7 @@ void filemgr_dirty_update_close_node(struct filemgr *file,
 
     // just decrease the ref count
     // (any nodes whose ref_count==0 will be removed lazily)
-    atomic_decr_uint32_t(&node->ref_count);
+    node->ref_count--;
 }
 
 fdb_status filemgr_write_dirty(struct filemgr *file, bid_t bid, void *buf,
@@ -3968,26 +3961,22 @@ const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
 
 #ifdef _LATENCY_STATS
 void filemgr_init_latency_stat(struct latency_stat *val) {
-    atomic_init_uint32_t(&val->lat_max, 0);
-    atomic_init_uint32_t(&val->lat_min, (uint32_t)(-1));
-    atomic_init_uint64_t(&val->lat_sum, 0);
-    atomic_init_uint64_t(&val->lat_num, 0);
+    val->lat_max = 0;
+    val->lat_min = static_cast<uint32_t>(-1);
+    val->lat_sum = 0;
+    val->lat_num = 0;
 }
 
 void filemgr_migrate_latency_stats(struct filemgr *src, struct filemgr *dst) {
     for (int type = 0; type < FDB_LATENCY_NUM_STATS; ++type) {
-        atomic_store_uint32_t(&dst->lat_stats[type].lat_min,
-                              atomic_get_uint32_t(&src->lat_stats[type].lat_min),
-                              std::memory_order_relaxed);
-        atomic_store_uint32_t(&dst->lat_stats[type].lat_max,
-                              atomic_get_uint32_t(&src->lat_stats[type].lat_max),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&dst->lat_stats[type].lat_sum,
-                              atomic_get_uint64_t(&src->lat_stats[type].lat_sum),
-                              std::memory_order_relaxed);
-        atomic_store_uint64_t(&dst->lat_stats[type].lat_num,
-                              atomic_get_uint64_t(&src->lat_stats[type].lat_num),
-                              std::memory_order_relaxed);
+        dst->lat_stats[type].lat_min.store(src->lat_stats[type].lat_min.load(),
+                                           std::memory_order_relaxed);
+        dst->lat_stats[type].lat_max.store(src->lat_stats[type].lat_max.load(),
+                                           std::memory_order_relaxed);
+        dst->lat_stats[type].lat_sum.store(src->lat_stats[type].lat_sum.load(),
+                                           std::memory_order_relaxed);
+        dst->lat_stats[type].lat_num.store(src->lat_stats[type].lat_num.load(),
+                                           std::memory_order_relaxed);
     }
 }
 
@@ -4001,11 +3990,11 @@ void filemgr_update_latency_stat(struct filemgr *file,
 {
     int retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max,
-                                               std::memory_order_relaxed);
+        uint32_t lat_max = file->lat_stats[type].lat_max.load(
+                                                    std::memory_order_relaxed);
         if (lat_max < val) {
-            if (!atomic_cas_uint32_t(&file->lat_stats[type].lat_max,
-                                     lat_max, val)) {
+            if (!file->lat_stats[type].lat_max.compare_exchange_strong(lat_max,
+                                                                       val)) {
                 continue;
             }
         }
@@ -4013,38 +4002,36 @@ void filemgr_update_latency_stat(struct filemgr *file,
     } while (--retry);
     retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min,
-                                               std::memory_order_relaxed);
+        uint32_t lat_min = file->lat_stats[type].lat_min.load(
+                                                    std::memory_order_relaxed);
         if (val < lat_min) {
-            if (!atomic_cas_uint32_t(&file->lat_stats[type].lat_min,
-                                     lat_min, val)) {
+            if (!file->lat_stats[type].lat_min.compare_exchange_strong(lat_min,
+                                                                       val)) {
                 continue;
             }
         }
         break;
     } while (--retry);
-    atomic_add_uint64_t(&file->lat_stats[type].lat_sum, val,
-                        std::memory_order_relaxed);
-    atomic_incr_uint64_t(&file->lat_stats[type].lat_num,
-                         std::memory_order_relaxed);
+    file->lat_stats[type].lat_sum.fetch_add(val, std::memory_order_relaxed);
+    file->lat_stats[type].lat_num++;
 }
 
 void filemgr_get_latency_stat(struct filemgr *file, fdb_latency_stat_type type,
                               fdb_latency_stat *stat)
 {
-    uint64_t num = atomic_get_uint64_t(&file->lat_stats[type].lat_num,
-                                       std::memory_order_relaxed);
+    uint64_t num = file->lat_stats[type].lat_num.load(
+                                                    std::memory_order_relaxed);
     if (!num) {
         memset(stat, 0, sizeof(fdb_latency_stat));
         return;
     }
-    stat->lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max,
-                                        std::memory_order_relaxed);
-    stat->lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min,
-                                        std::memory_order_relaxed);
+    stat->lat_max = file->lat_stats[type].lat_max.load(
+                                                    std::memory_order_relaxed);
+    stat->lat_min = file->lat_stats[type].lat_min.load(
+                                                    std::memory_order_relaxed);
     stat->lat_count = num;
-    stat->lat_avg = atomic_get_uint64_t(&file->lat_stats[type].lat_sum,
-                                        std::memory_order_relaxed) / num;
+    stat->lat_avg = file->lat_stats[type].lat_sum.load(
+                                            std::memory_order_relaxed) / num;
 }
 
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
@@ -4066,20 +4053,16 @@ void filemgr_dump_latency_stat(struct filemgr *file,
     for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
         uint32_t avg;
         uint64_t num;
-        num = atomic_get_uint64_t(&file->lat_stats[i].lat_num,
-                                  std::memory_order_relaxed);
+        num = file->lat_stats[i].lat_num.load(std::memory_order_relaxed);
         if (!num) {
             continue;
         }
-        avg = atomic_get_uint64_t(&file->lat_stats[i].lat_sum,
-                                  std::memory_order_relaxed) / num;
+        avg = file->lat_stats[i].lat_sum.load(std::memory_order_relaxed) / num;
         fprintf(lat_file, "%s:\t\t%u\t\t%u\t\t%u\t\t%" _F64 "\n",
                 filemgr_latency_stat_name(i),
-                atomic_get_uint32_t(&file->lat_stats[i].lat_min,
-                                    std::memory_order_relaxed),
+                file->lat_stats[i].lat_min.load(std::memory_order_relaxed),
                 avg,
-                atomic_get_uint32_t(&file->lat_stats[i].lat_max,
-                                    std::memory_order_relaxed),
+                file->lat_stats[i].lat_max.load(std::memory_order_relaxed),
                 num);
     }
     fflush(lat_file);

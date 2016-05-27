@@ -2349,7 +2349,7 @@ stale_header_info fdb_get_smallest_active_header(fdb_kvs_handle *handle)
         if (ret.bid == handle->last_hdr_bid) {
             // header in 'handle->last_hdr_bid' is not written into file yet!
             // we should start from the previous header
-            hdr_bid = atomic_get_uint64_t(&handle->file->header.bid);
+            hdr_bid = handle->file->header.bid.load();
             hdr_revnum = handle->file->header.revnum;
         } else {
             hdr_bid = ret.bid;

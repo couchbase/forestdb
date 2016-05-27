@@ -254,10 +254,10 @@ private:
         filemgr_update_latency_stat(file, type, ts_diff(begin, end));} while(0)
 
 struct latency_stat {
-    atomic_uint32_t lat_min;
-    atomic_uint32_t lat_max;
-    atomic_uint64_t lat_sum;
-    atomic_uint64_t lat_num;
+    std::atomic<uint32_t> lat_min;
+    std::atomic<uint32_t> lat_max;
+    std::atomic<uint64_t> lat_sum;
+    std::atomic<uint64_t> lat_num;
 };
 
 #endif // _LATENCY_STATS
@@ -296,8 +296,8 @@ typedef uint64_t filemgr_header_revnum_t;
 struct filemgr_header{
     filemgr_header_len_t size;
     filemgr_header_revnum_t revnum;
-    atomic_uint64_t seqnum;
-    atomic_uint64_t bid;
+    std::atomic<uint64_t> seqnum;
+    std::atomic<uint64_t> bid;
     KvsOpsStat op_stat; // op stats for default KVS
     KvsStat stat; // stats for the default KVS
     void *data;
@@ -322,21 +322,21 @@ typedef struct {
 
 struct filemgr {
     char *filename; // Current file name.
-    atomic_uint32_t ref_count;
+    std::atomic<uint32_t> ref_count;
     uint8_t fflags;
     uint16_t filename_len;
     uint32_t blocksize;
     int fd;
-    atomic_uint64_t pos;
-    atomic_uint64_t last_commit;
-    atomic_uint64_t last_writable_bmp_revnum;
-    atomic_uint64_t num_invalidated_blocks;
-    atomic_uint8_t io_in_prog;
+    std::atomic<uint64_t> pos;
+    std::atomic<uint64_t> last_commit;
+    std::atomic<uint64_t> last_writable_bmp_revnum;
+    std::atomic<uint64_t> num_invalidated_blocks;
+    std::atomic<uint8_t> io_in_prog;
     struct wal *wal;
     struct filemgr_header header;
     struct filemgr_ops *ops;
     struct hash_elem e;
-    atomic_uint8_t status;
+    std::atomic<uint8_t> status;
     FileMgrConfig *config;
     struct filemgr *new_file;           // Pointer to new file upon compaction
     struct filemgr *prev_file;          // Pointer to prev file upon compaction
@@ -347,10 +347,10 @@ struct filemgr {
     filemgr_fs_type_t fs_type;
     struct kvs_header *kv_header;
     void (*free_kv_header)(struct filemgr *file); // callback function
-    atomic_uint32_t throttling_delay;
+    std::atomic<uint32_t> throttling_delay;
 
     // variables related to prefetching
-    atomic_uint8_t prefetch_status;
+    std::atomic<uint8_t> prefetch_status;
     thread_t prefetch_tid;
 
     // File format version
@@ -395,7 +395,7 @@ struct filemgr {
     // in-memory index for a set of dirty index block updates
     struct avl_tree dirty_update_idx;
     // counter for the set of dirty index updates
-    atomic_uint64_t dirty_update_counter;
+    std::atomic<uint64_t> dirty_update_counter;
     // latest dirty (immutable but not committed yet) update
     struct filemgr_dirty_update_node *latest_dirty_update;
     // spin lock for dirty_update_idx
@@ -425,7 +425,7 @@ struct filemgr_dirty_update_node {
     // flag indicating if this set of dirty blocks are already copied to newer node.
     bool expired;
     // number of threads (snapshots) accessing this dirty block set.
-    atomic_uint32_t ref_count;
+    std::atomic<uint32_t> ref_count;
     // dirty root node BID for ID tree
     bid_t idtree_root;
     // dirty root node BID for sequence tree
@@ -477,7 +477,7 @@ struct kvs_header* filemgr_get_kv_header(struct filemgr *file);
 size_t filemgr_get_ref_count(struct filemgr *file);
 
 INLINE void filemgr_incr_ref_count(struct filemgr *file) {
-    atomic_incr_uint32_t(&file->ref_count);
+    file->ref_count++;
 }
 
 filemgr_open_result filemgr_open(char *filename,
@@ -497,7 +497,7 @@ void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
 INLINE bid_t filemgr_get_header_bid(struct filemgr *file)
 {
     return ((file->header.size > 0) ?
-            atomic_get_uint64_t(&file->header.bid) : BLK_NOT_FOUND);
+            file->header.bid.load() : BLK_NOT_FOUND);
 }
 bid_t _filemgr_get_header_bid(struct filemgr *file);
 void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
@@ -534,7 +534,7 @@ void filemgr_free_func(struct hash_elem *h);
 
 INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
 {
-    return atomic_get_uint64_t(&file->pos) / file->blocksize;
+    return file->pos.load() / file->blocksize;
 }
 bid_t filemgr_alloc(struct filemgr *file, ErrLogCallback *log_callback);
 void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
@@ -567,12 +567,12 @@ void filemgr_remove_file(struct filemgr *file);
 
 INLINE void filemgr_set_io_inprog(struct filemgr *file)
 {
-    atomic_incr_uint8_t(&file->io_in_prog);
+    file->io_in_prog++;
 }
 
 INLINE void filemgr_clear_io_inprog(struct filemgr *file)
 {
-    atomic_decr_uint8_t(&file->io_in_prog);
+    file->io_in_prog--;
 }
 
 fdb_status filemgr_commit(struct filemgr *file, bool sync,
@@ -684,11 +684,11 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                                 filemgr_redirect_hdr_func redirect_func);
 INLINE file_status_t filemgr_get_file_status(struct filemgr *file)
 {
-    return atomic_get_uint8_t(&file->status);
+    return file->status.load();
 }
 INLINE uint64_t filemgr_get_pos(struct filemgr *file)
 {
-    return atomic_get_uint64_t(&file->pos);
+    return file->pos.load();
 }
 
 fdb_status filemgr_copy_file_range(struct filemgr *src_file,
