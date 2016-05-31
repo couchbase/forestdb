@@ -74,7 +74,7 @@ struct snap_handle {
      * Incremented on snapshot_open, decremented on snapshot_close(Write Barrier)
      * Reference count to avoid copy if same KV store WAL snapshot is cloned.
      */
-    atomic_uint16_t ref_cnt_kvs;
+    std::atomic<uint16_t> ref_cnt_kvs;
     /**
      * Did wal_flush make me inaccessible to later snapshots, (Read-Write Barrier)
      */
@@ -86,7 +86,7 @@ struct snap_handle {
     /**
      * Number of WAL items put into this snapshot before it became immutable.
      */
-    atomic_uint64_t wal_ndocs;
+    std::atomic<uint64_t> wal_ndocs;
     /**
      * Highest sequence number seen in this KV store snapshot.
      */
@@ -136,7 +136,7 @@ struct wal_item{
     fdb_txn *txn;
     struct snap_handle *shandle; // Pointer into wal_snapshot_tree for KV Store
     wal_item_action action;
-    atomic_uint8_t flag;
+    std::atomic<uint8_t> flag;
     uint32_t doc_size;
     uint64_t offset;
     fdb_seqnum_t seqnum;
@@ -195,10 +195,10 @@ struct wal_shard {
 
 struct wal {
     uint8_t flag;
-    atomic_uint32_t size; // total # entries in WAL (uint32_t)
-    atomic_uint32_t num_flushable; // # flushable entries in WAL (uint32_t)
-    atomic_uint64_t datasize; // total data size in WAL (uint64_t)
-    atomic_uint64_t mem_overhead; // memory overhead of all WAL entries
+    std::atomic<uint32_t> size; // total # entries in WAL (uint32_t)
+    std::atomic<uint32_t> num_flushable; // # flushable entries in WAL (uint32_t)
+    std::atomic<uint64_t> datasize; // total data size in WAL (uint64_t)
+    std::atomic<uint64_t> mem_overhead; // memory overhead of all WAL entries
     struct list txn_list; // list of active transactions
     wal_dirty_t wal_dirty;
     // tree of all 'wal_item_header' (keys) in shard

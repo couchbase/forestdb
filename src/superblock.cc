@@ -223,23 +223,23 @@ INLINE bool _is_bmp_set(uint8_t *bmp, bid_t bid)
 
 static void sb_bmp_barrier_on(struct superblock *sb)
 {
-    atomic_incr_uint64_t(&sb->bmp_rcount);
-    if (atomic_get_uint64_t(&sb->bmp_wcount)) {
+    sb->bmp_rcount++;
+    if (sb->bmp_wcount.load()) {
         // now bmp pointer & related variables are being changed.
         // decrease count and grab lock until the change is done.
-        atomic_decr_uint64_t(&sb->bmp_rcount);
+        sb->bmp_rcount--;
         spin_lock(&sb->bmp_lock);
 
         // got control: means that change is done.
         // re-increase the count
-        atomic_incr_uint64_t(&sb->bmp_rcount);
+        sb->bmp_rcount++;
         spin_unlock(&sb->bmp_lock);
     }
 }
 
 static void sb_bmp_barrier_off(struct superblock *sb)
 {
-    atomic_decr_uint64_t(&sb->bmp_rcount);
+    sb->bmp_rcount--;
 }
 
 static void sb_bmp_change_begin(struct superblock *sb)
@@ -248,13 +248,13 @@ static void sb_bmp_change_begin(struct superblock *sb)
     // now new readers cannot increase the reader count
     // (note that there is always one bitmap writer at a time)
     spin_lock(&sb->bmp_lock);
-    atomic_incr_uint64_t(&sb->bmp_wcount);
+    sb->bmp_wcount++;
 
     // wait until previous BMP readers terminate
     // (they are very short bitmap accessing routines so that
     //  will not take long time).
     size_t spin = 0;
-    while (atomic_get_uint64_t(&sb->bmp_rcount)) {
+    while (sb->bmp_rcount.load()) {
        if (++spin > 64) {
 #ifdef HAVE_SCHED_H
             sched_yield();
@@ -270,7 +270,7 @@ static void sb_bmp_change_begin(struct superblock *sb)
 
 static void sb_bmp_change_end(struct superblock *sb)
 {
-    atomic_decr_uint64_t(&sb->bmp_wcount);
+    sb->bmp_wcount--;
     spin_unlock(&sb->bmp_lock);
     // now resume all pending readers
 }
@@ -298,7 +298,7 @@ void sb_bmp_append_doc(fdb_kvs_handle *handle)
         sb->bmp_docs = NULL;
     }
 
-    uint64_t sb_bmp_size = atomic_get_uint64_t(&sb->bmp_size);
+    uint64_t sb_bmp_size = sb->bmp_size.load();
     sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
     if (num_docs) {
         sb->bmp_doc_offset = (bid_t*)calloc(num_docs, sizeof(bid_t));
@@ -344,8 +344,7 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
     }
 
     rsv = sb->rsv_bmp;
-    if (!rsv ||
-        atomic_get_uint32_t(&rsv->status) != SB_RSV_INITIALIZING) {
+    if (!rsv || rsv->status.load() != SB_RSV_INITIALIZING) {
         return;
     }
 
@@ -381,7 +380,7 @@ void sb_rsv_append_doc(fdb_kvs_handle *handle)
     }
 
     // now 'rsv_bmp' is available.
-    atomic_store_uint32_t(&rsv->status, SB_RSV_READY);
+    rsv->status = SB_RSV_READY;
 }
 
 fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
@@ -397,7 +396,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
     // skip if previous bitmap exists OR
     // there is no bitmap to be fetched (fast screening)
     if (sb->bmp.load(std::memory_order_relaxed) ||
-        atomic_get_uint64_t(&sb->bmp_size) == 0) {
+        sb->bmp_size.load() == 0) {
         return FDB_RESULT_SUCCESS;
     }
 
@@ -410,7 +409,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         return FDB_RESULT_SUCCESS;
     }
 
-    uint64_t sb_bmp_size = atomic_get_uint64_t(&sb->bmp_size);
+    uint64_t sb_bmp_size = sb->bmp_size.load();
     sb->num_bmp_docs = num_docs = _bmp_size_to_num_docs(sb_bmp_size);
     if (!num_docs) {
         spin_unlock(&sb->lock);
@@ -440,10 +439,10 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
     }
 
     _construct_bmp_idx(&sb->bmp_idx, sb->bmp, sb_bmp_size,
-                       atomic_get_uint64_t(&sb->cur_alloc_bid));
+                       sb->cur_alloc_bid.load());
 
     rsv = sb->rsv_bmp;
-    if (rsv && atomic_get_uint32_t(&rsv->status) == SB_RSV_INITIALIZING) {
+    if (rsv && rsv->status.load() == SB_RSV_INITIALIZING) {
         // reserved bitmap exists
         rsv->num_bmp_docs = num_docs = _bmp_size_to_num_docs(rsv->bmp_size);
         if (!num_docs) {
@@ -475,7 +474,7 @@ fdb_status sb_bmp_fetch_doc(fdb_kvs_handle *handle)
         }
 
         _construct_bmp_idx(&rsv->bmp_idx, rsv->bmp, rsv->bmp_size, 0);
-        atomic_store_uint32_t(&rsv->status, SB_RSV_READY);
+        rsv->status = SB_RSV_READY;
     }
 
     spin_unlock(&sb->lock);
@@ -497,13 +496,13 @@ bool sb_update_header(fdb_kvs_handle *handle)
     bool ret = false;
     struct superblock *sb = handle->file->sb;
 
-    if (sb && atomic_get_uint64_t(&sb->last_hdr_bid) != handle->last_hdr_bid &&
-        atomic_get_uint64_t(&sb->last_hdr_revnum) < handle->cur_header_revnum) {
+    if (sb && (sb->last_hdr_bid.load() != handle->last_hdr_bid) &&
+        (sb->last_hdr_revnum.load() < handle->cur_header_revnum)) {
 
-        atomic_store_uint64_t(&sb->last_hdr_bid, handle->last_hdr_bid);
-        atomic_store_uint64_t(&sb->last_hdr_revnum, handle->cur_header_revnum);
+        sb->last_hdr_bid = handle->last_hdr_bid;
+        sb->last_hdr_revnum.store(handle->cur_header_revnum.load());
 
-        uint64_t lw_revnum = atomic_get_uint64_t(&handle->file->last_writable_bmp_revnum);
+        uint64_t lw_revnum = handle->file->last_writable_bmp_revnum.load();
         if (lw_revnum == sb->bmp_revnum &&
             sb->bmp_prev) {
             free(sb->bmp_prev);
@@ -527,7 +526,7 @@ fdb_status sb_sync_circular(fdb_kvs_handle *handle)
     uint64_t sb_revnum;
     fdb_status fs;
 
-    sb_revnum = atomic_get_uint64_t(&handle->file->sb->revnum);
+    sb_revnum = handle->file->sb->revnum.load();
     fs = sb_write(handle->file,
                   sb_revnum % handle->file->sb->config->num_sb,
                   &handle->log_callback);
@@ -644,9 +643,8 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
 
     for (i=0; i<blist.n_blocks; ++i) {
         sb_bmp_set(new_bmp, blist.blocks[i].bid, blist.blocks[i].count);
-        if (i==0 &&
-            atomic_get_uint64_t(&sb->cur_alloc_bid) == BLK_NOT_FOUND) {
-            atomic_store_uint64_t(&sb->cur_alloc_bid, blist.blocks[i].bid);
+        if (i==0 && sb->cur_alloc_bid.load() == BLK_NOT_FOUND) {
+            sb->cur_alloc_bid.store(blist.blocks[i].bid);
         }
         sb->num_free_blocks += blist.blocks[i].count;
         // add info for supplementary bmp index
@@ -657,7 +655,7 @@ bool sb_reclaim_reusable_blocks(fdb_kvs_handle *handle)
     sb_bmp_change_begin(sb);
     old_bmp = sb->bmp.load(std::memory_order_relaxed);
     sb->bmp.store(new_bmp, std::memory_order_relaxed);
-    atomic_store_uint64_t(&sb->bmp_size, num_blocks);
+    sb->bmp_size = num_blocks;
     sb->min_live_hdr_revnum = sheader.revnum;
     sb->min_live_hdr_bid = sheader.bid;
     sb->bmp_revnum++;
@@ -700,7 +698,7 @@ bool sb_reserve_next_reusable_blocks(fdb_kvs_handle *handle)
 
         // the initial status is 'INITIALIZING' so that 'rsv_bmp' is not
         // available until executing sb_rsv_append_doc().
-        atomic_init_uint32_t(&rsv->status, SB_RSV_INITIALIZING);
+        rsv->status = SB_RSV_INITIALIZING;
         avl_init(&rsv->bmp_idx, NULL);
         rsv->bmp_size = num_blocks;
 
@@ -739,8 +737,8 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
     }
 
     // re-insert all remaining bitmap into stale list
-    uint64_t sb_bmp_size = atomic_get_uint64_t(&sb->bmp_size);
-    for (cur = atomic_get_uint64_t(&sb->cur_alloc_bid); cur < sb_bmp_size; ++cur) {
+    uint64_t sb_bmp_size = sb->bmp_size.load();
+    for (cur = sb->cur_alloc_bid.load(); cur < sb_bmp_size; ++cur) {
         if (_is_bmp_set(sb->bmp, cur)) {
             filemgr_add_stale_block(handle->file, cur, 1);
         }
@@ -778,12 +776,12 @@ void sb_return_reusable_blocks(fdb_kvs_handle *handle)
         }
     }
     sb->num_free_blocks = 0;
-    atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
+    sb->cur_alloc_bid.store(BLK_NOT_FOUND);
 
     // do the same work for the reserved blocks if exist
     rsv = sb->rsv_bmp;
-    if (rsv &&
-        atomic_cas_uint32_t(&rsv->status, SB_RSV_READY, SB_RSV_VOID)) {
+    uint32_t cond = SB_RSV_READY;
+    if (rsv && rsv->status.compare_exchange_strong(cond, SB_RSV_VOID)) {
 
         for (cur = rsv->cur_alloc_bid; cur < rsv->bmp_size; ++cur) {
             if (_is_bmp_set(rsv->bmp, cur)) {
@@ -938,7 +936,8 @@ bool sb_switch_reserved_blocks(struct filemgr *file)
         return false;
     }
     // should be in a normal status
-    if (!atomic_cas_uint32_t(&rsv->status, SB_RSV_READY, SB_RSV_VOID)) {
+    uint32_t cond = SB_RSV_READY;
+    if (!rsv->status.compare_exchange_strong(cond, SB_RSV_VOID)) {
         return false;
     }
     // now status becomes 'VOID' so that rsv_bmp is not available.
@@ -969,18 +968,18 @@ bool sb_switch_reserved_blocks(struct filemgr *file)
         old_prev_bmp = sb->bmp_prev;
     }
     sb->bmp_prev = sb->bmp;
-    sb->bmp_prev_size = atomic_get_uint64_t(&sb->bmp_size);
+    sb->bmp_prev_size = sb->bmp_size.load();
 
     // copy all pointers from rsv to sb
     sb->bmp_revnum = rsv->bmp_revnum;
-    atomic_store_uint64_t(&sb->bmp_size, rsv->bmp_size);
+    sb->bmp_size.store(rsv->bmp_size);
     sb->bmp = rsv->bmp;
     sb->bmp_idx = rsv->bmp_idx;
     sb->bmp_doc_offset = rsv->bmp_doc_offset;
     sb->bmp_docs = rsv->bmp_docs;
     sb->num_bmp_docs = rsv->num_bmp_docs;
     sb->num_free_blocks = sb->num_init_free_blocks = rsv->num_free_blocks;
-    atomic_store_uint64_t(&sb->cur_alloc_bid, rsv->cur_alloc_bid);
+    sb->cur_alloc_bid.store(rsv->cur_alloc_bid);
     sb->min_live_hdr_revnum = rsv->min_live_hdr_revnum;
     sb->min_live_hdr_bid = rsv->min_live_hdr_bid;
     sb_bmp_change_end(sb);
@@ -1015,12 +1014,12 @@ sb_alloc_start_over:
         if (switched) {
             goto sb_alloc_start_over;
         } else {
-            atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
+            sb->cur_alloc_bid = BLK_NOT_FOUND;
             return BLK_NOT_FOUND;
         }
     }
 
-    ret = atomic_get_uint64_t(&sb->cur_alloc_bid);
+    ret = sb->cur_alloc_bid.load();
     sb->num_free_blocks--;
 
     if (sb->num_free_blocks == 0) {
@@ -1029,7 +1028,7 @@ sb_alloc_start_over:
             switched = sb_switch_reserved_blocks(file);
         }
         if (!switched) {
-            atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
+            sb->cur_alloc_bid = BLK_NOT_FOUND;
         }
         return ret;
     }
@@ -1042,12 +1041,12 @@ sb_alloc_start_over:
             bmp_idx = div8(i) + (node_idx * 32);
             bmp_off = mod8(i);
 
-            if (bmp_idx*8 + bmp_off >= atomic_get_uint64_t(&sb->bmp_size)) {
+            if ((bmp_idx * 8 + bmp_off) >= sb->bmp_size.load()) {
                 break;
             }
 
             if (sb->bmp[bmp_idx] & bmp_basic_mask[bmp_off]) {
-                atomic_store_uint64_t(&sb->cur_alloc_bid, bmp_idx*8 + bmp_off);
+                sb->cur_alloc_bid.store(bmp_idx * 8 + bmp_off);
                 return ret;
             }
         }
@@ -1071,7 +1070,7 @@ sb_alloc_start_over:
                 switched = sb_switch_reserved_blocks(file);
             }
             if (!switched) {
-                atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
+                sb->cur_alloc_bid = BLK_NOT_FOUND;
             }
             break;
         }
@@ -1091,8 +1090,8 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
     }
 
     bool ret = false;
-    bid_t last_commit = atomic_get_uint64_t(&file->last_commit) / file->blocksize;
-    uint64_t lw_bmp_revnum = atomic_get_uint64_t(&file->last_writable_bmp_revnum);
+    bid_t last_commit = file->last_commit.load() / file->blocksize;
+    uint64_t lw_bmp_revnum = file->last_writable_bmp_revnum.load();
     struct superblock *sb = file->sb;
 
     sb_bmp_barrier_on(sb);
@@ -1119,10 +1118,10 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
         //                             ^               ^         ^
         //                             last_commit     bmp_size  cur_alloc
 
-        if (bid < atomic_get_uint64_t(&sb->bmp_size)) {
+        if (bid < sb->bmp_size.load()) {
             // BID is in the bitmap .. check if bitmap is set.
             if (_is_bmp_set(sb_bmp, bid) &&
-                bid < atomic_get_uint64_t(&sb->cur_alloc_bid) &&
+                bid < sb->cur_alloc_bid.load() &&
                 bid >= last_commit) {
                 ret = true;
             }
@@ -1176,11 +1175,11 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
                     _is_bmp_set(sb->bmp_prev, bid)) {
                     ret = true;
                 }
-                if (bid < atomic_get_uint64_t(&sb->bmp_size) &&
+                if (bid < sb->bmp_size.load() &&
                     _is_bmp_set(sb_bmp, bid)) {
                     ret = true;
                 }
-                if (bid >= atomic_get_uint64_t(&sb->bmp_size)) {
+                if (bid >= sb->bmp_size.load()) {
                     // blocks newly allocated beyond the bitmap size:
                     // always writable
                     ret = true;
@@ -1193,8 +1192,8 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
             }
         }
 
-        if (bid < atomic_get_uint64_t(&sb->bmp_size) &&
-            bid < atomic_get_uint64_t(&sb->cur_alloc_bid) &&
+        if (bid < sb->bmp_size.load() &&
+            bid < sb->cur_alloc_bid.load() &&
             _is_bmp_set(sb_bmp, bid)) {
             // 'cur_alloc_bid' is always smaller than 'bmp_size'
             // except for the case 'cur_alloc_bid == BLK_NOT_FOUND'
@@ -1229,7 +1228,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // revision number
-    uint64_t sb_revnum = atomic_get_uint64_t(&file->sb->revnum);
+    uint64_t sb_revnum = file->sb->revnum.load();
     enc_u64 = _endian_encode(sb_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
@@ -1240,19 +1239,19 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // cur_alloc_bid
-    bid_t sb_cur_alloc_bid = atomic_get_uint64_t(&file->sb->cur_alloc_bid);
+    bid_t sb_cur_alloc_bid = file->sb->cur_alloc_bid.load();
     enc_u64 = _endian_encode(sb_cur_alloc_bid);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // last header bid
-    bid_t sb_last_hdr_bid = atomic_get_uint64_t(&file->sb->last_hdr_bid);
+    bid_t sb_last_hdr_bid = file->sb->last_hdr_bid.load();
     enc_u64 = _endian_encode(sb_last_hdr_bid);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // last header rev number
-    uint64_t sb_last_hdr_revnum = atomic_get_uint64_t(&file->sb->last_hdr_revnum);
+    uint64_t sb_last_hdr_revnum = file->sb->last_hdr_revnum.load();
     enc_u64 = _endian_encode(sb_last_hdr_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
@@ -1278,16 +1277,17 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     offset += sizeof(enc_u64);
 
     // bitmap size
-    uint64_t sb_bmp_size = atomic_get_uint64_t(&file->sb->bmp_size);
+    uint64_t sb_bmp_size = file->sb->bmp_size.load();
     enc_u64 = _endian_encode(sb_bmp_size);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     bool rsv_bmp_enabled = false;
 
-    if ( file->sb->rsv_bmp &&
-         atomic_cas_uint32_t(&file->sb->rsv_bmp->status,
-                             SB_RSV_READY, SB_RSV_WRITING) ) {
+    uint32_t cond = SB_RSV_READY;
+    if (file->sb->rsv_bmp &&
+        file->sb->rsv_bmp->status.compare_exchange_strong(cond,
+                                                          SB_RSV_WRITING) ) {
         rsv_bmp_enabled = true;
         // status becomes 'WRITING' so that switching will be postponed.
         // note that 'rsv_bmp' is not currently used yet so that
@@ -1320,7 +1320,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
             offset += sizeof(enc_u64);
         }
 
-        atomic_store_uint32_t(&file->sb->rsv_bmp->status, SB_RSV_READY);
+        file->sb->rsv_bmp->status = SB_RSV_READY;
     }
 
     // CRC
@@ -1344,7 +1344,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     }
 
     // increase superblock's revision number
-    atomic_incr_uint64_t(&file->sb->revnum);
+    file->sb->revnum++;
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1415,7 +1415,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     // revision number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    atomic_store_uint64_t(&sb->revnum, _endian_decode(enc_u64));
+    sb->revnum = _endian_decode(enc_u64);
 
     // bitmap's revision number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1425,17 +1425,17 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     // cur_alloc_bid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    atomic_store_uint64_t(&sb->cur_alloc_bid, _endian_decode(enc_u64));
+    sb->cur_alloc_bid = _endian_decode(enc_u64);
 
     // last header bid
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    atomic_store_uint64_t(&sb->last_hdr_bid, _endian_decode(enc_u64));
+    sb->last_hdr_bid = _endian_decode(enc_u64);
 
     // last header rev number
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
-    atomic_store_uint64_t(&sb->last_hdr_revnum, _endian_decode(enc_u64));
+    sb->last_hdr_revnum = _endian_decode(enc_u64);
 
     // minimum active header revnum
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1462,7 +1462,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
     offset += sizeof(enc_u64);
     sb_bmp_size = _endian_decode(enc_u64);
-    atomic_store_uint64_t(&sb->bmp_size, sb_bmp_size);
+    sb->bmp_size = sb_bmp_size;
 
     // reserved bitmap size
     memcpy(&enc_u64, buf + offset, sizeof(enc_u64));
@@ -1474,7 +1474,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
         rsv->bmp = NULL;
         rsv->bmp_size = dummy64;
         rsv->cur_alloc_bid = BLK_NOT_FOUND;
-        atomic_init_uint32_t(&rsv->status, SB_RSV_INITIALIZING);
+        rsv->status = SB_RSV_INITIALIZING;
     }
 
     // temporarily set bitmap array to NULL
@@ -1537,7 +1537,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
 static void _sb_free(struct superblock *sb)
 {
     if (sb->rsv_bmp) {
-        atomic_store_uint32_t(&sb->rsv_bmp->status, SB_RSV_VOID);
+        sb->rsv_bmp->status = SB_RSV_VOID;
         _free_bmp_idx(&sb->rsv_bmp->bmp_idx);
         _rsv_free(sb->rsv_bmp);
         free(sb->rsv_bmp);
@@ -1562,12 +1562,12 @@ static void _sb_free(struct superblock *sb)
 void _sb_init(struct superblock *sb, struct sb_config sconfig)
 {
     *sb->config = sconfig;
-    atomic_init_uint64_t(&sb->revnum, 0);
+    sb->revnum = 0;
     sb->bmp_revnum = 0;
-    atomic_init_uint64_t(&sb->bmp_size, 0);
+    sb->bmp_size = 0;
     sb->bmp = NULL;
-    atomic_init_uint64_t(&sb->bmp_rcount, 0);
-    atomic_init_uint64_t(&sb->bmp_wcount, 0);
+    sb->bmp_rcount = 0;
+    sb->bmp_wcount = 0;
     spin_init(&sb->bmp_lock);
     sb->bmp_prev_size = 0;
     sb->bmp_prev = NULL;
@@ -1576,11 +1576,11 @@ void _sb_init(struct superblock *sb, struct sb_config sconfig)
     sb->num_bmp_docs = 0;
     sb->num_init_free_blocks = 0;
     sb->num_free_blocks = 0;
-    atomic_store_uint64_t(&sb->cur_alloc_bid, BLK_NOT_FOUND);
-    atomic_init_uint64_t(&sb->last_hdr_bid, BLK_NOT_FOUND);
+    sb->cur_alloc_bid = BLK_NOT_FOUND;
+    sb->last_hdr_bid = BLK_NOT_FOUND;
     sb->min_live_hdr_revnum = 0;
     sb->min_live_hdr_bid = BLK_NOT_FOUND;
-    atomic_init_uint64_t(&sb->last_hdr_revnum, 0);
+    sb->last_hdr_revnum = 0;
     sb->num_alloc = 0;
     sb->rsv_bmp = NULL;
     avl_init(&sb->bmp_idx, NULL);
@@ -1591,12 +1591,12 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
 {
     // since variables in 'src' won't be freed, just copy its pointers
     dst->config = src->config;
-    atomic_store_uint64_t(&dst->revnum, atomic_get_uint64_t(&src->revnum));
+    dst->revnum.store(src->revnum.load());
     dst->bmp_revnum = src->bmp_revnum;
-    atomic_store_uint64_t(&dst->bmp_size, atomic_get_uint64_t(&src->bmp_size));
+    dst->bmp_size.store(src->bmp_size.load());
     dst->bmp.store(src->bmp.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    atomic_store_uint64_t(&dst->bmp_rcount, atomic_get_uint64_t(&src->bmp_rcount));
-    atomic_store_uint64_t(&dst->bmp_wcount, atomic_get_uint64_t(&src->bmp_wcount));
+    dst->bmp_rcount.store(src->bmp_rcount.load());
+    dst->bmp_wcount.store(src->bmp_wcount.load());
     spin_init(&dst->bmp_lock);
     dst->bmp_prev_size = src->bmp_prev_size;
     dst->bmp_prev = src->bmp_prev;
@@ -1607,11 +1607,11 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
     dst->num_init_free_blocks = src->num_init_free_blocks;
     dst->num_free_blocks = src->num_free_blocks;
     dst->rsv_bmp = src->rsv_bmp;
-    atomic_store_uint64_t(&dst->cur_alloc_bid, atomic_get_uint64_t(&src->cur_alloc_bid));
-    atomic_store_uint64_t(&dst->last_hdr_bid, atomic_get_uint64_t(&src->last_hdr_bid));
+    dst->cur_alloc_bid.store(src->cur_alloc_bid.load());
+    dst->last_hdr_bid.store(src->last_hdr_bid.load());
     dst->min_live_hdr_revnum = src->min_live_hdr_revnum;
     dst->min_live_hdr_bid = src->min_live_hdr_bid;
-    atomic_store_uint64_t(&dst->last_hdr_revnum, atomic_get_uint64_t(&src->last_hdr_revnum));
+    dst->last_hdr_revnum.store(src->last_hdr_revnum.load());
     dst->num_alloc = src->num_alloc;
     spin_init(&dst->lock);
 }
@@ -1634,7 +1634,7 @@ fdb_status sb_read_latest(struct filemgr *file,
         // Note: 'sb->revnum' denotes the revnum of next superblock to be
         // written, so we need to subtract 1 from it to get the revnum of
         // the current superblock successfully read from the file.
-        revnum_limit = atomic_get_uint64_t(&file->sb->revnum) - 1;
+        revnum_limit = file->sb->revnum.load() - 1;
         sb_free(file);
     }
 
@@ -1648,7 +1648,7 @@ fdb_status sb_read_latest(struct filemgr *file,
         _sb_init(&sb_arr[i], sconfig);
         fs = _sb_read_given_no(file, i, &sb_arr[i], log_callback);
 
-        uint64_t cur_revnum = atomic_get_uint64_t(&sb_arr[i].revnum);
+        uint64_t cur_revnum = sb_arr[i].revnum.load();
         if (fs == FDB_RESULT_SUCCESS &&
             cur_revnum >= max_revnum &&
             cur_revnum < revnum_limit) {
@@ -1672,16 +1672,15 @@ fdb_status sb_read_latest(struct filemgr *file,
     _sb_copy(file->sb, &sb_arr[max_sb_no]);
 
     // set last commit position
-    if (atomic_get_uint64_t(&file->sb->cur_alloc_bid) != BLK_NOT_FOUND) {
-        atomic_store_uint64_t(&file->last_commit,
-                              atomic_get_uint64_t(&file->sb->cur_alloc_bid) *
-                              file->config->getBlockSize());
+    if (file->sb->cur_alloc_bid.load() != BLK_NOT_FOUND) {
+        file->last_commit.store(file->sb->cur_alloc_bid.load() *
+                                file->config->getBlockSize());
     } else {
         // otherwise, last_commit == file->pos
         // (already set by filemgr_open() function)
     }
 
-    atomic_incr_uint64_t(&file->sb->revnum);
+    file->sb->revnum++;
     avl_init(&file->sb->bmp_idx, NULL);
 
     // free the other superblocks

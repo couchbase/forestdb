@@ -177,10 +177,10 @@ fdb_status wal_init(struct filemgr *file, int nbucket)
     size_t num_shards;
 
     file->wal->flag = WAL_FLAG_INITIALIZED;
-    atomic_init_uint32_t(&file->wal->size, 0);
-    atomic_init_uint32_t(&file->wal->num_flushable, 0);
-    atomic_init_uint64_t(&file->wal->datasize, 0);
-    atomic_init_uint64_t(&file->wal->mem_overhead, 0);
+    file->wal->size = 0;
+    file->wal->num_flushable = 0;
+    file->wal->datasize = 0;
+    file->wal->mem_overhead = 0;
     file->wal->wal_dirty = FDB_WAL_CLEAN;
 
     list_init(&file->wal->txn_list);
@@ -271,8 +271,8 @@ INLINE struct snap_handle *_wal_snapshot_create(fdb_kvs_id_t kv_id,
        shandle->id = kv_id;
        shandle->snap_tag_idx = snap_tag;
        shandle->snap_stop_idx = snap_flush_tag;
-       atomic_init_uint16_t(&shandle->ref_cnt_kvs, 0);
-       atomic_init_uint64_t(&shandle->wal_ndocs, 0);
+       shandle->ref_cnt_kvs = 0;
+       shandle->wal_ndocs = 0;
        return shandle;
    }
    return NULL;
@@ -281,7 +281,7 @@ INLINE struct snap_handle *_wal_snapshot_create(fdb_kvs_id_t kv_id,
 // When a snapshot reader has called wal_snapshot_open(), the ref count
 // on the snapshot handle will be incremented
 INLINE bool _wal_snap_is_immutable(struct snap_handle *shandle) {
-    return atomic_get_uint16_t(&shandle->ref_cnt_kvs);
+    return shandle->ref_cnt_kvs.load();
 }
 
 /**
@@ -324,7 +324,7 @@ INLINE struct snap_handle * _wal_fetch_snapshot(struct wal *_wal,
     }
     // Increment ndocs for garbage collection of the snapshot
     // When no more docs refer to a snapshot, it can be safely deleted
-    atomic_incr_uint64_t(&open_snapshot->wal_ndocs);
+    open_snapshot->wal_ndocs++;
     spin_unlock(&_wal->lock);
     return open_snapshot;
 }
@@ -338,7 +338,7 @@ INLINE fdb_status _wal_snapshot_init(struct snap_handle *shandle,
     struct list_elem *ee;
     shandle->snap_txn = txn;
     shandle->cmp_info = *key_cmp_info;
-    atomic_incr_uint16_t(&shandle->ref_cnt_kvs);
+    shandle->ref_cnt_kvs++;
     _kvs_stat_get(file, shandle->id, &shandle->stat);
     if (seqnum == FDB_SNAPSHOT_INMEM) {
         shandle->seqnum = fdb_kvs_get_seqnum(file, shandle->id);
@@ -385,7 +385,7 @@ fdb_status wal_snapshot_open(struct filemgr *file,
     spin_lock(&_wal->lock);
     _shandle = _wal_get_latest_snapshot(_wal, kv_id);
     if (!_shandle || // No item exist in WAL for this KV Store
-        !atomic_get_uint64_t(&_shandle->wal_ndocs) || // Empty snapshot
+        !_shandle->wal_ndocs.load() || // Empty snapshot
         _shandle->is_flushed) { // Latest snapshot has read-write barrier
         // This can happen when a new snapshot is attempted and WAL was flushed
         // and no mutations after WAL flush - the snapshot exists solely for
@@ -401,7 +401,7 @@ fdb_status wal_snapshot_open(struct filemgr *file,
             file->filename, _shandle->seqnum, kv_id);
     } else { // Take a snapshot of the latest WAL state for this KV Store
         if (_wal_snap_is_immutable(_shandle)) { // existing snapshot still open
-            atomic_incr_uint16_t(&_shandle->ref_cnt_kvs); // ..just Clone it
+            _shandle->ref_cnt_kvs++; // ..just Clone it
         } else { // make this snapshot of the WAL immutable..
             _wal_snapshot_init(_shandle, file, txn, seqnum, key_cmp_info);
             DBG("%s Snapshot init %" _F64 " - %" _F64 " taken at %"
@@ -624,9 +624,8 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                     }
                     item->action = WAL_ACT_INSERT;
                 }
-                atomic_add_uint64_t(&file->wal->datasize,
-                                    doc_size_ondisk - item->doc_size,
-                                    std::memory_order_relaxed);
+                file->wal->datasize.fetch_add(doc_size_ondisk - item->doc_size,
+                                              std::memory_order_relaxed);
                 item->doc_size = doc->size_ondisk;
                 item->offset = offset;
                 item->shandle = shandle;
@@ -634,7 +633,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
                 // move the item to the front of the list (header)
                 list_remove(&header->items, &item->list_elem);
                 list_push_front(&header->items, &item->list_elem);
-                atomic_decr_uint64_t(&shandle->wal_ndocs);
+                shandle->wal_ndocs--;
                 break;
             }
             le = list_next(le);
@@ -650,7 +649,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
             }
             item->txn = txn;
             if (txn == &file->global_txn) {
-                atomic_incr_uint32_t(&file->wal->num_flushable);
+                file->wal->num_flushable++;
             }
             item->header = header;
             item->seqnum = doc->seqnum;
@@ -682,8 +681,8 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
             item->doc_size = doc->size_ondisk;
             item->shandle = shandle;
             if (item->action != WAL_ACT_REMOVE) {
-                atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk,
-                                    std::memory_order_relaxed);
+                file->wal->datasize.fetch_add(doc->size_ondisk,
+                                              std::memory_order_relaxed);
             }
 
             if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
@@ -702,9 +701,9 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
             // also insert into transaction's list
             list_push_back(txn->items, &item->list_elem_txn);
 
-            atomic_incr_uint32_t(&file->wal->size);
-            atomic_add_uint64_t(&file->wal->mem_overhead,
-                                sizeof(struct wal_item), std::memory_order_relaxed);
+            file->wal->size++;
+            file->wal->mem_overhead.fetch_add(sizeof(struct wal_item),
+                                              std::memory_order_relaxed);
         }
     } else {
         // not exist .. create new one
@@ -731,7 +730,7 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         }
         item->txn = txn;
         if (txn == &file->global_txn) {
-            atomic_incr_uint32_t(&file->wal->num_flushable);
+            file->wal->num_flushable++;
         }
         item->header = header;
 
@@ -763,8 +762,8 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
         item->doc_size = doc->size_ondisk;
         item->shandle = shandle;
         if (item->action != WAL_ACT_REMOVE) {
-            atomic_add_uint64_t(&file->wal->datasize, doc->size_ondisk,
-                                std::memory_order_relaxed);
+            file->wal->datasize.fetch_add(doc->size_ondisk,
+                                          std::memory_order_relaxed);
         }
 
         if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
@@ -786,10 +785,10 @@ INLINE fdb_status _wal_insert(fdb_txn *txn,
             list_push_back(txn->items, &item->list_elem_txn);
         }
 
-        atomic_incr_uint32_t(&file->wal->size);
-        atomic_add_uint64_t(&file->wal->mem_overhead,
-                            sizeof(struct wal_item) + sizeof(struct wal_item_header) + keylen,
-                            std::memory_order_relaxed);
+        file->wal->size++;
+        file->wal->mem_overhead.fetch_add(
+            sizeof(struct wal_item) + sizeof(struct wal_item_header) + keylen,
+            std::memory_order_relaxed);
     }
 
     if (caller == WAL_INS_WRITER) {
@@ -1089,7 +1088,7 @@ fdb_status wal_find_kv_id(fdb_txn *txn,
 // Readers can interleave without lock
 INLINE void _wal_free_item(struct wal_item *item, struct wal *_wal) {
     struct snap_handle *shandle = item->shandle;
-    if (!atomic_decr_uint64_t(&shandle->wal_ndocs)) {
+    if (!(--shandle->wal_ndocs)) {
         spin_lock(&_wal->lock);
         DBG("%s Last item removed from snapshot %" _F64 "-%" _F64 " %" _F64
                 " kv id %" _F64 ". Destroy snapshot handle..\n",
@@ -1179,11 +1178,11 @@ fdb_status wal_txn_migration(void *dbhandle,
                     list_remove(item->txn->items, &item->list_elem_txn);
                     // decrease num_flushable of old_file if non-transactional update
                     if (item->txn == &old_file->global_txn) {
-                        atomic_decr_uint32_t(&old_file->wal->num_flushable);
+                        old_file->wal->num_flushable--;
                     }
                     if (item->action != WAL_ACT_REMOVE) {
-                        atomic_sub_uint64_t(&old_file->wal->datasize, item->doc_size,
-                                            std::memory_order_relaxed);
+                        old_file->wal->datasize.fetch_sub(item->doc_size,
+                                                          std::memory_order_relaxed);
                     }
                     // free item
                     free(item);
@@ -1191,7 +1190,7 @@ fdb_status wal_txn_migration(void *dbhandle,
                     free(doc.key);
                     free(doc.meta);
                     free(doc.body);
-                    atomic_decr_uint32_t(&old_file->wal->size);
+                    old_file->wal->size--;
                     mem_overhead += sizeof(struct wal_item);
                 } else {
                     e = list_prev(e);
@@ -1214,8 +1213,8 @@ fdb_status wal_txn_migration(void *dbhandle,
         }
         spin_unlock(&old_file->wal->key_shards[i].lock);
     }
-    atomic_sub_uint64_t(&old_file->wal->mem_overhead, mem_overhead,
-                        std::memory_order_relaxed);
+    old_file->wal->mem_overhead.fetch_sub(mem_overhead,
+                                          std::memory_order_relaxed);
 
     spin_lock(&old_file->wal->lock);
 
@@ -1274,7 +1273,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
             item->flag |= WAL_ITEM_COMMITTED;
             if (item->txn != &file->global_txn) {
                 // increase num_flushable if it is transactional update
-                atomic_incr_uint32_t(&file->wal->num_flushable);
+                file->wal->num_flushable++;
                 // Also since a transaction doc was committed
                 // update global WAL stats to reflect this change..
                 if (item->action == WAL_ACT_INSERT) {
@@ -1293,8 +1292,8 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                             "a database file '%s'", item->offset,
                             file->filename);
                     spin_unlock(&file->wal->key_shards[shard_num].lock);
-                    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead,
-                                        std::memory_order_relaxed);
+                    file->wal->mem_overhead.fetch_sub(mem_overhead,
+                                                      std::memory_order_relaxed);
                     return status;
                 }
             }
@@ -1339,12 +1338,11 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                         filemgr_mark_stale(file, stale_offset, stale_len);
                     }
 
-                    atomic_decr_uint32_t(&file->wal->size);
-                    atomic_decr_uint32_t(&file->wal->num_flushable);
+                    file->wal->size--;
+                    file->wal->num_flushable--;
                     if (item->action != WAL_ACT_REMOVE) {
-                        atomic_sub_uint64_t(&file->wal->datasize,
-                                            _item->doc_size,
-                                            std::memory_order_relaxed);
+                        file->wal->datasize.fetch_sub(_item->doc_size,
+                                                      std::memory_order_relaxed);
                     }
                     // simply reduce the stat count...
                     if (_item->action == WAL_ACT_INSERT) {
@@ -1360,8 +1358,7 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
                             "item seqnum %" _F64
                             " keylen %d flags %x action %d"
                             "%s", _item->seqnum, item->header->keylen,
-                            atomic_get_uint8_t(&_item->flag),
-                            _item->action, file->filename);
+                            _item->flag.load(), _item->action, file->filename);
                 }
             }
         }
@@ -1370,8 +1367,8 @@ fdb_status wal_commit(fdb_txn *txn, struct filemgr *file,
         e1 = list_remove(txn->items, e1);
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
-    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead,
-                        std::memory_order_relaxed);
+    file->wal->mem_overhead.fetch_sub(mem_overhead,
+                                      std::memory_order_relaxed);
 
     LATENCY_STAT_END(file, FDB_LATENCY_WAL_COMMIT);
     return status;
@@ -1430,11 +1427,11 @@ INLINE void _wal_release_item(struct filemgr *file, size_t shard_num,
         _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDELETES, -1);
     }
     _kvs_stat_update_attr(file, kv_id, KVS_STAT_WAL_NDOCS, -1);
-    atomic_decr_uint32_t(&file->wal->size);
-    atomic_decr_uint32_t(&file->wal->num_flushable);
+    file->wal->size--;
+    file->wal->num_flushable--;
     if (item->action != WAL_ACT_REMOVE) {
-        atomic_sub_uint64_t(&file->wal->datasize, item->doc_size,
-                            std::memory_order_relaxed);
+        file->wal->datasize.fetch_sub(item->doc_size,
+                                      std::memory_order_relaxed);
     }
     _wal_free_item(item, file->wal);
 }
@@ -1488,9 +1485,8 @@ INLINE list_elem *_wal_release_items(struct filemgr *file, size_t shard_num,
         free(header);
         le = NULL;
     }
-    atomic_sub_uint64_t(&file->wal->mem_overhead,
-                        mem_overhead + sizeof(struct wal_item),
-                        std::memory_order_relaxed);
+    file->wal->mem_overhead.fetch_sub(mem_overhead + sizeof(struct wal_item),
+                                      std::memory_order_relaxed);
     return le;
 }
 
@@ -1803,7 +1799,7 @@ fdb_status wal_snapshot_clone(struct snap_handle *shandle_in,
 {
     if (seqnum == FDB_SNAPSHOT_INMEM ||
         shandle_in->seqnum == seqnum) {
-        atomic_incr_uint16_t(&shandle_in->ref_cnt_kvs);
+        shandle_in->ref_cnt_kvs++;
         *shandle_out = shandle_in;
         return FDB_RESULT_SUCCESS;
     }
@@ -2035,7 +2031,7 @@ fdb_status _wal_snap_find(struct snap_handle *shandle, fdb_doc *doc,
 fdb_status wal_snapshot_close(struct snap_handle *shandle,
                               struct filemgr *file)
 {
-    if (!atomic_decr_uint16_t(&shandle->ref_cnt_kvs)) {
+    if (!(--shandle->ref_cnt_kvs)) {
         struct avl_node *a, *nexta;
         if (!shandle->is_persisted_snapshot &&
             shandle->snap_tag_idx) { // the KVS did have items in WAL..
@@ -2834,23 +2830,23 @@ fdb_status wal_discard(struct filemgr *file, fdb_txn *txn)
         e = list_remove(txn->items, e);
         if (item->txn == &file->global_txn ||
             item->flag & WAL_ITEM_COMMITTED) {
-            atomic_decr_uint32_t(&file->wal->num_flushable);
+            file->wal->num_flushable--;
         }
         if (item->action != WAL_ACT_REMOVE) {
-            atomic_sub_uint64_t(&file->wal->datasize, item->doc_size,
-                                std::memory_order_relaxed);
+            file->wal->datasize.fetch_sub(item->doc_size,
+                                          std::memory_order_relaxed);
             // mark as stale if the item is not an immediate remove
             filemgr_mark_stale(file, item->offset, item->doc_size);
         }
 
         // free
         free(item);
-        atomic_decr_uint32_t(&file->wal->size);
+        file->wal->size--;
         mem_overhead += sizeof(struct wal_item);
         spin_unlock(&file->wal->key_shards[shard_num].lock);
     }
-    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead,
-                        std::memory_order_relaxed);
+    file->wal->mem_overhead.fetch_sub(mem_overhead,
+                                      std::memory_order_relaxed);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -2925,7 +2921,7 @@ static fdb_status _wal_close(struct filemgr *file,
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
                         " with %" _F64 " docs in file %s", shandle->id,
-                        atomic_get_uint64_t(&shandle->wal_ndocs), file->filename);
+                        shandle->wal_ndocs.load(), file->filename);
             }
             next_a = avl_next(a);
             avl_remove(&file->wal->wal_snapshot_tree, a);
@@ -2986,8 +2982,8 @@ static fdb_status _wal_close(struct filemgr *file,
                     }
 
                     if (item->action != WAL_ACT_REMOVE) {
-                        atomic_sub_uint64_t(&file->wal->datasize, item->doc_size,
-                                            std::memory_order_relaxed);
+                        file->wal->datasize.fetch_sub(item->doc_size,
+                                                      std::memory_order_relaxed);
                     }
                     if (item->txn == &file->global_txn || committed) {
                         if (item->action != WAL_ACT_INSERT) {
@@ -2995,10 +2991,10 @@ static fdb_status _wal_close(struct filemgr *file,
                         } else {
                             _wal_update_stat(file, kv_id, _WAL_DROP_SET);
                         }
-                        atomic_decr_uint32_t(&file->wal->num_flushable);
+                        file->wal->num_flushable--;
                     }
                     free(item);
-                    atomic_decr_uint32_t(&file->wal->size);
+                    file->wal->size--;
                     mem_overhead += sizeof(struct wal_item);
                 } else {
                     e = list_next(e);
@@ -3018,8 +3014,8 @@ static fdb_status _wal_close(struct filemgr *file,
         }
         spin_unlock(&file->wal->key_shards[i].lock);
     }
-    atomic_sub_uint64_t(&file->wal->mem_overhead, mem_overhead,
-                        std::memory_order_relaxed);
+    file->wal->mem_overhead.fetch_sub(mem_overhead,
+                                      std::memory_order_relaxed);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -3033,10 +3029,10 @@ fdb_status wal_close(struct filemgr *file, ErrLogCallback *log_callback)
 fdb_status wal_shutdown(struct filemgr *file, ErrLogCallback *log_callback)
 {
     fdb_status wr = _wal_close(file, WAL_DISCARD_ALL, NULL, log_callback);
-    atomic_store_uint32_t(&file->wal->size, 0);
-    atomic_store_uint32_t(&file->wal->num_flushable, 0);
-    atomic_store_uint64_t(&file->wal->datasize, 0);
-    atomic_store_uint64_t(&file->wal->mem_overhead, 0);
+    file->wal->size = 0;
+    file->wal->num_flushable = 0;
+    file->wal->datasize = 0;
+    file->wal->mem_overhead = 0;
     return wr;
 }
 
@@ -3050,7 +3046,7 @@ fdb_status wal_close_kv_ins(struct filemgr *file,
 
 size_t wal_get_size(struct filemgr *file)
 {
-    return atomic_get_uint32_t(&file->wal->size);
+    return file->wal->size.load();
 }
 
 size_t wal_get_num_shards(struct filemgr *file)
@@ -3060,7 +3056,7 @@ size_t wal_get_num_shards(struct filemgr *file)
 
 size_t wal_get_num_flushable(struct filemgr *file)
 {
-    return atomic_get_uint32_t(&file->wal->num_flushable);
+    return file->wal->num_flushable.load();
 }
 
 size_t wal_get_num_docs(struct filemgr *file) {
@@ -3073,12 +3069,12 @@ size_t wal_get_num_deletes(struct filemgr *file) {
 
 size_t wal_get_datasize(struct filemgr *file)
 {
-    return atomic_get_uint64_t(&file->wal->datasize, std::memory_order_relaxed);
+    return file->wal->datasize.load(std::memory_order_relaxed);
 }
 
 size_t wal_get_mem_overhead(struct filemgr *file)
 {
-    return atomic_get_uint64_t(&file->wal->mem_overhead, std::memory_order_relaxed);
+    return file->wal->mem_overhead.load(std::memory_order_relaxed);
 }
 
 void wal_set_dirty_status(struct filemgr *file,

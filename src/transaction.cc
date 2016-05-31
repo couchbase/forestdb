@@ -52,7 +52,8 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         }
     }
 
-    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -61,10 +62,11 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         filemgr_mutex_lock(handle->file);
         fdb_sync_db_header(handle);
 
+        cond = 1;
         if (filemgr_is_rollback_on(handle->file)) {
             // deny beginning transaction during rollback
             filemgr_mutex_unlock(handle->file);
-            atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+            handle->handle_busy.compare_exchange_strong(cond, 0);
             return FDB_RESULT_FAIL_BY_ROLLBACK;
         }
 
@@ -99,7 +101,8 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
 
     filemgr_mutex_unlock(file);
 
-    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -133,7 +136,8 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
         }
     }
 
-    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -162,7 +166,8 @@ fdb_status _fdb_abort_transaction(fdb_kvs_handle *handle)
 
     filemgr_mutex_unlock(file);
 
-    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
     return FDB_RESULT_SUCCESS;
 }
 

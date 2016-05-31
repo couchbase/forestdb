@@ -666,12 +666,12 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!iterator->handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
-    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves,
-                         std::memory_order_relaxed);
+    iterator->handle->op_stats->num_iterator_moves++;
 
     if (iterator->handle->kvs) {
         seek_keylen_kv = seek_keylen + size_chunk;
@@ -694,7 +694,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
             next_op = -1;
         }
         if (cmp < 0) {
-            atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
+            cond = 1;
+            iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     }
@@ -711,7 +712,8 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
             next_op = 1;
         }
         if (cmp > 0) {
-            atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
+            cond = 1;
+            iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
             return FDB_RESULT_ITERATOR_FAIL;
         }
     }
@@ -1085,19 +1087,17 @@ fetch_hbtrie:
         }
     }
 
+    cond = 1;
+    iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
     if (!iterator->_dhandle) {
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
     if (next_op < 0) {
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
         ret = fdb_iterator_prev(iterator);
     } else if (next_op > 0) {
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
         ret = fdb_iterator_next(iterator);
     } else {
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
         ret = FDB_RESULT_SUCCESS;
     }
 
@@ -1701,7 +1701,8 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
     fdb_status result = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
 
-    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!iterator->handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1724,9 +1725,9 @@ fdb_status fdb_iterator_prev(fdb_iterator *iterator)
         }
     }
 
-    atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves,
-                         std::memory_order_relaxed);
+    cond = 1;
+    iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
+    iterator->handle->op_stats->num_iterator_moves++;
     LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_PREV);
     return result;
 }
@@ -1741,7 +1742,8 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
     fdb_status result = FDB_RESULT_SUCCESS;
     LATENCY_STAT_START();
 
-    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!iterator->handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1764,9 +1766,9 @@ fdb_status fdb_iterator_next(fdb_iterator *iterator)
         }
     }
 
-    atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_moves,
-                         std::memory_order_relaxed);
+    cond = 1;
+    iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
+    iterator->handle->op_stats->num_iterator_moves++;
     LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_NEXT);
     return result;
 }
@@ -1795,7 +1797,8 @@ fdb_status _fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc,
         return FDB_RESULT_ITERATOR_FAIL;
     }
 
-    if (!atomic_cas_uint8_t(&iterator->handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!iterator->handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1804,7 +1807,8 @@ fdb_status _fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc,
     if (*doc == NULL) {
         ret = fdb_doc_create(doc, NULL, 0, NULL, 0, NULL, 0);
         if (ret != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
-            atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
+            cond = 1;
+            iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
             return ret;
         } // LCOV_EXCL_STOP
         _doc.key = NULL;
@@ -1831,13 +1835,15 @@ fdb_status _fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc,
     }
 
     if (_offset <= 0) {
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
+        cond = 1;
+        iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
         return _offset < 0 ? (fdb_status) _offset : FDB_RESULT_KEY_NOT_FOUND;
     }
     if ((_doc.length.flag & DOCIO_DELETED) &&
         (iterator->opt & FDB_ITR_NO_DELETES)) {
 
-        atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
+        cond = 1;
+        iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
         free_docio_object(&_doc, alloced_key, alloced_meta, alloced_body);
         return FDB_RESULT_KEY_NOT_FOUND;
     }
@@ -1865,9 +1871,9 @@ fdb_status _fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc,
     (*doc)->deleted = _doc.length.flag & DOCIO_DELETED;
     (*doc)->offset = offset;
 
-    atomic_cas_uint8_t(&iterator->handle->handle_busy, 1, 0);
-    atomic_incr_uint64_t(&iterator->handle->op_stats->num_iterator_gets,
-                         std::memory_order_relaxed);
+    cond = 1;
+    iterator->handle->handle_busy.compare_exchange_strong(cond, 0);
+    iterator->handle->op_stats->num_iterator_gets++;
     if (metaOnly) {
         LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_GET_META);
     } else {

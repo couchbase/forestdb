@@ -66,7 +66,7 @@ static size_t sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
 static mutex_t sync_mutex;
 static thread_cond_t sync_cond;
 
-static atomic_uint8_t compactor_terminate_signal(0);
+static std::atomic<uint8_t> compactor_terminate_signal(0);
 
 static struct avl_tree openfiles;
 

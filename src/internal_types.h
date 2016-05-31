@@ -240,31 +240,31 @@ public:
     /**
      * Number of fdb_set operations.
      */
-    atomic_uint64_t num_sets;
+    std::atomic<uint64_t> num_sets;
     /**
      * Number of fdb_del operations.
      */
-    atomic_uint64_t num_dels;
+    std::atomic<uint64_t> num_dels;
     /**
      * Number of fdb_commit operations.
      */
-    atomic_uint64_t num_commits;
+    std::atomic<uint64_t> num_commits;
     /**
      * Number of fdb_compact operations on underlying file.
      */
-    atomic_uint64_t num_compacts;
+    std::atomic<uint64_t> num_compacts;
     /**
      * Number of fdb_get* (includes metaonly, byseq etc) operations.
      */
-    atomic_uint64_t num_gets;
+    std::atomic<uint64_t> num_gets;
     /**
      * Number of fdb_iterator_get* (includes meta_only) operations.
      */
-    atomic_uint64_t num_iterator_gets;
+    std::atomic<uint64_t> num_iterator_gets;
     /**
      * Number of fdb_iterator_moves (includes next,prev,seek) operations.
      */
-    atomic_uint64_t num_iterator_moves;
+    std::atomic<uint64_t> num_iterator_moves;
 };
 
 /**
@@ -305,7 +305,7 @@ struct _fdb_kvs_handle {
         fileops = kv_handle.fileops;
         config = kv_handle.config;
         log_callback = kv_handle.log_callback;
-        atomic_store_uint64_t(&cur_header_revnum, kv_handle.cur_header_revnum);
+        cur_header_revnum.store(kv_handle.cur_header_revnum.load());
         last_hdr_bid = kv_handle.last_hdr_bid;
         last_wal_flush_hdr_bid = kv_handle.last_wal_flush_hdr_bid;
         kv_info_offset = kv_handle.kv_info_offset;
@@ -314,8 +314,7 @@ struct _fdb_kvs_handle {
         max_seqnum = kv_handle.max_seqnum;
         filename = kv_handle.filename;
         txn = kv_handle.txn;
-        atomic_store_uint8_t(&handle_busy,
-                             atomic_get_uint8_t(&kv_handle.handle_busy));
+        handle_busy = kv_handle.handle_busy.load();
         dirty_updates = kv_handle.dirty_updates;
         node = kv_handle.node;
         num_iterators = kv_handle.num_iterators;
@@ -387,7 +386,7 @@ struct _fdb_kvs_handle {
     /**
      * File header revision number.
      */
-    atomic_uint64_t cur_header_revnum;
+    std::atomic<uint64_t> cur_header_revnum;
     /**
      * Header revision number of rollback point.
      */
@@ -427,7 +426,7 @@ struct _fdb_kvs_handle {
     /**
      * Atomic flag to detect if handles are being shared among threads.
      */
-    atomic_uint8_t handle_busy;
+    std::atomic<uint8_t> handle_busy;
     /**
      * Flag that indicates whether this handle made dirty updates or not.
      */

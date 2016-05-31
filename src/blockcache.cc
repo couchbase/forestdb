@@ -53,7 +53,7 @@ static spin_t bcache_lock;
 static struct hash fnamedic;
 
 // free block list
-static atomic_uint64_t freelist_count(0);
+static std::atomic<uint64_t> freelist_count(0);
 static struct list freelist;
 static spin_t freelist_lock;
 
@@ -104,11 +104,11 @@ struct fnamedic_item {
     // hash elem for FNAMEDIC
     struct hash_elem hash_elem;
 
-    atomic_uint32_t ref_count;
-    atomic_uint64_t nvictim;
-    atomic_uint64_t nitems;
-    atomic_uint64_t nimmutable;
-    atomic_uint64_t access_timestamp;
+    std::atomic<uint32_t> ref_count;
+    std::atomic<uint64_t> nvictim;
+    std::atomic<uint64_t> nitems;
+    std::atomic<uint64_t> nimmutable;
+    std::atomic<uint64_t> access_timestamp;
     size_t num_shards;
 };
 
@@ -128,7 +128,7 @@ struct bcache_item {
     // list elem for {free, clean, dirty} lists
     struct list_elem list_elem;
     // flag
-    atomic_uint8_t flag;
+    std::atomic<uint8_t> flag;
     // score
     uint8_t score;
 };
@@ -267,18 +267,17 @@ struct fnamedic_item *_bcache_get_victim()
         }
         for (size_t i = 0; i < num_attempts && num_files; ++i) {
             victim_idx = rand() % num_files;
-            victim_timestamp =
-                atomic_get_uint64_t(&file_list[victim_idx]->access_timestamp,
-                                    std::memory_order_relaxed);
+            victim_timestamp = file_list[victim_idx]->access_timestamp.load(
+                                                    std::memory_order_relaxed);
             if (victim_timestamp < min_timestamp &&
-                    atomic_get_uint64_t(&file_list[victim_idx]->nitems)) {
+                                file_list[victim_idx]->nitems.load()) {
                 min_timestamp = victim_timestamp;
                 ret = file_list[victim_idx];
             }
         }
 
         if (ret) {
-            atomic_incr_uint32_t(&ret->ref_count);
+            ret->ref_count++;
         }
         reader_unlock(&filelist_lock);
     } else {
@@ -326,7 +325,7 @@ static struct fnamedic_item *_next_dead_fname_zombie(void) {
         e = list_begin(&file_zombies);
         while (e) {
             fname_item = _get_entry(e, struct fnamedic_item, le);
-            if (atomic_get_uint32_t(&fname_item->ref_count) == 0) {
+            if (fname_item->ref_count.load() == 0) {
                 list_remove(&file_zombies, e);
                 found = true;
                 break;
@@ -498,8 +497,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
             if (!(sync && o_direct)) {
                 spin_unlock(&fname_item->shards[shard_num].lock);
             }
-            if (immutables_only &&
-                !atomic_get_uint64_t(&fname_item->nimmutable)) {
+            if (immutables_only && !fname_item->nimmutable.load()) {
                 break;
             }
             continue;
@@ -544,7 +542,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         // remove from the shard dirty block list.
         avl_remove(cur_tree, &dirty_block->avl);
         if (dirty_block->item->flag & BCACHE_IMMUTABLE) {
-            atomic_decr_uint64_t(&fname_item->nimmutable);
+            fname_item->nimmutable--;
             if (!(sync && o_direct)) {
                 spin_unlock(&fname_item->shards[shard_num].lock);
             }
@@ -676,22 +674,22 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
         victim = _bcache_get_victim();
         while(victim) {
             // check whether this file has at least one block to be evictied
-            if (atomic_get_uint64_t(&victim->nitems)) {
+            if (victim->nitems.load()) {
                 // select this file as victim
                 break;
             } else {
-                atomic_decr_uint32_t(&victim->ref_count);
+                victim->ref_count--;
                 victim = NULL; // Try to select a victim again
             }
         }
     }
     fdb_assert(victim, victim, NULL);
 
-    atomic_incr_uint64_t(&victim->nvictim, std::memory_order_relaxed);
+    victim->nvictim++;
 
     // select the clean blocks from the victim file
     n_evict = 0;
-    while(n_evict < BCACHE_EVICT_UNIT) {
+    while (n_evict < BCACHE_EVICT_UNIT) {
         size_t num_shards = victim->num_shards;
         size_t i = random(num_shards);
         bool found_victim_shard = false;
@@ -712,7 +710,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
                 // from shards.
                 if (_flush_dirty_blocks(victim, true, false, false)
                     != FDB_RESULT_SUCCESS) {
-                    atomic_decr_uint32_t(&victim->ref_count);
+                    victim->ref_count--;
                     return NULL;
                 }
                 continue; // Select a victim shard again.
@@ -740,11 +738,11 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
             // attempts.
             // The file is *likely* empty. Note that it is OK to return NULL
             // even if the file is not empty because the caller will retry again.
-            atomic_decr_uint32_t(&victim->ref_count);
+            victim->ref_count--;
             return NULL;
         }
 
-        atomic_decr_uint64_t(&victim->nitems);
+        victim->nitems--;
         // remove from hash and insert into freelist
         hash_remove(&bshard->hashtable, &item->hash_elem);
         // add to freelist
@@ -753,12 +751,12 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
 
         spin_unlock(&bshard->lock);
 
-        if (atomic_get_uint64_t(&victim->nitems) == 0) {
+        if (victim->nitems.load() == 0) {
             break;
         }
     }
 
-    atomic_decr_uint32_t(&victim->ref_count);
+    victim->ref_count--;
     return &item->list_elem;
 }
 
@@ -780,11 +778,11 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
                                    fname_new->filename_len,
                                    file->crc_mode);
     fname_new->curfile = file;
-    atomic_init_uint64_t(&fname_new->nvictim, 0);
-    atomic_init_uint64_t(&fname_new->nitems, 0);
-    atomic_init_uint64_t(&fname_new->nimmutable, 0);
-    atomic_init_uint32_t(&fname_new->ref_count, 0);
-    atomic_init_uint64_t(&fname_new->access_timestamp, 0);
+    fname_new->nvictim = 0;
+    fname_new->nitems = 0;
+    fname_new->nimmutable = 0;
+    fname_new->ref_count = 0;
+    fname_new->access_timestamp = 0;
     if (file->config->getNumBcacheShards()) {
         fname_new->num_shards = file->config->getNumBcacheShards();
     } else {
@@ -852,7 +850,7 @@ static bool _fname_try_free(struct fnamedic_item *fname)
 
         file_list[num_files - 1] = NULL;
         --num_files;
-        if (atomic_get_uint32_t(&fname->ref_count) != 0) {
+        if (fname->ref_count.load() != 0) {
             // This item is a victim by another thread's _bcache_evict()
             list_push_front(&file_zombies, &fname->le);
             ret = false; // Delay deletion
@@ -876,7 +874,7 @@ static void _fname_free(struct fnamedic_item *fname)
             fname->filename);
         return;
     }
-    uint32_t ref_count = atomic_get_uint32_t(&fname->ref_count);
+    uint32_t ref_count = fname->ref_count.load();
     if (ref_count != 0) {
         DBG("Warning: failed to free fnamedic_item instance for a file '%s' "
             "because its ref counter is not zero!\n",
@@ -933,9 +931,9 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
         gettimeofday(&tp, NULL); // TODO: Need to implement a better way of
                                  // getting the timestamp to avoid the overhead of
                                  // gettimeofday()
-        atomic_store_uint64_t(&fname->access_timestamp,
-                              (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                              std::memory_order_relaxed);
+        fname->access_timestamp.store(
+                        static_cast<uint64_t>(tp.tv_sec * 1000000 + tp.tv_usec),
+                        std::memory_order_relaxed);
 
         size_t shard_num = bid % fname->num_shards;
         spin_lock(&fname->shards[shard_num].lock);
@@ -998,9 +996,9 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
         // Update the access timestamp.
         struct timeval tp;
         gettimeofday(&tp, NULL);
-        atomic_store_uint64_t(&fname->access_timestamp,
-                              (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                              std::memory_order_relaxed);
+        fname->access_timestamp.store(
+                        static_cast<uint64_t>(tp.tv_sec * 1000000 + tp.tv_usec),
+                        std::memory_order_relaxed);
 
         size_t shard_num = bid % fname->num_shards;
         spin_lock(&fname->shards[shard_num].lock);
@@ -1019,7 +1017,7 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
             }
 
             if (!(item->flag & BCACHE_DIRTY)) {
-                atomic_decr_uint64_t(&fname->nitems);
+                fname->nitems--;
                 // only for clean blocks
                 // remove from hash and insert into freelist
                 hash_remove(&fname->shards[shard_num].hashtable, &item->hash_elem);
@@ -1032,7 +1030,7 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
                 ret = true;
             } else {
                 item->flag |= BCACHE_IMMUTABLE; // (stale index node block)
-                atomic_incr_uint64_t(&fname->nimmutable);
+                fname->nimmutable++;
                 spin_unlock(&fname->shards[shard_num].lock);
             }
         } else {
@@ -1068,9 +1066,9 @@ int bcache_write(struct filemgr *file,
     // Update the access timestamp.
     struct timeval tp;
     gettimeofday(&tp, NULL);
-    atomic_store_uint64_t(&fname_new->access_timestamp,
-                          (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                          std::memory_order_relaxed);
+    fname_new->access_timestamp.store(
+                    static_cast<uint64_t>(tp.tv_sec * 1000000 + tp.tv_usec),
+                    std::memory_order_relaxed);
 
     size_t shard_num = bid % fname_new->num_shards;
     // set query
@@ -1112,7 +1110,7 @@ int bcache_write(struct filemgr *file,
     fdb_assert(h, h, NULL);
 
     if (item->flag & BCACHE_FREE) {
-        atomic_incr_uint64_t(&fname_new->nitems);
+        fname_new->nitems++;
     }
 
     // remove from the list if the block is in clean list
@@ -1141,7 +1139,7 @@ int bcache_write(struct filemgr *file,
             } else {
                 if (final_write) {
                     item->flag |= BCACHE_IMMUTABLE; // (fully written doc block)
-                    atomic_incr_uint64_t(&fname_new->nimmutable);
+                    fname_new->nimmutable++;
                 }
                 avl_insert(&fname_new->shards[shard_num].tree, &ditem->avl,
                            _dirty_cmp);
@@ -1191,9 +1189,9 @@ int bcache_write_partial(struct filemgr *file,
     // Update the access timestamp.
     struct timeval tp;
     gettimeofday(&tp, NULL);
-    atomic_store_uint64_t(&fname_new->access_timestamp,
-                          (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
-                          std::memory_order_relaxed);
+    fname_new->access_timestamp.store(
+                    static_cast<uint64_t>(tp.tv_sec * 1000000 + tp.tv_usec),
+                    std::memory_order_relaxed);
 
     size_t shard_num = bid % fname_new->num_shards;
     // set query
@@ -1243,13 +1241,13 @@ int bcache_write_partial(struct filemgr *file,
                        _dirty_cmp);
             if (final_write) {
                 item->flag |= BCACHE_IMMUTABLE; // (fully written doc block)
-                atomic_incr_uint64_t(&fname_new->nimmutable);
+                fname_new->nimmutable++;
             }
         }
     } else if (!(item->flag & BCACHE_IMMUTABLE)) {
         if (final_write) {
             item->flag |= BCACHE_IMMUTABLE; // (fully written doc block)
-            atomic_incr_uint64_t(&fname_new->nimmutable);
+            fname_new->nimmutable++;
         }
     }
 
@@ -1449,7 +1447,7 @@ uint64_t bcache_get_num_blocks(struct filemgr *file)
 {
     struct fnamedic_item *fname = file->bcache;
     if (fname) {
-        return atomic_get_uint64_t(&fname->nitems);
+        return fname->nitems.load();
     }
     return 0;
 }
@@ -1458,7 +1456,7 @@ uint64_t bcache_get_num_immutable(struct filemgr *file)
 {
     struct fnamedic_item *fname = file->bcache;
     if (fname) {
-        return atomic_get_uint64_t(&fname->nimmutable);
+        return fname->nimmutable.load();
     }
     return 0;
 
@@ -1550,13 +1548,16 @@ void bcache_print_items()
         }
 
         printf("%3d %20s (%6d)(%6d)(c%6d d%6d)",
-               (int)nfiles+1, fname->filename,
-               (int)atomic_get_uint64_t(&fname->nitems),
-               (int)atomic_get_uint64_t(&fname->nvictim),
-               (int)nclean, (int)ndirty);
-        printf("%6d%6d", (int)docs_local, (int)bnodes_local);
+               static_cast<int>(nfiles + 1),
+               fname->filename,
+               static_cast<int>(fname->nitems.load()),
+               static_cast<int>(fname->nvictim.load()),
+               static_cast<int>(nclean),
+               static_cast<int>(ndirty));
+        printf("%6d%6d", static_cast<int>(docs_local),
+                         static_cast<int>(bnodes_local));
         for (i=0;i<=n;++i){
-            printf("%6d ", (int)scores_local[i]);
+            printf("%6d ", static_cast<int>(scores_local[i]));
         }
         printf("\n");
 
@@ -1567,12 +1568,14 @@ void bcache_print_items()
     }
     printf(" ===\n");
 
-    printf("%d files %d items\n", (int)nfiles, (int)nitems);
+    printf("%d files %d items\n", static_cast<int>(nfiles),
+                                  static_cast<int>(nitems));
     for (i=0;i<=n;++i){
-        printf("[%d]: %d\n", (int)i, (int)scores[i]);
+        printf("[%d]: %d\n", static_cast<int>(i),
+                             static_cast<int>(scores[i]));
     }
-    printf("Documents: %d blocks\n", (int)docs);
-    printf("Index nodes: %d blocks\n", (int)bnodes);
+    printf("Documents: %d blocks\n", static_cast<int>(docs));
+    printf("Index nodes: %d blocks\n", static_cast<int>(bnodes));
 }
 // LCOV_EXCL_STOP
 

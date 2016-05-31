@@ -1015,7 +1015,8 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -1039,7 +1040,9 @@ fdb_status fdb_get_kvs_seqnum(fdb_kvs_handle *handle, fdb_seqnum_t *seqnum)
             *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->getKvsId());
         }
     }
-    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -1432,7 +1435,6 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     fdb_check_file_reopen(root_handle, NULL);
     fdb_sync_db_header(root_handle);
 
-
     if (kvs_name == NULL || !strcmp(kvs_name, default_kvs_name)) {
         // return the default KV store handle
         if (fhandle->activateRootHandle(kvs_name, config_local)) {
@@ -1444,7 +1446,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             // open new default KV store handle
             handle = (fdb_kvs_handle*) calloc(1, sizeof(fdb_kvs_handle));
             handle->kvs_config = config_local;
-            atomic_init_uint8_t(&handle->handle_busy, 0);
+            handle->handle_busy = 0;
 
             if (root_handle->file->kv_header) {
                 spin_lock(&root_handle->file->kv_header->lock);
@@ -1498,7 +1500,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
-    atomic_init_uint8_t(&handle->handle_busy, 0);
+    handle->handle_busy = 0;
     handle->fhandle = fhandle;
     fs = _fdb_kvs_open(root_handle, &config, &config_local,
                        root_handle->file, root_handle->file->filename, kvs_name, handle);
@@ -1895,7 +1897,7 @@ fdb_status fdb_kvs_rollback(fdb_kvs_handle **handle_ptr, fdb_seqnum_t seqnum)
     handle->max_seqnum = seqnum;
     handle->log_callback = handle_in->log_callback;
     handle->fhandle = fhandle;
-    atomic_init_uint8_t(&handle->handle_busy, 0);
+    handle->handle_busy = 0;
 
     if (handle_in->kvs->getKvsType() == KVS_SUB) {
         fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
@@ -2028,7 +2030,8 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    if (!atomic_cas_uint8_t(&handle->handle_busy, 0, 1)) {
+    uint8_t cond = 0;
+    if (!handle->handle_busy.compare_exchange_strong(cond, 1)) {
         return FDB_RESULT_HANDLE_BUSY;
     }
 
@@ -2094,7 +2097,8 @@ fdb_status fdb_get_kvs_info(fdb_kvs_handle *handle, fdb_kvs_info *info)
     info->space_used += nlivenodes * handle->config.blocksize;
     info->file = handle->fhandle;
 
-    atomic_cas_uint8_t(&handle->handle_busy, 1, 0);
+    cond = 1;
+    handle->handle_busy.compare_exchange_strong(cond, 0);
 
     // This is another LIBFDB_API call, so handle is marked as free
     // in the line above before making this call
@@ -2145,20 +2149,16 @@ fdb_status fdb_get_kvs_ops_info(fdb_kvs_handle *handle, fdb_kvs_ops_info *info)
         root_stat = stat;
     }
 
-    info->num_sets = atomic_get_uint64_t(&stat.num_sets, std::memory_order_relaxed);
-    info->num_dels = atomic_get_uint64_t(&stat.num_dels, std::memory_order_relaxed);
-    info->num_gets = atomic_get_uint64_t(&stat.num_gets, std::memory_order_relaxed);
-    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets,
-                                                  std::memory_order_relaxed);
-    info->num_iterator_gets = atomic_get_uint64_t(&stat.num_iterator_gets,
-                                                  std::memory_order_relaxed);
-    info->num_iterator_moves = atomic_get_uint64_t(&stat.num_iterator_moves,
-                                                   std::memory_order_relaxed);
+    info->num_sets = stat.num_sets.load(std::memory_order_relaxed);
+    info->num_dels = stat.num_dels.load(std::memory_order_relaxed);
+    info->num_gets = stat.num_gets.load(std::memory_order_relaxed);
+    info->num_iterator_gets = stat.num_iterator_gets.load(
+                                                     std::memory_order_relaxed);
+    info->num_iterator_moves = stat.num_iterator_moves.load(
+                                                     std::memory_order_relaxed);
 
-    info->num_commits = atomic_get_uint64_t(&root_stat.num_commits,
-                                            std::memory_order_relaxed);
-    info->num_compacts = atomic_get_uint64_t(&root_stat.num_compacts,
-                                             std::memory_order_relaxed);
+    info->num_commits = root_stat.num_commits.load(std::memory_order_relaxed);
+    info->num_compacts = root_stat.num_compacts.load(std::memory_order_relaxed);
     return FDB_RESULT_SUCCESS;
 }
 

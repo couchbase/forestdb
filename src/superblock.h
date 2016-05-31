@@ -113,7 +113,7 @@ struct sb_rsv_bmp {
     /**
      * Status of the reserved bitmap.
      */
-    atomic_uint32_t status;
+    std::atomic<uint32_t> status;
 };
 
 /**
@@ -133,7 +133,7 @@ struct superblock {
      * Current revision number of superblock. This value increases whenever superblock
      * is written back into file.
      */
-    atomic_uint64_t revnum;
+    std::atomic<uint64_t> revnum;
     /**
      * Current revision number of bitmap in superblock. This value increases whenever
      * ForestDB reclaims stale blocks and accordingly bitmap is updated.
@@ -142,7 +142,7 @@ struct superblock {
     /**
      * Number of bits in the bitmap. Each bit represents a block.
      */
-    atomic_uint64_t bmp_size;
+    std::atomic<uint64_t> bmp_size;
     /**
      * Pointer to the bitmap.
      */
@@ -150,11 +150,11 @@ struct superblock {
     /**
      * Reference counter for bitmap readers.
      */
-    atomic_uint64_t bmp_rcount;
+    std::atomic<uint64_t> bmp_rcount;
     /**
      * Reference counter for bitmap writers.
      */
-    atomic_uint64_t bmp_wcount;
+    std::atomic<uint64_t> bmp_wcount;
     /**
      * Lock for bitmap modification.
      */
@@ -199,11 +199,11 @@ struct superblock {
     /**
      * BID of a block to be allocated next time.
      */
-    atomic_uint64_t cur_alloc_bid;
+    std::atomic<uint64_t> cur_alloc_bid;
     /**
      * BID of the last header.
      */
-    atomic_uint64_t last_hdr_bid;
+    std::atomic<uint64_t> last_hdr_bid;
     /**
      * Revision number of the oldest header that is not reclaimed yet and is currently
      * active in the file.
@@ -217,7 +217,7 @@ struct superblock {
     /**
      * Revision number of the last header.
      */
-    atomic_uint64_t last_hdr_revnum;
+    std::atomic<uint64_t> last_hdr_revnum;
     /**
      * Number of allocated blocks since the last superblock sync.
      */
@@ -251,7 +251,7 @@ struct sb_ops {
  */
 INLINE bool sb_bmp_exists(struct superblock *sb)
 {
-    if (sb && atomic_get_uint64_t(&sb->bmp_size)) {
+    if (sb && sb->bmp_size.load()) {
         return true;
     }
     return false;

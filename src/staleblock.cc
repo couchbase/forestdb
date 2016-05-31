@@ -141,8 +141,7 @@ void fdb_load_inmem_stale_info(fdb_kvs_handle *handle)
     struct docio_object doc;
     bool expected = false;
 
-    if (!std::atomic_compare_exchange_strong(&file->stale_info_tree_loaded,
-                                             &expected, true)) {
+    if (!file->stale_info_tree_loaded.compare_exchange_strong(expected, true)) {
         // stale info is already loaded (fast screening without mutex)
         return;
     }

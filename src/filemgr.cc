@@ -413,7 +413,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     if (file->sb) {
         // superblock exists .. file size does not start from zero.
         min_filesize = file->sb->config->num_sb * file->blocksize;
-        bid_t sb_last_hdr_bid = atomic_get_uint64_t(&file->sb->last_hdr_bid);
+        bid_t sb_last_hdr_bid = file->sb->last_hdr_bid.load();
         if (sb_last_hdr_bid != BLK_NOT_FOUND) {
             hdr_bid = hdr_bid_local = sb_last_hdr_bid;
         }
@@ -1009,7 +1009,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         }
 
         if (file->sb &&
-            file->header.revnum != atomic_get_uint64_t(&file->sb->last_hdr_revnum)) {
+            file->header.revnum != file->sb->last_hdr_revnum.load()) {
             // superblock exists but the corresponding DB header does not match.
             // read another candidate.
             continue;
@@ -2449,10 +2449,10 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
     }
 
     if (sb_bmp_exists(file->sb) &&
-        atomic_get_uint64_t(&file->sb->cur_alloc_bid) != BLK_NOT_FOUND &&
+        file->sb->cur_alloc_bid.load() != BLK_NOT_FOUND &&
         file->status.load() == FILE_NORMAL) {
         // block reusing is currently enabled
-        file->last_commit.store(atomic_get_uint64_t(&file->sb->cur_alloc_bid)
+        file->last_commit.store(file->sb->cur_alloc_bid.load()
                                 * file->blocksize);
     } else {
         file->last_commit.store(file->pos.load());
@@ -3897,13 +3897,13 @@ int _kvs_ops_stat_get(struct filemgr *file,
 }
 
 void _init_op_stats(KvsOpsStat *stat) {
-    atomic_init_uint64_t(&stat->num_sets, 0);
-    atomic_init_uint64_t(&stat->num_dels, 0);
-    atomic_init_uint64_t(&stat->num_commits, 0);
-    atomic_init_uint64_t(&stat->num_compacts, 0);
-    atomic_init_uint64_t(&stat->num_gets, 0);
-    atomic_init_uint64_t(&stat->num_iterator_gets, 0);
-    atomic_init_uint64_t(&stat->num_iterator_moves, 0);
+    stat->num_sets = 0;
+    stat->num_dels = 0;
+    stat->num_commits = 0;
+    stat->num_compacts = 0;
+    stat->num_gets = 0;
+    stat->num_iterator_gets = 0;
+    stat->num_iterator_moves = 0;
 }
 
 KvsOpsStat *filemgr_get_ops_stats(struct filemgr *file,
