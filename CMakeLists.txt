@@ -123,7 +123,10 @@ ENDIF ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 ADD_DEFINITIONS (-D_COW_COMPACTION=1)
 
 if (COUCHBASE_SERVER_BUILD)
-    if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+        # Supress mismatched tags warnings seen with Clang only.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-mismatched-tags")
+    elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
        # using /W0 cause msvc to print out a warning that it overrides
        # previous settings (/W3 is added by default).
        # Let's just disable the ones we're "violating"
@@ -133,7 +136,7 @@ if (COUCHBASE_SERVER_BUILD)
 else()
   # If building outside CB server build, set required flags for the selected compiler.
     if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} ${STD_VERSION} -Qunused-arguments -g -fomit-frame-pointer -pthread")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} ${STD_VERSION} -Qunused-arguments -g -fomit-frame-pointer -pthread -Wno-mismatched-tags")
     elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} ${STD_VERSION} -g -fomit-frame-pointer -pthread")
     elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
