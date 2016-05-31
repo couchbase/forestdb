@@ -83,7 +83,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif(NOT CMAKE_BUILD_TYPE)
 
 if (NOT WIN32)
-    set ( CMAKE_CXX_FLAGS_DEBUG "-O0 -Wunused-variable -Wall -Wmismatched-tags -pedantic ${STD_VERSION} -Wredundant-decls")
+    set ( CMAKE_CXX_FLAGS_DEBUG "-O0 -Wunused-variable -Wall -pedantic ${STD_VERSION} -Wredundant-decls")
     set(PTHREAD_LIB pthread)
     set(LIBM m)
     set(FORESTDB_FILE_OPS "src/filemgr_ops_linux.cc")
