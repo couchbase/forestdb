@@ -3197,8 +3197,8 @@ void compact_with_snapshot_open_multi_kvs_test()
 }
 
 
-static atomic_uint8_t cancel_test_signal_begin(0);
-static atomic_uint8_t cancel_test_signal_end(0);
+static std::atomic<uint8_t> cancel_test_signal_begin(0);
+static std::atomic<uint8_t> cancel_test_signal_end(0);
 
 static int cb_cancel_test(fdb_file_handle *fhandle,
                           fdb_compaction_status status, const char *kv_name,

@@ -38,11 +38,6 @@ target_link_libraries(bcache_test ${PTHREAD_LIB} ${LIBM}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(bcache_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
-add_executable(atomic_test
-               atomic_test.cc
-               ${GETTIMEOFDAY_VS})
-target_link_libraries(atomic_test ${PTHREAD_LIB} ${LIBM})
-
 add_executable(filemgr_test
                filemgr_test.cc
                ${ROOT_SRC}/avltree.cc
@@ -192,7 +187,6 @@ target_link_libraries(btree_kv_test ${LIBM} ${MALLOC_LIBRARIES})
 # add test target
 add_test(hash_test hash_test)
 add_test(bcache_test bcache_test)
-add_test(atomic_test atomic_test)
 add_test(filemgr_test filemgr_test)
 add_test(btreeblock_test btreeblock_test)
 add_test(docio_test docio_test)
