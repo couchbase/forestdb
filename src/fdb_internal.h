@@ -265,7 +265,7 @@ INLINE void _fdb_dirty_update_ready(fdb_kvs_handle *handle,
     if (*prev_node || dirty_wal_flush) {
         *new_node = filemgr_dirty_update_new_node(handle->file);
         // sync dirty root nodes
-        filemgr_dirty_update_get_root(handle->file, *prev_node,
+        filemgr_dirty_update_get_root(*prev_node,
                                       dirty_idtree_root, dirty_seqtree_root);
     }
     btreeblk_set_dirty_update(handle->bhandle, *prev_node);
@@ -289,7 +289,7 @@ INLINE void _fdb_dirty_update_finalize(fdb_kvs_handle *handle,
     _fdb_export_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
     // assign dirty root nodes to dirty update entry
     if (new_node) {
-        filemgr_dirty_update_set_root(handle->file, new_node,
+        filemgr_dirty_update_set_root(new_node,
                                       *dirty_idtree_root, *dirty_seqtree_root);
     }
     // clear dirty update setting in bhandle
@@ -300,7 +300,7 @@ INLINE void _fdb_dirty_update_finalize(fdb_kvs_handle *handle,
     }
     // close previous immutable node
     if (prev_node) {
-        filemgr_dirty_update_close_node(handle->file, prev_node);
+        filemgr_dirty_update_close_node(prev_node);
     }
     if (commit) {
         // write back new_node's dirty blocks

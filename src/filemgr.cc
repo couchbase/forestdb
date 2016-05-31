@@ -3281,8 +3281,7 @@ bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle)
     return ret;
 }
 
-static void _filemgr_dirty_update_remove_node(struct filemgr *file,
-                                              struct filemgr_dirty_update_node *node);
+static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *node);
 
 void filemgr_dirty_update_init(struct filemgr *file)
 {
@@ -3301,7 +3300,7 @@ void filemgr_dirty_update_free(struct filemgr *file)
         node = _get_entry(a, struct filemgr_dirty_update_node, avl);
         a = avl_next(a);
         avl_remove(&file->dirty_update_idx, &node->avl);
-        _filemgr_dirty_update_remove_node(file, node);
+        _filemgr_dirty_update_remove_node(node);
     }
     spin_destroy(&file->dirty_update_lock);
 }
@@ -3428,7 +3427,7 @@ void filemgr_dirty_update_commit(struct filemgr *file,
     while (le) {
         node = _get_entry(le, struct filemgr_dirty_update_node, le);
         le = list_remove(&remove_queue, &node->le);
-        _filemgr_dirty_update_remove_node(file, node);
+        _filemgr_dirty_update_remove_node(node);
     }
 }
 
@@ -3540,12 +3539,11 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
     while (le) {
         cur_node = _get_entry(le, struct filemgr_dirty_update_node, le);
         le = list_remove(&remove_queue, &cur_node->le);
-        _filemgr_dirty_update_remove_node(file, cur_node);
+        _filemgr_dirty_update_remove_node(cur_node);
     }
 }
 
-static void _filemgr_dirty_update_remove_node(struct filemgr *file,
-                                              struct filemgr_dirty_update_node *node)
+static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *node)
 {
     struct avl_node *a;
     struct filemgr_dirty_update_block *block;
@@ -3574,11 +3572,10 @@ void filemgr_dirty_update_remove_node(struct filemgr *file,
     avl_remove(&file->dirty_update_idx, &node->avl);
     spin_unlock(&file->dirty_update_lock);
 
-    _filemgr_dirty_update_remove_node(file, node);
+    _filemgr_dirty_update_remove_node(node);
 }
 
-void filemgr_dirty_update_close_node(struct filemgr *file,
-                                     struct filemgr_dirty_update_node *node)
+void filemgr_dirty_update_close_node(struct filemgr_dirty_update_node *node)
 {
     if (!node) {
         return;

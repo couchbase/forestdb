@@ -902,24 +902,20 @@ void filemgr_dirty_update_remove_node(struct filemgr *file,
  * Close a dirty update entry. This API will remove all complete (i.e., immutable)
  * dirty update entries except for the last immutable update entry.
  *
- * @param file Pointer to filemgr handle.
  * @param node Pointer to dirty update entry to be closed.
  * @return void.
  */
-void filemgr_dirty_update_close_node(struct filemgr *file,
-                                     struct filemgr_dirty_update_node *node);
+void filemgr_dirty_update_close_node(struct filemgr_dirty_update_node *node);
 
 /**
  * Set dirty root nodes for the given dirty update entry.
  *
- * @param file Pointer to filemgr handle.
  * @param node Pointer to dirty update entry.
  * @param dirty_idtree_root BID of ID tree root node.
  * @param dirty_seqtree_root BID of sequence tree root node.
  * @return void.
  */
-INLINE void filemgr_dirty_update_set_root(struct filemgr *file,
-                                          struct filemgr_dirty_update_node *node,
+INLINE void filemgr_dirty_update_set_root(struct filemgr_dirty_update_node *node,
                                           bid_t dirty_idtree_root,
                                           bid_t dirty_seqtree_root)
 {
@@ -932,14 +928,12 @@ INLINE void filemgr_dirty_update_set_root(struct filemgr *file,
 /**
  * Get dirty root nodes for the given dirty update entry.
  *
- * @param file Pointer to filemgr handle.
  * @param node Pointer to dirty update entry.
  * @param dirty_idtree_root Pointer to the BID of ID tree root node.
  * @param dirty_seqtree_root Pointer to the BID of sequence tree root node.
  * @return void.
  */
-INLINE void filemgr_dirty_update_get_root(struct filemgr *file,
-                                          struct filemgr_dirty_update_node *node,
+INLINE void filemgr_dirty_update_get_root(struct filemgr_dirty_update_node *node,
                                           bid_t *dirty_idtree_root,
                                           bid_t *dirty_seqtree_root)
 {

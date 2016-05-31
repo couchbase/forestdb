@@ -1086,8 +1086,8 @@ fdb_snapshot_open_start:
             btreeblk_set_dirty_update(handle->bhandle, dirty_update);
 
             if (dirty_update) {
-                filemgr_dirty_update_get_root(handle->file, dirty_update,
-                                       &dirty_idtree_root, &dirty_seqtree_root);
+                filemgr_dirty_update_get_root(dirty_update, &dirty_idtree_root,
+                                              &dirty_seqtree_root);
                 _fdb_import_dirty_root(handle, dirty_idtree_root,
                                        dirty_seqtree_root);
                 btreeblk_discard_blocks(handle->bhandle);
@@ -2888,8 +2888,8 @@ static void _fdb_sync_dirty_root(fdb_kvs_handle *handle)
     btreeblk_set_dirty_update(handle->bhandle, dirty_update);
 
     if (dirty_update) {
-        filemgr_dirty_update_get_root(handle->file, dirty_update,
-                                      &dirty_idtree_root, &dirty_seqtree_root);
+        filemgr_dirty_update_get_root(dirty_update, &dirty_idtree_root,
+                                      &dirty_seqtree_root);
         _fdb_import_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
         btreeblk_discard_blocks(handle->bhandle);
     }
@@ -2903,7 +2903,7 @@ static void _fdb_release_dirty_root(fdb_kvs_handle *handle)
         struct filemgr_dirty_update_node *dirty_update;
         dirty_update = btreeblk_get_dirty_update(handle->bhandle);
         if (dirty_update) {
-            filemgr_dirty_update_close_node(handle->file, dirty_update);
+            filemgr_dirty_update_close_node(dirty_update);
             btreeblk_clear_dirty_update(handle->bhandle);
         }
     }
@@ -3618,7 +3618,7 @@ fdb_set_start:
 
             if (wr != FDB_RESULT_SUCCESS) {
                 btreeblk_clear_dirty_update(handle->bhandle);
-                filemgr_dirty_update_close_node(handle->file, prev_node);
+                filemgr_dirty_update_close_node(prev_node);
                 filemgr_dirty_update_remove_node(handle->file, new_node);
                 filemgr_mutex_unlock(file);
                 cond = 1;
@@ -4028,7 +4028,7 @@ fdb_commit_start:
 
         if (wr != FDB_RESULT_SUCCESS) {
             btreeblk_clear_dirty_update(handle->bhandle);
-            filemgr_dirty_update_close_node(handle->file, prev_node);
+            filemgr_dirty_update_close_node(prev_node);
             filemgr_dirty_update_remove_node(handle->file, new_node);
             filemgr_mutex_unlock(handle->file);
             cond = 1;
@@ -7332,8 +7332,8 @@ fdb_status _fdb_close(fdb_kvs_handle *handle)
 
     if (handle->shandle) { // must close wal_snapshot before file
         wal_snapshot_close(handle->shandle, handle->file);
-        filemgr_dirty_update_close_node(handle->file,
-            btreeblk_get_dirty_update(handle->bhandle));
+        filemgr_dirty_update_close_node(
+                        btreeblk_get_dirty_update(handle->bhandle));
         btreeblk_clear_dirty_update(handle->bhandle);
     }
 
