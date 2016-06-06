@@ -33,7 +33,7 @@ extern "C" {
 struct btree;
 struct filemgr;
 struct btreeblk_handle;
-struct docio_handle;
+class DocioHandle;
 struct btree_blk_ops;
 struct snap_handle;
 
@@ -425,7 +425,7 @@ struct _fdb_iterator {
     /**
      * Doc IO handle instance to the correct file.
      */
-    struct docio_handle *_dhandle;
+    DocioHandle *_dhandle;
     /**
      * Cursor offset to key, meta and value on disk
      */

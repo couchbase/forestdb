@@ -416,7 +416,7 @@ static fdb_status _fdb_iterate(fdb_iterator *iterator,
     size_t keylen;
     uint64_t offset;
     hbtrie_result hr = HBTRIE_RESULT_SUCCESS;
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     struct wal_item *snap_item = NULL;
 
     if (seek_type == ITR_SEEK_PREV && iterator->direction != FDB_ITR_REVERSE) {
@@ -488,7 +488,7 @@ start:
             }
             // deletion check
             memset(&_doc, 0x0, sizeof(struct docio_object));
-            _offset = docio_read_doc_key_meta(dhandle, iterator->_offset,
+            _offset = dhandle->readDocKeyMeta_Docio(iterator->_offset,
                                               &_doc, true);
             if (_offset <= 0) { // read fail
                 continue; // get prev/next doc
@@ -743,9 +743,8 @@ fetch_hbtrie:
                    fetch_next) {
                 fetch_next = false;
                 memset(&_doc, 0x0, sizeof(struct docio_object));
-                _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
-                                                  iterator->_offset, &_doc,
-                                                  true);
+                _offset = iterator->handle->dhandle->readDocKeyMeta_Docio(
+                        iterator->_offset, &_doc, true);
                 if (_offset <= 0) { // read fail
                     fetch_next = true; // get next
                 } else if (_doc.length.flag & DOCIO_DELETED) { // deleted doc
@@ -788,9 +787,8 @@ fetch_hbtrie:
                    fetch_next) {
                 fetch_next = false;
                 memset(&_doc, 0x0, sizeof(struct docio_object));
-                _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
-                                                  iterator->_offset, &_doc,
-                                                  true);
+                _offset = iterator->handle->dhandle->readDocKeyMeta_Docio(
+                                    iterator->_offset, &_doc, true);
                 if (_offset <= 0) { // read fail
                     fetch_next = true; // get prev
                 } else if (_doc.length.flag & DOCIO_DELETED) { // deleted doc
@@ -1333,7 +1331,7 @@ static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator)
     btree_result br = BTREE_RESULT_FAIL;
     hbtrie_result hr;
     struct docio_object _doc;
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     struct wal_item *snap_item = NULL;
     fdb_seqnum_t seqnum;
     fdb_kvs_id_t kv_id;
@@ -1434,8 +1432,7 @@ start_seq:
         _doc.meta = NULL;
         _doc.body = NULL;
 
-        int64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
-                                                  true);
+        int64_t _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
         if (_offset <= 0) {
             return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -1476,8 +1473,8 @@ start_seq:
             _hbdoc.key = _doc.key;
             _hbdoc.meta = NULL;
             hboffset = _endian_decode(hboffset);
-            _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
-                                              hboffset, &_hbdoc, true);
+            _offset = iterator->handle->dhandle->readDocKeyMeta_Docio(
+                                 hboffset, &_hbdoc, true);
             if (_offset <= 0) {
                 free(_doc.key);
                 free(_doc.meta);
@@ -1511,7 +1508,7 @@ static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator)
     btree_result br = BTREE_RESULT_FAIL;
     hbtrie_result hr;
     struct docio_object _doc;
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     struct wal_item *snap_item = NULL;
     fdb_seqnum_t seqnum;
     fdb_kvs_id_t kv_id;
@@ -1622,8 +1619,7 @@ start_seq:
         _doc.body = NULL;
 
         fdb_doc doc_kv;
-        int64_t _offset = docio_read_doc_key_meta(dhandle, offset, &_doc,
-                                                  true);
+        int64_t _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
         if (_offset <= 0) {
             return _offset < 0 ? (fdb_status)_offset : FDB_RESULT_KEY_NOT_FOUND;
         }
@@ -1636,9 +1632,9 @@ start_seq:
         doc_kv.keylen = _doc.length.keylen;
         doc_kv.seqnum = SEQNUM_NOT_USED; // search by key not seqnum
         if (wal_find(iterator->handle->shandle->snap_txn,
-                    iterator->handle->file,
-                    &iterator->handle->shandle->cmp_info,
-                    iterator->handle->shandle,
+                     iterator->handle->file,
+                     &iterator->handle->shandle->cmp_info,
+                     iterator->handle->shandle,
                      &doc_kv, (uint64_t *) &_offset) == FDB_RESULT_SUCCESS &&
                 iterator->start_seqnum <= doc_kv.seqnum &&
                 doc_kv.seqnum <= iterator->end_seqnum) {
@@ -1662,9 +1658,10 @@ start_seq:
             _hbdoc.key = _doc.key;
             _hbdoc.meta = NULL;
             hboffset = _endian_decode(hboffset);
-            _offset = docio_read_doc_key_meta(iterator->handle->dhandle,
-                                              hboffset, &_hbdoc,
-                                              true);
+            _offset = iterator->handle->
+                                dhandle->readDocKeyMeta_Docio(hboffset,
+                                                                 &_hbdoc,
+                                                                 true);
             if (_offset <= 0) {
                 free(_doc.key);
                 free(_doc.meta);
@@ -1785,7 +1782,7 @@ fdb_status _fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc,
     struct docio_object _doc;
     fdb_status ret = FDB_RESULT_SUCCESS;
     uint64_t offset;
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     size_t size_chunk = iterator->handle->config.chunksize;
     bool alloced_key, alloced_meta, alloced_body;
     LATENCY_STAT_START();
@@ -1827,9 +1824,9 @@ fdb_status _fdb_iterator_get(fdb_iterator *iterator, fdb_doc **doc,
 
     int64_t _offset = 0;
     if (metaOnly) {
-        _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
+        _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
     } else {
-        _offset = docio_read_doc(dhandle, offset, &_doc, true);
+        _offset = dhandle->readDoc_Docio(offset, &_doc, true);
     }
 
     if (_offset <= 0) {

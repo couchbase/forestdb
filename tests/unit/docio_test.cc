@@ -44,7 +44,6 @@ void basic_test()
     uint32_t docsize;
     int r;
     int blocksize = 128;
-    struct docio_handle handle;
     struct filemgr *file;
     char keybuf[1024];
     char metabuf[1024];
@@ -55,8 +54,6 @@ void basic_test()
                          0x00, 0, 0);
     char *fname = (char *) "./docio_testfile";
 
-    handle.log_callback = NULL;
-
     doc.key = (void*)keybuf;
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
@@ -65,37 +62,37 @@ void basic_test()
     (void)r;
     filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
-    docio_init(&handle, file, false);
+    DocioHandle handle(file, false, NULL);
 
     docsize = _set_doc(&doc, (char *) "this_is_key", (char *) "this_is_metadata",
                        (char *) "this_is_body_lawiefjaawleif");
     (void)docsize;
-    offset = docio_append_doc(&handle, &doc, 0, 0);
+    offset = handle.appendDoc_Docio(&doc, 0, 0);
     (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "this_is_key2", (char *) "this_is_metadata2",
                        (char *) "hello_world");
     (void)docsize;
-    offset = docio_append_doc(&handle, &doc, 0, 0);
+    offset = handle.appendDoc_Docio(&doc, 0, 0);
     (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "key3", (char *) "a", (char *) "b");
     (void)docsize;
-    offset = docio_append_doc(&handle, &doc, 0, 0);
+    offset = handle.appendDoc_Docio(&doc, 0, 0);
     (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "key4", (char *) "a", (char *) "b");
     (void)docsize;
-    offset = docio_append_doc(&handle, &doc, 0, 0);
+    offset = handle.appendDoc_Docio(&doc, 0, 0);
     (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     docsize = _set_doc(&doc, (char *) "key5", (char *) "a", (char *) "b");
     (void)docsize;
-    offset = docio_append_doc(&handle, &doc, 0, 0);
+    offset = handle.appendDoc_Docio(&doc, 0, 0);
     (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
@@ -104,12 +101,12 @@ void basic_test()
     doc.length.bodylen = 190;
     docsize = 12 + 182;
     (void)docsize;
-    offset = docio_append_doc(&handle, &doc, 0, 0);
+    offset = handle.appendDoc_Docio(&doc, 0, 0);
     (void)offset;
     DBG("docsize %d written at %" _F64 "\n", docsize, offset);
 
     keylen_t keylen;
-    docio_read_doc_key(&handle, 81, &keylen, (void*)keybuf);
+    handle.readDocKey_Docio(81, &keylen, (void*)keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
     filemgr_commit(file, true, NULL);

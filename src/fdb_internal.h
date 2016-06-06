@@ -113,13 +113,13 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle);
 struct kvs_header;
 
 void fdb_kvs_header_read(struct kvs_header *kv_header,
-                         struct docio_handle *dhandle,
+                         DocioHandle *dhandle,
                          uint64_t kv_info_offset,
                          uint64_t version,
                          bool only_seq_nums);
 void fdb_kvs_header_copy(FdbKvsHandle *handle,
                          struct filemgr *new_file,
-                         struct docio_handle *new_dhandle,
+                         DocioHandle *new_dhandle,
                          uint64_t *new_file_kv_info_offset,
                          bool create_new);
 void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);

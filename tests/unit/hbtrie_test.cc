@@ -45,7 +45,7 @@ size_t _readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
     keylen_t keylen;
     offset = _endian_decode(offset);
-    docio_read_doc_key((struct docio_handle * )handle, offset, &keylen, buf);
+    ((DocioHandle * )handle)->readDocKey_Docio(offset, &keylen, buf);
     return keylen;
 }
 
@@ -65,7 +65,6 @@ void basic_test()
 
     int blocksize = 256;
     struct btreeblk_handle bhandle;
-    struct docio_handle dhandle;
     struct filemgr *file;
     HBTrie *trie;
     struct docio_object doc;
@@ -99,7 +98,7 @@ void basic_test()
     filemgr_open_result result = filemgr_open((char *) "./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
-    docio_init(&dhandle, file, false);
+    DocioHandle dhandle(file, false, NULL);
     btreeblk_init(&bhandle, file, blocksize);
 
     trie = new HBTrie(8, 8, blocksize, BLK_NOT_FOUND,
@@ -112,7 +111,7 @@ void basic_test()
         sprintf(body, "body_%03d", i);
         docsize = _set_doc(&doc, dockey, meta, body);
         TEST_CHK(docsize != 0);
-        offset = docio_append_doc(&dhandle, &doc, 0, 0);
+        offset = dhandle.appendDoc_Docio(&doc, 0, 0);
         _offset = _endian_encode(offset);
         trie->insert((void*)key[i], strlen(key[i]),
                       (void*)&_offset, (void*)&offset_old);
@@ -132,7 +131,7 @@ void basic_test()
 
                 memcpy(&offset, valuebuf, 8);
                 offset = _endian_decode(offset);
-                docio_read_doc(&dhandle, offset, &doc, true);
+                dhandle.readDoc_Docio(offset, &doc, true);
                 sprintf(meta, "metadata_%03d", i);
                 sprintf(body, "body_%03d", i);
                 TEST_CHK(!memcmp(doc.key, key[i], doc.length.keylen));
@@ -151,7 +150,7 @@ void basic_test()
         r = it->next((void*)keybuf, keylen, (void*)&offset);
         if (r==HBTRIE_RESULT_FAIL) break;
         offset = _endian_decode(offset);
-        docio_read_doc(&dhandle, offset, &doc, true);
+        dhandle.readDoc_Docio(offset, &doc, true);
         keybuf[keylen] = 0;
         DBG("%s\n", keybuf);
     }
@@ -188,7 +187,6 @@ void skew_basic_test()
 
     int blocksize = 256;
     struct btreeblk_handle bhandle;
-    struct docio_handle dhandle;
     struct filemgr *file;
     HBTrie *trie;
     FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t),
@@ -244,7 +242,7 @@ void skew_basic_test()
     filemgr_open_result result = filemgr_open((char*)"./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
-    docio_init(&dhandle, file, false);
+    DocioHandle dhandle(file, false, NULL);
     btreeblk_init(&bhandle, file, blocksize);
 
     trie = new HBTrie(8, 8, blocksize, BLK_NOT_FOUND,
@@ -367,7 +365,6 @@ void skew_basic_test()
     filemgr_commit(file, true, NULL);
 
     delete trie;
-    docio_free(&dhandle);
     btreeblk_free(&bhandle);
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();

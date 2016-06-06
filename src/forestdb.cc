@@ -86,21 +86,22 @@ size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
 {
     fdb_status fs;
     keylen_t keylen;
-    struct docio_handle *dhandle = (struct docio_handle*)handle;
+    DocioHandle *dhandle = reinterpret_cast<DocioHandle*>(handle);
 
     offset = _endian_decode(offset);
-    fs = docio_read_doc_key(dhandle, offset, &keylen, buf);
+    fs = dhandle->readDocKey_Docio(offset, &keylen, buf);
     if (fs == FDB_RESULT_SUCCESS) {
         return keylen;
     } else {
-        const char *msg = "docio_read_doc_key error: read failure on "
+        const char *msg = "readDocKey_Docio error: read failure on "
             "offset %" _F64 " in a database file '%s' "
             ": FDB status %d, lastbid 0x%" _X64 ", "
             "curblock 0x%" _X64 ", curpos 0x%x\n";
         fdb_log(NULL, FDB_RESULT_READ_FAIL, msg, offset,
-                dhandle->file->filename, fs, dhandle->lastbid,
-                dhandle->curblock, dhandle->curpos);
-        dbg_print_buf(dhandle->readbuffer, dhandle->file->blocksize, true, 16);
+                dhandle->getFile()->filename, fs, dhandle->getLastBid(),
+                dhandle->getCurBlock(), dhandle->getCurPos());
+        dbg_print_buf(dhandle->getReadBuffer(), dhandle->getFile()->blocksize,
+                      true, 16);
         return 0;
     }
 }
@@ -110,16 +111,15 @@ size_t _fdb_readseq_wrap(void *handle, uint64_t offset, void *buf)
     int size_id, size_seq, size_chunk;
     fdb_seqnum_t _seqnum;
     struct docio_object doc;
-    struct docio_handle *dhandle = (struct docio_handle *)handle;
+    DocioHandle *dhandle = reinterpret_cast<DocioHandle *>(handle);
 
     size_id = sizeof(fdb_kvs_id_t);
     size_seq = sizeof(fdb_seqnum_t);
-    size_chunk = dhandle->file->config->getChunkSize();
+    size_chunk = dhandle->getFile()->config->getChunkSize();
     memset(&doc, 0, sizeof(struct docio_object));
 
     offset = _endian_decode(offset);
-    if (docio_read_doc_key_meta((struct docio_handle *)handle, offset,
-                                &doc, true) <= 0) {
+    if (dhandle->readDocKeyMeta_Docio(offset, &doc, true) <= 0) {
         return 0;
     }
     buf2buf(size_chunk, doc.key, size_id, buf);
@@ -337,13 +337,13 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
     }
 
     // Temporarily disable the error logging callback as there are false positive
-    // checksum errors in docio_read_doc.
-    // TODO: Need to adapt docio_read_doc to separate false checksum errors.
+    // checksum errors in readDoc_Docio.
+    // TODO: Need to adapt readDoc_Docio to separate false checksum errors.
     ErrLogCallback dummy_cb;
-    log_callback = handle->dhandle->log_callback;
+    log_callback = handle->dhandle->getLogCallback();
     dummy_cb.setCallback(fdb_dummy_log_callback);
     dummy_cb.setCtxData(NULL);
-    handle->dhandle->log_callback = &dummy_cb;
+    handle->dhandle->setLogCallback(&dummy_cb);
 
     if (!handle->shandle) {
         filemgr_mutex_lock(file);
@@ -392,7 +392,7 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
             doc_scan_limit = filesize;
         }
 
-        if (!docio_check_buffer(handle->dhandle, offset / blocksize,
+        if (!handle->dhandle->checkBuffer_Docio(offset / blocksize,
                                 cur_bmp_revnum)) {
             // not a document block .. move to next block
         } else {
@@ -401,7 +401,7 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
                 int64_t _offset;
                 uint64_t doc_offset;
                 memset(&doc, 0, sizeof(doc));
-                _offset = docio_read_doc(handle->dhandle, offset, &doc, true);
+                _offset = handle->dhandle->readDoc_Docio(offset, &doc, true);
                 if (_offset <= 0) { // reached unreadable doc, skip block
                     // TODO: Need to have this function return fdb_status, so that
                     // WAL restore operation should fail if offset < 0
@@ -432,7 +432,8 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
                             // commit mark .. read doc offset
                             doc_offset = doc.doc_offset;
                             // read the previously skipped doc
-                            if (docio_read_doc(handle->dhandle, doc_offset, &doc, true) <= 0) {
+                            if (handle->dhandle->readDoc_Docio(doc_offset,
+                                        &doc, true) <= 0) {
                                 // doc read error
                                 free(doc.key);
                                 free(doc.meta);
@@ -553,7 +554,7 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
         wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
         filemgr_mutex_unlock(file);
     }
-    handle->dhandle->log_callback = log_callback;
+    handle->dhandle->setLogCallback(log_callback);
 }
 
 INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
@@ -596,8 +597,8 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
         free(handle->bhandle);
         handle->bhandle = new_db.bhandle;
 
-        docio_free(handle->dhandle);
-        free(handle->dhandle);
+        delete handle->dhandle;
+
         handle->dhandle = new_db.dhandle;
 
         delete handle->trie;
@@ -1476,11 +1477,9 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
     handle_out->filename = handle_in->filename;
 
     // initialize the docio handle.
-    handle_out->dhandle = (struct docio_handle *)
-        calloc(1, sizeof(struct docio_handle));
-    handle_out->dhandle->log_callback = &handle_out->log_callback;
-    docio_init(handle_out->dhandle, handle_out->file,
-               handle_out->config.compress_document_body);
+    handle_out->dhandle = new DocioHandle(handle_out->file,
+                              handle_out->config.compress_document_body,
+                              &handle_out->log_callback);
 
     // initialize the btree block handle.
     handle_out->btreeblkops = btreeblk_get_ops();
@@ -1668,18 +1667,15 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
     }
 
     // initialize the docio handle so kv headers may be read
-    handle->dhandle = (struct docio_handle *)
-                      calloc(1, sizeof(struct docio_handle));
-    handle->dhandle->log_callback = &handle->log_callback;
-    docio_init(handle->dhandle, handle->file, config->compress_document_body);
+    handle->dhandle = new DocioHandle(handle->file, config->compress_document_body,
+                                      &handle->log_callback);
 
     // fetch previous superblock bitmap info if exists
     // (this should be done after 'handle->dhandle' is initialized)
     if (handle->file->sb) {
         status = sb_bmp_fetch_doc(handle);
         if (status != FDB_RESULT_SUCCESS) {
-            docio_free(handle->dhandle);
-            free(handle->dhandle);
+            delete handle->dhandle;
             filemgr_close(handle->file, false, NULL,
                               &handle->log_callback);
             return status;
@@ -1839,8 +1835,8 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
 
                 _fdb_kvs_header_create(&kv_header);
                 memset(&doc, 0, sizeof(struct docio_object));
-                doc_offset = docio_read_doc(handle->dhandle,
-                                            kv_info_offset, &doc, true);
+                doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset,
+                                                             &doc, true);
 
                 if (doc_offset <= 0) {
                     header_len = 0; // fail
@@ -1894,8 +1890,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                     _kvs_stat_get(handle->file, 0, &stat_ori);
                 }
 
-                docio_free(handle->dhandle);
-                free(handle->dhandle);
+                delete handle->dhandle;
                 free(prev_filename);
                 filemgr_close(handle->file, false, NULL,
                               &handle->log_callback);
@@ -1918,8 +1913,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                 if (seqnum) {
                     // Database currently has a non-zero seq number,
                     // but the snapshot was requested with a seq number zero.
-                    docio_free(handle->dhandle);
-                    free(handle->dhandle);
+                    delete handle->dhandle;
                     free(prev_filename);
                     filemgr_close(handle->file, false, NULL,
                                   &handle->log_callback);
@@ -1987,8 +1981,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         if (handle == handle->fhandle->getRootHandle()) {
             fdb_status fs = fdb_kvs_cmp_check(handle);
             if (fs != FDB_RESULT_SUCCESS) { // cmp function mismatch
-                docio_free(handle->dhandle);
-                free(handle->dhandle);
+                delete handle->dhandle;
                 btreeblk_free(handle->bhandle);
                 free(handle->bhandle);
                 filemgr_close(handle->file, false, NULL,
@@ -2334,7 +2327,7 @@ fdb_status fdb_doc_free(fdb_doc *doc)
 INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
                                         struct wal_item *item)
 {
-    FdbKvsHandle *handle = (FdbKvsHandle *)voidhandle;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
     uint64_t old_offset = 0;
 
     if (item->action == WAL_ACT_REMOVE) {
@@ -2420,7 +2413,7 @@ INLINE void _fdb_wal_flush_seq_purge(void *dbhandle,
     struct wal_kvs_delta_stat *delta_stat;
     struct wal_kvs_delta_stat kvs_delta_query;
 
-    FdbKvsHandle *handle = (FdbKvsHandle *)dbhandle;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
     struct avl_node *node = avl_first(stale_seqnum_list);
     while (node) {
         seq_entry = _get_entry(node, struct wal_stale_seq_entry, avl_entry);
@@ -2487,7 +2480,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
                                       struct avl_tree *kvs_delta_stats)
 {
     hbtrie_result hr;
-    FdbKvsHandle *handle = (FdbKvsHandle *)voidhandle;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
     fdb_seqnum_t _seqnum;
     fdb_kvs_id_t kv_id = 0;
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -2498,7 +2491,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
     int64_t _offset;
     int64_t delta;
     struct docio_object _doc;
-    struct filemgr *file = handle->dhandle->file;
+    struct filemgr *file = handle->dhandle->getFile();
 
     memset(var_key, 0, handle->config.chunksize);
     if (handle->kvs) {
@@ -2583,7 +2576,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
             char dummy_key[FDB_MAX_KEYLEN];
             _doc.meta = _doc.body = NULL;
             _doc.key = &dummy_key;
-            _offset = docio_read_doc_key_meta(handle->dhandle, old_offset,
+            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
                                               &_doc, true);
             if (_offset < 0) {
                 return (fdb_status) _offset;
@@ -2640,7 +2633,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
             char dummy_key[FDB_MAX_KEYLEN];
             _doc.meta = _doc.body = NULL;
             _doc.key = &dummy_key;
-            _offset = docio_read_doc_key_meta(handle->dhandle, old_offset,
+            _offset = handle->dhandle->readDocKeyMeta_Docio(old_offset,
                                               &_doc, true);
             if (_offset < 0) {
                 return (fdb_status) _offset;
@@ -2887,7 +2880,7 @@ fdb_status _fdb_get(FdbKvsHandle *handle, fdb_doc *doc,
 {
     uint64_t offset;
     struct docio_object _doc;
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     struct filemgr *wal_file = NULL;
     struct _fdb_key_cmp_info cmp_info;
     fdb_status wr;
@@ -2995,9 +2988,9 @@ fdb_status _fdb_get(FdbKvsHandle *handle, fdb_doc *doc,
 
         int64_t _offset = 0;
         if (metaOnly) {
-            _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
+            _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
         } else {
-            _offset = docio_read_doc(dhandle, offset, &_doc, true);
+            _offset = dhandle->readDoc_Docio(offset, &_doc, true);
         }
 
         if (_offset <= 0) {
@@ -3053,7 +3046,7 @@ fdb_status _fdb_get_byseq(FdbKvsHandle *handle,
 {
     uint64_t offset;
     struct docio_object _doc;
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     struct filemgr *wal_file = NULL;
     fdb_status wr;
     btree_result br = BTREE_RESULT_FAIL;
@@ -3165,9 +3158,9 @@ fdb_status _fdb_get_byseq(FdbKvsHandle *handle,
 
         int64_t _offset = 0;
         if (metaOnly) {
-            _offset = docio_read_doc_key_meta(dhandle, offset, &_doc, true);
+            _offset = dhandle->readDocKeyMeta_Docio(offset, &_doc, true);
         } else {
-            _offset = docio_read_doc(dhandle, offset, &_doc, true);
+            _offset = dhandle->readDoc_Docio(offset, &_doc, true);
         }
 
         if (_offset <= 0) {
@@ -3292,7 +3285,7 @@ fdb_status fdb_get_byoffset(FdbKvsHandle *handle, fdb_doc *doc)
     handle->op_stats->num_gets++;
     memset(&_doc, 0, sizeof(struct docio_object));
 
-    int64_t _offset = docio_read_doc(handle->dhandle, offset, &_doc, true);
+    int64_t _offset = handle->dhandle->readDoc_Docio(offset, &_doc, true);
     if (_offset <= 0 || !_doc.key || (_doc.length.flag & DOCIO_TXN_COMMITTED)) {
         cond = 1;
         handle->handle_busy.compare_exchange_strong(cond, 0);
@@ -3372,7 +3365,7 @@ fdb_status fdb_set(FdbKvsHandle *handle, fdb_doc *doc)
     uint64_t offset;
     struct docio_object _doc;
     struct filemgr *file;
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     struct timeval tv;
     bool txn_enabled = false;
     bool sub_handle = false;
@@ -3508,7 +3501,7 @@ fdb_set_start:
         txn_enabled = true;
     }
 
-    offset = docio_append_doc(dhandle, &_doc, doc->deleted, txn_enabled);
+    offset = dhandle->appendDoc_Docio(&_doc, doc->deleted, txn_enabled);
     if (offset == BLK_NOT_FOUND) {
         filemgr_mutex_unlock(file);
         cond = 1;
@@ -3870,11 +3863,11 @@ char *_fdb_redirect_header(struct filemgr *old_file, uint8_t *buf,
 static fdb_status _fdb_append_commit_mark(void *voidhandle, uint64_t offset)
 {
     uint64_t marker_offset;
-    FdbKvsHandle *handle = (FdbKvsHandle *)voidhandle;
-    struct docio_handle *dhandle;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
+    DocioHandle *dhandle;
 
     dhandle = handle->dhandle;
-    marker_offset = docio_append_commit_mark(dhandle, offset);
+    marker_offset = dhandle->appendCommitMark_Docio(offset);
     if (marker_offset == BLK_NOT_FOUND) {
         return FDB_RESULT_WRITE_FAIL;
     }
@@ -4317,7 +4310,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
                                      HBTrie *new_seqtrie,
                                      struct btree *new_seqtree,
                                      struct btree *new_staletree,
-                                     struct docio_handle *new_dhandle,
+                                     DocioHandle *new_dhandle,
                                      struct btreeblk_handle *new_bhandle)
 {
     struct timeval tv;
@@ -4346,9 +4339,9 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
         offset = (start_bid + 1) * blocksize;
     }
 
-    // TODO: Need to adapt docio_read_doc to separate false checksum errors.
-    log_callback = handle->dhandle->log_callback;
-    handle->dhandle->log_callback = NULL;
+    // TODO: Need to adapt readDoc_Docio to separate false checksum errors.
+    log_callback = handle->dhandle->getLogCallback();
+    handle->dhandle->setLogCallback(NULL);
     cmp_info.kvs_config = handle->kvs_config;
     cmp_info.kvs = handle->kvs;
 
@@ -4368,7 +4361,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
             doc_scan_limit = filesize;
         }
 
-        if (!docio_check_buffer(handle->dhandle, offset / blocksize,
+        if (!handle->dhandle->checkBuffer_Docio(offset / blocksize,
                                 cur_bmp_revnum)) {
             // not a document block .. move to next block
         } else {
@@ -4379,7 +4372,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
                 struct docio_object doc;
                 int64_t _offset;
                 memset(&doc, 0, sizeof(doc));
-                _offset = docio_read_doc(handle->dhandle, offset, &doc, true);
+                _offset = handle->dhandle->readDoc_Docio(offset, &doc, true);
                 if (_offset < 0) {
                     // Read error
                     free(doc.key);
@@ -4416,7 +4409,8 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
                 }
                 if (doc.length.flag & DOCIO_TXN_COMMITTED) {
                     // commit mark .. read the previously skipped doc
-                    _offset = docio_read_doc(handle->dhandle, doc.doc_offset, &doc, true);
+                    _offset = handle->dhandle->readDoc_Docio(doc.doc_offset,
+                                                              &doc, true);
                     if (_offset <= 0) { // doc read error
                         // Should terminate the compaction
                         free(doc.key);
@@ -4499,7 +4493,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
                 }
                 if (decision == FDB_CS_KEEP_DOC) {
                     // Re-Write Document to new_file based on decision above
-                    new_offset = docio_append_doc(new_dhandle, &doc, deleted, 0);
+                    new_offset = new_dhandle->appendDoc_Docio(&doc, deleted, 0);
                     if (new_offset == BLK_NOT_FOUND) {
                         free(doc.key);
                         free(doc.meta);
@@ -4560,7 +4554,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
         wal_release_flushed_items(new_file, &flush_items);
     }
 
-    handle->dhandle->log_callback = log_callback;
+    handle->dhandle->setLogCallback(log_callback);
     return fs;
 }
 
@@ -4655,7 +4649,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
                                           HBTrie *new_seqtrie,
                                           struct btree *new_seqtree,
                                           struct btree *new_staletree,
-                                          struct docio_handle *new_dhandle,
+                                          DocioHandle *new_dhandle,
                                           struct btreeblk_handle *new_bhandle,
                                           size_t *prob)
 {
@@ -4762,7 +4756,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
             qsort(offset_array, c, sizeof(uint64_t), _fdb_cmp_uint64_t);
 
             size_t num_batch_reads =
-            docio_batch_read_docs(handle->dhandle, &offset_array[0],
+            handle->dhandle->batchReadDocs_Docio(&offset_array[0],
                     _doc, c, FDB_COMP_MOVE_UNIT,
                     (size_t) (-1), // We are not reading the value portion
                     aio_handle_ptr, true);
@@ -4773,7 +4767,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
             src_bid = offset_array[0] / blocksize;
             contiguous_bid = src_bid;
             clone_len = 0;
-            docio_reset(new_dhandle);
+            new_dhandle->reset_Docio();
             dst_bid = filemgr_get_pos(new_file) / blocksize;
             if (filemgr_get_pos(new_file) % blocksize) {
                 dst_bid = dst_bid + 1; // adjust to start of next block
@@ -4992,7 +4986,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
                                          HBTrie *new_seqtrie,
                                          struct btree *new_seqtree,
                                          struct btree *new_staletree,
-                                         struct docio_handle *new_dhandle,
+                                         DocioHandle *new_dhandle,
                                          struct btreeblk_handle *new_bhandle,
                                          size_t *prob,
                                          bool clone_docs)
@@ -5134,7 +5128,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
                 // === read docs from the old file ===
                 size_t start_idx = i;
                 size_t num_batch_reads =
-                    docio_batch_read_docs(handle->dhandle, &offset_array[start_idx],
+                    handle->dhandle->batchReadDocs_Docio(&offset_array[start_idx],
                                           doc, c - start_idx,
                                           FDB_COMP_MOVE_UNIT, FDB_COMP_BATCHSIZE,
                                           aio_handle_ptr, false);
@@ -5201,7 +5195,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
                         }
                     }
                     if (decision == FDB_CS_KEEP_DOC) {
-                        new_offset = docio_append_doc(new_dhandle, &doc[j],
+                        new_offset = new_dhandle->appendDoc_Docio(&doc[j],
                                                       deleted, 0);
                         old_offset = offset_array[start_idx + j];
 
@@ -5340,7 +5334,7 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
                                    HBTrie *new_seqtrie,
                                    struct btree *new_seqtree,
                                    struct btree *new_staletree,
-                                   struct docio_handle *new_dhandle,
+                                   DocioHandle *new_dhandle,
                                    struct btreeblk_handle *new_bhandle,
                                    bid_t marker_bid,
                                    bid_t last_hdr_bid,
@@ -5579,7 +5573,7 @@ INLINE void _fdb_clone_batched_delta(FdbKvsHandle *handle,
             if (fs != FDB_RESULT_SUCCESS) {
                 break;
             }
-            docio_reset(new_handle->dhandle);
+            new_handle->dhandle->reset_Docio();
             dst_bid = dst_bid + 1 + clone_len;
 
             // reset start block id, contiguous bid & len for
@@ -5645,7 +5639,7 @@ INLINE void _fdb_clone_batched_delta(FdbKvsHandle *handle,
 
     // copy out the last set of contiguous blocks
     filemgr_copy_file_range(file, new_file, src_bid, dst_bid, 1 + clone_len);
-    docio_reset(new_handle->dhandle);
+    new_handle->dhandle->reset_Docio();
 
     if (!got_lock) {
         // We intentionally try to slow down the normal writer if
@@ -5775,7 +5769,7 @@ INLINE void _fdb_append_batched_delta(FdbKvsHandle *handle,
         }
         if (decision == FDB_CS_KEEP_DOC) {
             // append into the new file
-            doc_offset = docio_append_doc(new_handle->dhandle, &doc[i],
+            doc_offset = new_handle->dhandle->appendDoc_Docio(&doc[i],
                                         doc[i].length.flag & DOCIO_DELETED, 0);
         } else {
             doc_offset = BLK_NOT_FOUND;
@@ -5839,7 +5833,7 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
                                           HBTrie *new_seqtrie,
                                           struct btree *new_seqtree,
                                           struct btree *new_staletree,
-                                          struct docio_handle *new_dhandle,
+                                          DocioHandle *new_dhandle,
                                           struct btreeblk_handle *new_bhandle,
                                           bid_t begin_hdr, bid_t end_hdr,
                                           bool compact_upto,
@@ -5881,8 +5875,8 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
     }
 
     // Temporarily disable log callback function
-    log_callback = handle->dhandle->log_callback;
-    handle->dhandle->log_callback = NULL;
+    log_callback = handle->dhandle->getLogCallback();
+    handle->dhandle->setLogCallback(NULL);
 
     gettimeofday(&tv, NULL);
     cur_timestamp = tv.tv_sec;
@@ -5938,10 +5932,11 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
             doc_scan_limit = file_limit;
         }
 
-        if (!docio_check_buffer(handle->dhandle, offset / blocksize,
+        if (!handle->dhandle->checkBuffer_Docio(offset / blocksize,
                                 cur_bmp_revnum)) {
             if (compact_upto &&
-                filemgr_is_commit_header(handle->dhandle->readbuffer, blocksize)) {
+                filemgr_is_commit_header(handle->dhandle->getReadBuffer(),
+                                         blocksize)) {
                 // Read the KV sequence numbers from the old file's commit header
                 // and copy them into the new_file.
                 size_t len = 0;
@@ -6036,7 +6031,7 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
             ErrLogCallback *original_cb;
             ErrLogCallback dummy_cb;
 
-            original_cb = handle->dhandle->log_callback;
+            original_cb = handle->dhandle->getLogCallback();
             dummy_cb.setCallback(fdb_dummy_log_callback);
             dummy_cb.setCtxData(NULL);
 
@@ -6048,12 +6043,12 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
                 if (first_doc_in_block) {
                     // if we read this doc block first time (offset 0),
                     // checksum error should be tolerable.
-                    handle->dhandle->log_callback = &dummy_cb;
+                    handle->dhandle->setLogCallback(&dummy_cb);
                 } else {
-                    handle->dhandle->log_callback = original_cb;
+                    handle->dhandle->setLogCallback(original_cb);
                 }
 
-                _offset = docio_read_doc(handle->dhandle, offset, &doc[c], true);
+                _offset = handle->dhandle->readDoc_Docio(offset, &doc[c], true);
                 if (_offset < 0) {
                     // Read error
 
@@ -6125,7 +6120,7 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
                             // commit mark .. read doc offset
                             doc_offset = doc[c].doc_offset;
                             // read the previously skipped doc
-                            _offset = docio_read_doc(handle->dhandle, doc_offset,
+                            _offset = handle->dhandle->readDoc_Docio(doc_offset,
                                                      &doc[c], true);
                             if (_offset <= 0) { // doc read error
                                 // Should terminate the compaction
@@ -6258,7 +6253,7 @@ move_delta_next_loop:
         handle->handle_busy.compare_exchange_strong(cond, 1);
     }
 
-    handle->dhandle->log_callback = log_callback;
+    handle->dhandle->setLogCallback(log_callback);
 
     free(doc);
     free(old_offset_array);
@@ -6275,15 +6270,15 @@ static int64_t _fdb_doc_move(void *dbhandle,
     uint8_t deleted;
     uint64_t new_offset;
     int64_t _offset;
-    FdbKvsHandle *handle = (FdbKvsHandle*)dbhandle;
-    struct docio_handle *new_dhandle = (struct docio_handle*)void_new_dhandle;
+    FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle*>(dbhandle);
+    DocioHandle *new_dhandle = reinterpret_cast<DocioHandle*>(void_new_dhandle);
     struct docio_object doc;
 
     // read doc from old file
     doc.key = NULL;
     doc.meta = NULL;
     doc.body = NULL;
-    _offset = docio_read_doc(handle->dhandle, item->offset, &doc, true);
+    _offset = handle->dhandle->readDoc_Docio(item->offset, &doc, true);
     if (_offset <= 0) {
         return _offset;
     }
@@ -6301,7 +6296,7 @@ static int64_t _fdb_doc_move(void *dbhandle,
     fdoc->size_ondisk= _fdb_get_docsize(doc.length);
     fdoc->deleted = deleted;
 
-    new_offset = docio_append_doc(new_dhandle, &doc, deleted, 1);
+    new_offset = new_dhandle->appendDoc_Docio(&doc, deleted, 1);
     return new_offset;
 }
 
@@ -6353,7 +6348,7 @@ static void _fdb_cleanup_compact_err(FdbKvsHandle *handle,
                                      bool cleanup_cache,
                                      bool got_lock,
                                      struct btreeblk_handle *new_bhandle,
-                                     struct docio_handle *new_dhandle,
+                                     DocioHandle *new_dhandle,
                                      HBTrie *new_trie,
                                      HBTrie *new_seqtrie,
                                      struct btree *new_seqtree,
@@ -6369,8 +6364,7 @@ static void _fdb_cleanup_compact_err(FdbKvsHandle *handle,
     // Free all the resources allocated in this function.
     btreeblk_free(new_bhandle);
     free(new_bhandle);
-    docio_free(new_dhandle);
-    free(new_dhandle);
+    delete new_dhandle;
     delete new_trie;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
@@ -6386,7 +6380,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
 {
     FileMgrConfig fconfig;
     struct btreeblk_handle *new_bhandle;
-    struct docio_handle *new_dhandle;
+    DocioHandle *new_dhandle;
     HBTrie *new_trie = NULL;
     struct btree *new_seqtree = NULL, *old_seqtree;
     struct btree *new_staletree = NULL, *old_staletree;
@@ -6406,15 +6400,13 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
     new_bhandle->log_callback = &handle->log_callback;
-    new_dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
+    new_dhandle = new DocioHandle(handle->file,
+                                  handle->config.compress_document_body,
+                                  &handle->log_callback);
     if (!new_dhandle) { // LCOV_EXCL_START
         free(new_bhandle);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
-    new_dhandle->log_callback = &handle->log_callback;
-
-    docio_init(new_dhandle, handle->file,
-               handle->config.compress_document_body);
     btreeblk_init(new_bhandle, handle->file, handle->file->blocksize);
 
     new_trie = new HBTrie(handle->trie->getChunkSize(), handle->trie->getValueLen(),
@@ -6423,7 +6415,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
                 (void*)new_dhandle, _fdb_readkey_wrap);
     if (!new_trie) { // LCOV_EXCL_START
         free(new_bhandle);
-        free(new_dhandle);
+        delete new_dhandle;
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
@@ -6441,7 +6433,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
                         (void *)new_dhandle, _fdb_readseq_wrap);
             if (!new_seqtrie) { // LCOV_EXCL_START
                 free(new_bhandle);
-                free(new_dhandle);
+                delete new_dhandle;
                 delete new_trie;
                 return FDB_RESULT_ALLOC_FAIL;
             } // LCOV_EXCL_STOP
@@ -6453,7 +6445,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
             seq_kv_ops->cmp = _cmp_uint64_t_endian_safe;
             if (!seq_kv_ops) { // LCOV_EXCL_START
                 free(new_bhandle);
-                free(new_dhandle);
+                delete new_dhandle;
                 delete new_trie;
                 return FDB_RESULT_ALLOC_FAIL;
             } // LCOV_EXCL_STOP
@@ -6461,7 +6453,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
             new_seqtree = (struct btree *)calloc(1, sizeof(struct btree));
             if (!new_seqtree) { // LCOV_EXCL_START
                 free(new_bhandle);
-                free(new_dhandle);
+                delete new_dhandle;
                 delete new_trie;
                 free(seq_kv_ops);
                 return FDB_RESULT_ALLOC_FAIL;
@@ -6481,7 +6473,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
             (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
         if (!stale_kv_ops) { // LCOV_EXCL_START
             free(new_bhandle);
-            free(new_dhandle);
+            delete new_dhandle;
             delete new_trie;
             delete new_seqtrie;
             free(new_seqtree);
@@ -6528,7 +6520,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     if (result.rv != FDB_RESULT_SUCCESS) { // LCOV_EXCL_START
         filemgr_mutex_unlock(handle->file);
         free(new_bhandle);
-        free(new_dhandle);
+        delete new_dhandle;
         delete new_trie;
         delete handle->seqtrie;
         free(new_seqtree);
@@ -6548,7 +6540,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
 fdb_status _fdb_compact_file(FdbKvsHandle *handle,
                              struct filemgr *new_file,
                              struct btreeblk_handle *new_bhandle,
-                             struct docio_handle *new_dhandle,
+                             DocioHandle *new_dhandle,
                              HBTrie *new_trie,
                              HBTrie *new_seqtrie,
                              struct btree *new_seqtree,
@@ -6566,7 +6558,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     struct filemgr *new_file;
     FileMgrConfig fconfig;
     struct btreeblk_handle *new_bhandle;
-    struct docio_handle *new_dhandle;
+    DocioHandle *new_dhandle;
     HBTrie *new_trie = NULL;
     struct btree *new_seqtree = NULL, *old_seqtree;
     struct btree *new_staletree = NULL;
@@ -6620,10 +6612,9 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     // create new hb-trie and related handles
     new_bhandle = (struct btreeblk_handle *)calloc(1, sizeof(struct btreeblk_handle));
     new_bhandle->log_callback = &handle->log_callback;
-    new_dhandle = (struct docio_handle *)calloc(1, sizeof(struct docio_handle));
-    new_dhandle->log_callback = &handle->log_callback;
-
-    docio_init(new_dhandle, new_file, handle->config.compress_document_body);
+    new_dhandle = new DocioHandle(new_file,
+                                  handle->config.compress_document_body,
+                                  &handle->log_callback);
     btreeblk_init(new_bhandle, new_file, new_file->blocksize);
 
     new_trie = new HBTrie(handle->trie->getChunkSize(), handle->trie->getValueLen(),
@@ -6685,7 +6676,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
 fdb_status _fdb_compact_file(FdbKvsHandle *handle,
                              struct filemgr *new_file,
                              struct btreeblk_handle *new_bhandle,
-                             struct docio_handle *new_dhandle,
+                             DocioHandle *new_dhandle,
                              HBTrie *new_trie,
                              HBTrie *new_seqtrie,
                              struct btree *new_seqtree,
@@ -6964,8 +6955,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     free(handle->bhandle);
     handle->bhandle = new_bhandle;
 
-    docio_free(handle->dhandle);
-    free(handle->dhandle);
+    delete handle->dhandle;
     handle->dhandle = new_dhandle;
 
     delete handle->trie;
@@ -7295,7 +7285,6 @@ fdb_status _fdb_close(FdbKvsHandle *handle)
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
-    docio_free(handle->dhandle);
     delete handle->trie;
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -7314,7 +7303,7 @@ fdb_status _fdb_close(FdbKvsHandle *handle)
     }
 
     free(handle->bhandle);
-    free(handle->dhandle);
+    delete handle->dhandle;
 
     return fs;
 }
@@ -7522,7 +7511,7 @@ size_t fdb_estimate_space_used_from(fdb_file_handle *fhandle,
                 int64_t doc_offset;
                 struct docio_object doc;
                 memset(&doc, 0, sizeof(struct docio_object));
-                doc_offset = docio_read_doc(handle->dhandle, kv_info_offset,
+                doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset,
                                             &doc, true);
                 if (doc_offset <= 0) {
                     fdb_log(&handle->log_callback, (fdb_status) doc_offset,
@@ -7729,8 +7718,8 @@ fdb_status fdb_get_all_snap_markers(fdb_file_handle *fhandle,
             int64_t doc_offset;
             struct docio_object doc;
             memset(&doc, 0, sizeof(struct docio_object));
-            doc_offset = docio_read_doc(handle->dhandle, kv_info_offset, &doc,
-                                        true);
+            doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset, &doc,
+                                                         true);
             if (doc_offset <= 0) {
                 fdb_free_snap_markers(markers, i);
                 return doc_offset < 0 ? (fdb_status) doc_offset : FDB_RESULT_READ_FAIL;
@@ -7992,14 +7981,14 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
 
     fprintf(stderr, "docio_handle: %p\n", (void*)h->dhandle);
     fprintf(stderr, "dhandle: file: filename %s\n",
-            h->dhandle->file->filename);
-    fprintf(stderr, "dhandle: curblock %" _F64 "\n", h->dhandle->curblock);
-    fprintf(stderr, "dhandle: curpos %d\n", h->dhandle->curpos);
-    fprintf(stderr, "dhandle: cur_bmp_revnum_hash %d\n", h->dhandle->cur_bmp_revnum_hash);
-    fprintf(stderr, "dhandle: lastbid %" _F64 "\n", h->dhandle->lastbid);
-    fprintf(stderr, "dhandle: readbuffer %p\n", h->dhandle->readbuffer);
+            h->dhandle->getFile()->filename);
+    fprintf(stderr, "dhandle: curblock %" _F64 "\n", h->dhandle->getCurBlock());
+    fprintf(stderr, "dhandle: curpos %d\n", h->dhandle->getCurPos());
+    fprintf(stderr, "dhandle: cur_bmp_revnum_hash %d\n", h->dhandle->getCurBmpRevnumHash());
+    fprintf(stderr, "dhandle: lastbid %" _F64 "\n", h->dhandle->getLastBid());
+    fprintf(stderr, "dhandle: readbuffer %p\n", h->dhandle->getReadBuffer());
     fprintf(stderr, "dhandle: %s\n",
-           h->dhandle->compress_document_body ? "compress" : "don't compress");
+           h->dhandle->isDocBodyCompressed()? "compress" : "don't compress");
     fprintf(stderr, "new_dhandle %p\n", (void *)h->dhandle);
 
     fprintf(stderr, "btreeblk_handle bhanlde %p\n", (void *)h->bhandle);

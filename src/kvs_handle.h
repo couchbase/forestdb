@@ -101,7 +101,7 @@ public:
     /**
      * Doc IO handle instance.
      */
-    struct docio_handle *dhandle;
+    DocioHandle *dhandle;
     /**
      * B+-Tree handle instance.
      */

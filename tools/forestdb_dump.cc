@@ -108,13 +108,13 @@ void print_doc(fdb_kvs_handle *db,
 
     memset(&doc, 0, sizeof(struct docio_object));
 
-    _offset = docio_read_doc(db->dhandle, offset, &doc, true);
+    _offset = db->dhandle->readDoc_Docio(offset, &doc, true);
     if (_offset <= 0) {
         return;
     }
     if (doc.length.flag & DOCIO_TXN_COMMITTED) {
         offset = doc.doc_offset;
-        _offset = docio_read_doc(db->dhandle, offset, &doc, true);
+        _offset = db->dhandle->readDoc_Docio(offset, &doc, true);
         if (_offset <= 0) {
             return;
         }

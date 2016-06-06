@@ -28,16 +28,214 @@ extern "C" {
 typedef uint16_t keylen_t;
 typedef uint32_t timestamp_t;
 
-struct docio_handle {
-    struct filemgr *file;
+class DocioHandle {
+public:
+    DocioHandle(struct filemgr *file, bool compress_body,
+                ErrLogCallback *log_callback);
+    ~DocioHandle();
+
+    /**
+     * Directly append a docio_object buffer to disk
+     *
+     * @Param size - size of buffer to be appended
+     * @param buf - actual buffer to be appended to disk
+     * @return new final offset on completion
+     */
+    bid_t appendDocRaw_Docio(uint64_t size, void *buf);
+
+    /**
+     * Append a system doc with commit info for transactional commits
+     * @param doc_offset - the offset into file to append the commit mark doc
+     * @return - return offset indicating end point of appended doc
+     */
+    bid_t appendCommitMark_Docio(uint64_t doc_offset);
+
+    /**
+     * Append a doc into the document blocks of the file
+     * @param doc - the doc to be persisted
+     * @param deleted - is the doc deleted
+     * @param txn_enabled - is it an uncommitted transactional doc
+     * @return - return offset indicating end point of appended doc
+     */
+    bid_t appendDoc_Docio(struct docio_object *doc,
+                          uint8_t deleted, uint8_t txn_enabled);
+
+    /**
+     * Append a system doc into the document blocks of the file
+     * @param doc - the doc to be persisted
+     * @return - return offset indicating end point of appended doc
+     */
+    bid_t appendSystemDoc_Docio(struct docio_object *doc);
+
+    /**
+     * Retrieve the length info of a KV item at a given file offset.
+     *
+     * @Param length Pointer to docio_length instance to be populated
+     * @param offset File offset to a KV item
+     * @return FDB_RESULT_SUCCESS on success
+     */
+    fdb_status readDocLength_Docio(struct docio_length *length,
+                                   uint64_t offset);
+
+    /**
+     * Read a key and its length at a given file offset.
+     *
+     * @param offset File offset to a KV item
+     * @param keylen Pointer to a key length variable
+     * @param keybuf Pointer to a key buffer
+     * @return FDB_RESULT_SUCCESS on success
+     */
+    fdb_status readDocKey_Docio(uint64_t offset,
+                                keylen_t *keylen,
+                                void *keybuf);
+
+    /**
+     * Read a key and its metadata at a given file offset.
+     *
+     * @param offset File offset to a KV item
+     * @param doc Pointer to docio_object instance
+     * @param read_on_cache_miss Flag indicating if a disk read should be performed
+     *        on cache miss
+     * @return next offset right after a key and its metadata on succcessful read,
+     *         otherwise, the corresponding error code is returned.
+     */
+    int64_t readDocKeyMeta_Docio(uint64_t offset,
+                                 struct docio_object *doc,
+                                 bool read_on_cache_miss);
+
+    /**
+     * Read a KV item at a given file offset.
+     *
+     * @param offset File offset to a KV item
+     * @param doc Pointer to docio_object instance
+     * @param read_on_cache_miss Flag indicating if a disk read should be performed
+     *        on cache miss
+     * @return next offset right after a key and its value on succcessful read,
+     *         otherwise, the corresponding error code is returned.
+     */
+    int64_t readDoc_Docio(uint64_t offset,
+                          struct docio_object *doc,
+                          bool read_on_cache_miss);
+
+    /**
+     * Read a batch of docs using async reads if possible
+     *
+     * @param offset_array - offsets to read from
+     * @param doc_array - read docs
+     * @param array_size
+     * @param data_size_threshold - max size of async reads
+     * @param batch_size_threshold -
+     * @param async_io_handle - handle to the aio
+     * @return number of docs read.
+     */
+    size_t batchReadDocs_Docio(uint64_t *offset_array,
+                               struct docio_object *doc_array,
+                               size_t array_size,
+                               size_t data_size_threshold,
+                               size_t batch_size_threshold,
+                               struct async_io_handle *aio_handle,
+                               bool keymeta_only);
+
+    /**
+     * Check if the given block is a valid document block.
+     * The bitmap revision number of
+     * the document block should match the passed revision number.
+     *
+     * @param bid ID of the block.
+     * @param sb_bmp_revnum Revision number of bitmap in superblock.
+     *        If the value is
+     *        -1, this function does not care about revision number.
+     * @return True if valid.
+     */
+    bool checkBuffer_Docio(bid_t bid, uint64_t sb_bmp_revnum);
+
+    /**
+     * Clear the cache of any previously read document block.
+     */
+    void reset_Docio() {
+        curblock = BLK_NOT_FOUND;
+    }
+
+    /**
+     * Validate the checksum of a docio length buffer
+     */
+    bool validateChecksum_Docio(bool read_on_cache_miss,
+                                int64_t *offset,
+                                struct docio_length *length,
+                                fdb_status *status);
+
+    struct filemgr *getFile() const {
+        return file_Docio;
+    }
+
+    ErrLogCallback *getLogCallback() const {
+        return log_callback;
+    }
+    void setLogCallback(ErrLogCallback *logCallback) {
+        log_callback = logCallback;
+    }
+
+    bid_t getCurBlock() const {
+        return curblock;
+    }
+    uint32_t getCurPos() const {
+        return curpos;
+    }
+    uint16_t getCurBmpRevnumHash() const {
+        return cur_bmp_revnum_hash;
+    }
+    bid_t getLastBid() const {
+        return lastbid;
+    }
+    void *getReadBuffer() const {
+        return readbuffer;
+    }
+    bool isDocBodyCompressed() const {
+        return compress_document_body;
+    }
+
+private:
+    fdb_status _fillZero_Docio(bid_t bid, size_t pos);
+
+    int _submitAsyncIORequests_Docio(struct docio_object *doc_array,
+                                     size_t doc_idx,
+                                     struct async_io_handle *aio_handle,
+                                     int size,
+                                     size_t *sum_doc_size,
+                                     bool keymeta_only);
+
+    struct docio_length _encodeLength_Docio(struct docio_length length);
+
+    struct docio_length _decodeLength_Docio(struct docio_length length);
+    uint8_t _docio_length_checksum(struct docio_length length);
+    bid_t _appendDoc_Docio(struct docio_object *doc);
+
+    fdb_status _readThroughBuffer_Docio(bid_t bid, bool read_on_cache_miss);
+    bool _checkBuffer_Docio(uint64_t bmp_revnum);
+    int64_t _readLength_Docio(uint64_t offset,
+                              struct docio_length *length,
+                              bool read_on_cache_miss);
+
+    int64_t _readDocComponent_Docio(uint64_t offset,
+                                    uint32_t len,
+                                    void *buf_out);
+
+    int64_t _readCompressedDocComponent_Docio(uint64_t offset,
+                                              uint32_t len,
+                                              uint32_t comp_len,
+                                              void *buf_out,
+                                              void *comp_data_out);
+
+    struct filemgr *file_Docio;
     bid_t curblock;
     uint32_t curpos;
     uint16_t cur_bmp_revnum_hash;
     // for buffer purpose
+    bool compress_document_body;
+    ErrLogCallback *log_callback;
     bid_t lastbid;
     void *readbuffer;
-    ErrLogCallback *log_callback;
-    bool compress_document_body;
+    DISALLOW_COPY_AND_ASSIGN(DocioHandle);
 };
 
 #define DOCIO_NORMAL (0x00)
@@ -81,106 +279,8 @@ struct docio_object {
     void *body;
 };
 
-void docio_init(struct docio_handle *handle,
-                struct filemgr *file,
-                bool compress_document_body);
-void docio_free(struct docio_handle *handle);
-
-bid_t docio_append_doc_raw(struct docio_handle *handle,
-                           uint64_t size,
-                           void *buf);
-
 #define DOCIO_COMMIT_MARK_SIZE (sizeof(struct docio_length) + sizeof(uint64_t))
-bid_t docio_append_commit_mark(struct docio_handle *handle, uint64_t doc_offset);
-bid_t docio_append_doc(struct docio_handle *handle, struct docio_object *doc,
-                       uint8_t deleted, uint8_t txn_enabled);
-bid_t docio_append_doc_system(struct docio_handle *handle, struct docio_object *doc);
 
-/**
- * Retrieve the length info of a KV item at a given file offset.
- *
- * @param handle Pointer to the doc I/O handle
- * @Param length Pointer to docio_length instance to be populated
- * @param offset File offset to a KV item
- * @return FDB_RESULT_SUCCESS on success
- */
-fdb_status docio_read_doc_length(struct docio_handle *handle,
-                                 struct docio_length *length,
-                                 uint64_t offset);
-
-/**
- * Read a key and its length at a given file offset.
- *
- * @param handle Pointer to the doc I/O handle
- * @param offset File offset to a KV item
- * @param keylen Pointer to a key length variable
- * @param keybuf Pointer to a key buffer
- * @return FDB_RESULT_SUCCESS on success
- */
-fdb_status docio_read_doc_key(struct docio_handle *handle,
-                              uint64_t offset,
-                              keylen_t *keylen,
-                              void *keybuf);
-
-/**
- * Read a key and its metadata at a given file offset.
- *
- * @param handle Pointer to the doc I/O handle
- * @param offset File offset to a KV item
- * @param doc Pointer to docio_object instance
- * @param read_on_cache_miss Flag indicating if a disk read should be performed
- *        on cache miss
- * @return next offset right after a key and its metadata on succcessful read,
- *         otherwise, the corresponding error code is returned.
- */
-int64_t docio_read_doc_key_meta(struct docio_handle *handle,
-                                uint64_t offset,
-                                struct docio_object *doc,
-                                bool read_on_cache_miss);
-
-/**
- * Read a KV item at a given file offset.
- *
- * @param handle Pointer to the doc I/O handle
- * @param offset File offset to a KV item
- * @param doc Pointer to docio_object instance
- * @param read_on_cache_miss Flag indicating if a disk read should be performed
- *        on cache miss
- * @return next offset right after a key and its value on succcessful read,
- *         otherwise, the corresponding error code is returned.
- */
-int64_t docio_read_doc(struct docio_handle *handle,
-                       uint64_t offset,
-                       struct docio_object *doc,
-                       bool read_on_cache_miss);
-
-size_t docio_batch_read_docs(struct docio_handle *handle,
-                             uint64_t *offset_array,
-                             struct docio_object *doc_array,
-                             size_t array_size,
-                             size_t data_size_threshold,
-                             size_t batch_size_threshold,
-                             struct async_io_handle *aio_handle,
-                             bool keymeta_only);
-
-/**
- * Check if the given block is a valid document block. The bitmap revision number of
- * the document block should match the passed revision number.
- *
- * @param handle Pointer to DocIO handle.
- * @param bid ID of the block.
- * @param sb_bmp_revnum Revision number of bitmap in superblock. If the value is
- *        -1, this function does not care about revision number.
- * @return True if valid.
- */
-bool docio_check_buffer(struct docio_handle *handle,
-                        bid_t bid,
-                        uint64_t sb_bmp_revnum);
-
-
-INLINE void docio_reset(struct docio_handle *dhandle) {
-    dhandle->curblock = BLK_NOT_FOUND;
-}
 void free_docio_object(struct docio_object *doc, bool key_alloc,
                        bool meta_alloc, bool body_alloc);
 

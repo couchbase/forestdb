@@ -345,7 +345,7 @@ void fdb_kvs_header_reset_all_stats(struct filemgr *file)
 
 void fdb_kvs_header_copy(FdbKvsHandle *handle,
                          struct filemgr *new_file,
-                         struct docio_handle *new_dhandle,
+                         DocioHandle *new_dhandle,
                          uint64_t *new_file_kv_info_offset,
                          bool create_new)
 {
@@ -817,7 +817,7 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle)
     struct docio_object doc;
     struct docio_length doc_len;
     struct filemgr *file = handle->file;
-    struct docio_handle *dhandle = handle->dhandle;
+    DocioHandle *dhandle = handle->dhandle;
 
     _fdb_kvs_header_export(file->kv_header, &data, &len, file->version);
 
@@ -832,14 +832,15 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle)
     doc.length.metalen = 0;
     doc.length.bodylen = len;
     doc.seqnum = 0;
-    kv_info_offset = docio_append_doc_system(dhandle, &doc);
+    kv_info_offset = dhandle->appendSystemDoc_Docio(&doc);
     free(data);
 
     if (prev_offset != BLK_NOT_FOUND) {
-        if (docio_read_doc_length(handle->dhandle, &doc_len, prev_offset)
+        if (handle->dhandle->readDocLength_Docio(&doc_len, prev_offset)
             == FDB_RESULT_SUCCESS) {
             // mark stale
-            filemgr_mark_stale(handle->file, prev_offset, _fdb_get_docsize(doc_len));
+            filemgr_mark_stale(handle->file, prev_offset,
+                               _fdb_get_docsize(doc_len));
         }
     }
 
@@ -847,7 +848,7 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle)
 }
 
 void fdb_kvs_header_read(struct kvs_header *kv_header,
-                         struct docio_handle *dhandle,
+                         DocioHandle *dhandle,
                          uint64_t kv_info_offset,
                          uint64_t version,
                          bool only_seq_nums)
@@ -856,12 +857,13 @@ void fdb_kvs_header_read(struct kvs_header *kv_header,
     struct docio_object doc;
 
     memset(&doc, 0, sizeof(struct docio_object));
-    offset = docio_read_doc(dhandle, kv_info_offset, &doc, true);
+    offset = dhandle->readDoc_Docio(kv_info_offset, &doc, true);
 
     if (offset <= 0) {
-        fdb_log(dhandle->log_callback, (fdb_status) offset,
+        fdb_log(dhandle->getLogCallback(), (fdb_status) offset,
                 "Failed to read a KV header with the offset %" _F64 " from a "
-                "database file '%s'", kv_info_offset, dhandle->file->filename);
+                "database file '%s'", kv_info_offset,
+                dhandle->getFile()->filename);
         return;
     }
 
@@ -912,8 +914,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(FdbKvsHandle *handle)
 
         _fdb_kvs_header_create(&kv_header);
         memset(&doc, 0, sizeof(struct docio_object));
-        doc_offset = docio_read_doc(handle->dhandle,
-                                    kv_info_offset, &doc, true);
+        doc_offset = handle->dhandle->readDoc_Docio(kv_info_offset, &doc, true);
 
         if (doc_offset <= 0) {
             // fail

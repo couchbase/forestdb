@@ -166,7 +166,7 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
             // pre-allocated buffer for key
             doc.key = (void*)keybuf;
 
-            ret = docio_read_doc(handle->dhandle, offset, &doc, true);
+            ret = handle->dhandle->readDoc_Docio(offset, &doc, true);
             if (ret <= 0) {
                 // read fail .. escape
                 fdb_log(NULL, (fdb_status)ret,
@@ -374,7 +374,7 @@ void fdb_gather_stale_blocks(FdbKvsHandle *handle,
                 doc.length.metalen = 0;
                 doc.length.bodylen = offset;
                 doc.seqnum = 0;
-                doc_offset = docio_append_doc_system(handle->dhandle, &doc);
+                doc_offset = handle->dhandle->appendSystemDoc_Docio(&doc);
 
                 // insert into stale-block tree
                 _doc_offset = _endian_encode(doc_offset);
@@ -733,7 +733,7 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
                 // pre-allocated buffer for key
                 doc.key = (void*)keybuf;
 
-                if (docio_read_doc(handle->dhandle, offset, &doc, true) <= 0) {
+                if (handle->dhandle->readDoc_Docio(offset, &doc, true) <= 0) {
                     // read fail .. escape
                     offset = BLK_NOT_FOUND;
                     continue;

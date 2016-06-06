@@ -327,7 +327,7 @@ void sb_bmp_append_doc(FdbKvsHandle *handle)
         }
         sb->bmp_docs[i].seqnum = 0;
         sb->bmp_doc_offset[i] =
-            docio_append_doc_system(handle->dhandle, &sb->bmp_docs[i]);
+            handle->dhandle->appendSystemDoc_Docio(&sb->bmp_docs[i]);
     }
 }
 
@@ -376,7 +376,7 @@ void sb_rsv_append_doc(FdbKvsHandle *handle)
         }
         rsv->bmp_docs[i].seqnum = 0;
         rsv->bmp_doc_offset[i] =
-            docio_append_doc_system(handle->dhandle, &rsv->bmp_docs[i]);
+            handle->dhandle->appendSystemDoc_Docio(&rsv->bmp_docs[i]);
     }
 
     // now 'rsv_bmp' is available.
@@ -426,7 +426,7 @@ fdb_status sb_bmp_fetch_doc(FdbKvsHandle *handle)
         // directly point to the bitmap
         sb->bmp_docs[i].body = sb->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
 
-        r_offset = docio_read_doc(handle->dhandle, sb->bmp_doc_offset[i],
+        r_offset = handle->dhandle->readDoc_Docio(sb->bmp_doc_offset[i],
                                   &sb->bmp_docs[i], true);
         if (r_offset <= 0) {
             // read fail
@@ -460,7 +460,7 @@ fdb_status sb_bmp_fetch_doc(FdbKvsHandle *handle)
             // directly point to the (reserved) bitmap
             rsv->bmp_docs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
 
-            r_offset = docio_read_doc(handle->dhandle, rsv->bmp_doc_offset[i],
+            r_offset = handle->dhandle->readDoc_Docio(rsv->bmp_doc_offset[i],
                                       &rsv->bmp_docs[i], true);
             if (r_offset <= 0) {
                 // read fail
