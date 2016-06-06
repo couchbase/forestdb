@@ -68,6 +68,12 @@
     #endif
 
     #ifdef HAVE_JEMALLOC
+    // string has some memory allocators of its own which MUST come first
+    // in the include order to ensure that je_malloc can correctly override
+    // the string malloc and free definitions too, otherwise we can have
+    // asymmetrical operation resulting in crashes.
+    // TODO: We plan to address this in a modularized way in the future.
+    #include <string>
     #include <jemalloc/jemalloc.h>
     #define malloc(size) je_malloc(size)
     #define calloc(nmemb, size) je_calloc(nmemb, size)
@@ -215,6 +221,12 @@
 
 
     #ifdef HAVE_JEMALLOC
+    // string has some memory allocators of its own which MUST come first
+    // in the include order to ensure that je_malloc can correctly override
+    // the string malloc and free definitions too, otherwise we can have
+    // asymmetrical operation resulting in crashes.
+    // TODO: We plan to address this in a modularized way in the future.
+    #include <string>
     #include <jemalloc/jemalloc.h>
     #define malloc(size) je_malloc(size)
     #define calloc(nmemb, size) je_calloc(nmemb, size)
@@ -287,6 +299,12 @@
     #define _ARCH_O_DIRECT (O_DIRECT)
 
     #ifdef HAVE_JEMALLOC
+    // string has some memory allocators of its own which MUST come first
+    // in the include order to ensure that je_malloc can correctly override
+    // the string malloc and free definitions too, otherwise we can have
+    // asymmetrical operation resulting in crashes.
+    // TODO: We plan to address this in a modularized way in the future.
+    #include <string>
     #include <jemalloc/jemalloc.h>
     #define malloc(size) je_malloc(size)
     #define calloc(nmemb, size) je_calloc(nmemb, size)

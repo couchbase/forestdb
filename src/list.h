@@ -10,12 +10,12 @@
 #include <stdint.h>
 #include <stddef.h>
 
+//#define _LIST_LOCK
+#include "common.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-//#define _LIST_LOCK
-#include "arch.h"
 
 struct list_elem {
     struct list_elem *prev;
