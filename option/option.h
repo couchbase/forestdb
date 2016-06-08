@@ -68,8 +68,11 @@
 #define FDB_COMP_RATIO_MAX (60) // 60% (writer speed / compactor speed)
 #define FDB_COMP_PROB_UNIT_INC (5) // 5% (probability delta unit for increase)
 #define FDB_COMP_PROB_UNIT_DEC (5) // 5% (probability delta unit for decrease)
-#define FDB_COMPACTOR_SLEEP_DURATION (15)
+
+// full compaction internval in secs when the circular block reusing is enabled
+#define FDB_COMPACTOR_SLEEP_DURATION (28800)
 #define FDB_DEFAULT_COMPACTION_THRESHOLD (30)
+
 #define FDB_BGFLUSHER_SLEEP_DURATION (2)
 #define FDB_BGFLUSHER_DIRTY_THRESHOLD (1024) //if more than this 4MB dirty
                                              // wake up any sleeping bgflusher
@@ -85,6 +88,17 @@
 #define FILEMGR_RESIDENT_THRESHOLD (0.9) // 90 % of file is in buffer cache
 #define __FILEMGR_DATA_PARTIAL_LOCK
 //#define __FILEMGR_DATA_MUTEX_LOCK
+
+#define SB_DEFAULT_NUM_SUPERBLOCKS (4) // 4 superblocks for crash recovery
+#define SB_MAX_BITMAP_DOC_SIZE (1048576) // 1MB, 4M bitmaps per doc
+// Minimum file size for the condition that block reusing is triggered
+#define SB_MIN_BLOCK_REUSING_FILESIZE (16777216) // 16MB
+// Period that superblock is written into the file
+#define SB_SYNC_PERIOD (4194304) // sync for every 4MB update
+// Time limit for reusable block reclaim
+#define SB_RECLAIM_TIMELIMIT (100000) // 100 ms
+// Threshold for pre-reclaiming
+#define SB_PRE_RECLAIM_RATIO (10) // 10 %
 
 #define __BTREEBLK_BLOCKPOOL
 #define __BTREEBLK_SUBBLOCK

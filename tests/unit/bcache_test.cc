@@ -27,6 +27,13 @@
 
 #include "memleak.h"
 
+#undef THREAD_SANITIZER
+#if __clang__
+#   if defined(__has_feature) && __has_feature(thread_sanitizer)
+#define THREAD_SANITIZER
+#   endif
+#endif
+
 void basic_test()
 {
     TEST_INIT();
@@ -140,9 +147,9 @@ void * worker(void *voidargs)
         if (ret <= 0) {
             ret = args->file->ops->pread(args->file->fd, buf,
                                          args->file->blocksize, bid * args->file->blocksize);
-            TEST_CHK(ret == args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blocksize);
             ret = bcache_write(args->file, bid, buf, BCACHE_REQ_CLEAN, false);
-            TEST_CHK(ret == args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blocksize);
         }
         crc_file = crc32_8(buf, sizeof(uint64_t)*2, 0);
         (void)crc_file;
@@ -161,7 +168,7 @@ void * worker(void *voidargs)
             memcpy(buf + sizeof(uint64_t)*2, &crc, sizeof(crc));
 
             ret = bcache_write(args->file, bid, buf, BCACHE_REQ_DIRTY, true);
-            TEST_CHK(ret == args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blocksize);
         } else { // have some of the reader threads flush dirty immutable blocks
             if (bid <= args->nblocks / 4) { // 25% probability
                 filemgr_flush_immutable(args->file, NULL);
@@ -249,8 +256,21 @@ void multi_thread_test(
 int main()
 {
     basic_test2();
+#if !defined(THREAD_SANITIZER)
+    /**
+     * The following tests will be disabled when the code is run with
+     * thread sanitizer, because they point out a data race in writing/
+     * reading from a dirty block which will not happen in reality.
+     *
+     * The bcache partition lock is release iff a given dirty block has
+     * already been marked as immutable. These unit tests attempt to
+     * write to the same immutable block again causing this race. In
+     * reality, this won't happen as these operations go through
+     * filemgr_read() and filemgr_write().
+     */
     multi_thread_test(4, 1, 32, 20, 1, 7);
     multi_thread_test(100, 1, 32, 10, 1, 7);
+#endif
 
     return 0;
 }

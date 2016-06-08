@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include <errno.h>
 
 #ifdef _ASYNC_IO
 #if !defined(WIN32) && !defined(_WIN32)
@@ -31,6 +32,7 @@
 
 #include "libforestdb/fdb_errors.h"
 
+#include "atomic.h"
 #include "internal_types.h"
 #include "common.h"
 #include "hash.h"
@@ -39,6 +41,7 @@
 #include "checksum.h"
 #include "filemgr_ops.h"
 #include "encryption.h"
+#include "superblock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,6 +56,30 @@ extern "C" {
 #define FILEMGR_CANCEL_COMPACTION 0x40 // Cancel the compaction
 
 struct filemgr_config {
+
+    filemgr_config& operator=(const filemgr_config& config) {
+        blocksize = config.blocksize;
+        ncacheblock = config.ncacheblock;
+        flag = config.flag;
+        seqtree_opt = config.seqtree_opt;
+        chunksize = config.chunksize;
+        options = config.options;
+        prefetch_duration = config.prefetch_duration;
+        num_wal_shards = config.num_wal_shards;
+        num_bcache_shards = config.num_bcache_shards;
+        encryption_key = config.encryption_key;
+        atomic_store_uint64_t(&block_reusing_threshold,
+                              atomic_get_uint64_t(&config.block_reusing_threshold,
+                                                  std::memory_order_relaxed),
+                              std::memory_order_relaxed);
+        atomic_store_uint64_t(&num_keeping_headers,
+                              atomic_get_uint64_t(&config.num_keeping_headers,
+                                                  std::memory_order_relaxed),
+                              std::memory_order_relaxed);
+        return *this;
+    }
+
+    // TODO: Move these variables to private members as we refactor the code in C++.
     int blocksize;
     int ncacheblock;
     int flag;
@@ -63,6 +90,11 @@ struct filemgr_config {
     uint16_t num_wal_shards;
     uint16_t num_bcache_shards;
     fdb_encryption_key encryption_key;
+    // Stale block reusing threshold
+    atomic_uint64_t block_reusing_threshold;
+    // Number of the last commit headders whose stale blocks should
+    // be kept for snapshot readers.
+    atomic_uint64_t num_keeping_headers;
 };
 
 #ifndef _LATENCY_STATS
@@ -119,10 +151,8 @@ typedef uint64_t filemgr_header_revnum_t;
 struct filemgr_header{
     filemgr_header_len_t size;
     filemgr_header_revnum_t revnum;
-    volatile fdb_seqnum_t seqnum;
+    atomic_uint64_t seqnum;
     atomic_uint64_t bid;
-    atomic_uint64_t dirty_idtree_root; // for wal_flush_before_commit option
-    atomic_uint64_t dirty_seqtree_root; // for wal_flush_before_commit option
     struct kvs_ops_stat op_stat; // op stats for default KVS
     struct kvs_stat stat; // stats for the default KVS
     void *data;
@@ -147,13 +177,14 @@ typedef struct {
 
 struct filemgr {
     char *filename; // Current file name.
-    uint32_t ref_count;
+    atomic_uint32_t ref_count;
     uint8_t fflags;
     uint16_t filename_len;
     uint32_t blocksize;
     int fd;
     atomic_uint64_t pos;
     atomic_uint64_t last_commit;
+    atomic_uint64_t last_writable_bmp_revnum;
     atomic_uint64_t num_invalidated_blocks;
     atomic_uint8_t io_in_prog;
     struct wal *wal;
@@ -162,9 +193,10 @@ struct filemgr {
     struct hash_elem e;
     atomic_uint8_t status;
     struct filemgr_config *config;
-    struct filemgr *new_file;
-    char *old_filename; // Old file name before compaction.
-    struct fnamedic_item *bcache;
+    struct filemgr *new_file;           // Pointer to new file upon compaction
+    struct filemgr *prev_file;          // Pointer to prev file upon compaction
+    char *old_filename;                 // Old file name before compaction
+    std::atomic<struct fnamedic_item *> bcache;
     fdb_txn global_txn;
     bool in_place_compaction;
     filemgr_fs_type_t fs_type;
@@ -178,6 +210,9 @@ struct filemgr {
 
     // File format version
     filemgr_magic_t version;
+
+    // superblock
+    struct superblock *sb;
 
 #ifdef _LATENCY_STATS
     struct latency_stat lat_stats[FDB_LATENCY_NUM_STATS];
@@ -205,6 +240,64 @@ struct filemgr {
 
     // temporary in-memory list of stale blocks
     struct list *stale_list;
+    // in-memory clone of system docs for reusable block info
+    // (they are pointed to by stale-block-tree)
+    struct avl_tree stale_info_tree;
+    // temporary tree for merging stale regions
+    struct avl_tree mergetree;
+    std::atomic<bool> stale_info_tree_loaded;
+
+    // in-memory index for a set of dirty index block updates
+    struct avl_tree dirty_update_idx;
+    // counter for the set of dirty index updates
+    atomic_uint64_t dirty_update_counter;
+    // latest dirty (immutable but not committed yet) update
+    struct filemgr_dirty_update_node *latest_dirty_update;
+    // spin lock for dirty_update_idx
+    spin_t dirty_update_lock;
+
+    /**
+     * Index for fdb_file_handle belonging to the same filemgr handle.
+     */
+    struct avl_tree fhandle_idx;
+    /**
+     * Spin lock for file handle index.
+     */
+    spin_t fhandle_idx_lock;
+};
+
+struct filemgr_dirty_update_node {
+    union {
+        // AVL-tree element
+        struct avl_node avl;
+        // list element
+        struct list_elem le;
+    };
+    // ID from the counter number
+    uint64_t id;
+    // flag indicating if this set of dirty blocks can be accessible.
+    bool immutable;
+    // flag indicating if this set of dirty blocks are already copied to newer node.
+    bool expired;
+    // number of threads (snapshots) accessing this dirty block set.
+    atomic_uint32_t ref_count;
+    // dirty root node BID for ID tree
+    bid_t idtree_root;
+    // dirty root node BID for sequence tree
+    bid_t seqtree_root;
+    // index for dirty blocks
+    struct avl_tree dirty_blocks;
+};
+
+struct filemgr_dirty_update_block {
+    // AVL-tree element
+    struct avl_node avl;
+    // contents of the block
+    void *addr;
+    // Block ID
+    bid_t bid;
+    // flag indicating if this block is immutable
+    bool immutable;
 };
 
 typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
@@ -221,18 +314,25 @@ void filemgr_set_lazy_file_deletion(bool enable,
                                     register_file_removal_func regis_func,
                                     check_file_removal_func check_func);
 
+/**
+ * Assign superblock operations.
+ *
+ * @param ops Set of superblock operations to be assigned.
+ * @return void.
+ */
+void filemgr_set_sb_operation(struct sb_ops ops);
+
 uint64_t filemgr_get_bcache_used_space(void);
 
 bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
-                           void (*free_kv_header)(struct filemgr *file),
-                           bool got_lock);
+                           void (*free_kv_header)(struct filemgr *file));
+
+struct kvs_header* filemgr_get_kv_header(struct filemgr *file);
 
 size_t filemgr_get_ref_count(struct filemgr *file);
 
 INLINE void filemgr_incr_ref_count(struct filemgr *file) {
-    spin_lock(&file->lock);
-    ++file->ref_count;
-    spin_unlock(&file->lock);
+    atomic_incr_uint32_t(&file->ref_count);
 }
 
 filemgr_open_result filemgr_open(char *filename,
@@ -240,7 +340,10 @@ filemgr_open_result filemgr_open(char *filename,
                                  struct filemgr_config *config,
                                  err_log_callback *log_callback);
 
-uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len);
+uint64_t filemgr_update_header(struct filemgr *file,
+                               void *buf,
+                               size_t len,
+                               bool inc_revnum);
 filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
 
 fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file);
@@ -255,15 +358,26 @@ bid_t _filemgr_get_header_bid(struct filemgr *file);
 void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
                          bid_t *header_bid, fdb_seqnum_t *seqnum,
                          filemgr_header_revnum_t *header_revnum);
+
+/**
+ * Get the current bitmap revision number of superblock.
+ *
+ * @param file Pointer to filemgr handle.
+ * @return Current bitmap revision number.
+ */
+uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file);
+
 fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
                                 uint64_t *deltasize, uint64_t *version,
+                                uint64_t *sb_bmp_revnum,
                                 err_log_callback *log_callback);
 uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
+                                   uint64_t *sb_bmp_revnum,
                                    err_log_callback *log_callback);
 fdb_status filemgr_close(struct filemgr *file,
                          bool cleanup_cache_onclose,
@@ -302,16 +416,8 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset
 fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
                    err_log_callback *log_callback);
 ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_blocks, bid_t start_bid);
-INLINE int filemgr_is_writable(struct filemgr *file, bid_t bid)
-{
-    uint64_t pos = bid * file->blocksize;
-    // Note that we don't need to grab file->lock here because
-    // 1) both file->pos and file->last_commit are only incremented.
-    // 2) file->last_commit is updated using the value of file->pos,
-    //    and always equal to or smaller than file->pos.
-    return (pos <  atomic_get_uint64_t(&file->pos) &&
-            pos >= atomic_get_uint64_t(&file->last_commit));
-}
+int filemgr_is_writable(struct filemgr *file, bid_t bid);
+
 void filemgr_remove_file(struct filemgr *file);
 
 INLINE void filemgr_set_io_inprog(struct filemgr *file)
@@ -326,7 +432,21 @@ INLINE void filemgr_clear_io_inprog(struct filemgr *file)
 
 fdb_status filemgr_commit(struct filemgr *file, bool sync,
                           err_log_callback *log_callback);
-fdb_status filemgr_sync(struct filemgr *file,
+/**
+ * Commit DB file, and write a DB header at the given BID.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param bid ID of the block that DB header will be written. If this value is set to
+ *        BLK_NOT_FOUND, then DB header is appended at the end of the file.
+ * @param bmp_revnum Revision number of superblock's bitmap when this commit is called.
+ * @param sync Flag for calling fsync().
+ * @param log_callback Pointer to log callback function.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
+                              uint64_t bmp_revnum, bool sync,
+                              err_log_callback *log_callback);
+fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
                         err_log_callback *log_callback);
 
 fdb_status filemgr_shutdown();
@@ -462,23 +582,6 @@ void filemgr_mutex_lock(struct filemgr *file);
 bool filemgr_mutex_trylock(struct filemgr *file);
 void filemgr_mutex_unlock(struct filemgr *file);
 
-void filemgr_set_dirty_root(struct filemgr *file,
-                            bid_t dirty_idtree_root,
-                            bid_t dirty_seqtree_root);
-INLINE void filemgr_get_dirty_root(struct filemgr *file,
-                                   bid_t *dirty_idtree_root,
-                                   bid_t *dirty_seqtree_root)
-{
-    *dirty_idtree_root = atomic_get_uint64_t(&file->header.dirty_idtree_root);
-    *dirty_seqtree_root = atomic_get_uint64_t(&file->header.dirty_seqtree_root);
-}
-
-INLINE bool filemgr_dirty_root_exist(struct filemgr *file)
-{
-    return (atomic_get_uint64_t(&file->header.dirty_idtree_root)  != BLK_NOT_FOUND ||
-            atomic_get_uint64_t(&file->header.dirty_seqtree_root) != BLK_NOT_FOUND);
-}
-
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);
 
 bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst);
@@ -492,6 +595,9 @@ INLINE void filemgr_set_stale_list(struct filemgr *file,
     file->stale_list = stale_list;
 }
 void filemgr_clear_stale_list(struct filemgr *file);
+void filemgr_clear_stale_info_tree(struct filemgr *file);
+void filemgr_clear_mergetree(struct filemgr *file);
+
 INLINE struct list * filemgr_get_stale_list(struct filemgr *file)
 {
     return file->stale_list;
@@ -537,6 +643,211 @@ void filemgr_mark_stale(struct filemgr *file,
                         bid_t offset,
                         size_t length);
 
+/**
+ * The node structure of fhandle index.
+ */
+struct filemgr_fhandle_idx_node {
+    /**
+     * Void pointer to file handle.
+     */
+    void *fhandle;
+    /**
+     * AVL tree element.
+     */
+    struct avl_node avl;
+};
+
+/**
+ * Add a FDB file handle into the superblock's global index.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param fhandle Pointer to FDB file handle.
+ * @return True if successfully added.
+ */
+bool filemgr_fhandle_add(struct filemgr *file, void *fhandle);
+
+/**
+ * Remove a FDB file handle from the superblock's global index.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param fhandle Pointer to FDB file handle.
+ * @return True if successfully removed.
+ */
+bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle);
+
+/**
+ * Initialize global structures for dirty update management.
+ *
+ * @param file Pointer to filemgr handle.
+ * @return void.
+ */
+void filemgr_dirty_update_init(struct filemgr *file);
+
+/**
+ * Free global structures for dirty update management.
+ *
+ * @param file Pointer to filemgr handle.
+ * @return void.
+ */
+void filemgr_dirty_update_free(struct filemgr *file);
+
+/**
+ * Create a new dirty update entry.
+ *
+ * @param file Pointer to filemgr handle.
+ * @return Newly created dirty update entry.
+ */
+struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *file);
+
+/**
+ * Return the latest complete (i.e., immutable) dirty update entry. Note that a
+ * dirty update that is being updated by a writer thread will not be returned.
+ *
+ * @param file Pointer to filemgr handle.
+ * @return Latest dirty update entry.
+ */
+struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(struct filemgr *file);
+
+/**
+ * Increase the reference counter for the given dirty update entry.
+ *
+ * @param node Pointer to dirty update entry to increase reference counter.
+ * @return void.
+ */
+void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node);
+
+/**
+ * Commit the latest complete dirty update entry and write back all updated
+ * blocks into DB file. This API will remove all complete (i.e., immutable)
+ * dirty update entries whose reference counter is zero.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param commit_node Pointer to dirty update entry to be flushed.
+ * @param log_callback Pointer to the log callback function.
+ * @return void.
+ */
+void filemgr_dirty_update_commit(struct filemgr *file,
+                                 struct filemgr_dirty_update_node *commit_node,
+                                 err_log_callback *log_callback);
+
+/**
+ * Complete the given dirty update entry and make it immutable. This API will
+ * remove all complete (i.e., immutable) dirty update entries which are prior
+ * than the given dirty update entry and whose reference counter is zero.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param node Pointer to dirty update entry to complete.
+ * @param node Pointer to previous dirty update entry.
+ * @return void.
+ */
+void filemgr_dirty_update_set_immutable(struct filemgr *file,
+                                        struct filemgr_dirty_update_node *prev_node,
+                                        struct filemgr_dirty_update_node *node);
+
+/**
+ * Remove a dirty update entry and discard all dirty blocks from memory.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param node Pointer to dirty update entry to be removed.
+ * @return void.
+ */
+void filemgr_dirty_update_remove_node(struct filemgr *file,
+                                      struct filemgr_dirty_update_node *node);
+
+/**
+ * Close a dirty update entry. This API will remove all complete (i.e., immutable)
+ * dirty update entries except for the last immutable update entry.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param node Pointer to dirty update entry to be closed.
+ * @return void.
+ */
+void filemgr_dirty_update_close_node(struct filemgr *file,
+                                     struct filemgr_dirty_update_node *node);
+
+/**
+ * Set dirty root nodes for the given dirty update entry.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param node Pointer to dirty update entry.
+ * @param dirty_idtree_root BID of ID tree root node.
+ * @param dirty_seqtree_root BID of sequence tree root node.
+ * @return void.
+ */
+INLINE void filemgr_dirty_update_set_root(struct filemgr *file,
+                                          struct filemgr_dirty_update_node *node,
+                                          bid_t dirty_idtree_root,
+                                          bid_t dirty_seqtree_root)
+{
+    if (node) {
+        node->idtree_root = dirty_idtree_root;
+        node->seqtree_root = dirty_seqtree_root;
+    }
+}
+
+/**
+ * Get dirty root nodes for the given dirty update entry.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param node Pointer to dirty update entry.
+ * @param dirty_idtree_root Pointer to the BID of ID tree root node.
+ * @param dirty_seqtree_root Pointer to the BID of sequence tree root node.
+ * @return void.
+ */
+INLINE void filemgr_dirty_update_get_root(struct filemgr *file,
+                                          struct filemgr_dirty_update_node *node,
+                                          bid_t *dirty_idtree_root,
+                                          bid_t *dirty_seqtree_root)
+{
+    if (node) {
+        *dirty_idtree_root = node->idtree_root;
+        *dirty_seqtree_root = node->seqtree_root;
+    } else {
+        *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
+    }
+}
+
+/**
+ * Write a dirty block into the given dirty update entry.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param bid BID of the block to be written.
+ * @param buf Pointer to the buffer containing the data to be written.
+ * @param node Pointer to the dirty update entry.
+ * @param log_callback Pointer to the log callback function.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+fdb_status filemgr_write_dirty(struct filemgr *file,
+                               bid_t bid,
+                               void *buf,
+                               struct filemgr_dirty_update_node *node,
+                               err_log_callback *log_callback);
+
+/**
+ * Read a block through the given dirty update entries. It first tries to read
+ * the block from the writer's (which is being updated) dirty update entry,
+ * and then tries to read it from the reader's (which already became immutable)
+ * dirty update entry. If the block doesn't exist in both entries, then it reads
+ * the block from DB file.
+ *
+ * @param file Pointer to filemgr handle.
+ * @param bid BID of the block to be read.
+ * @param buf Pointer to the buffer where the read data will be copied.
+ * @param node_reader Pointer to the immutable dirty update entry.
+ * @param node_writer Pointer to the mutable dirty update entry.
+ * @param log_callback Pointer to the log callback function.
+ * @param read_on_cache_miss True if we want to read the block from file after
+ *        cache miss.
+ * @return FDB_RESULT_SUCCESS on success.
+ */
+fdb_status filemgr_read_dirty(struct filemgr *file,
+                              bid_t bid,
+                              void *buf,
+                              struct filemgr_dirty_update_node *node_reader,
+                              struct filemgr_dirty_update_node *node_writer,
+                              err_log_callback *log_callback,
+                              bool read_on_cache_miss);
+
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,
                    struct kvs_stat stat);
@@ -562,6 +873,18 @@ int _kvs_ops_stat_get(struct filemgr *file,
 void _init_op_stats(struct kvs_ops_stat *stat);
 struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
                                           struct kvs_info *info);
+
+/**
+ * Convert a given errno value to the corresponding fdb_status value.
+ *
+ * @param errno_value errno value
+ * @param default_status Default fdb_status value to be returned if
+ *        there is no corresponding fdb_status value for a given errno value.
+ * @return fdb_status value that corresponds to a given errno value
+ */
+fdb_status convert_errno_to_fdb_status(int errno_value,
+                                       fdb_status default_status);
+
 #ifdef __cplusplus
 }
 #endif

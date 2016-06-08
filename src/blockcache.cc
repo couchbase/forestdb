@@ -31,6 +31,7 @@
 #include "blockcache.h"
 #include "avltree.h"
 #include "atomic.h"
+#include "fdb_internal.h"
 
 #include "memleak.h"
 
@@ -52,7 +53,7 @@ static spin_t bcache_lock;
 static struct hash fnamedic;
 
 // free block list
-static volatile size_t freelist_count;
+static atomic_uint64_t freelist_count(0);
 static struct list freelist;
 static spin_t freelist_lock;
 
@@ -63,7 +64,7 @@ static size_t num_files;
 static size_t file_array_capacity;
 static fnamedic_item ** file_list;
 static struct list file_zombies;
-static rw_spin_t filelist_lock; // Reader-Writer spinlock for the file list.
+static fdb_rw_lock filelist_lock; // Reader-Writer lock for the file list.
 
 //static struct list cleanlist, dirtylist;
 //static uint64_t nfree, nclean, ndirty;
@@ -127,7 +128,7 @@ struct bcache_item {
     // list elem for {free, clean, dirty} lists
     struct list_elem list_elem;
     // flag
-    uint8_t flag;
+    atomic_uint8_t flag;
     // score
     uint8_t score;
 };
@@ -253,30 +254,37 @@ struct fnamedic_item *_bcache_get_victim()
     int victim_idx;
     size_t num_attempts;
 
-    rw_spin_read_lock(&filelist_lock);
-    // Pick the victim that has the smallest access timestamp among files randomly selected.
-    num_attempts = num_files / 10 + 1;
-     if (num_attempts > MAX_VICTIM_SELECTIONS) {
-         num_attempts = MAX_VICTIM_SELECTIONS;
-     } else {
-         if(num_attempts == 1 && num_files > 1) {
-             ++num_attempts;
-         }
-     }
-     for (size_t i = 0; i < num_attempts && num_files; ++i) {
-         victim_idx = rand() % num_files;
-         victim_timestamp = atomic_get_uint64_t(&file_list[victim_idx]->access_timestamp);
-         if (victim_timestamp < min_timestamp &&
-             atomic_get_uint64_t(&file_list[victim_idx]->nitems)) {
-             min_timestamp = victim_timestamp;
-             ret = file_list[victim_idx];
-         }
-     }
+    if (reader_lock(&filelist_lock) == 0) {
+        // Pick the victim that has the smallest access timestamp
+        // among files randomly selected.
+        num_attempts = num_files / 10 + 1;
+        if (num_attempts > MAX_VICTIM_SELECTIONS) {
+            num_attempts = MAX_VICTIM_SELECTIONS;
+        } else {
+            if(num_attempts == 1 && num_files > 1) {
+                ++num_attempts;
+            }
+        }
+        for (size_t i = 0; i < num_attempts && num_files; ++i) {
+            victim_idx = rand() % num_files;
+            victim_timestamp =
+                atomic_get_uint64_t(&file_list[victim_idx]->access_timestamp,
+                                    std::memory_order_relaxed);
+            if (victim_timestamp < min_timestamp &&
+                    atomic_get_uint64_t(&file_list[victim_idx]->nitems)) {
+                min_timestamp = victim_timestamp;
+                ret = file_list[victim_idx];
+            }
+        }
 
-    if (ret) {
-        atomic_incr_uint32_t(&ret->ref_count);
+        if (ret) {
+            atomic_incr_uint32_t(&ret->ref_count);
+        }
+        reader_unlock(&filelist_lock);
+    } else {
+        fprintf(stderr, "Error in _bcache_get_victim(): "
+                        "Failed to acquire ReaderLock on filelist_lock!\n");
     }
-    rw_spin_read_unlock(&filelist_lock);
 
     return ret;
 }
@@ -314,19 +322,23 @@ static struct fnamedic_item *_next_dead_fname_zombie(void) {
     struct list_elem *e;
     struct fnamedic_item *fname_item;
     bool found = false;
-    rw_spin_write_lock(&filelist_lock);
-    e = list_begin(&file_zombies);
-    while (e) {
-        fname_item = _get_entry(e, struct fnamedic_item, le);
-        if (atomic_get_uint32_t(&fname_item->ref_count) == 0) {
-            list_remove(&file_zombies, e);
-            found = true;
-            break;
-        } else {
-            e = list_next(e);
+    if (writer_lock(&filelist_lock) == 0) {
+        e = list_begin(&file_zombies);
+        while (e) {
+            fname_item = _get_entry(e, struct fnamedic_item, le);
+            if (atomic_get_uint32_t(&fname_item->ref_count) == 0) {
+                list_remove(&file_zombies, e);
+                found = true;
+                break;
+            } else {
+                e = list_next(e);
+            }
         }
+        writer_unlock(&filelist_lock);
+    } else {
+        fprintf(stderr, "Error in _next_dead_fname_zombie(): "
+                        "Failed to acquire WriterLock on filelist_lock!\n");
     }
-    rw_spin_write_unlock(&filelist_lock);
     return found ? fname_item : NULL;
 }
 
@@ -554,13 +566,14 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
 #endif
             if (o_direct) {
                 if (count > 0 && !consecutive_blocks) {
-                    size_t bytes_written;
+                    int64_t bytes_written;
                     // Note that this path can be only executed in flush_all case.
-                    bytes_written = (size_t)filemgr_write_blocks(fname_item->curfile,
-                                                                 buf, count, start_bid);
-                    if (bytes_written != count * bcache_blocksize) {
+                    bytes_written = filemgr_write_blocks(fname_item->curfile,
+                                                         buf, count, start_bid);
+                    if ((uint64_t)bytes_written != count * bcache_blocksize) {
                         count = 0;
-                        status = FDB_RESULT_WRITE_FAIL;
+                        status = bytes_written < 0 ?
+                            (fdb_status) bytes_written : FDB_RESULT_WRITE_FAIL;
                         break;
                     }
                     // Start a new batch again.
@@ -579,7 +592,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                         !(sync && o_direct)) {
                         spin_unlock(&fname_item->shards[shard_num].lock);
                     }
-                    status = FDB_RESULT_WRITE_FAIL;
+                    status = ret < 0 ? (fdb_status) ret : FDB_RESULT_WRITE_FAIL;
                     break;
                 }
             }
@@ -617,7 +630,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
                     ret = filemgr_write_blocks(fname_item->curfile, buf, count, start_bid);
                     if ((size_t)ret != count * bcache_blocksize) {
                         count = 0;
-                        status = FDB_RESULT_WRITE_FAIL;
+                        status = ret < 0 ? (fdb_status) ret : FDB_RESULT_WRITE_FAIL;
                         break;
                     }
                     count = 0;
@@ -635,7 +648,7 @@ static fdb_status _flush_dirty_blocks(struct fnamedic_item *fname_item,
         if (count > 0) {
             ret = filemgr_write_blocks(fname_item->curfile, buf, count, start_bid);
             if ((size_t)ret != count * bcache_blocksize) {
-                status = FDB_RESULT_WRITE_FAIL;
+                status = ret < 0 ? (fdb_status) ret : FDB_RESULT_WRITE_FAIL;
             }
         }
         _release_all_shard_locks(fname_item);
@@ -674,7 +687,7 @@ static struct list_elem * _bcache_evict(struct fnamedic_item *curfile)
     }
     fdb_assert(victim, victim, NULL);
 
-    atomic_incr_uint64_t(&victim->nvictim);
+    atomic_incr_uint64_t(&victim->nvictim, std::memory_order_relaxed);
 
     // select the clean blocks from the victim file
     n_evict = 0;
@@ -797,15 +810,20 @@ static struct fnamedic_item * _fname_create(struct filemgr *file) {
 
     // insert into fname dictionary
     hash_insert(&fnamedic, &fname_new->hash_elem);
-    file->bcache = fname_new;
+    file->bcache.store(fname_new, std::memory_order_relaxed);
 
-    rw_spin_write_lock(&filelist_lock);
-    if (num_files == file_array_capacity) {
-        file_array_capacity *= 2;
-        file_list = (struct fnamedic_item **) realloc(file_list, file_array_capacity);
+    if (writer_lock(&filelist_lock) == 0) {
+        if (num_files == file_array_capacity) {
+            file_array_capacity *= 2;
+            file_list = (struct fnamedic_item **) realloc(file_list,
+                                                          file_array_capacity);
+        }
+        file_list[num_files++] = fname_new;
+        writer_unlock(&filelist_lock);
+    } else {
+        fprintf(stderr, "Error in _fname_create(): "
+                        "Failed to acquire WriterLock on filelist_lock!\n");
     }
-    file_list[num_files++] = fname_new;
-    rw_spin_write_unlock(&filelist_lock);
 
     return fname_new;
 }
@@ -814,33 +832,38 @@ static bool _fname_try_free(struct fnamedic_item *fname)
 {
     bool ret = true;
 
-    rw_spin_write_lock(&filelist_lock);
-    // Remove from the file list array
-    bool found = false;
-    for (size_t i = 0; i < num_files; ++i) {
-        if (file_list[i] == fname) {
-            found = true;
+    if (writer_lock(&filelist_lock) == 0) {
+        // Remove from the file list array
+        bool found = false;
+        for (size_t i = 0; i < num_files; ++i) {
+            if (file_list[i] == fname) {
+                found = true;
+            }
+            if (found && (i+1 < num_files)) {
+                file_list[i] = file_list[i+1];
+            }
         }
-        if (found && (i+1 < num_files)) {
-            file_list[i] = file_list[i+1];
+        if (!found) {
+            writer_unlock(&filelist_lock);
+            DBG("Error: fnamedic_item instance for a file '%s' can't be "
+                    "found in the buffer cache's file list.\n", fname->filename);
+            return false;
         }
-    }
-    if (!found) {
-        rw_spin_write_unlock(&filelist_lock);
-        DBG("Error: fnamedic_item instance for a file '%s' can't be "
-            "found in the buffer cache's file list.\n", fname->filename);
-        return false;
+
+        file_list[num_files - 1] = NULL;
+        --num_files;
+        if (atomic_get_uint32_t(&fname->ref_count) != 0) {
+            // This item is a victim by another thread's _bcache_evict()
+            list_push_front(&file_zombies, &fname->le);
+            ret = false; // Delay deletion
+        }
+
+        writer_unlock(&filelist_lock);
+    } else {
+        fprintf(stderr, "Error in _fname_try_free(): "
+                        "Failed to acquire WriterLock on filelist_lock!\n");
     }
 
-    file_list[num_files - 1] = NULL;
-    --num_files;
-    if (atomic_get_uint32_t(&fname->ref_count) != 0) {
-        // This item is a victim by another thread's _bcache_evict()
-        list_push_front(&file_zombies, &fname->le);
-        ret = false; // Delay deletion
-    }
-
-    rw_spin_write_unlock(&filelist_lock);
     return ret;
 }
 
@@ -870,11 +893,6 @@ static void _fname_free(struct fnamedic_item *fname)
 
     free(fname->shards);
     free(fname->filename);
-    atomic_destroy_uint32_t(&fname->ref_count);
-    atomic_destroy_uint64_t(&fname->nvictim);
-    atomic_destroy_uint64_t(&fname->nitems);
-    atomic_destroy_uint64_t(&fname->nimmutable);
-    atomic_destroy_uint64_t(&fname->access_timestamp);
     free(fname);
 }
 
@@ -904,7 +922,7 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
     // Note that we don't need to grab bcache_lock here as the block cache
     // is already created and binded when the file is created or opened for
     // the first time.
-    fname = file->bcache;
+    fname = file->bcache.load(std::memory_order_relaxed);
 
     if (fname) {
         // file exists
@@ -916,7 +934,8 @@ int bcache_read(struct filemgr *file, bid_t bid, void *buf)
                                  // getting the timestamp to avoid the overhead of
                                  // gettimeofday()
         atomic_store_uint64_t(&fname->access_timestamp,
-                              (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec));
+                              (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
+                              std::memory_order_relaxed);
 
         size_t shard_num = bid % fname->num_shards;
         spin_lock(&fname->shards[shard_num].lock);
@@ -980,7 +999,8 @@ bool bcache_invalidate_block(struct filemgr *file, bid_t bid)
         struct timeval tp;
         gettimeofday(&tp, NULL);
         atomic_store_uint64_t(&fname->access_timestamp,
-                              (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec));
+                              (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
+                              std::memory_order_relaxed);
 
         size_t shard_num = bid % fname->num_shards;
         spin_lock(&fname->shards[shard_num].lock);
@@ -1049,7 +1069,8 @@ int bcache_write(struct filemgr *file,
     struct timeval tp;
     gettimeofday(&tp, NULL);
     atomic_store_uint64_t(&fname_new->access_timestamp,
-                          (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec));
+                          (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
+                          std::memory_order_relaxed);
 
     size_t shard_num = bid % fname_new->num_shards;
     // set query
@@ -1171,7 +1192,8 @@ int bcache_write_partial(struct filemgr *file,
     struct timeval tp;
     gettimeofday(&tp, NULL);
     atomic_store_uint64_t(&fname_new->access_timestamp,
-                          (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec));
+                          (uint64_t) (tp.tv_sec * 1000000 + tp.tv_usec),
+                          std::memory_order_relaxed);
 
     size_t shard_num = bid % fname_new->num_shards;
     // set query
@@ -1369,6 +1391,8 @@ void bcache_init(int nblock, int blocksize)
     int i;
     struct bcache_item *item;
     uint8_t *block_ptr;
+    struct timeval begin, end;
+    gettimeofday(&begin, NULL);
 
     list_init(&freelist);
     list_init(&file_zombies);
@@ -1380,7 +1404,13 @@ void bcache_init(int nblock, int blocksize)
     bcache_nblock = nblock;
     spin_init(&bcache_lock);
     spin_init(&freelist_lock);
-    rw_spin_init(&filelist_lock);
+
+    int rv = init_rw_lock(&filelist_lock);
+    if (rv != 0) {
+        fdb_log(NULL, FDB_RESULT_ALLOC_FAIL , "Error in bcache_init(): "
+                        "RW Lock initialization failed; ErrorCode: %d\n", rv);
+    }
+
     freelist_count = 0;
 
     num_files = 0;
@@ -1402,6 +1432,12 @@ void bcache_init(int nblock, int blocksize)
         list_push_front(&freelist, &item->list_elem);
         freelist_count++;
     }
+
+    gettimeofday(&end, NULL);
+    long elapsed = (end.tv_sec - begin.tv_sec) * 1000000 + (end.tv_usec - begin.tv_usec);
+    fdb_log(NULL, FDB_RESULT_SUCCESS, "Forestdb blockcache size %" _F64
+            " initialized in %ld us\n", (uint64_t)bcache_blocksize * nblock,
+            elapsed);
 }
 
 uint64_t bcache_get_num_free_blocks()
@@ -1563,10 +1599,6 @@ INLINE void _bcache_free_fnamedic(struct hash_elem *h)
     free(item->shards);
     free(item->filename);
 
-    atomic_destroy_uint32_t(&item->ref_count);
-    atomic_destroy_uint64_t(&item->nvictim);
-    atomic_destroy_uint64_t(&item->nitems);
-    atomic_destroy_uint64_t(&item->access_timestamp);
     free(item);
 }
 // LCOV_EXCL_STOP
@@ -1576,6 +1608,7 @@ void bcache_shutdown()
     struct bcache_item *item;
     struct list_elem *e;
 
+    spin_lock(&freelist_lock);
     e = list_begin(&freelist);
     while(e) {
         item = _get_entry(e, struct bcache_item, list_elem);
@@ -1583,7 +1616,9 @@ void bcache_shutdown()
         freelist_count--;
         free(item);
     }
+    spin_unlock(&freelist_lock);
 
+    writer_lock(&filelist_lock);
     // Force clean zombies if any
     e = list_begin(&file_zombies);
     while (e) {
@@ -1593,6 +1628,7 @@ void bcache_shutdown()
     }
     // Free the file list array
     free(file_list);
+    writer_unlock(&filelist_lock);
 
     // Free entire buffercache memory
     free(buffercache_addr);
@@ -1603,6 +1639,11 @@ void bcache_shutdown()
 
     spin_destroy(&bcache_lock);
     spin_destroy(&freelist_lock);
-    rw_spin_destroy(&filelist_lock);
+
+    int rv = destroy_rw_lock(&filelist_lock);
+    if (rv != 0) {
+        fprintf(stderr, "Error in bcache_shutdown(): "
+                        "RW Lock's destruction failed; ErrorCode: %d\n", rv);
+    }
 }
 

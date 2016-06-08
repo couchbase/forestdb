@@ -267,7 +267,7 @@ void read_failure_test()
     fail_ctx.start_failing_after = fail_ctx.num_ops; // immediately fail
 
     status = fdb_open(&dbfile, "./anomaly_test1", &fconfig);
-    TEST_CHK(status == FDB_RESULT_READ_FAIL);
+    TEST_CHK(status == FDB_RESULT_READ_FAIL || status == FDB_RESULT_SB_READ_FAIL);
 
     fail_ctx.start_failing_after = fail_ctx.num_ops+1000; //normal operation
 
@@ -285,7 +285,7 @@ void read_failure_test()
     fdb_doc_create(&rdoc, doc[i]->key, doc[i]->keylen, NULL, 0, NULL, 0);
     status = fdb_get(db, rdoc);
 
-    TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+    TEST_CHK(status == FDB_RESULT_READ_FAIL);
     // free result document
     fdb_doc_free(rdoc);
 
@@ -470,10 +470,12 @@ void handle_busy_test()
 
     // Test iterator callbacks by attemping a set call on the iterator handle..
     data.iterator = itr;
-    status = fdb_set(itr->handle, doc[0]);
-    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    // TODO: remove if concurrent access on iterator handle can never happen
+    //status = fdb_set(itr->handle, doc[0]);
+    //TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     fdb_iterator_close(itr);
+    data.test_handle_busy = 0;
     fdb_close(data.dbfile);
 
     for (i = n - 1; i >=0; --i) {
@@ -799,13 +801,111 @@ void read_old_file()
     TEST_RESULT("read an old file test");
 }
 
+void corrupted_header_correct_superblock_test()
+{
+    TEST_INIT();
+    int n=200, n_commits=4, i, j, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[256];
+    struct filemgr_ops *normal_ops;
+
+    memleak_start();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" anomaly_test* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    kvs_config = fdb_get_default_kvs_config();
+
+    struct anomalous_callbacks *cbs = get_default_anon_cbs();
+    filemgr_ops_anomalous_init(cbs, NULL);
+
+    normal_ops = get_normal_ops_ptr();
+
+    // create a file
+    s = fdb_open(&dbfile, "anomaly_test1", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    for (j=0; j<n_commits; ++j) {
+        for (i=0; i<n; ++i) {
+            sprintf(keybuf, "k%06d", i);
+            sprintf(valuebuf, "v%d_%04d", j, i);
+            fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 8);
+            s = fdb_set(db, doc);
+            TEST_CHK(s == FDB_RESULT_SUCCESS);
+            fdb_doc_free(doc);
+        }
+        s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // copy the data in the file except for the last (header) block
+    int fd = cbs->open_cb(NULL, normal_ops, "anomaly_test1", O_RDWR, 0644);
+    int fd_dst = cbs->open_cb(NULL, normal_ops,
+                              "anomaly_test2", O_CREAT | O_RDWR, 0644);
+    uint64_t offset = cbs->file_size_cb(NULL, normal_ops, "anomaly_test1");
+    uint8_t *filedata = (uint8_t*)malloc(offset);
+    cbs->pread_cb(NULL, normal_ops, fd, (void*)filedata, offset, 0);
+    cbs->pwrite_cb(NULL, normal_ops, fd_dst, (void*)filedata, offset - 4096, 0);
+    cbs->close_cb(NULL, normal_ops, fd);
+    cbs->close_cb(NULL, normal_ops, fd_dst);
+    free(filedata);
+
+    // open the corrupted file
+    s = fdb_open(&dbfile, "anomaly_test2", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // data at the 3rd commit should be read
+    j = 2;
+    for (i=0; i<n; ++i) {
+        sprintf(keybuf, "k%06d", i);
+        sprintf(valuebuf, "v%d_%04d", j, i);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, NULL, 0);
+        s = fdb_get(db, doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        TEST_CMP(doc->body, valuebuf, doc->bodylen);
+        fdb_doc_free(doc);
+    }
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("corrupted DB header from correct superblock test");
+}
+
 int main(){
 
-    copy_file_range_test();
+    /**
+     * Commented out this test for now; it copies consecutive document blocks
+     * to other file but they are written in different BID compared to the source
+     * file, so that meta section at the end of each document block points to wrong
+     * block and consequently documents cannot be read correctly.
+     */
+    //copy_file_range_test();
     write_failure_test();
     read_failure_test();
     handle_busy_test();
     read_old_file();
+    corrupted_header_correct_superblock_test();
 
     return 0;
 }

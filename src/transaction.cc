@@ -32,7 +32,7 @@ LIBFDB_API
 fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                                  fdb_isolation_level_t isolation_level)
 {
-    if (!fhandle) {
+    if (!fhandle || !fhandle->root) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
@@ -90,6 +90,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
         // there is no previous header until the compaction is done.
         handle->txn->prev_hdr_bid = BLK_NOT_FOUND;
     }
+    handle->txn->prev_revnum = handle->cur_header_revnum;
     handle->txn->items = (struct list *)malloc(sizeof(struct list));
     handle->txn->isolation = isolation_level;
     list_init(handle->txn->items);
@@ -168,7 +169,7 @@ LIBFDB_API
 fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
                                fdb_commit_opt_t opt)
 {
-    if (!fhandle) {
+    if (!fhandle || !fhandle->root) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 

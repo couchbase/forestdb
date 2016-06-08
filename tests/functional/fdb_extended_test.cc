@@ -103,7 +103,7 @@ static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
                                    int num_docs) {
     TEST_INIT();
     fdb_status status;
-    char keybuf[1024], metabuf[1024], bodybuf[1024];
+    char keybuf[256], metabuf[256], bodybuf[256];
 
     // insert documents
     for (int i = 0; i < num_docs; ++i){
@@ -128,7 +128,7 @@ static void updateDocsWithRandomKeys(fdb_file_handle *dbfile,
                                      int end_doc) {
     TEST_INIT();
     fdb_status status;
-    char metabuf[1024], bodybuf[1024];
+    char metabuf[256], bodybuf[256];
 
     // insert documents
     for (int i = start_doc; i < end_doc; ++i) {

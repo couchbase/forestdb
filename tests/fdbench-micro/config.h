@@ -1,6 +1,6 @@
 /* -*- Mode: C++; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
- *     Copyright 2010 Couchbase, Inc
+ *     Copyright 2016 Couchbase, Inc
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -15,15 +15,16 @@
  *   limitations under the License.
  */
 
-#include "libforestdb/forestdb.h"
-
-#if defined(WIN32)
-#include <windows.h>
-#else
-#include <unistd.h>
-#include <sys/time.h>
+#ifdef __sun
+#include <alloca.h>
 #endif
 
+#include <libforestdb/forestdb.h>
+
+#include <string>
+#include <vector>
+
+#include "stat_aggregator.h"
 
 //#define __DEBUG_E2E
 
@@ -33,32 +34,24 @@ extern "C" {
 
 static const char BENCHDB_NAME[] = "fdb_bench_dbfile";
 static const char BENCHKV_NAME[] = "fdb_bench_kv";
-static const int  NDOCS = 10000;
-static const int  CACHESIZE = 4096;
 static const int  KEY_SIZE = 16;
-static const int  PERMUTED_BYTES = 6;
+static const int  PERMUTED_BYTES = 4;
 
-// stats
-static const char ST_SET[] = "set";
-static const char ST_GET[] = "get";
-static const char ST_DELETE[] = "delete";
-static const char ST_COMPACT[] = "compact";
-static const char ST_COMMIT_WAL[] = "commit_wal";
-static const char ST_COMMIT_NORM[] = "commit_norm";
-static const char ST_KV_CLOSE[] = "kv_close";
-static const char ST_SNAP_OPEN[] = "snap_open";
-static const char ST_AVG_SNAP_OPEN[] = "avg_snap_open";
-static const char ST_SNAP_CLOSE[] = "snap_close";
+// custom stats
 static const char ST_ITR_INIT[] = "iterator_init";
 static const char ST_ITR_GET[] = "iterator_get";
-static const char ST_AVG_READ[] = "avg_read";
 static const char ST_ITR_NEXT[] = "iterator_next";
 static const char ST_ITR_CLOSE[] = "iterator_close";
-static const char ST_FILE_CLOSE[] = "file_close";
-static const char ST_SHUTDOWN[] = "shutdown";
 
-uint64_t resolution_nsec();
-uint64_t timestamp();
+struct reader_context {
+    fdb_kvs_handle *handle;
+    stat_history_t *stat_itr_init;
+    stat_history_t *stat_itr_get;
+    stat_history_t *stat_itr_next;
+    stat_history_t *stat_itr_close;
+};
+
+#define alca(type, n) ((type*)alloca(sizeof(type) * (n)))
 
 #ifdef __cplusplus
 }

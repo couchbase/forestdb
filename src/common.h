@@ -67,11 +67,15 @@ enum{
 #define BLK_MARKER_BNODE (0xff)
 #define BLK_MARKER_DBHEADER (0xee)
 #define BLK_MARKER_DOC (0xdd)
+#define BLK_MARKER_SB (0xcc) // superblock
 #define BLK_MARKER_SIZE (1)
 #define DOCBLK_META_SIZE (16)
+#define BMP_REVNUM_MASK 0xffff
+
 struct docblk_meta {
     bid_t next_bid;
-    uint8_t reserved[7];
+    uint16_t sb_bmp_revnum_hash;
+    uint8_t reserved[5];
     uint8_t marker;
 };
 
@@ -80,25 +84,14 @@ struct docblk_meta {
 
 #define random_custom(prev, num) (prev) = ((prev)+811)&((num)-1)
 
-void _dbg_assert(int line, const char *file, uint64_t val, uint64_t expected);
 
-#ifdef _TRACE_HANDLES
-# ifndef _UNIT_TESTS
-void _fdb_dump_handles(void);
-#  define fdb_assert(cond, val, expected)\
-   if (!(cond)) { \
-     _dbg_assert(__LINE__, __FILE__, (uint64_t)(val), (uint64_t)(expected));\
-     _fdb_dump_handles();\
-     assert(cond);\
-   }
-# else // !_UNIT_TESTS
-#   define fdb_assert(cond, val, expected) assert(cond)
-# endif // !_UNIT_TESTS
-#else // if !_TRACE_HANDLES
-#  define fdb_assert(cond, val, expected)\
-   if (!(cond)) { \
-     _dbg_assert(__LINE__, __FILE__, (uint64_t)(val), (uint64_t)(expected));\
-     assert(cond);\
-   }
-#endif // _TRACE_HANDLES
-#endif
+/* Custom assert */
+
+void fdb_assert_die(const char* expression, const char* file, int line,
+                    uint64_t val, uint64_t expected);
+
+#define fdb_assert(cond, val, expected)   \
+    ((void)((cond) ? (void)0 : fdb_assert_die(#cond, __FILE__, __LINE__,\
+                                              (uint64_t)(val), (uint64_t)(expected))))
+
+#endif // _JSAHN_COMMON_H

@@ -150,6 +150,15 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
+    // info check
+    s = fdb_get_file_info(dbfile, &file_info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CHK(file_info.doc_count == (uint64_t)n);
+    TEST_CHK(file_info.num_kv_stores == 1);
+    s = fdb_get_kvs_info(db, &kvs_info);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    TEST_CHK(kvs_info.doc_count == (uint64_t)n);
+
     kvs_config.create_if_missing = false;
     s = fdb_kvs_open(dbfile, &kv1, "kv1", &kvs_config);
     TEST_CHK(s != FDB_RESULT_SUCCESS); // must fail
@@ -399,7 +408,28 @@ void multi_kv_test(uint8_t opt, size_t chunksize)
     // must fail due to opened handle
     TEST_CHK(s != FDB_RESULT_SUCCESS);
 
-    // closing super handle also closes all other sub-handles;
+    // Close "kv1" handle
+    s = fdb_kvs_close(kv1);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // re-open with a new file handle
+    fdb_file_handle *fhandle;
+    if (opt & MULTI_KV_VAR_CMP) {
+        s = fdb_open_custom_cmp(&fhandle, "./multi_kv_test2", &config,
+                                2, kvs_names, functions);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    } else {
+        s = fdb_open(&fhandle, "./multi_kv_test2", &config);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    s = fdb_kvs_open(fhandle, &kv1, "kv1", &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    // Try to remove "kv1" again, but should fail
+    s = fdb_kvs_remove(dbfile, "kv1");
+    TEST_CHK(s == FDB_RESULT_KV_STORE_BUSY);
+
+    // closing super handles also closes all other sub-handles;
+    s = fdb_close(fhandle);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
     s = fdb_close(dbfile);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
@@ -765,21 +795,23 @@ void multi_kv_iterator_seq_test(uint8_t opt, size_t chunksize)
     s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
-    // iterate in default KV instance
-    i = 1;
-    s = fdb_iterator_sequence_init(db, &it, 0, 0, FDB_ITR_NONE);
-    TEST_CHK(s == FDB_RESULT_SUCCESS);
-    while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS) {
-        i++;
-    }
-    TEST_CHK(i == n);
-    fdb_iterator_close(it);
-
     // pre-allocate memory and re-use it for the iterator return document
     s = fdb_doc_create(&doc, NULL, 0, NULL, 0, NULL, 0);
     TEST_CHK(s == FDB_RESULT_SUCCESS);
     doc->key = &keyBuf[0];
     doc->body = &valueBuf[0];
+
+    // iterate in default KV instance
+    i = 1;
+    s = fdb_iterator_sequence_init(db, &it, 0, 0, FDB_ITR_NONE);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS) {
+        s = fdb_iterator_get(it, &doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        i++;
+    }
+    TEST_CHK(i == n);
+    fdb_iterator_close(it);
 
     // iterate in KV1
     i = 0;
@@ -870,7 +902,7 @@ void multi_kv_iterator_seq_test(uint8_t opt, size_t chunksize)
         (void)seqnum;
         i++;
     } while (fdb_iterator_next(it) == FDB_RESULT_SUCCESS);
-    TEST_CHK(i == 46);
+    TEST_CHK(i == 71);
     fdb_iterator_close(it);
 
     s = fdb_kvs_close(kv1);
@@ -1488,6 +1520,8 @@ void multi_kv_rollback_test(uint8_t opt, size_t chunksize)
     config.multi_kv_instances = true;
     config.wal_threshold = 1000;
     config.buffercache_size = 0;
+    // for rollback, disable block reusing
+    config.block_reusing_threshold = 0;
 
     if (opt & MULTI_KV_VAR_CMP) {
         s = fdb_open_custom_cmp(&dbfile, "./multi_kv_test", &config,

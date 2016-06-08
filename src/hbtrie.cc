@@ -805,6 +805,13 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             return HBTRIE_RESULT_FAIL;
         }
 
+        if (flag & HBTRIE_PARTIAL_MATCH) {
+            // in partial match mode, we don't read actual doc key,
+            // and just store & return indexed part of key.
+            memcpy((uint8_t*)it->curkey + item->chunkno * trie->chunksize,
+                   k, trie->chunksize);
+        }
+
         // check whether v points to doc or sub b-tree
         if (_hbtrie_is_msb_set(trie, v)) {
             // MSB is set -> sub b-tree
@@ -950,7 +957,12 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             if (hbmeta.value && chunk == NULL) {
                 // NULL key exists .. the smallest key in this tree .. return first
                 offset = trie->btree_kv_ops->value2bid(hbmeta.value);
-                if (!(flag & HBTRIE_PREFIX_MATCH_ONLY)) {
+                if (flag & HBTRIE_PARTIAL_MATCH) {
+                    // return indexed key part only
+                    *keylen = (item->chunkno+1) * trie->chunksize;
+                    memcpy(key_buf, it->curkey, *keylen);
+                } else if (!(flag & HBTRIE_PREFIX_MATCH_ONLY)) {
+                    // read entire key from doc's meta
                     *keylen = trie->readkey(trie->doc_handle, offset, key_buf);
                     it->keylen = _hbtrie_reform_key(trie, key_buf, *keylen, it->curkey);
                 }
@@ -974,7 +986,12 @@ static hbtrie_result _hbtrie_next(struct hbtrie_iterator *it,
             // MSB is not set -> doc
             // read entire key and return the doc offset
             offset = trie->btree_kv_ops->value2bid(v);
-            if (!(flag & HBTRIE_PREFIX_MATCH_ONLY)) {
+            if (flag & HBTRIE_PARTIAL_MATCH) {
+                // return indexed key part only
+                *keylen = (item->chunkno+1) * trie->chunksize;
+                memcpy(key_buf, it->curkey, *keylen);
+            } else if (!(flag & HBTRIE_PREFIX_MATCH_ONLY)) {
+                // read entire key from doc's meta
                 *keylen = trie->readkey(trie->doc_handle, offset, key_buf);
                 it->keylen = _hbtrie_reform_key(trie, key_buf, *keylen, it->curkey);
             }
@@ -1003,6 +1020,32 @@ hbtrie_result hbtrie_next(struct hbtrie_iterator *it,
     if (e) item = _get_entry(e, struct btreeit_item, le);
 
     hr = _hbtrie_next(it, item, key_buf, keylen, value_buf, 0x0);
+    HBTRIE_ITR_SET_FWD(it);
+    if (hr == HBTRIE_RESULT_SUCCESS) {
+        HBTRIE_ITR_CLR_FAILED(it);
+        HBTRIE_ITR_SET_MOVED(it);
+    } else {
+        HBTRIE_ITR_SET_FAILED(it);
+    }
+    return hr;
+}
+
+hbtrie_result hbtrie_next_partial(struct hbtrie_iterator *it,
+                                  void *key_buf,
+                                  size_t *keylen,
+                                  void *value_buf)
+{
+    hbtrie_result hr;
+
+    if (HBTRIE_ITR_IS_FWD(it) && HBTRIE_ITR_IS_FAILED(it)) {
+        return HBTRIE_RESULT_FAIL;
+    }
+
+    struct list_elem *e = list_begin(&it->btreeit_list);
+    struct btreeit_item *item = NULL;
+    if (e) item = _get_entry(e, struct btreeit_item, le);
+
+    hr = _hbtrie_next(it, item, key_buf, keylen, value_buf, HBTRIE_PARTIAL_MATCH);
     HBTRIE_ITR_SET_FWD(it);
     if (hr == HBTRIE_RESULT_SUCCESS) {
         HBTRIE_ITR_CLR_FAILED(it);

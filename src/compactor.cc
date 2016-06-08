@@ -66,7 +66,7 @@ static size_t sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
 static mutex_t sync_mutex;
 static thread_cond_t sync_cond;
 
-static volatile uint8_t compactor_terminate_signal = 0;
+static atomic_uint8_t compactor_terminate_signal(0);
 
 static struct avl_tree openfiles;
 
@@ -80,6 +80,8 @@ struct openfiles_elem {
     bool removal_activated;
     err_log_callback *log_callback;
     struct avl_node avl;
+    struct timeval last_compaction_timestamp;
+    size_t interval;
 };
 
 struct compactor_args_t {
@@ -133,7 +135,7 @@ INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
 }
 
 // check if the compaction threshold is satisfied
-INLINE int _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
+INLINE bool _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
 {
     uint64_t filesize;
     uint64_t active_data;
@@ -142,7 +144,15 @@ INLINE int _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
     if (elem->compaction_flag || filemgr_is_rollback_on(elem->file)) {
         // do not perform compaction if the file is already being compacted or
         // in rollback.
-        return 0;
+        return false;
+    }
+
+    struct timeval curr_time, gap;
+    gettimeofday(&curr_time, NULL);
+    gap = _utime_gap(elem->last_compaction_timestamp, curr_time);
+    uint64_t elapsed_us = (uint64_t)gap.tv_sec * 1000000 + gap.tv_usec;
+    if (elapsed_us < (elem->interval * 1000000)) {
+        return false;
     }
 
     threshold = elem->config.compaction_threshold;
@@ -153,12 +163,12 @@ INLINE int _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
         active_data = _compactor_estimate_space(elem);
         if (active_data == 0 || active_data >= filesize ||
             filesize < elem->config.compaction_minimum_filesize) {
-            return 0;
+            return false;
         }
 
         return ((filesize / 100.0 * threshold) < (filesize - active_data));
     } else {
-        return 0;
+        return false;
     }
 }
 
@@ -339,10 +349,14 @@ void * compactor_thread(void *voidargs)
     struct openfiles_elem *elem;
     struct openfiles_elem query;
 
-    // Sleep for 10 secs by default to allow applications to warm up their data.
+    // Sleep for a configured period by default to allow applications to warm up their data.
     // TODO: Need to implement more flexible way of scheduling the compaction
     // daemon (e.g., public APIs to start / stop the compaction daemon).
     mutex_lock(&sync_mutex);
+    if (compactor_terminate_signal) {
+        mutex_unlock(&sync_mutex);
+        return NULL;
+    }
     thread_cond_timedwait(&sync_cond, &sync_mutex, sleep_duration * 1000);
     mutex_unlock(&sync_mutex);
 
@@ -458,7 +472,12 @@ void * compactor_thread(void *voidargs)
             mutex_unlock(&sync_mutex);
             break;
         }
-        thread_cond_timedwait(&sync_cond, &sync_mutex, sleep_duration * 1000);
+        // As each database file can be opened at different times, we need to
+        // wake up each compaction thread with a shorter interval to check if
+        // the time since the last compaction of a given file is already passed
+        // by a configured compaction interval and consequently the file should
+        // be compacted or not.
+        thread_cond_timedwait(&sync_cond, &sync_mutex, 15 * 1000); // Wait for 15 secs.
         if (compactor_terminate_signal) {
             mutex_unlock(&sync_mutex);
             break;
@@ -510,6 +529,10 @@ void compactor_shutdown()
     struct avl_node *a = NULL;
     struct openfiles_elem *elem;
 
+    if (!compactor_tids) {
+        return;
+    }
+
     // set terminate signal
     mutex_lock(&sync_mutex);
     compactor_terminate_signal = 1;
@@ -520,6 +543,7 @@ void compactor_shutdown()
         thread_join(compactor_tids[i], &ret);
     }
     free(compactor_tids);
+    compactor_tids = NULL;
 
     mutex_lock(&cpt_lock);
     // free all elems in the tree
@@ -588,6 +612,9 @@ fdb_status compactor_register_file(struct filemgr *file,
         elem->daemon_compact_in_progress = false;
         elem->removal_activated = false;
         elem->log_callback = log_callback;
+        gettimeofday(&elem->last_compaction_timestamp, NULL);
+        // Init the compaction interval using the global param
+        elem->interval = sleep_duration;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
                                  // subsequent registration attempts for the same file
@@ -667,6 +694,9 @@ fdb_status compactor_register_file_removing(struct filemgr *file,
         elem->daemon_compact_in_progress = true;
         elem->removal_activated = false;
         elem->log_callback = log_callback;
+        gettimeofday(&elem->last_compaction_timestamp, NULL);
+        // Init the compaction interval using the global param
+        elem->interval = sleep_duration;
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as
                                  // subsequent registration attempts for the same file
@@ -698,6 +728,26 @@ void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
         elem->config.compaction_threshold = new_threshold;
     }
     mutex_unlock(&cpt_lock);
+}
+
+fdb_status compactor_set_compaction_interval(struct filemgr *file,
+                                             size_t interval)
+{
+    struct avl_node *a = NULL;
+    struct openfiles_elem query, *elem;
+    fdb_status result = FDB_RESULT_SUCCESS;
+
+    strcpy(query.filename, file->filename);
+    mutex_lock(&cpt_lock);
+    a = avl_search(&openfiles, &query.avl, _compactor_cmp);
+    if (a) {
+        elem = _get_entry(a, struct openfiles_elem, avl);
+        elem->interval = interval;
+    } else {
+        result = FDB_RESULT_INVALID_ARGS;
+    }
+    mutex_unlock(&cpt_lock);
+    return result;
 }
 
 struct compactor_meta * _compactor_read_metafile(char *metafile,
@@ -800,7 +850,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
                     "file '%s', errno_message: %s\n",
                     (int)ret, metafile, errno_msg);
             ops->close(fd_meta);
-            return FDB_RESULT_WRITE_FAIL;
+            return (fdb_status) ret;
         }
         ret = ops->fsync(fd_meta);
         if (ret < 0) {
@@ -810,7 +860,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
                     "file '%s', errno_message: %s\n",
                     (int)ret, metafile, errno_msg);
             ops->close(fd_meta);
-            return FDB_RESULT_FSYNC_FAIL;
+            return (fdb_status) ret;
         }
         ops->close(fd_meta);
     } else {
@@ -842,6 +892,9 @@ void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
         elem->daemon_compact_in_progress = false;
         // clear compaction flag
         elem->compaction_flag = false;
+        // As this function is invoked at the end of compaction, set the compaction
+        // timestamp to the current time.
+        gettimeofday(&elem->last_compaction_timestamp, NULL);
         avl_insert(&openfiles, &elem->avl, _compactor_cmp);
         comp_mode = elem->config.compaction_mode;
         mutex_unlock(&cpt_lock); // Releasing the lock here should be OK as we don't

@@ -98,23 +98,24 @@ void print_doc(fdb_kvs_handle *db,
                struct dump_option *opt)
 {
     uint8_t is_wal_entry;
-    uint64_t _offset;
+    int64_t _offset;
     void *key;
     keylen_t keylen;
     fdb_status wr;
     fdb_doc fdoc;
     struct docio_object doc;
+    struct _fdb_key_cmp_info cmp_info;
 
     memset(&doc, 0, sizeof(struct docio_object));
 
     _offset = docio_read_doc(db->dhandle, offset, &doc, true);
-    if (_offset == offset) {
+    if (_offset <= 0) {
         return;
     }
     if (doc.length.flag & DOCIO_TXN_COMMITTED) {
         offset = doc.doc_offset;
         _offset = docio_read_doc(db->dhandle, offset, &doc, true);
-        if (_offset == offset) {
+        if (_offset <= 0) {
             return;
         }
     }
@@ -138,9 +139,12 @@ void print_doc(fdb_kvs_handle *db,
     }
     printf("    Byte offset: %" _F64 "\n", offset);
 
+    cmp_info.kvs_config = db->kvs_config;
+    cmp_info.kvs = db->kvs;
     fdoc.key = doc.key;
     fdoc.keylen = doc.length.keylen;
-    wr = wal_find(&db->file->global_txn, db->file, &fdoc, &offset);
+    wr = wal_find(&db->file->global_txn, db->file,
+                  &cmp_info, db->shandle, &fdoc, &offset);
     is_wal_entry = (wr == FDB_RESULT_SUCCESS)?(1):(0);
     printf("    Indexed by %s\n", (is_wal_entry)?("WAL"):("the main index"));
     printf("    Length: %d (key), %d (metadata), %d (body)\n",

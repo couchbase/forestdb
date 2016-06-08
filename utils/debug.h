@@ -1,6 +1,7 @@
 #ifndef _JSAHN_DEBUG_H
 #define _JSAHN_DEBUG_H
 
+#include <libforestdb/fdb_errors.h>
 #include <stdint.h>
 
 #ifdef __DEBUG
@@ -24,5 +25,11 @@ void * _dbg_get_addr(int n);
 
 void _dbg_set_uint64_t(int n, uint64_t val);
 uint64_t _dbg_get_uint64_t(int n);
+
+fdb_status _dbg_install_handler(void);
+fdb_status _dbg_destroy_altstack(void);
+fdb_status _dbg_handle_crashes(const char *pathname);
+
+void dbg_print_buf(void *buf, uint64_t buflen, bool hex, int align);
 
 #endif

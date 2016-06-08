@@ -386,8 +386,10 @@ typedef struct {
      */
     uint64_t compaction_minimum_filesize;
     /**
-     * Duration that the compaction daemon periodically wakes up, in the unit of
-     * second. This is a global config that is used across all ForestDB files.
+     * Duration that the compaction daemon task periodically wakes up, in the unit of
+     * second. This is a local config that can be configured per file.
+     * If the daemon compaction interval for a given file needs to be adjusted, then
+     * fdb_set_daemon_compaction_interval API can be used.
      */
     uint64_t compactor_sleep_duration;
     /**
@@ -461,6 +463,23 @@ typedef struct {
      * must be given, otherwise fdb_open will fail with error FDB_RESULT_NO_DB_HEADERS.
      */
     fdb_encryption_key encryption_key;
+    /**
+     * Circular block reusing threshold in the unit of percentage (%), which can be
+     * represented as '(stale data size)/(total file size)'. When stale data size
+     * grows beyond the threshold, circular block reusing is triggered so that stale
+     * blocks are reused for further block allocation. Block reusing is disabled if
+     * this threshold is set to zero or 100.
+     */
+    size_t block_reusing_threshold;
+    /**
+     * Number of the last commit headers whose stale blocks should be kept for
+     * snapshot readers.
+     */
+    size_t num_keeping_headers;
+    /**
+     * Breakpad crash catcher settings
+     */
+    const char* breakpad_minidump_dir;
 
 } fdb_config;
 
@@ -656,15 +675,27 @@ typedef struct {
  */
 typedef uint8_t fdb_latency_stat_type;
 enum {
-    FDB_LATENCY_SETS      = 0, // fdb_set API
-    FDB_LATENCY_GETS      = 1, // fdb_get API
-    FDB_LATENCY_COMMITS   = 2, // fdb_commit API
-    FDB_LATENCY_SNAPSHOTS = 3, // fdb_snapshot_open API
-    FDB_LATENCY_COMPACTS  = 4  // fdb_compact API
+    FDB_LATENCY_SETS         = 0, // fdb_set API
+    FDB_LATENCY_GETS         = 1, // fdb_get API
+    FDB_LATENCY_COMMITS      = 2, // fdb_commit API
+    FDB_LATENCY_SNAP_INMEM   = 3, // fdb_snapshot_open in-memory API
+    FDB_LATENCY_SNAP_DUR     = 4, // fdb_snapshot_open durable API
+    FDB_LATENCY_COMPACTS     = 5, // fdb_compact API
+    FDB_LATENCY_ITR_INIT     = 6, // fdb_iterator_init API
+    FDB_LATENCY_ITR_SEQ_INIT = 7, // fdb_iterator_sequence_init API
+    FDB_LATENCY_ITR_NEXT     = 8, // fdb_iterator_next API
+    FDB_LATENCY_ITR_PREV     = 9, // fdb_iterator_prev API
+    FDB_LATENCY_ITR_GET      = 10, // fdb_iterator_get API
+    FDB_LATENCY_ITR_GET_META = 11, // fdb_iterator_get_metaonly API
+    FDB_LATENCY_ITR_SEEK     = 12, // fdb_iterator_seek API
+    FDB_LATENCY_ITR_SEEK_MAX = 13, // fdb_iterator_seek_to_max API
+    FDB_LATENCY_ITR_SEEK_MIN = 14, // fdb_iterator_seek_to_min API
+    FDB_LATENCY_ITR_CLOSE    = 15, // fdb_iterator_close API
+    FDB_LATENCY_OPEN         = 16, // fdb_open API
+    FDB_LATENCY_KVS_OPEN     = 17, // fdb_kvs_open API
+    FDB_LATENCY_SNAP_CLONE   = 18, // fdb_snapshot_open from another snapshot
+    FDB_LATENCY_NUM_STATS    = 19  // Number of stats (keep as highest elem)
 };
-
-// Number of latency stat types
-#define FDB_LATENCY_NUM_STATS 5
 
 /**
  * Latency statistics of a specific ForestDB api call

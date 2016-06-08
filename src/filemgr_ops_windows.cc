@@ -42,11 +42,7 @@ int _filemgr_win_open(const char *pathname, int flags, mode_t mode)
     if (fd < 0) {
         errno_t err;
         _get_errno(&err);
-        if (err == ENOENT) {
-            return (int) FDB_RESULT_NO_SUCH_FILE;
-        } else {
-            return (int) FDB_RESULT_OPEN_FAIL;
-        }
+        return (int) convert_errno_to_fdb_status(err, FDB_RESULT_OPEN_FAIL);
     }
     return fd;
 #else
@@ -56,11 +52,7 @@ int _filemgr_win_open(const char *pathname, int flags, mode_t mode)
     } while (fd == -1 && errno == EINTR);
 
     if (fd < 0) {
-        if (errno == ENOENT) {
-            return (int) FDB_RESULT_NO_SUCH_FILE;
-        } else {
-            return (int) FDB_RESULT_OPEN_FAIL;
-        }
+        return (int) convert_errno_to_fdb_status(errno, FDB_RESULT_OPEN_FAIL)
     }
     return fd;
 #endif
@@ -77,7 +69,13 @@ ssize_t _filemgr_win_pwrite(int fd, void *buf, size_t count, cs_off_t offset)
     winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
     rv = WriteFile(file, buf, count, &byteswritten, &winoffs);
     if(!rv) {
-        return (ssize_t) FDB_RESULT_WRITE_FAIL;
+#ifdef _MSC_VER
+        errno_t err;
+        _get_errno(&err);
+        return (ssize_t) convert_errno_to_fdb_status(err, FDB_RESULT_WRITE_FAIL);
+#else
+        return (sszie_t) convert_errno_to_fdb_status(errno, FDB_RESULT_WRITE_FAIL);
+#endif
     }
     return (ssize_t) byteswritten;
 }
@@ -93,7 +91,13 @@ ssize_t _filemgr_win_pread(int fd, void *buf, size_t count, cs_off_t offset)
     winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
     rv = ReadFile(file, buf, count, &bytesread, &winoffs);
     if(!rv) {
-        return (ssize_t) FDB_RESULT_READ_FAIL;
+#ifdef _MSC_VER
+        errno_t err;
+        _get_errno(&err);
+        return (ssize_t) convert_errno_to_fdb_status(err, FDB_RESULT_READ_FAIL);
+#else
+        return (sszie_t) convert_errno_to_fdb_status(errno, FDB_RESULT_READ_FAIL);
+#endif
     }
     return (ssize_t) bytesread;
 }
@@ -107,7 +111,9 @@ int _filemgr_win_close(int fd)
     }
 
     if (rv < 0) {
-        return FDB_RESULT_CLOSE_FAIL;
+        errno_t err;
+        _get_errno(&err);
+        return (int) convert_errno_to_fdb_status(err, FDB_RESULT_CLOSE_FAIL);
     }
     return FDB_RESULT_SUCCESS;
 #else
@@ -119,7 +125,7 @@ int _filemgr_win_close(int fd)
     }
 
     if (rv < 0) {
-        return FDB_RESULT_CLOSE_FAIL;
+        return (int) convert_errno_to_fdb_status(errno, FDB_RESULT_CLOSE_FAIL);
     }
     return FDB_RESULT_SUCCESS;
 #endif
@@ -130,13 +136,15 @@ cs_off_t _filemgr_win_goto_eof(int fd)
 #ifdef _MSC_VER
     cs_off_t rv = _lseeki64(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (cs_off_t) FDB_RESULT_SEEK_FAIL;
+        errno_t err;
+        _get_errno(&err);
+        return (cs_off_t) convert_errno_to_fdb_status(err, FDB_RESULT_SEEK_FAIL);
     }
     return rv;
 #else
     cs_off_t rv = lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        return (cs_off_t) FDB_RESULT_SEEK_FAIL;
+        return (cs_off_t) convert_errno_to_fdb_status(errno, FDB_RESULT_SEEK_FAIL);
     }
     return rv;
 #endif
@@ -147,13 +155,15 @@ cs_off_t _filemgr_win_file_size(const char *filename)
 #ifdef _MSC_VER
     struct _stat st;
     if (_stat(filename, &st) == -1) {
-        return (cs_off_t) FDB_RESULT_READ_FAIL;
+        errno_t err;
+        _get_errno(&err);
+        return (cs_off_t) convert_errno_to_fdb_status(err, FDB_RESULT_READ_FAIL);
     }
     return st.st_size;
 #else
     struct stat st;
     if (stat(filename, &st) == -1) {
-        return (cs_off_t) FDB_RESULT_READ_FAIL;
+        return (cs_off_t) convert_errno_to_fdb_status(errno, FDB_RESULT_READ_FAIL);
     }
     return st.st_size;
 #endif
@@ -164,7 +174,13 @@ int _filemgr_win_fsync(int fd)
     HANDLE file = handle_to_win(fd);
 
     if (!FlushFileBuffers(file)) {
-        return FDB_RESULT_FSYNC_FAIL;
+#ifdef _MSC_VER
+        errno_t err;
+        _get_errno(&err);
+        return (int) convert_errno_to_fdb_status(err, FDB_RESULT_FSYNC_FAIL);
+#else
+        return (int) convert_errno_to_fdb_status(errno, FDB_RESULT_FSYNC_FAIL);
+#endif
     }
     return FDB_RESULT_SUCCESS;
 }

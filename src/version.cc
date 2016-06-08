@@ -62,6 +62,15 @@ bool ver_non_consecutive_doc(filemgr_magic_t magic)
     return false;
 }
 
+bool ver_superblock_support(filemgr_magic_t magic)
+{
+    // All magic numbers since FILEMGR_MAGIC_002
+    if (magic >= FILEMGR_MAGIC_002 && magic <= FILEMGR_LATEST_MAGIC) {
+        return true;
+    }
+    return false;
+}
+
 size_t ver_get_new_filename_off(filemgr_magic_t magic) {
     switch(magic) {
         case FILEMGR_MAGIC_000: return 64;

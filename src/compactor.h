@@ -58,6 +58,16 @@ bool compactor_is_valid_mode(const char *filename, fdb_config *config);
 fdb_status compactor_destroy_file(char *filename,
                                   fdb_config *config);
 
+/**
+ * Set the daemon compaction interval for a given file.
+ *
+ * @param file Pointer to the file manager instance
+ * @param interval Daemon compaction interval to be set
+ * @return FDB_RESULT_SUCCESS upon successful interval change
+ */
+fdb_status compactor_set_compaction_interval(struct filemgr *file,
+                                             size_t interval);
+
 #ifdef __cplusplus
 }
 #endif

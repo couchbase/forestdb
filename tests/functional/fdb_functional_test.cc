@@ -88,6 +88,8 @@ void basic_test()
     fdb_close(dbfile);
 
     // reopen db
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
     fdb_open(&dbfile, "./dummy1",&fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc, (void *) "basic_test");
@@ -412,12 +414,9 @@ void config_test()
 
         bcache_space_used = fdb_get_buffer_cache_used();
 
-        // Ensure just one block is used from the buffercache to store KV name
-        // DB header and it does not change since files are duly closed
-        TEST_CHK(bcache_space_used == fconfig.blocksize);
-        // We need to replace above check routine with following condition
-        // when V3 magic number is enabled:
-        //TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
+        // Since V3 magic number, 7 blocks are used:
+        // 4 superblocks + KV name header + Stale-tree root node + DB header
+        TEST_CHK(bcache_space_used == fconfig.blocksize * 7);
 
         status = fdb_close(dbfile);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -432,12 +431,9 @@ void config_test()
 
     bcache_space_used = fdb_get_buffer_cache_used();
 
-    // Two blocks must be used - 1 by DB header created earlier and
-    // One for the document block created by the fdb_set_kv
-    TEST_CHK(bcache_space_used == fconfig.blocksize * 2);
-    // We need to replace above check routine with following condition
-    // when V3 magic number is enabled:
-    //TEST_CHK(bcache_space_used == fconfig.blocksize * 3);
+    // Since V3 magic number, 8 blocks are used:
+    // 7 blocks created eariler + document block for KV pair
+    TEST_CHK(bcache_space_used == fconfig.blocksize * 8);
 
     fdb_close(dbfile);
 
@@ -486,6 +482,7 @@ void delete_reopen_test()
 
     TEST_CHK(valueSize == 5);
     TEST_CMP(value, "value", 5);
+    fdb_free_block(value);
 
     status = fdb_begin_transaction(fh, FDB_ISOLATION_READ_COMMITTED);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2228,6 +2225,16 @@ void incomplete_block_test()
 static int _cmp_double(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
     double aa, bb;
+
+    if (!keylen1) {
+        // key1 not set
+        return -1;
+    }
+    if (!keylen2) {
+        // key2 not set
+        return 1;
+    }
+
     aa = *(double *)key1;
     bb = *(double *)key2;
 
@@ -2354,6 +2361,9 @@ void custom_compare_primitive_test()
 
 static int _cmp_variable(void *key1, size_t keylen1, void *key2, size_t keylen2)
 {
+    if (keylen1 < 6 || keylen2 < 6) {
+        return (keylen1 - keylen2);
+    }
     // compare only 3rd~8th bytes (ignore the others)
     return memcmp((uint8_t*)key1+2, (uint8_t*)key2+2, 6);
 }
@@ -4283,6 +4293,14 @@ void rekey_test()
     TEST_RESULT("encryption rekey test");
 }
 
+void functional_test_dummy_cb(int err_code, const char *err_msg, void *ctx_data)
+{
+    (void)err_code;
+    (void)err_msg;
+    (void)ctx_data;
+    return;
+}
+
 void invalid_get_byoffset_test()
 {
     TEST_INIT();
@@ -4310,6 +4328,8 @@ void invalid_get_byoffset_test()
     status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+    fdb_set_log_callback(db, functional_test_dummy_cb, NULL);
+
     sprintf(keybuf, "key");
     sprintf(bodybuf, "body");
 
@@ -4331,6 +4351,8 @@ void invalid_get_byoffset_test()
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+        fdb_set_log_callback(db, functional_test_dummy_cb, NULL);
 
         // attempt to get key by previous offset,
         // should fail as doc wasn't commited
@@ -4422,9 +4444,11 @@ void invalid_get_byoffset_test()
         status = fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
 
+        fdb_set_log_callback(db, functional_test_dummy_cb, NULL);
+
         // attempt to get key by incorrect offset belonging to different file
         status = fdb_get_byoffset(db, rdoc);
-        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        TEST_CHK(status == FDB_RESULT_READ_FAIL);
     }
 
     /* Scenario 4: Fetch invalid offset that points to an index block
@@ -4457,6 +4481,8 @@ void invalid_get_byoffset_test()
                 break;
             }
             offset += 4096;
+            winoffs.Offset = offset & 0xFFFFFFFF;
+            winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
         }
         fclose(fd);
 #endif
@@ -4467,7 +4493,7 @@ void invalid_get_byoffset_test()
         // attempt to get key by incorrect offset belonging to an index block
         // (offset points to start of an index block)
         status = fdb_get_byoffset(db, rdoc);
-        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        TEST_CHK(status == FDB_RESULT_READ_FAIL);
 
         // Set doc's offset to a random spot within that index block
         rdoc->offset = offset + (rand() % 4096);
@@ -4475,7 +4501,7 @@ void invalid_get_byoffset_test()
         // attempt to get key by incorrect offset belonging to an index block
         // (offset points to somewhere within the index block)
         status = fdb_get_byoffset(db, rdoc);
-        TEST_CHK(status == FDB_RESULT_KEY_NOT_FOUND);
+        TEST_CHK(status == FDB_RESULT_READ_FAIL);
 
         // Free the document
         fdb_doc_free(rdoc);
@@ -4516,6 +4542,102 @@ void invalid_get_byoffset_test()
 
     TEST_RESULT("invalid get by-offset test");
 }
+
+void dirty_index_consistency_test()
+{
+    TEST_INIT();
+    int i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db[2];
+    fdb_iterator *fit;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc, *rdoc;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[256];
+
+    memleak_start();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    config.wal_threshold = 100;
+    kvs_config = fdb_get_default_kvs_config();
+
+    // create a file
+    s = fdb_open(&dbfile, "dummy", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db[0], NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &db[1], NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    memset(keybuf, 0x0, 256);
+    memset(valuebuf, 0x0, 256);
+
+    // insert docs & dirty WAL flushing
+    for (i=0; i<1000; i++) {
+        sprintf(keybuf, "k%06d", i);
+        sprintf(valuebuf, "v%06d", i);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        s = fdb_set(db[1], doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc);
+    }
+
+    // get docks
+    for (i=0; i<1000; i++) {
+        sprintf(keybuf, "k%06d", i);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        s = fdb_get(db[0], doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc);
+    }
+    // now dirty blocks are cached in db[0]'s (default) bhandle
+
+    // more dirty WAL flushing
+    for (i=1000; i<3000; i++) {
+        sprintf(keybuf, "k%06d", i);
+        sprintf(valuebuf, "v%06d", i);
+        fdb_doc_create(&doc, keybuf, 8, NULL, 0, valuebuf, 9);
+        s = fdb_set(db[1], doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        fdb_doc_free(doc);
+    }
+
+    // commit - WAL flushing is executed on the default handle
+    s = fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // count # docs
+    s = fdb_iterator_init(db[1], &fit, NULL, 0, NULL, 0, FDB_ITR_NONE);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    r = 0;
+    do {
+        rdoc = NULL;
+        s = fdb_iterator_get(fit, &rdoc);
+        if (s != FDB_RESULT_SUCCESS) break;
+        r++;
+        fdb_doc_free(rdoc);
+    } while (fdb_iterator_next(fit) == FDB_RESULT_SUCCESS);
+    fdb_iterator_close(fit);
+
+    TEST_CHK(r == 3000);
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    fdb_shutdown();
+    memleak_end();
+
+    TEST_RESULT("dirty index consistency test");
+}
+
 void apis_with_invalid_handles_test() {
     TEST_INIT();
     fdb_file_handle *dbfile = NULL;
@@ -4539,36 +4661,35 @@ void apis_with_invalid_handles_test() {
     TEST_CHK(FDB_RESULT_SUCCESS == fdb_kvs_open(dbfile, &db, NULL, &kvs_config));
 
     TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_snapshot_open(db, NULL,
-                                                          FDB_SNAPSHOT_INMEM));
+                                                            FDB_SNAPSHOT_INMEM));
     TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_snapshot_open(NULL, NULL,
-                                                          FDB_SNAPSHOT_INMEM));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_rollback(&db1, 10));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_set_log_callback(NULL,
-                                                             logCallbackFunc,
-                                                             NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_get_byoffset(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_get_metaonly_byseq(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_set(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_del(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_commit(NULL, FDB_COMMIT_NORMAL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_compact(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_compact_with_cow(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_rekey(NULL, new_key));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_iterator_seek(NULL, "key", 3, 0));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_iterator_seek_to_min(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_iterator_seek_to_max(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_iterator_prev(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_iterator_next(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_iterator_get(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_iterator_get_metaonly(NULL, NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_kvs_open(NULL, NULL, NULL,
-                                                     &kvs_config));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_kvs_close(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_begin_transaction(NULL,
-                                                FDB_ISOLATION_READ_COMMITTED));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_abort_transaction(NULL));
-    TEST_CHK(FDB_RESULT_INVALID_HANDLE== fdb_end_transaction(NULL,
-                                                FDB_COMMIT_NORMAL));
+                                                            FDB_SNAPSHOT_INMEM));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_rollback(&db1, 10));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_set_log_callback(NULL,
+                                                               logCallbackFunc,
+                                                               NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_get_byoffset(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_set(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_del(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_commit(NULL, FDB_COMMIT_NORMAL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_compact(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_compact_with_cow(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_rekey(NULL, new_key));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_seek(NULL, "key", 3, 0));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_seek_to_min(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_seek_to_max(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_prev(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_next(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_get(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_iterator_get_metaonly(NULL, NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_kvs_open(NULL, NULL, NULL,
+                                                       &kvs_config));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_kvs_close(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_begin_transaction(NULL,
+                                                  FDB_ISOLATION_READ_COMMITTED));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_abort_transaction(NULL));
+    TEST_CHK(FDB_RESULT_INVALID_HANDLE == fdb_end_transaction(NULL,
+                                                  FDB_COMMIT_NORMAL));
 
     fdb_kvs_close(db);
     fdb_close(dbfile);
@@ -4582,7 +4703,6 @@ void apis_with_invalid_handles_test() {
 
 int main(){
     basic_test();
-    apis_with_invalid_handles_test();
     init_test();
     set_get_max_keylen();
     config_test();
@@ -4630,9 +4750,11 @@ int main(){
     open_multi_files_kvs_test();
     rekey_test();
     invalid_get_byoffset_test();
+    dirty_index_consistency_test();
     purge_logically_deleted_doc_test();
     large_batch_write_no_commit_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);
+    apis_with_invalid_handles_test();
 
     return 0;
 }

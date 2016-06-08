@@ -67,6 +67,8 @@ static struct filemgr_config global_config;
 static struct hash hash;
 static spin_t filemgr_openlock;
 
+static const int MAX_STAT_UPDATE_RETRIES = 5;
+
 struct temp_buf_item{
     void *addr;
     struct list_elem le;
@@ -77,6 +79,8 @@ static spin_t temp_buf_lock;
 static bool lazy_file_deletion_enabled = false;
 static register_file_removal_func register_file_removal = NULL;
 static check_file_removal_func is_file_removed = NULL;
+
+static struct sb_ops sb_ops;
 
 static void spin_init_wrap(void *lock) {
     spin_init((spin_t*)lock);
@@ -154,13 +158,20 @@ fdb_status fdb_log(err_log_callback *log_callback,
                    fdb_status status,
                    const char *format, ...)
 {
+    char msg[4096];
+    va_list args;
+    va_start(args, format);
+    vsprintf(msg, format, args);
+    va_end(args);
+
     if (log_callback && log_callback->callback) {
-        char msg[4096];
-        va_list args;
-        va_start(args, format);
-        vsprintf(msg, format, args);
-        va_end(args);
         log_callback->callback(status, msg, log_callback->ctx_data);
+    } else {
+        if (status != FDB_RESULT_SUCCESS) {
+            fprintf(stderr, "[FDB ERR] %s\n", msg);
+        } else {
+            fprintf(stderr, "[FDB INFO] %s\n", msg);
+        }
     }
     return status;
 }
@@ -217,6 +228,7 @@ void filemgr_init(struct filemgr_config *config)
 
         spin_lock(&initial_lock);
         if (!filemgr_initialized) {
+            memset(&sb_ops, 0x0, sizeof(sb_ops));
             global_config = *config;
 
             if (global_config.ncacheblock > 0)
@@ -247,6 +259,11 @@ void filemgr_set_lazy_file_deletion(bool enable,
     is_file_removed = check_func;
 }
 
+void filemgr_set_sb_operation(struct sb_ops ops)
+{
+    sb_ops = ops;
+}
+
 static void * _filemgr_get_temp_buf()
 {
     struct list_elem *e;
@@ -257,7 +274,7 @@ static void * _filemgr_get_temp_buf()
     if (e) {
         item = _get_entry(e, struct temp_buf_item, le);
     } else {
-        void *addr;
+        void *addr = NULL;
 
         malloc_align(addr, FDB_SECTOR_SIZE,
                      global_config.blocksize + sizeof(struct temp_buf_item));
@@ -299,9 +316,10 @@ static void _filemgr_shutdown_temp_buf()
 
 // Read a block from the file, decrypting if necessary.
 static ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid) {
-    ssize_t result = file->ops->pread(file->fd, buf, file->blocksize, file->blocksize*bid);
+    ssize_t result = file->ops->pread(file->fd, buf, file->blocksize,
+                                      file->blocksize*bid);
     if (file->encryption.ops && result > 0) {
-        if (result != file->blocksize)
+        if (result != (ssize_t)file->blocksize)
             return FDB_RESULT_READ_FAIL;
         fdb_status status = fdb_decrypt_block(&file->encryption, buf, result, bid);
         if (status != FDB_RESULT_SUCCESS)
@@ -339,6 +357,31 @@ ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_block
     }
 }
 
+int filemgr_is_writable(struct filemgr *file, bid_t bid)
+{
+    if (sb_bmp_exists(file->sb) && sb_ops.is_writable) {
+        // block reusing is enabled
+        return sb_ops.is_writable(file, bid);
+    } else {
+        uint64_t pos = bid * file->blocksize;
+        // Note that we don't need to grab file->lock here because
+        // 1) both file->pos and file->last_commit are only incremented.
+        // 2) file->last_commit is updated using the value of file->pos,
+        //    and always equal to or smaller than file->pos.
+        return (pos <  atomic_get_uint64_t(&file->pos) &&
+                pos >= atomic_get_uint64_t(&file->last_commit));
+    }
+}
+
+uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file)
+{
+    if (file->sb && sb_ops.get_bmp_revnum) {
+        return sb_ops.get_bmp_revnum(file);
+    } else {
+        return 0;
+    }
+}
+
 static fdb_status _filemgr_read_header(struct filemgr *file,
                                        err_log_callback *log_callback)
 {
@@ -349,19 +392,32 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     uint32_t crc, crc_file;
     bool check_crc32_open_rule = false;
     fdb_status status = FDB_RESULT_SUCCESS;
+    bid_t hdr_bid, hdr_bid_local;
+    size_t min_filesize = 0;
 
     // get temp buffer
     buf = (uint8_t *) _filemgr_get_temp_buf();
 
     // If a header is found crc_mode can change to reflect the file
-    if (file->config && file->config->options & FILEMGR_CREATE_CRC32) {
-        file->crc_mode = CRC32;
+    if (file->crc_mode == CRC32) {
         check_crc32_open_rule = true;
-    } else {
-        file->crc_mode = CRC_DEFAULT;
     }
 
-    if (atomic_get_uint64_t(&file->pos) > 0) {
+    hdr_bid = atomic_get_uint64_t(&file->pos) / file->blocksize - 1;
+    hdr_bid_local = hdr_bid;
+
+    if (file->sb) {
+        // superblock exists .. file size does not start from zero.
+        min_filesize = file->sb->config->num_sb * file->blocksize;
+        bid_t sb_last_hdr_bid = atomic_get_uint64_t(&file->sb->last_hdr_bid);
+        if (sb_last_hdr_bid != BLK_NOT_FOUND) {
+            hdr_bid = hdr_bid_local = sb_last_hdr_bid;
+        }
+        // if header info does not exist in superblock,
+        // get DB header at the end of the file.
+    }
+
+    if (atomic_get_uint64_t(&file->pos) > min_filesize) {
         // Crash Recovery Test 1: unaligned last block write
         uint64_t remain = atomic_get_uint64_t(&file->pos) % file->blocksize;
         if (remain) {
@@ -376,10 +432,9 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
 
         size_t block_counter = 0;
         do {
-            ssize_t rv = filemgr_read_block(file, buf,
-                atomic_get_uint64_t(&file->pos)/file->blocksize - 1);
-            if (rv != file->blocksize) {
-                status = FDB_RESULT_READ_FAIL;
+            ssize_t rv = filemgr_read_block(file, buf, hdr_bid_local);
+            if (rv != (ssize_t)file->blocksize) {
+                status = (fdb_status) rv;
                 const char *msg = "Unable to read a database file '%s' with "
                     "blocksize %" _F64 "\n";
                 DBG(msg, file->filename, file->blocksize);
@@ -433,17 +488,21 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                             memcpy((void *) &file->header.seqnum,
                                     buf + len + sizeof(filemgr_header_revnum_t),
                                     sizeof(fdb_seqnum_t));
+
+                            if (ver_superblock_support(magic)) {
+                                // last_writable_bmp_revnum should be same with
+                                // the current bmp_revnum (since it indicates the
+                                // 'bmp_revnum' of 'sb->cur_alloc_bid').
+                                atomic_store_uint64_t(&file->last_writable_bmp_revnum,
+                                                      filemgr_get_sb_bmp_revnum(file));
+                            }
+
                             file->header.revnum =
                                 _endian_decode(file->header.revnum);
                             file->header.seqnum =
-                                _endian_decode(file->header.seqnum);
+                                _endian_decode(file->header.seqnum.load());
                             file->header.size = len;
-                            atomic_store_uint64_t(&file->header.bid,
-                                (atomic_get_uint64_t(&file->pos) / file->blocksize) - 1);
-                            atomic_store_uint64_t(&file->header.dirty_idtree_root,
-                                                  BLK_NOT_FOUND);
-                            atomic_store_uint64_t(&file->header.dirty_seqtree_root,
-                                                  BLK_NOT_FOUND);
+                            atomic_store_uint64_t(&file->header.bid, hdr_bid_local);
                             memset(&file->header.stat, 0x0, sizeof(file->header.stat));
 
                             // release temp buffer
@@ -485,9 +544,14 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                 }
             }
 
-            atomic_sub_uint64_t(&file->pos, file->blocksize);
-            atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
-        } while (atomic_get_uint64_t(&file->pos));
+            atomic_store_uint64_t(&file->last_commit, hdr_bid_local * file->blocksize);
+            // traverse headers in a circular manner
+            if (hdr_bid_local) {
+                hdr_bid_local--;
+            } else {
+                hdr_bid_local = atomic_get_uint64_t(&file->pos) / file->blocksize - 1;
+            }
+        } while (hdr_bid_local != hdr_bid);
     }
 
     // release temp buffer
@@ -498,8 +562,6 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     file->header.seqnum = 0;
     file->header.data = NULL;
     atomic_store_uint64_t(&file->header.bid, 0);
-    atomic_store_uint64_t(&file->header.dirty_idtree_root, BLK_NOT_FOUND);
-    atomic_store_uint64_t(&file->header.dirty_seqtree_root, BLK_NOT_FOUND);
     memset(&file->header.stat, 0x0, sizeof(file->header.stat));
     file->version = magic;
     return status;
@@ -509,7 +571,7 @@ size_t filemgr_get_ref_count(struct filemgr *file)
 {
     size_t ret = 0;
     spin_lock(&file->lock);
-    ret = file->ref_count;
+    ret = atomic_get_uint32_t(&file->ref_count);
     spin_unlock(&file->lock);
     return ret;
 }
@@ -640,6 +702,26 @@ fdb_status filemgr_does_file_exist(char *filename) {
     return FDB_RESULT_SUCCESS;
 }
 
+static fdb_status _filemgr_load_sb(struct filemgr *file,
+                                   err_log_callback *log_callback)
+{
+    fdb_status status = FDB_RESULT_SUCCESS;
+    struct sb_config sconfig;
+
+    if (sb_ops.init && sb_ops.get_default_config && sb_ops.read_latest) {
+        sconfig = sb_ops.get_default_config();
+        if (filemgr_get_pos(file)) {
+            // existing file
+            status = sb_ops.read_latest(file, sconfig, log_callback);
+        } else {
+            // new file
+            status = sb_ops.init(file, sconfig, log_callback);
+        }
+    }
+
+    return status;
+}
+
 filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                  struct filemgr_config *config,
                                  err_log_callback *log_callback)
@@ -670,8 +752,15 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         // already opened (return existing structure)
         file = _get_entry(e, struct filemgr, e);
 
+        if (atomic_incr_uint32_t(&file->ref_count) > 1 &&
+            atomic_get_uint8_t(&file->status) != FILE_CLOSED) {
+            spin_unlock(&filemgr_openlock);
+            result.file = file;
+            result.rv = FDB_RESULT_SUCCESS;
+            return result;
+        }
+
         spin_lock(&file->lock);
-        file->ref_count++;
 
         if (atomic_get_uint8_t(&file->status) == FILE_CLOSED) { // if file was closed before
             file_flag = O_RDWR;
@@ -704,7 +793,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 } else {
                     _log_errno_str(file->ops, log_callback,
                                   (fdb_status)file->fd, "OPEN", filename);
-                    file->ref_count--;
+                    atomic_decr_uint32_t(&file->ref_count);
                     spin_unlock(&file->lock);
                     spin_unlock(&filemgr_openlock);
                     result.rv = file->fd;
@@ -717,8 +806,10 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 } else {
                     file->fflags &= ~FILEMGR_SYNC;
                 }
+
                 spin_unlock(&file->lock);
                 spin_unlock(&filemgr_openlock);
+
                 result.file = file;
                 result.rv = FDB_RESULT_SUCCESS;
                 return result;
@@ -756,7 +847,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->filename = (char*)malloc(file->filename_len + 1);
     strcpy(file->filename, filename);
 
-    file->ref_count = 1;
+    atomic_init_uint32_t(&file->ref_count, 1);
     file->stale_list = NULL;
 
     status = fdb_init_encryptor(&file->encryption, &config->encryption_key);
@@ -779,22 +870,24 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->config->blocksize = global_config.blocksize;
     file->config->ncacheblock = global_config.ncacheblock;
     file->new_file = NULL;
+    file->prev_file = NULL;
     file->old_filename = NULL;
     file->fd = fd;
 
     cs_off_t offset = file->ops->goto_eof(file->fd);
-    if (offset == FDB_RESULT_SEEK_FAIL) {
-        _log_errno_str(file->ops, log_callback, FDB_RESULT_SEEK_FAIL, "SEEK_END", filename);
+    if (offset < 0) {
+        _log_errno_str(file->ops, log_callback, (fdb_status) offset, "SEEK_END", filename);
         file->ops->close(file->fd);
         free(file->wal);
         free(file->filename);
         free(file->config);
         free(file);
         spin_unlock(&filemgr_openlock);
-        result.rv = FDB_RESULT_SEEK_FAIL;
+        result.rv = (fdb_status) offset;
         return result;
     }
     atomic_init_uint64_t(&file->last_commit, offset);
+    atomic_init_uint64_t(&file->last_writable_bmp_revnum, 0);
     atomic_init_uint64_t(&file->pos, offset);
     atomic_init_uint32_t(&file->throttling_delay, 0);
     atomic_init_uint64_t(&file->num_invalidated_blocks, 0);
@@ -812,26 +905,19 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     atomic_init_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_IDLE);
 
     atomic_init_uint64_t(&file->header.bid, 0);
-    atomic_init_uint64_t(&file->header.dirty_idtree_root, 0);
-    atomic_init_uint64_t(&file->header.dirty_seqtree_root, 0);
     _init_op_stats(&file->header.op_stat);
-    status = _filemgr_read_header(file, log_callback);
-    if (status != FDB_RESULT_SUCCESS) {
-        _log_errno_str(file->ops, log_callback, status, "READ", filename);
-        file->ops->close(file->fd);
-        free(file->wal);
-        free(file->filename);
-        free(file->config);
-        free(file);
-        spin_unlock(&filemgr_openlock);
-        result.rv = status;
-        return result;
-    }
 
     spin_init(&file->lock);
-
     file->stale_list = (struct list*)calloc(1, sizeof(struct list));
     list_init(file->stale_list);
+    avl_init(&file->stale_info_tree, NULL);
+    avl_init(&file->mergetree, NULL);
+    file->stale_info_tree_loaded = false;
+
+    filemgr_dirty_update_init(file);
+
+    spin_init(&file->fhandle_idx_lock);
+    avl_init(&file->fhandle_idx, NULL);
 
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
     struct plock_ops pops;
@@ -869,6 +955,64 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     mutex_init(&file->writer_lock.mutex);
     file->writer_lock.locked = false;
 
+    // Note: CRC must be initialized before superblock loading
+    // initialize CRC mode
+    if (file->config && file->config->options & FILEMGR_CREATE_CRC32) {
+        file->crc_mode = CRC32;
+    } else {
+        file->crc_mode = CRC_DEFAULT;
+    }
+
+    do { // repeat until both superblock and DB header are correctly read
+        // init or load superblock
+        status = _filemgr_load_sb(file, log_callback);
+        // we can tolerate SB_READ_FAIL for old version file
+        if (status != FDB_RESULT_SB_READ_FAIL &&
+            status != FDB_RESULT_SUCCESS) {
+            _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
+            file->ops->close(file->fd);
+            free(file->stale_list);
+            free(file->wal);
+            free(file->filename);
+            free(file->config);
+            free(file);
+            spin_unlock(&filemgr_openlock);
+            result.rv = status;
+            return result;
+        }
+
+        // read header
+        status = _filemgr_read_header(file, log_callback);
+        if (file->sb && status == FDB_RESULT_NO_DB_HEADERS) {
+            // this happens when user created & closed a file without any mutations,
+            // thus there is no other data but superblocks.
+            // we can also tolerate this case.
+        } else if (status != FDB_RESULT_SUCCESS) {
+            _log_errno_str(file->ops, log_callback, status, "READ", filename);
+            file->ops->close(file->fd);
+            if (file->sb) {
+                sb_ops.release(file);
+            }
+            free(file->stale_list);
+            free(file->wal);
+            free(file->filename);
+            free(file->config);
+            free(file);
+            spin_unlock(&filemgr_openlock);
+            result.rv = status;
+            return result;
+        }
+
+        if (file->sb &&
+            file->header.revnum != atomic_get_uint64_t(&file->sb->last_hdr_revnum)) {
+            // superblock exists but the corresponding DB header does not match.
+            // read another candidate.
+            continue;
+        }
+
+        break;
+    } while (true);
+
     // initialize WAL
     if (!wal_is_initialized(file)) {
         wal_init(file, FDB_WAL_NBUCKET);
@@ -885,6 +1029,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     } else {
         file->global_txn.prev_hdr_bid = BLK_NOT_FOUND;
     }
+    file->global_txn.prev_revnum = 0;
     file->global_txn.items = (struct list *)malloc(sizeof(struct list));
     list_init(file->global_txn.items);
     file->global_txn.isolation = FDB_ISOLATION_READ_COMMITTED;
@@ -894,6 +1039,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     if (config->prefetch_duration > 0) {
         filemgr_prefetch(file, config, log_callback);
     }
+
     spin_unlock(&filemgr_openlock);
 
     if (config->options & FILEMGR_SYNC) {
@@ -904,10 +1050,16 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
     result.file = file;
     result.rv = FDB_RESULT_SUCCESS;
+    fdb_log(log_callback, FDB_RESULT_SUCCESS, "Forestdb opened database file %s",
+            filename);
+
     return result;
 }
 
-uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len)
+uint64_t filemgr_update_header(struct filemgr *file,
+                               void *buf,
+                               size_t len,
+                               bool inc_revnum)
 {
     uint64_t ret;
 
@@ -918,7 +1070,9 @@ uint64_t filemgr_update_header(struct filemgr *file, void *buf, size_t len)
     }
     memcpy(file->header.data, buf, len);
     file->header.size = len;
-    ++(file->header.revnum);
+    if (inc_revnum) {
+        ++(file->header.revnum);
+    }
     ret = file->header.revnum;
 
     spin_unlock(&file->lock);
@@ -935,8 +1089,9 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
     return ret;
 }
 
-// 'filemgr_get_seqnum' & 'filemgr_set_seqnum' have to be protected by
-// 'filemgr_mutex_lock' & 'filemgr_mutex_unlock'.
+// 'filemgr_get_seqnum', 'filemgr_set_seqnum',
+// 'filemgr_get_walflush_revnum', 'filemgr_set_walflush_revnum'
+// have to be protected by 'filemgr_mutex_lock' & 'filemgr_mutex_unlock'.
 fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file)
 {
     return file->header.seqnum;
@@ -982,19 +1137,23 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
                                 uint64_t *deltasize, uint64_t *version,
+                                uint64_t *sb_bmp_revnum,
                                 err_log_callback *log_callback)
 {
     uint8_t *_buf;
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_header_len_t hdr_len;
-    uint64_t _deltasize;
+    uint64_t _deltasize, _bmp_revnum;
     filemgr_magic_t magic;
     fdb_status status = FDB_RESULT_SUCCESS;
 
+    *len = 0;
+
     if (!bid || bid == BLK_NOT_FOUND) {
-        *len = 0; // No other header available
+        // No other header available
         return FDB_RESULT_SUCCESS;
     }
+
     _buf = (uint8_t *)_filemgr_get_temp_buf();
 
     status = filemgr_read(file, (bid_t)bid, _buf, log_callback, true);
@@ -1010,10 +1169,15 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
             BLK_MARKER_SIZE);
 
     if (marker[0] != BLK_MARKER_DBHEADER) {
+        // Comment this warning log as of now because the circular block reuse
+        // can cause false alarms as a previous stale header block can be reclaimed
+        // and reused for incoming writes.
+        /*
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "A block marker of the database header block id %" _F64 " in "
                 "a database file '%s' does NOT match BLK_MARKER_DBHEADER!",
                 bid, file->filename);
+        */
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
@@ -1028,7 +1192,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
                 "does NOT match FILEMGR_MAGIC %" _F64 "!",
                 magic, bid, file->filename, ver_get_latest_magic());
         _filemgr_release_temp_buf(_buf);
-        return FDB_RESULT_READ_FAIL;
+        return FDB_RESULT_FILE_CORRUPTION;
     }
     memcpy(&hdr_len,
             _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
@@ -1061,6 +1225,14 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
             *deltasize = _endian_decode(_deltasize);
         }
     }
+
+    if (sb_bmp_revnum && ver_superblock_support(magic)) {
+        memcpy(&_bmp_revnum, _buf + file->blocksize - BLK_MARKER_SIZE
+                - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
+                - sizeof(_deltasize) - sizeof(_bmp_revnum), sizeof(_bmp_revnum));
+        *sb_bmp_revnum = _endian_decode(_bmp_revnum);
+    }
+
     _filemgr_release_temp_buf(_buf);
 
     return status;
@@ -1070,20 +1242,23 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
+                                   uint64_t *sb_bmp_revnum,
                                    err_log_callback *log_callback)
 {
     uint8_t *_buf;
     uint8_t marker[BLK_MARKER_SIZE];
     fdb_seqnum_t _seqnum;
-    filemgr_header_revnum_t _revnum;
+    filemgr_header_revnum_t _revnum, cur_revnum, prev_revnum;
     filemgr_header_len_t hdr_len;
     filemgr_magic_t magic;
     bid_t _prev_bid, prev_bid;
-    uint64_t _deltasize;
+    uint64_t _deltasize, _bmp_revnum;
     int found = 0;
 
+    *len = 0;
+
     if (!bid || bid == BLK_NOT_FOUND) {
-        *len = 0; // No other header available
+        // No other header available
         return bid;
     }
     _buf = (uint8_t *)_filemgr_get_temp_buf();
@@ -1118,16 +1293,32 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
             } else {
                 break;
             }
+            cur_revnum = file->header.revnum + 1;
         } else {
+
+            memcpy(&hdr_len,
+                   _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
+                   sizeof(hdr_len), sizeof(hdr_len));
+            hdr_len = _endian_decode(hdr_len);
+
+            memcpy(&_revnum, _buf + hdr_len,
+                   sizeof(filemgr_header_revnum_t));
+            cur_revnum = _endian_decode(_revnum);
+
+            if (sb_bmp_exists(file->sb)) {
+                // first check revnum
+                if (cur_revnum <= sb_ops.get_min_live_revnum(file)) {
+                    // previous headers already have been reclaimed
+                    // no more logical prev header
+                    break;
+                }
+            }
+
             memcpy(&_prev_bid,
                    _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
                        sizeof(hdr_len) - sizeof(_prev_bid),
                    sizeof(_prev_bid));
             prev_bid = _endian_decode(_prev_bid);
-            if (bid <= prev_bid) {
-                // no more prev header, or broken linked list
-                break;
-            }
             bid = prev_bid;
         }
 
@@ -1180,6 +1371,13 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
         }
         memcpy(&_revnum, _buf + hdr_len,
                sizeof(filemgr_header_revnum_t));
+        prev_revnum = _endian_decode(_revnum);
+        if (prev_revnum >= cur_revnum ||
+            prev_revnum < sb_ops.get_min_live_revnum(file)) {
+            // no more prev header, or broken linked list
+            break;
+        }
+
         memcpy(&_seqnum,
                _buf + hdr_len + sizeof(filemgr_header_revnum_t),
                sizeof(fdb_seqnum_t));
@@ -1193,8 +1391,15 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
             }
         }
 
+        if (sb_bmp_revnum && ver_superblock_support(magic)) {
+            memcpy(&_bmp_revnum, _buf + file->blocksize - BLK_MARKER_SIZE
+                    - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
+                    - sizeof(_deltasize) - sizeof(_bmp_revnum), sizeof(_bmp_revnum));
+            *sb_bmp_revnum = _endian_decode(_bmp_revnum);
+        }
+
         if (revnum) {
-            *revnum = _endian_decode(_revnum);
+            *revnum = prev_revnum;
         }
         *seqnum = _endian_decode(_seqnum);
         *len = hdr_len;
@@ -1205,11 +1410,31 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
 
     if (!found) { // no other header found till end of file
         *len = 0;
+        bid = BLK_NOT_FOUND;
     }
 
     _filemgr_release_temp_buf(_buf);
 
     return bid;
+}
+
+static void update_file_pointers(struct filemgr *file) {
+    // Update new_file pointers of all previously redirected downstream files
+    struct filemgr *temp = file->prev_file;
+    while (temp != NULL) {
+        spin_lock(&temp->lock);
+        if (temp->new_file == file) {
+            temp->new_file = file->new_file;
+        }
+        spin_unlock(&temp->lock);
+        temp = temp->prev_file;
+    }
+    // Update prev_file pointer of the upstream file if any
+    if (file->new_file != NULL) {
+        spin_lock(&file->new_file->lock);
+        file->new_file->prev_file = file->prev_file;
+        spin_unlock(&file->new_file->lock);
+    }
 }
 
 fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
@@ -1218,13 +1443,21 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 {
     int rv = FDB_RESULT_SUCCESS;
 
+    if (atomic_decr_uint32_t(&file->ref_count) > 0) {
+        // File is still accessed by other readers or writers.
+        return FDB_RESULT_SUCCESS;
+    }
+
+    fdb_log(log_callback, (fdb_status)rv, "Forestdb closed database file %s",
+            file->filename);
+
     spin_lock(&filemgr_openlock); // Grab the filemgr lock to avoid the race with
                                   // filemgr_open() because file->lock won't
                                   // prevent the race condition.
 
     // remove filemgr structure if no thread refers to the file
     spin_lock(&file->lock);
-    if (--(file->ref_count) == 0) {
+    if (atomic_get_uint32_t(&file->ref_count) == 0) {
         if (global_config.ncacheblock > 0 &&
             atomic_get_uint8_t(&file->status) != FILE_REMOVED_PENDING) {
             spin_unlock(&file->lock);
@@ -1238,7 +1471,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
         }
 
         if (wal_is_initialized(file)) {
-            wal_close(file);
+            wal_close(file, log_callback);
         }
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
         filemgr_dump_latency_stat(file, log_callback);
@@ -1277,6 +1510,8 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             spin_unlock(&file->lock);
             struct hash_elem *ret = hash_remove(&hash, &file->e);
             fdb_assert(ret, 0, 0);
+
+            update_file_pointers(file);
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
@@ -1308,7 +1543,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                         elem_old = hash_find(&hash, &query_old.e);
                         if (elem_old) {
                             old_file = _get_entry(elem_old, struct filemgr, e);
-                            old_file_refcount = old_file->ref_count;
+                            old_file_refcount = atomic_get_uint32_t(&old_file->ref_count);
                         }
                     }
 
@@ -1332,7 +1567,10 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 // Clean up global hash table, WAL index, and buffer cache.
                 struct hash_elem *ret = hash_remove(&hash, &file->e);
                 fdb_assert(ret, file, 0);
+
+                update_file_pointers(file);
                 spin_unlock(&filemgr_openlock);
+
                 filemgr_free_func(&file->e);
                 return (fdb_status) rv;
             } else {
@@ -1351,17 +1589,20 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 void filemgr_remove_all_buffer_blocks(struct filemgr *file)
 {
     // remove all cached blocks
-    if (global_config.ncacheblock > 0 && file->bcache) {
+    if (global_config.ncacheblock > 0 &&
+            file->bcache.load(std::memory_order_relaxed)) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
         bcache_remove_file(file);
-        file->bcache = NULL;
+        file->bcache.store(NULL, std::memory_order_relaxed);
     }
 }
 
+void _free_fhandle_idx(struct avl_tree *idx);
 void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
+
     filemgr_prefetch_status_t prefetch_state =
                               atomic_get_uint8_t(&file->prefetch_status);
 
@@ -1374,11 +1615,12 @@ void filemgr_free_func(struct hash_elem *h)
     }
 
     // remove all cached blocks
-    if (global_config.ncacheblock > 0 && file->bcache) {
+    if (global_config.ncacheblock > 0 &&
+            file->bcache.load(std::memory_order_relaxed)) {
         bcache_remove_dirty_blocks(file);
         bcache_remove_clean_blocks(file);
         bcache_remove_file(file);
-        file->bcache = NULL;
+        file->bcache.store(NULL, std::memory_order_relaxed);
     }
 
     if (file->kv_header) {
@@ -1393,7 +1635,7 @@ void filemgr_free_func(struct hash_elem *h)
 
     // destroy WAL
     if (wal_is_initialized(file)) {
-        wal_shutdown(file);
+        wal_shutdown(file, NULL);
         wal_destroy(file);
     }
     free(file->wal);
@@ -1429,16 +1671,23 @@ void filemgr_free_func(struct hash_elem *h)
 
     mutex_destroy(&file->writer_lock.mutex);
 
-    atomic_destroy_uint64_t(&file->pos);
-    atomic_destroy_uint64_t(&file->last_commit);
-    atomic_destroy_uint32_t(&file->throttling_delay);
-    atomic_destroy_uint64_t(&file->num_invalidated_blocks);
-    atomic_destroy_uint8_t(&file->io_in_prog);
-    atomic_destroy_uint8_t(&file->prefetch_status);
+    // free superblock
+    if (sb_ops.release) {
+        sb_ops.release(file);
+    }
+
+    // free dirty update index
+    filemgr_dirty_update_free(file);
+
+    // free fhandle idx
+    _free_fhandle_idx(&file->fhandle_idx);
+    spin_destroy(&file->fhandle_idx_lock);
 
     // free file structure
     struct list *stale_list = filemgr_get_stale_list(file);
     filemgr_clear_stale_list(file);
+    filemgr_clear_stale_info_tree(file);
+    filemgr_clear_mergetree(file);
     free(stale_list);
     free(file->config);
     free(file);
@@ -1450,7 +1699,7 @@ void filemgr_remove_file(struct filemgr *file, err_log_callback *log_callback)
 {
     struct hash_elem *ret;
 
-    if (!file || file->ref_count > 0) {
+    if (!file || atomic_get_uint32_t(&file->ref_count) > 0) {
         return;
     }
 
@@ -1474,7 +1723,7 @@ void *_filemgr_is_closed(struct hash_elem *h, void *ctx) {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
     void *ret;
     spin_lock(&file->lock);
-    if (file->ref_count != 0) {
+    if (atomic_get_uint32_t(&file->ref_count) != 0) {
         ret = (void *)file;
     } else {
         ret = NULL;
@@ -1509,7 +1758,9 @@ fdb_status filemgr_shutdown()
             return ret;
         }
 
+        spin_lock(&filemgr_openlock);
         open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
+        spin_unlock(&filemgr_openlock);
         if (!open_file) {
             hash_free_active(&hash, filemgr_free_func);
             if (global_config.ncacheblock > 0) {
@@ -1537,14 +1788,24 @@ fdb_status filemgr_shutdown()
 bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback)
 {
     spin_lock(&file->lock);
-    bid_t bid = atomic_get_uint64_t(&file->pos) / file->blocksize;
-    atomic_add_uint64_t(&file->pos, file->blocksize);
+    bid_t bid = BLK_NOT_FOUND;
+
+    // block reusing is not allowed for being compacted file
+    // for easy implementation.
+    if (filemgr_get_file_status(file) == FILE_NORMAL &&
+        file->sb && sb_ops.alloc_block) {
+        bid = sb_ops.alloc_block(file);
+    }
+    if (bid == BLK_NOT_FOUND) {
+        bid = atomic_get_uint64_t(&file->pos) / file->blocksize;
+        atomic_add_uint64_t(&file->pos, file->blocksize);
+    }
 
     if (global_config.ncacheblock <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
         ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
-                                       atomic_get_uint64_t(&file->pos) - 1);
+                                       (bid+1) * file->blocksize - 1);
         _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
     }
     spin_unlock(&file->lock);
@@ -1552,6 +1813,8 @@ bid_t filemgr_alloc(struct filemgr *file, err_log_callback *log_callback)
     return bid;
 }
 
+// Note that both alloc_multiple & alloc_multiple_cond are not used in
+// the new version of DB file (with superblock support).
 void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
                             bid_t *end, err_log_callback *log_callback)
 {
@@ -1725,12 +1988,16 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
+                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                    "doesn't exist in the cache and read_on_cache_miss flag is turned on.\n";
+                fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid,
+                        file->filename);
                 return FDB_RESULT_READ_FAIL;
             }
 
             // if normal file, just read a block
             r = filemgr_read_block(file, buf, bid);
-            if (r != file->blocksize) {
+            if (r != (ssize_t)file->blocksize) {
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "READ", file->filename);
                 if (locked) {
@@ -1742,7 +2009,14 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                return (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
+                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                    "is not read correctly: only %d bytes read.\n";
+                status = r < 0 ? (fdb_status)r : FDB_RESULT_READ_FAIL;
+                fdb_log(log_callback, status, msg, bid, file->filename, r);
+                if (!log_callback || !log_callback->callback) {
+                    dbg_print_buf(buf, file->blocksize, true, 16);
+                }
+                return status;
             }
 #ifdef __CRC32
             status = _filemgr_crc32_check(file, buf);
@@ -1757,6 +2031,13 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
 #else
                     spin_unlock(&file->data_spinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
+                }
+                const char *msg = "Read error: checksum error on BID %" _F64 " in a database file '%s' "
+                    ": marker %x\n";
+                fdb_log(log_callback, status, msg, bid,
+                        file->filename, *((uint8_t*)buf + file->blocksize-1));
+                if (!log_callback || !log_callback->callback) {
+                    dbg_print_buf(buf, file->blocksize, true, 16);
                 }
                 return status;
             }
@@ -1774,7 +2055,14 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 }
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "WRITE", file->filename);
-                return FDB_RESULT_WRITE_FAIL;
+                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                    "is not written in cache correctly: only %d bytes written.\n";
+                status = r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
+                fdb_log(log_callback, status, msg, bid, file->filename, r);
+                if (!log_callback || !log_callback->callback) {
+                    dbg_print_buf(buf, file->blocksize, true, 16);
+                }
+                return status;
             }
         }
         if (locked) {
@@ -1788,14 +2076,25 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         }
     } else {
         if (!read_on_cache_miss) {
+            const char *msg = "Read error: BID %" _F64 " in a database file '%s':"
+                "block cache is not enabled.\n";
+            fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid,
+                    file->filename);
             return FDB_RESULT_READ_FAIL;
         }
 
         r = filemgr_read_block(file, buf, bid);
-        if (r != file->blocksize) {
+        if (r != (ssize_t)file->blocksize) {
             _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",
                            file->filename);
-            return (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
+            const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
+                "is not read correctly: only %d bytes read (block cache disabled).\n";
+            status = (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
+            fdb_log(log_callback, status, msg, bid, file->filename, r);
+            if (!log_callback || !log_callback->callback) {
+                dbg_print_buf(buf, file->blocksize, true, 16);
+            }
+            return status;
         }
 
 #ifdef __CRC32
@@ -1803,6 +2102,13 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
         if (status != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, status, "READ",
                            file->filename);
+            const char *msg = "Read error: checksum error on BID %" _F64 " in a database file '%s' "
+                ": marker %x (block cache disabled)\n";
+            fdb_log(log_callback, status, msg, bid,
+                    file->filename, *((uint8_t*)buf + file->blocksize-1));
+            if (!log_callback || !log_callback->callback) {
+                dbg_print_buf(buf, file->blocksize, true, 16);
+            }
             return status;
         }
 #endif
@@ -1829,13 +2135,27 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         return FDB_RESULT_WRITE_FAIL;
     }
 
-    if (pos < curr_commit_pos) {
-        const char *msg = "Write error: trying to write at the offset %" _F64 " that is "
-                          "smaller than the current commit offset %" _F64 " in "
-                          "a database file '%s'\n";
-        fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos, curr_commit_pos,
-                file->filename);
-        return FDB_RESULT_WRITE_FAIL;
+    if (sb_bmp_exists(file->sb)) {
+        // block reusing is enabled
+        if (!sb_ops.is_writable(file, bid)) {
+            const char *msg = "Write error: trying to write at the offset %" _F64 " that is "
+                              "not identified as a reusable block in "
+                              "a database file '%s'\n";
+            fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos, file->filename);
+            return FDB_RESULT_WRITE_FAIL;
+        }
+    } else if (pos < curr_commit_pos) {
+        // stale blocks are not reused yet
+        if (file->sb == NULL ||
+            (file->sb && pos >= file->sb->config->num_sb * file->blocksize)) {
+            // (non-sequential update is exceptionally allowed for superblocks)
+            const char *msg = "Write error: trying to write at the offset %" _F64 " that is "
+                              "smaller than the current commit offset %" _F64 " in "
+                              "a database file '%s'\n";
+            fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos, curr_commit_pos,
+                    file->filename);
+            return FDB_RESULT_WRITE_FAIL;
+        }
     }
 
     if (global_config.ncacheblock > 0) {
@@ -1869,7 +2189,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                 }
                 _log_errno_str(file->ops, log_callback,
                                (fdb_status) r, "WRITE", file->filename);
-                return FDB_RESULT_WRITE_FAIL;
+                return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
             }
         } else {
             // partially write buffer cache first
@@ -1877,7 +2197,12 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
-                uint64_t cur_file_pos = file->ops->goto_eof(file->fd);
+                int64_t cur_file_pos = file->ops->goto_eof(file->fd);
+                if (cur_file_pos < 0) {
+                    _log_errno_str(file->ops, log_callback,
+                                   (fdb_status) cur_file_pos, "EOF", file->filename);
+                    return (fdb_status) cur_file_pos;
+                }
                 bid_t cur_file_last_bid = cur_file_pos / file->blocksize;
                 void *_buf = _filemgr_get_temp_buf();
 
@@ -1886,7 +2211,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     // we don't need to read previous block from file.
                 } else {
                     r = filemgr_read_block(file, _buf, bid);
-                    if (r != file->blocksize) {
+                    if (r != (ssize_t)file->blocksize) {
                         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
                             plock_unlock(&file->plock, plock_entry);
@@ -1899,7 +2224,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                         _filemgr_release_temp_buf(_buf);
                         _log_errno_str(file->ops, log_callback, (fdb_status) r,
                                        "READ", file->filename);
-                        return FDB_RESULT_READ_FAIL;
+                        return r < 0 ? (fdb_status) r : FDB_RESULT_READ_FAIL;
                     }
                 }
                 memcpy((uint8_t *)_buf + offset, buf, len);
@@ -1917,7 +2242,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     _filemgr_release_temp_buf(_buf);
                     _log_errno_str(file->ops, log_callback,
                             (fdb_status) r, "WRITE", file->filename);
-                    return FDB_RESULT_WRITE_FAIL;
+                    return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
                 }
 
                 _filemgr_release_temp_buf(_buf);
@@ -1952,7 +2277,7 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
         r = file->ops->pwrite(file->fd, buf, len, pos);
         _log_errno_str(file->ops, log_callback, (fdb_status) r, "WRITE", file->filename);
         if ((uint64_t)r != len) {
-            return FDB_RESULT_WRITE_FAIL;
+            return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
         }
     } // block cache check
     return FDB_RESULT_SUCCESS;
@@ -1969,18 +2294,27 @@ fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
 fdb_status filemgr_commit(struct filemgr *file, bool sync,
                           err_log_callback *log_callback)
 {
-    uint16_t header_len = file->header.size;
-    uint16_t _header_len;
+    // append header at the end of the file
+    uint64_t bmp_revnum = 0;
+    if (sb_ops.get_bmp_revnum) {
+        bmp_revnum = sb_ops.get_bmp_revnum(file);
+    }
+    return filemgr_commit_bid(file, BLK_NOT_FOUND, bmp_revnum,
+                              sync, log_callback);
+}
+
+fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
+                              uint64_t bmp_revnum, bool sync,
+                              err_log_callback *log_callback)
+{
     struct avl_node *a;
     struct kvs_node *node;
-    struct kvs_header *kv_header = file->kv_header;
     bid_t prev_bid, _prev_bid;
-    uint64_t _deltasize;
+    uint64_t _deltasize, _bmp_revnum;
     fdb_seqnum_t _seqnum;
     filemgr_header_revnum_t _revnum;
     int result = FDB_RESULT_SUCCESS;
-    filemgr_magic_t magic = ver_get_latest_magic();
-    filemgr_magic_t _magic;
+    bool block_reusing = false;
 
     filemgr_set_io_inprog(file);
     if (global_config.ncacheblock > 0) {
@@ -1995,6 +2329,10 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
 
     spin_lock(&file->lock);
 
+    uint16_t header_len = file->header.size;
+    struct kvs_header *kv_header = file->kv_header;
+    filemgr_magic_t magic = file->version;
+
     if (file->header.size > 0 && file->header.data) {
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
@@ -2005,6 +2343,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         // ...                                            |
         // (empty)                                    blocksize
         // ...                                            |
+        // [SB bitmap revnum]:   8 bytes                  |
         // [Delta size]:         8 bytes                  |
         // [prev header bid]:    8 bytes                  |
         // [header length]:      2 bytes                  |
@@ -2018,9 +2357,19 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
         memcpy((uint8_t *)buf + header_len, &_revnum,
                sizeof(filemgr_header_revnum_t));
         // file's sequence number (default KVS seqnum)
-        _seqnum = _endian_encode(file->header.seqnum);
+        _seqnum = _endian_encode(file->header.seqnum.load());
         memcpy((uint8_t *)buf + header_len + sizeof(filemgr_header_revnum_t),
                &_seqnum, sizeof(fdb_seqnum_t));
+
+        // current header's sb bmp revision number
+        if (file->sb) {
+            _bmp_revnum = _endian_encode(bmp_revnum);
+            memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+                   - sizeof(header_len) - sizeof(_prev_bid)
+                   - sizeof(_deltasize) - sizeof(_bmp_revnum)
+                   - BLK_MARKER_SIZE),
+                   &_bmp_revnum, sizeof(_bmp_revnum));
+        }
 
         // delta size since prior commit
         _deltasize = _endian_encode(file->header.stat.deltasize //index+data
@@ -2047,29 +2396,41 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
                - sizeof(header_len) - sizeof(_prev_bid) - BLK_MARKER_SIZE),
                &_prev_bid, sizeof(_prev_bid));
         // header length
-        _header_len = _endian_encode(header_len);
+        header_len = _endian_encode(header_len);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - BLK_MARKER_SIZE),
-               &_header_len, sizeof(header_len));
+               &header_len, sizeof(header_len));
         // magic number
-        _magic = _endian_encode(magic);
+        magic = _endian_encode(magic);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
-               - BLK_MARKER_SIZE), &_magic, sizeof(magic));
+               - BLK_MARKER_SIZE), &magic, sizeof(magic));
 
         // marker
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
         memcpy((uint8_t *)buf + file->blocksize - BLK_MARKER_SIZE,
                marker, BLK_MARKER_SIZE);
 
-        ssize_t rv = filemgr_write_blocks(file, buf, 1,
-                                         atomic_get_uint64_t(&file->pos) / file->blocksize);
+        if (bid == BLK_NOT_FOUND) {
+            // append header at the end of file
+            bid = atomic_get_uint64_t(&file->pos) / file->blocksize;
+            block_reusing = false;
+        } else {
+            // write header in the allocated (reused) block
+            block_reusing = true;
+            // we MUST invalidate the header block 'bid', since previous
+            // contents of 'bid' may remain in block cache and cause data
+            // inconsistency if reading header block hits the cache.
+            bcache_invalidate_block(file, bid);
+        }
+
+        ssize_t rv = filemgr_write_blocks(file, buf, 1, bid);
         _log_errno_str(file->ops, log_callback, (fdb_status) rv,
                        "WRITE", file->filename);
-        if (rv != file->blocksize) {
+        if (rv != (ssize_t)file->blocksize) {
             _filemgr_release_temp_buf(buf);
             spin_unlock(&file->lock);
             filemgr_clear_io_inprog(file);
-            return FDB_RESULT_WRITE_FAIL;
+            return rv < 0 ? (fdb_status) rv : FDB_RESULT_WRITE_FAIL;
         }
 
         if (prev_bid) {
@@ -2077,30 +2438,46 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
             filemgr_add_stale_block(file, prev_bid * file->blocksize, file->blocksize);
         }
 
-        atomic_store_uint64_t(&file->header.bid,
-                              atomic_get_uint64_t(&file->pos) / file->blocksize);
-        atomic_add_uint64_t(&file->pos, file->blocksize);
-
-        atomic_store_uint64_t(&file->header.dirty_idtree_root, BLK_NOT_FOUND);
-        atomic_store_uint64_t(&file->header.dirty_seqtree_root, BLK_NOT_FOUND);
+        atomic_store_uint64_t(&file->header.bid, bid);
+        if (!block_reusing) {
+            atomic_add_uint64_t(&file->pos, file->blocksize);
+        }
 
         _filemgr_release_temp_buf(buf);
     }
-    // race condition?
-    atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
-    file->version = magic;
+
+    if (sb_bmp_exists(file->sb) &&
+        atomic_get_uint64_t(&file->sb->cur_alloc_bid) != BLK_NOT_FOUND &&
+        atomic_get_uint8_t(&file->status) == FILE_NORMAL) {
+        // block reusing is currently enabled
+        atomic_store_uint64_t(&file->last_commit,
+            atomic_get_uint64_t(&file->sb->cur_alloc_bid) * file->blocksize);
+    } else {
+        atomic_store_uint64_t(&file->last_commit, atomic_get_uint64_t(&file->pos));
+    }
+    if (file->sb) {
+        // Since some more blocks may be allocated after the header block
+        // (for storing BMP data or system docs for stale info)
+        // so that the block pointed to by 'cur_alloc_bid' may have
+        // different BMP revision number. So we have to use the
+        // up-to-date bmp_revnum here.
+        atomic_store_uint64_t(&file->last_writable_bmp_revnum,
+                              filemgr_get_sb_bmp_revnum(file));
+    }
 
     spin_unlock(&file->lock);
 
     if (sync) {
         result = file->ops->fsync(file->fd);
-        _log_errno_str(file->ops, log_callback, (fdb_status)result, "FSYNC", file->filename);
+        _log_errno_str(file->ops, log_callback, (fdb_status)result,
+                       "FSYNC", file->filename);
     }
     filemgr_clear_io_inprog(file);
     return (fdb_status) result;
 }
 
-fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
+fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
+                        err_log_callback *log_callback)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
     if (global_config.ncacheblock > 0) {
@@ -2112,7 +2489,7 @@ fdb_status filemgr_sync(struct filemgr *file, err_log_callback *log_callback)
         }
     }
 
-    if (file->fflags & FILEMGR_SYNC) {
+    if (sync_option && file->fflags & FILEMGR_SYNC) {
         int rv = file->ops->fsync(file->fd);
         _log_errno_str(file->ops, log_callback, (fdb_status)rv, "FSYNC", file->filename);
         return (fdb_status) rv;
@@ -2151,7 +2528,8 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
             file->old_filename = old_filename;
         } else {
             ret = 0;
-            fdb_assert(file->ref_count, file->ref_count, 0);
+            fdb_assert(atomic_get_uint32_t(&file->ref_count),
+                       atomic_get_uint32_t(&file->ref_count), 0);
         }
     }
     spin_unlock(&file->lock);
@@ -2165,16 +2543,20 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
     old_file->new_file = new_file;
     atomic_store_uint8_t(&old_file->status, status);
     spin_unlock(&old_file->lock);
+
+    if (new_file) {
+        spin_lock(&new_file->lock);
+        new_file->prev_file = old_file;
+        spin_unlock(&new_file->lock);
+    }
 }
 
 bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
-                           void (*free_kv_header)(struct filemgr *file),
-                           bool got_lock)
+                           void (*free_kv_header)(struct filemgr *file))
 {
     bool ret;
-    if (!got_lock) {
-        spin_lock(&file->lock);
-    }
+    spin_lock(&file->lock);
+
     if (!file->kv_header) {
         file->kv_header = kv_header;
         file->free_kv_header = free_kv_header;
@@ -2182,10 +2564,19 @@ bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
     } else {
         ret = false;
     }
-    if (!got_lock) {
-        spin_unlock(&file->lock);
-    }
+
+    spin_unlock(&file->lock);
+
     return ret;
+}
+
+struct kvs_header *filemgr_get_kv_header(struct filemgr *file)
+{
+    struct kvs_header *kv_header = NULL;
+    spin_lock(&file->lock);
+    kv_header = file->kv_header;
+    spin_unlock(&file->lock);
+    return kv_header;
 }
 
 // Check if there is a file that still points to the old_file that is being
@@ -2200,7 +2591,7 @@ void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
         // Incrementing reference counter below is the same as filemgr_open()
         // We need to do this to ensure that the pointer returned does not
         // get freed outside the filemgr_open lock
-        file->ref_count++;
+        atomic_incr_uint32_t(&file->ref_count);
         spin_unlock(&file->lock);
         return (void *)file;
     }
@@ -2243,6 +2634,9 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                 new_file->blocksize);
     }
     very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
+    // Note that the prev_file pointer of the new_file is not updated, this
+    // is so that every file in the history is reachable from the current file.
+
     past_filename = redirect_header_func(very_old_file,
                                          (uint8_t *)very_old_file->header.data,
                                          new_file);//Update in-memory header
@@ -2262,7 +2656,7 @@ void filemgr_remove_pending(struct filemgr *old_file,
     }
 
     spin_lock(&old_file->lock);
-    if (old_file->ref_count > 0) {
+    if (atomic_get_uint32_t(&old_file->ref_count) > 0) {
         // delay removing
         old_file->new_file = new_file;
         atomic_store_uint8_t(&old_file->status, FILE_REMOVED_PENDING);
@@ -2345,7 +2739,7 @@ fdb_status filemgr_destroy_file(char *filename,
         file = _get_entry(e, struct filemgr, e);
 
         spin_lock(&file->lock);
-        if (file->ref_count) {
+        if (atomic_get_uint32_t(&file->ref_count)) {
             spin_unlock(&file->lock);
             status = FDB_RESULT_FILE_IS_BUSY;
             if (!destroy_file_set) { // top level or non-recursive call
@@ -2376,6 +2770,7 @@ fdb_status filemgr_destroy_file(char *filename,
         }
     } else { // file not in memory, read on-disk to destroy older versions..
         file = (struct filemgr *)alca(struct filemgr, 1);
+        memset(file, 0x0, sizeof(struct filemgr));
         file->filename = filename;
         file->ops = get_filemgr_ops();
         file->fd = file->ops->open(file->filename, O_RDWR, 0666);
@@ -2388,23 +2783,42 @@ fdb_status filemgr_destroy_file(char *filename,
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
                 }
-                return FDB_RESULT_OPEN_FAIL;
+                return (fdb_status) file->fd;
             }
         } else { // file successfully opened, seek to end to get DB header
             cs_off_t offset = file->ops->goto_eof(file->fd);
-            if (offset == FDB_RESULT_SEEK_FAIL) {
+            if (offset < 0) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
                 }
-                return FDB_RESULT_SEEK_FAIL;
+                return (fdb_status) offset;
             } else { // Need to read DB header which contains old filename
                 atomic_store_uint64_t(&file->pos, offset);
+                // initialize CRC mode
+                if (file->config && file->config->options & FILEMGR_CREATE_CRC32) {
+                    file->crc_mode = CRC32;
+                } else {
+                    file->crc_mode = CRC_DEFAULT;
+                }
+
+                status = _filemgr_load_sb(file, NULL);
+                if (status != FDB_RESULT_SUCCESS) {
+                    if (!destroy_file_set) { // top level or non-recursive call
+                        hash_free(destroy_set);
+                    }
+                    file->ops->close(file->fd);
+                    return status;
+                }
+
                 status = _filemgr_read_header(file, NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
                         hash_free(destroy_set);
                     }
                     file->ops->close(file->fd);
+                    if (sb_ops.release && file->sb) {
+                        sb_ops.release(file);
+                    }
                     return status;
                 }
                 if (file->header.data) {
@@ -2430,6 +2844,9 @@ fdb_status filemgr_destroy_file(char *filename,
                     free(file->header.data);
                 }
                 file->ops->close(file->fd);
+                if (sb_ops.release && file->sb) {
+                    sb_ops.release(file);
+                }
                 if (status == FDB_RESULT_SUCCESS) {
                     if (filemgr_does_file_exist(filename)
                                                == FDB_RESULT_SUCCESS) {
@@ -2540,14 +2957,6 @@ void filemgr_mutex_unlock(struct filemgr *file)
     }
 }
 
-void filemgr_set_dirty_root(struct filemgr *file,
-                            bid_t dirty_idtree_root,
-                            bid_t dirty_seqtree_root)
-{
-    atomic_store_uint64_t(&file->header.dirty_idtree_root, dirty_idtree_root);
-    atomic_store_uint64_t(&file->header.dirty_seqtree_root, dirty_seqtree_root);
-}
-
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
 {
     uint8_t marker[BLK_MARKER_SIZE];
@@ -2583,12 +2992,14 @@ bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
 
 void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us)
 {
-    atomic_store_uint32_t(&file->throttling_delay, delay_us);
+    atomic_store_uint32_t(&file->throttling_delay, delay_us,
+                          std::memory_order_relaxed);
 }
 
 uint32_t filemgr_get_throttling_delay(struct filemgr *file)
 {
-    return atomic_get_uint32_t(&file->throttling_delay);
+    return atomic_get_uint32_t(&file->throttling_delay,
+                               std::memory_order_relaxed);
 }
 
 void filemgr_clear_stale_list(struct filemgr *file)
@@ -2605,6 +3016,45 @@ void filemgr_clear_stale_list(struct filemgr *file)
             free(item);
         }
         file->stale_list = NULL;
+    }
+}
+
+void filemgr_clear_stale_info_tree(struct filemgr *file)
+{
+    struct avl_node *a;
+    struct list_elem *e;
+    struct stale_info_commit *commit;
+    struct stale_info_entry *entry;
+
+    a = avl_first(&file->stale_info_tree);
+    while (a) {
+        commit = _get_entry(a, struct stale_info_commit, avl);
+        a = avl_next(&commit->avl);
+        avl_remove(&file->stale_info_tree, &commit->avl);
+
+        e = list_begin(&commit->doc_list);
+        while (e) {
+            entry = _get_entry(e, struct stale_info_entry, le);
+            e = list_next(&entry->le);
+            list_remove(&commit->doc_list, &entry->le);
+            free(entry->ctx);
+            free(entry);
+        }
+        free(commit);
+    }
+}
+
+void filemgr_clear_mergetree(struct filemgr *file)
+{
+    struct avl_node *a;
+    struct stale_data *entry;
+
+    a = avl_first(&file->mergetree);
+    while (a) {
+        entry = _get_entry(a, struct stale_data, avl);
+        a = avl_next(&entry->avl);
+        avl_remove(&file->mergetree, &entry->avl);
+        free(entry);
     }
 }
 
@@ -2749,6 +3199,464 @@ void filemgr_mark_stale(struct filemgr *file,
     }
 }
 
+INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    uint64_t aaa, bbb;
+    struct filemgr_fhandle_idx_node *aa, *bb;
+    aa = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+    bb = _get_entry(b, struct filemgr_fhandle_idx_node, avl);
+    aaa = (uint64_t)aa->fhandle;
+    bbb = (uint64_t)bb->fhandle;
+
+#ifdef __BIT_CMP
+    return _CMP_U64(aaa, bbb);
+#else
+    if (aaa < bbb) {
+        return -1;
+    } else if (aaa > bbb) {
+        return 1;
+    } else {
+        return 0;
+    }
+#endif
+}
+
+void _free_fhandle_idx(struct avl_tree *idx)
+{
+    struct avl_node *a;
+    struct filemgr_fhandle_idx_node *item;
+
+    a = avl_first(idx);
+    while (a) {
+        item = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        a = avl_next(a);
+        avl_remove(idx, &item->avl);
+        free(item);
+    }
+}
+
+bool filemgr_fhandle_add(struct filemgr *file, void *fhandle)
+{
+    bool ret;
+    struct filemgr_fhandle_idx_node *item, query;
+    struct avl_node *a;
+
+    spin_lock(&file->fhandle_idx_lock);
+
+    query.fhandle = fhandle;
+    a = avl_search(&file->fhandle_idx, &query.avl, _fhandle_idx_cmp);
+    if (!a) {
+        // not exist, create a node and insert
+        item = (struct filemgr_fhandle_idx_node *)calloc(1, sizeof(struct filemgr_fhandle_idx_node));
+        item->fhandle = fhandle;
+        avl_insert(&file->fhandle_idx, &item->avl, _fhandle_idx_cmp);
+        ret = true;
+    } else {
+        ret = false;
+    }
+
+    spin_unlock(&file->fhandle_idx_lock);
+    return ret;
+}
+
+bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle)
+{
+    bool ret;
+    struct filemgr_fhandle_idx_node *item, query;
+    struct avl_node *a;
+
+    spin_lock(&file->fhandle_idx_lock);
+
+    query.fhandle = fhandle;
+    a = avl_search(&file->fhandle_idx, &query.avl, _fhandle_idx_cmp);
+    if (a) {
+        // exist, remove & free the item
+        item = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
+        avl_remove(&file->fhandle_idx, &item->avl);
+        free(item);
+        ret = true;
+    } else {
+        ret = false;
+    }
+
+    spin_unlock(&file->fhandle_idx_lock);
+    return ret;
+}
+
+static void _filemgr_dirty_update_remove_node(struct filemgr *file,
+                                              struct filemgr_dirty_update_node *node);
+
+void filemgr_dirty_update_init(struct filemgr *file)
+{
+    avl_init(&file->dirty_update_idx, NULL);
+    spin_init(&file->dirty_update_lock);
+    atomic_init_uint64_t(&file->dirty_update_counter, 0);
+    file->latest_dirty_update = NULL;
+}
+
+void filemgr_dirty_update_free(struct filemgr *file)
+{
+    struct avl_node *a = avl_first(&file->dirty_update_idx);
+    struct filemgr_dirty_update_node *node;
+
+    while (a) {
+        node = _get_entry(a, struct filemgr_dirty_update_node, avl);
+        a = avl_next(a);
+        avl_remove(&file->dirty_update_idx, &node->avl);
+        _filemgr_dirty_update_remove_node(file, node);
+    }
+    spin_destroy(&file->dirty_update_lock);
+}
+
+INLINE int _dirty_update_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct filemgr_dirty_update_node *aa, *bb;
+    aa = _get_entry(a, struct filemgr_dirty_update_node, avl);
+    bb = _get_entry(b, struct filemgr_dirty_update_node, avl);
+
+    return _CMP_U64(aa->id, bb->id);
+}
+
+INLINE int _dirty_blocks_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+{
+    struct filemgr_dirty_update_block *aa, *bb;
+    aa = _get_entry(a, struct filemgr_dirty_update_block, avl);
+    bb = _get_entry(b, struct filemgr_dirty_update_block, avl);
+
+    return _CMP_U64(aa->bid, bb->bid);
+}
+
+struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *file)
+{
+    struct filemgr_dirty_update_node *node;
+
+    node = (struct filemgr_dirty_update_node *)
+           calloc(1, sizeof(struct filemgr_dirty_update_node));
+    node->id = atomic_incr_uint64_t(&file->dirty_update_counter);
+    node->immutable = false; // currently being written
+    node->expired = false;
+    atomic_init_uint32_t(&node->ref_count, 0);
+    node->idtree_root = node->seqtree_root = BLK_NOT_FOUND;
+    avl_init(&node->dirty_blocks, NULL);
+
+    spin_lock(&file->dirty_update_lock);
+    avl_insert(&file->dirty_update_idx, &node->avl, _dirty_update_idx_cmp);
+    spin_unlock(&file->dirty_update_lock);
+
+    return node;
+}
+
+struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(struct filemgr *file)
+{
+    struct filemgr_dirty_update_node *node = NULL;
+
+    // find the first immutable node from the end
+    spin_lock(&file->dirty_update_lock);
+
+    node = file->latest_dirty_update;
+    if (node) {
+        atomic_incr_uint32_t(&node->ref_count);
+    }
+
+    spin_unlock(&file->dirty_update_lock);
+    return node;
+}
+
+void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node)
+{
+    if (!node) {
+        return;
+    }
+    atomic_incr_uint32_t(&node->ref_count);
+}
+
+INLINE void filemgr_dirty_update_flush(struct filemgr *file,
+                                       struct filemgr_dirty_update_node *node,
+                                       err_log_callback *log_callback)
+{
+    struct avl_node *a;
+    struct filemgr_dirty_update_block *block;
+
+    if (!node) {
+        return;
+    }
+
+    // Flush all dirty blocks belonging to this dirty update entry
+    a = avl_first(&node->dirty_blocks);
+    while (a) {
+        block = _get_entry(a, struct filemgr_dirty_update_block, avl);
+        a = avl_next(a);
+        if (filemgr_is_writable(file, block->bid) && !block->immutable) {
+            filemgr_write(file, block->bid, block->addr, log_callback);
+        }
+    }
+    node->expired = true;
+}
+
+void filemgr_dirty_update_commit(struct filemgr *file,
+                                 struct filemgr_dirty_update_node *commit_node,
+                                 err_log_callback *log_callback)
+{
+    struct avl_node *a;
+    struct filemgr_dirty_update_node *node;
+    struct list remove_queue;
+    struct list_elem *le;
+
+    // 1. write back all blocks in the given (committed) node
+    // 2. remove all other immutable dirty update entries
+    list_init(&remove_queue);
+    if (commit_node) {
+        filemgr_dirty_update_flush(file, commit_node, log_callback);
+    }
+
+    spin_lock(&file->dirty_update_lock);
+    file->latest_dirty_update = NULL;
+
+    a = avl_first(&file->dirty_update_idx);
+    while (a) {
+        node = _get_entry(a, struct filemgr_dirty_update_node, avl);
+        a = avl_next(a);
+
+        if (node->immutable &&
+            atomic_get_uint32_t(&node->ref_count) == 0) {
+            // detach from tree and insert into remove queue
+            avl_remove(&file->dirty_update_idx, &node->avl);
+            list_push_front(&remove_queue, &node->le);
+        }
+    }
+
+    spin_unlock(&file->dirty_update_lock);
+
+    le = list_begin(&remove_queue);
+    while (le) {
+        node = _get_entry(le, struct filemgr_dirty_update_node, le);
+        le = list_remove(&remove_queue, &node->le);
+        _filemgr_dirty_update_remove_node(file, node);
+    }
+}
+
+void filemgr_dirty_update_set_immutable(struct filemgr *file,
+                                        struct filemgr_dirty_update_node *prev_node,
+                                        struct filemgr_dirty_update_node *node)
+{
+    struct avl_node *a;
+    struct filemgr_dirty_update_node *cur_node;
+    struct list remove_queue;
+    struct list_elem *le;
+
+    if (!node) {
+        return;
+    }
+
+    list_init(&remove_queue);
+
+    spin_lock(&file->dirty_update_lock);
+    node->immutable = true;
+
+    // absorb all blocks that exist in the previous dirty update
+    // but not exist in the current dirty update
+    if (prev_node) {
+        bool migration = false;
+        struct avl_node *aa, *bb;
+        struct filemgr_dirty_update_block *block, *block_copy, query;
+
+        if (prev_node->immutable && atomic_get_uint32_t(&prev_node->ref_count) == 1) {
+            // only the current thread is referring this dirty update entry.
+            // we don't need to copy blocks; just migrate them directly.
+            migration = true;
+        }
+
+        if (prev_node->expired) {
+            // skip already copied node as its blocks are already in
+            // the new node or DB file
+            aa = NULL;
+        } else {
+            aa = avl_first(&prev_node->dirty_blocks);
+        }
+
+        while (aa) {
+            block = _get_entry(aa, struct filemgr_dirty_update_block, avl);
+            aa = avl_next(aa);
+
+            if (block->immutable || !filemgr_is_writable(file, block->bid)) {
+                // this block is already committed.
+                // it can happen when previous dirty update was flushed but
+                // was not closed as other handle was still referring it.
+
+                // ignore this block and set the flag to avoid future copy
+                // (filemgr_is_writable() alone is not enough because a block
+                //  can become writable again due to circular block reuse).
+                block->immutable = true;
+                continue;
+            }
+
+            query.bid = block->bid;
+            bb = avl_search(&node->dirty_blocks, &query.avl, _dirty_blocks_cmp);
+            if (!bb) {
+                // not exist in the current dirty update .. copy (or move) it
+                if (migration) {
+                    // move
+                    avl_remove(&prev_node->dirty_blocks, &block->avl);
+                    block_copy = block;
+                } else {
+                    // copy
+                    block_copy = (struct filemgr_dirty_update_block *)
+                                 calloc(1, sizeof(struct filemgr_dirty_update_block));
+                    void *addr;
+                    malloc_align(addr, FDB_SECTOR_SIZE, file->blocksize);
+                    block_copy->addr = addr;
+                    block_copy->bid = block->bid;
+                    block_copy->immutable = block->immutable;
+                    memcpy(block_copy->addr, block->addr, file->blocksize);
+                }
+                avl_insert(&node->dirty_blocks, &block_copy->avl, _dirty_blocks_cmp);
+            }
+        }
+
+        // now we don't need to copy blocks in this node in the future
+        prev_node->expired = true;
+    }
+
+    // set latest dirty update
+    file->latest_dirty_update = node;
+
+    // remove all previous dirty updates whose ref_count == 0
+    // (except for 'node')
+    a = avl_first(&file->dirty_update_idx);
+    while (a) {
+        cur_node = _get_entry(a, struct filemgr_dirty_update_node, avl);
+        if (cur_node == node) {
+            break;
+        }
+        a = avl_next(a);
+        if (cur_node->immutable && atomic_get_uint32_t(&cur_node->ref_count) == 0 &&
+            cur_node != node) {
+            // detach from tree and insert into remove queue
+            avl_remove(&file->dirty_update_idx, &cur_node->avl);
+            list_push_front(&remove_queue, &cur_node->le);
+        }
+    }
+
+    spin_unlock(&file->dirty_update_lock);
+
+    le = list_begin(&remove_queue);
+    while (le) {
+        cur_node = _get_entry(le, struct filemgr_dirty_update_node, le);
+        le = list_remove(&remove_queue, &cur_node->le);
+        _filemgr_dirty_update_remove_node(file, cur_node);
+    }
+}
+
+static void _filemgr_dirty_update_remove_node(struct filemgr *file,
+                                              struct filemgr_dirty_update_node *node)
+{
+    struct avl_node *a;
+    struct filemgr_dirty_update_block *block;
+
+    if (!node) {
+        return;
+    }
+
+    // free all dirty blocks belonging to this node
+    a = avl_first(&node->dirty_blocks);
+    while (a) {
+        block = _get_entry(a, struct filemgr_dirty_update_block, avl);
+        a = avl_next(a);
+        avl_remove(&node->dirty_blocks, &block->avl);
+        free_align(block->addr);
+        free(block);
+    }
+
+    free(node);
+}
+
+void filemgr_dirty_update_remove_node(struct filemgr *file,
+                                      struct filemgr_dirty_update_node *node)
+{
+    spin_lock(&file->dirty_update_lock);
+    avl_remove(&file->dirty_update_idx, &node->avl);
+    spin_unlock(&file->dirty_update_lock);
+
+    _filemgr_dirty_update_remove_node(file, node);
+}
+
+void filemgr_dirty_update_close_node(struct filemgr *file,
+                                     struct filemgr_dirty_update_node *node)
+{
+    if (!node) {
+        return;
+    }
+
+    // just decrease the ref count
+    // (any nodes whose ref_count==0 will be removed lazily)
+    atomic_decr_uint32_t(&node->ref_count);
+}
+
+fdb_status filemgr_write_dirty(struct filemgr *file, bid_t bid, void *buf,
+                               struct filemgr_dirty_update_node *node,
+                               err_log_callback *log_callback)
+{
+    struct avl_node *a;
+    struct filemgr_dirty_update_block *block, query;
+
+    query.bid = bid;
+    a = avl_search(&node->dirty_blocks, &query.avl, _dirty_blocks_cmp);
+    if (a) {
+        // already exist .. overwrite
+        block = _get_entry(a, struct filemgr_dirty_update_block, avl);
+    } else {
+        // not exist .. create a new block for this update node
+        block = (struct filemgr_dirty_update_block *)
+                calloc(1, sizeof(struct filemgr_dirty_update_block));
+        void *addr = NULL;
+        malloc_align(addr, FDB_SECTOR_SIZE, file->blocksize);
+        block->addr = addr;
+        block->bid = bid;
+        block->immutable = false;
+        avl_insert(&node->dirty_blocks, &block->avl, _dirty_blocks_cmp);
+    }
+
+    memcpy(block->addr, buf, file->blocksize);
+    return FDB_RESULT_SUCCESS;
+}
+
+fdb_status filemgr_read_dirty(struct filemgr *file, bid_t bid, void *buf,
+                              struct filemgr_dirty_update_node *node_reader,
+                              struct filemgr_dirty_update_node *node_writer,
+                              err_log_callback *log_callback,
+                              bool read_on_cache_miss)
+{
+    struct avl_node *a;
+    struct filemgr_dirty_update_block *block, query;
+
+    if (node_writer) {
+        // search the current (being written / mutable) dirty update first
+        query.bid = bid;
+        a = avl_search(&node_writer->dirty_blocks, &query.avl, _dirty_blocks_cmp);
+        if (a) {
+            // exist .. directly read the dirty block
+            block = _get_entry(a, struct filemgr_dirty_update_block, avl);
+            memcpy(buf, block->addr, file->blocksize);
+            return FDB_RESULT_SUCCESS;
+        }
+        // not exist .. search the latest immutable dirty update next
+    }
+
+    if (node_reader) {
+        query.bid = bid;
+        a = avl_search(&node_reader->dirty_blocks, &query.avl, _dirty_blocks_cmp);
+        if (a) {
+            // exist .. directly read the dirty block
+            block = _get_entry(a, struct filemgr_dirty_update_block, avl);
+            memcpy(buf, block->addr, file->blocksize);
+            return FDB_RESULT_SUCCESS;
+        }
+    }
+
+    // not exist in both dirty update entries .. call filemgr_read()
+    return filemgr_read(file, bid, buf, log_callback, read_on_cache_miss);
+}
+
 void _kvs_stat_set(struct filemgr *file,
                    fdb_kvs_id_t kv_id,
                    struct kvs_stat stat)
@@ -2838,6 +3746,41 @@ int _kvs_stat_get_kv_header(struct kvs_header *kv_header,
         ret = -1;
     }
     return ret;
+}
+
+fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
+                                 fdb_kvs_id_t id)
+{
+    fdb_seqnum_t seqnum;
+    struct kvs_node query, *node;
+    struct avl_node *a;
+
+    spin_lock(&kv_header->lock);
+    query.id = id;
+    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        seqnum = node->seqnum;
+    } else {
+        // not existing KV ID.
+        // this is necessary for _fdb_restore_wal()
+        // not to restore documents in deleted KV store.
+        seqnum = 0;
+    }
+    spin_unlock(&kv_header->lock);
+
+    return seqnum;
+}
+
+fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
+                                fdb_kvs_id_t id)
+{
+    if (id == 0) {
+        // default KV instance
+        return filemgr_get_seqnum(file);
+    }
+
+    return _fdb_kvs_get_seqnum(file->kv_header, id);
 }
 
 int _kvs_stat_get(struct filemgr *file,
@@ -2991,11 +3934,25 @@ struct kvs_ops_stat *filemgr_get_ops_stats(struct filemgr *file,
 const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
 {
     switch(stat) {
-        case FDB_LATENCY_SETS:       return "sets     ";
-        case FDB_LATENCY_GETS:       return "gets     ";
-        case FDB_LATENCY_SNAPSHOTS:  return "snapshots";
-        case FDB_LATENCY_COMMITS:    return "commits  ";
-        case FDB_LATENCY_COMPACTS:   return "compact  ";
+        case FDB_LATENCY_SETS:          return "sets            ";
+        case FDB_LATENCY_GETS:          return "gets            ";
+        case FDB_LATENCY_SNAP_INMEM:    return "in-mem_snapshot ";
+        case FDB_LATENCY_SNAP_DUR:      return "durable_snapshot";
+        case FDB_LATENCY_COMMITS:       return "commits         ";
+        case FDB_LATENCY_COMPACTS:      return "compact         ";
+        case FDB_LATENCY_ITR_INIT:      return "itr-init        ";
+        case FDB_LATENCY_ITR_SEQ_INIT:  return "itr-seq-ini     ";
+        case FDB_LATENCY_ITR_NEXT:      return "itr-next        ";
+        case FDB_LATENCY_ITR_PREV:      return "itr-prev        ";
+        case FDB_LATENCY_ITR_GET:       return "itr-get         ";
+        case FDB_LATENCY_ITR_GET_META:  return "itr-get-meta    ";
+        case FDB_LATENCY_ITR_SEEK:      return "itr-seek        ";
+        case FDB_LATENCY_ITR_SEEK_MAX:  return "itr-seek-max    ";
+        case FDB_LATENCY_ITR_SEEK_MIN:  return "itr-seek-min    ";
+        case FDB_LATENCY_ITR_CLOSE:     return "itr-close       ";
+        case FDB_LATENCY_OPEN:          return "fdb_open        ";
+        case FDB_LATENCY_KVS_OPEN:      return "fdb_kvs_open    ";
+        case FDB_LATENCY_SNAP_CLONE:    return "clone-snapshot  ";
     }
     return NULL;
 }
@@ -3011,62 +3968,74 @@ void filemgr_init_latency_stat(struct latency_stat *val) {
 void filemgr_migrate_latency_stats(struct filemgr *src, struct filemgr *dst) {
     for (int type = 0; type < FDB_LATENCY_NUM_STATS; ++type) {
         atomic_store_uint32_t(&dst->lat_stats[type].lat_min,
-                atomic_get_uint32_t(&src->lat_stats[type].lat_min));
+                              atomic_get_uint32_t(&src->lat_stats[type].lat_min),
+                              std::memory_order_relaxed);
         atomic_store_uint32_t(&dst->lat_stats[type].lat_max,
-                atomic_get_uint32_t(&src->lat_stats[type].lat_max));
+                              atomic_get_uint32_t(&src->lat_stats[type].lat_max),
+                              std::memory_order_relaxed);
         atomic_store_uint64_t(&dst->lat_stats[type].lat_sum,
-                atomic_get_uint64_t(&src->lat_stats[type].lat_sum));
+                              atomic_get_uint64_t(&src->lat_stats[type].lat_sum),
+                              std::memory_order_relaxed);
         atomic_store_uint64_t(&dst->lat_stats[type].lat_num,
-                atomic_get_uint64_t(&src->lat_stats[type].lat_num));
+                              atomic_get_uint64_t(&src->lat_stats[type].lat_num),
+                              std::memory_order_relaxed);
     }
 }
 
 void filemgr_destroy_latency_stat(struct latency_stat *val) {
-    atomic_destroy_uint32_t(&val->lat_max);
-    atomic_destroy_uint32_t(&val->lat_min);
-    atomic_destroy_uint64_t(&val->lat_num);
-    atomic_destroy_uint64_t(&val->lat_sum);
+    (void) val;
 }
 
 void filemgr_update_latency_stat(struct filemgr *file,
                                  fdb_latency_stat_type type,
                                  uint32_t val)
 {
-    bool retry;
+    int retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max);
+        uint32_t lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max,
+                                               std::memory_order_relaxed);
         if (lat_max < val) {
-            retry = !atomic_cas_uint32_t(&file->lat_stats[type].lat_max,
-                                         lat_max, val);
-        } else {
-            retry = false;
+            if (!atomic_cas_uint32_t(&file->lat_stats[type].lat_max,
+                                     lat_max, val)) {
+                continue;
+            }
         }
-    } while (retry);
+        break;
+    } while (--retry);
+    retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min);
+        uint32_t lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min,
+                                               std::memory_order_relaxed);
         if (val < lat_min) {
-            retry = !atomic_cas_uint32_t(&file->lat_stats[type].lat_min,
-                                         lat_min, val);
-        } else {
-            retry = false;
+            if (!atomic_cas_uint32_t(&file->lat_stats[type].lat_min,
+                                     lat_min, val)) {
+                continue;
+            }
         }
-    } while (retry);
-    atomic_add_uint64_t(&file->lat_stats[type].lat_sum, val);
-    atomic_incr_uint64_t(&file->lat_stats[type].lat_num);
+        break;
+    } while (--retry);
+    atomic_add_uint64_t(&file->lat_stats[type].lat_sum, val,
+                        std::memory_order_relaxed);
+    atomic_incr_uint64_t(&file->lat_stats[type].lat_num,
+                         std::memory_order_relaxed);
 }
 
 void filemgr_get_latency_stat(struct filemgr *file, fdb_latency_stat_type type,
                               fdb_latency_stat *stat)
 {
-    uint64_t num = atomic_get_uint64_t(&file->lat_stats[type].lat_num);
+    uint64_t num = atomic_get_uint64_t(&file->lat_stats[type].lat_num,
+                                       std::memory_order_relaxed);
     if (!num) {
         memset(stat, 0, sizeof(fdb_latency_stat));
         return;
     }
-    stat->lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max);
-    stat->lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min);
+    stat->lat_max = atomic_get_uint32_t(&file->lat_stats[type].lat_max,
+                                        std::memory_order_relaxed);
+    stat->lat_min = atomic_get_uint32_t(&file->lat_stats[type].lat_min,
+                                        std::memory_order_relaxed);
     stat->lat_count = num;
-    stat->lat_avg = atomic_get_uint64_t(&file->lat_stats[type].lat_sum) / num;
+    stat->lat_avg = atomic_get_uint64_t(&file->lat_stats[type].lat_sum,
+                                        std::memory_order_relaxed) / num;
 }
 
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
@@ -3088,15 +4057,21 @@ void filemgr_dump_latency_stat(struct filemgr *file,
     for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
         uint32_t avg;
         uint64_t num;
-        num = atomic_get_uint64_t(&file->lat_stats[i].lat_num);
+        num = atomic_get_uint64_t(&file->lat_stats[i].lat_num,
+                                  std::memory_order_relaxed);
         if (!num) {
             continue;
         }
-        avg = atomic_get_uint64_t(&file->lat_stats[i].lat_sum) / num;
+        avg = atomic_get_uint64_t(&file->lat_stats[i].lat_sum,
+                                  std::memory_order_relaxed) / num;
         fprintf(lat_file, "%s:\t\t%u\t\t%u\t\t%u\t\t%" _F64 "\n",
                 filemgr_latency_stat_name(i),
-                atomic_get_uint32_t(&file->lat_stats[i].lat_min),
-                avg, atomic_get_uint32_t(&file->lat_stats[i].lat_max), num);
+                atomic_get_uint32_t(&file->lat_stats[i].lat_min,
+                                    std::memory_order_relaxed),
+                avg,
+                atomic_get_uint32_t(&file->lat_stats[i].lat_max,
+                                    std::memory_order_relaxed),
+                num);
     }
     fflush(lat_file);
     fclose(lat_file);
@@ -3147,5 +4122,63 @@ void buf2buf(size_t chunksize_src, void *buf_src,
         memset(buf_dst, 0x0, chunksize_dst - chunksize_src);
         memcpy((uint8_t*)buf_dst + (chunksize_dst - chunksize_src),
                buf_src, chunksize_src);
+    }
+}
+
+fdb_status convert_errno_to_fdb_status(int errno_value,
+                                       fdb_status default_status)
+{
+    switch (errno_value) {
+    case EACCES:
+        return FDB_RESULT_EACCESS;
+    case EEXIST:
+        return FDB_RESULT_EEXIST;
+    case EFAULT:
+        return FDB_RESULT_EFAULT;
+    case EFBIG:
+        return FDB_RESULT_EFBIG;
+    case EINVAL:
+        return FDB_RESULT_EINVAL;
+    case EISDIR:
+        return FDB_RESULT_EISDIR;
+    case ELOOP:
+        return FDB_RESULT_ELOOP;
+    case EMFILE:
+        return FDB_RESULT_EMFILE;
+    case ENAMETOOLONG:
+        return FDB_RESULT_ENAMETOOLONG;
+    case ENFILE:
+        return FDB_RESULT_ENFILE;
+    case ENODEV:
+        return FDB_RESULT_ENODEV;
+    case ENOENT:
+        return FDB_RESULT_NO_SUCH_FILE;
+    case ENOMEM:
+        return FDB_RESULT_ENOMEM;
+    case ENOSPC:
+        return FDB_RESULT_ENOSPC;
+    case ENOTDIR:
+        return FDB_RESULT_ENOTDIR;
+    case ENXIO:
+        return FDB_RESULT_ENXIO;
+    case EOPNOTSUPP:
+        return FDB_RESULT_EOPNOTSUPP;
+    case EOVERFLOW:
+        return FDB_RESULT_EOVERFLOW;
+    case EPERM:
+        return FDB_RESULT_EPERM;
+    case EROFS:
+        return FDB_RESULT_EROFS;
+    case EBADF:
+        return FDB_RESULT_EBADF;
+    case EIO:
+        return FDB_RESULT_EIO;
+    case ENOBUFS:
+        return FDB_RESULT_ENOBUFS;
+    case EAGAIN:
+        return FDB_RESULT_EAGAIN;
+
+    default:
+        return default_status;
     }
 }

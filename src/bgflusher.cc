@@ -190,6 +190,10 @@ void bgflusher_shutdown()
     struct avl_node *a = NULL;
     struct openfiles_elem *elem;
 
+    if (!bgflusher_tids) {
+        return;
+    }
+
     // set terminate signal
     mutex_lock(&sync_mutex);
     bgflusher_terminate_signal = 1;
@@ -200,6 +204,7 @@ void bgflusher_shutdown()
         thread_join(bgflusher_tids[i], &ret);
     }
     free(bgflusher_tids);
+    bgflusher_tids = NULL;
 
     mutex_lock(&bgf_lock);
     // free all elems in the tree

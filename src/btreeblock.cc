@@ -55,6 +55,7 @@ struct btreeblk_block {
 #endif
 };
 
+#ifdef __BTREEBLK_READ_TREE
 static int _btreeblk_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 {
     bid_t aa_bid, bb_bid;
@@ -76,6 +77,7 @@ static int _btreeblk_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     }
 #endif
 }
+#endif
 
 INLINE void _btreeblk_get_aligned_block(struct btreeblk_handle *handle,
                                         struct btreeblk_block *block)
@@ -407,32 +409,26 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
 
     _btreeblk_get_aligned_block(handle, block);
 
-    struct avl_node *dirty_avl = NULL;
-    if (handle->dirty_snapshot) { // dirty snapshot exists
-        // check whether the requested block exists
-        struct btreeblk_block query;
-        query.bid = block->bid;
-        dirty_avl = avl_search(handle->dirty_snapshot->snap_tree, &query.avl,
-                               _btreeblk_bid_cmp);
+    fdb_status status;
+    if (handle->dirty_update || handle->dirty_update_writer) {
+        // read from the given dirty update entry
+        status = filemgr_read_dirty(handle->file, block->bid, block->addr,
+                                    handle->dirty_update, handle->dirty_update_writer,
+                                    handle->log_callback, true);
+    } else {
+        // normal read
+        status = filemgr_read(handle->file, block->bid, block->addr,
+                              handle->log_callback, true);
+    }
+    if (status != FDB_RESULT_SUCCESS) {
+        fdb_log(handle->log_callback, status,
+                "Failed to read the B+-Tree block (block id: %" _F64
+                ", block address: %p)", block->bid, block->addr);
+        _btreeblk_free_aligned_block(handle, block);
+        mempool_free(block);
+        return NULL;
     }
 
-    if (dirty_avl) { // dirty block exists in the snapshot
-        // copy block
-        struct btreeblk_block *dirty_block;
-        dirty_block = _get_entry(dirty_avl, struct btreeblk_block, avl);
-        memcpy(block->addr, dirty_block->addr, handle->file->blocksize);
-    } else {
-        fdb_status status = filemgr_read(handle->file, block->bid, block->addr,
-                                         handle->log_callback, true);
-        if (status != FDB_RESULT_SUCCESS) {
-            fdb_log(handle->log_callback, status,
-                    "Failed to read the B+-Tree block (block id: %" _F64
-                    ", block address: %p)", block->bid, block->addr);
-            _btreeblk_free_aligned_block(handle, block);
-            mempool_free(block);
-            return NULL;
-        }
-    }
     _btreeblk_decode(handle, block);
 
     list_push_front(&handle->read_list, &block->le);
@@ -490,84 +486,62 @@ void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
         return new_addr;
     } else {
         // subblock
-        if (handle->sb[sb].bid == _bid) {
-            //2 case 1
-            // current subblock set is not writable
-            // (btreeblk_move() is called on immutable blocks only)
-            // move all subblocks into the new parent block
-            old_addr = _btreeblk_read(voidhandle, _bid, sb);
-            new_addr = _btreeblk_alloc(voidhandle, &_new_bid, sb);
-            handle->nlivenodes--;
-            // update new BID
-            handle->sb[sb].bid = _new_bid;
-            bid2subbid(_new_bid, sb, idx, new_bid);
-            btreeblk_set_dirty(voidhandle, handle->sb[sb].bid);
 
-            // move
-            memcpy(new_addr, old_addr, (handle->nodesize));
+        // move the target subblock
+        // into the current subblock set
+        old_addr = _btreeblk_read(voidhandle, _bid, sb);
 
-            // the entire old block becomes stale
-            _btreeblk_add_stale_block(handle, _bid * handle->nodesize, handle->nodesize);
-
-            return (uint8_t*)new_addr + handle->sb[sb].sb_size * idx;
-        } else {
-            //2 case 2
-            // move only the target subblock
-            // into current subblock set (no allocation is required)
-            old_addr = _btreeblk_read(voidhandle, _bid, sb);
-
-            new_idx = handle->sb[sb].nblocks;
-            for (i=0;i<handle->sb[sb].nblocks;++i){
-                if (handle->sb[sb].bitmap[i] == 0) {
-                    new_idx = i;
-                    break;
-                }
+        new_idx = handle->sb[sb].nblocks;
+        for (i=0;i<handle->sb[sb].nblocks;++i){
+            if (handle->sb[sb].bitmap[i] == 0) {
+                new_idx = i;
+                break;
             }
-            if (handle->sb[sb].bid == BLK_NOT_FOUND ||
-                new_idx == handle->sb[sb].nblocks ||
-                !filemgr_is_writable(handle->file, handle->sb[sb].bid)) {
-                // case 2-1
-                // There is no free slot in the parent block, OR
-                // the parent block is not writable.
+        }
+        if (handle->sb[sb].bid == BLK_NOT_FOUND ||
+            new_idx == handle->sb[sb].nblocks ||
+            !filemgr_is_writable(handle->file, handle->sb[sb].bid)) {
+            // There is no free slot in the parent block, OR
+            // the parent block is not writable.
 
-                // Mark all unused subblocks in the current parent block as stale
-                if (handle->sb[sb].bid != BLK_NOT_FOUND) {
-                    for (i=0; i<handle->sb[sb].nblocks; ++i) {
+            // Mark all unused subblocks in the current parent block as stale
+            if (handle->sb[sb].bid != BLK_NOT_FOUND) {
+                for (i=0; i<handle->sb[sb].nblocks; ++i) {
+                    if (handle->sb[sb].bitmap[i] == 0) {
                         _btreeblk_add_stale_block(handle,
                             (handle->sb[sb].bid * handle->nodesize)
                                 + (i * handle->sb[sb].sb_size),
                             handle->sb[sb].sb_size);
                     }
                 }
-
-                // Allocate new parent block.
-                new_addr = _btreeblk_alloc(voidhandle, &_new_bid, sb);
-                handle->nlivenodes--;
-                handle->sb[sb].bid = _new_bid;
-                memset(handle->sb[sb].bitmap, 0, handle->sb[sb].nblocks);
-                new_idx = 0;
-            } else {
-                // case 2-2
-                // append to the current block
-                new_addr = _btreeblk_read(voidhandle, handle->sb[sb].bid, sb);
             }
 
-            handle->sb[sb].bitmap[new_idx] = 1;
-            bid2subbid(handle->sb[sb].bid, sb, new_idx, new_bid);
-            btreeblk_set_dirty(voidhandle, handle->sb[sb].bid);
-
-            // move
-            memcpy((uint8_t*)new_addr + handle->sb[sb].sb_size * new_idx,
-                   (uint8_t*)old_addr + handle->sb[sb].sb_size * idx,
-                   handle->sb[sb].sb_size);
-
-            // Also mark the target (old) subblock as stale
-            _btreeblk_add_stale_block(handle,
-                (_bid * handle->nodesize) + (idx * handle->sb[sb].sb_size),
-                handle->sb[sb].sb_size);
-
-            return (uint8_t*)new_addr + handle->sb[sb].sb_size * new_idx;
+            // Allocate new parent block.
+            new_addr = _btreeblk_alloc(voidhandle, &_new_bid, sb);
+            handle->nlivenodes--;
+            handle->sb[sb].bid = _new_bid;
+            memset(handle->sb[sb].bitmap, 0, handle->sb[sb].nblocks);
+            new_idx = 0;
+        } else {
+            // just append to the current block
+            new_addr = _btreeblk_read(voidhandle, handle->sb[sb].bid, sb);
         }
+
+        handle->sb[sb].bitmap[new_idx] = 1;
+        bid2subbid(handle->sb[sb].bid, sb, new_idx, new_bid);
+        btreeblk_set_dirty(voidhandle, handle->sb[sb].bid);
+
+        // move
+        memcpy((uint8_t*)new_addr + handle->sb[sb].sb_size * new_idx,
+               (uint8_t*)old_addr + handle->sb[sb].sb_size * idx,
+               handle->sb[sb].sb_size);
+
+        // Also mark the target (old) subblock as stale
+        _btreeblk_add_stale_block(handle,
+            (_bid * handle->nodesize) + (idx * handle->sb[sb].sb_size),
+            handle->sb[sb].sb_size);
+
+        return (uint8_t*)new_addr + handle->sb[sb].sb_size * new_idx;
     }
 }
 
@@ -890,7 +864,7 @@ void * btreeblk_enlarge_node(void *voidhandle,
                 handle->sb[src_sb].bitmap[src_idx] = 0;
 
                 // TODO: what if FDB handle is closed without fdb_commit() ?
-            } else if (handle->sb[src_sb].bid != BLK_NOT_FOUND) {
+            } else if (bid != BLK_NOT_FOUND) {
                 // The current source block will not be used for allocation anymore.
                 // Mark the corresponding subblock as stale.
                 _btreeblk_add_stale_block(handle,
@@ -962,8 +936,16 @@ INLINE fdb_status _btreeblk_write_dirty_block(struct btreeblk_handle *handle,
     //2 MUST BE modified to support multiple nodes in a block
 
     _btreeblk_encode(handle, block);
-    status = filemgr_write(handle->file, block->bid, block->addr,
-                           handle->log_callback);
+    if (handle->dirty_update_writer) {
+        // dirty update is in-progress
+        status = filemgr_write_dirty(handle->file, block->bid, block->addr,
+                                     handle->dirty_update_writer,
+                                     handle->log_callback);
+    } else {
+        // normal write into file
+        status = filemgr_write(handle->file, block->bid, block->addr,
+                               handle->log_callback);
+    }
     if (status != FDB_RESULT_SUCCESS) {
         fdb_log(handle->log_callback, status,
                 "Failed to write the B+-Tree block (block id: %" _F64
@@ -1096,134 +1078,6 @@ void btreeblk_discard_blocks(struct btreeblk_handle *handle)
 #endif
 }
 
-// Create snapshots for dirty B+tree nodes
-// Note that filemgr_mutex MUST be grabbed by the caller
-fdb_status btreeblk_create_dirty_snapshot(struct btreeblk_handle *handle)
-{
-    int cmp;
-    uint8_t *marker;
-    bid_t dirty_bid, commit_bid, cur_bid;
-    fdb_status fs;
-    struct btreeblk_block *block = NULL;
-    struct avl_tree *tree;
-
-    if (handle->dirty_snapshot) { //already exists
-        return FDB_RESULT_SUCCESS;
-    }
-
-    handle->dirty_snapshot = (struct dirty_snapshot_t*)calloc(1,
-                                sizeof(struct dirty_snapshot_t));
-    handle->dirty_snapshot->snap_tree = (struct avl_tree *)calloc(1,
-                                            sizeof(struct avl_tree));
-
-    spin_init(&handle->dirty_snapshot->lock);
-    handle->dirty_snapshot->ref_cnt = 1;
-    tree = handle->dirty_snapshot->snap_tree;
-    marker = alca(uint8_t, BLK_MARKER_SIZE);
-    memset(marker, BLK_MARKER_BNODE, BLK_MARKER_SIZE);
-
-    avl_init(tree, NULL);
-
-    // get last dirty block BID
-    dirty_bid = (atomic_get_uint64_t(&handle->file->pos) / handle->file->blocksize) - 1;
-    // get the BID of the right next block of the last committed block
-    commit_bid = (atomic_get_uint64_t(&handle->file->last_commit) / handle->file->blocksize);
-
-    block = (struct btreeblk_block*)
-            calloc(1, sizeof(struct btreeblk_block));
-    malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
-
-    // scan dirty blocks
-    // TODO: we need to devise more efficient way than scanning
-    for (cur_bid = commit_bid; cur_bid <= dirty_bid; cur_bid++) {
-        // read block from file (most dirty blocks may be cached)
-        block->bid = cur_bid;
-        if ((fs = filemgr_read(handle->file, block->bid, block->addr,
-                               handle->log_callback, true)) != FDB_RESULT_SUCCESS) {
-            fdb_log(handle->log_callback, fs,
-                    "Failed to read the dirty B+-Tree block (block id: %" _F64
-                    ", block address: %p) while creating an in-memory snapshot.",
-                    block->bid, block->addr);
-            free_align(block->addr);
-            free(block);
-            return fs;
-        }
-        // check if the block is for btree node
-        cmp = memcmp((uint8_t *)block->addr +
-                                handle->file->blocksize - BLK_MARKER_SIZE,
-                     marker, BLK_MARKER_SIZE);
-        if (cmp == 0) { // this is btree block
-            // insert into AVL-tree
-            avl_insert(tree, &block->avl, _btreeblk_bid_cmp);
-            // alloc new block
-            block = (struct btreeblk_block*)
-                    calloc(1, sizeof(struct btreeblk_block));
-            malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
-        }
-    }
-
-    // free unused block
-    free_align(block->addr);
-    free(block);
-
-    return FDB_RESULT_SUCCESS;
-}
-
-void btreeblk_clone_dirty_snapshot(struct btreeblk_handle *dst,
-                                   struct btreeblk_handle *src)
-{
-    // return if source handle's dirty snapshot doesn't exist, OR
-    // destination handle's dirty snapshot already exists.
-    if (!src->dirty_snapshot ||
-        dst->dirty_snapshot) {
-        return;
-    }
-    spin_lock(&src->dirty_snapshot->lock);
-    if (!src->dirty_snapshot->ref_cnt) {
-        spin_unlock(&src->dirty_snapshot->lock);
-        // TODO: Need to log the corresponding error message
-        return;
-    }
-    src->dirty_snapshot->ref_cnt++;
-    dst->dirty_snapshot = src->dirty_snapshot;
-    spin_unlock(&src->dirty_snapshot->lock);
-}
-
-void btreeblk_free_dirty_snapshot(struct btreeblk_handle *handle)
-{
-    struct avl_node *a;
-    struct btreeblk_block *block;
-
-    if (!handle->dirty_snapshot) {
-        return;
-    }
-
-    spin_lock(&handle->dirty_snapshot->lock);
-    if (!handle->dirty_snapshot->ref_cnt) {
-        spin_unlock(&handle->dirty_snapshot->lock);
-        // TODO: Need to log the corresponding error message
-        return;
-    }
-    if (--handle->dirty_snapshot->ref_cnt == 0) {
-        a = avl_first(handle->dirty_snapshot->snap_tree);
-        while (a) {
-            block = _get_entry(a, struct btreeblk_block, avl);
-            a = avl_next(&block->avl);
-            avl_remove(handle->dirty_snapshot->snap_tree, &block->avl);
-            free_align(block->addr);
-            free(block);
-        }
-        free(handle->dirty_snapshot->snap_tree);
-        handle->dirty_snapshot->snap_tree = NULL;
-        spin_unlock(&handle->dirty_snapshot->lock);
-        spin_destroy(&handle->dirty_snapshot->lock);
-        free(handle->dirty_snapshot);
-        handle->dirty_snapshot = NULL;
-    } else {
-        spin_unlock(&handle->dirty_snapshot->lock);
-    }
-}
-
 #ifdef __BTREEBLK_SUBBLOCK
 struct btree_blk_ops btreeblk_ops = {
     btreeblk_alloc,
@@ -1268,7 +1122,8 @@ void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file,
     handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
     handle->nlivenodes = 0;
     handle->ndeltanodes = 0;
-    handle->dirty_snapshot = NULL;
+    handle->dirty_update = NULL;
+    handle->dirty_update_writer = NULL;
 
     list_init(&handle->alc_list);
     list_init(&handle->read_list);
@@ -1388,9 +1243,6 @@ void btreeblk_free(struct btreeblk_handle *handle)
     }
     free(handle->sb);
 #endif
-
-    // free dirty snapshot if exist
-    btreeblk_free_dirty_snapshot(handle);
 }
 
 fdb_status btreeblk_end(struct btreeblk_handle *handle)

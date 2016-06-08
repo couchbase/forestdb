@@ -33,7 +33,7 @@ fdb_config get_default_config(void) {
     fconfig.blocksize = FDB_BLOCKSIZE;
     // 128MB by default.
     fconfig.buffercache_size = 134217728;
-    // 4096 WAL entries by default.
+    // 4K WAL entries by default.
     fconfig.wal_threshold = 4096;
     fconfig.wal_flush_before_commit = true;
     fconfig.auto_commit = false;
@@ -55,12 +55,12 @@ fdb_config get_default_config(void) {
     // Compaction threshold, 30% by default
     fconfig.compaction_threshold = FDB_DEFAULT_COMPACTION_THRESHOLD;
     fconfig.compaction_minimum_filesize = 1048576; // 1MB by default
-    // 15 seconds by default
+    // 8 hours by default
     fconfig.compactor_sleep_duration = FDB_COMPACTOR_SLEEP_DURATION;
     // Multi KV Instance mode is enabled by default
     fconfig.multi_kv_instances = true;
-    // 30 seconds by default
-    fconfig.prefetch_duration = 30;
+    // TODO: Re-enable this after prefetch ThreadSanitizer fixes are in..
+    fconfig.prefetch_duration = 0;
 
     // Determine the number of WAL and buffer cache partitions by considering the
     // number of cores available in the host environment.
@@ -86,9 +86,16 @@ fdb_config get_default_config(void) {
     // 4 daemon compactor threads by default
     fconfig.num_compactor_threads = DEFAULT_NUM_COMPACTOR_THREADS;
     fconfig.num_bgflusher_threads = DEFAULT_NUM_BGFLUSHER_THREADS;
+    // Block reusing threshold, 65% by default (i.e., almost 3x space amplification)
+    fconfig.block_reusing_threshold = 65;
+    // Keep at most 5 recent committed database snapshots
+    fconfig.num_keeping_headers = 5;
 
     fconfig.encryption_key.algorithm = FDB_ENCRYPTION_NONE;
     memset(fconfig.encryption_key.bytes, 0, sizeof(fconfig.encryption_key.bytes));
+
+    // Breakpad minidump directory, set to current working dir
+    fconfig.breakpad_minidump_dir = ".";
 
     return fconfig;
 }
@@ -158,6 +165,10 @@ bool validate_fdb_config(fdb_config *fconfig) {
         return false;
     }
     if (fconfig->num_bgflusher_threads > MAX_NUM_BGFLUSHER_THREADS) {
+        return false;
+    }
+    if (fconfig->num_keeping_headers == 0) {
+        // num_keeping_headers should be greater than zero
         return false;
     }
 
