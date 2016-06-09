@@ -2162,7 +2162,20 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
 
     status = btreeblk_end(handle->bhandle);
     if (status != FDB_RESULT_SUCCESS) {
-        return status;
+        // When fdb_kvs_open() is being issued in parallel with fdb_open()
+        // it is possible that this call (fdb_open()) hits a write failure
+        // because the btreeblock to be written was already made immutable
+        // by the commit from the fdb_kvs_open(). Simpy ignore this error case.
+        if (status == FDB_RESULT_WRITE_FAIL) {
+            if (filemgr_get_header_revnum(handle->file)
+                                             == latest_header_revnum) {
+                return status;
+            } else {
+                status = FDB_RESULT_SUCCESS;
+            }
+        } else {
+            return status;
+        }
     }
 
     // do not register read-only handles

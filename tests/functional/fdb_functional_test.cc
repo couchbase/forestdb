@@ -4485,6 +4485,8 @@ void invalid_get_byoffset_test()
                 break;
             }
             offset += 4096;
+            winoffs.Offset = offset & 0xFFFFFFFF;
+            winoffs.OffsetHigh = ((uint64_t)offset >> 32) & 0x7FFFFFFF;
         }
         fclose(fd);
 #endif

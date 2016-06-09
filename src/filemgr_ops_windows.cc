@@ -96,7 +96,7 @@ ssize_t _filemgr_win_pread(int fd, void *buf, size_t count, cs_off_t offset)
         _get_errno(&err);
         return (ssize_t) convert_errno_to_fdb_status(err, FDB_RESULT_READ_FAIL);
 #else
-        return (sszie_t) convert_errno_to_fdb_status(errno, FDB_RESULT_READ_FAIL);
+        return (ssize_t) convert_errno_to_fdb_status(errno, FDB_RESULT_READ_FAIL);
 #endif
     }
     return (ssize_t) bytesread;

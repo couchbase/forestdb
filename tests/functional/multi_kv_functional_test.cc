@@ -2334,6 +2334,73 @@ void multi_kv_use_existing_mode_test()
     TEST_RESULT("multiple KV instances use existing mode test");
 }
 
+void *_opening_thread(void *args) {
+    int nhandles = 100;
+    fdb_file_handle **dbfile = alca(fdb_file_handle *, nhandles);
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_status s;
+    TEST_INIT();
+
+    for (int i = 0; i < nhandles; ++i) {
+        s = fdb_open(&dbfile[i], "multi_kv_test2", &fconfig);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    for (int i = 0; i < nhandles; ++i) {
+        s = fdb_close(dbfile[i]);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+    thread_exit(0);
+    return NULL;
+}
+
+void multi_kv_open_test()
+{
+    TEST_INIT();
+    memleak_start();
+
+    int n = 256;
+    int nthreads = 7;
+    thread_t *tid = alca(thread_t, nthreads);
+    fdb_file_handle *dbfile;
+    fdb_status status;
+    fdb_config fconfig;
+    fdb_kvs_config kvs_config;
+
+    // remove previous multi_kv_test files
+    int r = system(SHELL_DEL" multi_kv_test* > errorlog.txt");
+    (void)r;
+
+    fconfig = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+
+    // open db
+    status = fdb_open(&dbfile, "multi_kv_test2", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    for (int i = 0; i < nthreads; ++i) {
+        thread_create(&tid[i], _opening_thread, NULL);
+    }
+    for (int i = 0; i < n; ++i) {
+        fdb_kvs_handle *db;
+        char kvname[8];
+        sprintf(kvname, "kv_%d", i);
+        status = fdb_kvs_open(dbfile, &db, kvname, &kvs_config);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    for (int i = 0; i < nthreads; ++i) {
+        void *thread_ret;
+        thread_join(tid[i], &thread_ret);
+    }
+
+    status = fdb_close(dbfile);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_shutdown();
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    memleak_end();
+    TEST_RESULT("multi KV creation with parallel open");
+}
 void multi_kv_close_test()
 {
     TEST_INIT();
@@ -2445,6 +2512,7 @@ int main(){
     uint8_t opt;
     size_t chunksize;
 
+    multi_kv_open_test();
     for (j=0;j<3;++j) {
         if (j==0) {
             chunksize = 8;

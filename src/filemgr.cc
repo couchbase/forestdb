@@ -436,11 +436,19 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
 
         size_t block_counter = 0;
         do {
+            if (hdr_bid_local * file->blocksize >= file->pos) {
+                // Handling EOF scenario
+                status = FDB_RESULT_NO_DB_HEADERS;
+                const char *msg = "Unable to read block from file '%s' as EOF "
+                                  "reached\n";
+                fdb_log(log_callback, status, msg, file->filename);
+                break;
+            }
             ssize_t rv = filemgr_read_block(file, buf, hdr_bid_local);
             if (rv != (ssize_t)file->blocksize) {
                 status = (fdb_status) rv;
                 const char *msg = "Unable to read a database file '%s' with "
-                    "blocksize %" _F64 "\n";
+                                  "blocksize %u\n";
                 DBG(msg, file->filename, file->blocksize);
                 fdb_log(log_callback, status, msg, file->filename, file->blocksize);
                 break;
@@ -991,7 +999,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         if (file->sb && status == FDB_RESULT_NO_DB_HEADERS) {
             // this happens when user created & closed a file without any mutations,
             // thus there is no other data but superblocks.
-            // we can also tolerate this case.
+            // we can tolerate this case.
         } else if (status != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, status, "READ", filename);
             file->ops->close(file->fd);
