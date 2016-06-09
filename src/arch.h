@@ -332,7 +332,11 @@
             (pthread_spin_trylock(arg) == 0)
         #define spin_unlock(arg) pthread_spin_unlock(arg)
         #define spin_destroy(arg) pthread_spin_destroy(arg)
-        #define SPIN_INITIALIZER (spin_t)(1)
+        #ifdef __GLIBC__
+            #define SPIN_INITIALIZER (spin_t)(1)
+        #else
+            #define SPIN_INITIALIZER (spin_t)(0)
+        #endif
     #endif
     #ifndef mutex_t
         // mutex
@@ -352,7 +356,12 @@
         #define thread_t pthread_t
         #define thread_cond_t pthread_cond_t
         #define thread_create(tid, func, args) \
-            pthread_create((tid), NULL, (func), (args))
+            { \
+            pthread_attr_t attr; \
+            pthread_attr_init(&attr); \
+            pthread_attr_setstacksize(&attr, 2097152); \
+            pthread_create((tid), &attr, (func), (args)); \
+            }
         #define thread_join(tid, ret) pthread_join(tid, ret)
         #define thread_cancel(tid) pthread_cancel(tid)
         #define thread_exit(code) pthread_exit(code)
