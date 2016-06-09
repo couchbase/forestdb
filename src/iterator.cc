@@ -124,7 +124,6 @@ fdb_status fdb_iterator_init(FdbKvsHandle *handle,
         return FDB_RESULT_INVALID_ARGS;
     }
 
-    hbtrie_result hr;
     fdb_status fs;
     LATENCY_STAT_START();
 
@@ -230,12 +229,8 @@ fdb_status fdb_iterator_init(FdbKvsHandle *handle,
     }
 
     // create an iterator handle for hb-trie
-    iterator->hbtrie_iterator = (struct hbtrie_iterator *)
-                                malloc(sizeof(struct hbtrie_iterator));
-    hr = hbtrie_iterator_init(iterator->handle->trie,
-                              iterator->hbtrie_iterator,
-                              (void *)start_key, start_keylen);
-    assert(hr == HBTRIE_RESULT_SUCCESS);
+    iterator->hbtrie_iterator = new HBTrieIterator(iterator->handle->trie,
+                                                   (void *)start_key, start_keylen);
 
     wal_itr_init(iterator->handle->file, iterator->handle->shandle, true,
                  &iterator->wal_itr);
@@ -364,11 +359,9 @@ fdb_status fdb_iterator_sequence_init(FdbKvsHandle *handle,
         memcpy(start_seq_kv, &_kv_id, size_id);
         memcpy(start_seq_kv + size_id, &_start_seq, size_seq);
 
-        iterator->seqtrie_iterator = (struct hbtrie_iterator *)
-                                     calloc(1, sizeof(struct hbtrie_iterator));
-        hbtrie_iterator_init(iterator->handle->seqtrie,
-                             iterator->seqtrie_iterator,
-                             start_seq_kv, size_id + size_seq);
+        iterator->seqtrie_iterator =
+            new HBTrieIterator(iterator->handle->seqtrie,
+                               start_seq_kv, size_id + size_seq);
 
         query_key.key = start_seq_kv;
         kvid2buf(size_chunk, iterator->handle->kvs->getKvsId(), start_seq_kv);
@@ -481,11 +474,11 @@ start:
         int64_t _offset;
         do {
             if (seek_type == ITR_SEEK_PREV) {
-                hr = hbtrie_prev(iterator->hbtrie_iterator, key,
-                                 &iterator->_keylen, (void*)&iterator->_offset);
+                hr = iterator->hbtrie_iterator->prev(key, iterator->_keylen,
+                                                     (void*)&iterator->_offset);
             } else { // seek_type == ITR_SEEK_NEXT
-                hr = hbtrie_next(iterator->hbtrie_iterator, key,
-                                 &iterator->_keylen, (void*)&iterator->_offset);
+                hr = iterator->hbtrie_iterator->next(key, iterator->_keylen,
+                                                     (void*)&iterator->_offset);
             }
             btreeblk_end(iterator->handle->bhandle);
             iterator->_offset = _endian_decode(iterator->_offset);
@@ -721,15 +714,15 @@ fdb_status fdb_iterator_seek(fdb_iterator *iterator,
     iterator->direction = FDB_ITR_FORWARD;
 
     // reset HB+trie's iterator
-    hbtrie_iterator_free(iterator->hbtrie_iterator);
-    hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
-                         seek_key_kv, seek_keylen_kv);
+    delete iterator->hbtrie_iterator;
+    iterator->hbtrie_iterator =
+        new HBTrieIterator(iterator->handle->trie, seek_key_kv, seek_keylen_kv);
 
 fetch_hbtrie:
     if (seek_pref == FDB_ITR_SEEK_HIGHER) {
         // fetch next key
-        hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
-                         &iterator->_keylen, (void*)&iterator->_offset);
+        hr = iterator->hbtrie_iterator->next(iterator->_key, iterator->_keylen,
+                                             (void*)&iterator->_offset);
         btreeblk_end(iterator->handle->bhandle);
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
@@ -738,8 +731,9 @@ fetch_hbtrie:
                                seek_key_kv, seek_keylen_kv);
             if (cmp < 0) {
                 // key[HB+trie] < seek_key .. move forward
-                hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
-                                 &iterator->_keylen, (void*)&iterator->_offset);
+                hr = iterator->hbtrie_iterator->next(iterator->_key,
+                                                     iterator->_keylen,
+                                                     (void*)&iterator->_offset);
                 btreeblk_end(iterator->handle->bhandle);
             }
             iterator->_offset = _endian_decode(iterator->_offset);
@@ -763,9 +757,9 @@ fetch_hbtrie:
                     free(_doc.meta);
                 }
                 if (fetch_next) {
-                    hr = hbtrie_next(iterator->hbtrie_iterator, iterator->_key,
-                                     &iterator->_keylen,
-                                     (void*)&iterator->_offset);
+                    hr = iterator->hbtrie_iterator->next(iterator->_key,
+                                                         iterator->_keylen,
+                                                         (void*)&iterator->_offset);
                     btreeblk_end(iterator->handle->bhandle);
                     iterator->_offset = _endian_decode(iterator->_offset);
                 }
@@ -773,8 +767,8 @@ fetch_hbtrie:
         }
     } else {
         // fetch prev key
-        hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
-                         &iterator->_keylen, (void*)&iterator->_offset);
+        hr = iterator->hbtrie_iterator->prev(iterator->_key, iterator->_keylen,
+                                             (void*)&iterator->_offset);
         btreeblk_end(iterator->handle->bhandle);
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator,
@@ -782,8 +776,9 @@ fetch_hbtrie:
                                seek_key_kv, seek_keylen_kv);
             if (cmp > 0) {
                 // key[HB+trie] > seek_key .. move backward
-                hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
-                                 &iterator->_keylen, (void*)&iterator->_offset);
+                hr = iterator->hbtrie_iterator->prev(iterator->_key,
+                                                     iterator->_keylen,
+                                                     (void*)&iterator->_offset);
                 btreeblk_end(iterator->handle->bhandle);
             }
             iterator->_offset = _endian_decode(iterator->_offset);
@@ -807,9 +802,9 @@ fetch_hbtrie:
                     free(_doc.meta);
                 }
                 if (fetch_next) {
-                    hr = hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
-                                     &iterator->_keylen,
-                                     (void*)&iterator->_offset);
+                    hr = iterator->hbtrie_iterator->prev(iterator->_key,
+                                                         iterator->_keylen,
+                                                         (void*)&iterator->_offset);
                     btreeblk_end(iterator->handle->bhandle);
                     iterator->_offset = _endian_decode(iterator->_offset);
                 }
@@ -1063,10 +1058,10 @@ fetch_hbtrie:
                     discard_hbtrie = true;
                     // reset HB+trie's iterator to get the current
                     // key[HB+trie] one more time
-                    hbtrie_iterator_free(iterator->hbtrie_iterator);
-                    hbtrie_iterator_init(iterator->handle->trie,
-                                         iterator->hbtrie_iterator,
-                                         seek_key_kv, seek_keylen_kv);
+                    delete iterator->hbtrie_iterator;
+                    iterator->hbtrie_iterator =
+                        new HBTrieIterator(iterator->handle->trie,
+                                           seek_key_kv, seek_keylen_kv);
                     iterator->_offset = BLK_NOT_FOUND;
                 }
             }
@@ -1142,9 +1137,10 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
     }
 
     // reset HB+trie iterator using start key
-    hbtrie_iterator_free(iterator->hbtrie_iterator);
-    hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
-                         iterator->start_key, iterator->start_keylen);
+    delete iterator->hbtrie_iterator;
+    iterator->hbtrie_iterator =
+        new HBTrieIterator(iterator->handle->trie,
+                           iterator->start_key, iterator->start_keylen);
 
     // reset WAL tree cursor using search because of the sharded nature of WAL
     if (iterator->tree_cursor_start) {
@@ -1201,12 +1197,14 @@ fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
         // end_key is automatically assigned due to multi KVS mode.
 
         // reset HB+trie's iterator using end_key
-        hbtrie_iterator_free(iterator->hbtrie_iterator);
-        hbtrie_iterator_init(iterator->handle->trie, iterator->hbtrie_iterator,
-                             iterator->end_key, iterator->end_keylen);
+        delete iterator->hbtrie_iterator;
+        iterator->hbtrie_iterator =
+            new HBTrieIterator(iterator->handle->trie,
+                               iterator->end_key, iterator->end_keylen);
+
         // get first key
-        hbtrie_prev(iterator->hbtrie_iterator, iterator->_key,
-                         &iterator->_keylen, (void*)&iterator->_offset);
+        iterator->hbtrie_iterator->prev(iterator->_key, iterator->_keylen,
+                                        (void*)&iterator->_offset);
         iterator->_offset = _endian_decode(iterator->_offset);
         cmp = _fdb_key_cmp(iterator,
                                iterator->end_key, iterator->end_keylen,
@@ -1217,7 +1215,7 @@ fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
         }
     } else {
         // move HB+trie iterator's cursor to the last entry
-        hbtrie_last(iterator->hbtrie_iterator);
+        iterator->hbtrie_iterator->last();
     }
 
     // also move WAL tree's cursor to the last entry
@@ -1251,10 +1249,10 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
                 sizeof(size_t));
 
         // reset HB+trie's seqtrie iterator using end_seq_kv
-        hbtrie_iterator_free(iterator->seqtrie_iterator);
-        hbtrie_iterator_init(iterator->handle->seqtrie,
-                             iterator->seqtrie_iterator,
-                             end_seq_kv, sizeof(size_t)*2);
+        delete iterator->seqtrie_iterator;
+        iterator->seqtrie_iterator =
+            new HBTrieIterator(iterator->handle->seqtrie,
+                               end_seq_kv, sizeof(size_t)*2);
     } else {
         // reset Btree iterator to end_seqnum
         btree_iterator_free(iterator->seqtree_iterator);
@@ -1365,8 +1363,8 @@ start_seq:
     if (iterator->_offset == BLK_NOT_FOUND || // was iterating over btree
         !iterator->tree_cursor) { // WAL exhausted
         if (iterator->handle->kvs) { // multi KV instance mode
-            hr = hbtrie_prev(iterator->seqtrie_iterator, seq_kv, &seq_kv_len,
-                             (void *)&offset);
+            hr = iterator->seqtrie_iterator->prev(seq_kv, seq_kv_len,
+                                                  (void *)&offset);
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
                 buf2kvid(size_id, seq_kv, &kv_id);
@@ -1465,8 +1463,8 @@ start_seq:
         // Also look in HB-Trie to eliminate duplicates
         uint64_t hboffset;
         struct docio_object _hbdoc;
-        hr = hbtrie_find(iterator->handle->trie, _doc.key, _doc.length.keylen,
-                         (void *)&hboffset);
+        hr = iterator->handle->trie->find(_doc.key, _doc.length.keylen,
+                                          (void *)&hboffset);
         btreeblk_end(iterator->handle->bhandle);
 
         if (hr != HBTRIE_RESULT_SUCCESS) {
@@ -1541,8 +1539,8 @@ start_seq:
     // retrieve from sequence b-tree first
     if (iterator->_offset == BLK_NOT_FOUND) {
         if (iterator->handle->kvs) { // multi KV instance mode
-            hr = hbtrie_next(iterator->seqtrie_iterator, seq_kv, &seq_kv_len,
-                             (void *)&offset);
+            hr = iterator->seqtrie_iterator->next(seq_kv, seq_kv_len,
+                                                  (void *)&offset);
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 br = BTREE_RESULT_SUCCESS;
                 buf2kvid(size_id, seq_kv, &kv_id);
@@ -1651,8 +1649,8 @@ start_seq:
         // Also look in HB-Trie to eliminate duplicates
         uint64_t hboffset;
         struct docio_object _hbdoc;
-        hr = hbtrie_find(iterator->handle->trie, _doc.key, _doc.length.keylen,
-                         (void *)&hboffset);
+        hr = iterator->handle->trie->find(_doc.key, _doc.length.keylen,
+                                          (void *)&hboffset);
         btreeblk_end(iterator->handle->bhandle);
 
         if (hr != HBTRIE_RESULT_SUCCESS) {
@@ -1907,8 +1905,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
 
     LATENCY_STAT_START();
     if (iterator->hbtrie_iterator) {
-        hbtrie_iterator_free(iterator->hbtrie_iterator);
-        free(iterator->hbtrie_iterator);
+        delete iterator->hbtrie_iterator;
     }
 
     if (iterator->seqtree_iterator) {
@@ -1916,8 +1913,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
         free(iterator->seqtree_iterator);
     }
     if (iterator->seqtrie_iterator) {
-        hbtrie_iterator_free(iterator->seqtrie_iterator);
-        free(iterator->seqtrie_iterator);
+        delete iterator->seqtrie_iterator;
     }
 
     if (iterator->start_key) {

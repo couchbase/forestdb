@@ -201,12 +201,12 @@ INLINE void _fdb_import_dirty_root(FdbKvsHandle *handle,
                                    bid_t dirty_seqtree_root)
 {
     if (dirty_idtree_root != BLK_NOT_FOUND) {
-        handle->trie->root_bid = dirty_idtree_root;
+        handle->trie->setRootBid(dirty_idtree_root);
     }
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (dirty_seqtree_root != BLK_NOT_FOUND) {
             if (handle->kvs) {
-                handle->seqtrie->root_bid = dirty_seqtree_root;
+                handle->seqtrie->setRootBid(dirty_seqtree_root);
             } else {
                 btree_init_from_bid(handle->seqtree,
                                     handle->seqtree->blk_handle,
@@ -223,10 +223,10 @@ INLINE void _fdb_export_dirty_root(FdbKvsHandle *handle,
                                    bid_t *dirty_idtree_root,
                                    bid_t *dirty_seqtree_root)
 {
-    *dirty_idtree_root = handle->trie->root_bid;
+    *dirty_idtree_root = handle->trie->getRootBid();
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
-            *dirty_seqtree_root = handle->seqtrie->root_bid;
+            *dirty_seqtree_root = handle->seqtrie->getRootBid();
         } else {
             *dirty_seqtree_root = handle->seqtree->root_bid;
         }

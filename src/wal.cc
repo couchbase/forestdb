@@ -1597,10 +1597,10 @@ INLINE void _wal_backup_root_info(void *voidhandle,
 {
     FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
 
-    root_info->orig_id_root = handle->trie->root_bid;
+    root_info->orig_id_root = handle->trie->getRootBid();
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
-            root_info->orig_seq_root = handle->seqtrie->root_bid;
+            root_info->orig_seq_root = handle->seqtrie->getRootBid();
         } else {
             root_info->orig_seq_root = handle->seqtree->root_bid;
         }
@@ -1615,10 +1615,10 @@ INLINE void _wal_restore_root_info(void *voidhandle,
 {
     FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(voidhandle);
 
-    handle->trie->root_bid = root_info->orig_id_root;
+    handle->trie->setRootBid(root_info->orig_id_root);
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
-            handle->seqtrie->root_bid = root_info->orig_seq_root;
+            handle->seqtrie->setRootBid(root_info->orig_seq_root);
         } else {
             handle->seqtree->root_bid = root_info->orig_seq_root;
         }

@@ -600,8 +600,7 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
         free(handle->dhandle);
         handle->dhandle = new_db.dhandle;
 
-        hbtrie_free(handle->trie);
-        free(handle->trie);
+        delete handle->trie;
         handle->trie = new_db.trie;
 
         wal_shutdown(handle->file, &handle->log_callback);
@@ -610,8 +609,7 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
             if (handle->kvs) {
                 // multi KV instance mode
-                hbtrie_free(handle->seqtrie);
-                free(handle->seqtrie);
+                delete handle->seqtrie;
                 if (new_db.config.seqtree_opt == FDB_SEQTREE_USE) {
                     handle->seqtrie = new_db.seqtrie;
                 }
@@ -1111,10 +1109,10 @@ fdb_snapshot_open_start:
                 // in-memory snapshot
                 // Clone dirty root nodes from the source snapshot by incrementing
                 // their ref counters
-                handle->trie->root_bid = handle_in->trie->root_bid;
+                handle->trie->setRootBid(handle_in->trie->getRootBid());
                 if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                     if (handle->kvs) {
-                        handle->seqtrie->root_bid = handle_in->seqtrie->root_bid;
+                        handle->seqtrie->setRootBid(handle_in->seqtrie->getRootBid());
                     } else {
                         handle->seqtree->root_bid = handle_in->seqtree->root_bid;
                     }
@@ -1498,31 +1496,28 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
     handle_out->op_stats = handle_in->op_stats;
 
     // initialize the trie handle
-    handle_out->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
-    hbtrie_init(handle_out->trie, handle_out->config.chunksize, OFFSET_SIZE,
+    handle_out->trie = new HBTrie(handle_out->config.chunksize, OFFSET_SIZE,
                 handle_out->file->blocksize,
-                handle_in->trie->root_bid, // Source snapshot's trie root bid
+                handle_in->trie->getRootBid(), // Source snapshot's trie root bid
                 (void *)handle_out->bhandle, handle_out->btreeblkops,
                 (void *)handle_out->dhandle, _fdb_readkey_wrap);
     // set aux for cmp wrapping function
-    hbtrie_set_leaf_height_limit(handle_out->trie, 0xff);
-    hbtrie_set_leaf_cmp(handle_out->trie, _fdb_custom_cmp_wrap);
+    handle_out->trie->setLeafHeightLimit(0xff);
+    handle_out->trie->setLeafCmp(_fdb_custom_cmp_wrap);
 
     if (handle_out->kvs) {
-        hbtrie_set_map_function(handle_out->trie, fdb_kvs_find_cmp_chunk);
+        handle_out->trie->setMapFunction(fdb_kvs_find_cmp_chunk);
     }
 
     handle_out->seqnum = handle_in->seqnum;
     if (handle_out->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle_out->config.multi_kv_instances) {
             // multi KV instance mode .. HB+trie
-            handle_out->seqtrie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
-            hbtrie_init(handle_out->seqtrie, sizeof(fdb_kvs_id_t), OFFSET_SIZE,
+            handle_out->seqtrie = new HBTrie(sizeof(fdb_kvs_id_t), OFFSET_SIZE,
                         handle_out->file->blocksize,
-                        handle_in->seqtrie->root_bid, // Source snapshot's seqtrie root bid
+                        handle_in->seqtrie->getRootBid(), // Source snapshot's seqtrie root bid
                         (void *)handle_out->bhandle, handle_out->btreeblkops,
                         (void *)handle_out->dhandle, _fdb_readseq_wrap);
-
         } else {
             // single KV instance mode .. normal B+tree
             struct btree_kv_ops *seq_kv_ops =
@@ -2041,29 +2036,26 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         return FDB_RESULT_OPEN_FAIL;
     }
 
-    handle->trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
-    hbtrie_init(handle->trie, config->chunksize, OFFSET_SIZE,
+    handle->trie = new HBTrie(config->chunksize, OFFSET_SIZE,
                 handle->file->blocksize, trie_root_bid,
                 (void *)handle->bhandle, handle->btreeblkops,
                 (void *)handle->dhandle, _fdb_readkey_wrap);
     // set aux for cmp wrapping function
-    hbtrie_set_leaf_height_limit(handle->trie, 0xff);
-    hbtrie_set_leaf_cmp(handle->trie, _fdb_custom_cmp_wrap);
+    handle->trie->setLeafHeightLimit(0xff);
+    handle->trie->setLeafCmp(_fdb_custom_cmp_wrap);
 
     if (handle->kvs) {
-        hbtrie_set_map_function(handle->trie, fdb_kvs_find_cmp_chunk);
+        handle->trie->setMapFunction(fdb_kvs_find_cmp_chunk);
     }
 
     handle->seqnum = seqnum;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->config.multi_kv_instances) {
             // multi KV instance mode .. HB+trie
-            handle->seqtrie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
-            hbtrie_init(handle->seqtrie, sizeof(fdb_kvs_id_t), OFFSET_SIZE,
+            handle->seqtrie = new HBTrie(sizeof(fdb_kvs_id_t), OFFSET_SIZE,
                         handle->file->blocksize, seq_root_bid,
                         (void *)handle->bhandle, handle->btreeblkops,
                         (void *)handle->dhandle, _fdb_readseq_wrap);
-
         } else {
             // single KV instance mode .. normal B+tree
             struct btree_kv_ops *seq_kv_ops =
@@ -2348,15 +2340,13 @@ INLINE uint64_t _fdb_wal_get_old_offset(void *voidhandle,
     if (item->action == WAL_ACT_REMOVE) {
         // For immediate remove, old_offset value is critical
         // so that we should get an exact value.
-        hbtrie_find(handle->trie,
-                    item->header->key,
-                    item->header->keylen,
-                    (void*)&old_offset);
-    } else {
-        hbtrie_find_offset(handle->trie,
-                           item->header->key,
+        handle->trie->find(item->header->key,
                            item->header->keylen,
                            (void*)&old_offset);
+    } else {
+        handle->trie->findOffset(item->header->key,
+                                 item->header->keylen,
+                                 (void*)&old_offset);
     }
     btreeblk_end(handle->bhandle);
     old_offset = _endian_decode(old_offset);
@@ -2442,8 +2432,8 @@ INLINE void _fdb_wal_flush_seq_purge(void *dbhandle,
             // multi KV instance mode .. HB+trie
             kvid2buf(sizeof(fdb_kvs_id_t), seq_entry->kv_id, kvid_seqnum);
             memcpy(kvid_seqnum + sizeof(fdb_kvs_id_t), &_seqnum, sizeof(fdb_seqnum_t));
-            hbtrie_remove(handle->seqtrie, (void*)kvid_seqnum,
-                          sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t));
+            handle->seqtrie->remove((void*)kvid_seqnum,
+                                    sizeof(fdb_kvs_id_t) + sizeof(fdb_seqnum_t));
         } else {
             btree_remove(handle->seqtree, (void*)&_seqnum);
         }
@@ -2541,11 +2531,8 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
         item->action == WAL_ACT_LOGICAL_REMOVE) {
         _offset = _endian_encode(item->offset);
 
-        hbtrie_insert(handle->trie,
-                      item->header->key,
-                      item->header->keylen,
-                      (void *)&_offset,
-                      (void *)&old_offset);
+        handle->trie->insert(item->header->key, item->header->keylen,
+                             (void *)&_offset, (void *)&old_offset);
 
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
@@ -2564,8 +2551,8 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
                 kvid_seqnum = alca(uint8_t, size_id + size_seq);
                 kvid2buf(size_id, kv_id, kvid_seqnum);
                 memcpy(kvid_seqnum + size_id, &_seqnum, size_seq);
-                hbtrie_insert(handle->seqtrie, kvid_seqnum, size_id + size_seq,
-                              (void *)&_offset, (void *)&old_offset_local);
+                handle->seqtrie->insert(kvid_seqnum, size_id + size_seq,
+                                        (void *)&_offset, (void *)&old_offset_local);
             } else {
                 btree_insert(handle->seqtree, (void *)&_seqnum,
                              (void *)&_offset);
@@ -2641,8 +2628,7 @@ INLINE fdb_status _fdb_wal_flush_func(void *voidhandle,
     } else {
         // Immediate remove
         old_offset = item->old_offset;
-        hr = hbtrie_remove(handle->trie, item->header->key,
-                           item->header->keylen);
+        hr = handle->trie->remove(item->header->key, item->header->keylen);
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
             return fs;
@@ -2740,12 +2726,12 @@ void fdb_sync_db_header(FdbKvsHandle *handle)
                 btreeblk_discard_blocks(handle->bhandle);
             }
 
-            handle->trie->root_bid = idtree_root;
+            handle->trie->setRootBid(idtree_root);
 
             if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
                 if (new_seq_root != handle->seqtree->root_bid) {
                     if (handle->config.multi_kv_instances) {
-                        handle->seqtrie->root_bid = new_seq_root;
+                        handle->seqtrie->setRootBid(new_seq_root);
                     } else {
                         btree_init_from_bid(handle->seqtree,
                                             handle->seqtree->blk_handle,
@@ -2971,11 +2957,9 @@ fdb_status _fdb_get(FdbKvsHandle *handle, fdb_doc *doc,
         _fdb_sync_dirty_root(handle);
 
         if (handle->kvs) {
-            hr = hbtrie_find(handle->trie, doc_kv.key, doc_kv.keylen,
-                             (void *)&offset);
+            hr = handle->trie->find(doc_kv.key, doc_kv.keylen, (void *)&offset);
         } else {
-            hr = hbtrie_find(handle->trie, doc->key, doc->keylen,
-                             (void *)&offset);
+            hr = handle->trie->find(doc->key, doc->keylen, (void *)&offset);
         }
         btreeblk_end(handle->bhandle);
         offset = _endian_decode(offset);
@@ -3145,8 +3129,8 @@ fdb_status _fdb_get_byseq(FdbKvsHandle *handle,
             kv_seqnum = alca(uint8_t, size_id + size_seq);
             memcpy(kv_seqnum, &_kv_id, size_id);
             memcpy(kv_seqnum + size_id, &_seqnum, size_seq);
-            hr = hbtrie_find(handle->seqtrie, (void *)kv_seqnum,
-                             size_id + size_seq, (void *)&offset);
+            hr = handle->seqtrie->find((void *)kv_seqnum, size_id + size_seq,
+                                       (void *)&offset);
             br = (hr == HBTRIE_RESULT_SUCCESS)?(BTREE_RESULT_SUCCESS):(br);
         } else {
             br = btree_find(handle->seqtree, (void *)&_seqnum, (void *)&offset);
@@ -3747,14 +3731,20 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
     cur_file = handle->file;
 
     // hb+trie or idtree root bid
-    _edn_safe_64 = _endian_encode(handle->trie->root_bid);
-    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(handle->trie->root_bid), offset);
+    bid_t _root_bid = handle->trie->getRootBid();
+    _edn_safe_64 = _endian_encode(_root_bid);
+    seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
-        // b+tree root bid
-        _edn_safe_64 = _endian_encode(handle->seqtree->root_bid);
-        seq_memcpy(buf + offset, &_edn_safe_64,
-            sizeof(handle->seqtree->root_bid), offset);
+        if (handle->kvs) {
+            // multi KVS mode: hb+trie root bid
+            _root_bid = handle->seqtrie->getRootBid();
+        } else {
+            // single KVS mode: b+tree root bid
+            _root_bid = handle->seqtree->root_bid;
+        }
+        _edn_safe_64 = _endian_encode(_root_bid);
+        seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
     } else {
         memset(buf + offset, 0xff, sizeof(uint64_t));
         offset += sizeof(uint64_t);
@@ -3763,8 +3753,7 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
     // stale block tree root bid (MAGIC_002)
     if (ver_staletree_support(handle->file->version)) {
         _edn_safe_64 = _endian_encode(handle->staletree->root_bid);
-        seq_memcpy(buf + offset, &_edn_safe_64,
-                   sizeof(handle->staletree->root_bid), offset);
+        seq_memcpy(buf + offset, &_edn_safe_64, sizeof(_edn_safe_64), offset);
     }
 
     // get stat
@@ -4323,8 +4312,9 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
                                      bid_t start_bid,
                                      bid_t stop_bid,
                                      struct filemgr *new_file,
-                                     struct hbtrie *new_trie,
+                                     HBTrie *new_trie,
                                      struct btree *new_idtree,
+                                     HBTrie *new_seqtrie,
                                      struct btree *new_seqtree,
                                      struct btree *new_staletree,
                                      struct docio_handle *new_dhandle,
@@ -4554,7 +4544,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
         new_handle.file = new_file;
         new_handle.trie = new_trie;
         if (handle->kvs) {
-            new_handle.seqtrie = (struct hbtrie *)new_seqtree;
+            new_handle.seqtrie = new_seqtrie;
         } else {
             new_handle.seqtree = new_seqtree;
         }
@@ -4660,8 +4650,9 @@ INLINE void _fdb_update_block_distance(bid_t writer_curr_bid,
 // compactor in new file, this function must be modified!
 static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
                                           struct filemgr *new_file,
-                                          struct hbtrie *new_trie,
+                                          HBTrie *new_trie,
                                           struct btree *new_idtree,
+                                          HBTrie *new_seqtrie,
                                           struct btree *new_seqtree,
                                           struct btree *new_staletree,
                                           struct docio_handle *new_dhandle,
@@ -4680,7 +4671,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
     size_t offset_array_max;
     hbtrie_result hr;
     struct docio_object doc, *_doc;
-    struct hbtrie_iterator it;
+    HBTrieIterator *it;
     struct timeval tv;
     fdb_doc wal_doc;
     FdbKvsHandle new_handle;
@@ -4726,7 +4717,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
     new_handle.file = new_file;
     new_handle.trie = new_trie;
     if (handle->kvs) {
-        new_handle.seqtrie = (struct hbtrie *)new_seqtree;
+        new_handle.seqtrie = new_seqtrie;
     } else {
         new_handle.seqtree = new_seqtree;
     }
@@ -4741,15 +4732,16 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
 
     c = old_offset = new_offset = 0;
 
-    hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
+    it = new HBTrieIterator();
+    hr = it->init(handle->trie, NULL, 0);
 
     while( hr == HBTRIE_RESULT_SUCCESS ) {
 
-        hr = hbtrie_next_value_only(&it, (void*)&offset);
+        it->nextValueOnly((void*)&offset);
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
             free(_doc);
-            hbtrie_iterator_free(&it);
+            delete it;
             free(offset_array);
             return fs;
         }
@@ -4975,7 +4967,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
     } // end of while (hr != HBTRIE_RESULT_FAIL) (forall items in trie)
 
     free(_doc);
-    hbtrie_iterator_free(&it);
+    delete it;
     free(offset_array);
 
     cond = 1;
@@ -4995,8 +4987,9 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
 
 static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
                                          struct filemgr *new_file,
-                                         struct hbtrie *new_trie,
+                                         HBTrie *new_trie,
                                          struct btree *new_idtree,
+                                         HBTrie *new_seqtrie,
                                          struct btree *new_seqtree,
                                          struct btree *new_staletree,
                                          struct docio_handle *new_dhandle,
@@ -5014,7 +5007,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
     size_t offset_array_max;
     hbtrie_result hr;
     struct docio_object *doc;
-    struct hbtrie_iterator it;
+    HBTrieIterator *it;
     struct timeval tv;
     struct _fdb_key_cmp_info cmp_info;
     fdb_doc wal_doc;
@@ -5031,9 +5024,9 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
         if (!filemgr_is_cow_supported(handle->file, new_file)) {
             return FDB_RESULT_COMPACTION_FAIL;
         }
-        return _fdb_compact_clone_docs(handle, new_file, new_trie,
-                                       new_idtree, new_seqtree, new_staletree, new_dhandle,
-                                       new_bhandle, prob);
+        return _fdb_compact_clone_docs(handle, new_file, new_trie, new_idtree,
+                                       new_seqtrie, new_seqtree, new_staletree,
+                                       new_dhandle, new_bhandle, prob);
     }
 #else
     (void)clone_docs;
@@ -5073,7 +5066,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
     new_handle.file = new_file;
     new_handle.trie = new_trie;
     if (handle->kvs) {
-        new_handle.seqtrie = (struct hbtrie *)new_seqtree;
+        new_handle.seqtrie = new_seqtrie;
     } else {
         new_handle.seqtree = new_seqtree;
     }
@@ -5107,11 +5100,12 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
         calloc(FDB_COMP_BATCHSIZE, sizeof(struct docio_object));
     c = count = n_moved_docs = old_offset = new_offset = 0;
 
-    hr = hbtrie_iterator_init(handle->trie, &it, NULL, 0);
+    it = new HBTrieIterator();
+    hr = it->init(handle->trie, NULL, 0);
 
     while( hr == HBTRIE_RESULT_SUCCESS ) {
 
-        hr = hbtrie_next_value_only(&it, (void*)&offset);
+        hr = it->nextValueOnly((void*)&offset);
         fs = btreeblk_end(handle->bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
             break;
@@ -5316,7 +5310,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
         }
     }
 
-    hbtrie_iterator_free(&it);
+    delete it;
     free(offset_array);
     free(doc);
 
@@ -5341,8 +5335,9 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
 static fdb_status
 _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
                                    struct filemgr *new_file,
-                                   struct hbtrie *new_trie,
+                                   HBTrie *new_trie,
                                    struct btree *new_idtree,
+                                   HBTrie *new_seqtrie,
                                    struct btree *new_seqtree,
                                    struct btree *new_staletree,
                                    struct docio_handle *new_dhandle,
@@ -5374,8 +5369,8 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
     } else if (last_hdr_bid == marker_bid) {
         // compact_upto marker is the same as the latest commit header.
         return _fdb_compact_move_docs(rhandle, new_file, new_trie, new_idtree,
-                                      new_seqtree, new_staletree, new_dhandle, new_bhandle,
-                                      prob, clone_docs);
+                                      new_seqtrie, new_seqtree, new_staletree,
+                                      new_dhandle, new_bhandle, prob, clone_docs);
     }
 
     old_hdr_bid = last_hdr_bid;
@@ -5383,9 +5378,9 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
     old_hdr_revnum = last_hdr_revnum;
 
     while (marker_revnum < old_hdr_revnum) {
-        old_hdr_bid = filemgr_fetch_prev_header(rhandle->file,
-                                                old_hdr_bid, NULL, &header_len,
-                                                &old_seqnum, &old_hdr_revnum, NULL, &version,
+        old_hdr_bid = filemgr_fetch_prev_header(rhandle->file, old_hdr_bid, NULL,
+                                                &header_len, &old_seqnum,
+                                                &old_hdr_revnum, NULL, &version,
                                                 NULL, log_callback);
         if (!header_len) { // LCOV_EXCL_START
             return FDB_RESULT_READ_FAIL;
@@ -5463,8 +5458,8 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
 
     // Move all docs from old file to new file
     fs = _fdb_compact_move_docs(&handle, new_file, new_trie, new_idtree,
-                                new_seqtree, new_staletree, new_dhandle, new_bhandle,
-                                prob, clone_docs);
+                                new_seqtrie, new_seqtree, new_staletree,
+                                new_dhandle, new_bhandle, prob, clone_docs);
     if (fs != FDB_RESULT_SUCCESS) {
         btreeblk_end(handle.bhandle);
         _fdb_close(&handle);
@@ -5486,7 +5481,7 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
                                 last_wal_hdr_bid,
                                 old_hdr_bid,
                                 new_file, new_trie, new_idtree,
-                                new_seqtree, new_staletree,
+                                new_seqtrie, new_seqtree, new_staletree,
                                 new_dhandle,
                                 new_bhandle);
         if (fs != FDB_RESULT_SUCCESS) {
@@ -5513,7 +5508,7 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
     if (new_handle.kvs) {
         // multi KV instance mode .. append up-to-date KV header
         new_handle.kv_info_offset = fdb_kvs_header_append(&new_handle);
-        new_handle.seqtrie = (struct hbtrie *) new_seqtree;
+        new_handle.seqtrie = new_seqtrie;
     } else {
         new_handle.seqtree = new_seqtree;
     }
@@ -5839,8 +5834,9 @@ INLINE void _fdb_append_batched_delta(FdbKvsHandle *handle,
 
 static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
                                           struct filemgr *new_file,
-                                          struct hbtrie *new_trie,
+                                          HBTrie *new_trie,
                                           struct btree *new_idtree,
+                                          HBTrie *new_seqtrie,
                                           struct btree *new_seqtree,
                                           struct btree *new_staletree,
                                           struct docio_handle *new_dhandle,
@@ -5896,7 +5892,7 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
     new_handle.file = new_file;
     new_handle.trie = new_trie;
     if (handle->kvs) {
-        new_handle.seqtrie = (struct hbtrie *)new_seqtree;
+        new_handle.seqtrie = new_seqtrie;
     } else {
         new_handle.seqtree = new_seqtree;
     }
@@ -6358,8 +6354,8 @@ static void _fdb_cleanup_compact_err(FdbKvsHandle *handle,
                                      bool got_lock,
                                      struct btreeblk_handle *new_bhandle,
                                      struct docio_handle *new_dhandle,
-                                     struct hbtrie *new_trie,
-                                     struct hbtrie *new_seqtrie,
+                                     HBTrie *new_trie,
+                                     HBTrie *new_seqtrie,
                                      struct btree *new_seqtree,
                                      struct btree *new_staletree)
 {
@@ -6375,12 +6371,10 @@ static void _fdb_cleanup_compact_err(FdbKvsHandle *handle,
     free(new_bhandle);
     docio_free(new_dhandle);
     free(new_dhandle);
-    hbtrie_free(new_trie);
-    free(new_trie);
+    delete new_trie;
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
-            hbtrie_free(new_seqtrie);
-            free(new_seqtrie);
+            delete new_seqtrie;
         } else {
             free(new_seqtree);
         }
@@ -6393,10 +6387,10 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     FileMgrConfig fconfig;
     struct btreeblk_handle *new_bhandle;
     struct docio_handle *new_dhandle;
-    struct hbtrie *new_trie = NULL;
+    HBTrie *new_trie = NULL;
     struct btree *new_seqtree = NULL, *old_seqtree;
     struct btree *new_staletree = NULL, *old_staletree;
-    struct hbtrie *new_seqtrie = NULL;
+    HBTrie *new_seqtrie = NULL;
     KvsStat kvs_stat;
     filemgr_open_result result;
     // Copy the incoming handle into the handle that is being reset
@@ -6423,38 +6417,34 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
                handle->config.compress_document_body);
     btreeblk_init(new_bhandle, handle->file, handle->file->blocksize);
 
-    new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
+    new_trie = new HBTrie(handle->trie->getChunkSize(), handle->trie->getValueLen(),
+                handle->file->blocksize, BLK_NOT_FOUND,
+                (void *)new_bhandle, handle->btreeblkops,
+                (void*)new_dhandle, _fdb_readkey_wrap);
     if (!new_trie) { // LCOV_EXCL_START
         free(new_bhandle);
         free(new_dhandle);
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
-    hbtrie_init(new_trie, handle->trie->chunksize, handle->trie->valuelen,
-                handle->file->blocksize, BLK_NOT_FOUND,
-                (void *)new_bhandle, handle->btreeblkops,
-                (void*)new_dhandle, _fdb_readkey_wrap);
 
-    hbtrie_set_leaf_cmp(new_trie, _fdb_custom_cmp_wrap);
-    // set aux
-    new_trie->flag = handle->trie->flag;
-    new_trie->leaf_height_limit = handle->trie->leaf_height_limit;
-    new_trie->map = handle->trie->map;
+    new_trie->setLeafCmp(_fdb_custom_cmp_wrap);
+    new_trie->setFlag(handle->trie->getFlag());
+    new_trie->setLeafHeightLimit(handle->trie->getLeafHeightLimit());
+    new_trie->setMapFunction(handle->trie->getMapFunction());
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // if we use sequence number tree
         if (handle->kvs) { // multi KV instance mode
-            new_seqtrie = (struct hbtrie *)calloc(1, sizeof(struct hbtrie));
-            if (!new_seqtrie) { // LCOV_EXCL_START
-                free(new_bhandle);
-                free(new_dhandle);
-                free(new_trie);
-                return FDB_RESULT_ALLOC_FAIL;
-            } // LCOV_EXCL_STOP
-
-            hbtrie_init(new_seqtrie, sizeof(fdb_kvs_id_t),
+            new_seqtrie = new HBTrie(sizeof(fdb_kvs_id_t),
                         OFFSET_SIZE, handle->file->blocksize, BLK_NOT_FOUND,
                         (void *)new_bhandle, handle->btreeblkops,
                         (void *)new_dhandle, _fdb_readseq_wrap);
+            if (!new_seqtrie) { // LCOV_EXCL_START
+                free(new_bhandle);
+                free(new_dhandle);
+                delete new_trie;
+                return FDB_RESULT_ALLOC_FAIL;
+            } // LCOV_EXCL_STOP
         } else {
             // single KV instance mode .. normal B+tree
             struct btree_kv_ops *seq_kv_ops =
@@ -6464,7 +6454,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
             if (!seq_kv_ops) { // LCOV_EXCL_START
                 free(new_bhandle);
                 free(new_dhandle);
-                free(new_trie);
+                delete new_trie;
                 return FDB_RESULT_ALLOC_FAIL;
             } // LCOV_EXCL_STOP
 
@@ -6472,7 +6462,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
             if (!new_seqtree) { // LCOV_EXCL_START
                 free(new_bhandle);
                 free(new_dhandle);
-                free(new_trie);
+                delete new_trie;
                 free(seq_kv_ops);
                 return FDB_RESULT_ALLOC_FAIL;
             } // LCOV_EXCL_STOP
@@ -6492,7 +6482,9 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
         if (!stale_kv_ops) { // LCOV_EXCL_START
             free(new_bhandle);
             free(new_dhandle);
-            free(new_trie);
+            delete new_trie;
+            delete new_seqtrie;
+            free(new_seqtree);
             if (!handle->kvs && new_seqtree) {
                 free(new_seqtree->kv_ops);
             }
@@ -6537,8 +6529,9 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
         filemgr_mutex_unlock(handle->file);
         free(new_bhandle);
         free(new_dhandle);
-        free(new_trie);
-        free(handle->seqtrie);
+        delete new_trie;
+        delete handle->seqtrie;
+        free(new_seqtree);
         return (fdb_status) result.rv;
     } // LCOV_EXCL_STOP
 
@@ -6556,8 +6549,8 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
                              struct filemgr *new_file,
                              struct btreeblk_handle *new_bhandle,
                              struct docio_handle *new_dhandle,
-                             struct hbtrie *new_trie,
-                             struct hbtrie *new_seqtrie,
+                             HBTrie *new_trie,
+                             HBTrie *new_seqtrie,
                              struct btree *new_seqtree,
                              struct btree *new_staletree,
                              bid_t marker_bid,
@@ -6574,10 +6567,10 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     FileMgrConfig fconfig;
     struct btreeblk_handle *new_bhandle;
     struct docio_handle *new_dhandle;
-    struct hbtrie *new_trie = NULL;
+    HBTrie *new_trie = NULL;
     struct btree *new_seqtree = NULL, *old_seqtree;
     struct btree *new_staletree = NULL;
-    struct hbtrie *new_seqtrie = NULL;
+    HBTrie *new_seqtrie = NULL;
     FdbKvsHandle *handle = fhandle->getRootHandle();
     fdb_status status;
     LATENCY_STAT_START();
@@ -6633,24 +6626,20 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     docio_init(new_dhandle, new_file, handle->config.compress_document_body);
     btreeblk_init(new_bhandle, new_file, new_file->blocksize);
 
-    new_trie = (struct hbtrie *)malloc(sizeof(struct hbtrie));
-    hbtrie_init(new_trie, handle->trie->chunksize, handle->trie->valuelen,
+    new_trie = new HBTrie(handle->trie->getChunkSize(), handle->trie->getValueLen(),
                 new_file->blocksize, BLK_NOT_FOUND,
                 (void *)new_bhandle, handle->btreeblkops,
                 (void*)new_dhandle, _fdb_readkey_wrap);
-
-    hbtrie_set_leaf_cmp(new_trie, _fdb_custom_cmp_wrap);
+    new_trie->setLeafCmp(_fdb_custom_cmp_wrap);
     // set aux
-    new_trie->flag = handle->trie->flag;
-    new_trie->leaf_height_limit = handle->trie->leaf_height_limit;
-    new_trie->map = handle->trie->map;
+    new_trie->setFlag(handle->trie->getFlag());
+    new_trie->setLeafHeightLimit(handle->trie->getLeafHeightLimit());
+    new_trie->setMapFunction(handle->trie->getMapFunction());
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         // if we use sequence number tree
         if (handle->kvs) { // multi KV instance mode
-            new_seqtrie = (struct hbtrie *)calloc(1, sizeof(struct hbtrie));
-
-            hbtrie_init(new_seqtrie, sizeof(fdb_kvs_id_t),
+            new_seqtrie = new HBTrie(sizeof(fdb_kvs_id_t),
                         OFFSET_SIZE, new_file->blocksize, BLK_NOT_FOUND,
                         (void *)new_bhandle, handle->btreeblkops,
                         (void *)new_dhandle, _fdb_readseq_wrap);
@@ -6697,8 +6686,8 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
                              struct filemgr *new_file,
                              struct btreeblk_handle *new_bhandle,
                              struct docio_handle *new_dhandle,
-                             struct hbtrie *new_trie,
-                             struct hbtrie *new_seqtrie,
+                             HBTrie *new_trie,
+                             HBTrie *new_seqtrie,
                              struct btree *new_seqtree,
                              struct btree *new_staletree,
                              bid_t marker_bid,
@@ -6798,24 +6787,16 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     // value range: 0 (do not block writer) to 100 (always block writer)
     size_t prob = 0;
 
-    struct btree *target_seqtree = new_seqtree;
-    if (handle->kvs) {
-        target_seqtree = (struct btree*)new_seqtrie;
-    }
-
     if (marker_bid != BLK_NOT_FOUND) {
-        fs = _fdb_compact_move_docs_upto_marker(handle, new_file, new_trie,
-                                                new_idtree, target_seqtree,
-                                                new_staletree,
-                                                new_dhandle, new_bhandle,
-                                                marker_bid,
-                                                handle->last_hdr_bid, seqnum,
-                                                &prob, clone_docs);
+        fs = _fdb_compact_move_docs_upto_marker(
+                handle, new_file, new_trie, new_idtree, new_seqtrie,
+                new_seqtree, new_staletree, new_dhandle, new_bhandle,
+                marker_bid, handle->last_hdr_bid, seqnum, &prob, clone_docs);
         cur_hdr = marker_bid; // Move delta documents from the compaction marker.
     } else {
         fs = _fdb_compact_move_docs(handle, new_file, new_trie, new_idtree,
-                                    target_seqtree, new_staletree, new_dhandle,
-                                    new_bhandle, &prob, clone_docs);
+                                    new_seqtrie, new_seqtree, new_staletree,
+                                    new_dhandle, new_bhandle, &prob, clone_docs);
         cur_hdr = handle->last_hdr_bid;
     }
 
@@ -6885,8 +6866,8 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
         }
 
         fs = _fdb_compact_move_delta(handle, new_file, new_trie, new_idtree,
-                                     target_seqtree, new_staletree, new_dhandle,
-                                     new_bhandle, last_hdr, cur_hdr,
+                                     new_seqtrie, new_seqtree, new_staletree,
+                                     new_dhandle, new_bhandle, last_hdr, cur_hdr,
                                      compact_upto, clone_docs, got_lock, escape, &prob);
         if (fs != FDB_RESULT_SUCCESS) {
             filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
@@ -6987,16 +6968,14 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     free(handle->dhandle);
     handle->dhandle = new_dhandle;
 
-    hbtrie_free(handle->trie);
-    free(handle->trie);
+    delete handle->trie;
     handle->trie = new_trie;
 
     handle->config.encryption_key = new_file->encryption.key;
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
-            hbtrie_free(handle->seqtrie);
-            free(handle->seqtrie);
+            delete(handle->seqtrie);
             handle->seqtrie = new_seqtrie;
         } else {
             free(handle->seqtree);
@@ -7317,14 +7296,12 @@ fdb_status _fdb_close(FdbKvsHandle *handle)
         return fs;
     }
     docio_free(handle->dhandle);
-    hbtrie_free(handle->trie);
-    free(handle->trie);
+    delete handle->trie;
 
     if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         if (handle->kvs) {
             // multi KV instance mode
-            hbtrie_free(handle->seqtrie);
-            free(handle->seqtrie);
+            delete handle->seqtrie;
         } else {
             free(handle->seqtree->kv_ops);
             free(handle->seqtree);
@@ -7962,22 +7939,22 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "fhandle: flags %p\n", (void *)h->fhandle->getFlags());
 
     fprintf(stderr, "hbtrie: %p\n", (void *)h->trie);
-    fprintf(stderr, "hbtrie: chunksize %u\n", h->trie->chunksize);
-    fprintf(stderr, "hbtrie: valuelen %u\n", h->trie->valuelen);
-    fprintf(stderr, "hbtrie: flag %x\n", h->trie->flag);
+    fprintf(stderr, "hbtrie: chunksize %u\n", h->trie->getChunkSize());
+    fprintf(stderr, "hbtrie: valuelen %u\n", h->trie->getValueLen());
+    fprintf(stderr, "hbtrie: flag %x\n", h->trie->getFlag());
     fprintf(stderr, "hbtrie: leaf_height_limit %u\n",
-           h->trie->leaf_height_limit);
-    fprintf(stderr, "hbtrie: root_bid %p\n", (void *)h->trie->root_bid);
-    fprintf(stderr, "hbtrie: root_bid %p\n", (void *)h->trie->root_bid);
+           h->trie->getLeafHeightLimit());
+    fprintf(stderr, "hbtrie: root_bid %p\n", (void *)h->trie->getRootBid());
+    fprintf(stderr, "hbtrie: root_bid %p\n", (void *)h->trie->getRootBid());
 
     fprintf(stderr, "seqtrie: %p\n", (void *)h->seqtrie);
-    fprintf(stderr, "seqtrie: chunksize %u\n", h->seqtrie->chunksize);
-    fprintf(stderr, "seqtrie: valuelen %u\n", h->seqtrie->valuelen);
-    fprintf(stderr, "seqtrie: flag %x\n", h->seqtrie->flag);
+    fprintf(stderr, "seqtrie: chunksize %u\n", h->seqtrie->getChunkSize());
+    fprintf(stderr, "seqtrie: valuelen %u\n", h->seqtrie->getValueLen());
+    fprintf(stderr, "seqtrie: flag %x\n", h->seqtrie->getFlag());
     fprintf(stderr, "seqtrie: leaf_height_limit %u\n",
-           h->seqtrie->leaf_height_limit);
-    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->root_bid);
-    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->root_bid);
+           h->seqtrie->getLeafHeightLimit());
+    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
+    fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
 
     fprintf(stderr, "file: filename %s\n", h->file->filename);
     fprintf(stderr, "file: ref_count %d\n", h->file->ref_count.load());

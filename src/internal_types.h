@@ -30,7 +30,6 @@
 extern "C" {
 #endif
 
-struct hbtrie;
 struct btree;
 struct filemgr;
 struct btreeblk_handle;
@@ -39,6 +38,7 @@ struct btree_blk_ops;
 struct snap_handle;
 
 class FdbKvsHandle;
+class HBTrie;
 
 #define OFFSET_SIZE (sizeof(uint64_t))
 
@@ -286,9 +286,10 @@ struct _fdb_key_cmp_info {
     KvsInfo *kvs;
 };
 
-struct hbtrie_iterator;
 struct avl_tree;
 struct avl_node;
+
+class HBTrieIterator;
 
 /**
  * ForestDB iterator cursor movement direction
@@ -335,7 +336,7 @@ struct _fdb_iterator {
     /**
      * HB+Trie iterator instance.
      */
-    struct hbtrie_iterator *hbtrie_iterator;
+    HBTrieIterator *hbtrie_iterator;
     /**
      * B+Tree iterator for sequence number iteration
      */
@@ -344,7 +345,7 @@ struct _fdb_iterator {
      * HB+Trie iterator for sequence number iteration
      * (for multiple KV instance mode)
      */
-    struct hbtrie_iterator *seqtrie_iterator;
+    HBTrieIterator *seqtrie_iterator;
     /**
      * Current seqnum pointed by the iterator.
      */

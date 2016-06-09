@@ -265,20 +265,20 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
 hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 {
     fdb_kvs_id_t kv_id;
-    struct hbtrie *trie = (struct hbtrie *)aux;
+    HBTrie *trie = reinterpret_cast<HBTrie *>(aux);
     struct btreeblk_handle *bhandle;
     struct filemgr *file;
     struct avl_node *a;
     struct kvs_node query, *node;
 
-    bhandle = (struct btreeblk_handle*)trie->btreeblk_handle;
+    bhandle = (struct btreeblk_handle*)trie->getBtreeBlkHandle();
     file = bhandle->file;
 
     if (!file->kv_header->custom_cmp_enabled) {
         return NULL;
     }
 
-    buf2kvid(trie->chunksize, chunk, &kv_id);
+    buf2kvid(trie->getChunkSize(), chunk, &kv_id);
 
     // search by id
     if (kv_id > 0) {
@@ -1672,18 +1672,18 @@ fdb_kvs_remove_start:
                             &dirty_idtree_root, &dirty_seqtree_root, false);
 
     size_id = sizeof(fdb_kvs_id_t);
-    size_chunk = root_handle->trie->chunksize;
+    size_chunk = root_handle->trie->getChunkSize();
 
     // remove from super handle's HB+trie
     _kv_id = alca(uint8_t, size_chunk);
     kvid2buf(size_chunk, kv_id, _kv_id);
-    hbtrie_remove_partial(root_handle->trie, _kv_id, size_chunk);
+    root_handle->trie->removePartial(_kv_id, size_chunk);
     btreeblk_end(root_handle->bhandle);
 
     if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         _kv_id = alca(uint8_t, size_id);
         kvid2buf(size_id, kv_id, _kv_id);
-        hbtrie_remove_partial(root_handle->seqtrie, _kv_id, size_id);
+        root_handle->seqtrie->removePartial(_kv_id, size_id);
         btreeblk_end(root_handle->bhandle);
     }
 
@@ -1845,7 +1845,7 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         uint8_t *_kv_id;
         hbtrie_result hr;
 
-        size_chunk = handle->trie->chunksize;
+        size_chunk = handle->trie->getChunkSize();
         size_id = sizeof(fdb_kvs_id_t);
 
         filemgr_mutex_lock(handle_in->file);
@@ -1854,16 +1854,13 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         // and overwrite into the current handle
         _kv_id = alca(uint8_t, size_chunk);
         kvid2buf(size_chunk, handle->kvs->getKvsId(), _kv_id);
-        hr = hbtrie_find_partial(handle->trie, _kv_id,
-                                 size_chunk, &id_root);
+        hr = handle->trie->findPartial(_kv_id, size_chunk, &id_root);
         btreeblk_end(handle->bhandle);
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            hbtrie_insert_partial(super_handle->trie,
-                                  _kv_id, size_chunk,
-                                  &id_root, &dummy);
+            super_handle->trie->insertPartial(_kv_id, size_chunk, &id_root, &dummy);
         } else { // No Trie info in rollback header.
                  // Erase kv store from super handle's main index.
-            hbtrie_remove_partial(super_handle->trie, _kv_id, size_chunk);
+            super_handle->trie->removePartial(_kv_id, size_chunk);
         }
         btreeblk_end(super_handle->bhandle);
 
@@ -1871,16 +1868,14 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
             // same as above for seq-trie
             _kv_id = alca(uint8_t, size_id);
             kvid2buf(size_id, handle->kvs->getKvsId(), _kv_id);
-            hr = hbtrie_find_partial(handle->seqtrie, _kv_id,
-                                     size_id, &seq_root);
+            hr = handle->seqtrie->findPartial(_kv_id, size_id, &seq_root);
             btreeblk_end(handle->bhandle);
             if (hr == HBTRIE_RESULT_SUCCESS) {
-                hbtrie_insert_partial(super_handle->seqtrie,
-                                      _kv_id, size_id,
-                                      &seq_root, &dummy);
+                super_handle->seqtrie->insertPartial(_kv_id, size_id,
+                                                     &seq_root, &dummy);
             } else { // No seqtrie info in rollback header.
                      // Erase kv store from super handle's seqtrie index.
-                hbtrie_remove_partial(super_handle->seqtrie, _kv_id, size_id);
+                super_handle->seqtrie->removePartial(_kv_id, size_id);
             }
             btreeblk_end(super_handle->bhandle);
         }

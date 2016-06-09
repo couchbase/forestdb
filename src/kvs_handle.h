@@ -81,7 +81,7 @@ public:
     /**
      * HB+-Tree Trie instance.
      */
-    struct hbtrie *trie;
+    HBTrie *trie;
     /**
      * Stale block B+-Tree instance.
      * Maps from 'commit revision number' to 'stale block info' system document.
@@ -92,7 +92,7 @@ public:
      */
     union {
         struct btree *seqtree; // single KV instance mode
-        struct hbtrie *seqtrie; // multi KV instance mode
+        HBTrie *seqtrie; // multi KV instance mode
     };
     /**
      * File manager instance.
