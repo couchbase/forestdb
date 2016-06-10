@@ -4952,6 +4952,97 @@ void changes_since_test(const char *kvs) {
     }
 }
 
+void kvs_deletion_without_commit()
+{
+
+    TEST_INIT();
+    int n_dbs=100, i, r;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db[100], *default_db;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    fdb_doc *doc;
+    fdb_status s; (void)s;
+    char keybuf[256], valuebuf[256];
+
+    memleak_start();
+
+    // remove previous dummy files
+    r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    config = fdb_get_default_config();
+    kvs_config = fdb_get_default_kvs_config();
+
+    // create a file
+    s = fdb_open(&dbfile, "dummy", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_open(dbfile, &default_db, NULL, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    sprintf(keybuf, "k_default");
+    sprintf(valuebuf, "v_default");
+    s = fdb_doc_create(&doc, keybuf, strlen(keybuf)+1, NULL, 0, valuebuf, strlen(valuebuf)+1);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_set(default_db, doc);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_doc_free(doc);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    for (i=0; i<n_dbs; ++i) {
+        sprintf(keybuf, "partition%d\n", i);
+        s = fdb_kvs_open(dbfile, &db[i], keybuf, &kvs_config);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        sprintf(keybuf, "k%06d", i);
+        sprintf(valuebuf, "v%d", i);
+        s = fdb_doc_create(&doc, keybuf, strlen(keybuf)+1, NULL, 0, valuebuf, strlen(valuebuf)+1);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_set(db[i], doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+        s = fdb_doc_free(doc);
+        TEST_CHK(s == FDB_RESULT_SUCCESS);
+    }
+
+    s = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_kvs_close(db[0]);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    sprintf(keybuf, "partition%d\n", 0);
+    s = fdb_kvs_remove(dbfile, keybuf);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // close without commit
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    // reopen file
+    s = fdb_open(&dbfile, "dummy", &config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    i = 0;
+    sprintf(keybuf, "partition%d\n", i);
+    s = fdb_kvs_open(dbfile, &db[i], keybuf, &kvs_config);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    sprintf(keybuf, "k%06d", i);
+    s = fdb_doc_create(&doc, keybuf, strlen(keybuf)+1, NULL, 0, NULL, 0);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    s = fdb_get(db[i], doc);
+    // should fail
+    TEST_CHK(s != FDB_RESULT_SUCCESS);
+
+    s = fdb_close(dbfile);
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+
+    s = fdb_shutdown();
+    TEST_CHK(s == FDB_RESULT_SUCCESS);
+    memleak_end();
+
+    TEST_RESULT("KVS deletion without commit test");
+}
+
 int main(){
     basic_test();
     init_test();
@@ -5002,6 +5093,7 @@ int main(){
     rekey_test();
     invalid_get_byoffset_test();
     dirty_index_consistency_test();
+    kvs_deletion_without_commit();
     purge_logically_deleted_doc_test();
     large_batch_write_no_commit_test();
     multi_thread_test(40*1024, 1024, 20, 1, 100, 2, 6);

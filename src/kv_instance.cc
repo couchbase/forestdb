@@ -1158,10 +1158,14 @@ fdb_kvs_create_start:
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
+        uint64_t cur_bmp_revnum = sb_get_bmp_revnum(file);
+        root_handle->last_hdr_bid = filemgr_alloc(file, &root_handle->log_callback);
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
-        fs = filemgr_commit(root_handle->file,
-                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
-                 &root_handle->log_callback);
+        fs = filemgr_commit_bid(root_handle->file,
+                                root_handle->last_hdr_bid,
+                                cur_bmp_revnum,
+                                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
+                                &root_handle->log_callback);
         btreeblk_reset_subblock_info(root_handle->bhandle);
     }
 
@@ -1696,10 +1700,14 @@ fdb_kvs_remove_start:
 
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
+        uint64_t cur_bmp_revnum = sb_get_bmp_revnum(file);
+        root_handle->last_hdr_bid = filemgr_alloc(file, &root_handle->log_callback);
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
-        fs = filemgr_commit(root_handle->file,
-                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
-                &root_handle->log_callback);
+        fs = filemgr_commit_bid(root_handle->file,
+                                root_handle->last_hdr_bid,
+                                cur_bmp_revnum,
+                                !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
+                                &root_handle->log_callback);
         btreeblk_reset_subblock_info(root_handle->bhandle);
     }
 
