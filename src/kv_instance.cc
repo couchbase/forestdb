@@ -609,7 +609,7 @@ void _fdb_kvs_header_import(struct kvs_header *kv_header,
             node->kvs_name = (char *)malloc(name_len);
             memcpy(node->kvs_name, (uint8_t*)data + name_offset, name_len);
             node->id = kv_id;
-            _init_op_stats(&node->op_stat);
+            node->op_stat.reset();
         }
 
         // seq number
@@ -1092,7 +1092,7 @@ fdb_kvs_create_start:
     node->id = kv_header->id_counter++;
     node->seqnum = 0;
     node->flags = 0x0;
-    _init_op_stats(&node->op_stat);
+    node->op_stat.reset();
     // search fhandle's custom cmp func list first
     node->custom_cmp = root_handle->fhandle->getCmpFunctionByName((char *)kvs_name);
     if (node->custom_cmp == NULL && kvs_config->custom_cmp) {

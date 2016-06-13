@@ -284,7 +284,7 @@ enum {
     FILEMGR_FS_BTRFS = 0x03
 };
 
-struct filemgr_buffer{
+struct filemgr_buffer {
     void *block;
     bid_t lastbid;
 };
@@ -293,13 +293,32 @@ typedef uint16_t filemgr_header_len_t;
 typedef uint64_t filemgr_magic_t;
 typedef uint64_t filemgr_header_revnum_t;
 
-struct filemgr_header{
+class FileMgrHeader {
+public:
+    FileMgrHeader()
+        : size(0), revnum(0), seqnum(0), bid(0), data(nullptr) { }
+
+    ~FileMgrHeader() { }
+
+    void reset() {
+        size = 0;
+        revnum = 0;
+        seqnum = 0;
+        bid = 0;
+        if (data) {
+            free(data);
+            data = nullptr;
+        }
+        op_stat.reset();
+        stat.reset();
+    }
+
     filemgr_header_len_t size;
     filemgr_header_revnum_t revnum;
     std::atomic<uint64_t> seqnum;
     std::atomic<uint64_t> bid;
-    KvsOpsStat op_stat; // op stats for default KVS
-    KvsStat stat; // stats for the default KVS
+    KvsOpsStat op_stat;             // op stats for default KVS
+    KvsStat stat;                   // stats for the default KVS
     void *data;
 };
 
@@ -333,7 +352,7 @@ struct filemgr {
     std::atomic<uint64_t> num_invalidated_blocks;
     std::atomic<uint8_t> io_in_prog;
     struct wal *wal;
-    struct filemgr_header header;
+    FileMgrHeader header;
     struct filemgr_ops *ops;
     struct hash_elem e;
     std::atomic<uint8_t> status;
@@ -1009,7 +1028,6 @@ int _kvs_ops_stat_get(struct filemgr *file,
                       fdb_kvs_id_t kv_id,
                       KvsOpsStat *stat);
 
-void _init_op_stats(KvsOpsStat *stat);
 KvsOpsStat *filemgr_get_ops_stats(struct filemgr *file,
                                   KvsInfo *info);
 

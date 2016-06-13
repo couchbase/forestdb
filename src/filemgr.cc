@@ -492,14 +492,15 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                         } else {
                             status = FDB_RESULT_SUCCESS;
 
-                            file->header.data = (void *)malloc(file->blocksize);
-
+                            file->header.data = (void*) malloc (file->blocksize);
                             memcpy(file->header.data, buf, len);
+
                             memcpy(&file->header.revnum, buf + len,
                                    sizeof(filemgr_header_revnum_t));
-                            memcpy((void *) &file->header.seqnum,
-                                    buf + len + sizeof(filemgr_header_revnum_t),
-                                    sizeof(fdb_seqnum_t));
+
+                            memcpy(&file->header.seqnum,
+                                   buf + len + sizeof(filemgr_header_revnum_t),
+                                   sizeof(fdb_seqnum_t));
 
                             if (ver_superblock_support(magic)) {
                                 // last_writable_bmp_revnum should be same with
@@ -509,13 +510,11 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
                                                       filemgr_get_sb_bmp_revnum(file));
                             }
 
-                            file->header.revnum =
-                                _endian_decode(file->header.revnum);
-                            file->header.seqnum.store(
-                                _endian_decode(file->header.seqnum.load()));
+                            file->header.revnum = _endian_decode(file->header.revnum);
+                            file->header.seqnum = _endian_decode(file->header.seqnum.load());
+
                             file->header.size = len;
-                            file->header.bid.store(hdr_bid_local);
-                            memset(&file->header.stat, 0x0, sizeof(file->header.stat));
+                            file->header.bid = hdr_bid_local;
 
                             // release temp buffer
                             _filemgr_release_temp_buf(buf);
@@ -569,12 +568,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     // release temp buffer
     _filemgr_release_temp_buf(buf);
 
-    file->header.size = 0;
-    file->header.revnum = 0;
-    file->header.seqnum = 0;
-    file->header.data = NULL;
-    file->header.bid = 0;
-    memset(&file->header.stat, 0x0, sizeof(file->header.stat));
+    file->header.reset();
     file->version = magic;
     return status;
 }
@@ -918,7 +912,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->prefetch_status = FILEMGR_PREFETCH_IDLE;
 
     file->header.bid = 0;
-    _init_op_stats(&file->header.op_stat);
+    file->header.op_stat.reset();
 
     spin_init(&file->lock);
     file->stale_list = (struct list*)calloc(1, sizeof(struct list));
@@ -1075,13 +1069,14 @@ uint64_t filemgr_update_header(struct filemgr *file,
 
     spin_lock(&file->lock);
 
-    if (file->header.data == NULL) {
+    if (file->header.data == nullptr) {
         file->header.data = (void *)malloc(file->blocksize);
     }
     memcpy(file->header.data, buf, len);
     file->header.size = len;
+
     if (inc_revnum) {
-        ++(file->header.revnum);
+        ++file->header.revnum;
     }
     ret = file->header.revnum;
 
@@ -1654,7 +1649,11 @@ void filemgr_free_func(struct hash_elem *h)
 
     // free filename and header
     free(file->filename);
-    if (file->header.data) free(file->header.data);
+    if (file->header.data) {
+        free(file->header.data);
+        file->header.data = nullptr;
+    }
+
     // free old filename if any
     free(file->old_filename);
 
@@ -2337,7 +2336,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
     struct kvs_header *kv_header = file->kv_header;
     filemgr_magic_t magic = file->version;
 
-    if (file->header.size > 0 && file->header.data) {
+    if (header_len > 0 && file->header.data) {
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
 
@@ -2394,7 +2393,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
         }
 
         // prev header bid
-        prev_bid = file->header.bid.load();
+        prev_bid = file->header.bid;
         _prev_bid = _endian_encode(prev_bid);
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - sizeof(_prev_bid) - BLK_MARKER_SIZE),
@@ -2443,7 +2442,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
                                     file->blocksize);
         }
 
-        file->header.bid.store(bid);
+        file->header.bid = bid;
         if (!block_reusing) {
             file->pos.fetch_add(file->blocksize);
         }
@@ -2634,7 +2633,7 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     // very_old_file, maybe reallocate DB header buf to accomodate bigger value
     if (new_header_len > old_header_len) {
         very_old_file->header.data = realloc(very_old_file->header.data,
-                new_file->blocksize);
+                                             new_file->blocksize);
     }
     very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
     // Note that the prev_file pointer of the new_file is not updated, this
@@ -2644,7 +2643,7 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
                                          (uint8_t *)very_old_file->header.data,
                                          new_file);//Update in-memory header
     very_old_file->header.size = new_header_len;
-    ++(very_old_file->header.revnum);
+    ++very_old_file->header.revnum;
 
     spin_unlock(&very_old_file->lock);
     return past_filename;
@@ -2845,6 +2844,7 @@ fdb_status filemgr_destroy_file(char *filename,
                                                       destroy_set);
                     }
                     free(file->header.data);
+                    file->header.data = nullptr;
                 }
                 file->ops->close(file->fd);
                 if (sb_ops.release && file->sb) {
@@ -3894,16 +3894,6 @@ int _kvs_ops_stat_get(struct filemgr *file,
     }
 
     return ret;
-}
-
-void _init_op_stats(KvsOpsStat *stat) {
-    stat->num_sets = 0;
-    stat->num_dels = 0;
-    stat->num_commits = 0;
-    stat->num_compacts = 0;
-    stat->num_gets = 0;
-    stat->num_iterator_gets = 0;
-    stat->num_iterator_moves = 0;
 }
 
 KvsOpsStat *filemgr_get_ops_stats(struct filemgr *file,

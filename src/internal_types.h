@@ -184,6 +184,16 @@ public:
         nlivenodes(0), ndocs(0), ndeletes(0), datasize(0),
         wal_ndocs(0), wal_ndeletes(0), deltasize(0) { }
 
+    void reset() {
+        nlivenodes = 0;
+        ndocs = 0;
+        ndeletes = 0;
+        datasize = 0;
+        wal_ndocs = 0;
+        wal_ndeletes = 0;
+        deltasize = 0;
+    }
+
     /**
      * The number of live index nodes.
      */
@@ -223,6 +233,15 @@ public:
         num_sets(0), num_dels(0), num_commits(0), num_compacts(0),
         num_gets(0), num_iterator_gets(0), num_iterator_moves(0) { }
 
+    void reset() {
+        num_sets = 0;
+        num_dels = 0;
+        num_commits = 0;
+        num_compacts = 0;
+        num_gets = 0;
+        num_iterator_gets = 0;
+        num_iterator_moves = 0;
+    }
 
     KvsOpsStat& operator=(const KvsOpsStat& ops_stat) {
         num_sets.store(ops_stat.num_sets.load(std::memory_order_relaxed),
