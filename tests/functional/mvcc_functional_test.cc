@@ -1092,17 +1092,16 @@ void in_memory_snapshot_cleanup_test()
 
     memleak_start();
 
-    int i, r;
-    int n = 20;
+    int r;
     fdb_file_handle *dbfile;
     fdb_kvs_handle *db;
     fdb_kvs_handle *snap_db1, *snap_db2, *snap_db3;
     fdb_kvs_handle *psnap_db1, *psnap_db2, *psnap_db3;
-    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *doc = NULL;
     fdb_doc *rdoc;
     fdb_status status;
 
-    char keybuf[2560], metabuf[2560], bodybuf[2560];
+    char keybuf[32], metabuf[32], bodybuf[32];
 
     // remove previous mvcc_test files
     r = system(SHELL_DEL" mvcc_test* > errorlog.txt");
@@ -1129,13 +1128,12 @@ void in_memory_snapshot_cleanup_test()
                                   (void *) "in_memory_snapshot_cleanup_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    i = 0;
-    sprintf(keybuf, "key%d", i);
-    sprintf(metabuf, "meta%d", i);
-    sprintf(bodybuf, "Body%d", i);
-    fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+    sprintf(keybuf, "key");
+    sprintf(metabuf, "meta");
+    sprintf(bodybuf, "body");
+    fdb_doc_create(&doc, (void*)keybuf, strlen(keybuf),
             (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
-    fdb_set(db, doc[i]);
+    fdb_set(db, doc);
 
     // commit without a WAL flush
     fdb_commit(dbfile, FDB_COMMIT_NORMAL);
@@ -1143,7 +1141,7 @@ void in_memory_snapshot_cleanup_test()
     status = fdb_snapshot_open(db, &snap_db1, FDB_SNAPSHOT_INMEM);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_set(db, doc[i]);
+    status = fdb_set(db, doc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // commit without a WAL flush
@@ -1153,22 +1151,28 @@ void in_memory_snapshot_cleanup_test()
     status = fdb_snapshot_open(db, &snap_db2, FDB_SNAPSHOT_INMEM);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_set(db, doc[i]);
+    status = fdb_set(db, doc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // commit without a WAL flush
     status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    status = fdb_set(db, doc[i]);
+    status = fdb_set(db, doc);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // commit without a WAL flush
     status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    sprintf((char*)doc[i]->key, "Key%d", i);
-    fdb_set(db, doc[i]);
+    fdb_doc_free(doc);
+
+    // Update doc with new Key
+    char newKey[32];
+    sprintf(newKey, "Key");
+    fdb_doc_create(&doc, (void*)newKey, strlen(newKey),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+    fdb_set(db, doc);
 
     status = fdb_snapshot_open(db, &snap_db3, FDB_SNAPSHOT_INMEM);
     TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -1214,7 +1218,7 @@ void in_memory_snapshot_cleanup_test()
     // close db file
     fdb_close(dbfile);
 
-    fdb_doc_free(doc[i]);
+    fdb_doc_free(doc);
 
     // free all resources
     fdb_shutdown();
