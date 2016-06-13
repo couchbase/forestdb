@@ -1470,7 +1470,7 @@ int DocioHandle::_submitAsyncIORequests_Docio(struct docio_object *doc_array,
             return num_events;
         }
         num_sub -= num_events;
-        for (io_evt = aio_events; num_events > 0; --num_events, ++io_evt) {
+        for (io_evt = aio_handle->events; num_events > 0; --num_events, ++io_evt) {
             buf = (uint8_t *) io_evt->obj->u.c.buf;
             offset = *((uint64_t *) io_evt->data); // Original offset.
 
