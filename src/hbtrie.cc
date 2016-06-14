@@ -1303,11 +1303,13 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
             } else {
                 // this is offset of document (as it is)
                 // read entire key
-                uint8_t *docrawkey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
-                uint8_t *dockey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
+                uint8_t *docrawkey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
+                uint8_t *dockey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
                 uint32_t docrawkeylen, dockeylen;
                 uint64_t offset;
                 int docnchunk, diffchunkno;
+
+                hbtrie_result result = HBTRIE_RESULT_SUCCESS;
 
                 // get offset value from btree_value
                 offset = trie->btree_kv_ops->value2bid(btree_value);
@@ -1325,15 +1327,21 @@ static hbtrie_result _hbtrie_find(struct hbtrie *trie, void *key, int keylen,
                         if (diffchunkno == nchunk) {
                             // success
                             memcpy(valuebuf, btree_value, trie->valuelen);
-                            return HBTRIE_RESULT_SUCCESS;
+                        } else {
+                            result = HBTRIE_RESULT_FAIL;
                         }
+                    } else {
+                        result = HBTRIE_RESULT_FAIL;
                     }
-                    return HBTRIE_RESULT_FAIL;
                 } else {
                     // just return value
                     memcpy(valuebuf, btree_value, trie->valuelen);
-                    return HBTRIE_RESULT_SUCCESS;
                 }
+
+                // Clear docrawkey, dockey
+                free(docrawkey);
+                free(dockey);
+                return result;
             }
         }
     }
@@ -1721,7 +1729,11 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
         memset(oldvalue_out, 0xff, trie->valuelen);
     }
 
-    while(curchunkno < nchunk){
+    // Allocate room for entire key on heap
+    uint8_t *docrawkey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
+    uint8_t *dockey = (uint8_t *) malloc(HBTRIE_MAX_KEYLEN);
+
+    while (curchunkno < nchunk) {
         // get current chunk number
         meta.size = btree_read_meta(&btreeitem->btree, meta.data);
         _hbtrie_fetch_meta(trie, meta.size, &hbmeta, meta.data);
@@ -1783,6 +1795,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                                trie->btree_nodesize, trie->chunksize,
                                trie->valuelen, 0x0, &meta);
                 if (r != BTREE_RESULT_SUCCESS) {
+                    // Clear docrawkey, dockey
+                    free(docrawkey);
+                    free(dockey);
                     return HBTRIE_RESULT_FAIL;
                 }
                 btreeitem_new->btree.aux = trie->aux;
@@ -1794,6 +1809,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                                   trie->chunksize;
                 r = btree_insert(&btreeitem_new->btree, chunk_new, value);
                 if (r == BTREE_RESULT_FAIL) {
+                    // Clear docrawkey, dockey
+                    free(docrawkey);
+                    free(dockey);
                     return HBTRIE_RESULT_FAIL;
                 }
                 // insert chunk for existing btree
@@ -1807,6 +1825,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                 r = btree_insert(&btreeitem_new->btree,
                                  chunk_new, (void*)&_bid);
                 if (r == BTREE_RESULT_FAIL) {
+                    // Clear docrawkey, dockey
+                    free(docrawkey);
+                    free(dockey);
                     return HBTRIE_RESULT_FAIL;
                 }
 
@@ -1862,6 +1883,9 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                     // height growth .. extend!
                     _hbtrie_extend_leaf_tree(trie, &btreelist, btreeitem,
                         key, curchunkno * trie->chunksize);
+                    // Clear docrawkey, dockey
+                    free(docrawkey);
+                    free(dockey);
                     return ret_result;
                 }
             } else {
@@ -1920,9 +1944,6 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
         // this is offset of document (as it is)
         // create new sub-tree
 
-        // read entire key
-        uint8_t *docrawkey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
-        uint8_t *dockey = alca(uint8_t, HBTRIE_MAX_KEYLEN);
         uint32_t docrawkeylen, dockeylen, minrawkeylen;
         uint64_t offset;
         int docnchunk, minchunkno, newchunkno, diffchunkno;
@@ -2015,6 +2036,7 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
             } else {
                 ret_result = HBTRIE_RESULT_SUCCESS;
             }
+
             break;
         }
 
@@ -2043,8 +2065,12 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                            trie->btree_nodesize, trie->chunksize,
                            trie->valuelen, 0x0, &meta);
             if (r == BTREE_RESULT_FAIL) {
+                // Clear docrawkey, dockey
+                free(docrawkey);
+                free(dockey);
                 return HBTRIE_RESULT_FAIL;
             }
+
             btreeitem_new->btree.aux = trie->aux;
             btreeitem_new->child_rootbid = BLK_NOT_FOUND;
             list_push_back(&btreelist, &btreeitem_new->e);
@@ -2065,7 +2091,8 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
                     midchunkno * trie->chunksize;
             curchunkno = midchunkno;
             btreeitem = btreeitem_new;
-        }
+        } // 2nd while
+
         if (ret_result != HBTRIE_RESULT_SUCCESS) {
             break;
         }
@@ -2214,7 +2241,11 @@ INLINE hbtrie_result _hbtrie_insert(struct hbtrie *trie,
         }
 
         break;
-    } // while
+    } // 1st while
+
+    // Clear docrawkey, dockey
+    free(docrawkey);
+    free(dockey);
 
     _hbtrie_btree_cascaded_update(trie, &btreelist, key, 1);
 
