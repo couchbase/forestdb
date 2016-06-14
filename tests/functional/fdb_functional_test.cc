@@ -2561,6 +2561,116 @@ void custom_compare_variable_test()
     TEST_RESULT("custom compare function for variable length key test");
 }
 
+const int kcmp_offset = 100;
+static int _cmp_dups(void *a, size_t len_a, void *b, size_t len_b)
+{
+    TEST_INIT();
+    if (len_b) {
+        TEST_CHK(len_a == sizeof(int) && len_b == sizeof(int));
+    } else { // if fdb_iterator_init is called with NULL key
+        return len_a;
+    }
+    /*
+     * int keys must less than 'kcmp_offset'
+     */
+    int ia = *(int*) a;
+    int ib = *(int*) b;
+    while (ia > kcmp_offset)
+    {
+        ia -= kcmp_offset;
+    }
+    while (ib > kcmp_offset)
+    {
+        ib -= kcmp_offset;
+    }
+    return ia - ib;
+}
+
+void custom_compare_dups_test()
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    // remove previous dummy files
+    int r = system(SHELL_DEL" dummy* > errorlog.txt");
+    (void)r;
+
+    fdb_file_handle *file;
+    fdb_kvs_handle *kv;
+    fdb_status status;
+    fdb_config config;
+    fdb_kvs_config kvs_config;
+    const char *kvs_names[] = { "db0" };
+    fdb_custom_cmp_variable functions[] = { _cmp_dups };
+
+    config = fdb_get_default_config();
+    config.buffercache_size = 0;
+    // TODO: REMOVE THIS LINE AFTER MB-19901 is fixed
+    // Since a key is hashed by its bitwise checksum, key1=key2 as per custom
+    // cmp can end up in different hash partitions and not get deleted
+    // Workaround is to set number of wal paritions to 1
+    config.num_wal_partitions = 1;
+    status = fdb_open_custom_cmp(&file, "./dummy5", &config, 1,
+                                 (char **)kvs_names, functions);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    kvs_config = fdb_get_default_kvs_config();
+    kvs_config.custom_cmp = _cmp_dups;
+    status = fdb_kvs_open(file, &kv, "db0", &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    for (int i = 0; i < 10; i++)
+    {
+        char valbuf[100];
+        sprintf(valbuf, "val%06d", i);
+        status = fdb_set_kv(kv, &i, sizeof(int), valbuf, strlen(valbuf));
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+    status = fdb_commit(file, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    /*
+     * delete from 102 to 119, which should delete key 2 to 10 in previous keyset
+     * i + kcmp_offset == i in custom comparator 'fdb_custom_cmp_callback'
+     */
+    int k = 2 + kcmp_offset;
+    for (; k < 10 + kcmp_offset; k++)
+    {
+        fdb_del_kv(kv, &k, sizeof(k));
+    }
+    status = fdb_commit(file, FDB_COMMIT_NORMAL);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    /*
+     *  there should only keys '0'&'1' exist since key '2' to '10' are deleted
+     *  but we got keys '0', '1', '3', '8'
+     *
+     */
+    fdb_iterator* fdb_iter = NULL;
+    fdb_iterator_opt_t opt = FDB_ITR_NO_DELETES;
+    status = fdb_iterator_init(kv, &fdb_iter, NULL, 0, NULL, 0, opt);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    int count = 0;
+    do
+    {
+        fdb_doc* doc = NULL;
+        status = fdb_iterator_get(fdb_iter, &doc);
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+        count++;
+        fdb_doc_free(doc);
+    } while (0 == fdb_iterator_next(fdb_iter));
+    fdb_iterator_close(fdb_iter);
+    TEST_CHK(count == 2);
+
+    fdb_close(file);
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("custom compare with duplicate where custom cmp!=bitwise cmp");
+}
+
 /*
  * custom compare test with commit and compact
  *    eqkeys:  boolean to toggle whether bytes in
@@ -2598,11 +2708,8 @@ void custom_compare_commit_compact(bool eqkeys)
 
     kvs_config.custom_cmp = _cmp_variable;
 
-
-
     r = system(SHELL_DEL" dummy* > errorlog.txt");
     (void)r;
-
 
     // open db
     status = fdb_open(&dbfile, "./dummy1", &fconfig);
@@ -2709,7 +2816,7 @@ void custom_seqnum_test(bool multi_kv)
             status = fdb_kvs_open(dbfile, &db[r], tmp, &kvs_config);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
             status = fdb_set_log_callback(db[r], logCallbackFunc,
-                                          (void *) "custom_seqnum_test");
+                    (void *) "custom_seqnum_test");
             TEST_CHK(status == FDB_RESULT_SUCCESS);
         }
     } else {
@@ -2725,7 +2832,7 @@ void custom_seqnum_test(bool multi_kv)
         sprintf(keybuf, "key%d", i);
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf) + 1, NULL, 0,
-            (void*)bodybuf, strlen(bodybuf)+1);
+                (void*)bodybuf, strlen(bodybuf)+1);
         for (r = num_kv - 1; r >= 0; --r) {
             status = fdb_set(db[r], doc[i]);
             TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -2736,7 +2843,7 @@ void custom_seqnum_test(bool multi_kv)
         sprintf(keybuf, "key%d", i);
         sprintf(bodybuf, "body%d", i);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf) + 1, NULL, 0,
-            (void*)bodybuf, strlen(bodybuf)+1);
+                (void*)bodybuf, strlen(bodybuf)+1);
         for (r = num_kv - 1; r >= 0; --r) {
             fdb_doc_set_seqnum(doc[i], (i+1)*2); // double seqnum instead of ++
             status = fdb_set(db[r], doc[i]);
@@ -2828,7 +2935,7 @@ void doc_compression_test()
     fdb_open(&dbfile, "./dummy1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
-                                  (void *) "doc_compression_test");
+            (void *) "doc_compression_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // set dummy str
@@ -2841,7 +2948,7 @@ void doc_compression_test()
         sprintf(metabuf, "meta%d", i);
         sprintf(bodybuf, "body%d_%s", i, temp);
         fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
-            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+                (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
         fdb_set(db, doc[i]);
     }
 
@@ -2863,7 +2970,7 @@ void doc_compression_test()
     fdb_open(&dbfile, "./dummy1", &fconfig);
     fdb_kvs_open_default(dbfile, &db, &kvs_config);
     status = fdb_set_log_callback(db, logCallbackFunc,
-                                  (void *) "doc_compression_test");
+            (void *) "doc_compression_test");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
     // update dummy str
@@ -5064,6 +5171,7 @@ int main(){
     wal_commit_test();
     incomplete_block_test();
     custom_compare_primitive_test();
+    custom_compare_dups_test();
     custom_compare_variable_test();
     custom_compare_commit_compact(false);
     custom_compare_commit_compact(true);
