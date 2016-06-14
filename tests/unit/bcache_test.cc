@@ -38,7 +38,7 @@ void basic_test()
 {
     TEST_INIT();
 
-    struct filemgr *file;
+    FileMgr *file;
     FileMgrConfig config(4096, 5, 0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
                          0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
     int i;
@@ -80,7 +80,7 @@ void basic_test2()
 {
     TEST_INIT();
 
-    struct filemgr *file;
+    FileMgr *file;
     FileMgrConfig config(4096, 5, 0x0, 0, FILEMGR_CREATE, FDB_SEQTREE_NOT_USE,
                          0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
     int i;
@@ -111,7 +111,7 @@ void basic_test2()
 
 struct worker_args{
     size_t n;
-    struct filemgr *file;
+    FileMgr *file;
     size_t writer;
     size_t nblocks;
     size_t time_sec;
@@ -186,7 +186,7 @@ void multi_thread_test(int nblocks, int cachesize,
 {
     TEST_INIT();
 
-    struct filemgr *file;
+    FileMgr *file;
     FileMgrConfig config(blocksize, cachesize, 0x0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE, 0x00,
                          0, 0);

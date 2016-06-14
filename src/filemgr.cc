@@ -193,7 +193,7 @@ static void _log_errno_str(struct filemgr_ops *ops,
 
 static uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
-    struct filemgr *file = _get_entry(e, struct filemgr, e);
+    FileMgr *file = _get_entry(e, struct FileMgr, e);
     int len = strlen(file->filename);
 
     return get_checksum(reinterpret_cast<const uint8_t*>(file->filename), len) &
@@ -202,9 +202,9 @@ static uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 
 static int _file_cmp(struct hash_elem *a, struct hash_elem *b)
 {
-    struct filemgr *aa, *bb;
-    aa = _get_entry(a, struct filemgr, e);
-    bb = _get_entry(b, struct filemgr, e);
+    FileMgr *aa, *bb;
+    aa = _get_entry(a, struct FileMgr, e);
+    bb = _get_entry(b, struct FileMgr, e);
     return strcmp(aa->filename, bb->filename);
 }
 
@@ -319,13 +319,14 @@ static void _filemgr_shutdown_temp_buf()
 }
 
 // Read a block from the file, decrypting if necessary.
-ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid) {
+ssize_t filemgr_read_block(FileMgr *file, void *buf, bid_t bid) {
     ssize_t result = file->ops->pread(file->fd, buf, file->blocksize,
                                       file->blocksize*bid);
     if (file->encryption.ops && result > 0) {
         if (result != (ssize_t)file->blocksize)
             return FDB_RESULT_READ_FAIL;
-        fdb_status status = fdb_decrypt_block(&file->encryption, buf, result, bid);
+        fdb_status status = fdb_decrypt_block(&file->encryption, buf, result,
+                                              bid);
         if (status != FDB_RESULT_SUCCESS)
             return status;
     }
@@ -333,7 +334,8 @@ ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid) {
 }
 
 // Write consecutive block(s) to the file, encrypting if necessary.
-ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_blocks, bid_t start_bid) {
+ssize_t filemgr_write_blocks(FileMgr *file, void *buf, unsigned num_blocks,
+                             bid_t start_bid) {
     size_t blocksize = file->blocksize;
     cs_off_t offset = start_bid * blocksize;
     size_t nbytes = num_blocks * blocksize;
@@ -341,27 +343,36 @@ ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_block
         return file->ops->pwrite(file->fd, buf, nbytes, offset);
     } else {
         uint8_t *encrypted_buf;
-        if (nbytes > 4096)
+        if (nbytes > 4096) {
             encrypted_buf = (uint8_t*)malloc(nbytes);
-        else
-            encrypted_buf = alca(uint8_t, nbytes); // most common case (writing single block)
-        if (!encrypted_buf)
+        } else {
+            // most common case (writing single block)
+            encrypted_buf = alca(uint8_t, nbytes);
+        }
+
+        if (!encrypted_buf) {
             return FDB_RESULT_ALLOC_FAIL;
+        }
+
         fdb_status status = fdb_encrypt_blocks(&file->encryption,
                                                encrypted_buf,
                                                buf,
                                                blocksize,
                                                num_blocks,
                                                start_bid);
-        if (nbytes > 4096)
+        if (nbytes > 4096) {
             free(encrypted_buf);
-        if (status != FDB_RESULT_SUCCESS)
+        }
+
+        if (status != FDB_RESULT_SUCCESS) {
             return status;
+        }
+
         return file->ops->pwrite(file->fd, encrypted_buf, nbytes, offset);
     }
 }
 
-int filemgr_is_writable(struct filemgr *file, bid_t bid)
+int filemgr_is_writable(FileMgr *file, bid_t bid)
 {
     if (sb_bmp_exists(file->sb) && sb_ops.is_writable) {
         // block reusing is enabled
@@ -377,7 +388,7 @@ int filemgr_is_writable(struct filemgr *file, bid_t bid)
     }
 }
 
-uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file)
+uint64_t filemgr_get_sb_bmp_revnum(FileMgr *file)
 {
     if (file->sb && sb_ops.get_bmp_revnum) {
         return sb_ops.get_bmp_revnum(file);
@@ -386,7 +397,7 @@ uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file)
     }
 }
 
-static fdb_status _filemgr_read_header(struct filemgr *file,
+static fdb_status _filemgr_read_header(FileMgr *file,
                                        ErrLogCallback *log_callback)
 {
     uint8_t marker[BLK_MARKER_SIZE];
@@ -427,10 +438,11 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
         if (remain) {
             file->pos.fetch_sub(remain);
             file->last_commit.store(file->pos.load());
-            const char *msg = "Crash Detected: %" _F64 " non-block aligned bytes discarded "
-                "from a database file '%s'\n";
+            const char *msg = "Crash Detected: %" _F64 " non-block aligned "
+                              "bytes discarded from a database file '%s'\n";
             DBG(msg, remain, file->filename);
-            fdb_log(log_callback, FDB_RESULT_READ_FAIL /* Need to add a better error code*/,
+            // TODO: Need to add a better error code
+            fdb_log(log_callback, FDB_RESULT_READ_FAIL,
                     msg, remain, file->filename);
         }
 
@@ -573,7 +585,7 @@ static fdb_status _filemgr_read_header(struct filemgr *file,
     return status;
 }
 
-size_t filemgr_get_ref_count(struct filemgr *file)
+size_t filemgr_get_ref_count(FileMgr *file)
 {
     size_t ret = 0;
     spin_lock(&file->lock);
@@ -594,7 +606,7 @@ uint64_t filemgr_get_bcache_used_space(void)
 }
 
 struct filemgr_prefetch_args {
-    struct filemgr *file;
+    FileMgr *file;
     uint64_t duration;
     ErrLogCallback *log_callback;
     void *aux;
@@ -667,7 +679,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
 }
 
 // prefetch the given DB file
-void filemgr_prefetch(struct filemgr *file,
+void filemgr_prefetch(FileMgr *file,
                       FileMgrConfig *config,
                       ErrLogCallback *log_callback)
 {
@@ -705,7 +717,7 @@ fdb_status filemgr_does_file_exist(char *filename) {
     return FDB_RESULT_SUCCESS;
 }
 
-static fdb_status _filemgr_load_sb(struct filemgr *file,
+static fdb_status _filemgr_load_sb(FileMgr *file,
                                    ErrLogCallback *log_callback)
 {
     fdb_status status = FDB_RESULT_SUCCESS;
@@ -729,8 +741,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                  FileMgrConfig *config,
                                  ErrLogCallback *log_callback)
 {
-    struct filemgr *file = NULL;
-    struct filemgr query;
+    FileMgr *file = NULL;
+    FileMgr query;
     struct hash_elem *e = NULL;
     bool create = config->getOptions() & FILEMGR_CREATE;
     bool fail_if_exists = config->getOptions() & FILEMGR_EXCL_CREATE;
@@ -760,7 +772,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             return result;
         }
         // already opened (return existing structure)
-        file = _get_entry(e, struct filemgr, e);
+        file = _get_entry(e, struct FileMgr, e);
 
         if ((++file->ref_count) > 1 &&
             file->status.load() != FILE_CLOSED) {
@@ -855,7 +867,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         result.rv = fd;
         return result;
     }
-    file = (struct filemgr*)calloc(1, sizeof(struct filemgr));
+    file = new FileMgr();
     file->filename_len = strlen(filename);
     file->filename = (char*)malloc(file->filename_len + 1);
     strcpy(file->filename, filename);
@@ -866,7 +878,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                                 config->getEncryptionKey());
     if (status != FDB_RESULT_SUCCESS) {
         ops->close(fd);
-        free(file);
+        delete file;
         spin_unlock(&filemgr_openlock);
         result.rv = status;
         return result;
@@ -890,7 +902,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         file->ops->close(file->fd);
         free(file->filename);
         delete file->config;
-        free(file);
+        delete file;
         spin_unlock(&filemgr_openlock);
         result.rv = (fdb_status) offset;
         return result;
@@ -975,9 +987,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
             file->ops->close(file->fd);
             free(file->filename);
-            delete file->StaleData;
+            delete file->staleData;
             delete file->config;
-            free(file);
+            delete file;
             spin_unlock(&filemgr_openlock);
             result.rv = status;
             return result;
@@ -996,9 +1008,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 sb_ops.release(file);
             }
             free(file->filename);
-            delete file->StaleData;
+            delete file->staleData;
             delete file->config;
-            free(file);
+            delete file;
             spin_unlock(&filemgr_openlock);
             result.rv = status;
             return result;
@@ -1014,10 +1026,10 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         break;
     } while (true);
 
-    if (!file->StaleData) {
+    if (!file->staleData) {
         // this means that superblock is not used.
         // init with dummy instance.
-        file->StaleData = new StaleDataManagerBase();
+        file->staleData = new StaleDataManagerBase();
     }
 
     // initialize WAL
@@ -1060,7 +1072,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     return result;
 }
 
-uint64_t filemgr_update_header(struct filemgr *file,
+uint64_t filemgr_update_header(FileMgr *file,
                                void *buf,
                                size_t len,
                                bool inc_revnum)
@@ -1085,7 +1097,7 @@ uint64_t filemgr_update_header(struct filemgr *file,
     return ret;
 }
 
-filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
+filemgr_header_revnum_t filemgr_get_header_revnum(FileMgr *file)
 {
     filemgr_header_revnum_t ret;
     spin_lock(&file->lock);
@@ -1097,17 +1109,17 @@ filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file)
 // 'filemgr_get_seqnum', 'filemgr_set_seqnum',
 // 'filemgr_get_walflush_revnum', 'filemgr_set_walflush_revnum'
 // have to be protected by 'filemgr_mutex_lock' & 'filemgr_mutex_unlock'.
-fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file)
+fdb_seqnum_t filemgr_get_seqnum(FileMgr *file)
 {
     return file->header.seqnum;
 }
 
-void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum)
+void filemgr_set_seqnum(FileMgr *file, fdb_seqnum_t seqnum)
 {
     file->header.seqnum = seqnum;
 }
 
-void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
+void* filemgr_get_header(FileMgr *file, void *buf, size_t *len,
                          bid_t *header_bid, fdb_seqnum_t *seqnum,
                          filemgr_header_revnum_t *header_revnum)
 {
@@ -1138,7 +1150,7 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
     return buf;
 }
 
-fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
+fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
                                 uint64_t *deltasize, uint64_t *version,
@@ -1243,7 +1255,7 @@ fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
     return status;
 }
 
-uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
+uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
@@ -1423,9 +1435,9 @@ uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
     return bid;
 }
 
-static void update_file_pointers(struct filemgr *file) {
+static void update_file_pointers(FileMgr *file) {
     // Update new_file pointers of all previously redirected downstream files
-    struct filemgr *temp = file->prev_file;
+    FileMgr *temp = file->prev_file;
     while (temp != NULL) {
         spin_lock(&temp->lock);
         if (temp->new_file == file) {
@@ -1442,7 +1454,7 @@ static void update_file_pointers(struct filemgr *file) {
     }
 }
 
-fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
+fdb_status filemgr_close(FileMgr *file, bool cleanup_cache_onclose,
                          const char *orig_file_name,
                          ErrLogCallback *log_callback)
 {
@@ -1529,7 +1541,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
                 _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
                 if (file->in_place_compaction && orig_file_name) {
                     struct hash_elem *elem = NULL;
-                    struct filemgr query;
+                    FileMgr query;
                     uint32_t old_file_refcount = 0;
 
                     query.filename = (char *)orig_file_name;
@@ -1537,14 +1549,14 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
 
                     if (file->old_filename) {
                         struct hash_elem *elem_old = NULL;
-                        struct filemgr query_old;
-                        struct filemgr *old_file = NULL;
+                        FileMgr query_old;
+                        FileMgr *old_file = NULL;
 
                         // get old file's ref count if exists
                         query_old.filename = file->old_filename;
                         elem_old = hash_find(&hash, &query_old.e);
                         if (elem_old) {
-                            old_file = _get_entry(elem_old, struct filemgr, e);
+                            old_file = _get_entry(elem_old, struct FileMgr, e);
                             old_file_refcount = old_file->ref_count.load();
                         }
                     }
@@ -1588,7 +1600,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
     return (fdb_status) rv;
 }
 
-void filemgr_remove_all_buffer_blocks(struct filemgr *file)
+void filemgr_remove_all_buffer_blocks(FileMgr *file)
 {
     // remove all cached blocks
     if (global_config.getNcacheBlock() > 0 &&
@@ -1602,9 +1614,10 @@ void filemgr_remove_all_buffer_blocks(struct filemgr *file)
 }
 
 void _free_fhandle_idx(struct avl_tree *idx);
+
 void filemgr_free_func(struct hash_elem *h)
 {
-    struct filemgr *file = _get_entry(h, struct filemgr, e);
+    FileMgr *file = _get_entry(h, struct FileMgr, e);
 
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_RUNNING;
     if (file->prefetch_status.compare_exchange_strong(cond, FILEMGR_PREFETCH_ABORT)) {
@@ -1689,14 +1702,14 @@ void filemgr_free_func(struct hash_elem *h)
     spin_destroy(&file->fhandle_idx_lock);
 
     // free file structure
-    delete file->StaleData;
+    delete file->staleData;
     delete file->config;
-    free(file);
+    delete file;
 }
 
 // permanently remove file from cache (not just close)
 // LCOV_EXCL_START
-void filemgr_remove_file(struct filemgr *file, ErrLogCallback *log_callback)
+void filemgr_remove_file(FileMgr *file, ErrLogCallback *log_callback)
 {
     struct hash_elem *ret;
 
@@ -1721,7 +1734,7 @@ void filemgr_remove_file(struct filemgr *file, ErrLogCallback *log_callback)
 
 static
 void *_filemgr_is_closed(struct hash_elem *h, void *ctx) {
-    struct filemgr *file = _get_entry(h, struct filemgr, e);
+    FileMgr *file = _get_entry(h, struct FileMgr, e);
     void *ret;
     spin_lock(&file->lock);
     if (file->ref_count.load() != 0) {
@@ -1786,7 +1799,7 @@ fdb_status filemgr_shutdown()
     return ret;
 }
 
-bid_t filemgr_alloc(struct filemgr *file, ErrLogCallback *log_callback)
+bid_t filemgr_alloc(FileMgr *file, ErrLogCallback *log_callback)
 {
     spin_lock(&file->lock);
     bid_t bid = BLK_NOT_FOUND;
@@ -1816,7 +1829,7 @@ bid_t filemgr_alloc(struct filemgr *file, ErrLogCallback *log_callback)
 
 // Note that both alloc_multiple & alloc_multiple_cond are not used in
 // the new version of DB file (with superblock support).
-void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
+void filemgr_alloc_multiple(FileMgr *file, int nblock, bid_t *begin,
                             bid_t *end, ErrLogCallback *log_callback)
 {
     spin_lock(&file->lock);
@@ -1835,7 +1848,7 @@ void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
 }
 
 // atomically allocate NBLOCK blocks only when current file position is same to nextbid
-bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nblock,
+bid_t filemgr_alloc_multiple_cond(FileMgr *file, bid_t nextbid, int nblock,
                                   bid_t *begin, bid_t *end,
                                   ErrLogCallback *log_callback)
 {
@@ -1862,7 +1875,7 @@ bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nbloc
 }
 
 #ifdef __CRC32
-INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
+INLINE fdb_status _filemgr_crc32_check(FileMgr *file, void *buf)
 {
     if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file = 0;
@@ -1880,7 +1893,7 @@ INLINE fdb_status _filemgr_crc32_check(struct filemgr *file, void *buf)
 }
 #endif
 
-bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
+bool filemgr_invalidate_block(FileMgr *file, bid_t bid)
 {
     bool ret;
     if (file->last_commit.load() < bid * file->blocksize) {
@@ -1894,7 +1907,7 @@ bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
     return ret;
 }
 
-bool filemgr_is_fully_resident(struct filemgr *file)
+bool filemgr_is_fully_resident(FileMgr *file)
 {
     bool ret = false;
     if (global_config.getNcacheBlock() > 0) {
@@ -1911,8 +1924,7 @@ bool filemgr_is_fully_resident(struct filemgr *file)
     return ret;
 }
 
-uint64_t filemgr_flush_immutable(struct filemgr *file,
-                                   ErrLogCallback *log_callback)
+uint64_t filemgr_flush_immutable(FileMgr *file, ErrLogCallback *log_callback)
 {
     uint64_t ret = 0;
     if (global_config.getNcacheBlock() > 0) {
@@ -1934,7 +1946,7 @@ uint64_t filemgr_flush_immutable(struct filemgr *file,
     return ret;
 }
 
-fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
+fdb_status filemgr_read(FileMgr *file, bid_t bid, void *buf,
                         ErrLogCallback *log_callback,
                         bool read_on_cache_miss)
 {
@@ -2117,7 +2129,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
     return status;
 }
 
-fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
+fdb_status filemgr_write_offset(FileMgr *file, bid_t bid,
                                 uint64_t offset, uint64_t len, void *buf,
                                 bool final_write,
                                 ErrLogCallback *log_callback)
@@ -2287,15 +2299,15 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
-                   ErrLogCallback *log_callback)
+fdb_status filemgr_write(FileMgr *file, bid_t bid, void *buf,
+                         ErrLogCallback *log_callback)
 {
     return filemgr_write_offset(file, bid, 0, file->blocksize, buf,
                                 false, // TODO: track immutability of index blk
                                 log_callback);
 }
 
-fdb_status filemgr_commit(struct filemgr *file, bool sync,
+fdb_status filemgr_commit(FileMgr *file, bool sync,
                           ErrLogCallback *log_callback)
 {
     // append header at the end of the file
@@ -2307,7 +2319,7 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
                               sync, log_callback);
 }
 
-fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
+fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
                               uint64_t bmp_revnum, bool sync,
                               ErrLogCallback *log_callback)
 {
@@ -2480,7 +2492,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
     return (fdb_status) result;
 }
 
-fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
+fdb_status filemgr_sync(FileMgr *file, bool sync_option,
                         ErrLogCallback *log_callback)
 {
     fdb_status result = FDB_RESULT_SUCCESS;
@@ -2501,8 +2513,8 @@ fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
     return result;
 }
 
-fdb_status filemgr_copy_file_range(struct filemgr *src_file,
-                                   struct filemgr *dst_file,
+fdb_status filemgr_copy_file_range(FileMgr *src_file,
+                                   FileMgr *dst_file,
                                    bid_t src_bid, bid_t dst_bid,
                                    bid_t clone_len)
 {
@@ -2521,8 +2533,8 @@ fdb_status filemgr_copy_file_range(struct filemgr *src_file,
     return FDB_RESULT_SUCCESS;
 }
 
-int filemgr_update_file_status(struct filemgr *file, file_status_t status,
-                                char *old_filename)
+int filemgr_update_file_status(FileMgr *file, file_status_t status,
+                               char *old_filename)
 {
     int ret = 1;
     spin_lock(&file->lock);
@@ -2539,7 +2551,7 @@ int filemgr_update_file_status(struct filemgr *file, file_status_t status,
     return ret;
 }
 
-void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_file,
+void filemgr_set_compaction_state(FileMgr *old_file, FileMgr *new_file,
                                   file_status_t status)
 {
     spin_lock(&old_file->lock);
@@ -2554,8 +2566,8 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
     }
 }
 
-bool filemgr_set_kv_header(struct filemgr *file, KvsHeader *kv_header,
-                           void (*free_kv_header)(struct filemgr *file))
+bool filemgr_set_kv_header(FileMgr *file, KvsHeader *kv_header,
+                           void (*free_kv_header)(FileMgr *file))
 {
     bool ret;
     spin_lock(&file->lock);
@@ -2573,7 +2585,7 @@ bool filemgr_set_kv_header(struct filemgr *file, KvsHeader *kv_header,
     return ret;
 }
 
-KvsHeader *filemgr_get_kv_header(struct filemgr *file)
+KvsHeader *filemgr_get_kv_header(FileMgr *file)
 {
     KvsHeader *kv_header = NULL;
     spin_lock(&file->lock);
@@ -2584,10 +2596,9 @@ KvsHeader *filemgr_get_kv_header(struct filemgr *file)
 
 // Check if there is a file that still points to the old_file that is being
 // compacted away. If so open the file and return its pointer.
-static
-void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
-    struct filemgr *cur_file = (struct filemgr *)ctx;
-    struct filemgr *file = _get_entry(h, struct filemgr, e);
+static void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
+    FileMgr *cur_file = reinterpret_cast<FileMgr *>(ctx);
+    FileMgr *file = _get_entry(h, struct FileMgr, e);
     spin_lock(&file->lock);
     if (file->status.load() == FILE_REMOVED_PENDING &&
         file->new_file == cur_file) {
@@ -2602,19 +2613,20 @@ void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
     return (void *)NULL;
 }
 
-struct filemgr *filemgr_search_stale_links(struct filemgr *cur_file) {
-    struct filemgr *very_old_file;
+FileMgr *filemgr_search_stale_links(FileMgr *cur_file)
+{
+    FileMgr *very_old_file;
     spin_lock(&filemgr_openlock);
-    very_old_file = (struct filemgr *)hash_scan(&hash,
-                                         _filemgr_check_stale_link, cur_file);
+    very_old_file = reinterpret_cast<FileMgr *>(
+                    hash_scan(&hash, _filemgr_check_stale_link, cur_file));
     spin_unlock(&filemgr_openlock);
     return very_old_file;
 }
 
-char *filemgr_redirect_old_file(struct filemgr *very_old_file,
-                                     struct filemgr *new_file,
-                                     filemgr_redirect_hdr_func
-                                     redirect_header_func) {
+char *filemgr_redirect_old_file(FileMgr *very_old_file,
+                                FileMgr *new_file,
+                                filemgr_redirect_hdr_func redirect_header_func)
+{
     size_t old_header_len, new_header_len;
     uint16_t new_filename_len;
     char *past_filename;
@@ -2650,8 +2662,8 @@ char *filemgr_redirect_old_file(struct filemgr *very_old_file,
     return past_filename;
 }
 
-void filemgr_remove_pending(struct filemgr *old_file,
-                            struct filemgr *new_file,
+void filemgr_remove_pending(FileMgr *old_file,
+                            FileMgr *new_file,
                             ErrLogCallback *log_callback)
 {
     if (new_file == NULL) {
@@ -2688,8 +2700,8 @@ void filemgr_remove_pending(struct filemgr *old_file,
 }
 
 // migrate default kv store stats over to new_file
-KvsOpsStat *filemgr_migrate_op_stats(struct filemgr *old_file,
-                                     struct filemgr *new_file)
+KvsOpsStat *filemgr_migrate_op_stats(FileMgr *old_file,
+                                     FileMgr *new_file)
 {
     KvsOpsStat *ret = NULL;
     if (new_file == NULL) {
@@ -2708,11 +2720,10 @@ fdb_status filemgr_destroy_file(char *filename,
                                 FileMgrConfig *config,
                                 struct hash *destroy_file_set)
 {
-    struct filemgr *file = NULL;
     struct hash to_destroy_files;
     struct hash *destroy_set = (destroy_file_set ? destroy_file_set :
                                                   &to_destroy_files);
-    struct filemgr query;
+    FileMgr query;
     struct hash_elem *e = NULL;
     fdb_status status = FDB_RESULT_SUCCESS;
     char *old_filename = NULL;
@@ -2737,8 +2748,9 @@ fdb_status filemgr_destroy_file(char *filename,
     // check global list of known files to see if it is already opened or not
     e = hash_find(&hash, &query.e);
     if (e) {
+        FileMgr *file = NULL;
         // already opened (return existing structure)
-        file = _get_entry(e, struct filemgr, e);
+        file = _get_entry(e, struct FileMgr, e);
 
         spin_lock(&file->lock);
         if (file->ref_count.load()) {
@@ -2771,85 +2783,85 @@ fdb_status filemgr_destroy_file(char *filename,
             }
         }
     } else { // file not in memory, read on-disk to destroy older versions..
-        file = (struct filemgr *)alca(struct filemgr, 1);
-        memset(file, 0x0, sizeof(struct filemgr));
-        file->filename = filename;
-        file->ops = get_filemgr_ops();
-        file->fd = file->ops->open(file->filename, O_RDWR, 0666);
-        file->blocksize = global_config.getBlockSize();
+        FileMgr disk_file;
+        disk_file.filename = filename;
+        disk_file.ops = get_filemgr_ops();
+        disk_file.fd = disk_file.ops->open(disk_file.filename, O_RDWR, 0666);
+        disk_file.blocksize = global_config.getBlockSize();
         FileMgrConfig fmc;
-        file->config = &fmc;
-        *file->config = *config;
-        fdb_init_encryptor(&file->encryption, config->getEncryptionKey());
-        if (file->fd < 0) {
-            if (file->fd != FDB_RESULT_NO_SUCH_FILE) {
+        disk_file.config = &fmc;
+        *disk_file.config = *config;
+        fdb_init_encryptor(&disk_file.encryption, config->getEncryptionKey());
+        if (disk_file.fd < 0) {
+            if (disk_file.fd != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
                 }
-                return (fdb_status) file->fd;
+                return (fdb_status) disk_file.fd;
             }
         } else { // file successfully opened, seek to end to get DB header
-            cs_off_t offset = file->ops->goto_eof(file->fd);
+            cs_off_t offset = disk_file.ops->goto_eof(disk_file.fd);
             if (offset < 0) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
                 }
                 return (fdb_status) offset;
             } else { // Need to read DB header which contains old filename
-                file->pos.store(offset);
+                disk_file.pos.store(offset);
                 // initialize CRC mode
-                if (file->config && file->config->getOptions() & FILEMGR_CREATE_CRC32) {
-                    file->crc_mode = CRC32;
+                if (disk_file.config &&
+                    disk_file.config->getOptions() & FILEMGR_CREATE_CRC32) {
+                    disk_file.crc_mode = CRC32;
                 } else {
-                    file->crc_mode = CRC_DEFAULT;
+                    disk_file.crc_mode = CRC_DEFAULT;
                 }
 
-                status = _filemgr_load_sb(file, NULL);
+                status = _filemgr_load_sb(&disk_file, NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
                         hash_free(destroy_set);
                     }
-                    file->ops->close(file->fd);
+                    disk_file.ops->close(disk_file.fd);
                     return status;
                 }
 
-                status = _filemgr_read_header(file, NULL);
+                status = _filemgr_read_header(&disk_file, NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
                         hash_free(destroy_set);
                     }
-                    file->ops->close(file->fd);
-                    if (sb_ops.release && file->sb) {
-                        sb_ops.release(file);
+                    disk_file.ops->close(disk_file.fd);
+                    if (sb_ops.release && disk_file.sb) {
+                        sb_ops.release(&disk_file);
                     }
                     return status;
                 }
-                if (file->header.data) {
-                    size_t new_fnamelen_off = ver_get_new_filename_off(file->
-                                                                      version);
+                if (disk_file.header.data) {
+                    size_t new_fnamelen_off = ver_get_new_filename_off(
+                                                            disk_file.version);
                     size_t old_fnamelen_off = new_fnamelen_off + 2;
                     uint16_t *new_filename_len_ptr = (uint16_t *)((char *)
-                                                     file->header.data
+                                                     disk_file.header.data
                                                      + new_fnamelen_off);
                     uint16_t new_filename_len =
                                       _endian_decode(*new_filename_len_ptr);
                     uint16_t *old_filename_len_ptr = (uint16_t *)((char *)
-                                                     file->header.data
+                                                     disk_file.header.data
                                                      + old_fnamelen_off);
                     uint16_t old_filename_len =
                                       _endian_decode(*old_filename_len_ptr);
-                    old_filename = (char *)file->header.data + old_fnamelen_off
-                                   + 2 + new_filename_len;
+                    old_filename = (char *)disk_file.header.data +
+                                    old_fnamelen_off + 2 + new_filename_len;
                     if (old_filename_len) {
                         status = filemgr_destroy_file(old_filename, config,
                                                       destroy_set);
                     }
-                    free(file->header.data);
-                    file->header.data = nullptr;
+                    free(disk_file.header.data);
+                    disk_file.header.data = nullptr;
                 }
-                file->ops->close(file->fd);
-                if (sb_ops.release && file->sb) {
-                    sb_ops.release(file);
+                disk_file.ops->close(disk_file.fd);
+                if (sb_ops.release && disk_file.sb) {
+                    sb_ops.release(&disk_file);
                 }
                 if (status == FDB_RESULT_SUCCESS) {
                     if (filemgr_does_file_exist(filename)
@@ -2870,7 +2882,7 @@ fdb_status filemgr_destroy_file(char *filename,
     return status;
 }
 
-bool filemgr_is_rollback_on(struct filemgr *file)
+bool filemgr_is_rollback_on(FileMgr *file)
 {
     bool rv;
     spin_lock(&file->lock);
@@ -2879,7 +2891,7 @@ bool filemgr_is_rollback_on(struct filemgr *file)
     return rv;
 }
 
-void filemgr_set_rollback(struct filemgr *file, uint8_t new_val)
+void filemgr_set_rollback(FileMgr *file, uint8_t new_val)
 {
     spin_lock(&file->lock);
     if (new_val) {
@@ -2890,7 +2902,7 @@ void filemgr_set_rollback(struct filemgr *file, uint8_t new_val)
     spin_unlock(&file->lock);
 }
 
-void filemgr_set_cancel_compaction(struct filemgr *file, bool cancel)
+void filemgr_set_cancel_compaction(FileMgr *file, bool cancel)
 {
     spin_lock(&file->lock);
     if (cancel) {
@@ -2901,7 +2913,7 @@ void filemgr_set_cancel_compaction(struct filemgr *file, bool cancel)
     spin_unlock(&file->lock);
 }
 
-bool filemgr_is_compaction_cancellation_requested(struct filemgr *file)
+bool filemgr_is_compaction_cancellation_requested(FileMgr *file)
 {
     bool rv;
     spin_lock(&file->lock);
@@ -2910,14 +2922,14 @@ bool filemgr_is_compaction_cancellation_requested(struct filemgr *file)
     return rv;
 }
 
-void filemgr_set_in_place_compaction(struct filemgr *file,
+void filemgr_set_in_place_compaction(FileMgr *file,
                                      bool in_place_compaction) {
     spin_lock(&file->lock);
     file->in_place_compaction = in_place_compaction;
     spin_unlock(&file->lock);
 }
 
-bool filemgr_is_in_place_compaction_set(struct filemgr *file)
+bool filemgr_is_in_place_compaction_set(FileMgr *file)
 
 {
     bool ret = false;
@@ -2939,13 +2951,13 @@ void filemgr_mutex_openunlock(void)
     spin_unlock(&filemgr_openlock);
 }
 
-void filemgr_mutex_lock(struct filemgr *file)
+void filemgr_mutex_lock(FileMgr *file)
 {
     mutex_lock(&file->writer_lock.mutex);
     file->writer_lock.locked = true;
 }
 
-bool filemgr_mutex_trylock(struct filemgr *file) {
+bool filemgr_mutex_trylock(FileMgr *file) {
     if (mutex_trylock(&file->writer_lock.mutex)) {
         file->writer_lock.locked = true;
         return true;
@@ -2953,7 +2965,7 @@ bool filemgr_mutex_trylock(struct filemgr *file) {
     return false;
 }
 
-void filemgr_mutex_unlock(struct filemgr *file)
+void filemgr_mutex_unlock(FileMgr *file)
 {
     if (file->writer_lock.locked) {
         file->writer_lock.locked = false;
@@ -2978,7 +2990,7 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
     return ver_is_valid_magic(magic);
 }
 
-bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
+bool filemgr_is_cow_supported(FileMgr *src, FileMgr *dst)
 {
     src->fs_type = src->ops->get_fs_type(src->fd);
     if (src->fs_type < 0) {
@@ -2994,28 +3006,28 @@ bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst)
     return false;
 }
 
-void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us)
+void filemgr_set_throttling_delay(FileMgr *file, uint64_t delay_us)
 {
     file->throttling_delay.store(delay_us, std::memory_order_relaxed);
 }
 
-uint32_t filemgr_get_throttling_delay(struct filemgr *file)
+uint32_t filemgr_get_throttling_delay(FileMgr *file)
 {
     return file->throttling_delay.load(std::memory_order_relaxed);
 }
 
-void filemgr_add_stale_block(struct filemgr *file,
+void filemgr_add_stale_block(FileMgr *file,
                              bid_t pos,
                              size_t len)
 {
-    file->StaleData->addStaleRegion(pos, len);
+    file->staleData->addStaleRegion(pos, len);
 }
 
-void filemgr_mark_stale(struct filemgr *file,
+void filemgr_mark_stale(FileMgr *file,
                         bid_t offset,
                         size_t length)
 {
-    file->StaleData->markDocStale(offset, length);
+    file->staleData->markDocStale(offset, length);
 }
 
 INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
@@ -3054,7 +3066,7 @@ void _free_fhandle_idx(struct avl_tree *idx)
     }
 }
 
-bool filemgr_fhandle_add(struct filemgr *file, void *fhandle)
+bool filemgr_fhandle_add(FileMgr *file, void *fhandle)
 {
     bool ret;
     struct filemgr_fhandle_idx_node *item, query;
@@ -3066,7 +3078,8 @@ bool filemgr_fhandle_add(struct filemgr *file, void *fhandle)
     a = avl_search(&file->fhandle_idx, &query.avl, _fhandle_idx_cmp);
     if (!a) {
         // not exist, create a node and insert
-        item = (struct filemgr_fhandle_idx_node *)calloc(1, sizeof(struct filemgr_fhandle_idx_node));
+        item = (struct filemgr_fhandle_idx_node *)calloc(1,
+                                sizeof(struct filemgr_fhandle_idx_node));
         item->fhandle = fhandle;
         avl_insert(&file->fhandle_idx, &item->avl, _fhandle_idx_cmp);
         ret = true;
@@ -3078,7 +3091,7 @@ bool filemgr_fhandle_add(struct filemgr *file, void *fhandle)
     return ret;
 }
 
-bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle)
+bool filemgr_fhandle_remove(FileMgr *file, void *fhandle)
 {
     bool ret;
     struct filemgr_fhandle_idx_node *item, query;
@@ -3104,7 +3117,7 @@ bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle)
 
 static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *node);
 
-void filemgr_dirty_update_init(struct filemgr *file)
+void filemgr_dirty_update_init(FileMgr *file)
 {
     avl_init(&file->dirty_update_idx, NULL);
     spin_init(&file->dirty_update_lock);
@@ -3112,7 +3125,7 @@ void filemgr_dirty_update_init(struct filemgr *file)
     file->latest_dirty_update = NULL;
 }
 
-void filemgr_dirty_update_free(struct filemgr *file)
+void filemgr_dirty_update_free(FileMgr *file)
 {
     struct avl_node *a = avl_first(&file->dirty_update_idx);
     struct filemgr_dirty_update_node *node;
@@ -3144,7 +3157,7 @@ INLINE int _dirty_blocks_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     return _CMP_U64(aa->bid, bb->bid);
 }
 
-struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *file)
+struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(FileMgr *file)
 {
     struct filemgr_dirty_update_node *node;
 
@@ -3164,7 +3177,7 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *
     return node;
 }
 
-struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(struct filemgr *file)
+struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(FileMgr *file)
 {
     struct filemgr_dirty_update_node *node = NULL;
 
@@ -3188,7 +3201,7 @@ void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node)
     node->ref_count++;
 }
 
-INLINE void filemgr_dirty_update_flush(struct filemgr *file,
+INLINE void filemgr_dirty_update_flush(FileMgr *file,
                                        struct filemgr_dirty_update_node *node,
                                        ErrLogCallback *log_callback)
 {
@@ -3211,7 +3224,7 @@ INLINE void filemgr_dirty_update_flush(struct filemgr *file,
     node->expired = true;
 }
 
-void filemgr_dirty_update_commit(struct filemgr *file,
+void filemgr_dirty_update_commit(FileMgr *file,
                                  struct filemgr_dirty_update_node *commit_node,
                                  ErrLogCallback *log_callback)
 {
@@ -3252,7 +3265,7 @@ void filemgr_dirty_update_commit(struct filemgr *file,
     }
 }
 
-void filemgr_dirty_update_set_immutable(struct filemgr *file,
+void filemgr_dirty_update_set_immutable(FileMgr *file,
                                         struct filemgr_dirty_update_node *prev_node,
                                         struct filemgr_dirty_update_node *node)
 {
@@ -3386,7 +3399,7 @@ static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *
     free(node);
 }
 
-void filemgr_dirty_update_remove_node(struct filemgr *file,
+void filemgr_dirty_update_remove_node(FileMgr *file,
                                       struct filemgr_dirty_update_node *node)
 {
     spin_lock(&file->dirty_update_lock);
@@ -3407,7 +3420,7 @@ void filemgr_dirty_update_close_node(struct filemgr_dirty_update_node *node)
     node->ref_count--;
 }
 
-fdb_status filemgr_write_dirty(struct filemgr *file, bid_t bid, void *buf,
+fdb_status filemgr_write_dirty(FileMgr *file, bid_t bid, void *buf,
                                struct filemgr_dirty_update_node *node,
                                ErrLogCallback *log_callback)
 {
@@ -3435,7 +3448,7 @@ fdb_status filemgr_write_dirty(struct filemgr *file, bid_t bid, void *buf,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status filemgr_read_dirty(struct filemgr *file, bid_t bid, void *buf,
+fdb_status filemgr_read_dirty(FileMgr *file, bid_t bid, void *buf,
                               struct filemgr_dirty_update_node *node_reader,
                               struct filemgr_dirty_update_node *node_writer,
                               ErrLogCallback *log_callback,
@@ -3472,7 +3485,7 @@ fdb_status filemgr_read_dirty(struct filemgr *file, bid_t bid, void *buf,
     return filemgr_read(file, bid, buf, log_callback, read_on_cache_miss);
 }
 
-void _kvs_stat_set(struct filemgr *file,
+void _kvs_stat_set(FileMgr *file,
                    fdb_kvs_id_t kv_id,
                    KvsStat stat)
 {
@@ -3496,7 +3509,7 @@ void _kvs_stat_set(struct filemgr *file,
     }
 }
 
-void _kvs_stat_update_attr(struct filemgr *file,
+void _kvs_stat_update_attr(FileMgr *file,
                            fdb_kvs_id_t kv_id,
                            kvs_stat_attr_t attr,
                            int delta)
@@ -3587,7 +3600,7 @@ fdb_seqnum_t _fdb_kvs_get_seqnum(KvsHeader *kv_header,
     return seqnum;
 }
 
-fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
+fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
                                 fdb_kvs_id_t id)
 {
     if (id == 0) {
@@ -3598,7 +3611,7 @@ fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
     return _fdb_kvs_get_seqnum(file->kv_header, id);
 }
 
-int _kvs_stat_get(struct filemgr *file,
+int _kvs_stat_get(FileMgr *file,
                   fdb_kvs_id_t kv_id,
                   KvsStat *stat)
 {
@@ -3619,7 +3632,7 @@ int _kvs_stat_get(struct filemgr *file,
     return ret;
 }
 
-uint64_t _kvs_stat_get_sum(struct filemgr *file,
+uint64_t _kvs_stat_get_sum(FileMgr *file,
                            kvs_stat_attr_t attr)
 {
     struct avl_node *a;
@@ -3693,7 +3706,7 @@ int _kvs_ops_stat_get_kv_header(KvsHeader *kv_header,
     return ret;
 }
 
-int _kvs_ops_stat_get(struct filemgr *file,
+int _kvs_ops_stat_get(FileMgr *file,
                       fdb_kvs_id_t kv_id,
                       KvsOpsStat *stat)
 {
@@ -3714,7 +3727,7 @@ int _kvs_ops_stat_get(struct filemgr *file,
     return ret;
 }
 
-KvsOpsStat *filemgr_get_ops_stats(struct filemgr *file,
+KvsOpsStat *filemgr_get_ops_stats(FileMgr *file,
                                   KvsInfo *kvs)
 {
     KvsOpsStat *stat = NULL;
@@ -3775,7 +3788,7 @@ void filemgr_init_latency_stat(struct latency_stat *val) {
     val->lat_num = 0;
 }
 
-void filemgr_migrate_latency_stats(struct filemgr *src, struct filemgr *dst) {
+void filemgr_migrate_latency_stats(FileMgr *src, FileMgr *dst) {
     for (int type = 0; type < FDB_LATENCY_NUM_STATS; ++type) {
         dst->lat_stats[type].lat_min.store(src->lat_stats[type].lat_min.load(),
                                            std::memory_order_relaxed);
@@ -3792,7 +3805,7 @@ void filemgr_destroy_latency_stat(struct latency_stat *val) {
     (void) val;
 }
 
-void filemgr_update_latency_stat(struct filemgr *file,
+void filemgr_update_latency_stat(FileMgr *file,
                                  fdb_latency_stat_type type,
                                  uint32_t val)
 {
@@ -3824,7 +3837,7 @@ void filemgr_update_latency_stat(struct filemgr *file,
     file->lat_stats[type].lat_num++;
 }
 
-void filemgr_get_latency_stat(struct filemgr *file, fdb_latency_stat_type type,
+void filemgr_get_latency_stat(FileMgr *file, fdb_latency_stat_type type,
                               fdb_latency_stat *stat)
 {
     uint64_t num = file->lat_stats[type].lat_num.load(
@@ -3844,7 +3857,7 @@ void filemgr_get_latency_stat(struct filemgr *file, fdb_latency_stat_type type,
 
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
 static const int _MAX_STATSFILE_LEN = FDB_MAX_FILENAME_LEN + 4;
-void filemgr_dump_latency_stat(struct filemgr *file,
+void filemgr_dump_latency_stat(FileMgr *file,
                                ErrLogCallback *log_callback) {
     FILE *lat_file;
     char latency_file_path[_MAX_STATSFILE_LEN];

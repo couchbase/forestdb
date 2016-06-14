@@ -33,18 +33,18 @@ struct compactor_config{
 
 void compactor_init(struct compactor_config *config);
 void compactor_shutdown();
-bool compactor_switch_compaction_flag(struct filemgr *file, bool flag);
-fdb_status compactor_register_file(struct filemgr *file,
+bool compactor_switch_compaction_flag(FileMgr *file, bool flag);
+fdb_status compactor_register_file(FileMgr *file,
                                    fdb_config *config,
                                    ErrLogCallback *log_callback);
 
-fdb_status compactor_register_file_removing(struct filemgr *file,
+fdb_status compactor_register_file_removing(FileMgr *file,
                                             ErrLogCallback *log_callback);
 bool compactor_is_file_removed(const char *filename);
 
-void compactor_deregister_file(struct filemgr *file);
-void compactor_change_threshold(struct filemgr *file, size_t new_threshold);
-void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
+void compactor_deregister_file(FileMgr *file);
+void compactor_change_threshold(FileMgr *file, size_t new_threshold);
+void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
                            ErrLogCallback *log_callback);
 void compactor_get_virtual_filename(const char *filename,
                                     char *virtual_filename);
@@ -65,7 +65,7 @@ fdb_status compactor_destroy_file(char *filename,
  * @param interval Daemon compaction interval to be set
  * @return FDB_RESULT_SUCCESS upon successful interval change
  */
-fdb_status compactor_set_compaction_interval(struct filemgr *file,
+fdb_status compactor_set_compaction_interval(FileMgr *file,
                                              size_t interval);
 
 #ifdef __cplusplus

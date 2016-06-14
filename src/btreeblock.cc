@@ -80,14 +80,13 @@ static int _btreeblk_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 }
 #endif
 
-BTreeBlkHandle::BTreeBlkHandle(struct filemgr *_file, uint32_t _nodesize)
+BTreeBlkHandle::BTreeBlkHandle(FileMgr *_file, uint32_t _nodesize)
+    : nodesize(_nodesize), file(_file)
 {
     uint32_t i;
     uint32_t _sub_nodesize;
 
-    file = _file;
-    nodesize = _nodesize;
-    nnodeperblock = file->blocksize / nodesize;
+    nnodeperblock = _file->blocksize / _nodesize;
     nlivenodes = 0;
     ndeltanodes = 0;
     dirty_update = NULL;

@@ -26,7 +26,7 @@ typedef uint32_t timestamp_t;
 
 class DocioHandle {
 public:
-    DocioHandle(struct filemgr *file, bool compress_body,
+    DocioHandle(FileMgr *file, bool compress_body,
                 ErrLogCallback *log_callback);
     ~DocioHandle();
 
@@ -160,7 +160,7 @@ public:
                                 struct docio_length *length,
                                 fdb_status *status);
 
-    struct filemgr *getFile() const {
+    FileMgr *getFile() const {
         return file_Docio;
     }
 
@@ -222,7 +222,7 @@ private:
                                               void *buf_out,
                                               void *comp_data_out);
 
-    struct filemgr *file_Docio;
+    FileMgr *file_Docio;
     bid_t curblock;
     uint32_t curpos;
     uint16_t cur_bmp_revnum_hash;

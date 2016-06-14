@@ -160,7 +160,7 @@ typedef void wal_flush_seq_purge_func(void *dbhandle,
 /**
  * Pointer of function that updates a KV store stats for each WAL flush
  */
-typedef void wal_flush_kvs_delta_stats_func(struct filemgr *file,
+typedef void wal_flush_kvs_delta_stats_func(FileMgr *file,
                                             avl_tree *kvs_delta_stats);
 
 typedef uint64_t wal_get_old_offset_func(void *dbhandle,
@@ -200,7 +200,7 @@ class Wal {
     friend class WalItr;
 
 public:
-    Wal(struct filemgr *file, size_t nbucket);
+    Wal(FileMgr *file, size_t nbucket);
     ~Wal();
 
     int isInitialized_Wal(void);
@@ -246,8 +246,8 @@ public:
      */
     static fdb_status migrateUncommittedTxns_Wal(void *dbhandle,
                                                  void *new_dhandle,
-                                                 struct filemgr *old_file,
-                                                 struct filemgr *new_file,
+                                                 FileMgr *old_file,
+                                                 FileMgr *new_file,
                                                  wal_doc_move_func *move_doc);
 
     /**
@@ -520,7 +520,7 @@ private:
     // Global shared WAL Snapshot Data
     struct avl_tree wal_snapshot_tree;
     spin_t lock;
-    struct filemgr *file;
+    FileMgr *file;
     DISALLOW_COPY_AND_ASSIGN(Wal);
 };
 
@@ -539,7 +539,7 @@ public:
      * @param shandle - pointer to snap_handle created by snapshot_open
      * @param by_key - is the iteration done by key or by sequence number
      */
-     WalItr(struct filemgr *fileWal,
+     WalItr(FileMgr *fileWal,
             struct snap_handle *shandle,
             bool by_key);
 

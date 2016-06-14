@@ -38,7 +38,7 @@ struct btreeblk_subblocks{
 
 class BTreeBlkHandle {
 public:
-    BTreeBlkHandle(struct filemgr *_file, uint32_t _nodesize);
+    BTreeBlkHandle(FileMgr *_file, uint32_t _nodesize);
 
     ~BTreeBlkHandle();
 
@@ -177,7 +177,7 @@ public:
         return nnodeperblock;
     }
 
-    struct filemgr *getFile() const {
+    FileMgr *getFile() const {
         return file;
     }
 
@@ -196,7 +196,7 @@ private:
     int64_t ndeltanodes;
     struct list alc_list;
     struct list read_list;
-    struct filemgr *file;
+    FileMgr *file;
     ErrLogCallback *log_callback;
 
 #ifdef __BTREEBLK_READ_TREE

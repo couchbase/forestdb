@@ -31,7 +31,7 @@ extern "C" {
 #endif
 
 struct btree;
-struct filemgr;
+class FileMgr;
 struct btreeblk_handle;
 class DocioHandle;
 struct btree_blk_ops;

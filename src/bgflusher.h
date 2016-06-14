@@ -32,12 +32,12 @@ struct bgflusher_config{
 
 void bgflusher_init(struct bgflusher_config *config);
 void bgflusher_shutdown();
-fdb_status bgflusher_register_file(struct filemgr *file,
+fdb_status bgflusher_register_file(FileMgr *file,
                                    fdb_config *config,
                                    ErrLogCallback *log_callback);
-void bgflusher_switch_file(struct filemgr *old_file, struct filemgr *new_file,
+void bgflusher_switch_file(FileMgr *old_file, FileMgr *new_file,
                            ErrLogCallback *log_callback);
-void bgflusher_deregister_file(struct filemgr *file);
+void bgflusher_deregister_file(FileMgr *file);
 
 #ifdef __cplusplus
 }

@@ -100,7 +100,7 @@ public:
     /**
      * File manager instance.
      */
-    struct filemgr *file;
+    FileMgr *file;
     /**
      * Doc IO handle instance.
      */

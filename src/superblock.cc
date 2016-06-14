@@ -627,7 +627,7 @@ bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle)
     }
 
     // get reusable block list
-    blist = handle->file->StaleData->getReusableBlocks(handle, sheader);
+    blist = handle->file->staleData->getReusableBlocks(handle, sheader);
 
     // update superblock's bitmap
     uint8_t *new_bmp = NULL, *old_bmp = NULL;
@@ -686,7 +686,7 @@ bool sb_reserve_next_reusable_blocks(FdbKvsHandle *handle)
     }
 
     // get reusable block list
-    blist = handle->file->StaleData->getReusableBlocks(handle, sheader);
+    blist = handle->file->staleData->getReusableBlocks(handle, sheader);
 
     // calculate bitmap size
     num_blocks = filemgr_get_pos(handle->file) / handle->file->blocksize;
@@ -831,7 +831,7 @@ void sb_return_reusable_blocks(FdbKvsHandle *handle)
 
     // re-store into stale tree using next header's revnum
     filemgr_header_revnum_t revnum = handle->cur_header_revnum;
-    handle->file->StaleData->gatherRegions( handle, revnum+1, BLK_NOT_FOUND,
+    handle->file->staleData->gatherRegions( handle, revnum+1, BLK_NOT_FOUND,
                                             BLK_NOT_FOUND, 0, false );
 }
 
@@ -926,7 +926,7 @@ void sb_bmp_clear(uint8_t *bmp, bid_t bid, uint64_t len)
     _sb_bmp_update(bmp, bid, len, 0);
 }
 
-bool sb_switch_reserved_blocks(struct filemgr *file)
+bool sb_switch_reserved_blocks(FileMgr *file)
 {
     size_t i;
     struct superblock *sb = file->sb;
@@ -992,7 +992,7 @@ bool sb_switch_reserved_blocks(struct filemgr *file)
     return true;
 }
 
-bid_t sb_alloc_block(struct filemgr *file)
+bid_t sb_alloc_block(FileMgr *file)
 {
     uint64_t i, node_idx, node_off, bmp_idx, bmp_off;
     bid_t ret = BLK_NOT_FOUND;
@@ -1083,7 +1083,7 @@ sb_alloc_start_over:
     return ret;
 }
 
-bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
+bool sb_bmp_is_writable(FileMgr *file, bid_t bid)
 {
     if (bid < file->sb->config->num_sb) {
         // superblocks are always writable
@@ -1207,7 +1207,7 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
     return ret;
 }
 
-fdb_status sb_write(struct filemgr *file, size_t sb_no,
+fdb_status sb_write(FileMgr *file, size_t sb_no,
                     ErrLogCallback * log_callback)
 {
     ssize_t r;
@@ -1357,7 +1357,7 @@ static void _rsv_free(struct sb_rsv_bmp *rsv)
     free(rsv->bmp_docs);
 }
 
-static fdb_status _sb_read_given_no(struct filemgr *file,
+static fdb_status _sb_read_given_no(FileMgr *file,
                                     size_t sb_no,
                                     struct superblock *sb,
                                     ErrLogCallback *log_callback)
@@ -1617,7 +1617,7 @@ INLINE void _sb_copy(struct superblock *dst, struct superblock *src)
     spin_init(&dst->lock);
 }
 
-fdb_status sb_read_latest(struct filemgr *file,
+fdb_status sb_read_latest(FileMgr *file,
                           struct sb_config sconfig,
                           ErrLogCallback *log_callback)
 {
@@ -1627,9 +1627,9 @@ fdb_status sb_read_latest(struct filemgr *file,
     fdb_status fs;
     struct superblock *sb_arr;
 
-    // initialize StaleData instance if not exist
-    if (!file->StaleData) {
-        file->StaleData = new StaleDataManager(file);
+    // initialize staleData instance if not exist
+    if (!file->staleData) {
+        file->staleData = new StaleDataManager(file);
     }
 
     if (file->sb) {
@@ -1699,7 +1699,7 @@ fdb_status sb_read_latest(struct filemgr *file,
     return FDB_RESULT_SUCCESS;
 }
 
-uint64_t sb_get_bmp_revnum(struct filemgr *file)
+uint64_t sb_get_bmp_revnum(FileMgr *file)
 {
     if (file->sb) {
         return file->sb->bmp_revnum;
@@ -1708,7 +1708,7 @@ uint64_t sb_get_bmp_revnum(struct filemgr *file)
     }
 }
 
-filemgr_header_revnum_t sb_get_min_live_revnum(struct filemgr *file)
+filemgr_header_revnum_t sb_get_min_live_revnum(FileMgr *file)
 {
     if (file->sb) {
         return file->sb->min_live_hdr_revnum;
@@ -1717,7 +1717,7 @@ filemgr_header_revnum_t sb_get_min_live_revnum(struct filemgr *file)
     }
 }
 
-uint64_t sb_get_num_free_blocks(struct filemgr *file)
+uint64_t sb_get_num_free_blocks(FileMgr *file)
 {
     if (file->sb) {
         return file->sb->num_free_blocks;
@@ -1733,7 +1733,7 @@ struct sb_config sb_get_default_config()
     return ret;
 }
 
-fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
+fdb_status sb_init(FileMgr *file, struct sb_config sconfig,
                    ErrLogCallback * log_callback)
 {
     size_t i;
@@ -1749,9 +1749,9 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
         return FDB_RESULT_SB_INIT_FAIL;
     }
 
-    // initialize StaleData instance if not exist
-    if (!file->StaleData) {
-        file->StaleData = new StaleDataManager(file);
+    // initialize staleData instance if not exist
+    if (!file->staleData) {
+        file->staleData = new StaleDataManager(file);
     }
 
     file->sb = (struct superblock*)calloc(1, sizeof(struct superblock));
@@ -1783,7 +1783,7 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status sb_free(struct filemgr *file)
+fdb_status sb_free(FileMgr *file)
 {
     if (file->sb) {
         _sb_free(file->sb);

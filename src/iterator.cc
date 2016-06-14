@@ -460,7 +460,7 @@ fdb_status FdbIterator::destroyIterator(fdb_iterator *iterator) {
         return FDB_RESULT_INVALID_HANDLE;
     }
 
-    struct filemgr *file = iterator->getHandle()->file;
+    FileMgr *file = iterator->getHandle()->file;
 
     LATENCY_STAT_START();
 

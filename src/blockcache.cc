@@ -151,7 +151,7 @@ public:
         curFile(NULL), refCount(0), numVictims(0), numItems(0), numImmutables(0),
         accessTimestamp(0), numShards(DEFAULT_NUM_BCACHE_PARTITIONS) { }
 
-    FileBlockCache(std::string fname, struct filemgr *file, size_t num_shards) :
+    FileBlockCache(std::string fname, FileMgr *file, size_t num_shards) :
         fileName(fname), curFile(file), refCount(0), numVictims(0), numItems(0),
         numImmutables(0), accessTimestamp(0), numShards(num_shards) {
         // Create a block cache shard instance.
@@ -171,7 +171,7 @@ public:
         return fileName;
     }
 
-    struct filemgr *getFileManager(void) const {
+    FileMgr *getFileManager(void) const {
         return curFile;
     }
 
@@ -242,7 +242,7 @@ private:
     std::string fileName;
     // File manager instance
     // (can be changed on-the-fly when file is closed and re-opened)
-    struct filemgr *curFile;
+    FileMgr *curFile;
     // Shards of the block cache for a file.
     std::vector<BlockCacheShard *> shards;
 
@@ -741,7 +741,7 @@ void BlockCacheManager::performEviction() {
     victim->refCount--;
 }
 
-FileBlockCache* BlockCacheManager::createFileBlockCache(struct filemgr *file) {
+FileBlockCache* BlockCacheManager::createFileBlockCache(FileMgr *file) {
     // TODO: we MUST NOT directly read file sturcture
 
     // Before we create a new file block cache, garbage collect zombies
@@ -826,7 +826,7 @@ void BlockCacheManager::setScore(BlockCacheItem &item) {
 #endif
 }
 
-int BlockCacheManager::read(struct filemgr *file,
+int BlockCacheManager::read(FileMgr *file,
                             bid_t bid,
                             void *buf) {
     FileBlockCache *fcache;
@@ -886,7 +886,7 @@ int BlockCacheManager::read(struct filemgr *file,
     return 0;
 }
 
-bool BlockCacheManager::invalidateBlock(struct filemgr *file,
+bool BlockCacheManager::invalidateBlock(FileMgr *file,
                                         bid_t bid) {
     FileBlockCache *fcache;
     bool ret = false;
@@ -948,7 +948,7 @@ bool BlockCacheManager::invalidateBlock(struct filemgr *file,
     return ret;
 }
 
-int BlockCacheManager::write(struct filemgr *file,
+int BlockCacheManager::write(FileMgr *file,
                              bid_t bid,
                              void *buf,
                              bcache_dirty_t dirty,
@@ -1056,7 +1056,7 @@ int BlockCacheManager::write(struct filemgr *file,
     return blockSize;
 }
 
-int BlockCacheManager::writePartial(struct filemgr *file,
+int BlockCacheManager::writePartial(FileMgr *file,
                                     bid_t bid,
                                     void *buf,
                                     size_t offset,
@@ -1146,7 +1146,7 @@ int BlockCacheManager::writePartial(struct filemgr *file,
 // flush and synchronize a batch of contiguous dirty immutable blocks in file
 // dirty blocks will be changed to clean blocks (not discarded)
 // Note: This function can be invoked as part of background flushing
-fdb_status BlockCacheManager::flushImmutable(struct filemgr *file) {
+fdb_status BlockCacheManager::flushImmutable(FileMgr *file) {
     FileBlockCache *fcache;
     fdb_status status = FDB_RESULT_SUCCESS;
     fcache = file->bcache.load(std::memory_order_relaxed);
@@ -1159,9 +1159,8 @@ fdb_status BlockCacheManager::flushImmutable(struct filemgr *file) {
 
 // remove all dirty blocks of the FILE
 // (they are only discarded and not written back)
-void BlockCacheManager::removeDirtyBlocks(struct filemgr *file) {
+void BlockCacheManager::removeDirtyBlocks(FileMgr *file) {
     FileBlockCache *fcache;
-
     fcache = file->bcache.load(std::memory_order_relaxed);
 
     if (fcache) {
@@ -1175,7 +1174,7 @@ void BlockCacheManager::removeDirtyBlocks(struct filemgr *file) {
 }
 
 // remove all clean blocks of the FILE
-void BlockCacheManager::removeCleanBlocks(struct filemgr *file) {
+void BlockCacheManager::removeCleanBlocks(FileMgr *file) {
     struct list_elem *elem;
     BlockCacheItem *item;
     FileBlockCache *fcache;
@@ -1209,7 +1208,7 @@ void BlockCacheManager::removeCleanBlocks(struct filemgr *file) {
 // Remove a file block cache from the file block cache list
 // MUST sure that there is no dirty block belongs to this FILE
 // (or memory leak occurs)
-bool BlockCacheManager::removeFile(struct filemgr *file) {
+bool BlockCacheManager::removeFile(FileMgr *file) {
     bool rv = false;
     FileBlockCache *fcache;
 
@@ -1246,7 +1245,7 @@ bool BlockCacheManager::removeFile(struct filemgr *file) {
 
 // flush and synchronize all dirty blocks of the FILE
 // dirty blocks will be changed to clean blocks (not discarded)
-fdb_status BlockCacheManager::flush(struct filemgr *file) {
+fdb_status BlockCacheManager::flush(FileMgr *file) {
     FileBlockCache *fcache;
     fdb_status status = FDB_RESULT_SUCCESS;
 
@@ -1363,7 +1362,7 @@ BlockCacheManager::~BlockCacheManager() {
     }
 }
 
-uint64_t BlockCacheManager::getNumBlocks(struct filemgr *file) {
+uint64_t BlockCacheManager::getNumBlocks(FileMgr *file) {
     FileBlockCache *fcache = file->bcache.load(std::memory_order_relaxed);
     if (fcache) {
         return fcache->getNumItems();
@@ -1371,7 +1370,7 @@ uint64_t BlockCacheManager::getNumBlocks(struct filemgr *file) {
     return 0;
 }
 
-uint64_t BlockCacheManager::getNumImmutables(struct filemgr *file) {
+uint64_t BlockCacheManager::getNumImmutables(FileMgr *file) {
     FileBlockCache *fcache = file->bcache.load(std::memory_order_relaxed);
     if (fcache) {
         return fcache->getNumImmutables();

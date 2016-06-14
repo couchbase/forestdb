@@ -44,7 +44,7 @@ void basic_test()
     uint32_t docsize;
     int r;
     int blocksize = 128;
-    struct filemgr *file;
+    FileMgr *file;
     char keybuf[1024];
     char metabuf[1024];
     char bodybuf[4096];

@@ -112,7 +112,7 @@ public:
 
 protected:
     // corresponding filemgr instance
-    struct filemgr *file;
+    FileMgr *file;
     // temporary in-memory list of stale blocks
     std::list<stale_data*> staleList;
     // in-memory clone of system docs for reusable block info
@@ -130,7 +130,7 @@ protected:
 class StaleDataManager : public StaleDataManagerBase {
 public:
     // Constructor
-    StaleDataManager(struct filemgr *_file);
+    StaleDataManager(FileMgr *_file);
     // Destructor
     ~StaleDataManager();
 

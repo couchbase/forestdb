@@ -99,15 +99,15 @@ typedef enum {
     FDB_RESTORE_KV_INS,
 } fdb_restore_mode_t;
 
-void fdb_cmp_func_list_from_filemgr(struct filemgr *file,
+void fdb_cmp_func_list_from_filemgr(FileMgr *file,
                                     struct list *cmp_func_list);
 void fdb_free_cmp_func_list(struct list *cmp_func_list);
 
 fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle);
 hbtrie_cmp_func * fdb_kvs_find_cmp_chunk(void *chunk, void *aux);
 
-void fdb_kvs_header_reset_all_stats(struct filemgr *file);
-void fdb_kvs_header_create(struct filemgr *file);
+void fdb_kvs_header_reset_all_stats(FileMgr *file);
+void fdb_kvs_header_create(FileMgr *file);
 uint64_t fdb_kvs_header_append(FdbKvsHandle *handle);
 
 class KvsHeader;
@@ -118,7 +118,7 @@ void fdb_kvs_header_read(KvsHeader *kv_header,
                          uint64_t version,
                          bool only_seq_nums);
 void fdb_kvs_header_copy(FdbKvsHandle *handle,
-                         struct filemgr *new_file,
+                         FileMgr *new_file,
                          DocioHandle *new_dhandle,
                          uint64_t *new_file_kv_info_offset,
                          bool create_new);
@@ -137,9 +137,9 @@ uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
 
 bool _fdb_kvs_is_busy(fdb_file_handle *fhandle);
 
-void fdb_kvs_header_free(struct filemgr *file);
+void fdb_kvs_header_free(FileMgr *file);
 
-char* _fdb_kvs_get_name(FdbKvsHandle *kv_ins, struct filemgr *file);
+char* _fdb_kvs_get_name(FdbKvsHandle *kv_ins, FileMgr *file);
 /**
  * Extracts the KV Store name from a key sample and offset to start of user key
  * @param handle - pointer to root handle
@@ -154,16 +154,16 @@ fdb_status _fdb_kvs_clone_snapshot(FdbKvsHandle *handle_in,
 fdb_status _fdb_kvs_open(FdbKvsHandle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
-                         struct filemgr *file,
+                         FileMgr *file,
                          const char *filename,
                          const char *kvs_name,
                          FdbKvsHandle *handle);
 
-fdb_seqnum_t fdb_kvs_get_seqnum(struct filemgr *file,
+fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
                                 fdb_kvs_id_t id);
 fdb_seqnum_t fdb_kvs_get_committed_seqnum(FdbKvsHandle *handle);
 
-void fdb_kvs_set_seqnum(struct filemgr *file,
+void fdb_kvs_set_seqnum(FileMgr *file,
                         fdb_kvs_id_t id,
                         fdb_seqnum_t seqnum);
 

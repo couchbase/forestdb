@@ -192,7 +192,7 @@ int process_file(struct input_option *opt)
     char *filename = opt->filename;
     uint64_t file_size;
     size_t num_blocks;
-    struct filemgr file;
+    FileMgr file;
     uint8_t block_buf[BLK_SIZE];
     fdb_status fs;
 

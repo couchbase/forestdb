@@ -74,7 +74,7 @@ public:
      * @param buf Pointer to the read buffer
      * @return the number of bytes that are read from the cache.
      */
-    int read(struct filemgr *file,
+    int read(FileMgr *file,
              bid_t bid,
              void *buf);
 
@@ -87,7 +87,7 @@ public:
      * @return true if a given cached block is invalidated and its memory is
      *         successfully returned back to the free list.
      */
-    bool invalidateBlock(struct filemgr *file,
+    bool invalidateBlock(FileMgr *file,
                          bid_t bid);
 
     /**
@@ -101,7 +101,7 @@ public:
      *        after the write operation
      * @return Number of bytes written into the cache
      */
-    int write(struct filemgr *file,
+    int write(FileMgr *file,
               bid_t bid,
               void *buf,
               bcache_dirty_t dirty,
@@ -120,7 +120,7 @@ public:
      *        after the write operation
      * @return Number of bytes written into the cache
      */
-    int writePartial(struct filemgr *file,
+    int writePartial(FileMgr *file,
                      bid_t bid,
                      void *buf,
                      size_t offset,
@@ -133,21 +133,21 @@ public:
      *
      *@param file Pointer to the file manager instance
      */
-    void removeDirtyBlocks(struct filemgr *file);
+    void removeDirtyBlocks(FileMgr *file);
 
     /**
      * Discard all the clean blocks for a given file from the block cache.
      *
      * @param file Pointer to the file manager instance
      */
-    void removeCleanBlocks(struct filemgr *file);
+    void removeCleanBlocks(FileMgr *file);
 
     /**
      * Remove a give file from the block cache's global file list.
      *
      * @param file Pointer to the file manager instance
      */
-    bool removeFile(struct filemgr *file);
+    bool removeFile(FileMgr *file);
 
     /**
      * Flush all the dirty blocks for a given file into disk and mark them as
@@ -156,7 +156,7 @@ public:
      * @param file Pointer to the file manager instance
      * @return FDB_RESULT_SUCCESS if the flush operation is completed successfully.
      */
-    fdb_status flush(struct filemgr *file);
+    fdb_status flush(FileMgr *file);
 
     /**
      * Flush all the immutable dirty blocks for a given file into disk and
@@ -165,14 +165,14 @@ public:
      * @param file Pointer to the file manager instance
      * @return FDB_RESULT_SUCCESS if the flush operation is completed successfully.
      */
-    fdb_status flushImmutable(struct filemgr *file);
+    fdb_status flushImmutable(FileMgr *file);
 
     /**
      * Return the total number of blocks in the block cache.
      *
      * @Param file Pointer to the file manager instance
      */
-    uint64_t getNumBlocks(struct filemgr *file);
+    uint64_t getNumBlocks(FileMgr *file);
 
     /**
      * Return the number of immutable blocks in the block cache.
@@ -180,7 +180,7 @@ public:
      * @param file Pointer to the file manager instance
      * @return Number of immutable blocks in the block cache
      */
-    uint64_t getNumImmutables(struct filemgr *file);
+    uint64_t getNumImmutables(FileMgr *file);
 
     /**
      * Return the number of blocks in the block cache's free list.
@@ -226,7 +226,7 @@ private:
      * @param file Pointer to a file manager instance
      * @return Pointer to a file block cache instantiated
      */
-    FileBlockCache* createFileBlockCache(struct filemgr *file);
+    FileBlockCache* createFileBlockCache(FileMgr *file);
 
     /**
      * Free a given file block cache and its allocated resouces.

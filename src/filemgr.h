@@ -339,11 +339,34 @@ typedef struct {
 } mutex_lock_t;
 
 class StaleDataManagerBase;
-struct filemgr {
-    char *filename; // Current file name.
+
+class FileMgr {
+public:
+    FileMgr()
+        : filename(nullptr), filename_len(0), ref_count(0), fflags(0x00),
+          blocksize(0), fd(-1), pos(0), last_commit(0),
+          last_writable_bmp_revnum(0), num_invalidated_blocks(0),
+          io_in_prog(0), wal(nullptr), ops(nullptr), status(0),
+          config(nullptr), new_file(nullptr), prev_file(nullptr),
+          old_filename(nullptr), bcache(nullptr), in_place_compaction(false),
+          fs_type(0), kv_header(nullptr), throttling_delay(0),
+          prefetch_status(0), prefetch_tid(0), version(0), sb(nullptr),
+          crc_mode(CRC_DEFAULT), staleData(nullptr),
+          dirty_update_counter(0), latest_dirty_update(nullptr)
+    {
+        memset(&e, 0, sizeof(struct hash_elem));
+        memset(&global_txn, 0, sizeof(fdb_txn));
+        memset(&encryption, 0, sizeof(encryptor));
+        memset(&dirty_update_idx, 0, sizeof(struct avl_tree));
+        memset(&fhandle_idx, 0, sizeof(struct avl_tree));
+    }
+
+    ~FileMgr() { }
+
+    char *filename;                    // Current file name.
+    uint16_t filename_len;
     std::atomic<uint32_t> ref_count;
     uint8_t fflags;
-    uint16_t filename_len;
     uint32_t blocksize;
     int fd;
     std::atomic<uint64_t> pos;
@@ -357,15 +380,15 @@ struct filemgr {
     struct hash_elem e;
     std::atomic<uint8_t> status;
     FileMgrConfig *config;
-    struct filemgr *new_file;           // Pointer to new file upon compaction
-    struct filemgr *prev_file;          // Pointer to prev file upon compaction
-    char *old_filename;                 // Old file name before compaction
+    FileMgr *new_file;                 // Pointer to new file upon compaction
+    FileMgr *prev_file;                // Pointer to prev file upon compaction
+    char *old_filename;                // Old file name before compaction
     std::atomic<FileBlockCache *> bcache;
     fdb_txn global_txn;
     bool in_place_compaction;
     filemgr_fs_type_t fs_type;
     KvsHeader *kv_header;
-    void (*free_kv_header)(struct filemgr *file); // callback function
+    void (*free_kv_header)(FileMgr *file); // callback function
     std::atomic<uint32_t> throttling_delay;
 
     // variables related to prefetching
@@ -402,7 +425,7 @@ struct filemgr {
 
     encryptor encryption;
 
-    StaleDataManagerBase *StaleData;
+    StaleDataManagerBase *staleData;
 
     // in-memory index for a set of dirty index block updates
     struct avl_tree dirty_update_idx;
@@ -457,12 +480,12 @@ struct filemgr_dirty_update_block {
     bool immutable;
 };
 
-typedef fdb_status (*register_file_removal_func)(struct filemgr *file,
+typedef fdb_status (*register_file_removal_func)(FileMgr *file,
                                                  ErrLogCallback *log_callback);
 typedef bool (*check_file_removal_func)(const char *filename);
 
 typedef struct {
-    struct filemgr *file;
+    FileMgr *file;
     int rv;
 } filemgr_open_result;
 
@@ -481,14 +504,14 @@ void filemgr_set_sb_operation(struct sb_ops ops);
 
 uint64_t filemgr_get_bcache_used_space(void);
 
-bool filemgr_set_kv_header(struct filemgr *file, KvsHeader *kv_header,
-                           void (*free_kv_header)(struct filemgr *file));
+bool filemgr_set_kv_header(FileMgr *file, KvsHeader *kv_header,
+                           void (*free_kv_header)(FileMgr *file));
 
-KvsHeader* filemgr_get_kv_header(struct filemgr *file);
+KvsHeader* filemgr_get_kv_header(FileMgr *file);
 
-size_t filemgr_get_ref_count(struct filemgr *file);
+size_t filemgr_get_ref_count(FileMgr *file);
 
-INLINE void filemgr_incr_ref_count(struct filemgr *file) {
+INLINE void filemgr_incr_ref_count(FileMgr *file) {
     file->ref_count++;
 }
 
@@ -497,22 +520,22 @@ filemgr_open_result filemgr_open(char *filename,
                                  FileMgrConfig *config,
                                  ErrLogCallback *log_callback);
 
-uint64_t filemgr_update_header(struct filemgr *file,
+uint64_t filemgr_update_header(FileMgr *file,
                                void *buf,
                                size_t len,
                                bool inc_revnum);
-filemgr_header_revnum_t filemgr_get_header_revnum(struct filemgr *file);
+filemgr_header_revnum_t filemgr_get_header_revnum(FileMgr *file);
 
-fdb_seqnum_t filemgr_get_seqnum(struct filemgr *file);
-void filemgr_set_seqnum(struct filemgr *file, fdb_seqnum_t seqnum);
+fdb_seqnum_t filemgr_get_seqnum(FileMgr *file);
+void filemgr_set_seqnum(FileMgr *file, fdb_seqnum_t seqnum);
 
-INLINE bid_t filemgr_get_header_bid(struct filemgr *file)
+INLINE bid_t filemgr_get_header_bid(FileMgr *file)
 {
     return ((file->header.size > 0) ?
             file->header.bid.load() : BLK_NOT_FOUND);
 }
-bid_t _filemgr_get_header_bid(struct filemgr *file);
-void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
+bid_t _filemgr_get_header_bid(FileMgr *file);
+void* filemgr_get_header(FileMgr *file, void *buf, size_t *len,
                          bid_t *header_bid, fdb_seqnum_t *seqnum,
                          filemgr_header_revnum_t *header_revnum);
 
@@ -522,73 +545,74 @@ void* filemgr_get_header(struct filemgr *file, void *buf, size_t *len,
  * @param file Pointer to filemgr handle.
  * @return Current bitmap revision number.
  */
-uint64_t filemgr_get_sb_bmp_revnum(struct filemgr *file);
+uint64_t filemgr_get_sb_bmp_revnum(FileMgr *file);
 
-fdb_status filemgr_fetch_header(struct filemgr *file, uint64_t bid,
+fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
                                 void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
                                 uint64_t *deltasize, uint64_t *version,
                                 uint64_t *sb_bmp_revnum,
                                 ErrLogCallback *log_callback);
-uint64_t filemgr_fetch_prev_header(struct filemgr *file, uint64_t bid,
+uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
                                    void *buf, size_t *len, fdb_seqnum_t *seqnum,
                                    filemgr_header_revnum_t *revnum,
                                    uint64_t *deltasize, uint64_t *version,
                                    uint64_t *sb_bmp_revnum,
                                    ErrLogCallback *log_callback);
-fdb_status filemgr_close(struct filemgr *file,
+fdb_status filemgr_close(FileMgr *file,
                          bool cleanup_cache_onclose,
                          const char *orig_file_name,
                          ErrLogCallback *log_callback);
 
-void filemgr_remove_all_buffer_blocks(struct filemgr *file);
+void filemgr_remove_all_buffer_blocks(FileMgr *file);
 void filemgr_free_func(struct hash_elem *h);
 
-INLINE bid_t filemgr_get_next_alloc_block(struct filemgr *file)
+INLINE bid_t filemgr_get_next_alloc_block(FileMgr *file)
 {
     return file->pos.load() / file->blocksize;
 }
-bid_t filemgr_alloc(struct filemgr *file, ErrLogCallback *log_callback);
-void filemgr_alloc_multiple(struct filemgr *file, int nblock, bid_t *begin,
+bid_t filemgr_alloc(FileMgr *file, ErrLogCallback *log_callback);
+void filemgr_alloc_multiple(FileMgr *file, int nblock, bid_t *begin,
                             bid_t *end, ErrLogCallback *log_callback);
-bid_t filemgr_alloc_multiple_cond(struct filemgr *file, bid_t nextbid, int nblock,
+bid_t filemgr_alloc_multiple_cond(FileMgr *file, bid_t nextbid, int nblock,
                                   bid_t *begin, bid_t *end,
                                   ErrLogCallback *log_callback);
 
 // Returns true if the block invalidated is from recent uncommited blocks
-bool filemgr_invalidate_block(struct filemgr *file, bid_t bid);
-bool filemgr_is_fully_resident(struct filemgr *file);
+bool filemgr_invalidate_block(FileMgr *file, bid_t bid);
+bool filemgr_is_fully_resident(FileMgr *file);
 // returns number of immutable blocks that remain in file
-uint64_t filemgr_flush_immutable(struct filemgr *file,
+uint64_t filemgr_flush_immutable(FileMgr *file,
                                  ErrLogCallback *log_callback);
 
-fdb_status filemgr_read(struct filemgr *file,
+fdb_status filemgr_read(FileMgr *file,
                         bid_t bid, void *buf,
                         ErrLogCallback *log_callback,
                         bool read_on_cache_miss);
-ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid);
+ssize_t filemgr_read_block(FileMgr *file, void *buf, bid_t bid);
 
-fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
+fdb_status filemgr_write_offset(FileMgr *file, bid_t bid, uint64_t offset,
                           uint64_t len, void *buf, bool final_write,
                           ErrLogCallback *log_callback);
-fdb_status filemgr_write(struct filemgr *file, bid_t bid, void *buf,
-                   ErrLogCallback *log_callback);
-ssize_t filemgr_write_blocks(struct filemgr *file, void *buf, unsigned num_blocks, bid_t start_bid);
-int filemgr_is_writable(struct filemgr *file, bid_t bid);
+fdb_status filemgr_write(FileMgr *file, bid_t bid, void *buf,
+                         ErrLogCallback *log_callback);
+ssize_t filemgr_write_blocks(FileMgr *file, void *buf, unsigned num_blocks,
+                             bid_t start_bid);
+int filemgr_is_writable(FileMgr *file, bid_t bid);
 
-void filemgr_remove_file(struct filemgr *file);
+void filemgr_remove_file(FileMgr *file);
 
-INLINE void filemgr_set_io_inprog(struct filemgr *file)
+INLINE void filemgr_set_io_inprog(FileMgr *file)
 {
     file->io_in_prog++;
 }
 
-INLINE void filemgr_clear_io_inprog(struct filemgr *file)
+INLINE void filemgr_clear_io_inprog(FileMgr *file)
 {
     file->io_in_prog--;
 }
 
-fdb_status filemgr_commit(struct filemgr *file, bool sync,
+fdb_status filemgr_commit(FileMgr *file, bool sync,
                           ErrLogCallback *log_callback);
 /**
  * Commit DB file, and write a DB header at the given BID.
@@ -601,20 +625,20 @@ fdb_status filemgr_commit(struct filemgr *file, bool sync,
  * @param log_callback Pointer to log callback function.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
+fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
                               uint64_t bmp_revnum, bool sync,
                               ErrLogCallback *log_callback);
-fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
+fdb_status filemgr_sync(FileMgr *file, bool sync_option,
                         ErrLogCallback *log_callback);
 
 fdb_status filemgr_shutdown();
-int filemgr_update_file_status(struct filemgr *file, file_status_t status,
+int filemgr_update_file_status(FileMgr *file, file_status_t status,
                                 char *old_filename);
-void filemgr_set_compaction_state(struct filemgr *old_file,
-                                  struct filemgr *new_file,
+void filemgr_set_compaction_state(FileMgr *old_file,
+                                  FileMgr *new_file,
                                   file_status_t status);
-void filemgr_remove_pending(struct filemgr *old_file,
-                            struct filemgr *new_file,
+void filemgr_remove_pending(FileMgr *old_file,
+                            FileMgr *new_file,
                             ErrLogCallback *log_callback);
 
 /**
@@ -644,8 +668,7 @@ void filemgr_destroy_latency_stat(struct latency_stat *val);
  * @param oldf Pointer to the source file manager
  * @param newf Pointer to the destination file manager
  */
-void filemgr_migrate_latency_stats(struct filemgr *src,
-                                   struct filemgr *dest);
+void filemgr_migrate_latency_stats(FileMgr *src, FileMgr *dest);
 
 /**
  * Update the latency stats for a given file manager
@@ -654,7 +677,7 @@ void filemgr_migrate_latency_stats(struct filemgr *src,
  * @param type Type of a latency stat to be updated
  * @param val New value of a latency stat
  */
-void filemgr_update_latency_stat(struct filemgr *file,
+void filemgr_update_latency_stat(FileMgr *file,
                                  fdb_latency_stat_type type,
                                  uint32_t val);
 
@@ -665,7 +688,7 @@ void filemgr_update_latency_stat(struct filemgr *file,
  * @param type Type of a latency stat to be retrieved
  * @param stat Pointer to the stats instance to be populated
  */
-void filemgr_get_latency_stat(struct filemgr *file,
+void filemgr_get_latency_stat(FileMgr *file,
                               fdb_latency_stat_type type,
                               fdb_latency_stat *stat);
 
@@ -676,41 +699,41 @@ void filemgr_get_latency_stat(struct filemgr *file,
  * @param file Pointer to the file manager
  * @param log_callback Pointer to the log callback function
  */
-void filemgr_dump_latency_stat(struct filemgr *file,
+void filemgr_dump_latency_stat(FileMgr *file,
                                ErrLogCallback *log_callback);
 
 #endif // _LATENCY_STATS_DUMP_TO_FILE
 #endif // _LATENCY_STATS
 
-KvsOpsStat *filemgr_migrate_op_stats(struct filemgr *old_file,
-                                     struct filemgr *new_file);
+KvsOpsStat *filemgr_migrate_op_stats(FileMgr *old_file,
+                                     FileMgr *new_file);
 fdb_status filemgr_destroy_file(char *filename,
                                 FileMgrConfig *config,
                                 struct hash *destroy_set);
 
-struct filemgr *filemgr_search_stale_links(struct filemgr *cur_file);
-typedef char *filemgr_redirect_hdr_func(struct filemgr *old_file,uint8_t *buf,
-                                        struct filemgr *new_file);
+FileMgr *filemgr_search_stale_links(FileMgr *cur_file);
+typedef char *filemgr_redirect_hdr_func(FileMgr *old_file, uint8_t *buf,
+                                        FileMgr *new_file);
 
-char *filemgr_redirect_old_file(struct filemgr *very_old_file,
-                                struct filemgr *new_file,
+char *filemgr_redirect_old_file(FileMgr *very_old_file,
+                                FileMgr *new_file,
                                 filemgr_redirect_hdr_func redirect_func);
-INLINE file_status_t filemgr_get_file_status(struct filemgr *file)
+INLINE file_status_t filemgr_get_file_status(FileMgr *file)
 {
     return file->status.load();
 }
-INLINE uint64_t filemgr_get_pos(struct filemgr *file)
+INLINE uint64_t filemgr_get_pos(FileMgr *file)
 {
     return file->pos.load();
 }
 
-fdb_status filemgr_copy_file_range(struct filemgr *src_file,
-                                   struct filemgr *dst_file,
+fdb_status filemgr_copy_file_range(FileMgr *src_file,
+                                   FileMgr *dst_file,
                                    bid_t src_bid, bid_t dst_bid,
                                    bid_t clone_len);
 
-bool filemgr_is_rollback_on(struct filemgr *file);
-void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
+bool filemgr_is_rollback_on(FileMgr *file);
+void filemgr_set_rollback(FileMgr *file, uint8_t new_val);
 
 /**
  * Set the file manager's flag to cancel the compaction task that is currently running.
@@ -718,7 +741,7 @@ void filemgr_set_rollback(struct filemgr *file, uint8_t new_val);
  * @param file Pointer to the file manager instance
  * @param cancel True if the compaction should be cancelled.
  */
-void filemgr_set_cancel_compaction(struct filemgr *file, bool cancel);
+void filemgr_set_cancel_compaction(FileMgr *file, bool cancel);
 
 /**
  * Return true if a compaction cancellation is requested.
@@ -726,36 +749,36 @@ void filemgr_set_cancel_compaction(struct filemgr *file, bool cancel);
  * @param file Pointer to the file manager instance
  * @return True if a compaction cancellation is requested.
  */
-bool filemgr_is_compaction_cancellation_requested(struct filemgr *file);
+bool filemgr_is_compaction_cancellation_requested(FileMgr *file);
 
-void filemgr_set_in_place_compaction(struct filemgr *file,
+void filemgr_set_in_place_compaction(FileMgr *file,
                                      bool in_place_compaction);
-bool filemgr_is_in_place_compaction_set(struct filemgr *file);
+bool filemgr_is_in_place_compaction_set(FileMgr *file);
 
 void filemgr_mutex_openlock(FileMgrConfig *config);
 void filemgr_mutex_openunlock(void);
 
-void filemgr_mutex_lock(struct filemgr *file);
-bool filemgr_mutex_trylock(struct filemgr *file);
-void filemgr_mutex_unlock(struct filemgr *file);
+void filemgr_mutex_lock(FileMgr *file);
+bool filemgr_mutex_trylock(FileMgr *file);
+void filemgr_mutex_unlock(FileMgr *file);
 
 bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);
 
-bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst);
+bool filemgr_is_cow_supported(FileMgr *src, FileMgr *dst);
 
-void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us);
-uint32_t filemgr_get_throttling_delay(struct filemgr *file);
+void filemgr_set_throttling_delay(FileMgr *file, uint64_t delay_us);
+uint32_t filemgr_get_throttling_delay(FileMgr *file);
 
 /**
  * Add an item into stale-block list of the given 'file'.
  *
  * @param file Pointer to file handle.
- * @param pos Byte offset to the beginning of the stale region.
+ * @param offset Byte offset to the beginning of the stale region.
  * @param len Length of the stale region.
  * @return void.
  */
-void filemgr_add_stale_block(struct filemgr *file,
-                             bid_t pos,
+void filemgr_add_stale_block(FileMgr *file,
+                             bid_t offset,
                              size_t len);
 
 /**
@@ -768,7 +791,7 @@ void filemgr_add_stale_block(struct filemgr *file,
  * @param length Length of the data.
  * @return List of stale regions.
  */
-struct stale_regions filemgr_actual_stale_regions(struct filemgr *file,
+struct stale_regions filemgr_actual_stale_regions(FileMgr *file,
                                                   bid_t offset,
                                                   size_t length);
 
@@ -782,7 +805,7 @@ struct stale_regions filemgr_actual_stale_regions(struct filemgr *file,
  * @param length Length of the data.
  * @return void.
  */
-void filemgr_mark_stale(struct filemgr *file,
+void filemgr_mark_stale(FileMgr *file,
                         bid_t offset,
                         size_t length);
 
@@ -807,7 +830,7 @@ struct filemgr_fhandle_idx_node {
  * @param fhandle Pointer to FDB file handle.
  * @return True if successfully added.
  */
-bool filemgr_fhandle_add(struct filemgr *file, void *fhandle);
+bool filemgr_fhandle_add(FileMgr *file, void *fhandle);
 
 /**
  * Remove a FDB file handle from the superblock's global index.
@@ -816,7 +839,7 @@ bool filemgr_fhandle_add(struct filemgr *file, void *fhandle);
  * @param fhandle Pointer to FDB file handle.
  * @return True if successfully removed.
  */
-bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle);
+bool filemgr_fhandle_remove(FileMgr *file, void *fhandle);
 
 /**
  * Initialize global structures for dirty update management.
@@ -824,7 +847,7 @@ bool filemgr_fhandle_remove(struct filemgr *file, void *fhandle);
  * @param file Pointer to filemgr handle.
  * @return void.
  */
-void filemgr_dirty_update_init(struct filemgr *file);
+void filemgr_dirty_update_init(FileMgr *file);
 
 /**
  * Free global structures for dirty update management.
@@ -832,7 +855,7 @@ void filemgr_dirty_update_init(struct filemgr *file);
  * @param file Pointer to filemgr handle.
  * @return void.
  */
-void filemgr_dirty_update_free(struct filemgr *file);
+void filemgr_dirty_update_free(FileMgr *file);
 
 /**
  * Create a new dirty update entry.
@@ -840,7 +863,7 @@ void filemgr_dirty_update_free(struct filemgr *file);
  * @param file Pointer to filemgr handle.
  * @return Newly created dirty update entry.
  */
-struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *file);
+struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(FileMgr *file);
 
 /**
  * Return the latest complete (i.e., immutable) dirty update entry. Note that a
@@ -849,7 +872,7 @@ struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(struct filemgr *
  * @param file Pointer to filemgr handle.
  * @return Latest dirty update entry.
  */
-struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(struct filemgr *file);
+struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(FileMgr *file);
 
 /**
  * Increase the reference counter for the given dirty update entry.
@@ -869,7 +892,7 @@ void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node);
  * @param log_callback Pointer to the log callback function.
  * @return void.
  */
-void filemgr_dirty_update_commit(struct filemgr *file,
+void filemgr_dirty_update_commit(FileMgr *file,
                                  struct filemgr_dirty_update_node *commit_node,
                                  ErrLogCallback *log_callback);
 
@@ -883,7 +906,7 @@ void filemgr_dirty_update_commit(struct filemgr *file,
  * @param node Pointer to previous dirty update entry.
  * @return void.
  */
-void filemgr_dirty_update_set_immutable(struct filemgr *file,
+void filemgr_dirty_update_set_immutable(FileMgr *file,
                                         struct filemgr_dirty_update_node *prev_node,
                                         struct filemgr_dirty_update_node *node);
 
@@ -894,7 +917,7 @@ void filemgr_dirty_update_set_immutable(struct filemgr *file,
  * @param node Pointer to dirty update entry to be removed.
  * @return void.
  */
-void filemgr_dirty_update_remove_node(struct filemgr *file,
+void filemgr_dirty_update_remove_node(FileMgr *file,
                                       struct filemgr_dirty_update_node *node);
 
 /**
@@ -954,7 +977,7 @@ INLINE void filemgr_dirty_update_get_root(struct filemgr_dirty_update_node *node
  * @param log_callback Pointer to the log callback function.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status filemgr_write_dirty(struct filemgr *file,
+fdb_status filemgr_write_dirty(FileMgr *file,
                                bid_t bid,
                                void *buf,
                                struct filemgr_dirty_update_node *node,
@@ -977,7 +1000,7 @@ fdb_status filemgr_write_dirty(struct filemgr *file,
  *        cache miss.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status filemgr_read_dirty(struct filemgr *file,
+fdb_status filemgr_read_dirty(FileMgr *file,
                               bid_t bid,
                               void *buf,
                               struct filemgr_dirty_update_node *node_reader,
@@ -985,29 +1008,29 @@ fdb_status filemgr_read_dirty(struct filemgr *file,
                               ErrLogCallback *log_callback,
                               bool read_on_cache_miss);
 
-void _kvs_stat_set(struct filemgr *file,
+void _kvs_stat_set(FileMgr *file,
                    fdb_kvs_id_t kv_id,
                    KvsStat stat);
-void _kvs_stat_update_attr(struct filemgr *file,
+void _kvs_stat_update_attr(FileMgr *file,
                            fdb_kvs_id_t kv_id,
                            kvs_stat_attr_t attr,
                            int delta);
 int _kvs_stat_get_kv_header(KvsHeader *kv_header,
                             fdb_kvs_id_t kv_id,
                             KvsStat *stat);
-int _kvs_stat_get(struct filemgr *file,
+int _kvs_stat_get(FileMgr *file,
                   fdb_kvs_id_t kv_id,
                   KvsStat *stat);
-uint64_t _kvs_stat_get_sum(struct filemgr *file,
+uint64_t _kvs_stat_get_sum(FileMgr *file,
                            kvs_stat_attr_t attr);
 int _kvs_ops_stat_get_kv_header(KvsHeader *kv_header,
                                 fdb_kvs_id_t kv_id,
                                 KvsOpsStat *stat);
-int _kvs_ops_stat_get(struct filemgr *file,
+int _kvs_ops_stat_get(FileMgr *file,
                       fdb_kvs_id_t kv_id,
                       KvsOpsStat *stat);
 
-KvsOpsStat *filemgr_get_ops_stats(struct filemgr *file,
+KvsOpsStat *filemgr_get_ops_stats(FileMgr *file,
                                   KvsInfo *info);
 
 /**

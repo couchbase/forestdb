@@ -229,18 +229,18 @@ struct superblock {
 };
 
 struct sb_ops {
-    fdb_status (*init)(struct filemgr *file,
+    fdb_status (*init)(FileMgr *file,
                        struct sb_config sconfig,
                        ErrLogCallback *log_callback);
     struct sb_config (*get_default_config)();
-    fdb_status (*read_latest)(struct filemgr *file,
+    fdb_status (*read_latest)(FileMgr *file,
                               struct sb_config sconfig,
                               ErrLogCallback *log_callback);
-    bid_t (*alloc_block)(struct filemgr *file);
-    bool (*is_writable)(struct filemgr *file, bid_t bid);
-    uint64_t (*get_bmp_revnum)(struct filemgr *file);
-    uint64_t (*get_min_live_revnum)(struct filemgr *file);
-    fdb_status (*release)(struct filemgr *file);
+    bid_t (*alloc_block)(FileMgr *file);
+    bool (*is_writable)(FileMgr *file, bid_t bid);
+    uint64_t (*get_bmp_revnum)(FileMgr *file);
+    uint64_t (*get_min_live_revnum)(FileMgr *file);
+    fdb_status (*release)(FileMgr *file);
 };
 
 /**
@@ -356,7 +356,7 @@ bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle);
  * @param file Pointer to file manager handle.
  * @return True if switching succeeded.
  */
-bool sb_switch_reserved_blocks(struct filemgr *file);
+bool sb_switch_reserved_blocks(FileMgr *file);
 
 /**
  * Reclaim stale blocks for the next round block reuse and create an in-memory
@@ -407,7 +407,7 @@ void sb_bmp_mask_init();
  * @param bid ID of block.
  * @return True if the block is writable.
  */
-bool sb_bmp_is_writable(struct filemgr *file, bid_t bid);
+bool sb_bmp_is_writable(FileMgr *file, bid_t bid);
 
 /**
  * Initialize superblock structure.
@@ -417,7 +417,7 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid);
  * @param log_callback Pointer to log callback function.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
+fdb_status sb_init(FileMgr *file, struct sb_config sconfig,
                    ErrLogCallback * log_callback);
 
 /**
@@ -428,7 +428,7 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
  * @param log_callback Pointer to log callback function.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status sb_write(struct filemgr *file, size_t sb_no,
+fdb_status sb_write(FileMgr *file, size_t sb_no,
                     ErrLogCallback * log_callback);
 
 /**
@@ -439,7 +439,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
  * @param log_callback Pointer to log callback function.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status sb_read_latest(struct filemgr *file,
+fdb_status sb_read_latest(FileMgr *file,
                           struct sb_config sconfig,
                           ErrLogCallback *log_callback);
 
@@ -450,7 +450,7 @@ fdb_status sb_read_latest(struct filemgr *file,
  * @return ID of the allocated block. BLK_NOT_FOUND if there is no free block in the
  *         bitmap.
  */
-bid_t sb_alloc_block(struct filemgr *file);
+bid_t sb_alloc_block(FileMgr *file);
 
 /**
  * Get the current revision number of bitmap in superblock.
@@ -458,7 +458,7 @@ bid_t sb_alloc_block(struct filemgr *file);
  * @param file Pointer to filemgr handle.
  * @return Bitmap revision number.
  */
-uint64_t sb_get_bmp_revnum(struct filemgr *file);
+uint64_t sb_get_bmp_revnum(FileMgr *file);
 
 /**
  * Get the oldest active header revision number.
@@ -466,7 +466,7 @@ uint64_t sb_get_bmp_revnum(struct filemgr *file);
  * @param file Pointer to filemgr handle.
  * @return Header revision number.
  */
-uint64_t sb_get_min_live_revnum(struct filemgr *file);
+uint64_t sb_get_min_live_revnum(FileMgr *file);
 
 /**
  * Get the number of free blocks in the bitmap of superblock.
@@ -474,7 +474,7 @@ uint64_t sb_get_min_live_revnum(struct filemgr *file);
  * @param file Pointer to filemgr handle.
  * @return Number of free blocks.
  */
-uint64_t sb_get_num_free_blocks(struct filemgr *file);
+uint64_t sb_get_num_free_blocks(FileMgr *file);
 
 /**
  * Free all in-memory superblock structures.
@@ -482,7 +482,7 @@ uint64_t sb_get_num_free_blocks(struct filemgr *file);
  * @param file Pointer to filemgr handle.
  * @return FDB_RESULT_SUCCESS on success.
  */
-fdb_status sb_free(struct filemgr *file);
+fdb_status sb_free(FileMgr *file);
 
 /**
  * Get the default superblock configurations.

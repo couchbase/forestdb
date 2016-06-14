@@ -27,7 +27,7 @@ void basic_test(fdb_encryption_algorithm_t encryption)
 {
     TEST_INIT();
 
-    struct filemgr *file;
+    FileMgr *file;
     FileMgrConfig config(4096, 1024, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, encryption,
                          0x55, 0, 0);

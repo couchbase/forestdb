@@ -39,7 +39,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
 
     file_status_t fstatus;
     FdbKvsHandle *handle = fhandle->getRootHandle();
-    struct filemgr *file;
+    FileMgr *file;
 
     if (handle->txn) {
         // transaction already exists
@@ -123,7 +123,7 @@ fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
     }
 
     file_status_t fstatus;
-    struct filemgr *file;
+    FileMgr *file;
 
     if (handle->txn == NULL) {
         // there is no transaction started
@@ -181,7 +181,7 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
 
     file_status_t fstatus;
     FdbKvsHandle *handle = fhandle->getRootHandle();
-    struct filemgr *file;
+    FileMgr *file;
 
     if (handle->txn == NULL) {
         // there is no transaction started

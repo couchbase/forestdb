@@ -173,7 +173,8 @@ INLINE int _wal_snap_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     return 0;
 }
 
-Wal::Wal(struct filemgr *_file, size_t nbucket)
+Wal::Wal(FileMgr *_file, size_t nbucket)
+    : file(_file)
 {
     flag = WAL_FLAG_INITIALIZED;
     size = 0;
@@ -184,8 +185,6 @@ Wal::Wal(struct filemgr *_file, size_t nbucket)
 
     list_init(&txn_list);
     spin_init(&lock);
-
-    file = _file;
 
     if (file->config->getNumWalShards()) {
         num_shards = file->config->getNumWalShards();
@@ -774,10 +773,10 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
 }
 
 fdb_status Wal::insert_Wal(fdb_txn *txn,
-                      struct _fdb_key_cmp_info *cmp_info,
-                      fdb_doc *doc,
-                      uint64_t offset,
-                      wal_insert_by caller)
+                           struct _fdb_key_cmp_info *cmp_info,
+                           fdb_doc *doc,
+                           uint64_t offset,
+                           wal_insert_by caller)
 {
     return _insert_Wal(txn, cmp_info, doc, offset, caller, false);
 }
@@ -1078,8 +1077,8 @@ inline void Wal::_wal_free_item(struct wal_item *item) {
 
 fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                                            void *new_dhandle,
-                                           struct filemgr *old_file,
-                                           struct filemgr *new_file,
+                                           FileMgr *old_file,
+                                           FileMgr *new_file,
                                            wal_doc_move_func *move_doc)
 {
     int64_t offset;
@@ -1375,7 +1374,8 @@ static int _wal_flush_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 }
 
 void Wal::releaseItem_Wal(size_t shard_num, fdb_kvs_id_t kv_id,
-                          struct wal_item *item) {
+                          struct wal_item *item)
+{
     list_remove(&item->header->items, &item->list_elem);
     if (file->config->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         size_t seq_shard_num;
@@ -1400,7 +1400,8 @@ void Wal::releaseItem_Wal(size_t shard_num, fdb_kvs_id_t kv_id,
     _wal_free_item(item);
 }
 
-list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item) {
+list_elem *Wal::_releaseItems_Wal(size_t shard_num, struct wal_item *item)
+{
     fdb_kvs_id_t kv_id;
     uint64_t _mem_overhead = 0;
     struct list_elem *le = &item->list_elem;
@@ -2012,7 +2013,7 @@ fdb_status Wal::snapshotClose_Wal(struct snap_handle *shandle)
     return FDB_RESULT_SUCCESS;
 }
 
-WalItr::WalItr(struct filemgr *file,
+WalItr::WalItr(FileMgr *file,
                struct snap_handle *shandle,
                bool by_key)
 {

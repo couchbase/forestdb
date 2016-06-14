@@ -72,7 +72,7 @@ static struct avl_tree openfiles;
 
 struct openfiles_elem {
     char filename[MAX_FNAMELEN];
-    struct filemgr *file;
+    FileMgr *file;
     fdb_config config;
     uint32_t register_count;
     bool compaction_flag; // set when the file is being compacted
@@ -313,7 +313,7 @@ void compactor_get_next_filename(char *file, char *nextfile)
     }
 }
 
-bool compactor_switch_compaction_flag(struct filemgr *file, bool flag)
+bool compactor_switch_compaction_flag(FileMgr *file, bool flag)
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
@@ -575,7 +575,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
                                             struct compactor_meta *metadata,
                                             ErrLogCallback *log_callback);
 
-fdb_status compactor_register_file(struct filemgr *file,
+fdb_status compactor_register_file(FileMgr *file,
                                    fdb_config *config,
                                    ErrLogCallback *log_callback)
 {
@@ -637,7 +637,7 @@ fdb_status compactor_register_file(struct filemgr *file,
     return fs;
 }
 
-void compactor_deregister_file(struct filemgr *file)
+void compactor_deregister_file(FileMgr *file)
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
@@ -667,7 +667,7 @@ void compactor_deregister_file(struct filemgr *file)
     mutex_unlock(&cpt_lock);
 }
 
-fdb_status compactor_register_file_removing(struct filemgr *file,
+fdb_status compactor_register_file_removing(FileMgr *file,
                                             ErrLogCallback *log_callback)
 {
     fdb_status fs = FDB_RESULT_SUCCESS;
@@ -715,7 +715,7 @@ fdb_status compactor_register_file_removing(struct filemgr *file,
     return fs;
 }
 
-void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
+void compactor_change_threshold(FileMgr *file, size_t new_threshold)
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
@@ -730,7 +730,7 @@ void compactor_change_threshold(struct filemgr *file, size_t new_threshold)
     mutex_unlock(&cpt_lock);
 }
 
-fdb_status compactor_set_compaction_interval(struct filemgr *file,
+fdb_status compactor_set_compaction_interval(FileMgr *file,
                                              size_t interval)
 {
     struct avl_node *a = NULL;
@@ -870,7 +870,7 @@ static fdb_status _compactor_store_metafile(char *metafile,
     return FDB_RESULT_SUCCESS;
 }
 
-void compactor_switch_file(struct filemgr *old_file, struct filemgr *new_file,
+void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
                            ErrLogCallback *log_callback)
 {
     struct avl_node *a = NULL;

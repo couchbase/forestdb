@@ -65,7 +65,7 @@ void basic_test()
 
     int blocksize = 256;
     BTreeBlkHandle *bhandle;
-    struct filemgr *file;
+    FileMgr *file;
     HBTrie *trie;
     struct docio_object doc;
     FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t), FILEMGR_CREATE,
@@ -188,7 +188,7 @@ void skew_basic_test()
 
     int blocksize = 256;
     BTreeBlkHandle *bhandle;
-    struct filemgr *file;
+    FileMgr *file;
     HBTrie *trie;
     FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t),
                          FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
@@ -393,7 +393,7 @@ void hbtrie_reverse_iterator_test()
     uint64_t i, v, v_out;
     char key[256], key_temp[256];
     size_t keylen;
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *bhandle;
     HBTrie *trie;
     HBTrieIterator *hit;
@@ -550,7 +550,7 @@ void hbtrie_partial_update_test()
     uint64_t v1[3], v2[9];
     char key[256];
     char keystr[] = "key%05d%08d%08d";
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *bhandle;
     HBTrie *trie;
     FileMgrConfig config(nodesize, 0, 0, ksize,

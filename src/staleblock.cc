@@ -930,7 +930,7 @@ void StaleDataManager::rollbackStaleBlocks(FdbKvsHandle *handle,
     }
 }
 
-StaleDataManager::StaleDataManager(struct filemgr *_file)
+StaleDataManager::StaleDataManager(FileMgr *_file)
 {
     file = _file;
     staleInfoTreeLoaded = false;

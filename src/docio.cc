@@ -29,7 +29,7 @@
 
 #include "memleak.h"
 
-DocioHandle::DocioHandle(struct filemgr *file, bool compress_doc_body,
+DocioHandle::DocioHandle(FileMgr *file, bool compress_doc_body,
                          ErrLogCallback *log_callback) :
    file_Docio(file), curblock(BLK_NOT_FOUND), curpos(0), cur_bmp_revnum_hash(0),
    compress_document_body(compress_doc_body),

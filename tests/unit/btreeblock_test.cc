@@ -56,7 +56,7 @@ void basic_test()
     int vsize = 8;
     int nodesize = (ksize + vsize)*4 + sizeof(struct bnode);
     int blocksize = nodesize * 2;
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *btree_handle;
     BTree *btree;
     FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
@@ -136,7 +136,7 @@ void iterator_test()
     int vsize = 8;
     int nodesize = (ksize + vsize)*4 + sizeof(struct bnode);
     int blocksize = nodesize * 2;
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *btree_handle;
     BTree *btree;
     BTreeIterator *bi;
@@ -216,7 +216,7 @@ void two_btree_test()
     int i;
     int nodesize = sizeof(struct bnode) + 16*4;
     int blocksize = nodesize * 4;
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *btreeblk_handle;
     BTree *btree_a, *btree_b;
     FileMgrConfig config(blocksize, 1024, 0x0, 0, FILEMGR_CREATE,
@@ -264,7 +264,7 @@ void range_test()
 
     int i, r, n=16, den=5;
     int blocksize = 512;
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *bhandle;
     BTree *btree;
     FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
@@ -338,7 +338,7 @@ void subblock_test()
     btree_result br;
     bid_t bid;
     size_t subblock_no, idx;
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *bhandle;
     BTree *btree, *btree_arr[64];
     FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
@@ -611,7 +611,7 @@ void btree_reverse_iterator_test()
 
     int ksize = 8, vsize = 8, r, c;
     int nodesize = 256;
-    struct filemgr *file;
+    FileMgr *file;
     BTreeBlkHandle *bhandle;
     BTree *btree;
     BTreeIterator *bi;

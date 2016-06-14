@@ -65,7 +65,7 @@ static struct avl_tree openfiles;
 
 struct openfiles_elem {
     char filename[FDB_MAX_FILENAME_LEN];
-    struct filemgr *file;
+    FileMgr *file;
     fdb_config config;
     uint32_t register_count;
     bool background_flush_in_progress;
@@ -86,7 +86,7 @@ static void * bgflusher_thread(void *voidargs)
 {
     fdb_status fs;
     struct avl_node *a;
-    struct filemgr *file;
+    FileMgr *file;
     struct openfiles_elem *elem;
     ErrLogCallback *log_callback = NULL;
 
@@ -226,7 +226,7 @@ void bgflusher_shutdown()
     mutex_destroy(&bgf_lock);
 }
 
-fdb_status bgflusher_register_file(struct filemgr *file,
+fdb_status bgflusher_register_file(FileMgr *file,
                                    fdb_config *config,
                                    ErrLogCallback *log_callback)
 {
@@ -272,7 +272,7 @@ fdb_status bgflusher_register_file(struct filemgr *file,
     return fs;
 }
 
-void bgflusher_switch_file(struct filemgr *old_file, struct filemgr *new_file,
+void bgflusher_switch_file(FileMgr *old_file, FileMgr *new_file,
                            ErrLogCallback *log_callback)
 {
     struct avl_node *a = NULL;
@@ -295,7 +295,7 @@ void bgflusher_switch_file(struct filemgr *old_file, struct filemgr *new_file,
     }
 }
 
-void bgflusher_deregister_file(struct filemgr *file)
+void bgflusher_deregister_file(FileMgr *file)
 {
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;

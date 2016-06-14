@@ -67,7 +67,7 @@ static int _kvs_cmp_id(struct avl_node *a, struct avl_node *b, void *aux)
 static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
                                        fdb_kvs_id_t kv_id)
 {
-    struct filemgr *file = fhandle->getRootHandle()->file;
+    FileMgr *file = fhandle->getRootHandle()->file;
     struct avl_node *a;
     struct filemgr_fhandle_idx_node *fhandle_node;
     fdb_file_handle *file_handle;
@@ -88,7 +88,7 @@ static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
     return false;
 }
 
-void fdb_cmp_func_list_from_filemgr(struct filemgr *file, struct list *cmp_func_list)
+void fdb_cmp_func_list_from_filemgr(FileMgr *file, struct list *cmp_func_list)
 {
     if (!file || !file->kv_header || !cmp_func_list) {
         return;
@@ -141,7 +141,7 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
     int ori_flag;
     fdb_file_handle *fhandle = handle->fhandle;
     fdb_custom_cmp_variable ori_custom_cmp;
-    struct filemgr *file = handle->file;
+    FileMgr *file = handle->file;
     struct cmp_func_node *cmp_node;
     struct kvs_node *kvs_node, query;
     struct list_elem *e;
@@ -267,7 +267,7 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
     fdb_kvs_id_t kv_id;
     HBTrie *trie = reinterpret_cast<HBTrie *>(aux);
     BTreeBlkHandle *bhandle;
-    struct filemgr *file;
+    FileMgr *file;
     struct avl_node *a;
     struct kvs_node query, *node;
 
@@ -307,7 +307,7 @@ void _fdb_kvs_header_create(KvsHeader **kv_header_ptr)
     *kv_header_ptr = kv_header;
 }
 
-void fdb_kvs_header_create(struct filemgr *file)
+void fdb_kvs_header_create(FileMgr *file)
 {
     if (file->kv_header) {
         return; // already exist
@@ -317,7 +317,7 @@ void fdb_kvs_header_create(struct filemgr *file)
     file->free_kv_header = fdb_kvs_header_free;
 }
 
-void fdb_kvs_header_reset_all_stats(struct filemgr *file)
+void fdb_kvs_header_reset_all_stats(FileMgr *file)
 {
     struct avl_node *a;
     struct kvs_node *node;
@@ -334,7 +334,7 @@ void fdb_kvs_header_reset_all_stats(struct filemgr *file)
 }
 
 void fdb_kvs_header_copy(FdbKvsHandle *handle,
-                         struct filemgr *new_file,
+                         FileMgr *new_file,
                          DocioHandle *new_dhandle,
                          uint64_t *new_file_kv_info_offset,
                          bool create_new)
@@ -806,7 +806,7 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle)
     uint64_t kv_info_offset, prev_offset;
     struct docio_object doc;
     struct docio_length doc_len;
-    struct filemgr *file = handle->file;
+    FileMgr *file = handle->file;
     DocioHandle *dhandle = handle->dhandle;
 
     _fdb_kvs_header_export(file->kv_header, &data, &len, file->version);
@@ -873,7 +873,7 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(FdbKvsHandle *handle)
     fdb_seqnum_t seqnum = SEQNUM_NOT_USED;
     fdb_kvs_id_t id = 0;
     char *compacted_filename = NULL;
-    struct filemgr *file = handle->file;
+    FileMgr *file = handle->file;
 
     buf = alca(uint8_t, file->config->getBlockSize());
 
@@ -948,7 +948,7 @@ fdb_status fdb_get_kvs_seqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
         fdb_check_file_reopen(handle, NULL);
         fdb_sync_db_header(handle);
 
-        struct filemgr *file;
+        FileMgr *file;
         file = handle->file;
 
         if (handle->kvs == NULL ||
@@ -966,7 +966,7 @@ fdb_status fdb_get_kvs_seqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
     return FDB_RESULT_SUCCESS;
 }
 
-void fdb_kvs_set_seqnum(struct filemgr *file,
+void fdb_kvs_set_seqnum(FileMgr *file,
                            fdb_kvs_id_t id,
                            fdb_seqnum_t seqnum)
 {
@@ -1006,7 +1006,7 @@ void _fdb_kvs_header_free(KvsHeader *kv_header)
     delete kv_header;
 }
 
-void fdb_kvs_header_free(struct filemgr *file)
+void fdb_kvs_header_free(FileMgr *file)
 {
     if (file->kv_header == NULL) {
         return;
@@ -1023,7 +1023,7 @@ static fdb_status _fdb_kvs_create(FdbKvsHandle *root_handle,
     int kv_ins_name_len;
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a;
-    struct filemgr *file;
+    FileMgr *file;
     struct kvs_node *node, query;
     KvsHeader *kv_header;
 
@@ -1164,7 +1164,7 @@ fdb_kvs_create_start:
 }
 
 // this function just returns pointer
-char* _fdb_kvs_get_name(FdbKvsHandle *handle, struct filemgr *file)
+char* _fdb_kvs_get_name(FdbKvsHandle *handle, FileMgr *file)
 {
     struct kvs_node *node, query;
     struct avl_node *a;
@@ -1196,7 +1196,7 @@ const char* _fdb_kvs_extract_name_off(FdbKvsHandle *handle, void *keybuf,
     struct kvs_node *node, query;
     struct avl_node *a;
     fdb_kvs_id_t kv_id;
-    struct filemgr *file = handle->file;
+    FileMgr *file = handle->file;
 
     if (!handle->kvs) { // single KV instance mode
         *key_offset = 0;
@@ -1262,7 +1262,7 @@ fdb_status _fdb_kvs_clone_snapshot(FdbKvsHandle *handle_in,
 fdb_status _fdb_kvs_open(FdbKvsHandle *root_handle,
                          fdb_config *config,
                          fdb_kvs_config *kvs_config,
-                         struct filemgr *file,
+                         FileMgr *file,
                          const char *filename,
                          const char *kvs_name,
                          FdbKvsHandle *handle)
@@ -1541,7 +1541,7 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
     fdb_kvs_id_t kv_id = 0;
     FdbKvsHandle *root_handle;
     struct avl_node *a = NULL;
-    struct filemgr *file;
+    FileMgr *file;
     struct kvs_node *node, query;
     KvsHeader *kv_header;
 
@@ -1708,7 +1708,7 @@ fdb_kvs_remove_start:
 bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
 {
     bool ret = false;
-    struct filemgr *file = fhandle->getRootHandle()->file;
+    FileMgr *file = fhandle->getRootHandle()->file;
     struct avl_node *a;
     struct filemgr_fhandle_idx_node *fhandle_node;
     fdb_file_handle *file_handle;
@@ -1930,7 +1930,7 @@ fdb_status fdb_get_kvs_info(FdbKvsHandle *handle, fdb_kvs_info *info)
     uint64_t nlivenodes;
     fdb_kvs_id_t kv_id;
     struct avl_node *a;
-    struct filemgr *file;
+    FileMgr *file;
     struct kvs_node *node, query;
     KvsHeader *kv_header;
     KvsStat stat;
@@ -2024,7 +2024,7 @@ LIBFDB_API
 fdb_status fdb_get_kvs_ops_info(FdbKvsHandle *handle, fdb_kvs_ops_info *info)
 {
     fdb_kvs_id_t kv_id;
-    struct filemgr *file;
+    FileMgr *file;
     KvsOpsStat stat;
     KvsOpsStat root_stat;
 
