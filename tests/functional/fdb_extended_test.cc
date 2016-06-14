@@ -34,6 +34,8 @@
 #define MSIZE (32)
 #define VSIZE (100)
 
+#include <vector>
+
 #define FDB_ENCRYPTION_BOGUS (-1)
 
 static size_t num_readers(2);
@@ -41,7 +43,6 @@ static const char *test_filename;
 
 static mutex_t rollback_mutex;
 static volatile bool rollback_done(false);
-
 
 typedef enum {
     REGULAR_WRITER,
@@ -62,7 +63,7 @@ typedef enum {
 struct reader_thread_args {
     int tid;
     size_t ndocs;
-    fdb_doc **doc;
+    std::vector<fdb_doc *> *docs;
     fdb_config *config;
     fdb_kvs_config *kvs_config;
     int check_body;
@@ -72,7 +73,7 @@ struct writer_thread_args {
     writer_type wtype;
     int tid;
     size_t ndocs;
-    fdb_doc **doc;
+    std::vector<fdb_doc *> *docs;
     size_t batch_size;
     size_t compact_period;
     fdb_config *config;
@@ -99,7 +100,7 @@ static fdb_config getDefaultConfig(void) {
 
 static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
                                    fdb_kvs_handle *db,
-                                   fdb_doc **doc,
+                                   std::vector<fdb_doc *> *docs,
                                    int num_docs) {
     TEST_INIT();
     fdb_status status;
@@ -110,10 +111,12 @@ static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
         _set_random_string_smallabt(keybuf, KSIZE);
         _set_random_string_smallabt(metabuf, MSIZE);
         _set_random_string(bodybuf, VSIZE);
-        status = fdb_doc_create(&doc[i], (void*)keybuf, KSIZE,
-                                (void*)metabuf, MSIZE, (void*)bodybuf, VSIZE);
+        status = fdb_doc_create(&((*docs)[i]),
+                                (void*)keybuf, KSIZE,
+                                (void*)metabuf, MSIZE,
+                                (void*)bodybuf, VSIZE);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        fdb_set(db, doc[i]);
+        fdb_set(db, docs->at(i));
         TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
 
@@ -123,7 +126,7 @@ static void loadDocsWithRandomKeys(fdb_file_handle *dbfile,
 
 static void updateDocsWithRandomKeys(fdb_file_handle *dbfile,
                                      fdb_kvs_handle *db,
-                                     fdb_doc **doc,
+                                     std::vector<fdb_doc *> *docs,
                                      int start_doc,
                                      int end_doc) {
     TEST_INIT();
@@ -134,9 +137,11 @@ static void updateDocsWithRandomKeys(fdb_file_handle *dbfile,
     for (int i = start_doc; i < end_doc; ++i) {
         _set_random_string_smallabt(metabuf, MSIZE);
         _set_random_string(bodybuf, VSIZE);
-        status = fdb_doc_update(&doc[i], (void*)metabuf, MSIZE, (void*)bodybuf, VSIZE);
+        status = fdb_doc_update(&((*docs)[i]),
+                                (void*)metabuf, MSIZE,
+                                (void*)bodybuf, VSIZE);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        fdb_set(db, doc[i]);
+        fdb_set(db, docs->at(i));
         TEST_CHK(status == FDB_RESULT_SUCCESS);
     }
 
@@ -168,11 +173,12 @@ static void *_reader_thread(void *voidargs)
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
         int i = rand() % args->ndocs;
-        fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
+        fdb_doc_create(&rdoc, args->docs->at(i)->key,
+                       args->docs->at(i)->keylen, NULL, 0, NULL, 0);
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         if (args->check_body) {
-            TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+            TEST_CHK(!memcmp(rdoc->body, args->docs->at(i)->body, rdoc->bodylen));
         }
         fdb_doc_free(rdoc);
         rdoc = NULL;
@@ -208,19 +214,20 @@ static void *_rollback_reader_thread(void *voidargs)
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
         int i = rand() % args->ndocs;
-        fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
+        fdb_doc_create(&rdoc, args->docs->at(i)->key,
+                       args->docs->at(i)->keylen, NULL, 0, NULL, 0);
         mutex_lock(&rollback_mutex);
         status = fdb_get(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         if (i < 50000) {
-            TEST_CHK(rdoc->seqnum == args->doc[i]->seqnum);
-            TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+            TEST_CHK(rdoc->seqnum == args->docs->at(i)->seqnum);
+            TEST_CHK(!memcmp(rdoc->body, args->docs->at(i)->body, rdoc->bodylen));
         } else {
             if (rollback_done) {
-                TEST_CHK(rdoc->seqnum != args->doc[i]->seqnum);
+                TEST_CHK(rdoc->seqnum != args->docs->at(i)->seqnum);
             } else {
-                TEST_CHK(rdoc->seqnum == args->doc[i]->seqnum);
-                TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+                TEST_CHK(rdoc->seqnum == args->docs->at(i)->seqnum);
+                TEST_CHK(!memcmp(rdoc->body, args->docs->at(i)->body, rdoc->bodylen));
             }
         }
         mutex_unlock(&rollback_mutex);
@@ -269,10 +276,11 @@ static void *_snapshot_reader_thread(void *voidargs)
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
         int i = rand() % args->ndocs;
-        fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
+        fdb_doc_create(&rdoc, args->docs->at(i)->key,
+                       args->docs->at(i)->keylen, NULL, 0, NULL, 0);
         status = fdb_get(snap_db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
-        TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+        TEST_CHK(!memcmp(rdoc->body, args->docs->at(i)->body, rdoc->bodylen));
         fdb_doc_free(rdoc);
         rdoc = NULL;
     }
@@ -286,9 +294,9 @@ static void *_snapshot_reader_thread(void *voidargs)
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, args->doc[i-1]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, args->doc[i-1]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, args->doc[i-1]->body, rdoc->bodylen));
+        TEST_CHK(!memcmp(rdoc->key, args->docs->at(i-1)->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, args->docs->at(i-1)->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, args->docs->at(i-1)->body, rdoc->bodylen));
 
         fdb_doc_free(rdoc);
         rdoc = NULL;
@@ -344,14 +352,15 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
     int num_docs = args->ndocs / 5;
     for (int j = 0; j < num_docs; ++j) {
         int i = rand() % args->ndocs;
-        fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen, NULL, 0, NULL, 0);
+        fdb_doc_create(&rdoc, args->docs->at(i)->key,
+                       args->docs->at(i)->keylen, NULL, 0, NULL, 0);
         status = fdb_get(snap_db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         if (i < 50000) {
-            TEST_CHK(rdoc->seqnum == args->doc[i]->seqnum);
-            TEST_CHK(!memcmp(rdoc->body, args->doc[i]->body, rdoc->bodylen));
+            TEST_CHK(rdoc->seqnum == args->docs->at(i)->seqnum);
+            TEST_CHK(!memcmp(rdoc->body, args->docs->at(i)->body, rdoc->bodylen));
         } else {
-            TEST_CHK(rdoc->seqnum != args->doc[i]->seqnum);
+            TEST_CHK(rdoc->seqnum != args->docs->at(i)->seqnum);
         }
         fdb_doc_free(rdoc);
         rdoc = NULL;
@@ -366,9 +375,9 @@ static void *_rollback_snapshot_reader_thread(void *voidargs)
         status = fdb_iterator_get(iterator, &rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-        TEST_CHK(!memcmp(rdoc->key, args->doc[i-1]->key, rdoc->keylen));
-        TEST_CHK(!memcmp(rdoc->meta, args->doc[i-1]->meta, rdoc->metalen));
-        TEST_CHK(!memcmp(rdoc->body, args->doc[i-1]->body, rdoc->bodylen));
+        TEST_CHK(!memcmp(rdoc->key, args->docs->at(i-1)->key, rdoc->keylen));
+        TEST_CHK(!memcmp(rdoc->meta, args->docs->at(i-1)->meta, rdoc->metalen));
+        TEST_CHK(!memcmp(rdoc->body, args->docs->at(i-1)->body, rdoc->bodylen));
 
         fdb_doc_free(rdoc);
         rdoc = NULL;
@@ -419,8 +428,10 @@ static void *_writer_thread(void *voidargs)
 
         int i = rand() % args->ndocs;
         _set_random_string(bodybuf, VSIZE);
-        status = fdb_doc_create(&rdoc, args->doc[i]->key, args->doc[i]->keylen,
-                                args->doc[i]->meta, args->doc[i]->metalen, bodybuf, VSIZE);
+        status = fdb_doc_create(&rdoc, args->docs->at(i)->key,
+                                args->docs->at(i)->keylen,
+                                args->docs->at(i)->meta,
+                                args->docs->at(i)->metalen, bodybuf, VSIZE);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
         status = fdb_set(db, rdoc);
         TEST_CHK(status == FDB_RESULT_SUCCESS);
@@ -516,9 +527,12 @@ static void test_multi_readers(multi_reader_type reader_type,
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "multi_reader_thread");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_doc **doc = alca(fdb_doc*, num_docs);
+
+    // Create a vector of docs on the heap
+    std::vector<fdb_doc *> docs(num_docs, nullptr);
+
     // Load the initial documents with random keys.
-    loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
+    loadDocsWithRandomKeys(dbfile, db, &docs, num_docs);
     fdb_kvs_close(db);
     fdb_close(dbfile);
 
@@ -529,7 +543,7 @@ static void test_multi_readers(multi_reader_type reader_type,
     for (size_t i = 0; i < n_readers; ++i){
         args[i].tid = i;
         args[i].ndocs = num_docs;
-        args[i].doc = doc;
+        args[i].docs = &docs;
         args[i].config = &fconfig;
         args[i].kvs_config = &kvs_config;
         args[i].check_body = 1;
@@ -553,7 +567,7 @@ static void test_multi_readers(multi_reader_type reader_type,
 
     // free all documents
     for (int i = 0 ; i < num_docs; ++i){
-        fdb_doc_free(doc[i]);
+        fdb_doc_free(docs.at(i));
     }
 
     // shutdown
@@ -596,9 +610,12 @@ static void test_writer_multi_readers(writer_type wtype,
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "writer_multi_reader_thread");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_doc **doc = alca(fdb_doc*, num_docs);
+
+    // Create a vector of docs on the heap
+    std::vector<fdb_doc *> docs(num_docs, nullptr);
+
     // Load the initial documents with random keys.
-    loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
+    loadDocsWithRandomKeys(dbfile, db, &docs, num_docs);
     fdb_kvs_close(db);
     fdb_close(dbfile);
 
@@ -610,7 +627,7 @@ static void test_writer_multi_readers(writer_type wtype,
     for (; i < num_readers; ++i){
         args[i].tid = i;
         args[i].ndocs = num_docs;
-        args[i].doc = doc;
+        args[i].docs = &docs;
         args[i].config = &fconfig;
         args[i].kvs_config = &kvs_config;
         if (reader_type == MULTI_READERS) {
@@ -634,7 +651,7 @@ static void test_writer_multi_readers(writer_type wtype,
     wargs.wtype = wtype;
     wargs.tid = i;
     wargs.ndocs = num_docs;
-    wargs.doc = doc;
+    wargs.docs = &docs;
     wargs.config = &fconfig;
     wargs.kvs_config = &kvs_config;
     wargs.batch_size = 100; // Do commit every 100 updates
@@ -647,8 +664,8 @@ static void test_writer_multi_readers(writer_type wtype,
     }
 
     // free all documents
-    for (int i = 0 ; i < num_docs; ++i) {
-        fdb_doc_free(doc[i]);
+    for (int i = 0 ; i < num_docs; ++i){
+        fdb_doc_free(docs.at(i));
     }
 
     // shutdown
@@ -686,13 +703,15 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
                                   (void *) "writer_multi_reader_thread");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
 
-    fdb_doc **doc = alca(fdb_doc*, num_docs);
+    // Create a vector of docs on the heap
+    std::vector<fdb_doc *> docs(num_docs, nullptr);
+
     // Load the initial documents with random keys.
-    loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
+    loadDocsWithRandomKeys(dbfile, db, &docs, num_docs);
     // Update the first half of documents, so that the last seq number becomes 150000.
-    updateDocsWithRandomKeys(dbfile, db, doc, 0, num_docs/2);
+    updateDocsWithRandomKeys(dbfile, db, &docs, 0, num_docs/2);
     // Update the rest of documents, so that the last seq number becomes 200000.
-    updateDocsWithRandomKeys(dbfile, db, doc, num_docs/2, num_docs);
+    updateDocsWithRandomKeys(dbfile, db, &docs, num_docs/2, num_docs);
 
     // Init the rollback mutex.
     mutex_init(&rollback_mutex);
@@ -705,7 +724,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
     for (size_t i = 0; i < n_readers; ++i){
         args[i].tid = i;
         args[i].ndocs = num_docs;
-        args[i].doc = doc;
+        args[i].docs = &docs;
         args[i].config = &fconfig;
         args[i].kvs_config = &kvs_config;
         args[i].check_body = 1;
@@ -741,7 +760,7 @@ static void test_rollback_multi_readers(multi_reader_type reader_type,
 
     // free all documents
     for (int i = 0 ; i < num_docs; ++i){
-        fdb_doc_free(doc[i]);
+        fdb_doc_free(docs.at(i));
     }
     mutex_destroy(&rollback_mutex);
 
@@ -778,13 +797,16 @@ static void test_rollback_compaction(const char *test_name) {
     status = fdb_set_log_callback(db, logCallbackFunc,
                                   (void *) "rollback_compactor_thread");
     TEST_CHK(status == FDB_RESULT_SUCCESS);
-    fdb_doc **doc = alca(fdb_doc*, num_docs);
+
+    // Create a vector of docs on the heap
+    std::vector<fdb_doc *> docs(num_docs, nullptr);
+
     // Load the initial documents with random keys.
-    loadDocsWithRandomKeys(dbfile, db, doc, num_docs);
+    loadDocsWithRandomKeys(dbfile, db, &docs, num_docs);
     // Update the first half of documents, so that the last seq number becomes 150000.
-    updateDocsWithRandomKeys(dbfile, db, doc, 0, num_docs/2);
+    updateDocsWithRandomKeys(dbfile, db, &docs, 0, num_docs/2);
     // Update the rest of documents, so that the last seq number becomes 200000.
-    updateDocsWithRandomKeys(dbfile, db, doc, num_docs/2, num_docs);
+    updateDocsWithRandomKeys(dbfile, db, &docs, num_docs/2, num_docs);
 
     // create compaction thread.
     thread_t tid;
@@ -819,7 +841,7 @@ static void test_rollback_compaction(const char *test_name) {
 
     // free all documents
     for (int i = 0 ; i < num_docs; ++i){
-        fdb_doc_free(doc[i]);
+        fdb_doc_free(docs.at(i));
     }
 
     // shutdown
