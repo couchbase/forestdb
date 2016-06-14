@@ -182,8 +182,8 @@ static void _construct_bmp_idx(struct avl_tree *bmp_idx,
 
     // If there are remaining bitmaps, check if they are non-zero or not one by one.
     if (bmp_size % 64) {
-        uint8_t idx, off;
-        uint64_t start;
+        uint8_t off;
+        uint64_t idx, start;
 
         start = (bmp_size/64)*64;
         if (start < start_bid) {
@@ -315,7 +315,7 @@ void sb_bmp_append_doc(FdbKvsHandle *handle)
         sb->bmp_docs[i].meta = NULL;
         sb->bmp_docs[i].body = sb->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
 
-        sb->bmp_docs[i].length.keylen = strlen(doc_key)+1;
+        sb->bmp_docs[i].length.keylen = (keylen_t)strlen(doc_key)+1;
         sb->bmp_docs[i].length.metalen = 0;
         if (i == num_docs - 1) {
             // the last doc
@@ -364,7 +364,7 @@ void sb_rsv_append_doc(FdbKvsHandle *handle)
         rsv->bmp_docs[i].meta = NULL;
         rsv->bmp_docs[i].body = rsv->bmp + (i * SB_MAX_BITMAP_DOC_SIZE);
 
-        rsv->bmp_docs[i].length.keylen = strlen(doc_key)+1;
+        rsv->bmp_docs[i].length.keylen = (keylen_t)strlen(doc_key)+1;
         rsv->bmp_docs[i].length.metalen = 0;
         if (i == num_docs - 1) {
             // the last doc
@@ -839,7 +839,7 @@ void sb_bmp_mask_init()
     // preset masks to speed up bitmap set/clear operations
     size_t i, pos, len;
     for (i=0; i<8; ++i) {
-        bmp_basic_mask[i] = 0x1 << (7-i);
+        bmp_basic_mask[i] = (uint8_t)(0x1 << (7-i));
     }
     for (pos=0; pos<8; ++pos) {
         for (len=0; len<9; ++len) {
@@ -1209,7 +1209,7 @@ bool sb_bmp_is_writable(struct filemgr *file, bid_t bid)
 fdb_status sb_write(struct filemgr *file, size_t sb_no,
                     ErrLogCallback * log_callback)
 {
-    int r;
+    ssize_t r;
     int real_blocksize = file->blocksize;
     int blocksize = file->blocksize - BLK_MARKER_SIZE;
     uint8_t *buf = alca(uint8_t, real_blocksize);
@@ -1361,7 +1361,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
                                     struct superblock *sb,
                                     ErrLogCallback *log_callback)
 {
-    int r;
+    ssize_t r;
     int real_blocksize = file->blocksize;
     int blocksize = file->blocksize - BLK_MARKER_SIZE;
     size_t i, num_docs;
@@ -1559,7 +1559,7 @@ static void _sb_free(struct superblock *sb)
     sb->config = NULL;
 }
 
-void _sb_init(struct superblock *sb, struct sb_config sconfig)
+static void _sb_init(struct superblock *sb, struct sb_config sconfig)
 {
     *sb->config = sconfig;
     sb->revnum = 0;
