@@ -2953,6 +2953,106 @@ void reverse_iterator_test()
     TEST_RESULT("reverse iterator test");
 }
 
+void reverse_seek_to_max_nokey(void)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, r;
+    int n = 100;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *db;
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_doc *rdoc;
+    fdb_status status;
+    fdb_iterator *iterator;
+
+    char keybuf[16];
+
+    // remove previous mvcc_test files
+    r = system(SHELL_DEL" iterator_test* > errorlog.txt");
+    (void)r;
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+
+    // open db
+    status = fdb_open(&dbfile, "./iterator_test1", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    status = fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // ------- Setup test ----------------------------------
+    for (i=0; i<n; i++){
+        sprintf(keybuf, "doc-%03d", i);
+        keybuf[7] = '\0';
+        keybuf[8] = '\0';
+        fdb_doc_create(&doc[i], (void*)keybuf, 10,
+            NULL, 0, (void*)keybuf, 10);
+        fdb_set(db, doc[i]);
+    }
+
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "reverse_seek_to_max_nokey");
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    // set range to have end key that does not exist
+    status = fdb_iterator_init(db, &iterator, doc[24]->key, 10,
+                       (void*)"doc-029b", 10,
+                      FDB_ITR_NO_DELETES);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_iterator_seek_to_max(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc->key, "doc-029", 8);
+    fdb_doc_free(rdoc);
+
+    fdb_iterator_close(iterator);
+
+    // set range to have start key that does not exist
+    status = fdb_iterator_init(db, &iterator, (void*)"doc-024b", 10,
+                               doc[30]->key, 10,
+                      FDB_ITR_NO_DELETES);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_iterator_seek_to_min(iterator);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    fdb_doc_create(&rdoc, NULL, 0, NULL, 0, NULL, 0);
+    status = fdb_iterator_get(iterator, &rdoc);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+    TEST_CMP(rdoc->key, "doc-025", 8);
+    fdb_doc_free(rdoc);
+
+    fdb_iterator_close(iterator);
+
+    // close db handle
+    fdb_kvs_close(db);
+
+    // close db file
+    fdb_close(dbfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("reverse seek to max non-existent key test");
+}
+
 void iterator_seek_wal_only_test()
 {
     TEST_INIT();
@@ -4033,6 +4133,7 @@ int main(){
     sequence_iterator_test();
     sequence_iterator_duplicate_test();
     sequence_iterator_range_test();
+    reverse_seek_to_max_nokey();
     reverse_sequence_iterator_test();
     reverse_sequence_iterator_kvs_test();
     reverse_iterator_test();
