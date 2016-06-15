@@ -72,42 +72,42 @@ static bool _fdb_kvs_any_handle_opened(fdb_file_handle *fhandle,
     struct filemgr_fhandle_idx_node *fhandle_node;
     fdb_file_handle *file_handle;
 
-    spin_lock(&file->fhandle_idx_lock);
-    a = avl_first(&file->fhandle_idx);
+    spin_lock(&file->handleIdxLock);
+    a = avl_first(&file->handleIdx);
     while (a) {
         fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
         a = avl_next(a);
         file_handle = (fdb_file_handle *) fhandle_node->fhandle;
         if (file_handle->checkAnyActiveKVHandle(kv_id)) {
-            spin_unlock(&file->fhandle_idx_lock);
+            spin_unlock(&file->handleIdxLock);
             return true;
         }
     }
-    spin_unlock(&file->fhandle_idx_lock);
+    spin_unlock(&file->handleIdxLock);
 
     return false;
 }
 
 void fdb_cmp_func_list_from_filemgr(FileMgr *file, struct list *cmp_func_list)
 {
-    if (!file || !file->kv_header || !cmp_func_list) {
+    if (!file || !file->kvHeader || !cmp_func_list) {
         return;
     }
 
     struct cmp_func_node *node;
 
-    spin_lock(&file->kv_header->lock);
+    spin_lock(&file->kvHeader->lock);
     // Default KV store cmp function
-    if (file->kv_header->default_kvs_cmp) {
+    if (file->kvHeader->default_kvs_cmp) {
         node = (struct cmp_func_node*)calloc(1, sizeof(struct cmp_func_node));
-        node->func = file->kv_header->default_kvs_cmp;
+        node->func = file->kvHeader->default_kvs_cmp;
         node->kvs_name = NULL;
         list_push_back(cmp_func_list, &node->le);
     }
 
     // Rest of KV stores
     struct kvs_node *kvs_node;
-    struct avl_node *a = avl_first(file->kv_header->idx_name);
+    struct avl_node *a = avl_first(file->kvHeader->idx_name);
     while (a) {
         kvs_node = _get_entry(a, struct kvs_node, avl_name);
         a = avl_next(a);
@@ -117,7 +117,7 @@ void fdb_cmp_func_list_from_filemgr(FileMgr *file, struct list *cmp_func_list)
         strcpy(node->kvs_name, kvs_node->kvs_name);
         list_push_back(cmp_func_list, &node->le);
     }
-    spin_unlock(&file->kv_header->lock);
+    spin_unlock(&file->kvHeader->lock);
 }
 
 void fdb_free_cmp_func_list(struct list *cmp_func_list)
@@ -147,9 +147,9 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
     struct list_elem *e;
     struct avl_node *a;
 
-    spin_lock(&file->kv_header->lock);
-    ori_flag = file->kv_header->custom_cmp_enabled;
-    ori_custom_cmp = file->kv_header->default_kvs_cmp;
+    spin_lock(&file->kvHeader->lock);
+    ori_flag = file->kvHeader->custom_cmp_enabled;
+    ori_custom_cmp = file->kvHeader->default_kvs_cmp;
 
     if (fhandle->getCmpFunctionList()) {
         handle->kvs_config.custom_cmp = NULL;
@@ -160,12 +160,12 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
             if (cmp_node->kvs_name == NULL ||
                     !strcmp(cmp_node->kvs_name, default_kvs_name)) { // default KVS
                 handle->kvs_config.custom_cmp = cmp_node->func;
-                file->kv_header->default_kvs_cmp = cmp_node->func;
-                file->kv_header->custom_cmp_enabled = 1;
+                file->kvHeader->default_kvs_cmp = cmp_node->func;
+                file->kvHeader->custom_cmp_enabled = 1;
             } else {
                 // search by name
                 query.kvs_name = cmp_node->kvs_name;
-                a = avl_search(file->kv_header->idx_name,
+                a = avl_search(file->kvHeader->idx_name,
                                &query.avl_name,
                                _kvs_cmp_name);
                 if (a) { // found
@@ -173,7 +173,7 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
                     if (!kvs_node->custom_cmp) {
                         kvs_node->custom_cmp = cmp_node->func;
                     }
-                    file->kv_header->custom_cmp_enabled = 1;
+                    file->kvHeader->custom_cmp_enabled = 1;
                 }
             }
             e = list_next(&cmp_node->le);
@@ -188,9 +188,9 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
             handle->kvs_config.custom_cmp == NULL) {
             // custom cmp function was assigned before,
             // but no custom cmp function is assigned
-            file->kv_header->custom_cmp_enabled = ori_flag;
-            file->kv_header->default_kvs_cmp = ori_custom_cmp;
-            spin_unlock(&file->kv_header->lock);
+            file->kvHeader->custom_cmp_enabled = ori_flag;
+            file->kvHeader->default_kvs_cmp = ori_custom_cmp;
+            spin_unlock(&file->kvHeader->lock);
             const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
             if (!kvs_name) {
                 kvs_name = DEFAULT_KVS_NAME;
@@ -204,9 +204,9 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
               handle->kvs_config.custom_cmp) {
             // custom cmp function was not assigned before,
             // but custom cmp function is assigned from user
-            file->kv_header->custom_cmp_enabled = ori_flag;
-            file->kv_header->default_kvs_cmp = ori_custom_cmp;
-            spin_unlock(&file->kv_header->lock);
+            file->kvHeader->custom_cmp_enabled = ori_flag;
+            file->kvHeader->default_kvs_cmp = ori_custom_cmp;
+            spin_unlock(&file->kvHeader->lock);
             const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
             if (!kvs_name) {
                 kvs_name = DEFAULT_KVS_NAME;
@@ -219,7 +219,7 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
     }
 
     // next check other KVSs
-    a = avl_first(file->kv_header->idx_name);
+    a = avl_first(file->kvHeader->idx_name);
     while (a) {
         kvs_node = _get_entry(a, struct kvs_node, avl_name);
         a = avl_next(a);
@@ -228,9 +228,9 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
             kvs_node->custom_cmp == NULL) {
             // custom cmp function was assigned before,
             // but no custom cmp function is assigned
-            file->kv_header->custom_cmp_enabled = ori_flag;
-            file->kv_header->default_kvs_cmp = ori_custom_cmp;
-            spin_unlock(&file->kv_header->lock);
+            file->kvHeader->custom_cmp_enabled = ori_flag;
+            file->kvHeader->default_kvs_cmp = ori_custom_cmp;
+            spin_unlock(&file->kvHeader->lock);
             const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
             if (!kvs_name) {
                 kvs_name = DEFAULT_KVS_NAME;
@@ -244,9 +244,9 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
               kvs_node->custom_cmp) {
             // custom cmp function was not assigned before,
             // but custom cmp function is assigned from user
-            file->kv_header->custom_cmp_enabled = ori_flag;
-            file->kv_header->default_kvs_cmp = ori_custom_cmp;
-            spin_unlock(&file->kv_header->lock);
+            file->kvHeader->custom_cmp_enabled = ori_flag;
+            file->kvHeader->default_kvs_cmp = ori_custom_cmp;
+            spin_unlock(&file->kvHeader->lock);
             const char *kvs_name = _fdb_kvs_get_name(handle, handle->file);
             if (!kvs_name) {
                 kvs_name = DEFAULT_KVS_NAME;
@@ -258,7 +258,7 @@ fdb_status fdb_kvs_cmp_check(FdbKvsHandle *handle)
         }
     }
 
-    spin_unlock(&file->kv_header->lock);
+    spin_unlock(&file->kvHeader->lock);
     return FDB_RESULT_SUCCESS;
 }
 
@@ -274,7 +274,7 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
     bhandle = trie->getBtreeBlkHandle();
     file = bhandle->getFile();
 
-    if (!file->kv_header->custom_cmp_enabled) {
+    if (!file->kvHeader->custom_cmp_enabled) {
         return NULL;
     }
 
@@ -283,9 +283,9 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
     // search by id
     if (kv_id > 0) {
         query.id = kv_id;
-        spin_lock(&file->kv_header->lock);
-        a = avl_search(file->kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
-        spin_unlock(&file->kv_header->lock);
+        spin_lock(&file->kvHeader->lock);
+        a = avl_search(file->kvHeader->idx_id, &query.avl_id, _kvs_cmp_id);
+        spin_unlock(&file->kvHeader->lock);
 
         if (a) {
             node = _get_entry(a, struct kvs_node, avl_id);
@@ -293,7 +293,7 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
         }
     } else {
         // root handle
-        return (hbtrie_cmp_func *)file->kv_header->default_kvs_cmp;
+        return (hbtrie_cmp_func *)file->kvHeader->default_kvs_cmp;
     }
     return NULL;
 }
@@ -309,11 +309,11 @@ void _fdb_kvs_header_create(KvsHeader **kv_header_ptr)
 
 void fdb_kvs_header_create(FileMgr *file)
 {
-    if (file->kv_header) {
+    if (file->kvHeader) {
         return; // already exist
     }
 
-    _fdb_kvs_header_create(&file->kv_header);
+    _fdb_kvs_header_create(&file->kvHeader);
     file->free_kv_header = fdb_kvs_header_free;
 }
 
@@ -321,7 +321,7 @@ void fdb_kvs_header_reset_all_stats(FileMgr *file)
 {
     struct avl_node *a;
     struct kvs_node *node;
-    KvsHeader *kv_header = file->kv_header;
+    KvsHeader *kv_header = file->kvHeader;
 
     spin_lock(&kv_header->lock);
     a = avl_first(kv_header->idx_id);
@@ -348,7 +348,7 @@ void fdb_kvs_header_copy(FdbKvsHandle *handle,
         _fdb_kvs_header_create(&kv_header);
         // read from 'handle->dhandle', and import into 'new_file'
         fdb_kvs_header_read(kv_header, handle->dhandle,
-                            handle->kv_info_offset, handle->file->version, false);
+                            handle->kv_info_offset, handle->file->fMgrVersion, false);
 
         // write KV header in 'new_file' using 'new_dhandle'
         uint64_t new_kv_info_offset;
@@ -361,24 +361,24 @@ void fdb_kvs_header_copy(FdbKvsHandle *handle,
             *new_file_kv_info_offset = new_kv_info_offset;
         }
 
-        if (!filemgr_set_kv_header(new_file, kv_header, fdb_kvs_header_free)) {
+        if (!new_file->setKVHeader(kv_header, fdb_kvs_header_free)) {
             // LCOV_EXCL_START
             _fdb_kvs_header_free(kv_header);
         } // LCOV_EXCL_STOP
         fdb_kvs_header_reset_all_stats(new_file);
     }
 
-    spin_lock(&handle->file->kv_header->lock);
-    spin_lock(&new_file->kv_header->lock);
+    spin_lock(&handle->file->kvHeader->lock);
+    spin_lock(&new_file->kvHeader->lock);
     // copy all in-memory custom cmp function pointers & seqnums
-    new_file->kv_header->default_kvs_cmp =
-        handle->file->kv_header->default_kvs_cmp;
-    new_file->kv_header->custom_cmp_enabled =
-        handle->file->kv_header->custom_cmp_enabled;
-    a = avl_first(handle->file->kv_header->idx_id);
+    new_file->kvHeader->default_kvs_cmp =
+        handle->file->kvHeader->default_kvs_cmp;
+    new_file->kvHeader->custom_cmp_enabled =
+        handle->file->kvHeader->custom_cmp_enabled;
+    a = avl_first(handle->file->kvHeader->idx_id);
     while (a) {
         node_old = _get_entry(a, struct kvs_node, avl_id);
-        aa = avl_search(new_file->kv_header->idx_id,
+        aa = avl_search(new_file->kvHeader->idx_id,
                         &node_old->avl_id, _kvs_cmp_id);
         assert(aa); // MUST exist
         node_new = _get_entry(aa, struct kvs_node, avl_id);
@@ -387,8 +387,8 @@ void fdb_kvs_header_copy(FdbKvsHandle *handle,
         node_new->op_stat = node_old->op_stat;
         a = avl_next(a);
     }
-    spin_unlock(&new_file->kv_header->lock);
-    spin_unlock(&handle->file->kv_header->lock);
+    spin_unlock(&new_file->kvHeader->lock);
+    spin_unlock(&handle->file->kvHeader->lock);
 }
 
 // export KV header info to raw data
@@ -809,7 +809,7 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle)
     FileMgr *file = handle->file;
     DocioHandle *dhandle = handle->dhandle;
 
-    _fdb_kvs_header_export(file->kv_header, &data, &len, file->version);
+    _fdb_kvs_header_export(file->kvHeader, &data, &len, file->fMgrVersion);
 
     prev_offset = handle->kv_info_offset;
 
@@ -829,8 +829,8 @@ uint64_t fdb_kvs_header_append(FdbKvsHandle *handle)
         if (handle->dhandle->readDocLength_Docio(&doc_len, prev_offset)
             == FDB_RESULT_SUCCESS) {
             // mark stale
-            filemgr_mark_stale(handle->file, prev_offset,
-                               _fdb_get_docsize(doc_len));
+            handle->file->markStale(prev_offset,
+                                    _fdb_get_docsize(doc_len));
         }
     }
 
@@ -853,7 +853,7 @@ void fdb_kvs_header_read(KvsHeader *kv_header,
         fdb_log(dhandle->getLogCallback(), (fdb_status) offset,
                 "Failed to read a KV header with the offset %" _F64 " from a "
                 "database file '%s'", kv_info_offset,
-                dhandle->getFile()->filename);
+                dhandle->getFile()->fileName);
         return;
     }
 
@@ -875,21 +875,21 @@ fdb_seqnum_t fdb_kvs_get_committed_seqnum(FdbKvsHandle *handle)
     char *compacted_filename = NULL;
     FileMgr *file = handle->file;
 
-    buf = alca(uint8_t, file->config->getBlockSize());
+    buf = alca(uint8_t, file->fileConfig->getBlockSize());
 
     if (handle->kvs && handle->kvs->getKvsId() > 0) {
         id = handle->kvs->getKvsId();
     }
 
-    hdr_bid = filemgr_get_header_bid(file);
+    hdr_bid = file->getHeaderBid();
     if (hdr_bid == BLK_NOT_FOUND) {
         // header doesn't exist
         return 0;
     }
 
     // read header
-    filemgr_fetch_header(file, hdr_bid, buf, &len, &seqnum, NULL, NULL,
-                         &version, NULL, &handle->log_callback);
+    file->fetchHeader(hdr_bid, buf, &len, &seqnum, NULL, NULL,
+                      &version, NULL, &handle->log_callback);
     if (id > 0) { // non-default KVS
         // read last KVS header
         fdb_fetch_header(version, buf, &dummy64, &dummy64,
@@ -953,9 +953,9 @@ fdb_status fdb_get_kvs_seqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
 
         if (handle->kvs == NULL ||
             handle->kvs->getKvsId() == 0) {
-            filemgr_mutex_lock(file);
-            *seqnum = filemgr_get_seqnum(file);
-            filemgr_mutex_unlock(file);
+            file->mutexLock();
+            *seqnum = file->getSeqnum();
+            file->mutexUnlock();
         } else {
             *seqnum = fdb_kvs_get_seqnum(file, handle->kvs->getKvsId());
         }
@@ -967,16 +967,16 @@ fdb_status fdb_get_kvs_seqnum(FdbKvsHandle *handle, fdb_seqnum_t *seqnum)
 }
 
 void fdb_kvs_set_seqnum(FileMgr *file,
-                           fdb_kvs_id_t id,
-                           fdb_seqnum_t seqnum)
+                        fdb_kvs_id_t id,
+                        fdb_seqnum_t seqnum)
 {
-    KvsHeader *kv_header = file->kv_header;
+    KvsHeader *kv_header = file->kvHeader;
     struct kvs_node query, *node;
     struct avl_node *a;
 
     if (id == 0) {
         // default KV instance
-        filemgr_set_seqnum(file, seqnum);
+        file->setSeqnum(seqnum);
         return;
     }
 
@@ -1008,12 +1008,12 @@ void _fdb_kvs_header_free(KvsHeader *kv_header)
 
 void fdb_kvs_header_free(FileMgr *file)
 {
-    if (file->kv_header == NULL) {
+    if (file->kvHeader == NULL) {
         return;
     }
 
-    _fdb_kvs_header_free(file->kv_header);
-    file->kv_header = NULL;
+    _fdb_kvs_header_free(file->kvHeader);
+    file->kvHeader = NULL;
 }
 
 static fdb_status _fdb_kvs_create(FdbKvsHandle *root_handle,
@@ -1043,25 +1043,25 @@ static fdb_status _fdb_kvs_create(FdbKvsHandle *root_handle,
 
 fdb_kvs_create_start:
     fdb_check_file_reopen(root_handle, NULL);
-    filemgr_mutex_lock(root_handle->file);
+    root_handle->file->mutexLock();
     fdb_sync_db_header(root_handle);
 
-    if (filemgr_is_rollback_on(root_handle->file)) {
-        filemgr_mutex_unlock(root_handle->file);
+    if (root_handle->file->isRollbackOn()) {
+        root_handle->file->mutexUnlock();
         return FDB_RESULT_FAIL_BY_ROLLBACK;
     }
 
     file = root_handle->file;
 
-    file_status_t fstatus = filemgr_get_file_status(file);
-    if (fstatus == FILE_REMOVED_PENDING) {
+    file_status_t fMgrStatus = file->getFileStatus();
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
         // we must not write into this file
         // file status was changed by other thread .. start over
-        filemgr_mutex_unlock(file);
+        file->mutexUnlock();
         goto fdb_kvs_create_start;
     }
 
-    kv_header = file->kv_header;
+    kv_header = file->kvHeader;
     spin_lock(&kv_header->lock);
 
     // find existing KV instance
@@ -1070,7 +1070,7 @@ fdb_kvs_create_start:
     a = avl_search(kv_header->idx_name, &query.avl_name, _kvs_cmp_name);
     if (a) { // KV name already exists
         spin_unlock(&kv_header->lock);
-        filemgr_mutex_unlock(file);
+        file->mutexUnlock();
         return fdb_log(&root_handle->log_callback, FDB_RESULT_INVALID_KV_INSTANCE_NAME,
                        "Failed to create KV Store '%s' as it already exists.",
                        kvs_name ? kvs_name : DEFAULT_KVS_NAME);
@@ -1108,12 +1108,11 @@ fdb_kvs_create_start:
 
     // if compaction is in-progress,
     // create a same kvs_node for the new file
-    if (file->new_file &&
-        filemgr_get_file_status(file) == FILE_COMPACT_OLD) {
+    if (file->newFile && file->getFileStatus() == FILE_COMPACT_OLD) {
         struct kvs_node *node_new;
         KvsHeader *kv_header_new;
 
-        kv_header_new = file->new_file->kv_header;
+        kv_header_new = file->newFile->kvHeader;
         node_new = (struct kvs_node*)calloc(1, sizeof(struct kvs_node));
         *node_new = *node;
         node_new->kvs_name = (char*)malloc(kv_ins_name_len);
@@ -1129,7 +1128,7 @@ fdb_kvs_create_start:
         spin_unlock(&kv_header_new->lock);
     }
 
-    // since this function calls filemgr_commit() and appends a new DB header,
+    // since this function calls FileMgr::commit() and appends a new DB header,
     // we should finalize & flush the previous dirty update before commit.
     bid_t dirty_idtree_root = BLK_NOT_FOUND;
     bid_t dirty_seqtree_root = BLK_NOT_FOUND;
@@ -1148,9 +1147,9 @@ fdb_kvs_create_start:
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
         uint64_t cur_bmp_revnum = sb_get_bmp_revnum(file);
-        root_handle->last_hdr_bid = filemgr_alloc(file, &root_handle->log_callback);
+        root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
-        fs = filemgr_commit_bid(root_handle->file,
+        fs = root_handle->file->commitBid(
                                 root_handle->last_hdr_bid,
                                 cur_bmp_revnum,
                                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
@@ -1158,7 +1157,7 @@ fdb_kvs_create_start:
         root_handle->bhandle->resetSubblockInfo();
     }
 
-    filemgr_mutex_unlock(file);
+    file->mutexUnlock();
 
     return fs;
 }
@@ -1178,14 +1177,14 @@ char* _fdb_kvs_get_name(FdbKvsHandle *handle, FileMgr *file)
     if (query.id == 0) { // default KV instance
         return NULL;
     }
-    spin_lock(&file->kv_header->lock);
-    a = avl_search(file->kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
+    spin_lock(&file->kvHeader->lock);
+    a = avl_search(file->kvHeader->idx_id, &query.avl_id, _kvs_cmp_id);
     if (a) {
         node = _get_entry(a, struct kvs_node, avl_id);
-        spin_unlock(&file->kv_header->lock);
+        spin_unlock(&file->kvHeader->lock);
         return node->kvs_name;
     }
-    spin_unlock(&file->kv_header->lock);
+    spin_unlock(&file->kvHeader->lock);
     return NULL;
 }
 
@@ -1209,15 +1208,15 @@ const char* _fdb_kvs_extract_name_off(FdbKvsHandle *handle, void *keybuf,
     if (query.id == 0) { // default KV instance in multi kvs mode
         return default_kvs_name;
     }
-    spin_lock(&file->kv_header->lock);
-    a = avl_search(file->kv_header->idx_id, &query.avl_id, _kvs_cmp_id);
+    spin_lock(&file->kvHeader->lock);
+    a = avl_search(file->kvHeader->idx_id, &query.avl_id, _kvs_cmp_id);
     if (a) {
         node = _get_entry(a, struct kvs_node, avl_id);
         const char *kvs_name = node->kvs_name;
-        spin_unlock(&file->kv_header->lock);
+        spin_unlock(&file->kvHeader->lock);
         return kvs_name;
     }
-    spin_unlock(&file->kv_header->lock);
+    spin_unlock(&file->kvHeader->lock);
     return NULL;
 }
 
@@ -1370,15 +1369,15 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             handle->kvs_config = config_local;
             handle->handle_busy = 0;
 
-            if (root_handle->file->kv_header) {
-                spin_lock(&root_handle->file->kv_header->lock);
+            if (root_handle->file->kvHeader) {
+                spin_lock(&root_handle->file->kvHeader->lock);
                 handle->kvs_config.custom_cmp =
-                    root_handle->file->kv_header->default_kvs_cmp;
-                spin_unlock(&root_handle->file->kv_header->lock);
+                    root_handle->file->kvHeader->default_kvs_cmp;
+                spin_unlock(&root_handle->file->kvHeader->lock);
             }
 
             handle->fhandle = fhandle;
-            fs = _fdb_open(handle, root_handle->file->filename, FDB_AFILENAME, &config);
+            fs = _fdb_open(handle, root_handle->file->fileName, FDB_AFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 delete handle;
                 *ptr_handle = NULL;
@@ -1425,7 +1424,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     handle->handle_busy = 0;
     handle->fhandle = fhandle;
     fs = _fdb_kvs_open(root_handle, &config, &config_local,
-                       root_handle->file, root_handle->file->filename, kvs_name, handle);
+                       root_handle->file, root_handle->file->fileName, kvs_name, handle);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_handle = handle;
     } else {
@@ -1562,32 +1561,32 @@ fdb_status _fdb_kvs_remove(fdb_file_handle *fhandle,
 fdb_kvs_remove_start:
     if (!rollback_recreate) {
         fdb_check_file_reopen(root_handle, NULL);
-        filemgr_mutex_lock(root_handle->file);
+        root_handle->file->mutexLock();
         fdb_sync_db_header(root_handle);
 
-        if (filemgr_is_rollback_on(root_handle->file)) {
-            filemgr_mutex_unlock(root_handle->file);
+        if (root_handle->file->isRollbackOn()) {
+            root_handle->file->mutexUnlock();
             return FDB_RESULT_FAIL_BY_ROLLBACK;
         }
     } else {
-        filemgr_mutex_lock(root_handle->file);
+        root_handle->file->mutexLock();
     }
 
     file = root_handle->file;
 
-    file_status_t fstatus = filemgr_get_file_status(file);
-    if (fstatus == FILE_REMOVED_PENDING) {
+    file_status_t fMgrStatus = file->getFileStatus();
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
         // we must not write into this file
         // file status was changed by other thread .. start over
-        filemgr_mutex_unlock(file);
+        file->mutexUnlock();
         goto fdb_kvs_remove_start;
-    } else if (fstatus == FILE_COMPACT_OLD) {
+    } else if (fMgrStatus == FILE_COMPACT_OLD) {
         // Cannot remove existing KV store during compaction.
         // To remove a KV store, the corresponding first chunk in HB+trie
         // should be unlinked. This can be possible in the old file during
         // compaction, but impossible in the new file, since existing documents
         // (including docs belonging to the KV store to be removed) are being moved.
-        filemgr_mutex_unlock(file);
+        file->mutexUnlock();
         return FDB_RESULT_FAIL_BY_COMPACTION;
     }
 
@@ -1600,26 +1599,26 @@ fdb_kvs_remove_start:
             kv_id = 0;
             if (_fdb_kvs_any_handle_opened(fhandle, kv_id)) {
                 // there is an opened handle
-                filemgr_mutex_unlock(file);
+                file->mutexUnlock();
                 return FDB_RESULT_KV_STORE_BUSY;
             }
         }
         // reset KVS stats (excepting for WAL stats)
-        file->header.stat.ndocs = 0;
-        file->header.stat.nlivenodes = 0;
-        file->header.stat.datasize = 0;
-        file->header.stat.deltasize = 0;
+        file->fMgrHeader.stat.ndocs = 0;
+        file->fMgrHeader.stat.nlivenodes = 0;
+        file->fMgrHeader.stat.datasize = 0;
+        file->fMgrHeader.stat.deltasize = 0;
 
         // reset seqnum
-        filemgr_set_seqnum(file, 0);
+        file->setSeqnum(0);
     } else {
-        kv_header = file->kv_header;
+        kv_header = file->kvHeader;
         spin_lock(&kv_header->lock);
         query.kvs_name = (char*)kvs_name;
         a = avl_search(kv_header->idx_name, &query.avl_name, _kvs_cmp_name);
         if (a == NULL) { // KV name doesn't exist
             spin_unlock(&kv_header->lock);
-            filemgr_mutex_unlock(file);
+            file->mutexUnlock();
             return FDB_RESULT_KV_STORE_NOT_FOUND;
         }
         node = _get_entry(a, struct kvs_node, avl_name);
@@ -1629,7 +1628,7 @@ fdb_kvs_remove_start:
             spin_unlock(&kv_header->lock);
             if (_fdb_kvs_any_handle_opened(fhandle, kv_id)) {
                 // there is an opened handle
-                filemgr_mutex_unlock(file);
+                file->mutexUnlock();
                 return FDB_RESULT_KV_STORE_BUSY;
             }
             spin_lock(&kv_header->lock);
@@ -1656,7 +1655,7 @@ fdb_kvs_remove_start:
     }
 
     // discard all WAL entries
-    file->wal->closeKvs_Wal(kv_id, &root_handle->log_callback);
+    file->fMgrWal->closeKvs_Wal(kv_id, &root_handle->log_callback);
 
     bid_t dirty_idtree_root = BLK_NOT_FOUND;
     bid_t dirty_seqtree_root = BLK_NOT_FOUND;
@@ -1690,9 +1689,9 @@ fdb_kvs_remove_start:
     // if no compaction is being performed, append header and commit
     if (root_handle->file == file) {
         uint64_t cur_bmp_revnum = sb_get_bmp_revnum(file);
-        root_handle->last_hdr_bid = filemgr_alloc(file, &root_handle->log_callback);
+        root_handle->last_hdr_bid = file->alloc_FileMgr(&root_handle->log_callback);
         root_handle->cur_header_revnum = fdb_set_file_header(root_handle, true);
-        fs = filemgr_commit_bid(root_handle->file,
+        fs = root_handle->file->commitBid(
                                 root_handle->last_hdr_bid,
                                 cur_bmp_revnum,
                                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
@@ -1700,7 +1699,7 @@ fdb_kvs_remove_start:
         root_handle->bhandle->resetSubblockInfo();
     }
 
-    filemgr_mutex_unlock(file);
+    file->mutexUnlock();
 
     return fs;
 }
@@ -1713,8 +1712,8 @@ bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
     struct filemgr_fhandle_idx_node *fhandle_node;
     fdb_file_handle *file_handle;
 
-    spin_lock(&file->fhandle_idx_lock);
-    a = avl_first(&file->fhandle_idx);
+    spin_lock(&file->handleIdxLock);
+    a = avl_first(&file->handleIdx);
     while (a) {
         fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
         a = avl_next(a);
@@ -1724,7 +1723,7 @@ bool _fdb_kvs_is_busy(fdb_file_handle *fhandle)
             break;
         }
     }
-    spin_unlock(&file->fhandle_idx_lock);
+    spin_unlock(&file->handleIdxLock);
 
     return ret;
 }
@@ -1762,33 +1761,33 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                        FDB_RESULT_RONLY_VIOLATION,
                        "Warning: Rollback is not allowed on "
                        "the read-only DB file '%s'.",
-                       handle_in->file->filename);
+                       handle_in->file->fileName);
     }
 
-    filemgr_mutex_lock(handle_in->file);
-    filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
+    handle_in->file->mutexLock();
+    handle_in->file->setRollback(1); // disallow writes operations
     // All transactions should be closed before rollback
-    if (handle_in->file->wal->doesTxnExist_Wal()) {
-        filemgr_set_rollback(handle_in->file, 0);
-        filemgr_mutex_unlock(handle_in->file);
+    if (handle_in->file->fMgrWal->doesTxnExist_Wal()) {
+        handle_in->file->setRollback(0);
+        handle_in->file->mutexUnlock();
         return FDB_RESULT_FAIL_BY_TRANSACTION;
     }
 
     // If compaction is running, wait until it is aborted.
     // TODO: Find a better way of waiting for the compaction abortion.
     unsigned int sleep_time = 10000; // 10 ms.
-    file_status_t fstatus = filemgr_get_file_status(handle_in->file);
-    while (fstatus == FILE_COMPACT_OLD) {
-        filemgr_mutex_unlock(handle_in->file);
+    file_status_t fMgrStatus = handle_in->file->getFileStatus();
+    while (fMgrStatus == FILE_COMPACT_OLD) {
+        handle_in->file->mutexUnlock();
         decaying_usleep(&sleep_time, 1000000);
-        filemgr_mutex_lock(handle_in->file);
-        fstatus = filemgr_get_file_status(handle_in->file);
+        handle_in->file->mutexLock();
+        fMgrStatus = handle_in->file->getFileStatus();
     }
-    if (fstatus == FILE_REMOVED_PENDING) {
-        filemgr_mutex_unlock(handle_in->file);
+    if (fMgrStatus == FILE_REMOVED_PENDING) {
+        handle_in->file->mutexUnlock();
         fdb_check_file_reopen(handle_in, NULL);
     } else {
-        filemgr_mutex_unlock(handle_in->file);
+        handle_in->file->mutexUnlock();
     }
 
     fdb_sync_db_header(handle_in);
@@ -1797,20 +1796,20 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     // requested snapshot marker, it means the snapshot is not yet visible
     // even via the current FdbKvsHandle
     if (seqnum > handle_in->seqnum) {
-        filemgr_set_rollback(super_handle->file, 0); // allow mutations
+        super_handle->file->setRollback(0); // allow mutations
         return FDB_RESULT_NO_DB_INSTANCE;
     }
 
     kvs_name = _fdb_kvs_get_name(handle_in, handle_in->file);
     if (seqnum == 0) { // Handle special case of rollback to zero..
         fs = _fdb_kvs_remove(fhandle, kvs_name, true /*recreate!*/);
-        filemgr_set_rollback(super_handle->file, 0); // allow mutations
+        super_handle->file->setRollback(0); // allow mutations
         return fs;
     }
 
     handle = new FdbKvsHandle();
     if (!handle) { // LCOV_EXCL_START
-        filemgr_set_rollback(handle_in->file, 0); // allow mutations
+        handle_in->file->setRollback(0); // allow mutations
         return FDB_RESULT_ALLOC_FAIL;
     } // LCOV_EXCL_STOP
 
@@ -1824,14 +1823,14 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                            &config,
                            &kvs_config,
                            handle_in->file,
-                           handle_in->file->filename,
+                           handle_in->file->fileName,
                            kvs_name,
                            handle);
     } else {
-        fs = _fdb_open(handle, handle_in->file->filename,
+        fs = _fdb_open(handle, handle_in->file->fileName,
                        FDB_AFILENAME, &config);
     }
-    filemgr_set_rollback(handle_in->file, 0); // allow mutations
+    handle_in->file->setRollback(0); // allow mutations
 
     if (fs == FDB_RESULT_SUCCESS) {
         // get KV instance's sub B+trees' root node BIDs
@@ -1846,7 +1845,7 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         size_chunk = handle->trie->getChunkSize();
         size_id = sizeof(fdb_kvs_id_t);
 
-        filemgr_mutex_lock(handle_in->file);
+        handle_in->file->mutexLock();
 
         // read root BID of the KV instance from the old handle
         // and overwrite into the current handle
@@ -1883,7 +1882,7 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         fdb_kvs_set_seqnum(handle_in->file,
                            handle_in->kvs->getKvsId(), seqnum);
         handle_in->seqnum = seqnum;
-        filemgr_mutex_unlock(handle_in->file);
+        handle_in->file->mutexUnlock();
 
         super_handle->rollback_revnum = handle->rollback_revnum;
         fs = _fdb_commit(super_handle, FDB_COMMIT_MANUAL_WAL_FLUSH,
@@ -1897,10 +1896,10 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
             fdb_log(&handle_in->log_callback, fs,
                     "Rollback failed due to a commit failure with a sequence "
                     "number %" _F64, seqnum);
-            filemgr_mutex_lock(handle_in->file);
+            handle_in->file->mutexLock();
             fdb_kvs_set_seqnum(handle_in->file,
                                handle_in->kvs->getKvsId(), old_seqnum);
-            filemgr_mutex_unlock(handle_in->file);
+            handle_in->file->mutexUnlock();
             _fdb_kvs_close(handle);
             delete handle;
         }
@@ -1960,7 +1959,7 @@ fdb_status fdb_get_kvs_info(FdbKvsHandle *handle, fdb_kvs_info *info)
         kv_id = 0;
 
     } else {
-        kv_header = file->kv_header;
+        kv_header = file->kvHeader;
         kv_id = handle->kvs->getKvsId();
         spin_lock(&kv_header->lock);
 
@@ -1977,9 +1976,9 @@ fdb_status fdb_get_kvs_info(FdbKvsHandle *handle, fdb_kvs_info *info)
 
     if (handle->shandle) {
         // snapshot .. get its local stats
-        file->wal->getSnapStats_Wal(handle->shandle, &stat);
+        file->fMgrWal->getSnapStats_Wal(handle->shandle, &stat);
     } else {
-        _kvs_stat_get(file, kv_id, &stat);
+        file->kvsStatOps.statGet(kv_id, &stat);
     }
     ndocs = stat.ndocs;
     ndeletes = stat.ndeletes;
@@ -2054,10 +2053,10 @@ fdb_status fdb_get_kvs_ops_info(FdbKvsHandle *handle, fdb_kvs_ops_info *info)
         kv_id = handle->kvs->getKvsId();
     }
 
-    _kvs_ops_stat_get(file, kv_id, &stat);
+    file->kvsStatOps.opsStatGet(kv_id, &stat);
 
     if (root_handle != handle) {
-        _kvs_ops_stat_get(file, 0, &root_stat);
+        file->kvsStatOps.opsStatGet(0, &root_stat);
     } else {
         root_stat = stat;
     }
@@ -2096,7 +2095,7 @@ fdb_status fdb_get_kvs_name_list(fdb_file_handle *fhandle,
     }
 
     root_handle = fhandle->getRootHandle();
-    kv_header = root_handle->file->kv_header;
+    kv_header = root_handle->file->kvHeader;
 
     spin_lock(&kv_header->lock);
     // sum all lengths of KVS names first
@@ -2237,10 +2236,10 @@ stale_header_info fdb_get_smallest_active_header(FdbKvsHandle *handle)
     ret.revnum = cur_revnum = root_handle->cur_header_revnum;
     ret.bid = root_handle->last_hdr_bid;
 
-    spin_lock(&handle->file->fhandle_idx_lock);
+    spin_lock(&handle->file->handleIdxLock);
 
     // check all opened file handles
-    a = avl_first(&handle->file->fhandle_idx);
+    a = avl_first(&handle->file->handleIdx);
     while (a) {
         fhandle_node = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
         a = avl_next(a);
@@ -2253,17 +2252,17 @@ stale_header_info fdb_get_smallest_active_header(FdbKvsHandle *handle)
         }
     }
 
-    spin_unlock(&handle->file->fhandle_idx_lock);
+    spin_unlock(&handle->file->handleIdxLock);
 
-    uint64_t num_keeping_headers = handle->file->config->getNumKeepingHeaders();
+    uint64_t num_keeping_headers = handle->file->fileConfig->getNumKeepingHeaders();
     if (num_keeping_headers) {
         // backward scan previous header info to keep more headers
 
         if (ret.bid == handle->last_hdr_bid) {
             // header in 'handle->last_hdr_bid' is not written into file yet!
             // we should start from the previous header
-            hdr_bid = handle->file->header.bid.load();
-            hdr_revnum = handle->file->header.revnum;
+            hdr_bid = handle->file->fMgrHeader.bid.load();
+            hdr_revnum = handle->file->fMgrHeader.revnum;
         } else {
             hdr_bid = ret.bid;
             hdr_revnum = ret.revnum;
@@ -2277,9 +2276,10 @@ stale_header_info fdb_get_smallest_active_header(FdbKvsHandle *handle)
         }
 
         for (i=0; i<n_headers; ++i) {
-            hdr_bid = filemgr_fetch_prev_header(handle->file, hdr_bid,
-                         hdr_buf, &hdr_len, &seqnum, &hdr_revnum, NULL,
-                         &magic, NULL, &handle->log_callback);
+            hdr_bid = handle->file->fetchPrevHeader(hdr_bid, hdr_buf, &hdr_len,
+                                                    &seqnum, &hdr_revnum, NULL,
+                                                    &magic, NULL,
+                                                    &handle->log_callback);
             if (hdr_len) {
                 ret.revnum = hdr_revnum;
                 ret.bid = hdr_bid;
@@ -2295,15 +2295,16 @@ stale_header_info fdb_get_smallest_active_header(FdbKvsHandle *handle)
     uint64_t dummy64;
     char *new_filename;
 
-    filemgr_fetch_header(handle->file, ret.bid, hdr_buf, &hdr_len, &seqnum,
-                         &hdr_revnum, NULL, &magic, NULL, &handle->log_callback);
+    handle->file->fetchHeader(ret.bid, hdr_buf, &hdr_len, &seqnum, &hdr_revnum,
+                              NULL, &magic, NULL, &handle->log_callback);
     fdb_fetch_header(magic, hdr_buf, &dummy64, &dummy64, &dummy64, &dummy64,
                      &dummy64, &dummy64, &dummy64, &last_wal_bid, &dummy64,
                      &dummy64, &new_filename, NULL);
 
     if (last_wal_bid != BLK_NOT_FOUND) {
-        filemgr_fetch_header(handle->file, last_wal_bid, hdr_buf, &hdr_len, &seqnum,
-                             &hdr_revnum, NULL, &magic, NULL, &handle->log_callback);
+        handle->file->fetchHeader(last_wal_bid, hdr_buf, &hdr_len, &seqnum,
+                                  &hdr_revnum, NULL, &magic, NULL,
+                                  &handle->log_callback);
         ret.bid = last_wal_bid;
         ret.revnum = hdr_revnum;
     } else {

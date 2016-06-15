@@ -45,33 +45,33 @@ void basic_test()
     uint8_t buf[4096];
     char *fname = (char *) "./bcache_testfile";
 
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     for (i=0;i<5;++i) {
-        filemgr_alloc(file, NULL);
-        filemgr_write(file, i, buf, NULL);
+        file->alloc_FileMgr(NULL);
+        file->write_FileMgr(i, buf, NULL);
     }
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
     for (i=5;i<10;++i) {
-        filemgr_alloc(file, NULL);
-        filemgr_write(file, i, buf, NULL);
+        file->alloc_FileMgr(NULL);
+        file->write_FileMgr(i, buf, NULL);
     }
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
-    filemgr_read(file, 8, buf, NULL, true);
-    filemgr_read(file, 9, buf, NULL, true);
+    file->read_FileMgr(8, buf, NULL, true);
+    file->read_FileMgr(9, buf, NULL, true);
 
-    filemgr_read(file, 1, buf, NULL, true);
-    filemgr_read(file, 2, buf, NULL, true);
-    filemgr_read(file, 3, buf, NULL, true);
+    file->read_FileMgr(1, buf, NULL, true);
+    file->read_FileMgr(2, buf, NULL, true);
+    file->read_FileMgr(3, buf, NULL, true);
 
-    filemgr_read(file, 7, buf, NULL, true);
-    filemgr_read(file, 1, buf, NULL, true);
-    filemgr_read(file, 9, buf, NULL, true);
+    file->read_FileMgr(7, buf, NULL, true);
+    file->read_FileMgr(1, buf, NULL, true);
+    file->read_FileMgr(9, buf, NULL, true);
 
-    filemgr_alloc(file, NULL);
-    filemgr_write(file, 10, buf, NULL);
+    file->alloc_FileMgr(NULL);
+    file->write_FileMgr(10, buf, NULL);
 
     TEST_RESULT("basic test");
 }
@@ -90,20 +90,20 @@ void basic_test2()
     r = system(SHELL_DEL " bcache_testfile");
     (void)r;
 
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     for (i=0;i<5;++i) {
-        filemgr_alloc(file, NULL);
-        filemgr_write(file, i, buf, NULL);
+        file->alloc_FileMgr(NULL);
+        file->write_FileMgr(i, buf, NULL);
     }
     for (i=5;i<10;++i) {
-        filemgr_alloc(file, NULL);
-        filemgr_write(file, i, buf, NULL);
+        file->alloc_FileMgr(NULL);
+        file->write_FileMgr(i, buf, NULL);
     }
-    filemgr_commit(file, true, NULL);
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    file->commit_FileMgr(true, NULL);
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     TEST_RESULT("basic test");
 
@@ -136,12 +136,13 @@ void * worker(void *voidargs)
         bid = rand() % args->nblocks;
         ret = BlockCacheManager::getInstance()->read(args->file, bid, buf);
         if (ret <= 0) {
-            ret = args->file->ops->pread(args->file->fd, buf,
-                                         args->file->blocksize, bid * args->file->blocksize);
-            TEST_CHK(ret == (ssize_t)args->file->blocksize);
+            ret = args->file->fMgrOps->pread(args->file->fd, buf,
+                                             args->file->blockSize,
+                                             bid * args->file->blockSize);
+            TEST_CHK(ret == (ssize_t)args->file->blockSize);
             ret = BlockCacheManager::getInstance()->write(args->file, bid, buf,
                                                           BCACHE_REQ_CLEAN, false);
-            TEST_CHK(ret == (ssize_t)args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blockSize);
         }
         crc_file = crc32_8(buf, sizeof(uint64_t)*2, 0);
         (void)crc_file;
@@ -161,10 +162,10 @@ void * worker(void *voidargs)
 
             ret = BlockCacheManager::getInstance()->write(args->file, bid, buf,
                                                           BCACHE_REQ_DIRTY, true);
-            TEST_CHK(ret == (ssize_t)args->file->blocksize);
+            TEST_CHK(ret == (ssize_t)args->file->blockSize);
         } else { // have some of the reader threads flush dirty immutable blocks
             if (bid <= args->nblocks / 4) { // 25% probability
-                filemgr_flush_immutable(args->file, NULL);
+                args->file->flushImmutable(NULL);
             }
         }
 
@@ -209,7 +210,7 @@ void multi_thread_test(int nblocks, int cachesize,
     buf = (uint8_t *)malloc(4096);
     memset(buf, 0, 4096);
 
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     for (i=0;i<(uint64_t)nblocks;++i) {
@@ -236,9 +237,9 @@ void multi_thread_test(int nblocks, int cachesize,
         thread_join(tid[i], &ret[i]);
     }
 
-    filemgr_commit(file, true, NULL);
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    file->commit_FileMgr(true, NULL);
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
     free(buf);
 
     memleak_end();
@@ -258,7 +259,7 @@ int main()
      * already been marked as immutable. These unit tests attempt to
      * write to the same immutable block again causing this race. In
      * reality, this won't happen as these operations go through
-     * filemgr_read() and filemgr_write().
+     * FileMgr::read() and FileMgr::write().
      */
     multi_thread_test(4, 1, 32, 20, 1, 7);
     multi_thread_test(100, 1, 32, 10, 1, 7);

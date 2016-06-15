@@ -69,9 +69,9 @@ void FdbKvsHandle::initRootHandle() {
     // super handle's ID is always 0
     kvs->setKvsId(0);
     // force custom cmp function
-    spin_lock(&file->kv_header->lock);
-    kvs_config.custom_cmp = file->kv_header->default_kvs_cmp;
-    spin_unlock(&file->kv_header->lock);
+    spin_lock(&file->kvHeader->lock);
+    kvs_config.custom_cmp = file->kvHeader->default_kvs_cmp;
+    spin_unlock(&file->kvHeader->lock);
 }
 
 void FdbKvsHandle::createKvsInfo(FdbKvsHandle *root_handle,
@@ -92,21 +92,21 @@ void FdbKvsHandle::createKvsInfo(FdbKvsHandle *root_handle,
         kvs->setRootHandle(root_handle);
 
         if (kvs_name) {
-            spin_lock(&file->kv_header->lock);
+            spin_lock(&file->kvHeader->lock);
             query.kvs_name = (char*)kvs_name;
-            a = avl_search(file->kv_header->idx_name, &query.avl_name,
+            a = avl_search(file->kvHeader->idx_name, &query.avl_name,
                            _kvs_cmp_name);
             if (a == NULL) {
                 // KV instance name is not found
                 freeKvsInfo();
-                spin_unlock(&file->kv_header->lock);
+                spin_unlock(&file->kvHeader->lock);
                 return;
             }
             kvs_node = _get_entry(a, struct kvs_node, avl_name);
             kvs->setKvsId(kvs_node->id);
             // force custom cmp function
             kvs_config.custom_cmp = kvs_node->custom_cmp;
-            spin_unlock(&file->kv_header->lock);
+            spin_unlock(&file->kvHeader->lock);
         } else {
             // snapshot of the root handle
             kvs->setKvsId(0);

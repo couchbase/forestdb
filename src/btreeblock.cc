@@ -86,7 +86,7 @@ BTreeBlkHandle::BTreeBlkHandle(FileMgr *_file, uint32_t _nodesize)
     uint32_t i;
     uint32_t _sub_nodesize;
 
-    nnodeperblock = _file->blocksize / _nodesize;
+    nnodeperblock = _file->blockSize / _nodesize;
     nlivenodes = 0;
     ndeltanodes = 0;
     dirty_update = NULL;
@@ -202,7 +202,7 @@ void BTreeBlkHandle::getAlignedBlock(struct btreeblk_block *block)
                        mempool_alloc(sizeof(struct btreeblk_addr));
 #endif
 
-    malloc_align(block->addr, FDB_SECTOR_SIZE, file->blocksize);
+    malloc_align(block->addr, FDB_SECTOR_SIZE, file->blockSize);
 }
 
 void BTreeBlkHandle::freeAlignedBlock(struct btreeblk_block *block)
@@ -237,13 +237,13 @@ fdb_status BTreeBlkHandle::writeDirtyBlock(struct btreeblk_block *block)
     encodeBlock(block);
     if (dirty_update_writer) {
         // dirty update is in-progress
-        status = filemgr_write_dirty(file, block->bid, block->addr,
-                                     dirty_update_writer,
-                                     log_callback);
+        status = file->writeDirty(block->bid, block->addr,
+                                  dirty_update_writer,
+                                  log_callback);
     } else {
         // normal write into file
-        status = filemgr_write(file, block->bid, block->addr,
-                               log_callback);
+        status = file->write_FileMgr(block->bid, block->addr,
+                                     log_callback);
     }
     if (status != FDB_RESULT_SUCCESS) {
         fdb_log(log_callback, status,
@@ -262,8 +262,8 @@ void * BTreeBlkHandle::_alloc(bid_t& bid, int sb_no)
 
     if (e) {
         block = _get_entry(e, struct btreeblk_block, le);
-        if (block->pos <= (file->blocksize) - (nodesize)) {
-            if (filemgr_is_writable(file, block->bid)) {
+        if (block->pos <= (file->blockSize) - (nodesize)) {
+            if (file->isWritable(block->bid)) {
                 curpos = block->pos;
                 block->pos += (nodesize);
                 bid = (block->bid * nnodeperblock) + (curpos / nodesize);
@@ -283,7 +283,7 @@ void * BTreeBlkHandle::_alloc(bid_t& bid, int sb_no)
     }
     block->sb_no = sb_no;
     block->pos = nodesize;
-    block->bid = filemgr_alloc(file, log_callback);
+    block->bid = file->alloc_FileMgr(log_callback);
     block->dirty = 1;
     block->age = 0;
 
@@ -292,8 +292,8 @@ void * BTreeBlkHandle::_alloc(bid_t& bid, int sb_no)
     // with garbage data so that it causes various unexpected behaviors.
     // To avoid this issue, populate block cache for the given BID before use it.
     uint8_t marker = BLK_MARKER_BNODE;
-    filemgr_write_offset(file, block->bid, file->blocksize - 1,
-                         1, &marker, false, log_callback);
+    file->writeOffset(block->bid, file->blockSize - 1,
+                      1, &marker, false, log_callback);
 
 #ifdef __CRC32
     memset((uint8_t *)block->addr + nodesize - BLK_MARKER_SIZE,
@@ -508,7 +508,7 @@ void * BTreeBlkHandle::_read(bid_t bid, int sb_no)
     // if miss, read from file and add item into read list
     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
     block->sb_no = (subblock_mode)?(sb):(sb_no);
-    block->pos = file->blocksize;
+    block->pos = file->blockSize;
     block->bid = filebid;
     block->dirty = 0;
     block->age = 0;
@@ -518,13 +518,13 @@ void * BTreeBlkHandle::_read(bid_t bid, int sb_no)
     fdb_status status;
     if (dirty_update || dirty_update_writer) {
         // read from the given dirty update entry
-        status = filemgr_read_dirty(file, block->bid, block->addr,
-                                    dirty_update, dirty_update_writer,
-                                    log_callback, true);
+        status = file->readDirty(block->bid, block->addr,
+                                 dirty_update, dirty_update_writer,
+                                 log_callback, true);
     } else {
         // normal read
-        status = filemgr_read(file, block->bid, block->addr,
-                              log_callback, true);
+        status = file->read_FileMgr(block->bid, block->addr,
+                                    log_callback, true);
     }
     if (status != FDB_RESULT_SUCCESS) {
         fdb_log(log_callback, status,
@@ -598,7 +598,7 @@ void * BTreeBlkHandle::move(bid_t bid, bid_t& new_bid)
         }
         if (subblock[sb].bid == BLK_NOT_FOUND ||
             new_idx == subblock[sb].nblocks ||
-            !filemgr_is_writable(file, subblock[sb].bid)) {
+            !file->isWritable(subblock[sb].bid)) {
             // There is no free slot in the parent block, OR
             // the parent block is not writable.
 
@@ -687,7 +687,7 @@ bool BTreeBlkHandle::isWritable(bid_t bid)
     subbid2bid(bid, sb, idx, _bid);
     filebid = _bid / nnodeperblock;
 
-    return filemgr_is_writable(file, filebid);
+    return file->isWritable(filebid);
 }
 
 void BTreeBlkHandle::setDirty(bid_t bid)
@@ -796,7 +796,7 @@ void * BTreeBlkHandle::allocSub(bid_t& bid)
 
     // check current block is available
     if (subblock[0].bid != BLK_NOT_FOUND) {
-        if (filemgr_is_writable(file, subblock[0].bid)) {
+        if (file->isWritable(subblock[0].bid)) {
             // check if there is an empty slot
             for (i=0 ; i<subblock[0].nblocks ; ++i){
                 if (subblock[0].bitmap[i] == 0) {
@@ -879,7 +879,7 @@ void * BTreeBlkHandle::enlargeNode(bid_t old_bid,
         dst_idx = 0;
         if (src_nitems == 1 &&
             bid == subblock[src_sb].bid &&
-            filemgr_is_writable(file, bid)) {
+            file->isWritable(bid)) {
             //2 case 1
             // if there's only one subblock in the source block, and
             // the source block is still writable and allocable,
@@ -956,7 +956,7 @@ void * BTreeBlkHandle::enlargeNode(bid_t old_bid,
         // (happens only when the destination block is
         //  a parent block of subblock set)
         src_addr = _read(bid, src_sb);
-        if (filemgr_is_writable(file, subblock[dst_sb].bid) &&
+        if (file->isWritable(subblock[dst_sb].bid) &&
             dst_idx != subblock[dst_sb].nblocks) {
             // case 3-1
             dst_addr = _read(subblock[dst_sb].bid, dst_sb);
@@ -1010,7 +1010,7 @@ fdb_status BTreeBlkHandle::_flushBuffer()
     e = list_begin(&alc_list);
     while(e){
         block = _get_entry(e, struct btreeblk_block, le);
-        writable = filemgr_is_writable(file, block->bid);
+        writable = file->isWritable(block->bid);
         if (writable) {
             status = writeDirtyBlock(block);
             if (status != FDB_RESULT_SUCCESS) {
@@ -1020,7 +1020,7 @@ fdb_status BTreeBlkHandle::_flushBuffer()
             return FDB_RESULT_WRITE_FAIL;
         }
 
-        if (block->pos + nodesize > file->blocksize || !writable) {
+        if (block->pos + nodesize > file->blockSize || !writable) {
             // remove from alc_list and insert into read list
             e = list_remove(&alc_list, &block->le);
             block->dirty = 0;

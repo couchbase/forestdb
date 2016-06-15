@@ -124,12 +124,12 @@ INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
     uint64_t datasize;
     uint64_t nlivenodes;
 
-    datasize = _kvs_stat_get_sum(elem->file, KVS_STAT_DATASIZE);
-    nlivenodes = _kvs_stat_get_sum(elem->file, KVS_STAT_NLIVENODES);
+    datasize = elem->file->kvsStatOps.statGetSum(KVS_STAT_DATASIZE);
+    nlivenodes = elem->file->kvsStatOps.statGetSum(KVS_STAT_NLIVENODES);
 
     ret = datasize;
     ret += nlivenodes * elem->config.blocksize;
-    ret += elem->file->wal->getDataSize_Wal();
+    ret += elem->file->fMgrWal->getDataSize_Wal();
 
     return ret;
 }
@@ -141,7 +141,7 @@ INLINE bool _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
     uint64_t active_data;
     int threshold;
 
-    if (elem->compaction_flag || filemgr_is_rollback_on(elem->file)) {
+    if (elem->compaction_flag || elem->file->isRollbackOn()) {
         // do not perform compaction if the file is already being compacted or
         // in rollback.
         return false;
@@ -159,7 +159,7 @@ INLINE bool _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
     if (elem->config.compaction_mode == FDB_COMPACTION_AUTO &&
         threshold > 0)
         {
-        filesize = filemgr_get_pos(elem->file);
+        filesize = elem->file->getPos();
         active_data = _compactor_estimate_space(elem);
         if (active_data == 0 || active_data >= filesize ||
             filesize < elem->config.compaction_minimum_filesize) {
@@ -175,7 +175,7 @@ INLINE bool _compactor_is_threshold_satisfied(struct openfiles_elem *elem)
 // check if the file is waiting for being removed
 INLINE bool _compactor_check_file_removal(struct openfiles_elem *elem)
 {
-    if (elem->file->fflags & FILEMGR_REMOVAL_IN_PROG &&
+    if (elem->file->fMgrFlags & FILEMGR_REMOVAL_IN_PROG &&
         !elem->removal_activated) {
         return true;
     }
@@ -318,7 +318,7 @@ bool compactor_switch_compaction_flag(FileMgr *file, bool flag)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -428,27 +428,27 @@ void * compactor_thread(void *voidargs)
 
                 mutex_unlock(&cpt_lock);
                 // As the file is already unlinked, just close it.
-                ret = elem->file->ops->close(elem->file->fd);
+                ret = elem->file->fMgrOps->close(elem->file->fd);
 #if defined(WIN32) || defined(_WIN32)
                 // For Windows, we need to manually remove the file.
-                ret = remove(elem->file->filename);
+                ret = remove(elem->file->fileName);
 #endif
-                filemgr_remove_all_buffer_blocks(elem->file);
+                elem->file->removeAllBufferBlocks();
                 mutex_lock(&cpt_lock);
 
                 if (elem->log_callback && ret != 0) {
                     char errno_msg[512];
-                    elem->file->ops->get_errno_str(errno_msg, 512);
+                    elem->file->fMgrOps->get_errno_str(errno_msg, 512);
                     // As a workaround for MB-17009, call fprintf instead of fdb_log
                     // until c->cgo->go callback trace issue is resolved.
                     fprintf(stderr,
                             "Error status code: %d, Error in REMOVE on a "
                             "database file '%s', %s",
-                            ret, elem->file->filename, errno_msg);
+                            ret, elem->file->fileName, errno_msg);
                 }
 
                 // free filemgr structure
-                filemgr_free_func(&elem->file->e);
+                FileMgr::freeFunc(&elem->file->hashElem);
                 // remove & free elem
                 a = avl_next(a);
                 avl_remove(&openfiles, &elem->avl);
@@ -554,8 +554,8 @@ void compactor_shutdown()
 
         if (_compactor_check_file_removal(elem)) {
             // remove file if removal is pended.
-            remove(elem->file->filename);
-            filemgr_free_func(&elem->file->e);
+            remove(elem->file->fileName);
+            FileMgr::freeFunc(&elem->file->hashElem);
         }
 
         avl_remove(&openfiles, &elem->avl);
@@ -579,20 +579,20 @@ fdb_status compactor_register_file(FileMgr *file,
                                    fdb_config *config,
                                    ErrLogCallback *log_callback)
 {
-    file_status_t fstatus;
+    file_status_t fMgrStatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
     // Ignore files whose status is COMPACT_OLD or REMOVED_PENDING.
     // Those files do not need to be compacted again.
-    fstatus = filemgr_get_file_status(file);
-    if (fstatus == FILE_COMPACT_OLD ||
-        fstatus == FILE_REMOVED_PENDING) {
+    fMgrStatus = file->getFileStatus();
+    if (fMgrStatus == FILE_COMPACT_OLD ||
+        fMgrStatus == FILE_REMOVED_PENDING) {
         return fs;
     }
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     // first search the existing file
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
@@ -603,7 +603,7 @@ fdb_status compactor_register_file(FileMgr *file,
         struct compactor_meta meta;
 
         elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
-        strcpy(elem->filename, file->filename);
+        strcpy(elem->filename, file->fileName);
         elem->file = file;
         elem->config = *config;
         elem->config.cleanup_cache_onclose = false; // prevent MB-16422
@@ -622,8 +622,8 @@ fdb_status compactor_register_file(FileMgr *file,
                                  // counter below.
 
         // store in metafile
-        _compactor_convert_dbfile_to_metafile(file->filename, path);
-        _strcpy_fname(meta.filename, file->filename);
+        _compactor_convert_dbfile_to_metafile(file->fileName, path);
+        _strcpy_fname(meta.filename, file->fileName);
         fs = _compactor_store_metafile(path, &meta, log_callback);
     } else {
         // already exists
@@ -642,7 +642,7 @@ void compactor_deregister_file(FileMgr *file)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -674,7 +674,7 @@ fdb_status compactor_register_file_removing(FileMgr *file,
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     // first search the existing file
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
@@ -682,10 +682,10 @@ fdb_status compactor_register_file_removing(FileMgr *file,
         // doesn't exist
         // create a fake & temporary element for the file to be removed.
         elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
-        strcpy(elem->filename, file->filename);
+        strcpy(elem->filename, file->fileName);
 
         // set flag
-        file->fflags |= FILEMGR_REMOVAL_IN_PROG;
+        file->fMgrFlags |= FILEMGR_REMOVAL_IN_PROG;
 
         elem->file = file;
         elem->register_count = 1;
@@ -720,7 +720,7 @@ void compactor_change_threshold(FileMgr *file, size_t new_threshold)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -737,7 +737,7 @@ fdb_status compactor_set_compaction_interval(FileMgr *file,
     struct openfiles_elem query, *elem;
     fdb_status result = FDB_RESULT_SUCCESS;
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -877,7 +877,7 @@ void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
     struct openfiles_elem query, *elem;
     struct compactor_meta meta;
 
-    strcpy(query.filename, old_file->filename);
+    strcpy(query.filename, old_file->fileName);
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -886,7 +886,7 @@ void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
 
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openfiles, a);
-        strcpy(elem->filename, new_file->filename);
+        strcpy(elem->filename, new_file->fileName);
         elem->file = new_file;
         elem->register_count = 1;
         elem->daemon_compact_in_progress = false;
@@ -902,8 +902,8 @@ void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
                                  // the same file.
 
         if (comp_mode == FDB_COMPACTION_AUTO) {
-            _compactor_convert_dbfile_to_metafile(new_file->filename, metafile);
-            _strcpy_fname(meta.filename, new_file->filename);
+            _compactor_convert_dbfile_to_metafile(new_file->fileName, metafile);
+            _strcpy_fname(meta.filename, new_file->fileName);
             _compactor_store_metafile(metafile, &meta, log_callback);
         }
     } else {

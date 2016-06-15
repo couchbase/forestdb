@@ -95,7 +95,7 @@ void basic_test()
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
 
-    filemgr_open_result result = filemgr_open((char *) "./hbtrie_testfile",
+    filemgr_open_result result = FileMgr::open((char *) "./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle dhandle(file, false, NULL);
@@ -121,7 +121,7 @@ void basic_test()
     trie->remove((void*)key[0], strlen(key[0]));
     bhandle->flushBuffer();
 
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     for (i=0;i<n;++i) {
         if (i!=2) {
@@ -158,8 +158,8 @@ void basic_test()
     delete trie;
     delete bhandle;
 
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     TEST_RESULT("basic test");
 }
@@ -240,7 +240,7 @@ void skew_basic_test()
     rr = system(SHELL_DEL " hbtrie_testfile");
     (void)rr;
 
-    filemgr_open_result result = filemgr_open((char*)"./hbtrie_testfile",
+    filemgr_open_result result = FileMgr::open((char*)"./hbtrie_testfile",
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle dhandle(file, false, NULL);
@@ -363,12 +363,12 @@ void skew_basic_test()
     }
     delete it;
 
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     delete trie;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     memleak_end();
 
@@ -409,7 +409,7 @@ void hbtrie_reverse_iterator_test()
     (void)r;
     memleak_start();
 
-    fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
 
     bhandle = new BTreeBlkHandle(file, nodesize);
@@ -523,8 +523,8 @@ void hbtrie_reverse_iterator_test()
 
     delete trie;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
     memleak_end();
 
     TEST_RESULT("HB+trie reverse iterator test");
@@ -566,7 +566,7 @@ void hbtrie_partial_update_test()
     r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
 
-    fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
 
     bhandle = new BTreeBlkHandle(file, nodesize);
@@ -579,7 +579,7 @@ void hbtrie_partial_update_test()
         trie->insert(key, strlen(key), &v, &v_out);
         bhandle->flushBuffer();
     }
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
     //printf("root: %lx\n", trie.root_bid);
 
     // retrieve check
@@ -614,7 +614,7 @@ void hbtrie_partial_update_test()
         trie->insert(key, strlen(key), &v, &v_out);
         bhandle->flushBuffer();
     }
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     // replace the first-level chunks by old values
     for (i=0;i<3;++i){
@@ -622,7 +622,7 @@ void hbtrie_partial_update_test()
         trie->insertPartial(key, strlen(key), &v1[i], &v_out);
         bhandle->flushBuffer();
     }
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     // retrieve check
     for (i=0;i<(uint64_t)n;++i) {
@@ -640,7 +640,7 @@ void hbtrie_partial_update_test()
         trie->insert(key, strlen(key), &v, &v_out);
         bhandle->flushBuffer();
     }
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     // replace the second-level chunks by old values
     for (i=0;i<9;++i){
@@ -648,7 +648,7 @@ void hbtrie_partial_update_test()
         trie->insertPartial(key, strlen(key), &v2[i], &v_out);
         bhandle->flushBuffer();
     }
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     // retrieve check
     for (i=0;i<(uint64_t)n;++i) {
@@ -669,7 +669,7 @@ void hbtrie_partial_update_test()
     sprintf(key, "key%05d", (int)i);
     trie->removePartial(key, strlen(key));
     bhandle->flushBuffer();
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     // retrieve check
     for (i=0;i<(uint64_t)n;++i) {
@@ -688,8 +688,8 @@ void hbtrie_partial_update_test()
 
     delete trie;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
     memleak_end();
 
     TEST_RESULT("HB+trie partial update test");

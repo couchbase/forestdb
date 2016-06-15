@@ -33,7 +33,6 @@
 #include "list.h"
 #include "fdb_internal.h"
 #include "time_utils.h"
-#include "encryption.h"
 #include "version.h"
 
 #include "memleak.h"
@@ -59,7 +58,6 @@ static spin_t initial_lock = SPIN_INITIALIZER;
 static volatile unsigned int initial_lock_status = 0;
 static spin_t initial_lock;
 #endif
-
 
 static volatile uint8_t filemgr_initialized = 0;
 extern volatile uint8_t bgflusher_initialized;
@@ -193,22 +191,128 @@ static void _log_errno_str(struct filemgr_ops *ops,
 
 static uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
 {
-    FileMgr *file = _get_entry(e, struct FileMgr, e);
-    int len = strlen(file->filename);
+    FileMgr *file = _get_entry(e, struct FileMgr, hashElem);
+    int len = strlen(file->fileName);
 
-    return get_checksum(reinterpret_cast<const uint8_t*>(file->filename), len) &
-                        ((unsigned)(NBUCKET-1));
+    return get_checksum(reinterpret_cast<const uint8_t*>(file->fileName), len) &
+        ((unsigned)(NBUCKET-1));
 }
 
 static int _file_cmp(struct hash_elem *a, struct hash_elem *b)
 {
     FileMgr *aa, *bb;
-    aa = _get_entry(a, struct FileMgr, e);
-    bb = _get_entry(b, struct FileMgr, e);
-    return strcmp(aa->filename, bb->filename);
+    aa = _get_entry(a, struct FileMgr, hashElem);
+    bb = _get_entry(b, struct FileMgr, hashElem);
+    return strcmp(aa->fileName, bb->fileName);
 }
 
-void filemgr_init(FileMgrConfig *config)
+FileMgr::FileMgr()
+    : fileName(nullptr), fileNameLen(0), refCount(1), fMgrFlags(0x00),
+      blockSize(global_config.getBlockSize()), fd(-1), lastPos(0),
+      lastCommit(0), lastWritableBmpRevnum(0), ioInprog(0), fMgrWal(nullptr),
+      fMgrOps(nullptr), fMgrStatus(FILE_NORMAL), fileConfig(nullptr),
+      newFile(nullptr), prevFile(nullptr), oldFileName(nullptr), bCache(nullptr),
+      inPlaceCompaction(false), fsType(0), kvHeader(nullptr),
+      throttlingDelay(0), prefetchStatus(FILEMGR_PREFETCH_IDLE), prefetchTid(0),
+      fMgrVersion(0), fMgrSb(nullptr), kvsStatOps(this),
+      crcMode(CRC_DEFAULT), staleData(nullptr),
+      latestDirtyUpdate(nullptr)
+{
+
+    fMgrHeader.bid = 0;
+    fMgrHeader.op_stat.reset();
+
+    memset(&hashElem, 0, sizeof(struct hash_elem));
+    memset(&globalTxn, 0, sizeof(fdb_txn));
+
+#ifdef _LATENCY_STATS
+    for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
+        LatencyStats::init(&latStats[i]);
+    }
+#endif // _LATENCY_STATS
+
+    spin_init(&fMgrLock);
+
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+    struct plock_ops pops;
+    struct plock_config pconfig;
+
+    pops.init_user = mutex_init_wrap;
+    pops.lock_user = mutex_lock_wrap;
+    pops.unlock_user = mutex_unlock_wrap;
+    pops.destroy_user = mutex_destroy_wrap;
+    pops.init_internal = spin_init_wrap;
+    pops.lock_internal = spin_lock_wrap;
+    pops.unlock_internal = spin_unlock_wrap;
+    pops.destroy_internal = spin_destroy_wrap;
+    pops.is_overlapped = _block_is_overlapped;
+
+    memset(&pconfig, 0x0, sizeof(pconfig));
+    pconfig.ops = &pops;
+    pconfig.sizeof_lock_internal = sizeof(spin_t);
+    pconfig.sizeof_lock_user = sizeof(mutex_t);
+    pconfig.sizeof_range = sizeof(bid_t);
+    pconfig.aux = NULL;
+    plock_init(&fMgrPlock, &pconfig);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+    int i;
+    for (i = 0; i < DLOCK_MAX; ++i) {
+        mutex_init(&dataMutex[i]);
+    }
+#else
+    int i;
+    for (i = 0; i < DLOCK_MAX; ++i) {
+        spin_init(&dataSpinlock[i]);
+    }
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+
+    mutex_init(&writerLock.mutex);
+    writerLock.locked = false;
+
+    memset(&fMgrEncryption, 0, sizeof(encryptor));
+
+    dirtyUpdateInit();
+
+    avl_init(&handleIdx, nullptr);
+    spin_init(&handleIdxLock);
+}
+
+// Forward declaration
+void _free_fhandle_idx(struct avl_tree *idx);
+
+FileMgr::~FileMgr()
+{
+#ifdef _LATENCY_STATS
+    for (int x = 0; x < FDB_LATENCY_NUM_STATS; ++x) {
+        LatencyStats::destroy(&latStats[x]);
+    }
+#endif // _LATENCY_STATS
+
+    spin_destroy(&fMgrLock);
+
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+    plock_destroy(&fMgrPlock);
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+    int i;
+    for (i = 0; i < DLOCK_MAX; ++i) {
+        mutex_destroy(&dataMutex[i]);
+    }
+#else
+    int i;
+    for (i = 0; i < DLOCK_MAX; ++i) {
+        spin_destroy(&dataSpinlock[i]);
+    }
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
+
+    mutex_destroy(&writerLock.mutex);
+
+    dirtyUpdateFree();
+
+    _free_fhandle_idx(&handleIdx);
+    spin_destroy(&handleIdxLock);
+ }
+
+void FileMgr::init(FileMgrConfig *config)
 {
     // global initialization
     // initialized only once at first time
@@ -252,16 +356,16 @@ void filemgr_init(FileMgrConfig *config)
     }
 }
 
-void filemgr_set_lazy_file_deletion(bool enable,
-                                    register_file_removal_func regis_func,
-                                    check_file_removal_func check_func)
+void FileMgr::setLazyFileDeletion(bool enable,
+                                  register_file_removal_func regis_func,
+                                  check_file_removal_func check_func)
 {
     lazy_file_deletion_enabled = enable;
     register_file_removal = regis_func;
     is_file_removed = check_func;
 }
 
-void filemgr_set_sb_operation(struct sb_ops ops)
+void FileMgr::setSbOperation(struct sb_ops ops)
 {
     sb_ops = ops;
 }
@@ -279,7 +383,7 @@ static void * _filemgr_get_temp_buf()
         void *addr = NULL;
 
         malloc_align(addr, FDB_SECTOR_SIZE,
-                     global_config.getBlockSize() + sizeof(struct temp_buf_item));
+                global_config.getBlockSize() + sizeof(struct temp_buf_item));
 
         item = (struct temp_buf_item *)((uint8_t *) addr +
                                         global_config.getBlockSize());
@@ -319,28 +423,28 @@ static void _filemgr_shutdown_temp_buf()
 }
 
 // Read a block from the file, decrypting if necessary.
-ssize_t filemgr_read_block(FileMgr *file, void *buf, bid_t bid) {
-    ssize_t result = file->ops->pread(file->fd, buf, file->blocksize,
-                                      file->blocksize*bid);
-    if (file->encryption.ops && result > 0) {
-        if (result != (ssize_t)file->blocksize)
+ssize_t FileMgr::readBlock(void *buf, bid_t bid) {
+    ssize_t result = fMgrOps->pread(fd, buf, blockSize, blockSize * bid);
+    if (fMgrEncryption.ops && result > 0) {
+        if (result != (ssize_t)blockSize) {
             return FDB_RESULT_READ_FAIL;
-        fdb_status status = fdb_decrypt_block(&file->encryption, buf, result,
-                                              bid);
-        if (status != FDB_RESULT_SUCCESS)
+        }
+        fdb_status status = fdb_decrypt_block(&fMgrEncryption, buf, result, bid);
+        if (status != FDB_RESULT_SUCCESS) {
             return status;
+        }
     }
     return result;
 }
 
 // Write consecutive block(s) to the file, encrypting if necessary.
-ssize_t filemgr_write_blocks(FileMgr *file, void *buf, unsigned num_blocks,
-                             bid_t start_bid) {
-    size_t blocksize = file->blocksize;
+ssize_t FileMgr::writeBlocks(void *buf, unsigned num_blocks,
+        bid_t start_bid) {
+    size_t blocksize = blockSize;
     cs_off_t offset = start_bid * blocksize;
     size_t nbytes = num_blocks * blocksize;
-    if (file->encryption.ops == NULL) {
-        return file->ops->pwrite(file->fd, buf, nbytes, offset);
+    if (fMgrEncryption.ops == NULL) {
+        return fMgrOps->pwrite(fd, buf, nbytes, offset);
     } else {
         uint8_t *encrypted_buf;
         if (nbytes > 4096) {
@@ -354,7 +458,7 @@ ssize_t filemgr_write_blocks(FileMgr *file, void *buf, unsigned num_blocks,
             return FDB_RESULT_ALLOC_FAIL;
         }
 
-        fdb_status status = fdb_encrypt_blocks(&file->encryption,
+        fdb_status status = fdb_encrypt_blocks(&fMgrEncryption,
                                                encrypted_buf,
                                                buf,
                                                blocksize,
@@ -368,30 +472,28 @@ ssize_t filemgr_write_blocks(FileMgr *file, void *buf, unsigned num_blocks,
             return status;
         }
 
-        return file->ops->pwrite(file->fd, encrypted_buf, nbytes, offset);
+        return fMgrOps->pwrite(fd, encrypted_buf, nbytes, offset);
     }
 }
 
-int filemgr_is_writable(FileMgr *file, bid_t bid)
-{
-    if (sb_bmp_exists(file->sb) && sb_ops.is_writable) {
+int FileMgr::isWritable(bid_t bid) {
+    if (sb_bmp_exists(fMgrSb) && sb_ops.is_writable) {
         // block reusing is enabled
-        return sb_ops.is_writable(file, bid);
+        return sb_ops.is_writable(this, bid);
     } else {
-        uint64_t pos = bid * file->blocksize;
-        // Note that we don't need to grab file->lock here because
-        // 1) both file->pos and file->last_commit are only incremented.
-        // 2) file->last_commit is updated using the value of file->pos,
-        //    and always equal to or smaller than file->pos.
-        return (pos <  file->pos.load() &&
-                pos >= file->last_commit.load());
+        uint64_t pos = bid * blockSize;
+        // Note that we don't need to grab fMgrLock here because
+        // 1) both lastPos and lastCommit are only incremented.
+        // 2) file->lastCommit is updated using the value of lastPos,
+        //    and always equal to or smaller than lastPos.
+        return (pos <  lastPos.load() &&
+                pos >= lastCommit.load());
     }
 }
 
-uint64_t filemgr_get_sb_bmp_revnum(FileMgr *file)
-{
-    if (file->sb && sb_ops.get_bmp_revnum) {
-        return sb_ops.get_bmp_revnum(file);
+uint64_t FileMgr::getSbBmpRevnum() {
+    if (fMgrSb && sb_ops.get_bmp_revnum) {
+        return sb_ops.get_bmp_revnum(this);
     } else {
         return 0;
     }
@@ -414,17 +516,17 @@ static fdb_status _filemgr_read_header(FileMgr *file,
     buf = (uint8_t *) _filemgr_get_temp_buf();
 
     // If a header is found crc_mode can change to reflect the file
-    if (file->crc_mode == CRC32) {
+    if (file->crcMode == CRC32) {
         check_crc32_open_rule = true;
     }
 
-    hdr_bid = (file->pos.load() / file->blocksize) - 1;
+    hdr_bid = (file->lastPos.load() / file->blockSize) - 1;
     hdr_bid_local = hdr_bid;
 
-    if (file->sb) {
+    if (file->fMgrSb) {
         // superblock exists .. file size does not start from zero.
-        min_filesize = file->sb->config->num_sb * file->blocksize;
-        bid_t sb_last_hdr_bid = file->sb->last_hdr_bid.load();
+        min_filesize = file->fMgrSb->config->num_sb * file->blockSize;
+        bid_t sb_last_hdr_bid = file->fMgrSb->last_hdr_bid.load();
         if (sb_last_hdr_bid != BLK_NOT_FOUND) {
             hdr_bid = hdr_bid_local = sb_last_hdr_bid;
         }
@@ -432,54 +534,53 @@ static fdb_status _filemgr_read_header(FileMgr *file,
         // get DB header at the end of the file.
     }
 
-    if (file->pos.load() > min_filesize) {
+    if (file->lastPos.load() > min_filesize) {
         // Crash Recovery Test 1: unaligned last block write
-        uint64_t remain = file->pos.load() % file->blocksize;
+        uint64_t remain = file->lastPos.load() % file->blockSize;
         if (remain) {
-            file->pos.fetch_sub(remain);
-            file->last_commit.store(file->pos.load());
+            file->lastPos.fetch_sub(remain);
+            file->lastCommit.store(file->lastPos.load());
             const char *msg = "Crash Detected: %" _F64 " non-block aligned "
-                              "bytes discarded from a database file '%s'\n";
-            DBG(msg, remain, file->filename);
+                "bytes discarded from a database file '%s'\n";
+            DBG(msg, remain, file->fileName);
             // TODO: Need to add a better error code
             fdb_log(log_callback, FDB_RESULT_READ_FAIL,
-                    msg, remain, file->filename);
+                    msg, remain, file->fileName);
         }
 
         size_t block_counter = 0;
         do {
-            if (hdr_bid_local * file->blocksize >= file->pos) {
+            if (hdr_bid_local * file->blockSize >= file->lastPos) {
                 // Handling EOF scenario
                 status = FDB_RESULT_NO_DB_HEADERS;
                 const char *msg = "Unable to read block from file '%s' as EOF "
-                                  "reached\n";
-                fdb_log(log_callback, status, msg, file->filename);
+                    "reached\n";
+                fdb_log(log_callback, status, msg, file->fileName);
                 break;
             }
-            ssize_t rv = filemgr_read_block(file, buf, hdr_bid_local);
-            if (rv != (ssize_t)file->blocksize) {
-                status = (fdb_status) rv;
+            ssize_t rv = file->readBlock(buf, hdr_bid_local);
+            if (rv != (ssize_t)file->blockSize) {
+                status = (fdb_status)rv;
                 const char *msg = "Unable to read a database file '%s' with "
-                                  "blocksize %u\n";
-                DBG(msg, file->filename, file->blocksize);
-                fdb_log(log_callback, status, msg, file->filename, file->blocksize);
+                    "blocksize %u\n";
+                DBG(msg, file->fileName, file->blockSize);
+                fdb_log(log_callback, status, msg, file->fileName, file->blockSize);
                 break;
             }
             ++block_counter;
-            memcpy(marker, buf + file->blocksize - BLK_MARKER_SIZE,
+            memcpy(marker, buf + file->blockSize - BLK_MARKER_SIZE,
                    BLK_MARKER_SIZE);
 
             if (marker[0] == BLK_MARKER_DBHEADER) {
                 // possible need for byte conversions here
                 memcpy(&magic,
-                       buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
+                       buf + file->blockSize - BLK_MARKER_SIZE - sizeof(magic),
                        sizeof(magic));
                 magic = _endian_decode(magic);
 
                 if (ver_is_valid_magic(magic)) {
-
                     memcpy(&len,
-                           buf + file->blocksize - BLK_MARKER_SIZE -
+                           buf + file->blockSize - BLK_MARKER_SIZE -
                            sizeof(magic) - sizeof(len),
                            sizeof(len));
                     len = _endian_decode(len);
@@ -488,15 +589,16 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                     crc_file = _endian_decode(crc_file);
 
                     // crc check and detect the crc_mode
-                    if (detect_and_check_crc(reinterpret_cast<const uint8_t*>(buf),
-                                             len - sizeof(crc),
-                                             crc_file,
-                                             &file->crc_mode)) {
+                    if (detect_and_check_crc(
+                                reinterpret_cast<const uint8_t*>(buf),
+                                len - sizeof(crc),
+                                crc_file,
+                                &file->crcMode)) {
                         // crc mode is detected and known.
                         // check the rules of opening legacy CRC
-                        if (check_crc32_open_rule && file->crc_mode != CRC32) {
+                        if (check_crc32_open_rule && file->crcMode != CRC32) {
                             const char *msg = "Open of CRC32C file"
-                                              " with forced CRC32\n";
+                                " with forced CRC32\n";
                             status = FDB_RESULT_INVALID_ARGS;
                             DBG(msg);
                             fdb_log(log_callback, status, msg);
@@ -504,13 +606,13 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                         } else {
                             status = FDB_RESULT_SUCCESS;
 
-                            file->header.data = (void*) malloc (file->blocksize);
-                            memcpy(file->header.data, buf, len);
+                            file->fMgrHeader.data = (void*) malloc (file->blockSize);
+                            memcpy(file->fMgrHeader.data, buf, len);
 
-                            memcpy(&file->header.revnum, buf + len,
+                            memcpy(&file->fMgrHeader.revnum, buf + len,
                                    sizeof(filemgr_header_revnum_t));
 
-                            memcpy(&file->header.seqnum,
+                            memcpy(&file->fMgrHeader.seqnum,
                                    buf + len + sizeof(filemgr_header_revnum_t),
                                    sizeof(fdb_seqnum_t));
 
@@ -518,21 +620,21 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                                 // last_writable_bmp_revnum should be same with
                                 // the current bmp_revnum (since it indicates the
                                 // 'bmp_revnum' of 'sb->cur_alloc_bid').
-                                file->last_writable_bmp_revnum.store(
-                                                      filemgr_get_sb_bmp_revnum(file));
+                                file->lastWritableBmpRevnum.store(
+                                        file->getSbBmpRevnum());
                             }
 
-                            file->header.revnum = _endian_decode(file->header.revnum);
-                            file->header.seqnum = _endian_decode(file->header.seqnum.load());
+                            file->fMgrHeader.revnum = _endian_decode(file->fMgrHeader.revnum);
+                            file->fMgrHeader.seqnum = _endian_decode(file->fMgrHeader.seqnum.load());
 
-                            file->header.size = len;
-                            file->header.bid = hdr_bid_local;
+                            file->fMgrHeader.size = len;
+                            file->fMgrHeader.bid = hdr_bid_local;
 
                             // release temp buffer
                             _filemgr_release_temp_buf(buf);
                         }
 
-                        file->version = magic;
+                        file->fMgrVersion = magic;
                         return status;
                     } else {
                         status = FDB_RESULT_CHECKSUM_ERROR;
@@ -547,32 +649,32 @@ static fdb_status _filemgr_read_header(FileMgr *file,
 #endif
                         const char *msg = "Crash Detected: CRC on disk %u != (%u | %u) "
                             "in a database file '%s'\n";
-                        DBG(msg, crc_file, crc32, crc32c, file->filename);
+                        DBG(msg, crc_file, crc32, crc32c, file->fileName);
                         fdb_log(log_callback, status, msg, crc_file, crc32, crc32c,
-                                file->filename);
+                                file->fileName);
                     }
                 } else {
                     status = FDB_RESULT_FILE_CORRUPTION;
                     const char *msg = "Crash Detected: Wrong Magic %" _F64
-                                      " in a database file '%s'\n";
-                    fdb_log(log_callback, status, msg, magic, file->filename);
+                        " in a database file '%s'\n";
+                    fdb_log(log_callback, status, msg, magic, file->fileName);
                 }
             } else {
                 status = FDB_RESULT_NO_DB_HEADERS;
                 if (block_counter == 1) {
                     const char *msg = "Crash Detected: Last Block not DBHEADER %0.01x "
-                                      "in a database file '%s'\n";
-                    DBG(msg, marker[0], file->filename);
-                    fdb_log(log_callback, status, msg, marker[0], file->filename);
+                        "in a database file '%s'\n";
+                    DBG(msg, marker[0], file->fileName);
+                    fdb_log(log_callback, status, msg, marker[0], file->fileName);
                 }
             }
 
-            file->last_commit.store(hdr_bid_local * file->blocksize);
+            file->lastCommit.store(hdr_bid_local * file->blockSize);
             // traverse headers in a circular manner
             if (hdr_bid_local) {
                 hdr_bid_local--;
             } else {
-                hdr_bid_local = (file->pos.load() / file->blocksize) - 1;
+                hdr_bid_local = (file->lastPos.load() / file->blockSize) - 1;
             }
         } while (hdr_bid_local != hdr_bid);
     }
@@ -580,27 +682,27 @@ static fdb_status _filemgr_read_header(FileMgr *file,
     // release temp buffer
     _filemgr_release_temp_buf(buf);
 
-    file->header.reset();
-    file->version = magic;
+    file->fMgrHeader.reset();
+    file->fMgrVersion = magic;
     return status;
 }
 
-size_t filemgr_get_ref_count(FileMgr *file)
+size_t FileMgr::getRefCount()
 {
     size_t ret = 0;
-    spin_lock(&file->lock);
-    ret = file->ref_count.load();
-    spin_unlock(&file->lock);
+    spin_lock(&fMgrLock);
+    ret = refCount.load();
+    spin_unlock(&fMgrLock);
     return ret;
 }
 
-uint64_t filemgr_get_bcache_used_space(void)
+uint64_t FileMgr::getBcacheUsedSpace(void)
 {
     uint64_t bcache_free_space = 0;
     if (global_config.getNcacheBlock()) { // If buffer cache is indeed configured
         bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
         bcache_free_space = (global_config.getNcacheBlock() - bcache_free_space)
-                                * global_config.getBlockSize();
+                            * global_config.getBlockSize();
     }
     return bcache_free_space;
 }
@@ -615,16 +717,16 @@ struct filemgr_prefetch_args {
 static void *_filemgr_prefetch_thread(void *voidargs)
 {
     struct filemgr_prefetch_args *args = (struct filemgr_prefetch_args*)voidargs;
-    uint8_t *buf = alca(uint8_t, args->file->blocksize);
+    uint8_t *buf = alca(uint8_t, args->file->blockSize);
     uint64_t cur_pos = 0, i;
     uint64_t bcache_free_space;
     bid_t bid;
     bool terminate = false;
     struct timeval begin, cur, gap;
 
-    spin_lock(&args->file->lock);
-    cur_pos = args->file->last_commit.load();
-    spin_unlock(&args->file->lock);
+    spin_lock(&args->file->fMgrLock);
+    cur_pos = args->file->lastCommit.load();
+    spin_unlock(&args->file->fMgrLock);
     if (cur_pos < FILEMGR_PREFETCH_UNIT) {
         terminate = true;
     } else {
@@ -635,14 +737,14 @@ static void *_filemgr_prefetch_thread(void *voidargs)
     while (!terminate) {
         for (i = cur_pos;
              i < cur_pos + FILEMGR_PREFETCH_UNIT;
-             i += args->file->blocksize) {
+             i += args->file->blockSize) {
 
             gettimeofday(&cur, NULL);
             gap = _utime_gap(begin, cur);
             bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
-            bcache_free_space *= args->file->blocksize;
+            bcache_free_space *= args->file->blockSize;
 
-            if (args->file->prefetch_status.load() == FILEMGR_PREFETCH_ABORT ||
+            if (args->file->prefetchStatus.load() == FILEMGR_PREFETCH_ABORT ||
                 gap.tv_sec >= (int64_t)args->duration ||
                 bcache_free_space < FILEMGR_PREFETCH_UNIT) {
                 // terminate thread when
@@ -652,13 +754,14 @@ static void *_filemgr_prefetch_thread(void *voidargs)
                 terminate = true;
                 break;
             } else {
-                bid = i / args->file->blocksize;
-                if (filemgr_read(args->file, bid, buf, NULL, true)
+                bid = i / args->file->blockSize;
+                if (args->file->read_FileMgr(bid, buf, NULL, true)
                         != FDB_RESULT_SUCCESS) {
                     // 4. read failure
                     fdb_log(args->log_callback, FDB_RESULT_READ_FAIL,
-                            "Prefetch thread failed to read a block with block id %" _F64
-                            " from a database file '%s'", bid, args->file->filename);
+                            "Prefetch thread failed to read a block with block "
+                            "id %" _F64 " from a database file '%s'",
+                            bid, args->file->fileName);
                     terminate = true;
                     break;
                 }
@@ -673,7 +776,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
         }
     }
 
-    args->file->prefetch_status.store(FILEMGR_PREFETCH_TERMINATED);
+    args->file->prefetchStatus.store(FILEMGR_PREFETCH_TERMINATED);
     free(args);
     return NULL;
 }
@@ -686,25 +789,25 @@ void filemgr_prefetch(FileMgr *file,
     uint64_t bcache_free_space;
 
     bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
-    bcache_free_space *= file->blocksize;
+    bcache_free_space *= file->blockSize;
 
     // block cache should have free space larger than FILEMGR_PREFETCH_UNIT
-    spin_lock(&file->lock);
+    spin_lock(&file->fMgrLock);
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_IDLE;
-    if (file->last_commit.load() > 0 &&
+    if (file->lastCommit.load() > 0 &&
         bcache_free_space >= FILEMGR_PREFETCH_UNIT &&
-        file->prefetch_status.compare_exchange_strong(cond,
+        file->prefetchStatus.compare_exchange_strong(cond,
                                                       FILEMGR_PREFETCH_RUNNING)) {
         // invoke prefetch thread
         struct filemgr_prefetch_args *args;
         args = (struct filemgr_prefetch_args *)
-                                calloc(1, sizeof(struct filemgr_prefetch_args));
+                            calloc(1, sizeof(struct filemgr_prefetch_args));
         args->file = file;
         args->duration = config->getPrefetchDuration();
         args->log_callback = log_callback;
-        thread_create(&file->prefetch_tid, _filemgr_prefetch_thread, args);
+        thread_create(&file->prefetchTid, _filemgr_prefetch_thread, args);
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&file->fMgrLock);
 }
 
 fdb_status filemgr_does_file_exist(char *filename) {
@@ -725,7 +828,7 @@ static fdb_status _filemgr_load_sb(FileMgr *file,
 
     if (sb_ops.init && sb_ops.get_default_config && sb_ops.read_latest) {
         sconfig = sb_ops.get_default_config();
-        if (filemgr_get_pos(file)) {
+        if (file->getPos()) {
             // existing file
             status = sb_ops.read_latest(file, sconfig, log_callback);
         } else {
@@ -737,9 +840,9 @@ static fdb_status _filemgr_load_sb(FileMgr *file,
     return status;
 }
 
-filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
-                                 FileMgrConfig *config,
-                                 ErrLogCallback *log_callback)
+filemgr_open_result FileMgr::open(char *filename, struct filemgr_ops *ops,
+                                  FileMgrConfig *config,
+                                  ErrLogCallback *log_callback)
 {
     FileMgr *file = NULL;
     FileMgr query;
@@ -751,7 +854,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     fdb_status status;
     filemgr_open_result result = {NULL, FDB_RESULT_OPEN_FAIL};
 
-    filemgr_init(config);
+    init(config);
 
     if (config->getEncryptionKey()->algorithm != FDB_ENCRYPTION_NONE &&
         global_config.getNcacheBlock() <= 0) {
@@ -761,9 +864,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     }
 
     // check whether file is already opened or not
-    query.filename = filename;
+    query.fileName = filename;
     spin_lock(&filemgr_openlock);
-    e = hash_find(&hash, &query.e);
+    e = hash_find(&hash, &query.hashElem);
 
     if (e) {
         if (fail_if_exists) {
@@ -772,28 +875,28 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             return result;
         }
         // already opened (return existing structure)
-        file = _get_entry(e, struct FileMgr, e);
+        file = _get_entry(e, struct FileMgr, hashElem);
 
-        if ((++file->ref_count) > 1 &&
-            file->status.load() != FILE_CLOSED) {
+        if ((++file->refCount) > 1 &&
+            file->fMgrStatus.load() != FILE_CLOSED) {
             spin_unlock(&filemgr_openlock);
             result.file = file;
             result.rv = FDB_RESULT_SUCCESS;
             return result;
         }
 
-        spin_lock(&file->lock);
+        spin_lock(&file->fMgrLock);
 
-        if (file->status.load() == FILE_CLOSED) { // if file was closed before
+        if (file->fMgrStatus.load() == FILE_CLOSED) { // if file was closed before
             file_flag = O_RDWR;
             if (create) {
                 file_flag |= O_CREAT;
             }
-            *file->config = *config;
-            file->config->setBlockSize(global_config.getBlockSize());
-            file->config->setNcacheBlock(global_config.getNcacheBlock());
+            *file->fileConfig = *config;
+            file->fileConfig->setBlockSize(global_config.getBlockSize());
+            file->fileConfig->setNcacheBlock(global_config.getNcacheBlock());
             file_flag |= config->getFlag();
-            file->fd = file->ops->open(file->filename, file_flag, 0666);
+            file->fd = file->fMgrOps->open(file->fileName, file_flag, 0666);
             if (file->fd < 0) {
                 if (file->fd == FDB_RESULT_NO_SUCH_FILE) {
                     // A database file was manually deleted by the user.
@@ -801,35 +904,36 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                     // Then, retry it with a create option below IFF it is not
                     // a read-only open attempt
                     struct hash_elem *ret;
-                    spin_unlock(&file->lock);
-                    ret = hash_remove(&hash, &file->e);
+                    spin_unlock(&file->fMgrLock);
+                    ret = hash_remove(&hash, &file->hashElem);
                     fdb_assert(ret, 0, 0);
-                    filemgr_free_func(&file->e);
+                    FileMgr::freeFunc(&file->hashElem);
                     if (!create) {
                         _log_errno_str(ops, log_callback,
-                                FDB_RESULT_NO_SUCH_FILE, "OPEN", filename);
+                                       FDB_RESULT_NO_SUCH_FILE, "OPEN",
+                                       filename);
                         spin_unlock(&filemgr_openlock);
                         result.rv = FDB_RESULT_NO_SUCH_FILE;
                         return result;
                     }
                 } else {
-                    _log_errno_str(file->ops, log_callback,
-                                  (fdb_status)file->fd, "OPEN", filename);
-                    file->ref_count--;
-                    spin_unlock(&file->lock);
+                    _log_errno_str(file->fMgrOps, log_callback,
+                                   (fdb_status)file->fd, "OPEN", filename);
+                    file->refCount--;
+                    spin_unlock(&file->fMgrLock);
                     spin_unlock(&filemgr_openlock);
                     result.rv = file->fd;
                     return result;
                 }
             } else { // Reopening the closed file is succeed.
-                file->status.store(FILE_NORMAL);
+                file->fMgrStatus.store(FILE_NORMAL);
                 if (config->getOptions() & FILEMGR_SYNC) {
-                    file->fflags |= FILEMGR_SYNC;
+                    file->fMgrFlags |= FILEMGR_SYNC;
                 } else {
-                    file->fflags &= ~FILEMGR_SYNC;
+                    file->fMgrFlags &= ~FILEMGR_SYNC;
                 }
 
-                spin_unlock(&file->lock);
+                spin_unlock(&file->fMgrLock);
                 spin_unlock(&filemgr_openlock);
 
                 result.file = file;
@@ -839,12 +943,12 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         } else { // file is already opened.
 
             if (config->getOptions() & FILEMGR_SYNC) {
-                file->fflags |= FILEMGR_SYNC;
+                file->fMgrFlags |= FILEMGR_SYNC;
             } else {
-                file->fflags &= ~FILEMGR_SYNC;
+                file->fMgrFlags &= ~FILEMGR_SYNC;
             }
 
-            spin_unlock(&file->lock);
+            spin_unlock(&file->fMgrLock);
             spin_unlock(&filemgr_openlock);
             result.file = file;
             result.rv = FDB_RESULT_SUCCESS;
@@ -868,13 +972,11 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         return result;
     }
     file = new FileMgr();
-    file->filename_len = strlen(filename);
-    file->filename = (char*)malloc(file->filename_len + 1);
-    strcpy(file->filename, filename);
+    file->fileNameLen = strlen(filename);
+    file->fileName = (char*)malloc(file->fileNameLen + 1);
+    strcpy(file->fileName, filename);
 
-    file->ref_count = 1;
-
-    status = fdb_init_encryptor(&file->encryption,
+    status = fdb_init_encryptor(&file->fMgrEncryption,
                                 config->getEncryptionKey());
     if (status != FDB_RESULT_SUCCESS) {
         ops->close(fd);
@@ -884,98 +986,35 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         return result;
     }
 
-    file->ops = ops;
-    file->blocksize = global_config.getBlockSize();
-    file->status = FILE_NORMAL;
-    file->config = new FileMgrConfig();
-    *file->config = *config;
-    file->config->setBlockSize(global_config.getBlockSize());
-    file->config->setNcacheBlock(global_config.getNcacheBlock());
-    file->new_file = NULL;
-    file->prev_file = NULL;
-    file->old_filename = NULL;
+    file->fMgrOps = ops;
+    file->fileConfig = new FileMgrConfig();
+    *file->fileConfig = *config;
+    file->fileConfig->setBlockSize(global_config.getBlockSize());
+    file->fileConfig->setNcacheBlock(global_config.getNcacheBlock());
     file->fd = fd;
 
-    cs_off_t offset = file->ops->goto_eof(file->fd);
+    cs_off_t offset = file->fMgrOps->goto_eof(file->fd);
     if (offset < 0) {
-        _log_errno_str(file->ops, log_callback, (fdb_status) offset, "SEEK_END", filename);
-        file->ops->close(file->fd);
-        free(file->filename);
-        delete file->config;
+        _log_errno_str(file->fMgrOps, log_callback, (fdb_status) offset,
+                       "SEEK_END", filename);
+        file->fMgrOps->close(file->fd);
+        free(file->fileName);
+        delete file->fileConfig;
         delete file;
         spin_unlock(&filemgr_openlock);
         result.rv = (fdb_status) offset;
         return result;
     }
-    file->last_commit = offset;
-    file->last_writable_bmp_revnum = 0;
-    file->pos = offset;
-    file->throttling_delay = 0;
-    file->num_invalidated_blocks = 0;
-    file->io_in_prog = 0;
 
-#ifdef _LATENCY_STATS
-    for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
-        filemgr_init_latency_stat(&file->lat_stats[i]);
-    }
-#endif // _LATENCY_STATS
-
-    file->bcache = NULL;
-    file->in_place_compaction = false;
-    file->kv_header = NULL;
-    file->prefetch_status = FILEMGR_PREFETCH_IDLE;
-
-    file->header.bid = 0;
-    file->header.op_stat.reset();
-
-    filemgr_dirty_update_init(file);
-
-    spin_init(&file->lock);
-    spin_init(&file->fhandle_idx_lock);
-    avl_init(&file->fhandle_idx, NULL);
-
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-    struct plock_ops pops;
-    struct plock_config pconfig;
-
-    pops.init_user = mutex_init_wrap;
-    pops.lock_user = mutex_lock_wrap;
-    pops.unlock_user = mutex_unlock_wrap;
-    pops.destroy_user = mutex_destroy_wrap;
-    pops.init_internal = spin_init_wrap;
-    pops.lock_internal = spin_lock_wrap;
-    pops.unlock_internal = spin_unlock_wrap;
-    pops.destroy_internal = spin_destroy_wrap;
-    pops.is_overlapped = _block_is_overlapped;
-
-    memset(&pconfig, 0x0, sizeof(pconfig));
-    pconfig.ops = &pops;
-    pconfig.sizeof_lock_internal = sizeof(spin_t);
-    pconfig.sizeof_lock_user = sizeof(mutex_t);
-    pconfig.sizeof_range = sizeof(bid_t);
-    pconfig.aux = NULL;
-    plock_init(&file->plock, &pconfig);
-#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-    int i;
-    for (i=0;i<DLOCK_MAX;++i) {
-        mutex_init(&file->data_mutex[i]);
-    }
-#else
-    int i;
-    for (i=0;i<DLOCK_MAX;++i) {
-        spin_init(&file->data_spinlock[i]);
-    }
-#endif //__FILEMGR_DATA_PARTIAL_LOCK
-
-    mutex_init(&file->writer_lock.mutex);
-    file->writer_lock.locked = false;
+    file->lastPos = offset;
+    file->lastCommit = offset;
 
     // Note: CRC must be initialized before superblock loading
     // initialize CRC mode
-    if (file->config && file->config->getOptions() & FILEMGR_CREATE_CRC32) {
-        file->crc_mode = CRC32;
+    if (file->fileConfig && file->fileConfig->getOptions() & FILEMGR_CREATE_CRC32) {
+        file->crcMode = CRC32;
     } else {
-        file->crc_mode = CRC_DEFAULT;
+        file->crcMode = CRC_DEFAULT;
     }
 
     do { // repeat until both superblock and DB header are correctly read
@@ -984,11 +1023,11 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         // we can tolerate SB_READ_FAIL for old version file
         if (status != FDB_RESULT_SB_READ_FAIL &&
             status != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
-            file->ops->close(file->fd);
-            free(file->filename);
+            _log_errno_str(file->fMgrOps, log_callback, status, "READ", file->fileName);
+            file->fMgrOps->close(file->fd);
+            free(file->fileName);
             delete file->staleData;
-            delete file->config;
+            delete file->fileConfig;
             delete file;
             spin_unlock(&filemgr_openlock);
             result.rv = status;
@@ -997,27 +1036,27 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
         // read header
         status = _filemgr_read_header(file, log_callback);
-        if (file->sb && status == FDB_RESULT_NO_DB_HEADERS) {
+        if (file->fMgrSb && status == FDB_RESULT_NO_DB_HEADERS) {
             // this happens when user created & closed a file without any mutations,
             // thus there is no other data but superblocks.
             // we can tolerate this case.
         } else if (status != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, status, "READ", filename);
-            file->ops->close(file->fd);
-            if (file->sb) {
+            _log_errno_str(file->fMgrOps, log_callback, status, "READ", filename);
+            file->fMgrOps->close(file->fd);
+            if (file->fMgrSb) {
                 sb_ops.release(file);
             }
-            free(file->filename);
+            free(file->fileName);
             delete file->staleData;
-            delete file->config;
+            delete file->fileConfig;
             delete file;
             spin_unlock(&filemgr_openlock);
             result.rv = status;
             return result;
         }
 
-        if (file->sb &&
-            file->header.revnum != file->sb->last_hdr_revnum.load()) {
+        if (file->fMgrSb &&
+            file->fMgrHeader.revnum != file->fMgrSb->last_hdr_revnum.load()) {
             // superblock exists but the corresponding DB header does not match.
             // read another candidate.
             continue;
@@ -1033,27 +1072,27 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     }
 
     // initialize WAL
-    if (!file->wal) {
-        file->wal = new Wal(file, FDB_WAL_NBUCKET);
+    if (!file->fMgrWal) {
+        file->fMgrWal = new Wal(file, FDB_WAL_NBUCKET);
     }
 
     // init global transaction for the file
-    file->global_txn.wrapper = (struct wal_txn_wrapper*)
+    file->globalTxn.wrapper = (struct wal_txn_wrapper*)
                                malloc(sizeof(struct wal_txn_wrapper));
-    file->global_txn.wrapper->txn = &file->global_txn;
-    file->global_txn.handle = NULL;
-    if (file->pos.load()) {
-        file->global_txn.prev_hdr_bid = (file->pos.load() / file->blocksize) - 1;
+    file->globalTxn.wrapper->txn = &file->globalTxn;
+    file->globalTxn.handle = NULL;
+    if (file->lastPos.load()) {
+        file->globalTxn.prev_hdr_bid = (file->lastPos.load() / file->blockSize) - 1;
     } else {
-        file->global_txn.prev_hdr_bid = BLK_NOT_FOUND;
+        file->globalTxn.prev_hdr_bid = BLK_NOT_FOUND;
     }
-    file->global_txn.prev_revnum = 0;
-    file->global_txn.items = (struct list *)malloc(sizeof(struct list));
-    list_init(file->global_txn.items);
-    file->global_txn.isolation = FDB_ISOLATION_READ_COMMITTED;
-    file->wal->addTransaction_Wal(&file->global_txn);
+    file->globalTxn.prev_revnum = 0;
+    file->globalTxn.items = (struct list *)malloc(sizeof(struct list));
+    list_init(file->globalTxn.items);
+    file->globalTxn.isolation = FDB_ISOLATION_READ_COMMITTED;
+    file->fMgrWal->addTransaction_Wal(&file->globalTxn);
 
-    hash_insert(&hash, &file->e);
+    hash_insert(&hash, &file->hashElem);
     if (config->getPrefetchDuration() > 0) {
         filemgr_prefetch(file, config, log_callback);
     }
@@ -1061,9 +1100,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     spin_unlock(&filemgr_openlock);
 
     if (config->getOptions() & FILEMGR_SYNC) {
-        file->fflags |= FILEMGR_SYNC;
+        file->fMgrFlags |= FILEMGR_SYNC;
     } else {
-        file->fflags &= ~FILEMGR_SYNC;
+        file->fMgrFlags &= ~FILEMGR_SYNC;
     }
 
     result.file = file;
@@ -1072,91 +1111,81 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     return result;
 }
 
-uint64_t filemgr_update_header(FileMgr *file,
-                               void *buf,
+uint64_t FileMgr::updateHeader(void *buf,
                                size_t len,
-                               bool inc_revnum)
-{
+                               bool inc_revnum) {
     uint64_t ret;
-
-    spin_lock(&file->lock);
-
-    if (file->header.data == nullptr) {
-        file->header.data = (void *)malloc(file->blocksize);
+    spin_lock(&fMgrLock);
+    if (fMgrHeader.data == nullptr) {
+        fMgrHeader.data = (void *)malloc(blockSize);
     }
-    memcpy(file->header.data, buf, len);
-    file->header.size = len;
+    memcpy(fMgrHeader.data, buf, len);
+    fMgrHeader.size = len;
 
     if (inc_revnum) {
-        ++file->header.revnum;
+        ++fMgrHeader.revnum;
     }
-    ret = file->header.revnum;
+    ret = fMgrHeader.revnum;
 
-    spin_unlock(&file->lock);
-
+    spin_unlock(&fMgrLock);
     return ret;
 }
 
-filemgr_header_revnum_t filemgr_get_header_revnum(FileMgr *file)
-{
+filemgr_header_revnum_t FileMgr::getHeaderRevnum() {
     filemgr_header_revnum_t ret;
-    spin_lock(&file->lock);
-    ret = file->header.revnum;
-    spin_unlock(&file->lock);
+    spin_lock(&fMgrLock);
+    ret = fMgrHeader.revnum;
+    spin_unlock(&fMgrLock);
     return ret;
 }
 
 // 'filemgr_get_seqnum', 'filemgr_set_seqnum',
 // 'filemgr_get_walflush_revnum', 'filemgr_set_walflush_revnum'
 // have to be protected by 'filemgr_mutex_lock' & 'filemgr_mutex_unlock'.
-fdb_seqnum_t filemgr_get_seqnum(FileMgr *file)
-{
-    return file->header.seqnum;
+fdb_seqnum_t FileMgr::getSeqnum() {
+    return fMgrHeader.seqnum;
 }
 
-void filemgr_set_seqnum(FileMgr *file, fdb_seqnum_t seqnum)
-{
-    file->header.seqnum = seqnum;
+void FileMgr::setSeqnum(fdb_seqnum_t seqnum) {
+    fMgrHeader.seqnum = seqnum;
 }
 
-void* filemgr_get_header(FileMgr *file, void *buf, size_t *len,
+void* FileMgr::getHeader(void *buf, size_t *len,
                          bid_t *header_bid, fdb_seqnum_t *seqnum,
-                         filemgr_header_revnum_t *header_revnum)
-{
-    spin_lock(&file->lock);
+                         filemgr_header_revnum_t *header_revnum) {
+    spin_lock(&fMgrLock);
 
-    if (file->header.size > 0) {
+    if (fMgrHeader.size > 0) {
         if (buf == NULL) {
-            buf = (void*)malloc(file->header.size);
+            buf = (void*)malloc(fMgrHeader.size);
         }
-        memcpy(buf, file->header.data, file->header.size);
+        memcpy(buf, fMgrHeader.data, fMgrHeader.size);
     }
 
     if (len) {
-        *len = file->header.size;
+        *len = fMgrHeader.size;
     }
     if (header_bid) {
-        *header_bid = filemgr_get_header_bid(file);
+        *header_bid = getHeaderBid();
     }
     if (seqnum) {
-        *seqnum = file->header.seqnum;
+        *seqnum = fMgrHeader.seqnum;
     }
     if (header_revnum) {
-        *header_revnum = file->header.revnum;
+        *header_revnum = fMgrHeader.revnum;
     }
 
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
 
     return buf;
 }
 
-fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
-                                void *buf, size_t *len, fdb_seqnum_t *seqnum,
+fdb_status FileMgr::fetchHeader(uint64_t bid, void *buf, size_t *len,
+                                fdb_seqnum_t *seqnum,
                                 filemgr_header_revnum_t *header_revnum,
                                 uint64_t *deltasize, uint64_t *version,
                                 uint64_t *sb_bmp_revnum,
-                                ErrLogCallback *log_callback)
-{
+                                ErrLogCallback *log_callback) {
     uint8_t *_buf;
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_header_len_t hdr_len;
@@ -1173,17 +1202,16 @@ fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
 
     _buf = (uint8_t *)_filemgr_get_temp_buf();
 
-    status = filemgr_read(file, (bid_t)bid, _buf, log_callback, true);
+    status = read_FileMgr((bid_t)bid, _buf, log_callback, true);
 
     if (status != FDB_RESULT_SUCCESS) {
         fdb_log(log_callback, status,
                 "Failed to read a database header with block id %" _F64 " in "
-                "a database file '%s'", bid, file->filename);
+                "a database file '%s'", bid, fileName);
         _filemgr_release_temp_buf(_buf);
         return status;
     }
-    memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
-            BLK_MARKER_SIZE);
+    memcpy(marker, _buf + blockSize - BLK_MARKER_SIZE, BLK_MARKER_SIZE);
 
     if (marker[0] != BLK_MARKER_DBHEADER) {
         // Comment this warning log as of now because the circular block reuse
@@ -1193,27 +1221,27 @@ fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "A block marker of the database header block id %" _F64 " in "
                 "a database file '%s' does NOT match BLK_MARKER_DBHEADER!",
-                bid, file->filename);
+                bid, fileName);
         */
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_READ_FAIL;
     }
     memcpy(&magic,
-            _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
-            sizeof(magic));
+           _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic),
+           sizeof(magic));
     magic = _endian_decode(magic);
     if (!ver_is_valid_magic(magic)) {
         fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
                 "A block magic value of %" _F64 " in the database header block"
                 "id %" _F64 " in a database file '%s'"
                 "does NOT match FILEMGR_MAGIC %" _F64 "!",
-                magic, bid, file->filename, ver_get_latest_magic());
+                magic, bid, fileName, ver_get_latest_magic());
         _filemgr_release_temp_buf(_buf);
         return FDB_RESULT_FILE_CORRUPTION;
     }
     memcpy(&hdr_len,
-            _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
-            sizeof(hdr_len), sizeof(hdr_len));
+           _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic) -
+           sizeof(hdr_len), sizeof(hdr_len));
     hdr_len = _endian_decode(hdr_len);
 
     memcpy(buf, _buf, hdr_len);
@@ -1236,17 +1264,17 @@ fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
 
     if (ver_is_atleast_magic_001(magic)) {
         if (deltasize) {
-            memcpy(&_deltasize, _buf + file->blocksize - BLK_MARKER_SIZE
-                    - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
-                    - sizeof(_deltasize), sizeof(_deltasize));
+            memcpy(&_deltasize, _buf + blockSize - BLK_MARKER_SIZE
+                   - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
+                   - sizeof(_deltasize), sizeof(_deltasize));
             *deltasize = _endian_decode(_deltasize);
         }
     }
 
     if (sb_bmp_revnum && ver_superblock_support(magic)) {
-        memcpy(&_bmp_revnum, _buf + file->blocksize - BLK_MARKER_SIZE
-                - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
-                - sizeof(_deltasize) - sizeof(_bmp_revnum), sizeof(_bmp_revnum));
+        memcpy(&_bmp_revnum, _buf + blockSize - BLK_MARKER_SIZE
+               - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
+               - sizeof(_deltasize) - sizeof(_bmp_revnum), sizeof(_bmp_revnum));
         *sb_bmp_revnum = _endian_decode(_bmp_revnum);
     }
 
@@ -1255,13 +1283,12 @@ fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
     return status;
 }
 
-uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
-                                   void *buf, size_t *len, fdb_seqnum_t *seqnum,
-                                   filemgr_header_revnum_t *revnum,
-                                   uint64_t *deltasize, uint64_t *version,
-                                   uint64_t *sb_bmp_revnum,
-                                   ErrLogCallback *log_callback)
-{
+uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
+                                  fdb_seqnum_t *seqnum,
+                                  filemgr_header_revnum_t *revnum,
+                                  uint64_t *deltasize, uint64_t *version,
+                                  uint64_t *sb_bmp_revnum,
+                                  ErrLogCallback *log_callback) {
     uint8_t *_buf;
     uint8_t marker[BLK_MARKER_SIZE];
     fdb_seqnum_t _seqnum;
@@ -1285,46 +1312,44 @@ uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
         // Get prev_bid from the current header.
         // Since the current header is already cached during the previous
         // operation, no disk I/O will be triggered.
-        if (filemgr_read(file, (bid_t)bid, _buf, log_callback, true)
+        if (read_FileMgr((bid_t)bid, _buf, log_callback, true)
                 != FDB_RESULT_SUCCESS) {
             break;
         }
 
-        memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
+        memcpy(marker, _buf + blockSize - BLK_MARKER_SIZE,
                BLK_MARKER_SIZE);
         memcpy(&magic,
-               _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
+               _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic),
                sizeof(magic));
         magic = _endian_decode(magic);
 
         if (marker[0] != BLK_MARKER_DBHEADER ||
-            !ver_is_valid_magic(magic)) {
+                !ver_is_valid_magic(magic)) {
             // not a header block
             // this happens when this function is invoked between
             // fdb_set() call and fdb_commit() call, so the last block
             // in the file is not a header block
-            bid_t latest_hdr = filemgr_get_header_bid(file);
+            bid_t latest_hdr = getHeaderBid();
             if (latest_hdr != BLK_NOT_FOUND && bid > latest_hdr) {
                 // get the latest header BID
                 bid = latest_hdr;
             } else {
                 break;
             }
-            cur_revnum = file->header.revnum + 1;
+            cur_revnum = fMgrHeader.revnum + 1;
         } else {
-
             memcpy(&hdr_len,
-                   _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
+                   _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic) -
                    sizeof(hdr_len), sizeof(hdr_len));
             hdr_len = _endian_decode(hdr_len);
 
-            memcpy(&_revnum, _buf + hdr_len,
-                   sizeof(filemgr_header_revnum_t));
+            memcpy(&_revnum, _buf + hdr_len, sizeof(filemgr_header_revnum_t));
             cur_revnum = _endian_decode(_revnum);
 
-            if (sb_bmp_exists(file->sb)) {
+            if (sb_bmp_exists(fMgrSb)) {
                 // first check revnum
-                if (cur_revnum <= sb_ops.get_min_live_revnum(file)) {
+                if (cur_revnum <= sb_ops.get_min_live_revnum(this)) {
                     // previous headers already have been reclaimed
                     // no more logical prev header
                     break;
@@ -1332,39 +1357,37 @@ uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
             }
 
             memcpy(&_prev_bid,
-                   _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
-                       sizeof(hdr_len) - sizeof(_prev_bid),
+                   _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic) -
+                   sizeof(hdr_len) - sizeof(_prev_bid),
                    sizeof(_prev_bid));
             prev_bid = _endian_decode(_prev_bid);
             bid = prev_bid;
         }
 
         // Read the prev header
-        fdb_status fs = filemgr_read(file, (bid_t)bid, _buf, log_callback, true);
+        fdb_status fs = read_FileMgr((bid_t)bid, _buf, log_callback, true);
         if (fs != FDB_RESULT_SUCCESS) {
             fdb_log(log_callback, fs,
                     "Failed to read a previous database header with block id %"
-                    _F64 " in "
-                    "a database file '%s'", bid, file->filename);
+                    _F64 " in a database file '%s'", bid, fileName);
             break;
         }
 
-        memcpy(marker, _buf + file->blocksize - BLK_MARKER_SIZE,
+        memcpy(marker, _buf + blockSize - BLK_MARKER_SIZE,
                BLK_MARKER_SIZE);
         if (marker[0] != BLK_MARKER_DBHEADER) {
             if (bid) {
                 // broken linked list
                 fdb_log(log_callback, FDB_RESULT_FILE_CORRUPTION,
-                        "A block marker of the previous database header block id %"
-                        _F64 " in "
-                        "a database file '%s' does NOT match BLK_MARKER_DBHEADER!",
-                        bid, file->filename);
+                        "A block marker of the previous database header block "
+                        "id %" _F64 " in a database file '%s' does NOT match "
+                        "BLK_MARKER_DBHEADER!", bid, fileName);
             }
             break;
         }
 
         memcpy(&magic,
-               _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic),
+               _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic),
                sizeof(magic));
         magic = _endian_decode(magic);
         if (!ver_is_valid_magic(magic)) {
@@ -1373,13 +1396,12 @@ uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
                     "A block magic value of %" _F64
                     " of the previous database header block id %" _F64 " in "
                     "a database file '%s' does NOT match FILEMGR_MAGIC %"
-                    _F64"!", magic,
-                    bid, file->filename, ver_get_latest_magic());
+                    _F64"!", magic, bid, fileName, ver_get_latest_magic());
             break;
         }
 
         memcpy(&hdr_len,
-               _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic) -
+               _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic) -
                sizeof(hdr_len), sizeof(hdr_len));
         hdr_len = _endian_decode(hdr_len);
 
@@ -1390,7 +1412,7 @@ uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
                sizeof(filemgr_header_revnum_t));
         prev_revnum = _endian_decode(_revnum);
         if (prev_revnum >= cur_revnum ||
-            prev_revnum < sb_ops.get_min_live_revnum(file)) {
+                prev_revnum < sb_ops.get_min_live_revnum(this)) {
             // no more prev header, or broken linked list
             break;
         }
@@ -1401,17 +1423,19 @@ uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
         if (ver_is_atleast_magic_001(magic)) {
             if (deltasize) {
                 memcpy(&_deltasize,
-                        _buf + file->blocksize - BLK_MARKER_SIZE - sizeof(magic)
-                       - sizeof(hdr_len) - sizeof(prev_bid) - sizeof(_deltasize),
-                        sizeof(_deltasize));
+                       _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic) -
+                       sizeof(hdr_len) - sizeof(prev_bid) - sizeof(_deltasize),
+                       sizeof(_deltasize));
                 *deltasize = _endian_decode(_deltasize);
             }
         }
 
         if (sb_bmp_revnum && ver_superblock_support(magic)) {
-            memcpy(&_bmp_revnum, _buf + file->blocksize - BLK_MARKER_SIZE
-                    - sizeof(magic) - sizeof(hdr_len) - sizeof(bid)
-                    - sizeof(_deltasize) - sizeof(_bmp_revnum), sizeof(_bmp_revnum));
+            memcpy(&_bmp_revnum,
+                    _buf + blockSize - BLK_MARKER_SIZE - sizeof(magic) -
+                    sizeof(hdr_len) - sizeof(bid) - sizeof(_deltasize) -
+                    sizeof(_bmp_revnum),
+                    sizeof(_bmp_revnum));
             *sb_bmp_revnum = _endian_decode(_bmp_revnum);
         }
 
@@ -1437,69 +1461,69 @@ uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
 
 static void update_file_pointers(FileMgr *file) {
     // Update new_file pointers of all previously redirected downstream files
-    FileMgr *temp = file->prev_file;
+    FileMgr *temp = file->prevFile;
     while (temp != NULL) {
-        spin_lock(&temp->lock);
-        if (temp->new_file == file) {
-            temp->new_file = file->new_file;
+        spin_lock(&temp->fMgrLock);
+        if (temp->newFile == file) {
+            temp->newFile = file->newFile;
         }
-        spin_unlock(&temp->lock);
-        temp = temp->prev_file;
+        spin_unlock(&temp->fMgrLock);
+        temp = temp->prevFile;
     }
     // Update prev_file pointer of the upstream file if any
-    if (file->new_file != NULL) {
-        spin_lock(&file->new_file->lock);
-        file->new_file->prev_file = file->prev_file;
-        spin_unlock(&file->new_file->lock);
+    if (file->newFile != NULL) {
+        spin_lock(&file->newFile->fMgrLock);
+        file->newFile->prevFile = file->prevFile;
+        spin_unlock(&file->newFile->fMgrLock);
     }
 }
 
-fdb_status filemgr_close(FileMgr *file, bool cleanup_cache_onclose,
-                         const char *orig_file_name,
-                         ErrLogCallback *log_callback)
-{
+fdb_status FileMgr::close(FileMgr *file,
+                          bool cleanup_cache_onclose,
+                          const char *orig_file_name,
+                          ErrLogCallback *log_callback) {
     int rv = FDB_RESULT_SUCCESS;
 
-    if ((--file->ref_count) > 0) {
+    if ((--file->refCount) > 0) {
         // File is still accessed by other readers or writers.
         return FDB_RESULT_SUCCESS;
     }
 
     spin_lock(&filemgr_openlock); // Grab the filemgr lock to avoid the race with
-                                  // filemgr_open() because file->lock won't
+                                  // Filemgr::open() because file->fMgrLock won't
                                   // prevent the race condition.
 
     // remove filemgr structure if no thread refers to the file
-    spin_lock(&file->lock);
-    if (file->ref_count.load() == 0) {
+    spin_lock(&file->fMgrLock);
+    if (file->refCount.load() == 0) {
         if (global_config.getNcacheBlock() > 0 &&
-            file->status.load() != FILE_REMOVED_PENDING) {
-            spin_unlock(&file->lock);
+            file->fMgrStatus.load() != FILE_REMOVED_PENDING) {
+            spin_unlock(&file->fMgrLock);
             // discard all dirty blocks belonged to this file
             BlockCacheManager::getInstance()->removeDirtyBlocks(file);
         } else {
             // If the file is in pending removal (i.e., FILE_REMOVED_PENDING),
             // then its dirty block entries will be cleaned up in either
-            // filemgr_free_func() or register_file_removal() below.
-            spin_unlock(&file->lock);
+            // FileMgr::freeFunc() or register_file_removal() below.
+            spin_unlock(&file->fMgrLock);
         }
 
-        if (file->wal) {
-            file->wal->close_Wal(log_callback);
+        if (file->fMgrWal) {
+            file->fMgrWal->close_Wal(log_callback);
         }
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
-        filemgr_dump_latency_stat(file, log_callback);
+        LatencyStat::dump(file, log_callback);
 #endif // _LATENCY_STATS_DUMP_TO_FILE
 
-        spin_lock(&file->lock);
+        spin_lock(&file->fMgrLock);
 
-        if (file->status.load() == FILE_REMOVED_PENDING) {
+        if (file->fMgrStatus.load() == FILE_REMOVED_PENDING) {
 
             bool foreground_deletion = false;
 
             // immediately remove file if background remove function is not set
             if (!lazy_file_deletion_enabled ||
-                (file->new_file && file->new_file->in_place_compaction)) {
+                (file->newFile && file->newFile->inPlaceCompaction)) {
                 // TODO: to avoid the scenario below, we prevent background
                 //       deletion of in-place compacted files at this time.
                 // 1) In-place compacted from 'A' to 'A.1'.
@@ -1511,53 +1535,55 @@ fdb_status filemgr_close(FileMgr *file, bool cleanup_cache_onclose,
 
                 // As the file is already unlinked, the file will be removed
                 // as soon as we close it.
-                rv = file->ops->close(file->fd);
-                _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
+                rv = file->fMgrOps->close(file->fd);
+                _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
+                               file->fileName);
 #if defined(WIN32) || defined(_WIN32)
                 // For Windows, we need to manually remove the file.
-                remove(file->filename);
+                remove(file->fileName);
 #endif
                 foreground_deletion = true;
             }
 
             // we can release lock becuase no one will open this file
-            spin_unlock(&file->lock);
-            struct hash_elem *ret = hash_remove(&hash, &file->e);
+            spin_unlock(&file->fMgrLock);
+            struct hash_elem *ret = hash_remove(&hash, &file->hashElem);
             fdb_assert(ret, 0, 0);
 
             update_file_pointers(file);
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
-                filemgr_free_func(&file->e);
+                FileMgr::freeFunc(&file->hashElem);
             } else {
                 register_file_removal(file, log_callback);
             }
             return (fdb_status) rv;
         } else {
 
-            rv = file->ops->close(file->fd);
+            rv = file->fMgrOps->close(file->fd);
             if (cleanup_cache_onclose) {
-                _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
-                if (file->in_place_compaction && orig_file_name) {
+                _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
+                               file->fileName);
+                if (file->inPlaceCompaction && orig_file_name) {
                     struct hash_elem *elem = NULL;
                     FileMgr query;
                     uint32_t old_file_refcount = 0;
 
-                    query.filename = (char *)orig_file_name;
-                    elem = hash_find(&hash, &query.e);
+                    query.fileName = (char *)orig_file_name;
+                    elem = hash_find(&hash, &query.hashElem);
 
-                    if (file->old_filename) {
+                    if (file->oldFileName) {
                         struct hash_elem *elem_old = NULL;
                         FileMgr query_old;
                         FileMgr *old_file = NULL;
 
                         // get old file's ref count if exists
-                        query_old.filename = file->old_filename;
-                        elem_old = hash_find(&hash, &query_old.e);
+                        query_old.fileName = file->oldFileName;
+                        elem_old = hash_find(&hash, &query_old.hashElem);
                         if (elem_old) {
-                            old_file = _get_entry(elem_old, struct FileMgr, e);
-                            old_file_refcount = old_file->ref_count.load();
+                            old_file = _get_entry(elem_old, struct FileMgr, hashElem);
+                            old_file_refcount = old_file->refCount.load();
                         }
                     }
 
@@ -1568,185 +1594,159 @@ fdb_status filemgr_close(FileMgr *file, bool cleanup_cache_onclose,
                         is_file_removed(orig_file_name)) {
                         // If background file removal is not done yet, we postpone
                         // file renaming at this time.
-                        if (rename(file->filename, orig_file_name) < 0) {
+                        if (rename(file->fileName, orig_file_name) < 0) {
                             // Note that the renaming failure is not a critical
-                            // issue because the last compacted file will be automatically
-                            // identified and opened in the next fdb_open call.
-                            _log_errno_str(file->ops, log_callback, FDB_RESULT_FILE_RENAME_FAIL,
-                                           "CLOSE", file->filename);
+                            // issue because the last compacted file will be
+                            // automatically identified and opened in the next
+                            // fdb_open call.
+                            _log_errno_str(file->fMgrOps, log_callback,
+                                           FDB_RESULT_FILE_RENAME_FAIL,
+                                           "CLOSE", file->fileName);
                         }
                     }
                 }
-                spin_unlock(&file->lock);
+                spin_unlock(&file->fMgrLock);
                 // Clean up global hash table, WAL index, and buffer cache.
-                struct hash_elem *ret = hash_remove(&hash, &file->e);
+                struct hash_elem *ret = hash_remove(&hash, &file->hashElem);
                 fdb_assert(ret, file, 0);
 
                 update_file_pointers(file);
                 spin_unlock(&filemgr_openlock);
 
-                filemgr_free_func(&file->e);
+                FileMgr::freeFunc(&file->hashElem);
                 return (fdb_status) rv;
             } else {
-                file->status.store(FILE_CLOSED);
+                file->fMgrStatus.store(FILE_CLOSED);
             }
         }
     }
 
-    _log_errno_str(file->ops, log_callback, (fdb_status)rv, "CLOSE", file->filename);
+    _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
+                   file->fileName);
 
-    spin_unlock(&file->lock);
+    spin_unlock(&file->fMgrLock);
     spin_unlock(&filemgr_openlock);
     return (fdb_status) rv;
 }
 
-void filemgr_remove_all_buffer_blocks(FileMgr *file)
-{
+void FileMgr::removeAllBufferBlocks() {
     // remove all cached blocks
     if (global_config.getNcacheBlock() > 0 &&
-            file->bcache.load(std::memory_order_relaxed)) {
-        BlockCacheManager::getInstance()->removeDirtyBlocks(file);
-        BlockCacheManager::getInstance()->removeCleanBlocks(file);
-        BlockCacheManager::getInstance()->removeFile(file);
+        bCache.load(std::memory_order_relaxed)) {
 
-        file->bcache.store(NULL, std::memory_order_relaxed);
+        BlockCacheManager::getInstance()->removeDirtyBlocks(this);
+        BlockCacheManager::getInstance()->removeCleanBlocks(this);
+        BlockCacheManager::getInstance()->removeFile(this);
+
+        bCache.store(NULL, std::memory_order_relaxed);
     }
 }
 
-void _free_fhandle_idx(struct avl_tree *idx);
-
-void filemgr_free_func(struct hash_elem *h)
+void FileMgr::freeFunc(struct hash_elem *h)
 {
-    FileMgr *file = _get_entry(h, struct FileMgr, e);
+    FileMgr *file = _get_entry(h, struct FileMgr, hashElem);
 
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_RUNNING;
-    if (file->prefetch_status.compare_exchange_strong(cond, FILEMGR_PREFETCH_ABORT)) {
+    if (file->prefetchStatus.compare_exchange_strong(cond, FILEMGR_PREFETCH_ABORT)) {
         // prefetch thread is now running
         // change its status to ABORT to avoid other thread attempts to terminate it.
         void *ret;
         // wait (the thread must have been created..)
-        thread_join(file->prefetch_tid, &ret);
+        thread_join(file->prefetchTid, &ret);
     }
 
     // remove all cached blocks
     if (global_config.getNcacheBlock() > 0 &&
-            file->bcache.load(std::memory_order_relaxed)) {
+        file->bCache.load(std::memory_order_relaxed)) {
+
         BlockCacheManager::getInstance()->removeDirtyBlocks(file);
         BlockCacheManager::getInstance()->removeCleanBlocks(file);
         BlockCacheManager::getInstance()->removeFile(file);
-        file->bcache.store(NULL, std::memory_order_relaxed);
+        file->bCache.store(NULL, std::memory_order_relaxed);
     }
 
-    if (file->kv_header) {
+    if (file->kvHeader) {
         // multi KV intance mode & KV header exists
         file->free_kv_header(file);
     }
 
     // free global transaction
-    file->wal->removeTransaction_Wal(&file->global_txn);
-    free(file->global_txn.items);
-    free(file->global_txn.wrapper);
+    file->fMgrWal->removeTransaction_Wal(&file->globalTxn);
+    free(file->globalTxn.items);
+    free(file->globalTxn.wrapper);
 
     // destroy WAL
-    if (file->wal) {
-        file->wal->shutdown_Wal(NULL);
-        delete file->wal;
-        file->wal = NULL;
+    if (file->fMgrWal) {
+        file->fMgrWal->shutdown_Wal(NULL);
+        delete file->fMgrWal;
+        file->fMgrWal = NULL;
     }
-
-#ifdef _LATENCY_STATS
-    for (int x = 0; x < FDB_LATENCY_NUM_STATS; ++x) {
-        filemgr_destroy_latency_stat(&file->lat_stats[x]);
-    }
-#endif // _LATENCY_STATS
 
     // free filename and header
-    free(file->filename);
-    if (file->header.data) {
-        free(file->header.data);
-        file->header.data = nullptr;
+    free(file->fileName);
+    if (file->fMgrHeader.data) {
+        free(file->fMgrHeader.data);
+        file->fMgrHeader.data = nullptr;
     }
 
     // free old filename if any
-    free(file->old_filename);
-
-    // destroy locks
-    spin_destroy(&file->lock);
-
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-    plock_destroy(&file->plock);
-#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-    int i;
-    for (i=0;i<DLOCK_MAX;++i) {
-        mutex_destroy(&file->data_mutex[i]);
-    }
-#else
-    int i;
-    for (i=0;i<DLOCK_MAX;++i) {
-        spin_destroy(&file->data_spinlock[i]);
-    }
-#endif //__FILEMGR_DATA_PARTIAL_LOCK
-
-    mutex_destroy(&file->writer_lock.mutex);
+    free(file->oldFileName);
 
     // free superblock
     if (sb_ops.release) {
         sb_ops.release(file);
     }
 
-    // free dirty update index
-    filemgr_dirty_update_free(file);
-
-    // free fhandle idx
-    _free_fhandle_idx(&file->fhandle_idx);
-    spin_destroy(&file->fhandle_idx_lock);
-
     // free file structure
     delete file->staleData;
-    delete file->config;
+    delete file->fileConfig;
     delete file;
 }
 
 // permanently remove file from cache (not just close)
 // LCOV_EXCL_START
-void filemgr_remove_file(FileMgr *file, ErrLogCallback *log_callback)
-{
+void FileMgr::removeFile(FileMgr *file,
+                         ErrLogCallback *log_callback) {
+
+    if (!file) {
+        return;
+    }
+
     struct hash_elem *ret;
 
-    if (!file || file->ref_count.load() > 0) {
+    if (file->refCount.load() > 0) {
         return;
     }
 
     // remove from global hash table
     spin_lock(&filemgr_openlock);
-    ret = hash_remove(&hash, &file->e);
+    ret = hash_remove(&hash, &file->hashElem);
     fdb_assert(ret, ret, NULL);
     spin_unlock(&filemgr_openlock);
 
     if (!lazy_file_deletion_enabled ||
-        (file->new_file && file->new_file->in_place_compaction)) {
-        filemgr_free_func(&file->e);
+        (file->newFile && file->newFile->inPlaceCompaction)) {
+        FileMgr::freeFunc(&file->hashElem);
     } else {
         register_file_removal(file, log_callback);
     }
 }
 // LCOV_EXCL_STOP
 
-static
-void *_filemgr_is_closed(struct hash_elem *h, void *ctx) {
-    FileMgr *file = _get_entry(h, struct FileMgr, e);
+static void* _filemgr_is_closed(struct hash_elem *h, void *ctx) {
+    FileMgr *file = _get_entry(h, struct FileMgr, hashElem);
     void *ret;
-    spin_lock(&file->lock);
-    if (file->ref_count.load() != 0) {
+    spin_lock(&file->fMgrLock);
+    if (file->refCount.load() != 0) {
         ret = (void *)file;
     } else {
         ret = NULL;
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&file->fMgrLock);
     return ret;
 }
 
-fdb_status filemgr_shutdown()
+fdb_status FileMgr::shutdown()
 {
     fdb_status ret = FDB_RESULT_SUCCESS;
     void *open_file;
@@ -1776,7 +1776,7 @@ fdb_status filemgr_shutdown()
         open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
         spin_unlock(&filemgr_openlock);
         if (!open_file) {
-            hash_free_active(&hash, filemgr_free_func);
+            hash_free_active(&hash, FileMgr::freeFunc);
             if (global_config.getNcacheBlock() > 0) {
                 BlockCacheManager::getInstance()->destroyInstance();
             }
@@ -1799,93 +1799,90 @@ fdb_status filemgr_shutdown()
     return ret;
 }
 
-bid_t filemgr_alloc(FileMgr *file, ErrLogCallback *log_callback)
-{
-    spin_lock(&file->lock);
+bid_t FileMgr::alloc_FileMgr(ErrLogCallback *log_callback) {
+    spin_lock(&fMgrLock);
     bid_t bid = BLK_NOT_FOUND;
 
     // block reusing is not allowed for being compacted file
     // for easy implementation.
-    if (filemgr_get_file_status(file) == FILE_NORMAL &&
-        file->sb && sb_ops.alloc_block) {
-        bid = sb_ops.alloc_block(file);
+    if (getFileStatus() == FILE_NORMAL &&
+        fMgrSb && sb_ops.alloc_block) {
+        bid = sb_ops.alloc_block(this);
     }
     if (bid == BLK_NOT_FOUND) {
-        bid = file->pos.load() / file->blocksize;
-        file->pos.fetch_add(file->blocksize);
+        bid = lastPos.load() / blockSize;
+        lastPos.fetch_add(blockSize);
     }
 
     if (global_config.getNcacheBlock() <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
-        ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
-                                       (bid+1) * file->blocksize - 1);
-        _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
+        ssize_t rv = fMgrOps->pwrite(fd, &_buf, 1, (bid + 1) * blockSize - 1);
+        _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE", fileName);
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
 
     return bid;
 }
 
 // Note that both alloc_multiple & alloc_multiple_cond are not used in
 // the new version of DB file (with superblock support).
-void filemgr_alloc_multiple(FileMgr *file, int nblock, bid_t *begin,
-                            bid_t *end, ErrLogCallback *log_callback)
-{
-    spin_lock(&file->lock);
-    *begin = file->pos.load() / file->blocksize;
+void FileMgr::allocMultiple(int nblock, bid_t *begin,
+                            bid_t *end, ErrLogCallback *log_callback) {
+    spin_lock(&fMgrLock);
+    *begin = lastPos.load() / blockSize;
     *end = *begin + nblock - 1;
-    file->pos.fetch_add(file->blocksize * nblock);
+    lastPos.fetch_add(blockSize * nblock);
 
     if (global_config.getNcacheBlock() <= 0) {
         // if block cache is turned off, write the allocated block before use
         uint8_t _buf = 0x0;
-        ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1,
-                                       file->pos.load() - 1);
-        _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
+        ssize_t rv = fMgrOps->pwrite(fd, &_buf, 1, lastPos.load() - 1);
+        _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE", fileName);
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
 }
 
-// atomically allocate NBLOCK blocks only when current file position is same to nextbid
-bid_t filemgr_alloc_multiple_cond(FileMgr *file, bid_t nextbid, int nblock,
-                                  bid_t *begin, bid_t *end,
-                                  ErrLogCallback *log_callback)
+// atomically allocate NBLOCK blocks only when current file position is same
+// to nextbid
+bid_t FileMgr::allocMultipleCond(bid_t nextbid, int nblock,
+                                 bid_t *begin, bid_t *end,
+                                 ErrLogCallback *log_callback)
 {
     bid_t bid;
-    spin_lock(&file->lock);
-    bid = file->pos.load() / file->blocksize;
+    spin_lock(&fMgrLock);
+    bid = lastPos.load() / blockSize;
     if (bid == nextbid) {
-        *begin = file->pos.load() / file->blocksize;
+        *begin = lastPos.load() / blockSize;
         *end = *begin + nblock - 1;
-        file->pos.fetch_add(file->blocksize * nblock);
+        lastPos.fetch_add(blockSize * nblock);
 
         if (global_config.getNcacheBlock() <= 0) {
             // if block cache is turned off, write the allocated block before use
             uint8_t _buf = 0x0;
-            ssize_t rv = file->ops->pwrite(file->fd, &_buf, 1, file->pos.load());
-            _log_errno_str(file->ops, log_callback, (fdb_status) rv, "WRITE", file->filename);
+            ssize_t rv = fMgrOps->pwrite(fd, &_buf, 1, lastPos.load());
+            _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE", fileName);
         }
     }else{
         *begin = BLK_NOT_FOUND;
         *end = BLK_NOT_FOUND;
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
     return bid;
 }
 
 #ifdef __CRC32
 INLINE fdb_status _filemgr_crc32_check(FileMgr *file, void *buf)
 {
-    if ( *((uint8_t*)buf + file->blocksize-1) == BLK_MARKER_BNODE ) {
+    if ( *((uint8_t*)buf + file->blockSize-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file = 0;
         memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
         crc_file = _endian_decode(crc_file);
         memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
         if (!perform_integrity_check(reinterpret_cast<const uint8_t*>(buf),
-                                     file->blocksize,
+                                     file->blockSize,
                                      crc_file,
-                                     file->crc_mode)) {
+                                     file->crcMode)) {
             return FDB_RESULT_CHECKSUM_ERROR;
         }
     }
@@ -1893,29 +1890,27 @@ INLINE fdb_status _filemgr_crc32_check(FileMgr *file, void *buf)
 }
 #endif
 
-bool filemgr_invalidate_block(FileMgr *file, bid_t bid)
-{
+bool FileMgr::invalidateBlock(bid_t bid) {
     bool ret;
-    if (file->last_commit.load() < bid * file->blocksize) {
+    if (lastCommit.load() < bid * blockSize) {
         ret = true; // block invalidated was allocated recently (uncommitted)
     } else {
         ret = false; // a block from the past is invalidated (committed)
     }
     if (global_config.getNcacheBlock() > 0) {
-        BlockCacheManager::getInstance()->invalidateBlock(file, bid);
+        BlockCacheManager::getInstance()->invalidateBlock(this, bid);
     }
     return ret;
 }
 
-bool filemgr_is_fully_resident(FileMgr *file)
-{
+bool FileMgr::isFullyResident() {
     bool ret = false;
     if (global_config.getNcacheBlock() > 0) {
         //TODO: A better thing to do is to track number of document blocks
         // and only compare those with the cached document block count
         double num_cached_blocks =
-            static_cast<double>(BlockCacheManager::getInstance()->getNumBlocks(file));
-        uint64_t num_blocks = file->pos.load() / file->blocksize;
+            static_cast<double>(BlockCacheManager::getInstance()->getNumBlocks(this));
+        uint64_t num_blocks = lastPos.load() / blockSize;
         double num_fblocks = (double)num_blocks;
         if (num_cached_blocks > num_fblocks * FILEMGR_RESIDENT_THRESHOLD) {
             ret = true;
@@ -1924,43 +1919,41 @@ bool filemgr_is_fully_resident(FileMgr *file)
     return ret;
 }
 
-uint64_t filemgr_flush_immutable(FileMgr *file, ErrLogCallback *log_callback)
-{
+uint64_t FileMgr::flushImmutable(ErrLogCallback *log_callback) {
     uint64_t ret = 0;
     if (global_config.getNcacheBlock() > 0) {
-        if (file->io_in_prog.load()) {
+        if (ioInprog.load()) {
             return 0;
         }
-        ret = BlockCacheManager::getInstance()->getNumImmutables(file);
+        ret = BlockCacheManager::getInstance()->getNumImmutables(this);
         if (!ret) {
             return ret;
         }
-        fdb_status rv = BlockCacheManager::getInstance()->flushImmutable(file);
+        fdb_status rv = BlockCacheManager::getInstance()->flushImmutable(this);
         if (rv != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, (fdb_status)rv, "WRITE",
-                           file->filename);
+            _log_errno_str(fMgrOps, log_callback, (fdb_status)rv, "WRITE",
+                           fileName);
         }
-        return BlockCacheManager::getInstance()->getNumImmutables(file);
+        return BlockCacheManager::getInstance()->getNumImmutables(this);
     }
 
     return ret;
 }
 
-fdb_status filemgr_read(FileMgr *file, bid_t bid, void *buf,
-                        ErrLogCallback *log_callback,
-                        bool read_on_cache_miss)
-{
+fdb_status FileMgr::read_FileMgr(bid_t bid, void *buf,
+                                 ErrLogCallback *log_callback,
+                                 bool read_on_cache_miss) {
     size_t lock_no;
     ssize_t r;
-    uint64_t pos = bid * file->blocksize;
+    uint64_t pos = bid * blockSize;
     fdb_status status = FDB_RESULT_SUCCESS;
-    uint64_t curr_pos = file->pos.load();
+    uint64_t curr_pos = lastPos.load();
 
     if (pos >= curr_pos) {
         const char *msg = "Read error: read offset %" _F64 " exceeds the file's "
                           "current offset %" _F64 " in a database file '%s'\n";
         fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, pos, curr_pos,
-                file->filename);
+                fileName);
         return FDB_RESULT_READ_FAIL;
     }
 
@@ -1976,151 +1969,153 @@ fdb_status filemgr_read(FileMgr *file, bid_t bid, void *buf,
         // Note: we don't need to grab lock for committed blocks
         // because they are immutable so that no writer will interfere and
         // overwrite dirty data
-        if (filemgr_is_writable(file, bid)) {
+        if (isWritable(bid)) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-            plock_entry = plock_lock(&file->plock, &bid, &is_writer);
+            plock_entry = plock_lock(&fMgrPlock, &bid, &is_writer);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-            mutex_lock(&file->data_mutex[lock_no]);
+            mutex_lock(&dataMutex[lock_no]);
 #else
-            spin_lock(&file->data_spinlock[lock_no]);
+            spin_lock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
             locked = true;
         }
 
-        r = BlockCacheManager::getInstance()->read(file, bid, buf);
+        r = BlockCacheManager::getInstance()->read(this, bid, buf);
         if (r == 0) {
             // cache miss
             if (!read_on_cache_miss) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                    plock_unlock(&file->plock, plock_entry);
+                    plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                    mutex_unlock(&file->data_mutex[lock_no]);
+                    mutex_unlock(&dataMutex[lock_no]);
 #else
-                    spin_unlock(&file->data_spinlock[lock_no]);
+                    spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
-                    "doesn't exist in the cache and read_on_cache_miss flag is turned on.\n";
-                fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid,
-                        file->filename);
+
+                const char *msg = "Read error: BID %" _F64 " in a database file"
+                                  " '%s' doesn't exist in the cache and "
+                                  "read_on_cache_miss flag is turned on";
+                fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid, fileName);
                 return FDB_RESULT_READ_FAIL;
             }
 
             // if normal file, just read a block
-            r = filemgr_read_block(file, buf, bid);
-            if (r != (ssize_t)file->blocksize) {
-                _log_errno_str(file->ops, log_callback,
-                               (fdb_status) r, "READ", file->filename);
+            r = readBlock(buf, bid);
+            if (r != (ssize_t)blockSize) {
+                _log_errno_str(fMgrOps, log_callback,
+                               (fdb_status) r, "READ", fileName);
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                    plock_unlock(&file->plock, plock_entry);
+                    plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                    mutex_unlock(&file->data_mutex[lock_no]);
+                    mutex_unlock(&dataMutex[lock_no]);
 #else
-                    spin_unlock(&file->data_spinlock[lock_no]);
+                    spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
-                    "is not read correctly: only %d bytes read.\n";
+                const char *msg = "Read error: BID %" _F64 " in a database file"
+                                  " '%s' " "is not read correctly: only %d "
+                                  "bytes read";
                 status = r < 0 ? (fdb_status)r : FDB_RESULT_READ_FAIL;
-                fdb_log(log_callback, status, msg, bid, file->filename, r);
+                fdb_log(log_callback, status, msg, bid, fileName, r);
                 if (!log_callback || !log_callback->getCallback()) {
-                    dbg_print_buf(buf, file->blocksize, true, 16);
+                    dbg_print_buf(buf, blockSize, true, 16);
                 }
                 return status;
             }
 #ifdef __CRC32
-            status = _filemgr_crc32_check(file, buf);
+            status = _filemgr_crc32_check(this, buf);
             if (status != FDB_RESULT_SUCCESS) {
-                _log_errno_str(file->ops, log_callback, status, "READ",
-                        file->filename);
+                _log_errno_str(fMgrOps, log_callback, status, "READ", fileName);
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                    plock_unlock(&file->plock, plock_entry);
+                    plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                    mutex_unlock(&file->data_mutex[lock_no]);
+                    mutex_unlock(&dataMutex[lock_no]);
 #else
-                    spin_unlock(&file->data_spinlock[lock_no]);
+                    spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                const char *msg = "Read error: checksum error on BID %" _F64 " in a database file '%s' "
-                    ": marker %x\n";
+                const char *msg = "Read error: checksum error on BID %" _F64
+                                  " in a database file '%s' : marker %x";
                 fdb_log(log_callback, status, msg, bid,
-                        file->filename, *((uint8_t*)buf + file->blocksize-1));
+                        fileName, *((uint8_t*)buf + blockSize - 1));
                 if (!log_callback || !log_callback->getCallback()) {
-                    dbg_print_buf(buf, file->blocksize, true, 16);
+                    dbg_print_buf(buf, blockSize, true, 16);
                 }
                 return status;
             }
 #endif
-            r = BlockCacheManager::getInstance()->write(file, bid, buf,
-                                                        BCACHE_REQ_CLEAN, false);
+            r = BlockCacheManager::getInstance()->write(this, bid, buf,
+                                                        BCACHE_REQ_CLEAN,
+                                                        false);
             if (r != global_config.getBlockSize()) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                    plock_unlock(&file->plock, plock_entry);
+                    plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                    mutex_unlock(&file->data_mutex[lock_no]);
+                    mutex_unlock(&dataMutex[lock_no]);
 #else
-                    spin_unlock(&file->data_spinlock[lock_no]);
+                    spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                _log_errno_str(file->ops, log_callback,
-                               (fdb_status) r, "WRITE", file->filename);
-                const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
-                    "is not written in cache correctly: only %d bytes written.\n";
+                _log_errno_str(fMgrOps, log_callback,
+                               (fdb_status) r, "WRITE", fileName);
+                const char *msg = "Read error: BID %" _F64 " in a database file"
+                                  " '%s' is not written in cache correctly: "
+                                  "only %d bytes written";
                 status = r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
-                fdb_log(log_callback, status, msg, bid, file->filename, r);
+                fdb_log(log_callback, status, msg, bid, fileName, r);
                 if (!log_callback || !log_callback->getCallback()) {
-                    dbg_print_buf(buf, file->blocksize, true, 16);
+                    dbg_print_buf(buf, blockSize, true, 16);
                 }
                 return status;
             }
         }
         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-            plock_unlock(&file->plock, plock_entry);
+            plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-            mutex_unlock(&file->data_mutex[lock_no]);
+            mutex_unlock(&dataMutex[lock_no]);
 #else
-            spin_unlock(&file->data_spinlock[lock_no]);
+            spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
         }
     } else {
         if (!read_on_cache_miss) {
-            const char *msg = "Read error: BID %" _F64 " in a database file '%s':"
-                "block cache is not enabled.\n";
-            fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid,
-                    file->filename);
+            const char *msg = "Read error: BID %" _F64 " in a database file "
+                              "'%s': block cache is not enabled.\n";
+            fdb_log(log_callback, FDB_RESULT_READ_FAIL, msg, bid, fileName);
             return FDB_RESULT_READ_FAIL;
         }
 
-        r = filemgr_read_block(file, buf, bid);
-        if (r != (ssize_t)file->blocksize) {
-            _log_errno_str(file->ops, log_callback, (fdb_status) r, "READ",
-                           file->filename);
-            const char *msg = "Read error: BID %" _F64 " in a database file '%s' "
-                "is not read correctly: only %d bytes read (block cache disabled).\n";
+        r = readBlock(buf, bid);
+        if (r != (ssize_t)blockSize) {
+            _log_errno_str(fMgrOps, log_callback, (fdb_status) r, "READ", fileName);
+            const char *msg = "Read error: BID %" _F64 " in a database file "
+                              "'%s' is not read correctly: only %d bytes read "
+                              "(block cache disabled)";
             status = (r < 0)? (fdb_status)r : FDB_RESULT_READ_FAIL;
-            fdb_log(log_callback, status, msg, bid, file->filename, r);
+            fdb_log(log_callback, status, msg, bid, fileName, r);
             if (!log_callback || !log_callback->getCallback()) {
-                dbg_print_buf(buf, file->blocksize, true, 16);
+                dbg_print_buf(buf, blockSize, true, 16);
             }
             return status;
         }
 
 #ifdef __CRC32
-        status = _filemgr_crc32_check(file, buf);
+        status = _filemgr_crc32_check(this, buf);
         if (status != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, status, "READ",
-                           file->filename);
-            const char *msg = "Read error: checksum error on BID %" _F64 " in a database file '%s' "
-                ": marker %x (block cache disabled)\n";
+            _log_errno_str(fMgrOps, log_callback, status, "READ", fileName);
+            const char *msg = "Read error: checksum error on BID %" _F64 " in "
+                              "a database file '%s' : marker %x (block cache "
+                              "disabled)";
             fdb_log(log_callback, status, msg, bid,
-                    file->filename, *((uint8_t*)buf + file->blocksize-1));
+                    fileName, *((uint8_t*)buf + blockSize - 1));
             if (!log_callback || !log_callback->getCallback()) {
-                dbg_print_buf(buf, file->blocksize, true, 16);
+                dbg_print_buf(buf, blockSize, true, 16);
             }
             return status;
         }
@@ -2129,44 +2124,42 @@ fdb_status filemgr_read(FileMgr *file, bid_t bid, void *buf,
     return status;
 }
 
-fdb_status filemgr_write_offset(FileMgr *file, bid_t bid,
-                                uint64_t offset, uint64_t len, void *buf,
-                                bool final_write,
-                                ErrLogCallback *log_callback)
-{
+fdb_status FileMgr::writeOffset(bid_t bid, uint64_t offset, uint64_t len,
+                                void *buf, bool final_write,
+                                ErrLogCallback *log_callback) {
     size_t lock_no;
     ssize_t r = 0;
-    uint64_t pos = bid * file->blocksize + offset;
-    uint64_t curr_commit_pos = file->last_commit.load();
+    uint64_t pos = bid * blockSize + offset;
+    uint64_t curr_commit_pos = lastCommit.load();
 
-    if (offset + len > file->blocksize) {
+    if (offset + len > blockSize) {
         const char *msg = "Write error: trying to write the buffer data "
             "(offset: %" _F64 ", len: %" _F64 " that exceeds the block size "
-            "%" _F64 " in a database file '%s'\n";
+            "%" _F64 " in a database file '%s'";
         fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, offset, len,
-                file->blocksize, file->filename);
+                blockSize, fileName);
         return FDB_RESULT_WRITE_FAIL;
     }
 
-    if (sb_bmp_exists(file->sb)) {
+    if (sb_bmp_exists(fMgrSb)) {
         // block reusing is enabled
-        if (!sb_ops.is_writable(file, bid)) {
-            const char *msg = "Write error: trying to write at the offset %" _F64 " that is "
-                              "not identified as a reusable block in "
-                              "a database file '%s'\n";
-            fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos, file->filename);
+        if (!sb_ops.is_writable(this, bid)) {
+            const char *msg = "Write error: trying to write at the offset "
+                              "%" _F64 " that is not identified as a reusable "
+                              "block in a database file '%s'";
+            fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos, fileName);
             return FDB_RESULT_WRITE_FAIL;
         }
     } else if (pos < curr_commit_pos) {
         // stale blocks are not reused yet
-        if (file->sb == NULL ||
-            (file->sb && pos >= file->sb->config->num_sb * file->blocksize)) {
+        if (fMgrSb == NULL ||
+            (fMgrSb && pos >= fMgrSb->config->num_sb * blockSize)) {
             // (non-sequential update is exceptionally allowed for superblocks)
-            const char *msg = "Write error: trying to write at the offset %" _F64 " that is "
-                              "smaller than the current commit offset %" _F64 " in "
-                              "a database file '%s'\n";
-            fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos, curr_commit_pos,
-                    file->filename);
+            const char *msg = "Write error: trying to write at the offset "
+                              "%" _F64 " that is smaller than the current "
+                              "commit offset %" _F64 " in a database file '%s'";
+            fdb_log(log_callback, FDB_RESULT_WRITE_FAIL, msg, pos,
+                    curr_commit_pos, fileName);
             return FDB_RESULT_WRITE_FAIL;
         }
     }
@@ -2179,85 +2172,89 @@ fdb_status filemgr_write_offset(FileMgr *file, bid_t bid,
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
         plock_entry_t *plock_entry;
         bid_t is_writer = 1;
-        plock_entry = plock_lock(&file->plock, &bid, &is_writer);
+        plock_entry = plock_lock(&fMgrPlock, &bid, &is_writer);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-        mutex_lock(&file->data_mutex[lock_no]);
+        mutex_lock(&dataMutex[lock_no]);
 #else
-        spin_lock(&file->data_spinlock[lock_no]);
+        spin_lock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
         locked = true;
 
-        if (len == file->blocksize) {
+        if (len == blockSize) {
             // write entire block .. we don't need to read previous block
-            r = BlockCacheManager::getInstance()->write(file, bid, buf,
-                                                        BCACHE_REQ_DIRTY, final_write);
+            r = BlockCacheManager::getInstance()->write(this, bid, buf,
+                                                        BCACHE_REQ_DIRTY,
+                                                        final_write);
             if (r != global_config.getBlockSize()) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                    plock_unlock(&file->plock, plock_entry);
+                    plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                    mutex_unlock(&file->data_mutex[lock_no]);
+                    mutex_unlock(&dataMutex[lock_no]);
 #else
-                    spin_unlock(&file->data_spinlock[lock_no]);
+                    spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                 }
-                _log_errno_str(file->ops, log_callback,
-                               (fdb_status) r, "WRITE", file->filename);
+                _log_errno_str(fMgrOps, log_callback,
+                               (fdb_status) r, "WRITE", fileName);
                 return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
             }
         } else {
             // partially write buffer cache first
-            r = BlockCacheManager::getInstance()->writePartial(file, bid, buf,
-                                                               offset, len, final_write);
+            r = BlockCacheManager::getInstance()->writePartial(this, bid, buf,
+                                                               offset, len,
+                                                               final_write);
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
-                int64_t cur_file_pos = file->ops->goto_eof(file->fd);
+                int64_t cur_file_pos = fMgrOps->goto_eof(fd);
                 if (cur_file_pos < 0) {
-                    _log_errno_str(file->ops, log_callback,
-                                   (fdb_status) cur_file_pos, "EOF", file->filename);
+                    _log_errno_str(fMgrOps, log_callback,
+                                   (fdb_status) cur_file_pos, "EOF", fileName);
                     return (fdb_status) cur_file_pos;
                 }
-                bid_t cur_file_last_bid = cur_file_pos / file->blocksize;
+                bid_t cur_file_last_bid = cur_file_pos / blockSize;
                 void *_buf = _filemgr_get_temp_buf();
 
                 if (bid >= cur_file_last_bid) {
                     // this is the first time to write this block
                     // we don't need to read previous block from file.
                 } else {
-                    r = filemgr_read_block(file, _buf, bid);
-                    if (r != (ssize_t)file->blocksize) {
+                    r = readBlock(_buf, bid);
+                    if (r != (ssize_t)blockSize) {
                         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                            plock_unlock(&file->plock, plock_entry);
+                            plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                            mutex_unlock(&file->data_mutex[lock_no]);
+                            mutex_unlock(&dataMutex[lock_no]);
 #else
-                            spin_unlock(&file->data_spinlock[lock_no]);
+                            spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                         }
                         _filemgr_release_temp_buf(_buf);
-                        _log_errno_str(file->ops, log_callback, (fdb_status) r,
-                                       "READ", file->filename);
+                        _log_errno_str(fMgrOps, log_callback, (fdb_status)r,
+                                       "READ", fileName);
                         return r < 0 ? (fdb_status) r : FDB_RESULT_READ_FAIL;
                     }
                 }
+
                 memcpy((uint8_t *)_buf + offset, buf, len);
-                r = BlockCacheManager::getInstance()->write(file, bid, _buf,
-                                                            BCACHE_REQ_DIRTY, final_write);
+                r = BlockCacheManager::getInstance()->write(this, bid, _buf,
+                                                            BCACHE_REQ_DIRTY,
+                                                            final_write);
                 if (r != global_config.getBlockSize()) {
                     if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-                        plock_unlock(&file->plock, plock_entry);
+                        plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-                        mutex_unlock(&file->data_mutex[lock_no]);
+                        mutex_unlock(&dataMutex[lock_no]);
 #else
-                        spin_unlock(&file->data_spinlock[lock_no]);
+                        spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
                     }
                     _filemgr_release_temp_buf(_buf);
-                    _log_errno_str(file->ops, log_callback,
-                            (fdb_status) r, "WRITE", file->filename);
+                    _log_errno_str(fMgrOps, log_callback,
+                            (fdb_status) r, "WRITE", fileName);
                     return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
                 }
 
@@ -2267,31 +2264,33 @@ fdb_status filemgr_write_offset(FileMgr *file, bid_t bid,
 
         if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
-            plock_unlock(&file->plock, plock_entry);
+            plock_unlock(&fMgrPlock, plock_entry);
 #elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-            mutex_unlock(&file->data_mutex[lock_no]);
+            mutex_unlock(&dataMutex[lock_no]);
 #else
-            spin_unlock(&file->data_spinlock[lock_no]);
+            spin_unlock(&dataSpinlock[lock_no]);
 #endif //__FILEMGR_DATA_PARTIAL_LOCK
         }
     } else { // block cache disabled
 
 #ifdef __CRC32
-        if (len == file->blocksize) {
-            uint8_t marker = *((uint8_t*)buf + file->blocksize - 1);
+        if (len == blockSize) {
+            uint8_t marker = *((uint8_t*)buf + blockSize - 1);
             if (marker == BLK_MARKER_BNODE) {
-                memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
-                uint32_t crc32 = get_checksum(reinterpret_cast<const uint8_t*>(buf),
-                                              file->blocksize,
-                                              file->crc_mode);
+                memset((uint8_t *)buf + BTREE_CRC_OFFSET, 0xff,
+                       BTREE_CRC_FIELD_LEN);
+                uint32_t crc32 = get_checksum(
+                                        reinterpret_cast<const uint8_t*>(buf),
+                                        blockSize,
+                                        crcMode);
                 crc32 = _endian_encode(crc32);
                 memcpy((uint8_t *)buf + BTREE_CRC_OFFSET, &crc32, sizeof(crc32));
             }
         }
 #endif
 
-        r = file->ops->pwrite(file->fd, buf, len, pos);
-        _log_errno_str(file->ops, log_callback, (fdb_status) r, "WRITE", file->filename);
+        r = fMgrOps->pwrite(fd, buf, len, pos);
+        _log_errno_str(fMgrOps, log_callback, (fdb_status) r, "WRITE", fileName);
         if ((uint64_t)r != len) {
             return r < 0 ? (fdb_status) r : FDB_RESULT_WRITE_FAIL;
         }
@@ -2299,30 +2298,24 @@ fdb_status filemgr_write_offset(FileMgr *file, bid_t bid,
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status filemgr_write(FileMgr *file, bid_t bid, void *buf,
-                         ErrLogCallback *log_callback)
-{
-    return filemgr_write_offset(file, bid, 0, file->blocksize, buf,
-                                false, // TODO: track immutability of index blk
-                                log_callback);
+fdb_status FileMgr::write_FileMgr(bid_t bid, void *buf,
+                                  ErrLogCallback *log_callback) {
+    return writeOffset(bid, 0, blockSize, buf,
+                       false, // TODO: track immutability of index blk
+                       log_callback);
 }
 
-fdb_status filemgr_commit(FileMgr *file, bool sync,
-                          ErrLogCallback *log_callback)
-{
+fdb_status FileMgr::commit_FileMgr(bool sync, ErrLogCallback *log_callback) {
     // append header at the end of the file
     uint64_t bmp_revnum = 0;
     if (sb_ops.get_bmp_revnum) {
-        bmp_revnum = sb_ops.get_bmp_revnum(file);
+        bmp_revnum = sb_ops.get_bmp_revnum(this);
     }
-    return filemgr_commit_bid(file, BLK_NOT_FOUND, bmp_revnum,
-                              sync, log_callback);
+    return commitBid(BLK_NOT_FOUND, bmp_revnum, sync, log_callback);
 }
 
-fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
-                              uint64_t bmp_revnum, bool sync,
-                              ErrLogCallback *log_callback)
-{
+fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
+                              ErrLogCallback *log_callback) {
     struct avl_node *a;
     struct kvs_node *node;
     bid_t prev_bid, _prev_bid;
@@ -2332,24 +2325,24 @@ fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
     int result = FDB_RESULT_SUCCESS;
     bool block_reusing = false;
 
-    filemgr_set_io_inprog(file);
+    setIoInprog();
     if (global_config.getNcacheBlock() > 0) {
-        result = BlockCacheManager::getInstance()->flush(file);
+        result = BlockCacheManager::getInstance()->flush(this);
         if (result != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, (fdb_status) result,
-                           "FLUSH", file->filename);
-            filemgr_clear_io_inprog(file);
+            _log_errno_str(fMgrOps, log_callback, (fdb_status)result,
+                           "FLUSH", fileName);
+            clearIoInprog();
             return (fdb_status)result;
         }
     }
 
-    spin_lock(&file->lock);
+    spin_lock(&fMgrLock);
 
-    uint16_t header_len = file->header.size;
-    KvsHeader *kv_header = file->kv_header;
-    filemgr_magic_t magic = file->version;
+    uint16_t header_len = fMgrHeader.size;
+    KvsHeader *kv_header = kvHeader;
+    filemgr_magic_t magic = fMgrVersion;
 
-    if (header_len > 0 && file->header.data) {
+    if (header_len > 0 && fMgrHeader.data) {
         void *buf = _filemgr_get_temp_buf();
         uint8_t marker[BLK_MARKER_SIZE];
 
@@ -2367,35 +2360,35 @@ fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
         // [block marker]:       1 byte               <---+
 
         // header data
-        memcpy(buf, file->header.data, header_len);
+        memcpy(buf, fMgrHeader.data, header_len);
         // header rev number
-        _revnum = _endian_encode(file->header.revnum);
+        _revnum = _endian_encode(fMgrHeader.revnum);
         memcpy((uint8_t *)buf + header_len, &_revnum,
                sizeof(filemgr_header_revnum_t));
         // file's sequence number (default KVS seqnum)
-        _seqnum = _endian_encode(file->header.seqnum.load());
+        _seqnum = _endian_encode(fMgrHeader.seqnum.load());
         memcpy((uint8_t *)buf + header_len + sizeof(filemgr_header_revnum_t),
                &_seqnum, sizeof(fdb_seqnum_t));
 
         // current header's sb bmp revision number
-        if (file->sb) {
+        if (fMgrSb) {
             _bmp_revnum = _endian_encode(bmp_revnum);
-            memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
-                   - sizeof(header_len) - sizeof(_prev_bid)
-                   - sizeof(_deltasize) - sizeof(_bmp_revnum)
-                   - BLK_MARKER_SIZE),
-                   &_bmp_revnum, sizeof(_bmp_revnum));
+            memcpy((uint8_t *)buf + (blockSize - sizeof(filemgr_magic_t)
+                   - sizeof(header_len) - sizeof(_prev_bid) - sizeof(_deltasize)
+                   - sizeof(_bmp_revnum) - BLK_MARKER_SIZE),
+                   &_bmp_revnum,
+                   sizeof(_bmp_revnum));
         }
 
         // delta size since prior commit
-        _deltasize = _endian_encode(file->header.stat.deltasize //index+data
-                                  + file->wal->getDataSize_Wal()); // wal datasize
-        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
-               - sizeof(header_len) - sizeof(_prev_bid)*2 - BLK_MARKER_SIZE),
+        _deltasize = _endian_encode(fMgrHeader.stat.deltasize //index+data
+                                    + fMgrWal->getDataSize_Wal()); // wal datasize
+        memcpy((uint8_t *)buf + (blockSize - sizeof(filemgr_magic_t)
+               - sizeof(header_len) - sizeof(_prev_bid) * 2 - BLK_MARKER_SIZE),
                &_deltasize, sizeof(_deltasize));
 
         // Reset in-memory delta size of the header for next commit...
-        file->header.stat.deltasize = 0; // single kv store header
+        fMgrHeader.stat.deltasize = 0; // single kv store header
         if (kv_header) { // multi kv store stats
             a = avl_first(kv_header->idx_id);
             while (a) {
@@ -2406,29 +2399,31 @@ fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
         }
 
         // prev header bid
-        prev_bid = file->header.bid;
+        prev_bid = fMgrHeader.bid;
         _prev_bid = _endian_encode(prev_bid);
-        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+        memcpy((uint8_t *)buf + (blockSize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - sizeof(_prev_bid) - BLK_MARKER_SIZE),
-               &_prev_bid, sizeof(_prev_bid));
+               &_prev_bid,
+               sizeof(_prev_bid));
         // header length
         header_len = _endian_encode(header_len);
-        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+        memcpy((uint8_t *)buf + (blockSize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - BLK_MARKER_SIZE),
-               &header_len, sizeof(header_len));
+               &header_len,
+               sizeof(header_len));
         // magic number
         magic = _endian_encode(magic);
-        memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
+        memcpy((uint8_t *)buf + (blockSize - sizeof(filemgr_magic_t)
                - BLK_MARKER_SIZE), &magic, sizeof(magic));
 
         // marker
         memset(marker, BLK_MARKER_DBHEADER, BLK_MARKER_SIZE);
-        memcpy((uint8_t *)buf + file->blocksize - BLK_MARKER_SIZE,
+        memcpy((uint8_t *)buf + blockSize - BLK_MARKER_SIZE,
                marker, BLK_MARKER_SIZE);
 
         if (bid == BLK_NOT_FOUND) {
             // append header at the end of file
-            bid = file->pos.load() / file->blocksize;
+            bid = lastPos.load() / blockSize;
             block_reusing = false;
         } else {
             // write header in the allocated (reused) block
@@ -2436,91 +2431,88 @@ fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
             // we MUST invalidate the header block 'bid', since previous
             // contents of 'bid' may remain in block cache and cause data
             // inconsistency if reading header block hits the cache.
-            BlockCacheManager::getInstance()->invalidateBlock(file, bid);
+            BlockCacheManager::getInstance()->invalidateBlock(this, bid);
         }
 
-        ssize_t rv = filemgr_write_blocks(file, buf, 1, bid);
-        _log_errno_str(file->ops, log_callback, (fdb_status) rv,
-                       "WRITE", file->filename);
-        if (rv != (ssize_t)file->blocksize) {
+        ssize_t rv = writeBlocks(buf, 1, bid);
+        _log_errno_str(fMgrOps, log_callback, (fdb_status) rv,
+                       "WRITE", fileName);
+        if (rv != (ssize_t)blockSize) {
             _filemgr_release_temp_buf(buf);
-            spin_unlock(&file->lock);
-            filemgr_clear_io_inprog(file);
+            spin_unlock(&fMgrLock);
+            clearIoInprog();
             return rv < 0 ? (fdb_status) rv : FDB_RESULT_WRITE_FAIL;
         }
 
         if (prev_bid) {
             // mark prev DB header as stale
-            filemgr_add_stale_block(file, prev_bid * file->blocksize,
-                                    file->blocksize);
+            addStaleBlock(prev_bid * blockSize, blockSize);
         }
 
-        file->header.bid = bid;
+        fMgrHeader.bid = bid;
         if (!block_reusing) {
-            file->pos.fetch_add(file->blocksize);
+            lastPos.fetch_add(blockSize);
         }
 
         _filemgr_release_temp_buf(buf);
     }
 
-    if (sb_bmp_exists(file->sb) &&
-        file->sb->cur_alloc_bid.load() != BLK_NOT_FOUND &&
-        file->status.load() == FILE_NORMAL) {
+    if (sb_bmp_exists(fMgrSb) &&
+        fMgrSb->cur_alloc_bid.load() != BLK_NOT_FOUND &&
+        fMgrStatus.load() == FILE_NORMAL) {
         // block reusing is currently enabled
-        file->last_commit.store(file->sb->cur_alloc_bid.load()
-                                * file->blocksize);
+        lastCommit.store(fMgrSb->cur_alloc_bid.load() * blockSize);
     } else {
-        file->last_commit.store(file->pos.load());
+        lastCommit.store(lastPos.load());
     }
-    if (file->sb) {
+
+    if (fMgrSb) {
         // Since some more blocks may be allocated after the header block
         // (for storing BMP data or system docs for stale info)
         // so that the block pointed to by 'cur_alloc_bid' may have
         // different BMP revision number. So we have to use the
         // up-to-date bmp_revnum here.
-        file->last_writable_bmp_revnum.store(filemgr_get_sb_bmp_revnum(file));
+        lastWritableBmpRevnum.store(getSbBmpRevnum());
     }
 
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
 
     if (sync) {
-        result = file->ops->fsync(file->fd);
-        _log_errno_str(file->ops, log_callback, (fdb_status)result,
-                       "FSYNC", file->filename);
+        result = fMgrOps->fsync(fd);
+        _log_errno_str(fMgrOps, log_callback, (fdb_status)result,
+                       "FSYNC", fileName);
     }
-    filemgr_clear_io_inprog(file);
+    clearIoInprog();
     return (fdb_status) result;
 }
 
-fdb_status filemgr_sync(FileMgr *file, bool sync_option,
-                        ErrLogCallback *log_callback)
-{
+fdb_status FileMgr::sync_FileMgr(bool sync_option,
+                                 ErrLogCallback *log_callback) {
     fdb_status result = FDB_RESULT_SUCCESS;
     if (global_config.getNcacheBlock() > 0) {
-        result = BlockCacheManager::getInstance()->flush(file);
+        result = BlockCacheManager::getInstance()->flush(this);
         if (result != FDB_RESULT_SUCCESS) {
-            _log_errno_str(file->ops, log_callback, (fdb_status) result,
-                           "FLUSH", file->filename);
+            _log_errno_str(fMgrOps, log_callback, (fdb_status)result,
+                           "FLUSH", fileName);
             return result;
         }
     }
 
-    if (sync_option && file->fflags & FILEMGR_SYNC) {
-        int rv = file->ops->fsync(file->fd);
-        _log_errno_str(file->ops, log_callback, (fdb_status)rv, "FSYNC", file->filename);
+    if (sync_option && (fMgrFlags & FILEMGR_SYNC)) {
+        int rv = fMgrOps->fsync(fd);
+        _log_errno_str(fMgrOps, log_callback, (fdb_status)rv, "FSYNC", fileName);
         return (fdb_status) rv;
     }
     return result;
 }
 
-fdb_status filemgr_copy_file_range(FileMgr *src_file,
-                                   FileMgr *dst_file,
-                                   bid_t src_bid, bid_t dst_bid,
-                                   bid_t clone_len)
-{
-    uint32_t blocksize = src_file->blocksize;
-    fdb_status fs = (fdb_status)dst_file->ops->copy_file_range(
-                                            src_file->fs_type,
+fdb_status FileMgr::copyFileRange(FileMgr *src_file,
+                                  FileMgr *dst_file,
+                                  bid_t src_bid, bid_t dst_bid,
+                                  bid_t clone_len) {
+    uint32_t blocksize = src_file->blockSize;
+    fdb_status fs = (fdb_status)dst_file->fMgrOps->copy_file_range(
+                                            src_file->fsType,
                                             src_file->fd,
                                             dst_file->fd,
                                             src_bid * blocksize,
@@ -2529,68 +2521,63 @@ fdb_status filemgr_copy_file_range(FileMgr *src_file,
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
-    dst_file->pos.store((dst_bid + clone_len) * blocksize);
+    dst_file->lastPos.store((dst_bid + clone_len) * blocksize);
     return FDB_RESULT_SUCCESS;
 }
 
-int filemgr_update_file_status(FileMgr *file, file_status_t status,
-                               char *old_filename)
-{
+int FileMgr::updateFileStatus(file_status_t status, char *old_filename) {
     int ret = 1;
-    spin_lock(&file->lock);
-    file->status = status;
+    spin_lock(&fMgrLock);
+    fMgrStatus = status;
     if (old_filename) {
-        if (!file->old_filename) {
-            file->old_filename = old_filename;
+        if (!oldFileName) {
+            oldFileName = old_filename;
         } else {
             ret = 0;
-            fdb_assert(file->ref_count.load(), file->ref_count.load(), 0);
+            fdb_assert(refCount.load(), refCount.load(), 0);
         }
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
     return ret;
 }
 
-void filemgr_set_compaction_state(FileMgr *old_file, FileMgr *new_file,
-                                  file_status_t status)
-{
-    spin_lock(&old_file->lock);
-    old_file->new_file = new_file;
-    old_file->status = status;
-    spin_unlock(&old_file->lock);
+void FileMgr::setCompactionState(FileMgr *old_file, FileMgr *new_file,
+                                 file_status_t status) {
+    spin_lock(&old_file->fMgrLock);
+    old_file->newFile = new_file;
+    old_file->fMgrStatus = status;
+    spin_unlock(&old_file->fMgrLock);
 
     if (new_file) {
-        spin_lock(&new_file->lock);
-        new_file->prev_file = old_file;
-        spin_unlock(&new_file->lock);
+        spin_lock(&new_file->fMgrLock);
+        new_file->prevFile = old_file;
+        spin_unlock(&new_file->fMgrLock);
     }
 }
 
-bool filemgr_set_kv_header(FileMgr *file, KvsHeader *kv_header,
-                           void (*free_kv_header)(FileMgr *file))
-{
+bool FileMgr::setKVHeader(KvsHeader *kv_header,
+                          void (*free_kv_header)(FileMgr *file)) {
     bool ret;
-    spin_lock(&file->lock);
+    spin_lock(&fMgrLock);
 
-    if (!file->kv_header) {
-        file->kv_header = kv_header;
-        file->free_kv_header = free_kv_header;
+    if (!kvHeader) {
+        kvHeader = kv_header;
+        this->free_kv_header = free_kv_header;
         ret = true;
     } else {
         ret = false;
     }
 
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
 
     return ret;
 }
 
-KvsHeader *filemgr_get_kv_header(FileMgr *file)
-{
+KvsHeader* FileMgr::getKVHeader() {
     KvsHeader *kv_header = NULL;
-    spin_lock(&file->lock);
-    kv_header = file->kv_header;
-    spin_unlock(&file->lock);
+    spin_lock(&fMgrLock);
+    kv_header = kvHeader;
+    spin_unlock(&fMgrLock);
     return kv_header;
 }
 
@@ -2598,128 +2585,108 @@ KvsHeader *filemgr_get_kv_header(FileMgr *file)
 // compacted away. If so open the file and return its pointer.
 static void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
     FileMgr *cur_file = reinterpret_cast<FileMgr *>(ctx);
-    FileMgr *file = _get_entry(h, struct FileMgr, e);
-    spin_lock(&file->lock);
-    if (file->status.load() == FILE_REMOVED_PENDING &&
-        file->new_file == cur_file) {
-        // Incrementing reference counter below is the same as filemgr_open()
+    FileMgr *file = _get_entry(h, struct FileMgr, hashElem);
+    spin_lock(&file->fMgrLock);
+    if (file->fMgrStatus.load() == FILE_REMOVED_PENDING &&
+        file->newFile == cur_file) {
+        // Incrementing reference counter below is the same as Filemgr::open()
         // We need to do this to ensure that the pointer returned does not
         // get freed outside the filemgr_open lock
-        file->ref_count++;
-        spin_unlock(&file->lock);
+        file->refCount++;
+        spin_unlock(&file->fMgrLock);
         return (void *)file;
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&file->fMgrLock);
     return (void *)NULL;
 }
 
-FileMgr *filemgr_search_stale_links(FileMgr *cur_file)
-{
+FileMgr* FileMgr::searchStaleLinks() {
     FileMgr *very_old_file;
     spin_lock(&filemgr_openlock);
     very_old_file = reinterpret_cast<FileMgr *>(
-                    hash_scan(&hash, _filemgr_check_stale_link, cur_file));
+                    hash_scan(&hash, _filemgr_check_stale_link, this));
     spin_unlock(&filemgr_openlock);
     return very_old_file;
 }
 
-char *filemgr_redirect_old_file(FileMgr *very_old_file,
-                                FileMgr *new_file,
-                                filemgr_redirect_hdr_func redirect_header_func)
-{
+char* FileMgr::redirectOldFile(FileMgr *very_old_file,
+                               FileMgr *new_file,
+                               filemgr_redirect_hdr_func redirect_header_func) {
     size_t old_header_len, new_header_len;
     uint16_t new_filename_len;
     char *past_filename;
-    spin_lock(&very_old_file->lock);
+    spin_lock(&very_old_file->fMgrLock);
 
-    if (very_old_file->header.size == 0 || very_old_file->new_file == NULL) {
-        spin_unlock(&very_old_file->lock);
+    if (very_old_file->fMgrHeader.size == 0 || very_old_file->newFile == NULL) {
+        spin_unlock(&very_old_file->fMgrLock);
         return NULL;
     }
 
-    old_header_len = very_old_file->header.size;
-    new_filename_len = strlen(new_file->filename);
+    old_header_len = very_old_file->fMgrHeader.size;
+    new_filename_len = strlen(new_file->fileName);
     // Find out the new DB header length with new_file's filename
-    new_header_len = old_header_len - strlen(very_old_file->new_file->filename)
-        + new_filename_len;
+    new_header_len = old_header_len - strlen(very_old_file->newFile->fileName) +
+                     new_filename_len;
     // As we are going to change the new_filename field in the DB header of the
     // very_old_file, maybe reallocate DB header buf to accomodate bigger value
     if (new_header_len > old_header_len) {
-        very_old_file->header.data = realloc(very_old_file->header.data,
-                                             new_file->blocksize);
+        very_old_file->fMgrHeader.data = realloc(very_old_file->fMgrHeader.data,
+                                             new_file->blockSize);
     }
-    very_old_file->new_file = new_file; // Re-direct very_old_file to new_file
+    very_old_file->newFile = new_file; // Re-direct very_old_file to new_file
     // Note that the prev_file pointer of the new_file is not updated, this
     // is so that every file in the history is reachable from the current file.
 
     past_filename = redirect_header_func(very_old_file,
-                                         (uint8_t *)very_old_file->header.data,
+                                         (uint8_t *)very_old_file->fMgrHeader.data,
                                          new_file);//Update in-memory header
-    very_old_file->header.size = new_header_len;
-    ++very_old_file->header.revnum;
+    very_old_file->fMgrHeader.size = new_header_len;
+    ++very_old_file->fMgrHeader.revnum;
 
-    spin_unlock(&very_old_file->lock);
+    spin_unlock(&very_old_file->fMgrLock);
     return past_filename;
 }
 
-void filemgr_remove_pending(FileMgr *old_file,
+void FileMgr::removePending(FileMgr *old_file,
                             FileMgr *new_file,
-                            ErrLogCallback *log_callback)
-{
+                            ErrLogCallback *log_callback) {
     if (new_file == NULL) {
         return;
     }
 
-    spin_lock(&old_file->lock);
-    if (old_file->ref_count.load() > 0) {
+    spin_lock(&old_file->fMgrLock);
+    if (old_file->refCount.load() > 0) {
         // delay removing
-        old_file->new_file = new_file;
-        old_file->status.store(FILE_REMOVED_PENDING);
+        old_file->newFile = new_file;
+        old_file->fMgrStatus.store(FILE_REMOVED_PENDING);
 
 #if !(defined(WIN32) || defined(_WIN32))
         // Only for Posix
         int ret;
-        ret = unlink(old_file->filename);
-        _log_errno_str(old_file->ops, log_callback, (fdb_status)ret,
-                       "UNLINK", old_file->filename);
+        ret = unlink(old_file->fileName);
+        _log_errno_str(old_file->fMgrOps, log_callback, (fdb_status)ret,
+                       "UNLINK", old_file->fileName);
 #endif
 
-        spin_unlock(&old_file->lock);
+        spin_unlock(&old_file->fMgrLock);
     } else {
         // immediatly remove
         // LCOV_EXCL_START
-        spin_unlock(&old_file->lock);
+        spin_unlock(&old_file->fMgrLock);
 
         if (!lazy_file_deletion_enabled ||
-            (old_file->new_file && old_file->new_file->in_place_compaction)) {
-            remove(old_file->filename);
+            (old_file->newFile && old_file->newFile->inPlaceCompaction)) {
+            remove(old_file->fileName);
         }
-        filemgr_remove_file(old_file, log_callback);
+        FileMgr::removeFile(old_file, log_callback);
         // LCOV_EXCL_STOP
     }
 }
 
-// migrate default kv store stats over to new_file
-KvsOpsStat *filemgr_migrate_op_stats(FileMgr *old_file,
-                                     FileMgr *new_file)
-{
-    KvsOpsStat *ret = NULL;
-    if (new_file == NULL) {
-        return NULL;
-    }
-
-    spin_lock(&old_file->lock);
-    new_file->header.op_stat = old_file->header.op_stat;
-    ret = &new_file->header.op_stat;
-    spin_unlock(&old_file->lock);
-    return ret;
-}
-
 // Note: filemgr_openlock should be held before calling this function.
-fdb_status filemgr_destroy_file(char *filename,
+fdb_status FileMgr::destroyFile(char *filename,
                                 FileMgrConfig *config,
-                                struct hash *destroy_file_set)
-{
+                                struct hash *destroy_file_set) {
     struct hash to_destroy_files;
     struct hash *destroy_set = (destroy_file_set ? destroy_file_set :
                                                   &to_destroy_files);
@@ -2732,9 +2699,9 @@ fdb_status filemgr_destroy_file(char *filename,
         hash_init(destroy_set, NBUCKET, _file_hash, _file_cmp);
     }
 
-    query.filename = filename;
+    query.fileName = filename;
     // check whether file is already being destroyed in parent recursive call
-    e = hash_find(destroy_set, &query.e);
+    e = hash_find(destroy_set, &query.hashElem);
     if (e) { // Duplicate filename found, nothing to be done in this call
         if (!destroy_file_set) { // top level or non-recursive call
             hash_free(destroy_set);
@@ -2742,29 +2709,29 @@ fdb_status filemgr_destroy_file(char *filename,
         return status;
     } else {
         // Remember file. Stack value ok IFF single direction recursion
-        hash_insert(destroy_set, &query.e);
+        hash_insert(destroy_set, &query.hashElem);
     }
 
     // check global list of known files to see if it is already opened or not
-    e = hash_find(&hash, &query.e);
+    e = hash_find(&hash, &query.hashElem);
     if (e) {
         FileMgr *file = NULL;
         // already opened (return existing structure)
-        file = _get_entry(e, struct FileMgr, e);
+        file = _get_entry(e, struct FileMgr, hashElem);
 
-        spin_lock(&file->lock);
-        if (file->ref_count.load()) {
-            spin_unlock(&file->lock);
+        spin_lock(&file->fMgrLock);
+        if (file->refCount.load()) {
+            spin_unlock(&file->fMgrLock);
             status = FDB_RESULT_FILE_IS_BUSY;
             if (!destroy_file_set) { // top level or non-recursive call
                 hash_free(destroy_set);
             }
             return status;
         }
-        spin_unlock(&file->lock);
-        if (file->old_filename) {
-            status = filemgr_destroy_file(file->old_filename, config,
-                                          destroy_set);
+        spin_unlock(&file->fMgrLock);
+        if (file->oldFileName) {
+            status = destroyFile(file->oldFileName, config,
+                                 destroy_set);
             if (status != FDB_RESULT_SUCCESS) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
@@ -2774,9 +2741,9 @@ fdb_status filemgr_destroy_file(char *filename,
         }
 
         // Cleanup file from in-memory as well as on-disk
-        e = hash_remove(&hash, &file->e);
+        e = hash_remove(&hash, &file->hashElem);
         fdb_assert(e, e, 0);
-        filemgr_free_func(&file->e);
+        FileMgr::freeFunc(&file->hashElem);
         if (filemgr_does_file_exist(filename) == FDB_RESULT_SUCCESS) {
             if (remove(filename)) {
                 status = FDB_RESULT_FILE_REMOVE_FAIL;
@@ -2784,14 +2751,14 @@ fdb_status filemgr_destroy_file(char *filename,
         }
     } else { // file not in memory, read on-disk to destroy older versions..
         FileMgr disk_file;
-        disk_file.filename = filename;
-        disk_file.ops = get_filemgr_ops();
-        disk_file.fd = disk_file.ops->open(disk_file.filename, O_RDWR, 0666);
-        disk_file.blocksize = global_config.getBlockSize();
+        disk_file.fileName = filename;
+        disk_file.fMgrOps = get_filemgr_ops();
+        disk_file.fd = disk_file.fMgrOps->open(disk_file.fileName, O_RDWR, 0666);
+        disk_file.blockSize = global_config.getBlockSize();
         FileMgrConfig fmc;
-        disk_file.config = &fmc;
-        *disk_file.config = *config;
-        fdb_init_encryptor(&disk_file.encryption, config->getEncryptionKey());
+        disk_file.fileConfig = &fmc;
+        *disk_file.fileConfig = *config;
+        fdb_init_encryptor(&disk_file.fMgrEncryption, config->getEncryptionKey());
         if (disk_file.fd < 0) {
             if (disk_file.fd != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call
@@ -2800,20 +2767,20 @@ fdb_status filemgr_destroy_file(char *filename,
                 return (fdb_status) disk_file.fd;
             }
         } else { // file successfully opened, seek to end to get DB header
-            cs_off_t offset = disk_file.ops->goto_eof(disk_file.fd);
+            cs_off_t offset = disk_file.fMgrOps->goto_eof(disk_file.fd);
             if (offset < 0) {
                 if (!destroy_file_set) { // top level or non-recursive call
                     hash_free(destroy_set);
                 }
                 return (fdb_status) offset;
             } else { // Need to read DB header which contains old filename
-                disk_file.pos.store(offset);
+                disk_file.lastPos.store(offset);
                 // initialize CRC mode
-                if (disk_file.config &&
-                    disk_file.config->getOptions() & FILEMGR_CREATE_CRC32) {
-                    disk_file.crc_mode = CRC32;
+                if (disk_file.fileConfig &&
+                    disk_file.fileConfig->getOptions() & FILEMGR_CREATE_CRC32) {
+                    disk_file.crcMode = CRC32;
                 } else {
-                    disk_file.crc_mode = CRC_DEFAULT;
+                    disk_file.crcMode = CRC_DEFAULT;
                 }
 
                 status = _filemgr_load_sb(&disk_file, NULL);
@@ -2821,7 +2788,7 @@ fdb_status filemgr_destroy_file(char *filename,
                     if (!destroy_file_set) { // top level or non-recursive call
                         hash_free(destroy_set);
                     }
-                    disk_file.ops->close(disk_file.fd);
+                    disk_file.fMgrOps->close(disk_file.fd);
                     return status;
                 }
 
@@ -2830,37 +2797,36 @@ fdb_status filemgr_destroy_file(char *filename,
                     if (!destroy_file_set) { // top level or non-recursive call
                         hash_free(destroy_set);
                     }
-                    disk_file.ops->close(disk_file.fd);
-                    if (sb_ops.release && disk_file.sb) {
+                    disk_file.fMgrOps->close(disk_file.fd);
+                    if (sb_ops.release && disk_file.fMgrSb) {
                         sb_ops.release(&disk_file);
                     }
                     return status;
                 }
-                if (disk_file.header.data) {
-                    size_t new_fnamelen_off = ver_get_new_filename_off(
-                                                            disk_file.version);
-                    size_t old_fnamelen_off = new_fnamelen_off + 2;
+                if (disk_file.fMgrHeader.data) {
+                    size_t new_fileNamelen_off = ver_get_new_filename_off(
+                                                            disk_file.fMgrVersion);
+                    size_t old_fileNamelen_off = new_fileNamelen_off + 2;
                     uint16_t *new_filename_len_ptr = (uint16_t *)((char *)
-                                                     disk_file.header.data
-                                                     + new_fnamelen_off);
+                                                     disk_file.fMgrHeader.data
+                                                     + new_fileNamelen_off);
                     uint16_t new_filename_len =
                                       _endian_decode(*new_filename_len_ptr);
                     uint16_t *old_filename_len_ptr = (uint16_t *)((char *)
-                                                     disk_file.header.data
-                                                     + old_fnamelen_off);
+                                                     disk_file.fMgrHeader.data
+                                                     + old_fileNamelen_off);
                     uint16_t old_filename_len =
                                       _endian_decode(*old_filename_len_ptr);
-                    old_filename = (char *)disk_file.header.data +
-                                    old_fnamelen_off + 2 + new_filename_len;
+                    old_filename = (char *)disk_file.fMgrHeader.data +
+                                    old_fileNamelen_off + 2 + new_filename_len;
                     if (old_filename_len) {
-                        status = filemgr_destroy_file(old_filename, config,
-                                                      destroy_set);
+                        status = destroyFile(old_filename, config, destroy_set);
                     }
-                    free(disk_file.header.data);
-                    disk_file.header.data = nullptr;
+                    free(disk_file.fMgrHeader.data);
+                    disk_file.fMgrHeader.data = nullptr;
                 }
-                disk_file.ops->close(disk_file.fd);
-                if (sb_ops.release && disk_file.sb) {
+                disk_file.fMgrOps->close(disk_file.fd);
+                if (sb_ops.release && disk_file.fMgrSb) {
                     sb_ops.release(&disk_file);
                 }
                 if (status == FDB_RESULT_SUCCESS) {
@@ -2882,99 +2848,86 @@ fdb_status filemgr_destroy_file(char *filename,
     return status;
 }
 
-bool filemgr_is_rollback_on(FileMgr *file)
-{
+bool FileMgr::isRollbackOn() {
     bool rv;
-    spin_lock(&file->lock);
-    rv = (file->fflags & FILEMGR_ROLLBACK_IN_PROG);
-    spin_unlock(&file->lock);
+    spin_lock(&fMgrLock);
+    rv = (fMgrFlags & FILEMGR_ROLLBACK_IN_PROG);
+    spin_unlock(&fMgrLock);
     return rv;
 }
 
-void filemgr_set_rollback(FileMgr *file, uint8_t new_val)
-{
-    spin_lock(&file->lock);
+void FileMgr::setRollback(uint8_t new_val) {
+    spin_lock(&fMgrLock);
     if (new_val) {
-        file->fflags |= FILEMGR_ROLLBACK_IN_PROG;
+        fMgrFlags |= FILEMGR_ROLLBACK_IN_PROG;
     } else {
-        file->fflags &= ~FILEMGR_ROLLBACK_IN_PROG;
+        fMgrFlags &= ~FILEMGR_ROLLBACK_IN_PROG;
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
 }
 
-void filemgr_set_cancel_compaction(FileMgr *file, bool cancel)
-{
-    spin_lock(&file->lock);
+void FileMgr::setCancelCompaction(bool cancel) {
+    spin_lock(&fMgrLock);
     if (cancel) {
-        file->fflags |= FILEMGR_CANCEL_COMPACTION;
+        fMgrFlags |= FILEMGR_CANCEL_COMPACTION;
     } else {
-        file->fflags &= ~FILEMGR_CANCEL_COMPACTION;
+        fMgrFlags &= ~FILEMGR_CANCEL_COMPACTION;
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&fMgrLock);
 }
 
-bool filemgr_is_compaction_cancellation_requested(FileMgr *file)
-{
+bool FileMgr::isCompactionCancellationRequested() {
     bool rv;
-    spin_lock(&file->lock);
-    rv = (file->fflags & FILEMGR_CANCEL_COMPACTION);
-    spin_unlock(&file->lock);
+    spin_lock(&fMgrLock);
+    rv = (fMgrFlags & FILEMGR_CANCEL_COMPACTION);
+    spin_unlock(&fMgrLock);
     return rv;
 }
 
-void filemgr_set_in_place_compaction(FileMgr *file,
-                                     bool in_place_compaction) {
-    spin_lock(&file->lock);
-    file->in_place_compaction = in_place_compaction;
-    spin_unlock(&file->lock);
+void FileMgr::setInPlaceCompaction(bool in_place_compaction) {
+    spin_lock(&fMgrLock);
+    inPlaceCompaction = in_place_compaction;
+    spin_unlock(&fMgrLock);
 }
 
-bool filemgr_is_in_place_compaction_set(FileMgr *file)
-
-{
+bool FileMgr::isInPlaceCompactionSet() {
     bool ret = false;
-    spin_lock(&file->lock);
-    ret = file->in_place_compaction;
-    spin_unlock(&file->lock);
+    spin_lock(&fMgrLock);
+    ret = inPlaceCompaction;
+    spin_unlock(&fMgrLock);
     return ret;
 }
 
-void filemgr_mutex_openlock(FileMgrConfig *config)
-{
-    filemgr_init(config);
-
+void FileMgr::mutexOpenlock(FileMgrConfig *config) {
+    init(config);
     spin_lock(&filemgr_openlock);
 }
 
-void filemgr_mutex_openunlock(void)
-{
+void FileMgr::mutexOpenunlock(void) {
     spin_unlock(&filemgr_openlock);
 }
 
-void filemgr_mutex_lock(FileMgr *file)
-{
-    mutex_lock(&file->writer_lock.mutex);
-    file->writer_lock.locked = true;
+void FileMgr::mutexLock() {
+    mutex_lock(&writerLock.mutex);
+    writerLock.locked = true;
 }
 
-bool filemgr_mutex_trylock(FileMgr *file) {
-    if (mutex_trylock(&file->writer_lock.mutex)) {
-        file->writer_lock.locked = true;
+bool FileMgr::mutexTrylock() {
+    if (mutex_trylock(&writerLock.mutex)) {
+        writerLock.locked = true;
         return true;
     }
     return false;
 }
 
-void filemgr_mutex_unlock(FileMgr *file)
-{
-    if (file->writer_lock.locked) {
-        file->writer_lock.locked = false;
-        mutex_unlock(&file->writer_lock.mutex);
+void FileMgr::mutexUnlock() {
+    if (writerLock.locked) {
+        writerLock.locked = false;
+        mutex_unlock(&writerLock.mutex);
     }
 }
 
-bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
-{
+bool FileMgr::isCommitHeader(void *head_buffer, size_t blocksize) {
     uint8_t marker[BLK_MARKER_SIZE];
     filemgr_magic_t magic;
     marker[0] = *(((uint8_t *)head_buffer)
@@ -2990,48 +2943,40 @@ bool filemgr_is_commit_header(void *head_buffer, size_t blocksize)
     return ver_is_valid_magic(magic);
 }
 
-bool filemgr_is_cow_supported(FileMgr *src, FileMgr *dst)
-{
-    src->fs_type = src->ops->get_fs_type(src->fd);
-    if (src->fs_type < 0) {
+bool FileMgr::isCowSupported(FileMgr *src, FileMgr *dst) {
+    src->fsType = src->fMgrOps->get_fs_type(src->fd);
+    if (src->fsType < 0) {
         return false;
     }
-    dst->fs_type = dst->ops->get_fs_type(dst->fd);
-    if (dst->fs_type < 0) {
+    dst->fsType = dst->fMgrOps->get_fs_type(dst->fd);
+    if (dst->fsType < 0) {
         return false;
     }
-    if (src->fs_type == dst->fs_type && src->fs_type != FILEMGR_FS_NO_COW) {
+    if (src->fsType == dst->fsType && src->fsType != FILEMGR_FS_NO_COW) {
         return true;
     }
     return false;
 }
 
-void filemgr_set_throttling_delay(FileMgr *file, uint64_t delay_us)
-{
-    file->throttling_delay.store(delay_us, std::memory_order_relaxed);
+void FileMgr::setThrottlingDelay(uint64_t delay_us) {
+    throttlingDelay.store(delay_us, std::memory_order_relaxed);
 }
 
-uint32_t filemgr_get_throttling_delay(FileMgr *file)
-{
-    return file->throttling_delay.load(std::memory_order_relaxed);
+uint32_t FileMgr::getThrottlingDelay() {
+    return throttlingDelay.load(std::memory_order_relaxed);
 }
 
-void filemgr_add_stale_block(FileMgr *file,
-                             bid_t pos,
-                             size_t len)
-{
-    file->staleData->addStaleRegion(pos, len);
+void FileMgr::addStaleBlock(bid_t offset,
+                            size_t len) {
+    staleData->addStaleRegion(offset, len);
 }
 
-void filemgr_mark_stale(FileMgr *file,
-                        bid_t offset,
-                        size_t length)
-{
-    file->staleData->markDocStale(offset, length);
+void FileMgr::markStale(bid_t offset,
+                        size_t length) {
+    staleData->markDocStale(offset, length);
 }
 
-INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
+INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux) {
     uint64_t aaa, bbb;
     struct filemgr_fhandle_idx_node *aa, *bb;
     aa = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
@@ -3052,8 +2997,7 @@ INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 #endif
 }
 
-void _free_fhandle_idx(struct avl_tree *idx)
-{
+void _free_fhandle_idx(struct avl_tree *idx) {
     struct avl_node *a;
     struct filemgr_fhandle_idx_node *item;
 
@@ -3066,81 +3010,76 @@ void _free_fhandle_idx(struct avl_tree *idx)
     }
 }
 
-bool filemgr_fhandle_add(FileMgr *file, void *fhandle)
-{
+bool FileMgr::fhandleAdd(void *fhandle) {
     bool ret;
     struct filemgr_fhandle_idx_node *item, query;
     struct avl_node *a;
 
-    spin_lock(&file->fhandle_idx_lock);
+    spin_lock(&handleIdxLock);
 
     query.fhandle = fhandle;
-    a = avl_search(&file->fhandle_idx, &query.avl, _fhandle_idx_cmp);
+    a = avl_search(&handleIdx, &query.avl, _fhandle_idx_cmp);
     if (!a) {
         // not exist, create a node and insert
         item = (struct filemgr_fhandle_idx_node *)calloc(1,
                                 sizeof(struct filemgr_fhandle_idx_node));
         item->fhandle = fhandle;
-        avl_insert(&file->fhandle_idx, &item->avl, _fhandle_idx_cmp);
+        avl_insert(&handleIdx, &item->avl, _fhandle_idx_cmp);
         ret = true;
     } else {
         ret = false;
     }
 
-    spin_unlock(&file->fhandle_idx_lock);
+    spin_unlock(&handleIdxLock);
     return ret;
 }
 
-bool filemgr_fhandle_remove(FileMgr *file, void *fhandle)
-{
+bool FileMgr::fhandleRemove(void *fhandle) {
     bool ret;
     struct filemgr_fhandle_idx_node *item, query;
     struct avl_node *a;
 
-    spin_lock(&file->fhandle_idx_lock);
+    spin_lock(&handleIdxLock);
 
     query.fhandle = fhandle;
-    a = avl_search(&file->fhandle_idx, &query.avl, _fhandle_idx_cmp);
+    a = avl_search(&handleIdx, &query.avl, _fhandle_idx_cmp);
     if (a) {
         // exist, remove & free the item
         item = _get_entry(a, struct filemgr_fhandle_idx_node, avl);
-        avl_remove(&file->fhandle_idx, &item->avl);
+        avl_remove(&handleIdx, &item->avl);
         free(item);
         ret = true;
     } else {
         ret = false;
     }
 
-    spin_unlock(&file->fhandle_idx_lock);
+    spin_unlock(&handleIdxLock);
     return ret;
 }
 
 static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *node);
 
-void filemgr_dirty_update_init(FileMgr *file)
-{
-    avl_init(&file->dirty_update_idx, NULL);
-    spin_init(&file->dirty_update_lock);
-    file->dirty_update_counter = 0;
-    file->latest_dirty_update = NULL;
+void FileMgr::dirtyUpdateInit() {
+    avl_init(&dirtyUpdateIdx, NULL);
+    spin_init(&dirtyUpdateLock);
+    dirtyUpdateCounter = 0;
+    latestDirtyUpdate = NULL;
 }
 
-void filemgr_dirty_update_free(FileMgr *file)
-{
-    struct avl_node *a = avl_first(&file->dirty_update_idx);
+void FileMgr::dirtyUpdateFree() {
+    struct avl_node *a = avl_first(&dirtyUpdateIdx);
     struct filemgr_dirty_update_node *node;
 
     while (a) {
         node = _get_entry(a, struct filemgr_dirty_update_node, avl);
         a = avl_next(a);
-        avl_remove(&file->dirty_update_idx, &node->avl);
+        avl_remove(&dirtyUpdateIdx, &node->avl);
         _filemgr_dirty_update_remove_node(node);
     }
-    spin_destroy(&file->dirty_update_lock);
+    spin_destroy(&dirtyUpdateLock);
 }
 
-INLINE int _dirty_update_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
+INLINE int _dirtyUpdateIdx_cmp(struct avl_node *a, struct avl_node *b, void *aux) {
     struct filemgr_dirty_update_node *aa, *bb;
     aa = _get_entry(a, struct filemgr_dirty_update_node, avl);
     bb = _get_entry(b, struct filemgr_dirty_update_node, avl);
@@ -3148,8 +3087,7 @@ INLINE int _dirty_update_idx_cmp(struct avl_node *a, struct avl_node *b, void *a
     return _CMP_U64(aa->id, bb->id);
 }
 
-INLINE int _dirty_blocks_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
+INLINE int _dirty_blocks_cmp(struct avl_node *a, struct avl_node *b, void *aux) {
     struct filemgr_dirty_update_block *aa, *bb;
     aa = _get_entry(a, struct filemgr_dirty_update_block, avl);
     bb = _get_entry(b, struct filemgr_dirty_update_block, avl);
@@ -3157,44 +3095,41 @@ INLINE int _dirty_blocks_cmp(struct avl_node *a, struct avl_node *b, void *aux)
     return _CMP_U64(aa->bid, bb->bid);
 }
 
-struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(FileMgr *file)
-{
+struct filemgr_dirty_update_node* FileMgr::dirtyUpdateNewNode() {
     struct filemgr_dirty_update_node *node;
 
     node = (struct filemgr_dirty_update_node *)
            calloc(1, sizeof(struct filemgr_dirty_update_node));
-    node->id = ++file->dirty_update_counter;
+    node->id = ++dirtyUpdateCounter;
     node->immutable = false; // currently being written
     node->expired = false;
     node->ref_count = 0;
     node->idtree_root = node->seqtree_root = BLK_NOT_FOUND;
     avl_init(&node->dirty_blocks, NULL);
 
-    spin_lock(&file->dirty_update_lock);
-    avl_insert(&file->dirty_update_idx, &node->avl, _dirty_update_idx_cmp);
-    spin_unlock(&file->dirty_update_lock);
+    spin_lock(&dirtyUpdateLock);
+    avl_insert(&dirtyUpdateIdx, &node->avl, _dirtyUpdateIdx_cmp);
+    spin_unlock(&dirtyUpdateLock);
 
     return node;
 }
 
-struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(FileMgr *file)
-{
+struct filemgr_dirty_update_node* FileMgr::dirtyUpdateGetLatest() {
     struct filemgr_dirty_update_node *node = NULL;
 
     // find the first immutable node from the end
-    spin_lock(&file->dirty_update_lock);
+    spin_lock(&dirtyUpdateLock);
 
-    node = file->latest_dirty_update;
+    node = latestDirtyUpdate;
     if (node) {
         node->ref_count++;
     }
 
-    spin_unlock(&file->dirty_update_lock);
+    spin_unlock(&dirtyUpdateLock);
     return node;
 }
 
-void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node)
-{
+void FileMgr::dirtyUpdateIncRefCount(struct filemgr_dirty_update_node *node) {
     if (!node) {
         return;
     }
@@ -3203,8 +3138,7 @@ void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node)
 
 INLINE void filemgr_dirty_update_flush(FileMgr *file,
                                        struct filemgr_dirty_update_node *node,
-                                       ErrLogCallback *log_callback)
-{
+                                       ErrLogCallback *log_callback) {
     struct avl_node *a;
     struct filemgr_dirty_update_block *block;
 
@@ -3217,17 +3151,15 @@ INLINE void filemgr_dirty_update_flush(FileMgr *file,
     while (a) {
         block = _get_entry(a, struct filemgr_dirty_update_block, avl);
         a = avl_next(a);
-        if (filemgr_is_writable(file, block->bid) && !block->immutable) {
-            filemgr_write(file, block->bid, block->addr, log_callback);
+        if (file->isWritable(block->bid) && !block->immutable) {
+            file->write_FileMgr(block->bid, block->addr, log_callback);
         }
     }
     node->expired = true;
 }
 
-void filemgr_dirty_update_commit(FileMgr *file,
-                                 struct filemgr_dirty_update_node *commit_node,
-                                 ErrLogCallback *log_callback)
-{
+void FileMgr::dirtyUpdateCommit(struct filemgr_dirty_update_node *commit_node,
+                                ErrLogCallback *log_callback) {
     struct avl_node *a;
     struct filemgr_dirty_update_node *node;
     struct list remove_queue;
@@ -3237,25 +3169,25 @@ void filemgr_dirty_update_commit(FileMgr *file,
     // 2. remove all other immutable dirty update entries
     list_init(&remove_queue);
     if (commit_node) {
-        filemgr_dirty_update_flush(file, commit_node, log_callback);
+        filemgr_dirty_update_flush(this, commit_node, log_callback);
     }
 
-    spin_lock(&file->dirty_update_lock);
-    file->latest_dirty_update = NULL;
+    spin_lock(&dirtyUpdateLock);
+    latestDirtyUpdate = NULL;
 
-    a = avl_first(&file->dirty_update_idx);
+    a = avl_first(&dirtyUpdateIdx);
     while (a) {
         node = _get_entry(a, struct filemgr_dirty_update_node, avl);
         a = avl_next(a);
 
         if (node->immutable && node->ref_count.load() == 0) {
             // detach from tree and insert into remove queue
-            avl_remove(&file->dirty_update_idx, &node->avl);
+            avl_remove(&dirtyUpdateIdx, &node->avl);
             list_push_front(&remove_queue, &node->le);
         }
     }
 
-    spin_unlock(&file->dirty_update_lock);
+    spin_unlock(&dirtyUpdateLock);
 
     le = list_begin(&remove_queue);
     while (le) {
@@ -3265,10 +3197,8 @@ void filemgr_dirty_update_commit(FileMgr *file,
     }
 }
 
-void filemgr_dirty_update_set_immutable(FileMgr *file,
-                                        struct filemgr_dirty_update_node *prev_node,
-                                        struct filemgr_dirty_update_node *node)
-{
+void FileMgr::dirtyUpdateSetImmutable(struct filemgr_dirty_update_node *prev_node,
+                                      struct filemgr_dirty_update_node *node) {
     struct avl_node *a;
     struct filemgr_dirty_update_node *cur_node;
     struct list remove_queue;
@@ -3280,7 +3210,7 @@ void filemgr_dirty_update_set_immutable(FileMgr *file,
 
     list_init(&remove_queue);
 
-    spin_lock(&file->dirty_update_lock);
+    spin_lock(&dirtyUpdateLock);
     node->immutable = true;
 
     // absorb all blocks that exist in the previous dirty update
@@ -3308,13 +3238,13 @@ void filemgr_dirty_update_set_immutable(FileMgr *file,
             block = _get_entry(aa, struct filemgr_dirty_update_block, avl);
             aa = avl_next(aa);
 
-            if (block->immutable || !filemgr_is_writable(file, block->bid)) {
+            if (block->immutable || !isWritable(block->bid)) {
                 // this block is already committed.
                 // it can happen when previous dirty update was flushed but
                 // was not closed as other handle was still referring it.
 
                 // ignore this block and set the flag to avoid future copy
-                // (filemgr_is_writable() alone is not enough because a block
+                // (FileMgr::isWritable() alone is not enough because a block
                 //  can become writable again due to circular block reuse).
                 block->immutable = true;
                 continue;
@@ -3333,11 +3263,11 @@ void filemgr_dirty_update_set_immutable(FileMgr *file,
                     block_copy = (struct filemgr_dirty_update_block *)
                                  calloc(1, sizeof(struct filemgr_dirty_update_block));
                     void *addr;
-                    malloc_align(addr, FDB_SECTOR_SIZE, file->blocksize);
+                    malloc_align(addr, FDB_SECTOR_SIZE, blockSize);
                     block_copy->addr = addr;
                     block_copy->bid = block->bid;
                     block_copy->immutable = block->immutable;
-                    memcpy(block_copy->addr, block->addr, file->blocksize);
+                    memcpy(block_copy->addr, block->addr, blockSize);
                 }
                 avl_insert(&node->dirty_blocks, &block_copy->avl, _dirty_blocks_cmp);
             }
@@ -3348,11 +3278,11 @@ void filemgr_dirty_update_set_immutable(FileMgr *file,
     }
 
     // set latest dirty update
-    file->latest_dirty_update = node;
+    latestDirtyUpdate = node;
 
     // remove all previous dirty updates whose ref_count == 0
     // (except for 'node')
-    a = avl_first(&file->dirty_update_idx);
+    a = avl_first(&dirtyUpdateIdx);
     while (a) {
         cur_node = _get_entry(a, struct filemgr_dirty_update_node, avl);
         if (cur_node == node) {
@@ -3362,12 +3292,12 @@ void filemgr_dirty_update_set_immutable(FileMgr *file,
         if (cur_node->immutable && cur_node->ref_count.load() == 0 &&
             cur_node != node) {
             // detach from tree and insert into remove queue
-            avl_remove(&file->dirty_update_idx, &cur_node->avl);
+            avl_remove(&dirtyUpdateIdx, &cur_node->avl);
             list_push_front(&remove_queue, &cur_node->le);
         }
     }
 
-    spin_unlock(&file->dirty_update_lock);
+    spin_unlock(&dirtyUpdateLock);
 
     le = list_begin(&remove_queue);
     while (le) {
@@ -3377,8 +3307,8 @@ void filemgr_dirty_update_set_immutable(FileMgr *file,
     }
 }
 
-static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *node)
-{
+static void _filemgr_dirty_update_remove_node(
+                                        struct filemgr_dirty_update_node *node) {
     struct avl_node *a;
     struct filemgr_dirty_update_block *block;
 
@@ -3399,18 +3329,15 @@ static void _filemgr_dirty_update_remove_node(struct filemgr_dirty_update_node *
     free(node);
 }
 
-void filemgr_dirty_update_remove_node(FileMgr *file,
-                                      struct filemgr_dirty_update_node *node)
-{
-    spin_lock(&file->dirty_update_lock);
-    avl_remove(&file->dirty_update_idx, &node->avl);
-    spin_unlock(&file->dirty_update_lock);
+void FileMgr::dirtyUpdateRemoveNode(struct filemgr_dirty_update_node *node) {
+    spin_lock(&dirtyUpdateLock);
+    avl_remove(&dirtyUpdateIdx, &node->avl);
+    spin_unlock(&dirtyUpdateLock);
 
     _filemgr_dirty_update_remove_node(node);
 }
 
-void filemgr_dirty_update_close_node(struct filemgr_dirty_update_node *node)
-{
+void FileMgr::dirtyUpdateCloseNode(struct filemgr_dirty_update_node *node) {
     if (!node) {
         return;
     }
@@ -3420,10 +3347,9 @@ void filemgr_dirty_update_close_node(struct filemgr_dirty_update_node *node)
     node->ref_count--;
 }
 
-fdb_status filemgr_write_dirty(FileMgr *file, bid_t bid, void *buf,
+fdb_status FileMgr::writeDirty(bid_t bid, void *buf,
                                struct filemgr_dirty_update_node *node,
-                               ErrLogCallback *log_callback)
-{
+                               ErrLogCallback *log_callback) {
     struct avl_node *a;
     struct filemgr_dirty_update_block *block, query;
 
@@ -3437,23 +3363,22 @@ fdb_status filemgr_write_dirty(FileMgr *file, bid_t bid, void *buf,
         block = (struct filemgr_dirty_update_block *)
                 calloc(1, sizeof(struct filemgr_dirty_update_block));
         void *addr = NULL;
-        malloc_align(addr, FDB_SECTOR_SIZE, file->blocksize);
+        malloc_align(addr, FDB_SECTOR_SIZE, blockSize);
         block->addr = addr;
         block->bid = bid;
         block->immutable = false;
         avl_insert(&node->dirty_blocks, &block->avl, _dirty_blocks_cmp);
     }
 
-    memcpy(block->addr, buf, file->blocksize);
+    memcpy(block->addr, buf, blockSize);
     return FDB_RESULT_SUCCESS;
 }
 
-fdb_status filemgr_read_dirty(FileMgr *file, bid_t bid, void *buf,
+fdb_status FileMgr::readDirty(bid_t bid, void *buf,
                               struct filemgr_dirty_update_node *node_reader,
                               struct filemgr_dirty_update_node *node_writer,
                               ErrLogCallback *log_callback,
-                              bool read_on_cache_miss)
-{
+                              bool read_on_cache_miss) {
     struct avl_node *a;
     struct filemgr_dirty_update_block *block, query;
 
@@ -3464,7 +3389,7 @@ fdb_status filemgr_read_dirty(FileMgr *file, bid_t bid, void *buf,
         if (a) {
             // exist .. directly read the dirty block
             block = _get_entry(a, struct filemgr_dirty_update_block, avl);
-            memcpy(buf, block->addr, file->blocksize);
+            memcpy(buf, block->addr, blockSize);
             return FDB_RESULT_SUCCESS;
         }
         // not exist .. search the latest immutable dirty update next
@@ -3476,27 +3401,24 @@ fdb_status filemgr_read_dirty(FileMgr *file, bid_t bid, void *buf,
         if (a) {
             // exist .. directly read the dirty block
             block = _get_entry(a, struct filemgr_dirty_update_block, avl);
-            memcpy(buf, block->addr, file->blocksize);
+            memcpy(buf, block->addr, blockSize);
             return FDB_RESULT_SUCCESS;
         }
     }
 
-    // not exist in both dirty update entries .. call filemgr_read()
-    return filemgr_read(file, bid, buf, log_callback, read_on_cache_miss);
+    // not exist in both dirty update entries .. call FileMgr::read()
+    return read_FileMgr(bid, buf, log_callback, read_on_cache_miss);
 }
 
-void _kvs_stat_set(FileMgr *file,
-                   fdb_kvs_id_t kv_id,
-                   KvsStat stat)
-{
+void KvsStatOperations::statSet(fdb_kvs_id_t kv_id, KvsStat stat) {
     if (kv_id == 0) {
-        spin_lock(&file->lock);
-        file->header.stat = stat;
-        spin_unlock(&file->lock);
+        spin_lock(&file->fMgrLock);
+        file->fMgrHeader.stat = stat;
+        spin_unlock(&file->fMgrLock);
     } else {
         struct avl_node *a;
         struct kvs_node query, *node;
-        KvsHeader *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kvHeader;
 
         spin_lock(&kv_header->lock);
         query.id = kv_id;
@@ -3509,22 +3431,20 @@ void _kvs_stat_set(FileMgr *file,
     }
 }
 
-void _kvs_stat_update_attr(FileMgr *file,
-                           fdb_kvs_id_t kv_id,
-                           kvs_stat_attr_t attr,
-                           int delta)
-{
+void KvsStatOperations::statUpdateAttr(fdb_kvs_id_t kv_id,
+                                       kvs_stat_attr_t attr,
+                                       int delta) {
     spin_t *lock = NULL;
     KvsStat *stat;
 
     if (kv_id == 0) {
-        stat = &file->header.stat;
-        lock = &file->lock;
+        stat = &file->fMgrHeader.stat;
+        lock = &file->fMgrLock;
         spin_lock(lock);
     } else {
         struct avl_node *a;
         struct kvs_node query, *node;
-        KvsHeader *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kvHeader;
 
         lock = &kv_header->lock;
         spin_lock(lock);
@@ -3557,10 +3477,9 @@ void _kvs_stat_update_attr(FileMgr *file,
     spin_unlock(lock);
 }
 
-int _kvs_stat_get_kv_header(KvsHeader *kv_header,
-                            fdb_kvs_id_t kv_id,
-                            KvsStat *stat)
-{
+int KvsStatOperations::statGetKvHeader(KvsHeader *kv_header,
+                                       fdb_kvs_id_t kv_id,
+                                       KvsStat *stat) {
     int ret = 0;
     struct avl_node *a;
     struct kvs_node query, *node;
@@ -3576,87 +3495,48 @@ int _kvs_stat_get_kv_header(KvsHeader *kv_header,
     return ret;
 }
 
-fdb_seqnum_t _fdb_kvs_get_seqnum(KvsHeader *kv_header,
-                                 fdb_kvs_id_t id)
-{
-    fdb_seqnum_t seqnum;
-    struct kvs_node query, *node;
-    struct avl_node *a;
-
-    spin_lock(&kv_header->lock);
-    query.id = id;
-    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
-    if (a) {
-        node = _get_entry(a, struct kvs_node, avl_id);
-        seqnum = node->seqnum;
-    } else {
-        // not existing KV ID.
-        // this is necessary for _fdb_restore_wal()
-        // not to restore documents in deleted KV store.
-        seqnum = 0;
-    }
-    spin_unlock(&kv_header->lock);
-
-    return seqnum;
-}
-
-fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
-                                fdb_kvs_id_t id)
-{
-    if (id == 0) {
-        // default KV instance
-        return filemgr_get_seqnum(file);
-    }
-
-    return _fdb_kvs_get_seqnum(file->kv_header, id);
-}
-
-int _kvs_stat_get(FileMgr *file,
-                  fdb_kvs_id_t kv_id,
-                  KvsStat *stat)
-{
+int KvsStatOperations::statGet(fdb_kvs_id_t kv_id,
+                               KvsStat *stat) {
     int ret = 0;
 
     if (kv_id == 0) {
-        spin_lock(&file->lock);
-        *stat = file->header.stat;
-        spin_unlock(&file->lock);
+        spin_lock(&file->fMgrLock);
+        *stat = file->fMgrHeader.stat;
+        spin_unlock(&file->fMgrLock);
     } else {
-        KvsHeader *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kvHeader;
 
         spin_lock(&kv_header->lock);
-        ret = _kvs_stat_get_kv_header(kv_header, kv_id, stat);
+        ret = statGetKvHeader(kv_header, kv_id, stat);
         spin_unlock(&kv_header->lock);
     }
 
     return ret;
 }
 
-uint64_t _kvs_stat_get_sum(FileMgr *file,
-                           kvs_stat_attr_t attr)
-{
+uint64_t KvsStatOperations::statGetSum(kvs_stat_attr_t attr) {
     struct avl_node *a;
     struct kvs_node *node;
-    KvsHeader *kv_header = file->kv_header;
+    KvsHeader *kv_header = file->kvHeader;
 
     uint64_t ret = 0;
-    spin_lock(&file->lock);
+    spin_lock(&file->fMgrLock);
     if (attr == KVS_STAT_DATASIZE) {
-        ret += file->header.stat.datasize;
+        ret += file->fMgrHeader.stat.datasize;
     } else if (attr == KVS_STAT_NDOCS) {
-        ret += file->header.stat.ndocs;
+        ret += file->fMgrHeader.stat.ndocs;
     } else if (attr == KVS_STAT_NDELETES) {
-        ret += file->header.stat.ndeletes;
+        ret += file->fMgrHeader.stat.ndeletes;
     } else if (attr == KVS_STAT_NLIVENODES) {
-        ret += file->header.stat.nlivenodes;
+        ret += file->fMgrHeader.stat.nlivenodes;
     } else if (attr == KVS_STAT_WAL_NDELETES) {
-        ret += file->header.stat.wal_ndeletes;
+        ret += file->fMgrHeader.stat.wal_ndeletes;
     } else if (attr == KVS_STAT_WAL_NDOCS) {
-        ret += file->header.stat.wal_ndocs;
+        ret += file->fMgrHeader.stat.wal_ndocs;
     } else if (attr == KVS_STAT_DELTASIZE) {
-        ret += file->header.stat.deltasize;
+        ret += file->fMgrHeader.stat.deltasize;
     }
-    spin_unlock(&file->lock);
+    spin_unlock(&file->fMgrLock);
 
     if (kv_header) {
         spin_lock(&kv_header->lock);
@@ -3687,10 +3567,9 @@ uint64_t _kvs_stat_get_sum(FileMgr *file,
     return ret;
 }
 
-int _kvs_ops_stat_get_kv_header(KvsHeader *kv_header,
-                                fdb_kvs_id_t kv_id,
-                                KvsOpsStat *stat)
-{
+int KvsStatOperations::opsStatGetKvHeader(KvsHeader *kv_header,
+                                          fdb_kvs_id_t kv_id,
+                                          KvsOpsStat *stat) {
     int ret = 0;
     struct avl_node *a;
     struct kvs_node query, *node;
@@ -3706,35 +3585,31 @@ int _kvs_ops_stat_get_kv_header(KvsHeader *kv_header,
     return ret;
 }
 
-int _kvs_ops_stat_get(FileMgr *file,
-                      fdb_kvs_id_t kv_id,
-                      KvsOpsStat *stat)
-{
+int KvsStatOperations::opsStatGet(fdb_kvs_id_t kv_id,
+                                  KvsOpsStat *stat) {
     int ret = 0;
 
     if (kv_id == 0) {
-        spin_lock(&file->lock);
-        *stat = file->header.op_stat;
-        spin_unlock(&file->lock);
+        spin_lock(&file->fMgrLock);
+        *stat = file->fMgrHeader.op_stat;
+        spin_unlock(&file->fMgrLock);
     } else {
-        KvsHeader *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kvHeader;
 
         spin_lock(&kv_header->lock);
-        ret = _kvs_ops_stat_get_kv_header(kv_header, kv_id, stat);
+        ret = opsStatGetKvHeader(kv_header, kv_id, stat);
         spin_unlock(&kv_header->lock);
     }
 
     return ret;
 }
 
-KvsOpsStat *filemgr_get_ops_stats(FileMgr *file,
-                                  KvsInfo *kvs)
-{
+KvsOpsStat* KvsStatOperations::getOpsStats(KvsInfo *kvs) {
     KvsOpsStat *stat = NULL;
     if (!kvs || (kvs && kvs->getKvsId() == 0)) {
-        return &file->header.op_stat;
+        return &file->fMgrHeader.op_stat;
     } else {
-        KvsHeader *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kvHeader;
         struct avl_node *a;
         struct kvs_node query, *node;
         spin_lock(&kv_header->lock);
@@ -3749,8 +3624,23 @@ KvsOpsStat *filemgr_get_ops_stats(FileMgr *file,
     return stat;
 }
 
-const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
-{
+// migrate default kv store stats over to new_file
+KvsOpsStat* KvsStatOperations::migrateOpStats(FileMgr *old_file,
+                                              FileMgr *new_file) {
+    KvsOpsStat *ret = NULL;
+    if (new_file == NULL) {
+        return NULL;
+    }
+
+    spin_lock(&old_file->fMgrLock);
+    new_file->fMgrHeader.op_stat = old_file->fMgrHeader.op_stat;
+    ret = &new_file->fMgrHeader.op_stat;
+    spin_unlock(&old_file->fMgrLock);
+    return ret;
+}
+
+
+const char* FileMgr::getLatencyStatName(fdb_latency_stat_type stat) {
     switch(stat) {
         case FDB_LATENCY_SETS:          return "sets            ";
         case FDB_LATENCY_GETS:          return "gets            ";
@@ -3780,41 +3670,72 @@ const char *filemgr_latency_stat_name(fdb_latency_stat_type stat)
     return NULL;
 }
 
+fdb_seqnum_t _fdb_kvs_get_seqnum(KvsHeader *kv_header,
+                                 fdb_kvs_id_t id) {
+    fdb_seqnum_t seqnum;
+    struct kvs_node query, *node;
+    struct avl_node *a;
+
+    spin_lock(&kv_header->lock);
+    query.id = id;
+    a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
+    if (a) {
+        node = _get_entry(a, struct kvs_node, avl_id);
+        seqnum = node->seqnum;
+    } else {
+        // not existing KV ID.
+        // this is necessary for _fdb_restore_wal()
+        // not to restore documents in deleted KV store.
+        seqnum = 0;
+    }
+    spin_unlock(&kv_header->lock);
+
+    return seqnum;
+}
+
+fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
+                                fdb_kvs_id_t id) {
+    if (id == 0) {
+        // default KV instance
+        return file->getSeqnum();
+    }
+
+    return _fdb_kvs_get_seqnum(file->kvHeader, id);
+}
+
 #ifdef _LATENCY_STATS
-void filemgr_init_latency_stat(struct latency_stat *val) {
+void LatencyStats::init(struct latency_stat *val) {
     val->lat_max = 0;
     val->lat_min = static_cast<uint32_t>(-1);
     val->lat_sum = 0;
     val->lat_num = 0;
 }
 
-void filemgr_migrate_latency_stats(FileMgr *src, FileMgr *dst) {
+void LatencyStats::destroy(struct latency_stat *val) {
+    (void) val;
+}
+
+void LatencyStats::migrate(FileMgr *src, FileMgr *dst) {
     for (int type = 0; type < FDB_LATENCY_NUM_STATS; ++type) {
-        dst->lat_stats[type].lat_min.store(src->lat_stats[type].lat_min.load(),
+        dst->latStats[type].lat_min.store(src->latStats[type].lat_min.load(),
                                            std::memory_order_relaxed);
-        dst->lat_stats[type].lat_max.store(src->lat_stats[type].lat_max.load(),
+        dst->latStats[type].lat_max.store(src->latStats[type].lat_max.load(),
                                            std::memory_order_relaxed);
-        dst->lat_stats[type].lat_sum.store(src->lat_stats[type].lat_sum.load(),
+        dst->latStats[type].lat_sum.store(src->latStats[type].lat_sum.load(),
                                            std::memory_order_relaxed);
-        dst->lat_stats[type].lat_num.store(src->lat_stats[type].lat_num.load(),
+        dst->latStats[type].lat_num.store(src->latStats[type].lat_num.load(),
                                            std::memory_order_relaxed);
     }
 }
 
-void filemgr_destroy_latency_stat(struct latency_stat *val) {
-    (void) val;
-}
-
-void filemgr_update_latency_stat(FileMgr *file,
-                                 fdb_latency_stat_type type,
-                                 uint32_t val)
-{
+void LatencyStats::update(FileMgr *file, fdb_latency_stat_type type,
+                          uint32_t val) {
     int retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_max = file->lat_stats[type].lat_max.load(
+        uint32_t lat_max = file->latStats[type].lat_max.load(
                                                     std::memory_order_relaxed);
         if (lat_max < val) {
-            if (!file->lat_stats[type].lat_max.compare_exchange_strong(lat_max,
+            if (!file->latStats[type].lat_max.compare_exchange_strong(lat_max,
                                                                        val)) {
                 continue;
             }
@@ -3823,45 +3744,40 @@ void filemgr_update_latency_stat(FileMgr *file,
     } while (--retry);
     retry = MAX_STAT_UPDATE_RETRIES;
     do {
-        uint32_t lat_min = file->lat_stats[type].lat_min.load(
+        uint32_t lat_min = file->latStats[type].lat_min.load(
                                                     std::memory_order_relaxed);
         if (val < lat_min) {
-            if (!file->lat_stats[type].lat_min.compare_exchange_strong(lat_min,
+            if (!file->latStats[type].lat_min.compare_exchange_strong(lat_min,
                                                                        val)) {
                 continue;
             }
         }
         break;
     } while (--retry);
-    file->lat_stats[type].lat_sum.fetch_add(val, std::memory_order_relaxed);
-    file->lat_stats[type].lat_num++;
+    file->latStats[type].lat_sum.fetch_add(val, std::memory_order_relaxed);
+    file->latStats[type].lat_num++;
 }
 
-void filemgr_get_latency_stat(FileMgr *file, fdb_latency_stat_type type,
-                              fdb_latency_stat *stat)
-{
-    uint64_t num = file->lat_stats[type].lat_num.load(
-                                                    std::memory_order_relaxed);
+void LatencyStats::get(FileMgr *file, fdb_latency_stat_type type,
+                       fdb_latency_stat *stat) {
+    uint64_t num = file->latStats[type].lat_num.load(std::memory_order_relaxed);
     if (!num) {
         memset(stat, 0, sizeof(fdb_latency_stat));
         return;
     }
-    stat->lat_max = file->lat_stats[type].lat_max.load(
-                                                    std::memory_order_relaxed);
-    stat->lat_min = file->lat_stats[type].lat_min.load(
-                                                    std::memory_order_relaxed);
+    stat->lat_max = file->latStats[type].lat_max.load(std::memory_order_relaxed);
+    stat->lat_min = file->latStats[type].lat_min.load(std::memory_order_relaxed);
     stat->lat_count = num;
-    stat->lat_avg = file->lat_stats[type].lat_sum.load(
-                                            std::memory_order_relaxed) / num;
+    stat->lat_avg = file->latStats[type].lat_sum.load(std::memory_order_relaxed) / num;
 }
 
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
 static const int _MAX_STATSFILE_LEN = FDB_MAX_FILENAME_LEN + 4;
-void filemgr_dump_latency_stat(FileMgr *file,
-                               ErrLogCallback *log_callback) {
+
+void LatencyStats::dump(FileMgr *file, ErrLogCallback *log_callback) {
     FILE *lat_file;
     char latency_file_path[_MAX_STATSFILE_LEN];
-    strncpy(latency_file_path, file->filename, _MAX_STATSFILE_LEN);
+    strncpy(latency_file_path, file->fileName, _MAX_STATSFILE_LEN);
     strncat(latency_file_path, ".lat", _MAX_STATSFILE_LEN);
     lat_file = fopen(latency_file_path, "a");
     if (!lat_file) {
@@ -3874,16 +3790,16 @@ void filemgr_dump_latency_stat(FileMgr *file,
     for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
         uint32_t avg;
         uint64_t num;
-        num = file->lat_stats[i].lat_num.load(std::memory_order_relaxed);
+        num = file->latStats[i].lat_num.load(std::memory_order_relaxed);
         if (!num) {
             continue;
         }
-        avg = file->lat_stats[i].lat_sum.load(std::memory_order_relaxed) / num;
+        avg = file->latStats[i].lat_sum.load(std::memory_order_relaxed) / num;
         fprintf(lat_file, "%s:\t\t%u\t\t%u\t\t%u\t\t%" _F64 "\n",
-                filemgr_latency_stat_name(i),
-                file->lat_stats[i].lat_min.load(std::memory_order_relaxed),
+                FileMgr::getLatencyStatName(i),
+                file->latStats[i].lat_min.load(std::memory_order_relaxed),
                 avg,
-                file->lat_stats[i].lat_max.load(std::memory_order_relaxed),
+                file->latStats[i].lat_max.load(std::memory_order_relaxed),
                 num);
     }
     fflush(lat_file);
@@ -3892,8 +3808,7 @@ void filemgr_dump_latency_stat(FileMgr *file,
 #endif // _LATENCY_STATS_DUMP_TO_FILE
 #endif // _LATENCY_STATS
 
-void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id)
-{
+void buf2kvid(size_t chunksize, void *buf, fdb_kvs_id_t *id) {
     size_t size_id = sizeof(fdb_kvs_id_t);
     fdb_kvs_id_t temp;
 

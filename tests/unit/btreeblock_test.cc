@@ -72,7 +72,7 @@ void basic_test()
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btree_handle = new BTreeBlkHandle(file, nodesize);
 
@@ -96,19 +96,19 @@ void basic_test()
     v = 44;
     btree->insert((void*)&k, (void*)&v);
     btree_handle->flushBuffer();
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     k = 5;
     v = 55;
     btree->insert((void*)&k, (void*)&v);
     btree_handle->flushBuffer();
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     k = 5;
     v = 59;
     btree->insert((void*)&k, (void*)&v);
     btree_handle->flushBuffer();
-    filemgr_commit(file, true, NULL);
+    file->commit_FileMgr(true, NULL);
 
     BTree *btree2;
 
@@ -122,8 +122,8 @@ void basic_test()
     delete kv_ops;
     delete btree_handle;
 
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     TEST_RESULT("basic test");
 }
@@ -151,7 +151,7 @@ void iterator_test()
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btree_handle = new BTreeBlkHandle(file, nodesize);
 
@@ -170,7 +170,8 @@ void iterator_test()
         btree->insert((void*)&k, (void*)&v);
     }
     btree_handle->flushBuffer();
-    filemgr_commit(file, true, NULL);
+
+    file->commit_FileMgr(true, NULL);
 
     k = 4;
     bi = new BTreeIterator(btree, (void*)&k);
@@ -202,8 +203,8 @@ void iterator_test()
     delete btree;
     delete btree_handle;
     delete kv_ops;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     TEST_RESULT("iterator test");
 }
@@ -227,7 +228,7 @@ void two_btree_test()
     int r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     btreeblk_handle = new BTreeBlkHandle(file, nodesize);
 
@@ -251,9 +252,9 @@ void two_btree_test()
     delete btreeblk_handle;
     delete kv_ops;
 
-    filemgr_commit(file, true, NULL);
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    file->commit_FileMgr(true, NULL);
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     TEST_RESULT("two btree test");
 }
@@ -276,7 +277,7 @@ void range_test()
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     bhandle = new BTreeBlkHandle(file, blocksize);
 
@@ -301,8 +302,8 @@ void range_test()
     delete btree;
     delete kv_ops;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     TEST_RESULT("range test");
 }
@@ -353,7 +354,7 @@ void subblock_test()
     // btree initialization using large metadata test
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
     meta.data = (void*)malloc(4096);
 
@@ -413,14 +414,14 @@ void subblock_test()
     TEST_CHK(br == BTREE_RESULT_FAIL);
     delete btree;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
     free(meta.data);
 
     // coverage: enlarge case 1-1
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -441,13 +442,13 @@ void subblock_test()
     }
     delete btree;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     // coverage: enlarge case 1-2, move case 1
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -458,7 +459,7 @@ void subblock_test()
         sprintf(valuebuf, "%08x", i);
         btree->insert((void*)keybuf, (void*)valuebuf);
         bhandle->flushBuffer();
-        filemgr_commit(file, true, NULL);
+        file->commit_FileMgr(true, NULL);
         for (j=0;j<=i;++j){
             sprintf(keybuf, "%08d", j);
             sprintf(valuebuf, "%08x", j);
@@ -469,14 +470,14 @@ void subblock_test()
     }
     delete btree;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     // coverage: enlarge case 1-1, 2-1, 2-2, 3-1
     nbtrees = 2;
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -503,14 +504,14 @@ void subblock_test()
         delete btree_arr[i];
     }
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     // coverage: enlarge case 1-2, 2-1, 3-1, move case 1, 2-1, 2-2
     nbtrees = 2;
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -525,7 +526,7 @@ void subblock_test()
             btree_arr[j]->insert((void*)keybuf, (void*)valuebuf);
             bhandle->flushBuffer();
         }
-        filemgr_commit(file, true, NULL);
+        file->commit_FileMgr(true, NULL);
         for (j=0;j<nbtrees;++j){
             for (k=0;k<=i;++k){
                 sprintf(keybuf, "%02d%06d", j, k);
@@ -540,14 +541,14 @@ void subblock_test()
         delete btree_arr[i];
     }
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     // coverage: enlarge case 1-1, 2-1, 3-2, move case 1, 2-1
     nbtrees = 7;
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -563,20 +564,20 @@ void subblock_test()
             btree_arr[j]->insert((void*)keybuf, (void*)valuebuf);
             bhandle->flushBuffer();
         }
-        filemgr_commit(file, true, NULL);
+        file->commit_FileMgr(true, NULL);
     }
     for (i=0;i<nbtrees;++i){
         delete btree_arr[i];
     }
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     // coverage: enlarge case 1-1, 1-2, 2-1, 3-2, move case 1, 2-1
     nbtrees = 7;
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
-    result = filemgr_open(fname, get_filemgr_ops(), &fconfig, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &fconfig, NULL);
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -591,15 +592,15 @@ void subblock_test()
             sprintf(valuebuf, "%02d%06x", j, i);
             btree_arr[j]->insert((void*)keybuf, (void*)valuebuf);
             bhandle->flushBuffer();
-            filemgr_commit(file, true, NULL);
+            file->commit_FileMgr(true, NULL);
         }
     }
     for (i=0;i<nbtrees;++i){
         delete btree_arr[i];
     }
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     delete kv_ops;
     TEST_RESULT("subblock test");
@@ -629,7 +630,7 @@ void btree_reverse_iterator_test()
 
     memleak_start();
 
-    fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    fr = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
 
     bhandle = new BTreeBlkHandle(file, nodesize);
@@ -765,8 +766,8 @@ void btree_reverse_iterator_test()
     delete btree;
     delete kv_ops;
     delete bhandle;
-    filemgr_close(file, true, NULL, NULL);
-    filemgr_shutdown();
+    FileMgr::close(file, true, NULL, NULL);
+    FileMgr::shutdown();
 
     memleak_end();
 

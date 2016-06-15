@@ -1204,7 +1204,7 @@ void fragmented_reuse_test() {
     int nheaders = 10;
     char keybuf[256];
     char bodybuf[512];
-    size_t fpos;
+    size_t pos;
 
     fdb_status status;
     fdb_file_handle *dbfile;
@@ -1260,10 +1260,10 @@ void fragmented_reuse_test() {
     TEST_CHK(sb_decision == SBD_NONE);
 
     // manual compaction
-    fpos = filemgr_get_pos(db->file);
+    pos = db->file->getPos();
     status = fdb_compact(dbfile, "staleblktest_compact");
     TEST_STATUS(status);
-    TEST_CHK(fpos > filemgr_get_pos(db->file));
+    TEST_CHK(pos > db->file->getPos());
 
     // making additional 25% of file stale should NOT go into
     // block reuse.  without compaction we would be 50% stale

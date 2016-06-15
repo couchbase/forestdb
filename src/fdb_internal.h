@@ -243,7 +243,7 @@ INLINE void _fdb_dirty_update_ready(FdbKvsHandle *handle,
     *prev_node = *new_node = NULL;
     *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
 
-    *prev_node = filemgr_dirty_update_get_latest(handle->file);
+    *prev_node = handle->file->dirtyUpdateGetLatest();
 
     // discard all cached index blocks
     // to avoid data inconsistency with other writers
@@ -257,10 +257,10 @@ INLINE void _fdb_dirty_update_ready(FdbKvsHandle *handle,
     // although there is no previous immutable dirty updates.
 
     if (*prev_node || dirty_wal_flush) {
-        *new_node = filemgr_dirty_update_new_node(handle->file);
+        *new_node = handle->file->dirtyUpdateNewNode();
         // sync dirty root nodes
-        filemgr_dirty_update_get_root(*prev_node,
-                                      dirty_idtree_root, dirty_seqtree_root);
+        FileMgr::dirtyUpdateGetRoot(*prev_node,
+                                    dirty_idtree_root, dirty_seqtree_root);
     }
     handle->bhandle->setDirtyUpdate(*prev_node);
     handle->bhandle->setDirtyUpdateWriter(*new_node);
@@ -283,22 +283,22 @@ INLINE void _fdb_dirty_update_finalize(FdbKvsHandle *handle,
     _fdb_export_dirty_root(handle, dirty_idtree_root, dirty_seqtree_root);
     // assign dirty root nodes to dirty update entry
     if (new_node) {
-        filemgr_dirty_update_set_root(new_node,
-                                      *dirty_idtree_root, *dirty_seqtree_root);
+        FileMgr::dirtyUpdateSetRoot(new_node,
+                                    *dirty_idtree_root, *dirty_seqtree_root);
     }
     // clear dirty update setting in bhandle
     handle->bhandle->clearDirtyUpdate();
     // finalize new_node
     if (new_node) {
-        filemgr_dirty_update_set_immutable(handle->file, prev_node, new_node);
+        handle->file->dirtyUpdateSetImmutable(prev_node, new_node);
     }
     // close previous immutable node
     if (prev_node) {
-        filemgr_dirty_update_close_node(prev_node);
+        FileMgr::dirtyUpdateCloseNode(prev_node);
     }
     if (commit) {
         // write back new_node's dirty blocks
-        filemgr_dirty_update_commit(handle->file, new_node, &handle->log_callback);
+        handle->file->dirtyUpdateCommit(new_node, &handle->log_callback);
     } else {
         // if this update set is still dirty,
         // discard all cached index blocks to avoid data inconsistency.

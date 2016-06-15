@@ -60,7 +60,7 @@ void basic_test()
 
     r = system(SHELL_DEL " docio_testfile");
     (void)r;
-    filemgr_open_result result = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
+    filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle handle(file, false, NULL);
 
@@ -109,8 +109,8 @@ void basic_test()
     handle.readDocKey_Docio(81, &keylen, (void*)keybuf);
     DBG("keylen %d %s\n", keylen, keybuf);
 
-    filemgr_commit(file, true, NULL);
-    filemgr_close(file, true, NULL, NULL);
+    file->commit_FileMgr(true, NULL);
+    FileMgr::close(file, true, NULL, NULL);
 
     TEST_RESULT("basic test");
 }

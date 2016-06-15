@@ -59,23 +59,23 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
 
     do { // repeat until file status is not REMOVED_PENDING
         fdb_check_file_reopen(handle, NULL);
-        filemgr_mutex_lock(handle->file);
+        handle->file->mutexLock();
         fdb_sync_db_header(handle);
 
         cond = 1;
-        if (filemgr_is_rollback_on(handle->file)) {
+        if (handle->file->isRollbackOn()) {
             // deny beginning transaction during rollback
-            filemgr_mutex_unlock(handle->file);
+            handle->file->mutexUnlock();
             handle->handle_busy.compare_exchange_strong(cond, 0);
             return FDB_RESULT_FAIL_BY_ROLLBACK;
         }
 
         file = handle->file;
-        fstatus = filemgr_get_file_status(file);
+        fstatus = file->getFileStatus();
         if (fstatus == FILE_REMOVED_PENDING) {
             // we must not create transaction on this file
             // file status was changed by other thread .. start over
-            filemgr_mutex_unlock(file);
+            file->mutexUnlock();
         }
     } while (fstatus == FILE_REMOVED_PENDING);
 
@@ -84,7 +84,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
                            malloc(sizeof(struct wal_txn_wrapper));
     handle->txn->wrapper->txn = handle->txn;
     handle->txn->handle = handle;
-    if (filemgr_get_file_status(handle->file) != FILE_COMPACT_OLD) {
+    if (handle->file->getFileStatus() != FILE_COMPACT_OLD) {
         // keep previous header's BID
         handle->txn->prev_hdr_bid = handle->last_hdr_bid;
     } else {
@@ -97,9 +97,9 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
     handle->txn->items = (struct list *)malloc(sizeof(struct list));
     handle->txn->isolation = isolation_level;
     list_init(handle->txn->items);
-    file->wal->addTransaction_Wal(handle->txn);
+    file->fMgrWal->addTransaction_Wal(handle->txn);
 
-    filemgr_mutex_unlock(file);
+    file->mutexUnlock();
 
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
@@ -145,26 +145,26 @@ fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
         fdb_check_file_reopen(handle, NULL);
 
         file = handle->file;
-        filemgr_mutex_lock(file);
+        file->mutexLock();
         fdb_sync_db_header(handle);
 
-        fstatus = filemgr_get_file_status(file);
+        fstatus = file->getFileStatus();
         if (fstatus == FILE_REMOVED_PENDING) {
             // we must not abort transaction on this file
             // file status was changed by other thread .. start over
-            filemgr_mutex_unlock(file);
+            file->mutexUnlock();
         }
     } while (fstatus == FILE_REMOVED_PENDING);
 
-    file->wal->discardTxnEntries_Wal(handle->txn);
-    file->wal->removeTransaction_Wal(handle->txn);
+    file->fMgrWal->discardTxnEntries_Wal(handle->txn);
+    file->fMgrWal->removeTransaction_Wal(handle->txn);
 
     free(handle->txn->items);
     free(handle->txn->wrapper);
     free(handle->txn);
     handle->txn = NULL;
 
-    filemgr_mutex_unlock(file);
+    file->mutexUnlock();
 
     cond = 1;
     handle->handle_busy.compare_exchange_strong(cond, 0);
@@ -197,7 +197,7 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
     fdb_status fs = FDB_RESULT_SUCCESS;
     if (list_begin(handle->txn->items)) {
         fs = _fdb_commit(handle, opt,
-                       !(handle->config.durability_opt & FDB_DRB_ASYNC));
+                         !(handle->config.durability_opt & FDB_DRB_ASYNC));
     }
 
     if (fs == FDB_RESULT_SUCCESS) {
@@ -206,25 +206,25 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
             fdb_check_file_reopen(handle, NULL);
 
             file = handle->file;
-            filemgr_mutex_lock(file);
+            file->mutexLock();
             fdb_sync_db_header(handle);
 
-            fstatus = filemgr_get_file_status(file);
+            fstatus = file->getFileStatus();
             if (fstatus == FILE_REMOVED_PENDING) {
                 // we must not commit transaction on this file
                 // file status was changed by other thread .. start over
-                filemgr_mutex_unlock(file);
+                file->mutexUnlock();
             }
         } while (fstatus == FILE_REMOVED_PENDING);
 
-        file->wal->removeTransaction_Wal(handle->txn);
+        file->fMgrWal->removeTransaction_Wal(handle->txn);
 
         free(handle->txn->items);
         free(handle->txn->wrapper);
         free(handle->txn);
         handle->txn = NULL;
 
-        filemgr_mutex_unlock(file);
+        file->mutexUnlock();
     }
 
     return fs;

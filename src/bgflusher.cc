@@ -111,19 +111,18 @@ static void * bgflusher_thread(void *voidargs)
             } else {
                 elem->background_flush_in_progress = true;
                 log_callback = elem->log_callback;
-                ffs = filemgr_open(file->filename, file->ops,
-                        file->config, log_callback);
+                ffs = FileMgr::open(file->fileName, file->fMgrOps,
+                                    file->fileConfig, log_callback);
                 fs = (fdb_status)ffs.rv;
                 mutex_unlock(&bgf_lock);
                 if (fs == FDB_RESULT_SUCCESS) {
-                    num_blocks += filemgr_flush_immutable(file,
-                                                          log_callback);
-                    filemgr_close(file, 0, file->filename, log_callback);
+                    num_blocks += file->flushImmutable(log_callback);
+                    FileMgr::close(file, false, file->fileName, log_callback);
 
                 } else {
                     fdb_log(log_callback, fs,
                             "Failed to open the file '%s' for background flushing\n.",
-                            file->filename);
+                            file->fileName);
                 }
                 mutex_lock(&bgf_lock);
                 elem->background_flush_in_progress = false;
@@ -230,7 +229,7 @@ fdb_status bgflusher_register_file(FileMgr *file,
                                    fdb_config *config,
                                    ErrLogCallback *log_callback)
 {
-    file_status_t fstatus;
+    file_status_t fMgrStatus;
     fdb_status fs = FDB_RESULT_SUCCESS;
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
@@ -238,13 +237,13 @@ fdb_status bgflusher_register_file(FileMgr *file,
     // Ignore files whose status is FILE_COMPACT_OLD to prevent
     // reinserting of files undergoing compaction if it is in the catchup phase
     // Also ignore files whose status is REMOVED_PENDING.
-    fstatus = filemgr_get_file_status(file);
-    if (fstatus == FILE_COMPACT_OLD ||
-        fstatus == FILE_REMOVED_PENDING) {
+    fMgrStatus = file->getFileStatus();
+    if (fMgrStatus == FILE_COMPACT_OLD ||
+        fMgrStatus == FILE_REMOVED_PENDING) {
         return fs;
     }
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     // first search the existing file
     mutex_lock(&bgf_lock);
     a = avl_search(&openfiles, &query.avl, _bgflusher_cmp);
@@ -253,7 +252,7 @@ fdb_status bgflusher_register_file(FileMgr *file,
         // create elem and insert into tree
         elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
         elem->file = file;
-        strcpy(elem->filename, file->filename);
+        strcpy(elem->filename, file->fileName);
         elem->config = *config;
         elem->register_count = 1;
         elem->background_flush_in_progress = false;
@@ -278,13 +277,13 @@ void bgflusher_switch_file(FileMgr *old_file, FileMgr *new_file,
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, old_file->filename);
+    strcpy(query.filename, old_file->fileName);
     mutex_lock(&bgf_lock);
     a = avl_search(&openfiles, &query.avl, _bgflusher_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openfiles, a);
-        strcpy(elem->filename, new_file->filename);
+        strcpy(elem->filename, new_file->fileName);
         elem->file = new_file;
         elem->register_count = 1;
         elem->background_flush_in_progress = false;
@@ -300,7 +299,7 @@ void bgflusher_deregister_file(FileMgr *file)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->filename);
+    strcpy(query.filename, file->fileName);
     mutex_lock(&bgf_lock);
     a = avl_search(&openfiles, &query.avl, _bgflusher_cmp);
     if (a) {

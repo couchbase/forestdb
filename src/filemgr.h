@@ -15,8 +15,7 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_FILEMGR_H
-#define _JSAHN_FILEMGR_H
+#pragma once
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -44,10 +43,6 @@
 #include "staleblock.h"
 
 #include <atomic>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define FILEMGR_SYNC 0x01
 #define FILEMGR_READONLY 0x02
@@ -248,12 +243,12 @@ private:
 #define LATENCY_STAT_START()
 #define LATENCY_STAT_END(file, type)
 #else
+class LatencyStats;
 #define LATENCY_STAT_START() \
-     uint64_t begin=get_monotonic_ts();
-#define LATENCY_STAT_END(file, type)\
-    do {\
-        uint64_t end = get_monotonic_ts();\
-        filemgr_update_latency_stat(file, type, ts_diff(begin, end));} while(0)
+    uint64_t begin=get_monotonic_ts();
+#define LATENCY_STAT_END(file, type) \
+    uint64_t end = get_monotonic_ts();\
+    LatencyStats::update(file, type, ts_diff(begin, end));
 
 struct latency_stat {
     std::atomic<uint32_t> lat_min;
@@ -340,111 +335,17 @@ typedef struct {
 
 class StaleDataManagerBase;
 
-class FileMgr {
-public:
-    FileMgr()
-        : filename(nullptr), filename_len(0), ref_count(0), fflags(0x00),
-          blocksize(0), fd(-1), pos(0), last_commit(0),
-          last_writable_bmp_revnum(0), num_invalidated_blocks(0),
-          io_in_prog(0), wal(nullptr), ops(nullptr), status(0),
-          config(nullptr), new_file(nullptr), prev_file(nullptr),
-          old_filename(nullptr), bcache(nullptr), in_place_compaction(false),
-          fs_type(0), kv_header(nullptr), throttling_delay(0),
-          prefetch_status(0), prefetch_tid(0), version(0), sb(nullptr),
-          crc_mode(CRC_DEFAULT), staleData(nullptr),
-          dirty_update_counter(0), latest_dirty_update(nullptr)
-    {
-        memset(&e, 0, sizeof(struct hash_elem));
-        memset(&global_txn, 0, sizeof(fdb_txn));
-        memset(&encryption, 0, sizeof(encryptor));
-        memset(&dirty_update_idx, 0, sizeof(struct avl_tree));
-        memset(&fhandle_idx, 0, sizeof(struct avl_tree));
-    }
+typedef fdb_status (*register_file_removal_func)(FileMgr *file,
+                                                 ErrLogCallback *log_callback);
+typedef bool (*check_file_removal_func)(const char *filename);
 
-    ~FileMgr() { }
+typedef struct {
+    FileMgr *file;
+    int rv;
+} filemgr_open_result;
 
-    char *filename;                    // Current file name.
-    uint16_t filename_len;
-    std::atomic<uint32_t> ref_count;
-    uint8_t fflags;
-    uint32_t blocksize;
-    int fd;
-    std::atomic<uint64_t> pos;
-    std::atomic<uint64_t> last_commit;
-    std::atomic<uint64_t> last_writable_bmp_revnum;
-    std::atomic<uint64_t> num_invalidated_blocks;
-    std::atomic<uint8_t> io_in_prog;
-    Wal *wal;
-    FileMgrHeader header;
-    struct filemgr_ops *ops;
-    struct hash_elem e;
-    std::atomic<uint8_t> status;
-    FileMgrConfig *config;
-    FileMgr *new_file;                 // Pointer to new file upon compaction
-    FileMgr *prev_file;                // Pointer to prev file upon compaction
-    char *old_filename;                // Old file name before compaction
-    std::atomic<FileBlockCache *> bcache;
-    fdb_txn global_txn;
-    bool in_place_compaction;
-    filemgr_fs_type_t fs_type;
-    KvsHeader *kv_header;
-    void (*free_kv_header)(FileMgr *file); // callback function
-    std::atomic<uint32_t> throttling_delay;
-
-    // variables related to prefetching
-    std::atomic<uint8_t> prefetch_status;
-    thread_t prefetch_tid;
-
-    // File format version
-    filemgr_magic_t version;
-
-    // superblock
-    struct superblock *sb;
-
-#ifdef _LATENCY_STATS
-    struct latency_stat lat_stats[FDB_LATENCY_NUM_STATS];
-#endif //_LATENCY_STATS
-
-    // spin lock for small region
-    spin_t lock;
-
-    // lock for data consistency
-#ifdef __FILEMGR_DATA_PARTIAL_LOCK
-    struct plock plock;
-#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
-    mutex_t data_mutex[DLOCK_MAX];
-#else
-    spin_t data_spinlock[DLOCK_MAX];
-#endif //__FILEMGR_DATA_PARTIAL_LOCK
-
-    // mutex for synchronization among multiple writers.
-    mutex_lock_t writer_lock;
-
-    // CRC the file is using.
-    crc_mode_e crc_mode;
-
-    encryptor encryption;
-
-    StaleDataManagerBase *staleData;
-
-    // in-memory index for a set of dirty index block updates
-    struct avl_tree dirty_update_idx;
-    // counter for the set of dirty index updates
-    std::atomic<uint64_t> dirty_update_counter;
-    // latest dirty (immutable but not committed yet) update
-    struct filemgr_dirty_update_node *latest_dirty_update;
-    // spin lock for dirty_update_idx
-    spin_t dirty_update_lock;
-
-    /**
-     * Index for fdb_file_handle belonging to the same filemgr handle.
-     */
-    struct avl_tree fhandle_idx;
-    /**
-     * Spin lock for file handle index.
-     */
-    spin_t fhandle_idx_lock;
-};
+typedef char* (filemgr_redirect_hdr_func)(FileMgr *old_file, uint8_t *buf,
+                                          FileMgr *new_file);
 
 struct filemgr_dirty_update_node {
     union {
@@ -480,334 +381,557 @@ struct filemgr_dirty_update_block {
     bool immutable;
 };
 
-typedef fdb_status (*register_file_removal_func)(FileMgr *file,
-                                                 ErrLogCallback *log_callback);
-typedef bool (*check_file_removal_func)(const char *filename);
+class KvsStatOperations {
+public:
+    KvsStatOperations(FileMgr *_file)
+        : file(_file) { }
 
-typedef struct {
+    ~KvsStatOperations() { }
+
+    void statSet(fdb_kvs_id_t kv_id, KvsStat stat);
+
+    void statUpdateAttr(fdb_kvs_id_t kv_id, kvs_stat_attr_t attr,
+                        int delta);
+
+    static int statGetKvHeader(KvsHeader *kv_header,
+                               fdb_kvs_id_t kv_id,
+                               KvsStat *stat);
+
+    int statGet(fdb_kvs_id_t kv_id, KvsStat *stat);
+
+    uint64_t statGetSum(kvs_stat_attr_t attr);
+
+    int opsStatGet(fdb_kvs_id_t kv_id, KvsOpsStat *stat);
+
+    KvsOpsStat *getOpsStats(KvsInfo *info);
+
+    static KvsOpsStat* migrateOpStats(FileMgr *old_file,
+                                      FileMgr *new_file);
+
+private:
+    int opsStatGetKvHeader(KvsHeader *kv_header,
+                           fdb_kvs_id_t kv_id,
+                           KvsOpsStat *stat);
+
     FileMgr *file;
-    int rv;
-} filemgr_open_result;
+};
 
-void filemgr_init(FileMgrConfig *config);
-void filemgr_set_lazy_file_deletion(bool enable,
+
+class FileMgr {
+public:
+    FileMgr();
+
+    ~FileMgr();
+
+    /* Public member functions */
+
+    bool setKVHeader(KvsHeader *kv_header,
+                     void (*free_kv_header)(FileMgr *file));
+
+    KvsHeader* getKVHeader();
+
+    void incrRefCount() {
+        refCount++;
+    }
+
+    size_t getRefCount();
+
+    uint64_t updateHeader(void *buf, size_t len, bool inc_revnum);
+
+    filemgr_header_revnum_t getHeaderRevnum();
+
+    fdb_seqnum_t getSeqnum();
+
+    void setSeqnum(fdb_seqnum_t seqnum);
+
+    bid_t getHeaderBid() {
+        return (fMgrHeader.size > 0) ? fMgrHeader.bid.load() : BLK_NOT_FOUND;
+    }
+
+    void* getHeader(void *buf, size_t *len,
+                    bid_t *header_bid, fdb_seqnum_t *seqnum,
+                    filemgr_header_revnum_t *header_revnum);
+
+    /**
+     * Get the current bitmap revision number of superblock.
+     *
+     * @param file Pointer to filemgr handle.
+     * @return Current bitmap revision number.
+     */
+    uint64_t getSbBmpRevnum();
+
+    fdb_status fetchHeader(uint64_t bid, void *buf, size_t *len,
+                           fdb_seqnum_t *seqnum,
+                           filemgr_header_revnum_t *header_revnum,
+                           uint64_t *deltasize, uint64_t *version,
+                           uint64_t *sb_bmp_revnum,
+                           ErrLogCallback *log_callback);
+
+    uint64_t fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
+                             fdb_seqnum_t *seqnum,
+                             filemgr_header_revnum_t *revnum,
+                             uint64_t *deltasize, uint64_t *version,
+                             uint64_t *sb_bmp_revnum,
+                             ErrLogCallback *log_callback);
+
+    void removeAllBufferBlocks();
+
+    bid_t getNextAllocBlock() {
+        return lastPos.load() / blockSize;
+    }
+
+    bid_t alloc_FileMgr(ErrLogCallback *log_callback);
+
+    void allocMultiple(int nblock, bid_t *begin,
+                       bid_t *end, ErrLogCallback *log_callback);
+
+    bid_t allocMultipleCond(bid_t nextbid, int nblock,
+                            bid_t *begin, bid_t *end,
+                            ErrLogCallback *log_callback);
+
+    /* Returns true if the block invalidated is from recent uncommited blocks */
+    bool invalidateBlock(bid_t bid);
+
+    bool isFullyResident();
+
+    /* Returns number of immutable blocks that remain in file */
+    uint64_t flushImmutable(ErrLogCallback *log_callback);
+
+    fdb_status read_FileMgr(bid_t bid, void *buf,
+                            ErrLogCallback *log_callback,
+                            bool read_on_cache_miss);
+
+    ssize_t readBlock(void *buf, bid_t bid);
+
+    fdb_status writeOffset(bid_t bid, uint64_t offset,
+                           uint64_t len, void *buf, bool final_write,
+                           ErrLogCallback *log_callback);
+
+    fdb_status write_FileMgr(bid_t bid, void *buf,
+                             ErrLogCallback *log_callback);
+
+    ssize_t writeBlocks(void *buf, unsigned num_blocks, bid_t start_bid);
+
+    int isWritable(bid_t bid);
+
+    void setIoInprog() {
+        ioInprog++;
+    }
+
+    void clearIoInprog() {
+        ioInprog--;
+    }
+
+    fdb_status commit_FileMgr(bool sync, ErrLogCallback *log_callback);
+
+    /**
+     * Commit DB file, and write a DB header at the given BID.
+     *
+     * @param bid ID of the block that DB header will be written. If this value
+     *            is set to BLK_NOT_FOUND, then DB header is appended at the end
+     *            of the file.
+     * @param bmp_revnum Revision number of superblock's bitmap when this commit
+     *                   is called.
+     * @param sync Flag for calling fsync().
+     * @param log_callback Pointer to log callback function.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
+                         ErrLogCallback *log_callback);
+
+    fdb_status sync_FileMgr(bool sync_option, ErrLogCallback *log_callback);
+
+    int updateFileStatus(file_status_t status, char *old_filename);
+
+    file_status_t getFileStatus() {
+        return fMgrStatus.load();
+    }
+
+    uint64_t getPos() {
+        return lastPos.load();
+    }
+
+    bool isRollbackOn();
+
+    void setRollback(uint8_t new_val);
+
+    /**
+     * Set the file manager's flag to cancel the compaction task that is
+     * currently running.
+     *
+     * @param file Pointer to the file manager instance
+     * @param cancel True if the compaction should be cancelled.
+     */
+    void setCancelCompaction(bool cancel);
+
+    /**
+     * Return true if a compaction cancellation is requested.
+     *
+     * @param file Pointer to the file manager instance
+     * @return True if a compaction cancellation is requested.
+     */
+    bool isCompactionCancellationRequested();
+
+    void setInPlaceCompaction(bool in_place_compaction);
+
+    bool isInPlaceCompactionSet();
+
+    void mutexLock();
+
+    bool mutexTrylock();
+
+    void mutexUnlock();
+
+    void setThrottlingDelay(uint64_t delay_us);
+
+    uint32_t getThrottlingDelay();
+
+    /**
+     * Add an item into stale-block list of the given 'file'.
+     *
+     * @param offset Byte offset to the beginning of the stale region.
+     * @param len Length of the stale region.
+     * @return void.
+     */
+    void addStaleBlock(bid_t offset, size_t len);
+
+    /**
+     * Mark the given region (offset, length) as stale.
+     * This function automatically calculates the additional space used for
+     * block markers or block matadata, by internally calling
+     * FileMgr::actualStaleRegions().
+     *
+     * @param offset Byte offset to the beginning of the data.
+     * @param length Length of the data.
+     * @return void.
+     */
+    void markStale(bid_t offset, size_t length);
+
+    FileMgr* searchStaleLinks();
+
+    /**
+     * Add a FDB file handle into the superblock's global index.
+     *
+     * @param fhandle Pointer to FDB file handle.
+     * @return True if successfully added.
+     */
+    bool fhandleAdd(void *fhandle);
+
+    /**
+     * Remove a FDB file handle from the superblock's global index.
+     *
+     * @param fhandle Pointer to FDB file handle.
+     * @return True if successfully removed.
+     */
+    bool fhandleRemove(void *fhandle);
+
+    static void setCompactionState(FileMgr *old_file,
+                                   FileMgr *new_file,
+                                   file_status_t status);
+
+    static void removePending(FileMgr *old_file,
+                              FileMgr *new_file,
+                              ErrLogCallback *log_callback);
+
+    static void init(FileMgrConfig *config);
+
+    static void setLazyFileDeletion(bool enable,
                                     register_file_removal_func regis_func,
                                     check_file_removal_func check_func);
 
-/**
- * Assign superblock operations.
- *
- * @param ops Set of superblock operations to be assigned.
- * @return void.
- */
-void filemgr_set_sb_operation(struct sb_ops ops);
+    /**
+     * Assign superblock operations.
+     *
+     * @param ops Set of superblock operations to be assigned.
+     * @return void.
+     */
+    static void setSbOperation(struct sb_ops ops);
 
-uint64_t filemgr_get_bcache_used_space(void);
+    static uint64_t getBcacheUsedSpace(void);
 
-bool filemgr_set_kv_header(FileMgr *file, KvsHeader *kv_header,
-                           void (*free_kv_header)(FileMgr *file));
+    static filemgr_open_result open(char *filename,
+                                    struct filemgr_ops *ops,
+                                    FileMgrConfig *config,
+                                    ErrLogCallback *log_callback);
 
-KvsHeader* filemgr_get_kv_header(FileMgr *file);
+    static void freeFunc(struct hash_elem *h);
 
-size_t filemgr_get_ref_count(FileMgr *file);
+    static fdb_status shutdown();
 
-INLINE void filemgr_incr_ref_count(FileMgr *file) {
-    file->ref_count++;
-}
-
-filemgr_open_result filemgr_open(char *filename,
-                                 struct filemgr_ops *ops,
-                                 FileMgrConfig *config,
-                                 ErrLogCallback *log_callback);
-
-uint64_t filemgr_update_header(FileMgr *file,
-                               void *buf,
-                               size_t len,
-                               bool inc_revnum);
-filemgr_header_revnum_t filemgr_get_header_revnum(FileMgr *file);
-
-fdb_seqnum_t filemgr_get_seqnum(FileMgr *file);
-void filemgr_set_seqnum(FileMgr *file, fdb_seqnum_t seqnum);
-
-INLINE bid_t filemgr_get_header_bid(FileMgr *file)
-{
-    return ((file->header.size > 0) ?
-            file->header.bid.load() : BLK_NOT_FOUND);
-}
-bid_t _filemgr_get_header_bid(FileMgr *file);
-void* filemgr_get_header(FileMgr *file, void *buf, size_t *len,
-                         bid_t *header_bid, fdb_seqnum_t *seqnum,
-                         filemgr_header_revnum_t *header_revnum);
-
-/**
- * Get the current bitmap revision number of superblock.
- *
- * @param file Pointer to filemgr handle.
- * @return Current bitmap revision number.
- */
-uint64_t filemgr_get_sb_bmp_revnum(FileMgr *file);
-
-fdb_status filemgr_fetch_header(FileMgr *file, uint64_t bid,
-                                void *buf, size_t *len, fdb_seqnum_t *seqnum,
-                                filemgr_header_revnum_t *header_revnum,
-                                uint64_t *deltasize, uint64_t *version,
-                                uint64_t *sb_bmp_revnum,
-                                ErrLogCallback *log_callback);
-uint64_t filemgr_fetch_prev_header(FileMgr *file, uint64_t bid,
-                                   void *buf, size_t *len, fdb_seqnum_t *seqnum,
-                                   filemgr_header_revnum_t *revnum,
-                                   uint64_t *deltasize, uint64_t *version,
-                                   uint64_t *sb_bmp_revnum,
-                                   ErrLogCallback *log_callback);
-fdb_status filemgr_close(FileMgr *file,
-                         bool cleanup_cache_onclose,
-                         const char *orig_file_name,
-                         ErrLogCallback *log_callback);
-
-void filemgr_remove_all_buffer_blocks(FileMgr *file);
-void filemgr_free_func(struct hash_elem *h);
-
-INLINE bid_t filemgr_get_next_alloc_block(FileMgr *file)
-{
-    return file->pos.load() / file->blocksize;
-}
-bid_t filemgr_alloc(FileMgr *file, ErrLogCallback *log_callback);
-void filemgr_alloc_multiple(FileMgr *file, int nblock, bid_t *begin,
-                            bid_t *end, ErrLogCallback *log_callback);
-bid_t filemgr_alloc_multiple_cond(FileMgr *file, bid_t nextbid, int nblock,
-                                  bid_t *begin, bid_t *end,
-                                  ErrLogCallback *log_callback);
-
-// Returns true if the block invalidated is from recent uncommited blocks
-bool filemgr_invalidate_block(FileMgr *file, bid_t bid);
-bool filemgr_is_fully_resident(FileMgr *file);
-// returns number of immutable blocks that remain in file
-uint64_t filemgr_flush_immutable(FileMgr *file,
-                                 ErrLogCallback *log_callback);
-
-fdb_status filemgr_read(FileMgr *file,
-                        bid_t bid, void *buf,
-                        ErrLogCallback *log_callback,
-                        bool read_on_cache_miss);
-ssize_t filemgr_read_block(FileMgr *file, void *buf, bid_t bid);
-
-fdb_status filemgr_write_offset(FileMgr *file, bid_t bid, uint64_t offset,
-                          uint64_t len, void *buf, bool final_write,
-                          ErrLogCallback *log_callback);
-fdb_status filemgr_write(FileMgr *file, bid_t bid, void *buf,
-                         ErrLogCallback *log_callback);
-ssize_t filemgr_write_blocks(FileMgr *file, void *buf, unsigned num_blocks,
-                             bid_t start_bid);
-int filemgr_is_writable(FileMgr *file, bid_t bid);
-
-void filemgr_remove_file(FileMgr *file);
-
-INLINE void filemgr_set_io_inprog(FileMgr *file)
-{
-    file->io_in_prog++;
-}
-
-INLINE void filemgr_clear_io_inprog(FileMgr *file)
-{
-    file->io_in_prog--;
-}
-
-fdb_status filemgr_commit(FileMgr *file, bool sync,
-                          ErrLogCallback *log_callback);
-/**
- * Commit DB file, and write a DB header at the given BID.
- *
- * @param file Pointer to filemgr handle.
- * @param bid ID of the block that DB header will be written. If this value is set to
- *        BLK_NOT_FOUND, then DB header is appended at the end of the file.
- * @param bmp_revnum Revision number of superblock's bitmap when this commit is called.
- * @param sync Flag for calling fsync().
- * @param log_callback Pointer to log callback function.
- * @return FDB_RESULT_SUCCESS on success.
- */
-fdb_status filemgr_commit_bid(FileMgr *file, bid_t bid,
-                              uint64_t bmp_revnum, bool sync,
-                              ErrLogCallback *log_callback);
-fdb_status filemgr_sync(FileMgr *file, bool sync_option,
-                        ErrLogCallback *log_callback);
-
-fdb_status filemgr_shutdown();
-int filemgr_update_file_status(FileMgr *file, file_status_t status,
-                                char *old_filename);
-void filemgr_set_compaction_state(FileMgr *old_file,
-                                  FileMgr *new_file,
-                                  file_status_t status);
-void filemgr_remove_pending(FileMgr *old_file,
-                            FileMgr *new_file,
+    static fdb_status close(FileMgr *file,
+                            bool cleanup_cache_onclose,
+                            const char *orig_file_name,
                             ErrLogCallback *log_callback);
 
-/**
- * Return name of the latency stat given its type.
- * @param stat The type of the latency stat to be named.
- */
-const char *filemgr_latency_stat_name(fdb_latency_stat_type stat);
+    static void removeFile(FileMgr *file, ErrLogCallback *log_callback);
+
+    static fdb_status destroyFile(char *filename,
+                                  FileMgrConfig *config,
+                                  struct hash *destroy_set);
+
+    static char* redirectOldFile(FileMgr *very_old_file,
+                                 FileMgr *new_file,
+                                 filemgr_redirect_hdr_func redirect_func);
+
+    static fdb_status copyFileRange(FileMgr *src_file,
+                                    FileMgr *dst_file,
+                                    bid_t src_bid, bid_t dst_bid,
+                                    bid_t clone_len);
+
+
+
+    static void mutexOpenlock(FileMgrConfig *config);
+
+    static void mutexOpenunlock(void);
+
+    static bool isCommitHeader(void *head_buffer, size_t blocksize);
+
+    static bool isCowSupported(FileMgr *src, FileMgr *dst);
+
+    /**
+     * Initialize global structures for dirty update management.
+     *
+     * @return void.
+     */
+    void dirtyUpdateInit();
+
+    /**
+     * Free global structures for dirty update management.
+     *
+     * @return void.
+     */
+    void dirtyUpdateFree();
+
+    /**
+     * Create a new dirty update entry.
+     *
+     * @return Newly created dirty update entry.
+     */
+    struct filemgr_dirty_update_node* dirtyUpdateNewNode();
+
+    /**
+     * Return the latest complete (i.e., immutable) dirty update entry.
+     * Note that a dirty update that is being updated by a writer thread
+     * will not be returned.
+     *
+     * @return Latest dirty update entry.
+     */
+    struct filemgr_dirty_update_node* dirtyUpdateGetLatest();
+
+    /**
+     * Increase the reference counter for the given dirty update entry.
+     *
+     * @param node Pointer to dirty update entry to increase reference counter.
+     * @return void.
+     */
+    static void dirtyUpdateIncRefCount(struct filemgr_dirty_update_node *node);
+
+    /**
+     * Commit the latest complete dirty update entry and write back all updated
+     * blocks into DB file. This API will remove all complete (i.e., immutable)
+     * dirty update entries whose reference counter is zero.
+     *
+     * @param commit_node Pointer to dirty update entry to be flushed.
+     * @param log_callback Pointer to the log callback function.
+     * @return void.
+     */
+    void dirtyUpdateCommit(struct filemgr_dirty_update_node *commit_node,
+                           ErrLogCallback *log_callback);
+
+    /**
+     * Complete the given dirty update entry and make it immutable. This API will
+     * remove all complete (i.e., immutable) dirty update entries which are prior
+     * than the given dirty update entry and whose reference counter is zero.
+     *
+     * @param node Pointer to dirty update entry to complete.
+     * @param node Pointer to previous dirty update entry.
+     * @return void.
+     */
+    void dirtyUpdateSetImmutable(struct filemgr_dirty_update_node *prev_node,
+                                 struct filemgr_dirty_update_node *node);
+
+    /**
+     * Remove a dirty update entry and discard all dirty blocks from memory.
+     *
+     * @param node Pointer to dirty update entry to be removed.
+     * @return void.
+     */
+    void dirtyUpdateRemoveNode(struct filemgr_dirty_update_node *node);
+
+    /**
+     * Close a dirty update entry. This API will remove all complete (i.e., immutable)
+     * dirty update entries except for the last immutable update entry.
+     *
+     * @param node Pointer to dirty update entry to be closed.
+     * @return void.
+     */
+    static void dirtyUpdateCloseNode(struct filemgr_dirty_update_node *node);
+
+    /**
+     * Set dirty root nodes for the given dirty update entry.
+     *
+     * @param node Pointer to dirty update entry.
+     * @param dirty_idtree_root BID of ID tree root node.
+     * @param dirty_seqtree_root BID of sequence tree root node.
+     * @return void.
+     */
+    static void dirtyUpdateSetRoot(struct filemgr_dirty_update_node *node,
+                                   bid_t dirty_idtree_root,
+                                   bid_t dirty_seqtree_root) {
+        if (node) {
+            node->idtree_root = dirty_idtree_root;
+            node->seqtree_root = dirty_seqtree_root;
+        }
+    }
+
+    /**
+     * Get dirty root nodes for the given dirty update entry.
+     *
+     * @param node Pointer to dirty update entry.
+     * @param dirty_idtree_root Pointer to the BID of ID tree root node.
+     * @param dirty_seqtree_root Pointer to the BID of sequence tree root node.
+     * @return void.
+     */
+    static void dirtyUpdateGetRoot(struct filemgr_dirty_update_node *node,
+                                   bid_t *dirty_idtree_root,
+                                   bid_t *dirty_seqtree_root) {
+        if (node) {
+            *dirty_idtree_root = node->idtree_root;
+            *dirty_seqtree_root = node->seqtree_root;
+        } else {
+            *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
+        }
+    }
+
+    /**
+     * Write a dirty block into the given dirty update entry.
+     *
+     * @param bid BID of the block to be written.
+     * @param buf Pointer to the buffer containing the data to be written.
+     * @param node Pointer to the dirty update entry.
+     * @param log_callback Pointer to the log callback function.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status writeDirty(bid_t bid,
+                          void *buf,
+                          struct filemgr_dirty_update_node *node,
+                          ErrLogCallback *log_callback);
+
+    /**
+     * Read a block through the given dirty update entries. It first tries to read
+     * the block from the writer's (which is being updated) dirty update entry,
+     * and then tries to read it from the reader's (which already became immutable)
+     * dirty update entry. If the block doesn't exist in both entries, then it reads
+     * the block from DB file.
+     *
+     * @param bid BID of the block to be read.
+     * @param buf Pointer to the buffer where the read data will be copied.
+     * @param node_reader Pointer to the immutable dirty update entry.
+     * @param node_writer Pointer to the mutable dirty update entry.
+     * @param log_callback Pointer to the log callback function.
+     * @param read_on_cache_miss True if we want to read the block from file after
+     *        cache miss.
+     * @return FDB_RESULT_SUCCESS on success.
+     */
+    fdb_status readDirty(bid_t bid,
+                         void *buf,
+                         struct filemgr_dirty_update_node *node_reader,
+                         struct filemgr_dirty_update_node *node_writer,
+                         ErrLogCallback *log_callback,
+                         bool read_on_cache_miss);
+
+    /**
+     * Return name of the latency stat given its type.
+     * @param stat The type of the latency stat to be named.
+     */
+    static const char* getLatencyStatName(fdb_latency_stat_type stat);
+
+
+    /* Public member variables */
+
+    char *fileName;                      // Current file name.
+    uint16_t fileNameLen;
+    std::atomic<uint32_t> refCount;
+    uint8_t fMgrFlags;
+    uint32_t blockSize;
+    int fd;
+    std::atomic<uint64_t> lastPos;
+    std::atomic<uint64_t> lastCommit;
+    std::atomic<uint64_t> lastWritableBmpRevnum;
+    std::atomic<uint8_t> ioInprog;
+    Wal *fMgrWal;
+    FileMgrHeader fMgrHeader;
+    struct filemgr_ops *fMgrOps;
+    struct hash_elem hashElem;
+    std::atomic<uint8_t> fMgrStatus;
+    FileMgrConfig *fileConfig;
+    FileMgr *newFile;                 // Pointer to new file upon compaction
+    FileMgr *prevFile;                // Pointer to prev file upon compaction
+    char *oldFileName;                // Old file name before compaction
+    std::atomic<FileBlockCache *> bCache;
+    fdb_txn globalTxn;
+    bool inPlaceCompaction;
+    filemgr_fs_type_t fsType;
+    KvsHeader *kvHeader;
+    void (*free_kv_header)(FileMgr *file); // callback function
+    std::atomic<uint32_t> throttlingDelay;
+
+    // variables related to prefetching
+    std::atomic<uint8_t> prefetchStatus;
+    thread_t prefetchTid;
+
+    // File format version
+    filemgr_magic_t fMgrVersion;
+
+    // superblock
+    struct superblock *fMgrSb;
+
+    KvsStatOperations kvsStatOps;
 
 #ifdef _LATENCY_STATS
-/**
- * Initialize a latency stats instance
- *
- * @param val Pointer to a latency stats instance to be initialized
- */
-void filemgr_init_latency_stat(struct latency_stat *val);
+    struct latency_stat latStats[FDB_LATENCY_NUM_STATS];
+#endif //_LATENCY_STATS
 
-/**
- * Destroy a latency stats instance
- *
- * @param val Pointer to a latency stats instance to be destroyed
- */
-void filemgr_destroy_latency_stat(struct latency_stat *val);
+    // spin lock for small region
+    spin_t fMgrLock;
 
-/**
- * Migrate the latency stats from the source file to the destination file
- *
- * @param oldf Pointer to the source file manager
- * @param newf Pointer to the destination file manager
- */
-void filemgr_migrate_latency_stats(FileMgr *src, FileMgr *dest);
+    // lock for data consistency
+#ifdef __FILEMGR_DATA_PARTIAL_LOCK
+    struct plock fMgrPlock;
+#elif defined(__FILEMGR_DATA_MUTEX_LOCK)
+    mutex_t dataMutex[DLOCK_MAX];
+#else
+    spin_t dataSpinlock[DLOCK_MAX];
+#endif //__FILEMGR_DATA_PARTIAL_LOCK
 
-/**
- * Update the latency stats for a given file manager
- *
- * @param file Pointer to the file manager whose latency stats need to be updated
- * @param type Type of a latency stat to be updated
- * @param val New value of a latency stat
- */
-void filemgr_update_latency_stat(FileMgr *file,
-                                 fdb_latency_stat_type type,
-                                 uint32_t val);
+    // mutex for synchronization among multiple writers.
+    mutex_lock_t writerLock;
 
-/**
- * Get the latency stats from a given file manager
- *
- * @param file Pointer to the file manager
- * @param type Type of a latency stat to be retrieved
- * @param stat Pointer to the stats instance to be populated
- */
-void filemgr_get_latency_stat(FileMgr *file,
-                              fdb_latency_stat_type type,
-                              fdb_latency_stat *stat);
+    // CRC the file is using.
+    crc_mode_e crcMode;
 
-#ifdef _LATENCY_STATS_DUMP_TO_FILE
-/**
- * Write all the latency stats for a given file manager to a stat log file
- *
- * @param file Pointer to the file manager
- * @param log_callback Pointer to the log callback function
- */
-void filemgr_dump_latency_stat(FileMgr *file,
-                               ErrLogCallback *log_callback);
+    encryptor fMgrEncryption;
 
-#endif // _LATENCY_STATS_DUMP_TO_FILE
-#endif // _LATENCY_STATS
+    StaleDataManagerBase *staleData;
 
-KvsOpsStat *filemgr_migrate_op_stats(FileMgr *old_file,
-                                     FileMgr *new_file);
-fdb_status filemgr_destroy_file(char *filename,
-                                FileMgrConfig *config,
-                                struct hash *destroy_set);
+    // in-memory index for a set of dirty index block updates
+    struct avl_tree dirtyUpdateIdx;
+    // counter for the set of dirty index updates
+    std::atomic<uint64_t> dirtyUpdateCounter;
+    // latest dirty (immutable but not committed yet) update
+    struct filemgr_dirty_update_node *latestDirtyUpdate;
+    // spin lock for dirty_update_idx
+    spin_t dirtyUpdateLock;
 
-FileMgr *filemgr_search_stale_links(FileMgr *cur_file);
-typedef char *filemgr_redirect_hdr_func(FileMgr *old_file, uint8_t *buf,
-                                        FileMgr *new_file);
-
-char *filemgr_redirect_old_file(FileMgr *very_old_file,
-                                FileMgr *new_file,
-                                filemgr_redirect_hdr_func redirect_func);
-INLINE file_status_t filemgr_get_file_status(FileMgr *file)
-{
-    return file->status.load();
-}
-INLINE uint64_t filemgr_get_pos(FileMgr *file)
-{
-    return file->pos.load();
-}
-
-fdb_status filemgr_copy_file_range(FileMgr *src_file,
-                                   FileMgr *dst_file,
-                                   bid_t src_bid, bid_t dst_bid,
-                                   bid_t clone_len);
-
-bool filemgr_is_rollback_on(FileMgr *file);
-void filemgr_set_rollback(FileMgr *file, uint8_t new_val);
-
-/**
- * Set the file manager's flag to cancel the compaction task that is currently running.
- *
- * @param file Pointer to the file manager instance
- * @param cancel True if the compaction should be cancelled.
- */
-void filemgr_set_cancel_compaction(FileMgr *file, bool cancel);
-
-/**
- * Return true if a compaction cancellation is requested.
- *
- * @param file Pointer to the file manager instance
- * @return True if a compaction cancellation is requested.
- */
-bool filemgr_is_compaction_cancellation_requested(FileMgr *file);
-
-void filemgr_set_in_place_compaction(FileMgr *file,
-                                     bool in_place_compaction);
-bool filemgr_is_in_place_compaction_set(FileMgr *file);
-
-void filemgr_mutex_openlock(FileMgrConfig *config);
-void filemgr_mutex_openunlock(void);
-
-void filemgr_mutex_lock(FileMgr *file);
-bool filemgr_mutex_trylock(FileMgr *file);
-void filemgr_mutex_unlock(FileMgr *file);
-
-bool filemgr_is_commit_header(void *head_buffer, size_t blocksize);
-
-bool filemgr_is_cow_supported(FileMgr *src, FileMgr *dst);
-
-void filemgr_set_throttling_delay(FileMgr *file, uint64_t delay_us);
-uint32_t filemgr_get_throttling_delay(FileMgr *file);
-
-/**
- * Add an item into stale-block list of the given 'file'.
- *
- * @param file Pointer to file handle.
- * @param offset Byte offset to the beginning of the stale region.
- * @param len Length of the stale region.
- * @return void.
- */
-void filemgr_add_stale_block(FileMgr *file,
-                             bid_t offset,
-                             size_t len);
-
-/**
- * Calculate the actual space (including block markers) used for the given document
- * data, and return the list of regions to be marked as stale (if the given document
- * is not physically consecutive, more than one regions will be returned).
- *
- * @param file Pointer to file handle.
- * @param offset Byte offset to the beginning of the data.
- * @param length Length of the data.
- * @return List of stale regions.
- */
-struct stale_regions filemgr_actual_stale_regions(FileMgr *file,
-                                                  bid_t offset,
-                                                  size_t length);
-
-/**
- * Mark the given region (offset, length) as stale.
- * This function automatically calculates the additional space used for block
- * markers or block matadata, by internally calling filemgr_actual_stale_regions().
- *
- * @param file Pointer to file handle.
- * @param offset Byte offset to the beginning of the data.
- * @param length Length of the data.
- * @return void.
- */
-void filemgr_mark_stale(FileMgr *file,
-                        bid_t offset,
-                        size_t length);
+    /**
+     * Index for fdb_file_handle belonging to the same filemgr handle.
+     */
+    struct avl_tree handleIdx;
+    /**
+     * Spin lock for file handle index.
+     */
+    spin_t handleIdxLock;
+};
 
 /**
  * The node structure of fhandle index.
@@ -824,216 +948,6 @@ struct filemgr_fhandle_idx_node {
 };
 
 /**
- * Add a FDB file handle into the superblock's global index.
- *
- * @param file Pointer to filemgr handle.
- * @param fhandle Pointer to FDB file handle.
- * @return True if successfully added.
- */
-bool filemgr_fhandle_add(FileMgr *file, void *fhandle);
-
-/**
- * Remove a FDB file handle from the superblock's global index.
- *
- * @param file Pointer to filemgr handle.
- * @param fhandle Pointer to FDB file handle.
- * @return True if successfully removed.
- */
-bool filemgr_fhandle_remove(FileMgr *file, void *fhandle);
-
-/**
- * Initialize global structures for dirty update management.
- *
- * @param file Pointer to filemgr handle.
- * @return void.
- */
-void filemgr_dirty_update_init(FileMgr *file);
-
-/**
- * Free global structures for dirty update management.
- *
- * @param file Pointer to filemgr handle.
- * @return void.
- */
-void filemgr_dirty_update_free(FileMgr *file);
-
-/**
- * Create a new dirty update entry.
- *
- * @param file Pointer to filemgr handle.
- * @return Newly created dirty update entry.
- */
-struct filemgr_dirty_update_node *filemgr_dirty_update_new_node(FileMgr *file);
-
-/**
- * Return the latest complete (i.e., immutable) dirty update entry. Note that a
- * dirty update that is being updated by a writer thread will not be returned.
- *
- * @param file Pointer to filemgr handle.
- * @return Latest dirty update entry.
- */
-struct filemgr_dirty_update_node *filemgr_dirty_update_get_latest(FileMgr *file);
-
-/**
- * Increase the reference counter for the given dirty update entry.
- *
- * @param node Pointer to dirty update entry to increase reference counter.
- * @return void.
- */
-void filemgr_dirty_update_inc_ref_count(struct filemgr_dirty_update_node *node);
-
-/**
- * Commit the latest complete dirty update entry and write back all updated
- * blocks into DB file. This API will remove all complete (i.e., immutable)
- * dirty update entries whose reference counter is zero.
- *
- * @param file Pointer to filemgr handle.
- * @param commit_node Pointer to dirty update entry to be flushed.
- * @param log_callback Pointer to the log callback function.
- * @return void.
- */
-void filemgr_dirty_update_commit(FileMgr *file,
-                                 struct filemgr_dirty_update_node *commit_node,
-                                 ErrLogCallback *log_callback);
-
-/**
- * Complete the given dirty update entry and make it immutable. This API will
- * remove all complete (i.e., immutable) dirty update entries which are prior
- * than the given dirty update entry and whose reference counter is zero.
- *
- * @param file Pointer to filemgr handle.
- * @param node Pointer to dirty update entry to complete.
- * @param node Pointer to previous dirty update entry.
- * @return void.
- */
-void filemgr_dirty_update_set_immutable(FileMgr *file,
-                                        struct filemgr_dirty_update_node *prev_node,
-                                        struct filemgr_dirty_update_node *node);
-
-/**
- * Remove a dirty update entry and discard all dirty blocks from memory.
- *
- * @param file Pointer to filemgr handle.
- * @param node Pointer to dirty update entry to be removed.
- * @return void.
- */
-void filemgr_dirty_update_remove_node(FileMgr *file,
-                                      struct filemgr_dirty_update_node *node);
-
-/**
- * Close a dirty update entry. This API will remove all complete (i.e., immutable)
- * dirty update entries except for the last immutable update entry.
- *
- * @param node Pointer to dirty update entry to be closed.
- * @return void.
- */
-void filemgr_dirty_update_close_node(struct filemgr_dirty_update_node *node);
-
-/**
- * Set dirty root nodes for the given dirty update entry.
- *
- * @param node Pointer to dirty update entry.
- * @param dirty_idtree_root BID of ID tree root node.
- * @param dirty_seqtree_root BID of sequence tree root node.
- * @return void.
- */
-INLINE void filemgr_dirty_update_set_root(struct filemgr_dirty_update_node *node,
-                                          bid_t dirty_idtree_root,
-                                          bid_t dirty_seqtree_root)
-{
-    if (node) {
-        node->idtree_root = dirty_idtree_root;
-        node->seqtree_root = dirty_seqtree_root;
-    }
-}
-
-/**
- * Get dirty root nodes for the given dirty update entry.
- *
- * @param node Pointer to dirty update entry.
- * @param dirty_idtree_root Pointer to the BID of ID tree root node.
- * @param dirty_seqtree_root Pointer to the BID of sequence tree root node.
- * @return void.
- */
-INLINE void filemgr_dirty_update_get_root(struct filemgr_dirty_update_node *node,
-                                          bid_t *dirty_idtree_root,
-                                          bid_t *dirty_seqtree_root)
-{
-    if (node) {
-        *dirty_idtree_root = node->idtree_root;
-        *dirty_seqtree_root = node->seqtree_root;
-    } else {
-        *dirty_idtree_root = *dirty_seqtree_root = BLK_NOT_FOUND;
-    }
-}
-
-/**
- * Write a dirty block into the given dirty update entry.
- *
- * @param file Pointer to filemgr handle.
- * @param bid BID of the block to be written.
- * @param buf Pointer to the buffer containing the data to be written.
- * @param node Pointer to the dirty update entry.
- * @param log_callback Pointer to the log callback function.
- * @return FDB_RESULT_SUCCESS on success.
- */
-fdb_status filemgr_write_dirty(FileMgr *file,
-                               bid_t bid,
-                               void *buf,
-                               struct filemgr_dirty_update_node *node,
-                               ErrLogCallback *log_callback);
-
-/**
- * Read a block through the given dirty update entries. It first tries to read
- * the block from the writer's (which is being updated) dirty update entry,
- * and then tries to read it from the reader's (which already became immutable)
- * dirty update entry. If the block doesn't exist in both entries, then it reads
- * the block from DB file.
- *
- * @param file Pointer to filemgr handle.
- * @param bid BID of the block to be read.
- * @param buf Pointer to the buffer where the read data will be copied.
- * @param node_reader Pointer to the immutable dirty update entry.
- * @param node_writer Pointer to the mutable dirty update entry.
- * @param log_callback Pointer to the log callback function.
- * @param read_on_cache_miss True if we want to read the block from file after
- *        cache miss.
- * @return FDB_RESULT_SUCCESS on success.
- */
-fdb_status filemgr_read_dirty(FileMgr *file,
-                              bid_t bid,
-                              void *buf,
-                              struct filemgr_dirty_update_node *node_reader,
-                              struct filemgr_dirty_update_node *node_writer,
-                              ErrLogCallback *log_callback,
-                              bool read_on_cache_miss);
-
-void _kvs_stat_set(FileMgr *file,
-                   fdb_kvs_id_t kv_id,
-                   KvsStat stat);
-void _kvs_stat_update_attr(FileMgr *file,
-                           fdb_kvs_id_t kv_id,
-                           kvs_stat_attr_t attr,
-                           int delta);
-int _kvs_stat_get_kv_header(KvsHeader *kv_header,
-                            fdb_kvs_id_t kv_id,
-                            KvsStat *stat);
-int _kvs_stat_get(FileMgr *file,
-                  fdb_kvs_id_t kv_id,
-                  KvsStat *stat);
-uint64_t _kvs_stat_get_sum(FileMgr *file,
-                           kvs_stat_attr_t attr);
-int _kvs_ops_stat_get_kv_header(KvsHeader *kv_header,
-                                fdb_kvs_id_t kv_id,
-                                KvsOpsStat *stat);
-int _kvs_ops_stat_get(FileMgr *file,
-                      fdb_kvs_id_t kv_id,
-                      KvsOpsStat *stat);
-
-KvsOpsStat *filemgr_get_ops_stats(FileMgr *file,
-                                  KvsInfo *info);
-
-/**
  * Convert a given errno value to the corresponding fdb_status value.
  *
  * @param errno_value errno value
@@ -1044,8 +958,61 @@ KvsOpsStat *filemgr_get_ops_stats(FileMgr *file,
 fdb_status convert_errno_to_fdb_status(int errno_value,
                                        fdb_status default_status);
 
-#ifdef __cplusplus
-}
-#endif
+#ifdef _LATENCY_STATS
+class LatencyStats {
+public:
+    /**
+     * Initialize a latency stats instance
+     *
+     * @param val Pointer to a latency stats instance to be initialized
+     */
+    static void init(struct latency_stat *val);
 
-#endif
+    /**
+     * Destroy a latency stats instance
+     *
+     * @param val Pointer to a latency stats instance to be destroyed
+     */
+    static void destroy(struct latency_stat *val);
+
+    /**
+     * Migrate the latency stats from the source file to the destination file
+     *
+     * @param oldf Pointer to the source file manager
+     * @param newf Pointer to the destination file manager
+     */
+    static void migrate(FileMgr *src, FileMgr *dest);
+
+    /**
+     * Update the latency stats for a given file manager
+     *
+     * @param file Pointer to the file manager whose latency stats
+     *             needs to be updated
+     * @param type Type of a latency stat to be updated
+     * @param val New value of a latency stat
+     */
+    static void update(FileMgr *file, fdb_latency_stat_type type,
+                       uint32_t val);
+
+    /**
+     * Get the latency stats from a given file manager
+     *
+     * @param file Pointer to the file manager
+     * @param type Type of a latency stat to be retrieved
+     * @param stat Pointer to the stats instance to be populated
+     */
+    static void get(FileMgr *file, fdb_latency_stat_type type,
+                    fdb_latency_stat *stat);
+
+#ifdef _LATENCY_STATS_DUMP_TO_FILE
+    /**
+     * Write all the latency stats for a given file manager to a stat log file
+     *
+     * @param file Pointer to the file manager
+     * @param log_callback Pointer to the log callback function
+     */
+    static void dump(FileMgr *file, ErrLogCallback *log_callback);
+#endif // _LATENCY_STATS_DUMP_TO_FILE
+
+};
+#endif // _LATENCY_STATS

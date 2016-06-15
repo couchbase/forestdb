@@ -35,23 +35,23 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     const char *dbheader2 = "dbheader2222222222";
     char buf[256];
 
-    filemgr_open_result result = filemgr_open((char *) "./filemgr_testfile",
+    filemgr_open_result result = FileMgr::open((char *) "./filemgr_testfile",
                                               get_filemgr_ops(), &config, NULL);
-    result = filemgr_open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
+    result = FileMgr::open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
     file = result.file;
 
-    filemgr_update_header(file, (void*)dbheader, strlen(dbheader)+1, true);
+    file->updateHeader((void*)dbheader, strlen(dbheader)+1, true);
 
-    filemgr_close(file, true, NULL, NULL);
-    result = filemgr_open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
+    FileMgr::close(file, true, NULL, NULL);
+    result = FileMgr::open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
     file = result.file;
 
-    memcpy(buf, file->header.data, file->header.size);
+    memcpy(buf, file->fMgrHeader.data, file->fMgrHeader.size);
     printf("%s\n", buf);
 
-    filemgr_update_header(file, (void*)dbheader2, strlen(dbheader2) + 1, true);
+    file->updateHeader((void*)dbheader2, strlen(dbheader2) + 1, true);
 
-    filemgr_close(file, true, NULL, NULL);
+    FileMgr::close(file, true, NULL, NULL);
 
     sprintf(buf, "basic test, encryption=%d", (int)encryption);
     TEST_RESULT(buf);
