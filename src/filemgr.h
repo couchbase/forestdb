@@ -330,7 +330,7 @@ enum {
 };
 
 #define DLOCK_MAX (41) /* a prime number */
-struct wal;
+class Wal;
 struct fnamedic_item;
 struct kvs_header;
 
@@ -351,7 +351,7 @@ struct filemgr {
     std::atomic<uint64_t> last_writable_bmp_revnum;
     std::atomic<uint64_t> num_invalidated_blocks;
     std::atomic<uint8_t> io_in_prog;
-    struct wal *wal;
+    Wal *wal;
     FileMgrHeader header;
     struct filemgr_ops *ops;
     struct hash_elem e;

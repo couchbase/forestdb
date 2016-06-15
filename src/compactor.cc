@@ -129,7 +129,7 @@ INLINE uint64_t _compactor_estimate_space(struct openfiles_elem *elem)
 
     ret = datasize;
     ret += nlivenodes * elem->config.blocksize;
-    ret += wal_get_datasize(elem->file);
+    ret += elem->file->wal->getDataSize_Wal();
 
     return ret;
 }

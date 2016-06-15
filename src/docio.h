@@ -21,10 +21,6 @@
 #include "filemgr.h"
 #include "common.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef uint16_t keylen_t;
 typedef uint32_t timestamp_t;
 
@@ -283,9 +279,5 @@ struct docio_object {
 
 void free_docio_object(struct docio_object *doc, bool key_alloc,
                        bool meta_alloc, bool body_alloc);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

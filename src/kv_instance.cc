@@ -1667,7 +1667,7 @@ fdb_kvs_remove_start:
     }
 
     // discard all WAL entries
-    wal_close_kv_ins(file, kv_id, &root_handle->log_callback);
+    file->wal->closeKvs_Wal(kv_id, &root_handle->log_callback);
 
     bid_t dirty_idtree_root = BLK_NOT_FOUND;
     bid_t dirty_seqtree_root = BLK_NOT_FOUND;
@@ -1779,7 +1779,7 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     filemgr_mutex_lock(handle_in->file);
     filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
     // All transactions should be closed before rollback
-    if (wal_txn_exists(handle_in->file)) {
+    if (handle_in->file->wal->doesTxnExist_Wal()) {
         filemgr_set_rollback(handle_in->file, 0);
         filemgr_mutex_unlock(handle_in->file);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
@@ -1988,7 +1988,7 @@ fdb_status fdb_get_kvs_info(FdbKvsHandle *handle, fdb_kvs_info *info)
 
     if (handle->shandle) {
         // snapshot .. get its local stats
-        snap_get_stat(handle->shandle, &stat);
+        file->wal->getSnapStats_Wal(handle->shandle, &stat);
     } else {
         _kvs_stat_get(file, kv_id, &stat);
     }

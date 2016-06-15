@@ -866,9 +866,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
         return result;
     }
 
-    file->wal = (struct wal *)calloc(1, sizeof(struct wal));
-    file->wal->flag = 0;
-
     file->ops = ops;
     file->blocksize = global_config.getBlockSize();
     file->status = FILE_NORMAL;
@@ -885,7 +882,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     if (offset < 0) {
         _log_errno_str(file->ops, log_callback, (fdb_status) offset, "SEEK_END", filename);
         file->ops->close(file->fd);
-        free(file->wal);
         free(file->filename);
         delete file->config;
         free(file);
@@ -979,7 +975,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
             file->ops->close(file->fd);
             free(file->stale_list);
-            free(file->wal);
             free(file->filename);
             delete file->config;
             free(file);
@@ -1001,7 +996,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
                 sb_ops.release(file);
             }
             free(file->stale_list);
-            free(file->wal);
             free(file->filename);
             delete file->config;
             free(file);
@@ -1021,8 +1015,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     } while (true);
 
     // initialize WAL
-    if (!wal_is_initialized(file)) {
-        wal_init(file, FDB_WAL_NBUCKET);
+    if (!file->wal) {
+        file->wal = new Wal(file, FDB_WAL_NBUCKET);
     }
 
     // init global transaction for the file
@@ -1039,7 +1033,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->global_txn.items = (struct list *)malloc(sizeof(struct list));
     list_init(file->global_txn.items);
     file->global_txn.isolation = FDB_ISOLATION_READ_COMMITTED;
-    wal_add_transaction(file, &file->global_txn);
+    file->wal->addTransaction_Wal(&file->global_txn);
 
     hash_insert(&hash, &file->e);
     if (config->getPrefetchDuration() > 0) {
@@ -1472,8 +1466,8 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             spin_unlock(&file->lock);
         }
 
-        if (wal_is_initialized(file)) {
-            wal_close(file, log_callback);
+        if (file->wal) {
+            file->wal->close_Wal(log_callback);
         }
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
         filemgr_dump_latency_stat(file, log_callback);
@@ -1630,16 +1624,16 @@ void filemgr_free_func(struct hash_elem *h)
     }
 
     // free global transaction
-    wal_remove_transaction(file, &file->global_txn);
+    file->wal->removeTransaction_Wal(&file->global_txn);
     free(file->global_txn.items);
     free(file->global_txn.wrapper);
 
     // destroy WAL
-    if (wal_is_initialized(file)) {
-        wal_shutdown(file, NULL);
-        wal_destroy(file);
+    if (file->wal) {
+        file->wal->shutdown_Wal(NULL);
+        delete file->wal;
+        file->wal = NULL;
     }
-    free(file->wal);
 
 #ifdef _LATENCY_STATS
     for (int x = 0; x < FDB_LATENCY_NUM_STATS; ++x) {
@@ -2376,7 +2370,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
 
         // delta size since prior commit
         _deltasize = _endian_encode(file->header.stat.deltasize //index+data
-                                  + wal_get_datasize(file)); // wal datasize
+                                  + file->wal->getDataSize_Wal()); // wal datasize
         memcpy((uint8_t *)buf + (file->blocksize - sizeof(filemgr_magic_t)
                - sizeof(header_len) - sizeof(_prev_bid)*2 - BLK_MARKER_SIZE),
                &_deltasize, sizeof(_deltasize));

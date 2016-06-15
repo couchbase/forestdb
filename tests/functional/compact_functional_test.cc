@@ -2541,7 +2541,7 @@ void compact_deleted_doc_test()
     // At end of phase 1, all documents get deleted
     s = fdb_compact(dbfile, "compact_test2");
     TEST_CHK(s == FDB_RESULT_SUCCESS);
-    TEST_CHK(wal_get_num_flushable(dbfile->getRootHandle()->file) == 0);
+    TEST_CHK(dbfile->getRootHandle()->file->wal->getNumFlushable_Wal() == 0);
 
     for (i=0;i<n;++i){
         sprintf(keybuf, "key%d", i);

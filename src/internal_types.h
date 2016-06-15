@@ -39,6 +39,7 @@ struct snap_handle;
 
 class FdbKvsHandle;
 class HBTrie;
+class WalItr;
 
 #define OFFSET_SIZE (sizeof(uint64_t))
 
@@ -372,7 +373,7 @@ struct _fdb_iterator {
     /**
      * WAL Iterator to iterate over the shared sharded global WAL
      */
-    struct wal_iterator *wal_itr;
+    WalItr *wal_itr;
     /**
      * Cursor instance of WAL iterator.
      */

@@ -140,10 +140,10 @@ void print_header(fdb_kvs_handle *db)
             ndocs = _kvs_stat_get_sum(db->file, KVS_STAT_NDOCS);
             ndeletes = _kvs_stat_get_sum(db->file, KVS_STAT_NDELETES);
             nlivenodes = _kvs_stat_get_sum(db->file, KVS_STAT_NLIVENODES);
-            ndocs_wal_inserted = wal_get_size(db->file);
-            ndocs_wal_deleted = wal_get_num_deletes(db->file);
+            ndocs_wal_inserted = db->file->wal->getSize_Wal();
+            ndocs_wal_deleted = db->file->wal->getNumDeletes_Wal();
             datasize = _kvs_stat_get_sum(db->file, KVS_STAT_DATASIZE);
-            datasize_wal = wal_get_datasize(db->file);
+            datasize_wal = db->file->wal->getDataSize_Wal();
 
             printf("    # documents in the main index: %" _F64
                    ", %" _F64 "deleted / "
@@ -205,9 +205,9 @@ void print_header(fdb_kvs_handle *db)
         } else {
             // single KV instance mode
             seqnum = filemgr_get_seqnum(db->file);
-            ndocs_wal_inserted = wal_get_size(db->file);
-            ndocs_wal_deleted = wal_get_num_deletes(db->file);
-            datasize_wal = wal_get_datasize(db->file);
+            ndocs_wal_inserted = db->file->wal->getSize_Wal();
+            ndocs_wal_deleted = db->file->wal->getNumDeletes_Wal();
+            datasize_wal = db->file->wal->getDataSize_Wal();
 
             printf("    # documents in the main index: %" _F64
             ", %" _F64 "deleted / "

@@ -313,6 +313,7 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
     uint64_t cur_bmp_revnum = (uint64_t)-1;
     bid_t next_doc_block = BLK_NOT_FOUND;
     struct _fdb_key_cmp_info cmp_info;
+    Wal *wal = file->wal;
     ErrLogCallback *log_callback;
 
     if (!hdr_off) { // Nothing to do if we don't have a header block offset
@@ -326,15 +327,14 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
     // If a valid last header was retrieved and it matches the current header
     // OR if WAL already had entries populated, then no crash recovery needed
     if (hdr_off == offset || hdr_bid == last_wal_flush_hdr_bid ||
-        (!handle->shandle && wal_get_size(file) &&
-            mode != FDB_RESTORE_KV_INS)) {
+        (!handle->shandle && wal->getSize_Wal() && mode != FDB_RESTORE_KV_INS)){
         return;
     }
 
     if (mode == FDB_RESTORE_NORMAL && !handle->shandle) {
         // for normal WAL restore, set status to dirty
         // (only when the previous status is clean or dirty)
-        wal_set_dirty_status(handle->file, FDB_WAL_DIRTY, true);
+        wal->setDirtyStatus_Wal(FDB_WAL_DIRTY, true);
     }
 
     // Temporarily disable the error logging callback as there are false positive
@@ -484,14 +484,15 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
                                          (mode == FDB_RESTORE_NORMAL)) ) {
                                     // if mode is NORMAL, restore all items
                                     // if mode is KV_INS, restore items matching ID
-                                    wal_insert(&file->global_txn, file, &cmp_info,
-                                               &wal_doc, doc_offset,
-                                               WAL_INS_WRITER);
+                                    wal->insert_Wal(&file->global_txn,
+                                                    &cmp_info,
+                                                    &wal_doc, doc_offset,
+                                                    WAL_INS_WRITER);
                                 }
                             } else {
-                                wal_insert(&file->global_txn, file, &cmp_info,
-                                           &wal_doc, doc_offset,
-                                           WAL_INS_WRITER);
+                                wal->insert_Wal(&file->global_txn, &cmp_info,
+                                                &wal_doc, doc_offset,
+                                                WAL_INS_WRITER);
                             }
                             if (doc.key) free(doc.key);
                         } else {
@@ -502,14 +503,15 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
                                          wal_doc.key, &kv_id);
                                 if (kv_id == handle->kvs->getKvsId()) {
                                     // snapshot: insert ID matched documents only
-                                    wal_snap_insert(handle->shandle,
-                                                    &wal_doc, doc_offset);
+                                    wal->snapInsert_Wal(handle->shandle,
+                                                        &wal_doc,
+                                                        doc_offset);
                                 } else {
                                     free(doc.key);
                                 }
                             } else {
-                                wal_snap_insert(handle->shandle, &wal_doc,
-                                                doc_offset);
+                                wal->snapInsert_Wal(handle->shandle, &wal_doc,
+                                                    doc_offset);
                             }
                         }
                         free(doc.meta);
@@ -552,7 +554,7 @@ INLINE void _fdb_restore_wal(FdbKvsHandle *handle,
 
     // wal commit
     if (!handle->shandle) {
-        wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
+        wal->commit_Wal(&file->global_txn, NULL, &handle->log_callback);
         filemgr_mutex_unlock(file);
     }
     handle->dhandle->setLogCallback(log_callback);
@@ -603,7 +605,7 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
         delete handle->trie;
         handle->trie = new_db.trie;
 
-        wal_shutdown(handle->file, &handle->log_callback);
+        handle->file->wal->shutdown_Wal(&handle->log_callback);
         handle->file = new_file;
 
         if (handle->config.seqtree_opt == FDB_SEQTREE_USE) {
@@ -1007,7 +1009,8 @@ fdb_snapshot_open_start:
     bool clone_snapshot = false;
     if (handle_in->shandle) {
         handle->last_hdr_bid = handle_in->last_hdr_bid; // do fast rewind
-        fs = wal_snapshot_clone(handle_in->shandle, &handle->shandle, seqnum);
+        fs = file->wal->snapshotClone_Wal(handle_in->shandle,
+                                          &handle->shandle, seqnum);
         if (fs == FDB_RESULT_SUCCESS) {
             clone_snapshot = true;
             handle->max_seqnum = FDB_SNAPSHOT_INMEM; // temp value to skip WAL
@@ -1016,7 +1019,7 @@ fdb_snapshot_open_start:
                     "Warning: Snapshot clone at sequence number %" _F64
                     "does not match its snapshot handle %" _F64
                     "in file '%s'.", seqnum, handle_in->seqnum,
-                    handle_in->file->filename);
+                    file->filename);
             delete handle;
             return fs;
         }
@@ -1028,7 +1031,7 @@ fdb_snapshot_open_start:
     if (!handle->shandle) {
         txn = handle_in->fhandle->getRootHandle()->txn;
         if (!txn) {
-            txn = &handle_in->file->global_txn;
+            txn = &file->global_txn;
         }
         if (handle_in->kvs) {
             kv_id = handle_in->kvs->getKvsId();
@@ -1038,8 +1041,9 @@ fdb_snapshot_open_start:
             // tmp value to denote snapshot & not rollback to _fdb_open
             handle->shandle = &dummy_shandle; // dummy
         } else {
-            fs = wal_dur_snapshot_open(seqnum, &cmp_info, file, txn,
-                                       &handle->shandle);
+            fs = file->wal->snapshotOpenPersisted_Wal(seqnum,
+                                                      &cmp_info, txn,
+                                                      &handle->shandle);
         }
         if (fs != FDB_RESULT_SUCCESS) {
             delete handle;
@@ -1089,14 +1093,15 @@ fdb_snapshot_open_start:
             // Having synced the dirty root, make an in-memory WAL snapshot
             // TODO: Re-enable WAL sharing once ready...
 #ifdef _MVCC_WAL_ENABLE
-            fs = wal_snapshot_open(handle->file, txn, kv_id, seqnum,
-                                   &cmp_info, &handle->shandle);
+            fs = file->wal->snapshotOpen_Wal(txn, kv_id, seqnum,
+                                             &cmp_info, &handle->shandle);
 #else
-            fs = wal_dur_snapshot_open(handle->seqnum, &cmp_info, file, txn,
-                                       &handle->shandle);
+            fs = file->wal->snapshotOpenPersisted_Wal(handle->seqnum,
+                                                      &cmp_info, txn,
+                                                      &handle->shandle);
             if (fs == FDB_RESULT_SUCCESS) {
-                fs = wal_copyto_snapshot(file, handle->shandle,
-                                        (bool)handle_in->kvs);
+                fs = file->wal->copy2Snapshot_Wal(handle->shandle,
+                                                  (bool)handle_in->kvs);
             }
             (void)kv_id;
 #endif // _MVCC_WAL_ENABLE
@@ -1130,7 +1135,7 @@ fdb_snapshot_open_start:
     } else {
         *ptr_handle = NULL;
         if (clone_snapshot || seqnum != FDB_SNAPSHOT_INMEM) {
-            wal_snapshot_close(handle->shandle, handle->file);
+            handle->file->wal->snapshotClose_Wal(handle->shandle);
         }
         delete handle;
 
@@ -1199,7 +1204,7 @@ fdb_status fdb_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     filemgr_mutex_lock(handle_in->file);
     filemgr_set_rollback(handle_in->file, 1); // disallow writes operations
     // All transactions should be closed before rollback
-    if (wal_txn_exists(handle_in->file)) {
+    if (handle_in->file->wal->doesTxnExist_Wal()) {
         filemgr_set_rollback(handle_in->file, 0);
         filemgr_mutex_unlock(handle_in->file);
         cond = 1;
@@ -1338,7 +1343,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     filemgr_mutex_lock(super_handle->file);
     filemgr_set_rollback(super_handle->file, 1); // disallow writes operations
     // All transactions should be closed before rollback
-    if (wal_txn_exists(super_handle->file)) {
+    if (super_handle->file->wal->doesTxnExist_Wal()) {
         filemgr_set_rollback(super_handle->file, 0);
         filemgr_mutex_unlock(super_handle->file);
         return FDB_RESULT_FAIL_BY_TRANSACTION;
@@ -1363,7 +1368,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
 
     fdb_sync_db_header(super_handle);
     // Shutdown WAL discarding entries from all KV Stores..
-    fs = wal_shutdown(super_handle->file, &super_handle->log_callback);
+    fs = super_handle->file->wal->shutdown_Wal(&super_handle->log_callback);
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
     }
@@ -1896,11 +1901,11 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                 if (handle->config.multi_kv_instances) {
                     // multi KV instance mode
                     // clear only WAL items belonging to the instance
-                    wal_close_kv_ins(handle->file,
+                    handle->file->wal->closeKvs_Wal(
                                      (handle->kvs) ? handle->kvs->getKvsId() : 0,
                                      &handle->log_callback);
                 } else {
-                    wal_shutdown(handle->file, &handle->log_callback);
+                    handle->file->wal->shutdown_Wal(&handle->log_callback);
                 }
             }
         } else { // snapshot to sequence number 0 requested..
@@ -2913,11 +2918,11 @@ fdb_status _fdb_get(FdbKvsHandle *handle, fdb_doc *doc,
     dhandle = handle->dhandle;
 
     if (handle->kvs) {
-        wr = wal_find(txn, wal_file, &cmp_info, handle->shandle, &doc_kv,
-                      &offset);
+        wr = wal_file->wal->find_Wal(txn, &cmp_info, handle->shandle, &doc_kv,
+                                     &offset);
     } else {
-        wr = wal_find(txn, wal_file, &cmp_info, handle->shandle, doc,
-                      &offset);
+        wr = wal_file->wal->find_Wal(txn, &cmp_info, handle->shandle, doc,
+                                     &offset);
     }
 
     if (!handle->shandle) {
@@ -3073,10 +3078,11 @@ fdb_status _fdb_get_byseq(FdbKvsHandle *handle,
     size_t key_len = doc->keylen;
     doc->keylen = 0;
     if (handle->kvs) {
-        wr = wal_find_kv_id(txn, wal_file, handle->kvs->getKvsId(), &cmp_info,
-                            handle->shandle, doc, &offset);
+        wr = wal_file->wal->findWithKvid_Wal(txn, handle->kvs->getKvsId(),
+                                             &cmp_info,
+                                             handle->shandle, doc, &offset);
     } else {
-        wr = wal_find(txn, wal_file, &cmp_info, handle->shandle, doc, &offset);
+        wr = wal_file->wal->find_Wal(txn, &cmp_info, handle->shandle, doc, &offset);
     }
 
     doc->keylen = key_len;
@@ -3505,27 +3511,27 @@ fdb_set_start:
         kv_ins_doc.key = _doc.key;
         kv_ins_doc.keylen = _doc.length.keylen;
         if (!immediate_remove) {
-            wal_insert(txn, file, &cmp_info, &kv_ins_doc, offset,
+            file->wal->insert_Wal(txn, &cmp_info, &kv_ins_doc, offset,
                        WAL_INS_WRITER);
         } else {
-            wal_immediate_remove(txn, file, &cmp_info, &kv_ins_doc, offset,
+            file->wal->immediateRemove_Wal(txn, &cmp_info, &kv_ins_doc, offset,
                                  WAL_INS_WRITER);
         }
     } else {
         if (!immediate_remove) {
-            wal_insert(txn, file, &cmp_info, doc, offset, WAL_INS_WRITER);
+            file->wal->insert_Wal(txn, &cmp_info, doc, offset, WAL_INS_WRITER);
         } else {
-            wal_immediate_remove(txn, file, &cmp_info, doc, offset,
-                                 WAL_INS_WRITER);
+            file->wal->immediateRemove_Wal(txn, &cmp_info, doc, offset,
+                                           WAL_INS_WRITER);
         }
     }
 
-    if (wal_get_dirty_status(file)== FDB_WAL_CLEAN) {
-        wal_set_dirty_status(file, FDB_WAL_DIRTY);
+    if (file->wal->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
+        file->wal->setDirtyStatus_Wal(FDB_WAL_DIRTY);
     }
 
     if (handle->config.auto_commit &&
-        wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
+        file->wal->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle)) {
         // we don't need dirty WAL flushing in auto commit mode
         // (_fdb_commit() is internally called at the end of this function)
         wal_flushed = true;
@@ -3539,11 +3545,12 @@ fdb_set_start:
             handle->dirty_updates = 1;
         }
 
-        if (wal_get_num_flushable(file) > _fdb_get_wal_threshold(handle)) {
+        if (file->wal->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle)) {
             union wal_flush_items flush_items;
 
             // commit only for non-transactional WAL entries
-            wr = wal_commit(&file->global_txn, file, NULL, &handle->log_callback);
+            wr = file->wal->commit_Wal(&file->global_txn, NULL,
+                                       &handle->log_callback);
             if (wr != FDB_RESULT_SUCCESS) {
                 filemgr_mutex_unlock(file);
                 cond = 1;
@@ -3556,10 +3563,12 @@ fdb_set_start:
             _fdb_dirty_update_ready(handle, &prev_node, &new_node,
                                     &dirty_idtree_root, &dirty_seqtree_root, true);
 
-            wr = wal_flush(file, (void *)handle,
-                           _fdb_wal_flush_func, _fdb_wal_get_old_offset,
-                           _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-                           &flush_items);
+            wr = file->wal->flush_Wal((void *)handle,
+                                      _fdb_wal_flush_func,
+                                      _fdb_wal_get_old_offset,
+                                      _fdb_wal_flush_seq_purge,
+                                      _fdb_wal_flush_kvs_delta_stats,
+                                      &flush_items);
 
             if (wr != FDB_RESULT_SUCCESS) {
                 handle->bhandle->clearDirtyUpdate();
@@ -3574,11 +3583,11 @@ fdb_set_start:
             _fdb_dirty_update_finalize(handle, prev_node, new_node,
                                        &dirty_idtree_root, &dirty_seqtree_root, false);
 
-            wal_set_dirty_status(file, FDB_WAL_PENDING);
+            file->wal->setDirtyStatus_Wal(FDB_WAL_PENDING);
             // it is ok to release flushed items becuase
             // these items are not actually committed yet.
             // they become visible after fdb_commit is invoked.
-            wal_release_flushed_items(file, &flush_items);
+            file->wal->releaseFlushedItems_Wal(&flush_items);
 
             wal_flushed = true;
             handle->bhandle->resetSubblockInfo();
@@ -3940,25 +3949,25 @@ fdb_commit_start:
     // commit wal
     if (txn) {
         // transactional updates
-        wr = wal_commit(txn, handle->file, _fdb_append_commit_mark,
-                        &handle->log_callback);
+        wr = handle->file->wal->commit_Wal(txn, _fdb_append_commit_mark,
+                                           &handle->log_callback);
         if (wr != FDB_RESULT_SUCCESS) {
             filemgr_mutex_unlock(handle->file);
             cond = 1;
             handle->handle_busy.compare_exchange_strong(cond, 0);
             return wr;
         }
-        if (wal_get_dirty_status(handle->file)== FDB_WAL_CLEAN) {
-            wal_set_dirty_status(handle->file, FDB_WAL_DIRTY);
+        if (handle->file->wal->getDirtyStatus_Wal()== FDB_WAL_CLEAN) {
+            handle->file->wal->setDirtyStatus_Wal(FDB_WAL_DIRTY);
         }
     } else {
         // non-transactional updates
-        wal_commit(&handle->file->global_txn, handle->file, NULL,
-                   &handle->log_callback);
+        handle->file->wal->commit_Wal(&handle->file->global_txn, NULL,
+                                      &handle->log_callback);
     }
 
-    if (wal_get_num_flushable(handle->file) > _fdb_get_wal_threshold(handle) ||
-        wal_get_dirty_status(handle->file) == FDB_WAL_PENDING ||
+    if (handle->file->wal->getNumFlushable_Wal() > _fdb_get_wal_threshold(handle) ||
+        handle->file->wal->getDirtyStatus_Wal() == FDB_WAL_PENDING ||
         opt & FDB_COMMIT_MANUAL_WAL_FLUSH) {
         // wal flush when
         // 1. wal size exceeds threshold
@@ -3971,7 +3980,7 @@ fdb_commit_start:
         _fdb_dirty_update_ready(handle, &prev_node, &new_node,
                                 &dirty_idtree_root, &dirty_seqtree_root, false);
 
-        wr = wal_flush(handle->file, (void *)handle,
+        wr = handle->file->wal->flush_Wal((void *)handle,
                        _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                        _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
                        &flush_items);
@@ -3985,7 +3994,7 @@ fdb_commit_start:
             handle->handle_busy.compare_exchange_strong(cond, 0);
             return wr;
         }
-        wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+        handle->file->wal->setDirtyStatus_Wal(FDB_WAL_CLEAN);
         wal_flushed = true;
 
         _fdb_dirty_update_finalize(handle, prev_node, new_node,
@@ -4025,8 +4034,8 @@ fdb_commit_start:
     handle->last_hdr_bid = filemgr_alloc(handle->file, &handle->log_callback);
     cur_bmp_revnum = sb_get_bmp_revnum(handle->file);
 
-    if (wal_get_dirty_status(handle->file) == FDB_WAL_CLEAN) {
-        earliest_txn = wal_earliest_txn(handle->file,
+    if (handle->file->wal->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
+        earliest_txn = handle->file->wal->getEarliestTxn_Wal(
                                         (txn)?(txn):(&handle->file->global_txn));
         if (earliest_txn) {
             filemgr_header_revnum_t last_revnum;
@@ -4096,7 +4105,7 @@ fdb_commit_start:
     fs = filemgr_commit_bid(handle->file, handle->last_hdr_bid,
                             cur_bmp_revnum, sync, &handle->log_callback);
     if (wal_flushed) {
-        wal_release_flushed_items(handle->file, &flush_items);
+        handle->file->wal->releaseFlushedItems_Wal(&flush_items);
     }
 
     handle->bhandle->resetSubblockInfo();
@@ -4133,18 +4142,19 @@ static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
     _fdb_dirty_update_ready(handle, &prev_node, &new_node,
                             &dirty_idtree_root, &dirty_seqtree_root, false);
 
-    wal_commit(&new_file->global_txn, new_file, NULL, &handle->log_callback);
-    if (wal_get_num_flushable(new_file)) {
+    new_file->wal->commit_Wal(&new_file->global_txn, NULL,
+                              &handle->log_callback);
+    if (new_file->wal->getNumFlushable_Wal()) {
         // flush wal if not empty
-        wal_flush(new_file, (void *)handle,
+        new_file->wal->flush_Wal((void *)handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                   _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
                   &flush_items);
-        wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
+        new_file->wal->setDirtyStatus_Wal(FDB_WAL_CLEAN);
         wal_flushed = true;
-    } else if (wal_get_size(new_file) == 0) {
+    } else if (new_file->wal->getSize_Wal() == 0) {
         // empty WAL
-        wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
+        new_file->wal->setDirtyStatus_Wal(FDB_WAL_CLEAN);
     }
 
     _fdb_dirty_update_finalize(handle, prev_node, new_node,
@@ -4164,9 +4174,8 @@ static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
                             filemgr_get_seqnum(handle->file),
                             NULL, false);
     handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
-    if (wal_get_dirty_status(new_file) == FDB_WAL_CLEAN) {
-        earliest_txn = wal_earliest_txn(new_file,
-                                        &new_file->global_txn);
+    if (new_file->wal->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
+        earliest_txn = new_file->wal->getEarliestTxn_Wal(&new_file->global_txn);
         if (earliest_txn) {
             // there exists other transaction that is not committed yet
             if (handle->last_wal_flush_hdr_bid < earliest_txn->prev_hdr_bid) {
@@ -4197,7 +4206,7 @@ static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
     }
 
     if (wal_flushed) {
-        wal_release_flushed_items(new_file, &flush_items);
+        new_file->wal->releaseFlushedItems_Wal(&flush_items);
     }
 
     compactor_switch_file(old_file, new_file, &handle->log_callback);
@@ -4484,7 +4493,7 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
                     new_offset = BLK_NOT_FOUND;
                 }
 
-                wal_insert(&new_file->global_txn, new_file, &cmp_info,
+                new_file->wal->insert_Wal(&new_file->global_txn, &cmp_info,
                            &wal_doc, new_offset, WAL_INS_COMPACT_PHASE1);
 
                 n_moved_docs++;
@@ -4526,12 +4535,12 @@ static fdb_status _fdb_move_wal_docs(FdbKvsHandle *handle,
         new_handle.dhandle = new_dhandle;
         new_handle.bhandle = new_bhandle;
 
-        wal_flush(new_file, (void*)&new_handle,
+        new_file->wal->flush_Wal((void*)&new_handle,
                   _fdb_wal_flush_func, _fdb_wal_get_old_offset,
                   _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
                   &flush_items);
-        wal_set_dirty_status(new_file, FDB_WAL_PENDING);
-        wal_release_flushed_items(new_file, &flush_items);
+        new_file->wal->setDirtyStatus_Wal(FDB_WAL_PENDING);
+        new_file->wal->releaseFlushedItems_Wal(&flush_items);
     }
 
     handle->dhandle->setLogCallback(log_callback);
@@ -4846,7 +4855,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
                     wal_doc.offset = new_offset;
                     wal_doc.size_ondisk= _fdb_get_docsize(doc.length);
 
-                    wal_insert(&new_file->global_txn, new_file, &cmp_info,
+                    new_file->wal->insert_Wal(&new_file->global_txn, &cmp_info,
                                &wal_doc, new_offset, WAL_INS_COMPACT_PHASE1);
                     ++n_moved_docs;
                 } // if non-deleted or deleted-but-not-yet-purged doc check
@@ -4873,7 +4882,7 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
                 break;
             }
             // === flush WAL entries by compactor ===
-            if (wal_get_num_flushable(new_file) > 0) {
+            if (new_file->wal->getNumFlushable_Wal() > 0) {
                 uint64_t delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
                 // We intentionally try to slow down the normal writer if
                 // the compactor can't catch up with the writer. This is a
@@ -4889,14 +4898,14 @@ static fdb_status _fdb_compact_clone_docs(FdbKvsHandle *handle,
                     locked = false;
                 }
                 union wal_flush_items flush_items;
-                wal_flush_by_compactor(new_file, (void*)&new_handle,
+                new_file->wal->flushByCompactor_Wal((void*)&new_handle,
                                        _fdb_wal_flush_func,
                                        _fdb_wal_get_old_offset,
                                        _fdb_wal_flush_seq_purge,
                                        _fdb_wal_flush_kvs_delta_stats,
                                        &flush_items);
-                wal_set_dirty_status(new_file, FDB_WAL_PENDING);
-                wal_release_flushed_items(new_file, &flush_items);
+                new_file->wal->setDirtyStatus_Wal(FDB_WAL_PENDING);
+                new_file->wal->releaseFlushedItems_Wal(&flush_items);
                 if (locked) {
                     filemgr_set_throttling_delay(handle->file, 0);
                 }
@@ -5183,7 +5192,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
                         wal_doc.size_ondisk= _fdb_get_docsize(doc[j].length);
                         wal_doc.offset = new_offset;
 
-                        wal_insert(&new_file->global_txn, new_file, &cmp_info,
+                        new_file->wal->insert_Wal(&new_file->global_txn, &cmp_info,
                                    &wal_doc, new_offset, WAL_INS_COMPACT_PHASE1);
                         n_moved_docs++;
                     }
@@ -5206,7 +5215,7 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
                 }
 
                 // === flush WAL entries by compactor ===
-                if (wal_get_num_flushable(new_file) > 0) {
+                if (new_file->wal->getNumFlushable_Wal() > 0) {
                     uint64_t delay_us;
                     delay_us = _fdb_calculate_throttling_delay(n_moved_docs, tv);
 
@@ -5227,14 +5236,14 @@ static fdb_status _fdb_compact_move_docs(FdbKvsHandle *handle,
                         locked = false;
                     }
                     union wal_flush_items flush_items;
-                    wal_flush_by_compactor(new_file, (void*)&new_handle,
+                    new_file->wal->flushByCompactor_Wal((void*)&new_handle,
                                            _fdb_wal_flush_func,
                                            _fdb_wal_get_old_offset,
                                            _fdb_wal_flush_seq_purge,
                                            _fdb_wal_flush_kvs_delta_stats,
                                            &flush_items);
-                    wal_set_dirty_status(new_file, FDB_WAL_PENDING);
-                    wal_release_flushed_items(new_file, &flush_items);
+                    new_file->wal->setDirtyStatus_Wal(FDB_WAL_PENDING);
+                    new_file->wal->releaseFlushedItems_Wal(&flush_items);
                     if (locked) {
                         filemgr_set_throttling_delay(handle->file, 0);
                     }
@@ -5467,7 +5476,7 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
 
     // Note that WAL commit and flush are already done in fdb_compact_move_docs() AND
     // fdb_move_wal_docs().
-    wal_set_dirty_status(new_file, FDB_WAL_CLEAN);
+    new_file->wal->setDirtyStatus_Wal(FDB_WAL_CLEAN);
 
     // Initialize a KVS handle for a new file.
     new_handle = handle;
@@ -5608,7 +5617,7 @@ INLINE void _fdb_clone_batched_delta(FdbKvsHandle *handle,
             }
         }
 
-        wal_insert(&new_file->global_txn, new_file, &cmp_info,
+        new_file->wal->insert_Wal(&new_file->global_txn, &cmp_info,
                    &wal_doc, doc_offset, WAL_INS_COMPACT_PHASE2);
 
         // free
@@ -5637,14 +5646,15 @@ INLINE void _fdb_clone_batched_delta(FdbKvsHandle *handle,
 
     // WAL flush
     union wal_flush_items flush_items;
-    wal_commit(&new_handle->file->global_txn, new_handle->file, NULL, &handle->log_callback);
-    wal_flush(new_handle->file, (void*)new_handle,
+    new_handle->file->wal->commit_Wal(&new_handle->file->global_txn,
+                                      NULL, &handle->log_callback);
+    new_handle->file->wal->flush_Wal((void*)new_handle,
               _fdb_wal_flush_func,
               _fdb_wal_get_old_offset,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
               &flush_items);
-    wal_set_dirty_status(new_handle->file, FDB_WAL_PENDING);
-    wal_release_flushed_items(new_handle->file, &flush_items);
+    new_handle->file->wal->setDirtyStatus_Wal(FDB_WAL_PENDING);
+    new_handle->file->wal->releaseFlushedItems_Wal(&flush_items);
 
     if (locked) {
         filemgr_set_throttling_delay(handle->file, 0);
@@ -5755,7 +5765,7 @@ INLINE void _fdb_append_batched_delta(FdbKvsHandle *handle,
             doc_offset = BLK_NOT_FOUND;
         }
         // insert into the new file's WAL
-        wal_insert(&new_handle->file->global_txn, new_handle->file,
+        new_handle->file->wal->insert_Wal(&new_handle->file->global_txn,
                    &cmp_info, &wal_doc, doc_offset, WAL_INS_COMPACT_PHASE2);
 
         // free
@@ -5780,14 +5790,16 @@ INLINE void _fdb_append_batched_delta(FdbKvsHandle *handle,
 
     // WAL flush
     union wal_flush_items flush_items;
-    wal_commit(&new_handle->file->global_txn, new_handle->file, NULL, &handle->log_callback);
-    wal_flush(new_handle->file, (void*)new_handle,
-              _fdb_wal_flush_func,
-              _fdb_wal_get_old_offset,
-              _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
-              &flush_items);
-    wal_set_dirty_status(new_handle->file, FDB_WAL_PENDING);
-    wal_release_flushed_items(new_handle->file, &flush_items);
+    new_handle->file->wal->commit_Wal(&new_handle->file->global_txn, NULL,
+                                      &handle->log_callback);
+    new_handle->file->wal->flush_Wal((void*)new_handle,
+                                     _fdb_wal_flush_func,
+                                     _fdb_wal_get_old_offset,
+                                     _fdb_wal_flush_seq_purge,
+                                     _fdb_wal_flush_kvs_delta_stats,
+                                     &flush_items);
+    new_handle->file->wal->setDirtyStatus_Wal(FDB_WAL_PENDING);
+    new_handle->file->wal->releaseFlushedItems_Wal(&flush_items);
 
     if (locked) {
         filemgr_set_throttling_delay(handle->file, 0);
@@ -6497,7 +6509,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     } // LCOV_EXCL_STOP
 
     // Shutdown WAL
-    wal_shutdown(handle->file, &handle->log_callback);
+    handle->file->wal->shutdown_Wal(&handle->log_callback);
 
     // reset in-memory stats and values
     handle->seqnum = 0;
@@ -6675,13 +6687,13 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
                             &dirty_idtree_root, &dirty_seqtree_root, false);
 
     // flush WAL and set DB header
-    wal_commit(&handle->file->global_txn, handle->file, NULL,
+    handle->file->wal->commit_Wal(&handle->file->global_txn, NULL,
                &handle->log_callback);
-    wal_flush(handle->file, (void*)handle,
+    handle->file->wal->flush_Wal((void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
               &flush_items);
-    wal_set_dirty_status(handle->file, FDB_WAL_CLEAN);
+    handle->file->wal->setDirtyStatus_Wal(FDB_WAL_CLEAN);
 
     _fdb_dirty_update_finalize(handle, prev_node, new_node,
                                &dirty_idtree_root, &dirty_seqtree_root, true);
@@ -6710,7 +6722,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     fdb_status fs = filemgr_commit(handle->file,
                     !(handle->config.durability_opt & FDB_DRB_ASYNC),
                     &handle->log_callback);
-    wal_release_flushed_items(handle->file, &flush_items);
+    handle->file->wal->releaseFlushedItems_Wal(&flush_items);
     if (fs != FDB_RESULT_SUCCESS) {
         filemgr_set_compaction_state(handle->file, NULL, FILE_NORMAL);
         filemgr_mutex_unlock(handle->file);
@@ -6857,8 +6869,9 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     _fdb_dirty_update_ready(handle, &prev_node, &new_node,
                             &dirty_idtree_root, &dirty_seqtree_root, false);
 
-    wal_commit(&handle->file->global_txn, handle->file, NULL, &handle->log_callback);
-    wal_flush(handle->file, (void*)handle,
+    handle->file->wal->commit_Wal(&handle->file->global_txn, NULL,
+                                  &handle->log_callback);
+    handle->file->wal->flush_Wal((void*)handle,
               _fdb_wal_flush_func, _fdb_wal_get_old_offset,
               _fdb_wal_flush_seq_purge, _fdb_wal_flush_kvs_delta_stats,
               &flush_items);
@@ -6867,7 +6880,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     _fdb_dirty_update_finalize(handle, prev_node, new_node,
                                &dirty_idtree_root, &dirty_seqtree_root, true);
 
-    wal_release_flushed_items(handle->file, &flush_items);
+    handle->file->wal->releaseFlushedItems_Wal(&flush_items);
 
     // copy old file's seqnum to new file (do this again due to delta)
     seqnum = filemgr_get_seqnum(handle->file);
@@ -6878,8 +6891,8 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     }
 
     // migrate uncommitted transactional items to new file
-    wal_txn_migration((void*)handle, (void*)new_dhandle,
-                      handle->file, new_file, _fdb_doc_move);
+    Wal::migrateUncommittedTxns_Wal((void*)handle, (void*)new_dhandle,
+                                    handle->file, new_file, _fdb_doc_move);
 
     // last commit of the old file
     // (we must do this due to potential dirty WAL flush
@@ -7235,7 +7248,7 @@ fdb_status _fdb_close(FdbKvsHandle *handle)
     handle->bhandle->flushBuffer();
 
     if (handle->shandle) { // must close wal_snapshot before file
-        wal_snapshot_close(handle->shandle, handle->file);
+        handle->file->wal->snapshotClose_Wal(handle->shandle);
         filemgr_dirty_update_close_node(handle->bhandle->getDirtyUpdate());
         handle->bhandle->clearDirtyUpdate();
     }
@@ -7382,7 +7395,7 @@ size_t fdb_estimate_space_used(fdb_file_handle *fhandle)
 
     ret = datasize;
     ret += nlivenodes * handle->config.blocksize;
-    ret += wal_get_datasize(handle->file);
+    ret += handle->file->wal->getDataSize_Wal();
 
     return ret;
 }
@@ -7524,8 +7537,8 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
     // incur an incorrect estimation. However, after the WAL flush, the doc
     // counter becomes consistent. We plan to devise a new way of tracking
     // the number of docs in a database instance.
-    size_t wal_docs = wal_get_num_docs(handle->file);
-    size_t wal_deletes = wal_get_num_deletes(handle->file);
+    size_t wal_docs = handle->file->wal->getNumDocs_Wal();
+    size_t wal_deletes = handle->file->wal->getNumDeletes_Wal();
     size_t wal_n_inserts = wal_docs - wal_deletes;
 
     ndocs = _kvs_stat_get_sum(handle->file, KVS_STAT_NDOCS);

@@ -232,19 +232,18 @@ fdb_status fdb_iterator_init(FdbKvsHandle *handle,
     iterator->hbtrie_iterator = new HBTrieIterator(iterator->handle->trie,
                                                    (void *)start_key, start_keylen);
 
-    wal_itr_init(iterator->handle->file, iterator->handle->shandle, true,
-                 &iterator->wal_itr);
-
+    iterator->wal_itr = new WalItr(iterator->handle->file,
+                                   iterator->handle->shandle, true);
     if (start_key) {
         struct wal_item query;
         struct wal_item_header query_key;
         query.header = &query_key;
         query_key.key = iterator->start_key;
         query_key.keylen = iterator->start_keylen;
-        iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
+        iterator->tree_cursor = iterator->wal_itr->searchGreater_WalItr(
                                                        &query);
     } else {
-        iterator->tree_cursor = wal_itr_first(iterator->wal_itr);
+        iterator->tree_cursor = iterator->wal_itr->first_WalItr();
     }
     // to know reverse iteration endpoint store the start cursor
     if (iterator->tree_cursor) {
@@ -348,8 +347,8 @@ fdb_status fdb_iterator_sequence_init(FdbKvsHandle *handle,
     iterator->start_key = NULL;
     iterator->end_key = NULL;
 
-    wal_itr_init(handle->file, iterator->handle->shandle, false,
-                 &iterator->wal_itr);
+    iterator->wal_itr = new WalItr(handle->file, iterator->handle->shandle,
+                                   false);
 
     if (iterator->handle->kvs) {
         int size_chunk = handle->config.chunksize;
@@ -368,7 +367,7 @@ fdb_status fdb_iterator_sequence_init(FdbKvsHandle *handle,
         memcpy(start_seq_kv + size_chunk, &start_seq, size_seq);
         query_key.keylen = size_chunk + size_seq;
         query.seqnum = start_seq;
-        iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
+        iterator->tree_cursor = iterator->wal_itr->searchGreater_WalItr(
                                                        &query);
     } else {
         // create an iterator handle for b-tree
@@ -380,7 +379,7 @@ fdb_status fdb_iterator_sequence_init(FdbKvsHandle *handle,
         query_key.key = (void*)NULL;
         query_key.keylen = 0;
         query.seqnum = start_seq;
-        iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
+        iterator->tree_cursor = iterator->wal_itr->searchGreater_WalItr(
                                                        &query);
     }
 
@@ -425,16 +424,16 @@ static fdb_status _fdb_iterate(fdb_iterator *iterator,
             // just turn around
             // WAL:   0  v  2->   4    (OLD state)
             // TRIE:     1  2  3  4
-            iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchSmaller_WalItr(
                                                   iterator->tree_cursor);
             if (iterator->direction == FDB_ITR_FORWARD &&
                 iterator->status != FDB_ITR_WAL) {
-                iterator->tree_cursor = wal_itr_prev(iterator->wal_itr);
+                iterator->tree_cursor = iterator->wal_itr->prev_WalItr();
             }
             // WAL: <-0  v  2     4    (NEW state)
             // TRIE:  0  1  2  3  4
         } else if (iterator->tree_cursor_prev) { // gone past the end..
-            iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchSmaller_WalItr(
                                              iterator->tree_cursor_prev);
             iterator->status = FDB_ITR_IDX;
         } // else Don't move - seek()/init() has already positioned cursor
@@ -445,16 +444,16 @@ static fdb_status _fdb_iterate(fdb_iterator *iterator,
         if (iterator->tree_cursor) {
             // WAL: <-0  v  2     4    (OLD state)
             // TRIE:     1  2  3  4
-            iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchGreater_WalItr(
                                                   iterator->tree_cursor);
             if (iterator->direction == FDB_ITR_REVERSE &&
                 iterator->status != FDB_ITR_WAL) {
-                iterator->tree_cursor = wal_itr_next(iterator->wal_itr);
+                iterator->tree_cursor = iterator->wal_itr->next_WalItr();
             }
             // WAL:   0  v  2->   4    (NEW state)
             // TRIE:  0  1  2  3  4
         } else if (iterator->tree_cursor_prev) {
-            iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchGreater_WalItr(
                                              iterator->tree_cursor_prev);
             iterator->status = FDB_ITR_IDX;
         } // else Don't move - seek()/init() has already positioned cursor
@@ -516,8 +515,8 @@ start:
         if (iterator->status == FDB_ITR_WAL) {
             iterator->tree_cursor_prev = iterator->tree_cursor;
             iterator->tree_cursor = (seek_type == ITR_SEEK_PREV) ?
-                                    wal_itr_prev(iterator->wal_itr) :
-                                    wal_itr_next(iterator->wal_itr);
+                                    iterator->wal_itr->prev_WalItr() :
+                                    iterator->wal_itr->next_WalItr();
 
         } // else don't move - seek()/ init() has already positioned cursor
 
@@ -870,7 +869,7 @@ fetch_hbtrie:
 
     if (seek_pref == FDB_ITR_SEEK_HIGHER) {
         if (fetch_wal) {
-            iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchGreater_WalItr(
                                                            &query);
             iterator->direction = FDB_ITR_FORWARD;
             if (iterator->tree_cursor &&
@@ -896,8 +895,7 @@ fetch_hbtrie:
                         if (cmp == 0) {
                             // same doc exists in HB+trie
                             // move tree cursor
-                            iterator->tree_cursor = wal_itr_next(
-                                                     iterator->wal_itr);
+                            iterator->tree_cursor = iterator->wal_itr->next_WalItr();
                             // do not move tree cursor next time
                             fetch_wal = false;
                             // fetch next key[HB+trie]
@@ -906,7 +904,7 @@ fetch_hbtrie:
                             break;
                         }
                     }
-                    iterator->tree_cursor = wal_itr_next(iterator->wal_itr);
+                    iterator->tree_cursor = iterator->wal_itr->next_WalItr();
                     continue;
                 } else if (iterator->end_key &&
                            iterator->opt & FDB_ITR_SKIP_MAX_KEY) {
@@ -933,13 +931,13 @@ fetch_hbtrie:
             // set prev key to the largest key.
             // if prev operation is called next, tree_cursor will be set to
             // tree_cursor_prev.
-            iterator->tree_cursor_prev = wal_itr_search_smaller(iterator->wal_itr,
+            iterator->tree_cursor_prev = iterator->wal_itr->searchSmaller_WalItr(
                                                                 &query);
             skip_wal = true;
         }
     } else if (seek_pref == FDB_ITR_SEEK_LOWER) {
         if (fetch_wal) {
-            iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchSmaller_WalItr(
                                                            &query);
             iterator->direction = FDB_ITR_REVERSE;
             if (iterator->tree_cursor &&
@@ -965,8 +963,7 @@ fetch_hbtrie:
                         if (cmp == 0) {
                             // same doc exists in HB+trie
                             // move tree cursor
-                            iterator->tree_cursor = wal_itr_prev(iterator->
-                                                                 wal_itr);
+                            iterator->tree_cursor = iterator->wal_itr->prev_WalItr();
                             // do not move tree cursor next time
                             fetch_wal = false;
                             // fetch next key[HB+trie]
@@ -975,7 +972,7 @@ fetch_hbtrie:
                             break;
                         }
                     }
-                    iterator->tree_cursor = wal_itr_prev(iterator->wal_itr);
+                    iterator->tree_cursor = iterator->wal_itr->prev_WalItr();
                     continue;
                 } else if (iterator->start_key &&
                            iterator->opt & FDB_ITR_SKIP_MIN_KEY) {
@@ -1002,7 +999,7 @@ fetch_hbtrie:
             // Only allow fdb_iterator_next() call, fdb_iterator_prev() should
             // hit failure. To ensure this set the direction to as if
             // fdb_iterator_prev call has gone past the smallest key...
-            iterator->tree_cursor_prev = wal_itr_search_greater(iterator->wal_itr,
+            iterator->tree_cursor_prev = iterator->wal_itr->searchGreater_WalItr(
                                                                 &query);
             // since the current key[WAL] is smaller than seek_key,
             // skip key[WAL] this time
@@ -1170,7 +1167,7 @@ fdb_status fdb_iterator_seek_to_min(fdb_iterator *iterator)
     // reset WAL tree cursor using search because of the sharded nature of WAL
     if (iterator->tree_cursor_start) {
         iterator->tree_cursor_prev = iterator->tree_cursor =
-                                     wal_itr_search_greater(iterator->wal_itr,
+                                     iterator->wal_itr->searchGreater_WalItr(
                                      iterator->tree_cursor_start);
         iterator->status = FDB_ITR_IDX; // WAL is already set
     }
@@ -1249,7 +1246,7 @@ fdb_status _fdb_iterator_seek_to_max_key(fdb_iterator *iterator) {
     query.header = &hdr;
     hdr.key = iterator->end_key;
     hdr.keylen = iterator->end_keylen;
-    iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
+    iterator->tree_cursor = iterator->wal_itr->searchSmaller_WalItr(
                                                    &query);
     iterator->tree_cursor_prev = iterator->tree_cursor;
     iterator->status = FDB_ITR_IDX;
@@ -1306,17 +1303,17 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
         query.seqnum = iterator->end_seqnum;
 
         // reset WAL tree cursor using search because of the sharded WAL
-        iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
+        iterator->tree_cursor = iterator->wal_itr->searchSmaller_WalItr(
                                                        &query);
     } else { // no end_seqnum specified, just head to the last entry
-        iterator->tree_cursor = wal_itr_last(iterator->wal_itr);
+        iterator->tree_cursor = iterator->wal_itr->last_WalItr();
     }
 
     if (iterator->tree_cursor) {
         struct wal_item *snap_item = iterator->tree_cursor;
         if (snap_item->seqnum == iterator->end_seqnum &&
             iterator->opt & FDB_ITR_SKIP_MAX_KEY) {
-            iterator->tree_cursor = wal_itr_prev(iterator->wal_itr);
+            iterator->tree_cursor = iterator->wal_itr->prev_WalItr();
         }
     }
 
@@ -1375,7 +1372,7 @@ static fdb_status _fdb_iterator_seq_prev(fdb_iterator *iterator)
         // sharded nature of wal (we cannot directly assign prev to cursor)
         if (iterator->tree_cursor_prev &&
             iterator->tree_cursor != iterator->tree_cursor_prev) {
-            iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchSmaller_WalItr(
                                                   iterator->tree_cursor_prev);
             iterator->status = FDB_ITR_IDX;
         } // else Don't move - seek()/init() has already positioned cursor
@@ -1422,7 +1419,7 @@ start_seq:
     } else while (iterator->tree_cursor) {
         if (iterator->status == FDB_ITR_WAL) {
             iterator->tree_cursor_prev = iterator->tree_cursor;
-            iterator->tree_cursor = wal_itr_prev(iterator->wal_itr);
+            iterator->tree_cursor = iterator->wal_itr->prev_WalItr();
             if (!iterator->tree_cursor) {
                 goto start_seq;
             }
@@ -1473,8 +1470,8 @@ start_seq:
         doc_kv.key = _doc.key;
         doc_kv.keylen = _doc.length.keylen;
         doc_kv.seqnum = SEQNUM_NOT_USED;
-        if (wal_find(iterator->handle->shandle->snap_txn,
-                     iterator->handle->file,
+        if (iterator->handle->file->wal->find_Wal(
+                     iterator->handle->shandle->snap_txn,
                      &iterator->handle->shandle->cmp_info,
                      iterator->handle->shandle,
                      &doc_kv, (uint64_t *) &_offset) == FDB_RESULT_SUCCESS &&
@@ -1550,7 +1547,7 @@ static fdb_status _fdb_iterator_seq_next(fdb_iterator *iterator)
         }
         // re-position WAL key to previous key returned
         if (iterator->tree_cursor_prev) {
-            iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
+            iterator->tree_cursor = iterator->wal_itr->searchGreater_WalItr(
                                     iterator->tree_cursor_prev);
             iterator->status = FDB_ITR_IDX;
         } // else Don't move - seek()/init() has already positioned cursor
@@ -1601,7 +1598,7 @@ start_seq:
                 if (iterator->status == FDB_ITR_WAL) {
                     // save the current point for direction change
                     iterator->tree_cursor_prev = iterator->tree_cursor;
-                    iterator->tree_cursor = wal_itr_next(iterator->wal_itr);
+                    iterator->tree_cursor = iterator->wal_itr->next_WalItr();
                     if (!iterator->tree_cursor) {
                         return FDB_RESULT_ITERATOR_FAIL;
                     }
@@ -1658,8 +1655,8 @@ start_seq:
         doc_kv.key = _doc.key;
         doc_kv.keylen = _doc.length.keylen;
         doc_kv.seqnum = SEQNUM_NOT_USED; // search by key not seqnum
-        if (wal_find(iterator->handle->shandle->snap_txn,
-                     iterator->handle->file,
+        if (iterator->handle->file->wal->find_Wal(
+                     iterator->handle->shandle->snap_txn,
                      &iterator->handle->shandle->cmp_info,
                      iterator->handle->shandle,
                      &doc_kv, (uint64_t *) &_offset) == FDB_RESULT_SUCCESS &&
@@ -1949,7 +1946,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     }
 
     --iterator->handle->num_iterators; // Decrement the iterator counter of the KV handle
-    wal_itr_close(iterator->wal_itr);
+    delete iterator->wal_itr;
 
     LATENCY_STAT_END(iterator->handle->file, FDB_LATENCY_ITR_CLOSE);
 
