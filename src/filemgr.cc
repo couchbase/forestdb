@@ -2327,7 +2327,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
     spin_lock(&file->lock);
 
     uint16_t header_len = file->header.size;
-    struct kvs_header *kv_header = file->kv_header;
+    KvsHeader *kv_header = file->kv_header;
     filemgr_magic_t magic = file->version;
 
     if (header_len > 0 && file->header.data) {
@@ -2547,7 +2547,7 @@ void filemgr_set_compaction_state(struct filemgr *old_file, struct filemgr *new_
     }
 }
 
-bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
+bool filemgr_set_kv_header(struct filemgr *file, KvsHeader *kv_header,
                            void (*free_kv_header)(struct filemgr *file))
 {
     bool ret;
@@ -2566,9 +2566,9 @@ bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
     return ret;
 }
 
-struct kvs_header *filemgr_get_kv_header(struct filemgr *file)
+KvsHeader *filemgr_get_kv_header(struct filemgr *file)
 {
-    struct kvs_header *kv_header = NULL;
+    KvsHeader *kv_header = NULL;
     spin_lock(&file->lock);
     kv_header = file->kv_header;
     spin_unlock(&file->lock);
@@ -3659,7 +3659,7 @@ void _kvs_stat_set(struct filemgr *file,
     } else {
         struct avl_node *a;
         struct kvs_node query, *node;
-        struct kvs_header *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kv_header;
 
         spin_lock(&kv_header->lock);
         query.id = kv_id;
@@ -3687,7 +3687,7 @@ void _kvs_stat_update_attr(struct filemgr *file,
     } else {
         struct avl_node *a;
         struct kvs_node query, *node;
-        struct kvs_header *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kv_header;
 
         lock = &kv_header->lock;
         spin_lock(lock);
@@ -3720,7 +3720,7 @@ void _kvs_stat_update_attr(struct filemgr *file,
     spin_unlock(lock);
 }
 
-int _kvs_stat_get_kv_header(struct kvs_header *kv_header,
+int _kvs_stat_get_kv_header(KvsHeader *kv_header,
                             fdb_kvs_id_t kv_id,
                             KvsStat *stat)
 {
@@ -3739,7 +3739,7 @@ int _kvs_stat_get_kv_header(struct kvs_header *kv_header,
     return ret;
 }
 
-fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
+fdb_seqnum_t _fdb_kvs_get_seqnum(KvsHeader *kv_header,
                                  fdb_kvs_id_t id)
 {
     fdb_seqnum_t seqnum;
@@ -3785,7 +3785,7 @@ int _kvs_stat_get(struct filemgr *file,
         *stat = file->header.stat;
         spin_unlock(&file->lock);
     } else {
-        struct kvs_header *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kv_header;
 
         spin_lock(&kv_header->lock);
         ret = _kvs_stat_get_kv_header(kv_header, kv_id, stat);
@@ -3800,7 +3800,7 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
 {
     struct avl_node *a;
     struct kvs_node *node;
-    struct kvs_header *kv_header = file->kv_header;
+    KvsHeader *kv_header = file->kv_header;
 
     uint64_t ret = 0;
     spin_lock(&file->lock);
@@ -3850,7 +3850,7 @@ uint64_t _kvs_stat_get_sum(struct filemgr *file,
     return ret;
 }
 
-int _kvs_ops_stat_get_kv_header(struct kvs_header *kv_header,
+int _kvs_ops_stat_get_kv_header(KvsHeader *kv_header,
                                 fdb_kvs_id_t kv_id,
                                 KvsOpsStat *stat)
 {
@@ -3880,7 +3880,7 @@ int _kvs_ops_stat_get(struct filemgr *file,
         *stat = file->header.op_stat;
         spin_unlock(&file->lock);
     } else {
-        struct kvs_header *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kv_header;
 
         spin_lock(&kv_header->lock);
         ret = _kvs_ops_stat_get_kv_header(kv_header, kv_id, stat);
@@ -3897,7 +3897,7 @@ KvsOpsStat *filemgr_get_ops_stats(struct filemgr *file,
     if (!kvs || (kvs && kvs->getKvsId() == 0)) {
         return &file->header.op_stat;
     } else {
-        struct kvs_header *kv_header = file->kv_header;
+        KvsHeader *kv_header = file->kv_header;
         struct avl_node *a;
         struct kvs_node query, *node;
         spin_lock(&kv_header->lock);

@@ -110,9 +110,9 @@ void fdb_kvs_header_reset_all_stats(struct filemgr *file);
 void fdb_kvs_header_create(struct filemgr *file);
 uint64_t fdb_kvs_header_append(FdbKvsHandle *handle);
 
-struct kvs_header;
+class KvsHeader;
 
-void fdb_kvs_header_read(struct kvs_header *kv_header,
+void fdb_kvs_header_read(KvsHeader *kv_header,
                          DocioHandle *dhandle,
                          uint64_t kv_info_offset,
                          uint64_t version,
@@ -122,15 +122,15 @@ void fdb_kvs_header_copy(FdbKvsHandle *handle,
                          DocioHandle *new_dhandle,
                          uint64_t *new_file_kv_info_offset,
                          bool create_new);
-void _fdb_kvs_header_create(struct kvs_header **kv_header_ptr);
-void _fdb_kvs_header_import(struct kvs_header *kv_header,
+void _fdb_kvs_header_create(KvsHeader **kv_header_ptr);
+void _fdb_kvs_header_import(KvsHeader *kv_header,
                             void *data, size_t len, uint64_t version,
                             bool only_seq_nums);
 
 fdb_status _fdb_kvs_get_snap_info(void *data, uint64_t version,
                                   fdb_snapshot_info_t *snap_info);
-void _fdb_kvs_header_free(struct kvs_header *kv_header);
-fdb_seqnum_t _fdb_kvs_get_seqnum(struct kvs_header *kv_header,
+void _fdb_kvs_header_free(KvsHeader *kv_header);
+fdb_seqnum_t _fdb_kvs_get_seqnum(KvsHeader *kv_header,
                                  fdb_kvs_id_t id);
 uint64_t _kvs_stat_get_sum_attr(void *data, uint64_t version,
                                 kvs_stat_attr_t attr);

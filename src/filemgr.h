@@ -332,7 +332,7 @@ enum {
 #define DLOCK_MAX (41) /* a prime number */
 class Wal;
 struct fnamedic_item;
-struct kvs_header;
+class KvsHeader;
 
 typedef struct {
     mutex_t mutex;
@@ -364,7 +364,7 @@ struct filemgr {
     fdb_txn global_txn;
     bool in_place_compaction;
     filemgr_fs_type_t fs_type;
-    struct kvs_header *kv_header;
+    KvsHeader *kv_header;
     void (*free_kv_header)(struct filemgr *file); // callback function
     std::atomic<uint32_t> throttling_delay;
 
@@ -488,10 +488,10 @@ void filemgr_set_sb_operation(struct sb_ops ops);
 
 uint64_t filemgr_get_bcache_used_space(void);
 
-bool filemgr_set_kv_header(struct filemgr *file, struct kvs_header *kv_header,
+bool filemgr_set_kv_header(struct filemgr *file, KvsHeader *kv_header,
                            void (*free_kv_header)(struct filemgr *file));
 
-struct kvs_header* filemgr_get_kv_header(struct filemgr *file);
+KvsHeader* filemgr_get_kv_header(struct filemgr *file);
 
 size_t filemgr_get_ref_count(struct filemgr *file);
 
@@ -1013,7 +1013,7 @@ void _kvs_stat_update_attr(struct filemgr *file,
                            fdb_kvs_id_t kv_id,
                            kvs_stat_attr_t attr,
                            int delta);
-int _kvs_stat_get_kv_header(struct kvs_header *kv_header,
+int _kvs_stat_get_kv_header(KvsHeader *kv_header,
                             fdb_kvs_id_t kv_id,
                             KvsStat *stat);
 int _kvs_stat_get(struct filemgr *file,
@@ -1021,7 +1021,7 @@ int _kvs_stat_get(struct filemgr *file,
                   KvsStat *stat);
 uint64_t _kvs_stat_get_sum(struct filemgr *file,
                            kvs_stat_attr_t attr);
-int _kvs_ops_stat_get_kv_header(struct kvs_header *kv_header,
+int _kvs_ops_stat_get_kv_header(KvsHeader *kv_header,
                                 fdb_kvs_id_t kv_id,
                                 KvsOpsStat *stat);
 int _kvs_ops_stat_get(struct filemgr *file,

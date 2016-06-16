@@ -486,7 +486,26 @@ struct _fdb_transaction {
 
 /* Global KV store header for each file
  */
-struct kvs_header {
+class KvsHeader {
+public:
+    KvsHeader(fdb_kvs_id_t _id_counter,
+              size_t _num_kv_stores)
+        : id_counter(_id_counter), default_kvs_cmp(nullptr),
+          custom_cmp_enabled(0), num_kv_stores(_num_kv_stores)
+    {
+        idx_name = (struct avl_tree*)malloc(sizeof(struct avl_tree));
+        avl_init(idx_name, nullptr);
+        idx_id = (struct avl_tree*)malloc(sizeof(struct avl_tree));
+        avl_init(idx_id, nullptr);
+        spin_init(&lock);
+    }
+
+    ~KvsHeader() {
+        free(idx_name);
+        free(idx_id);
+        spin_destroy(&lock);
+    }
+
     /**
      * Monotonically increasing counter to generate KV store IDs.
      */
