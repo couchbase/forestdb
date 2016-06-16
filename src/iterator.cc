@@ -733,6 +733,31 @@ start:
     return FDB_RESULT_SUCCESS;
 }
 
+static
+bool _validate_range_limits(fdb_iterator *iterator,
+                            void *ret_key,
+                            const size_t ret_keylen)
+{
+    int cmp;
+    if (iterator->end_key) {
+        cmp = _fdb_key_cmp(iterator, ret_key, ret_keylen,
+                iterator->end_key, iterator->end_keylen);
+        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) ||
+                cmp > 0) { // greater than end_key OR at skipped MAX_KEY
+            return false;
+        }
+    }
+    if (iterator->start_key) {
+        cmp = _fdb_key_cmp(iterator, ret_key, ret_keylen,
+                iterator->start_key, iterator->start_keylen);
+        if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) ||
+                cmp < 0) { // smaller than start_key OR at skipped MIN_KEY
+            return false;
+        }
+    }
+    return true;
+}
+
 LIBFDB_API
 fdb_status fdb_iterator_seek(fdb_iterator *iterator,
                              const void *seek_key,
@@ -917,21 +942,8 @@ fetch_hbtrie:
 
     if (hr == HBTRIE_RESULT_SUCCESS && // Validate iteration range limits..
         !next_op) { // only if caller is not seek_to_max/min (handled later)
-        if (iterator->end_key) {
-            cmp = _fdb_key_cmp(iterator, iterator->_key, iterator->_keylen,
-                               iterator->end_key, iterator->end_keylen);
-            if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MAX_KEY) ||
-                 cmp > 0) { // greater than end_key OR at skipped MAX_KEY
-                hr = HBTRIE_RESULT_FAIL;
-            }
-        }
-        if (iterator->start_key) {
-            cmp = _fdb_key_cmp(iterator,iterator->_key, iterator->_keylen,
-                               iterator->start_key, iterator->start_keylen);
-            if ((cmp == 0 && iterator->opt & FDB_ITR_SKIP_MIN_KEY) ||
-                 cmp < 0) { // smaller than start_key OR at skipped MIN_KEY
-                hr = HBTRIE_RESULT_FAIL;
-            }
+        if (!_validate_range_limits(iterator, iterator->_key, iterator->_keylen)) {
+            hr = HBTRIE_RESULT_FAIL;
         }
     }
 
@@ -966,6 +978,13 @@ fetch_hbtrie:
             iterator->tree_cursor = wal_itr_search_greater(iterator->wal_itr,
                                                            &query);
             iterator->direction = FDB_ITR_FORWARD;
+            if (iterator->tree_cursor &&
+                !next_op && // only validate range if not skip max/min key mode
+                !_validate_range_limits(iterator,
+                         iterator->tree_cursor->header->key,
+                         iterator->tree_cursor->header->keylen)) {
+                iterator->tree_cursor = NULL;
+            }
         }
         if (iterator->tree_cursor) {
             // skip deleted WAL entry
@@ -1021,12 +1040,20 @@ fetch_hbtrie:
             // tree_cursor_prev.
             iterator->tree_cursor_prev = wal_itr_search_smaller(iterator->wal_itr,
                                                                 &query);
+            skip_wal = true;
         }
     } else if (seek_pref == FDB_ITR_SEEK_LOWER) {
         if (fetch_wal) {
             iterator->tree_cursor = wal_itr_search_smaller(iterator->wal_itr,
                                                            &query);
             iterator->direction = FDB_ITR_REVERSE;
+            if (iterator->tree_cursor &&
+                !next_op && // only validate range if not skip max/min key mode
+                !_validate_range_limits(iterator,
+                         iterator->tree_cursor->header->key,
+                         iterator->tree_cursor->header->keylen)) {
+                iterator->tree_cursor = NULL;
+            }
         }
         if (iterator->tree_cursor) {
             // skip deleted WAL entry
@@ -1082,7 +1109,7 @@ fetch_hbtrie:
             // fdb_iterator_prev call has gone past the smallest key...
             iterator->tree_cursor_prev = wal_itr_search_greater(iterator->wal_itr,
                                                                 &query);
-            // since the current key[WAL] is larger than seek_key,
+            // since the current key[WAL] is smaller than seek_key,
             // skip key[WAL] this time
             skip_wal = true;
         }
