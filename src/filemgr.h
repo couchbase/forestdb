@@ -333,8 +333,8 @@ enum {
 
 #define DLOCK_MAX (41) /* a prime number */
 class Wal;
-struct fnamedic_item;
 class KvsHeader;
+class FileBlockCache;
 
 typedef struct {
     mutex_t mutex;
@@ -362,7 +362,7 @@ struct filemgr {
     struct filemgr *new_file;           // Pointer to new file upon compaction
     struct filemgr *prev_file;          // Pointer to prev file upon compaction
     char *old_filename;                 // Old file name before compaction
-    std::atomic<struct fnamedic_item *> bcache;
+    std::atomic<FileBlockCache *> bcache;
     fdb_txn global_txn;
     bool in_place_compaction;
     filemgr_fs_type_t fs_type;

@@ -233,8 +233,8 @@ void filemgr_init(FileMgrConfig *config)
             global_config = *config;
 
             if (global_config.getNcacheBlock() > 0)
-                bcache_init(global_config.getNcacheBlock(),
-                            global_config.getBlockSize());
+                BlockCacheManager::init(global_config.getNcacheBlock(),
+                                        global_config.getBlockSize());
 
             hash_init(&hash, NBUCKET, _file_hash, _file_cmp);
 
@@ -586,7 +586,7 @@ uint64_t filemgr_get_bcache_used_space(void)
 {
     uint64_t bcache_free_space = 0;
     if (global_config.getNcacheBlock()) { // If buffer cache is indeed configured
-        bcache_free_space = bcache_get_num_free_blocks();
+        bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
         bcache_free_space = (global_config.getNcacheBlock() - bcache_free_space)
                                 * global_config.getBlockSize();
     }
@@ -627,7 +627,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
 
             gettimeofday(&cur, NULL);
             gap = _utime_gap(begin, cur);
-            bcache_free_space = bcache_get_num_free_blocks();
+            bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
             bcache_free_space *= args->file->blocksize;
 
             if (args->file->prefetch_status.load() == FILEMGR_PREFETCH_ABORT ||
@@ -673,7 +673,7 @@ void filemgr_prefetch(struct filemgr *file,
 {
     uint64_t bcache_free_space;
 
-    bcache_free_space = bcache_get_num_free_blocks();
+    bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
     bcache_free_space *= file->blocksize;
 
     // block cache should have free space larger than FILEMGR_PREFETCH_UNIT
@@ -1465,7 +1465,7 @@ fdb_status filemgr_close(struct filemgr *file, bool cleanup_cache_onclose,
             file->status.load() != FILE_REMOVED_PENDING) {
             spin_unlock(&file->lock);
             // discard all dirty blocks belonged to this file
-            bcache_remove_dirty_blocks(file);
+            BlockCacheManager::getInstance()->removeDirtyBlocks(file);
         } else {
             // If the file is in pending removal (i.e., FILE_REMOVED_PENDING),
             // then its dirty block entries will be cleaned up in either
@@ -1594,9 +1594,10 @@ void filemgr_remove_all_buffer_blocks(struct filemgr *file)
     // remove all cached blocks
     if (global_config.getNcacheBlock() > 0 &&
             file->bcache.load(std::memory_order_relaxed)) {
-        bcache_remove_dirty_blocks(file);
-        bcache_remove_clean_blocks(file);
-        bcache_remove_file(file);
+        BlockCacheManager::getInstance()->removeDirtyBlocks(file);
+        BlockCacheManager::getInstance()->removeCleanBlocks(file);
+        BlockCacheManager::getInstance()->removeFile(file);
+
         file->bcache.store(NULL, std::memory_order_relaxed);
     }
 }
@@ -1618,9 +1619,9 @@ void filemgr_free_func(struct hash_elem *h)
     // remove all cached blocks
     if (global_config.getNcacheBlock() > 0 &&
             file->bcache.load(std::memory_order_relaxed)) {
-        bcache_remove_dirty_blocks(file);
-        bcache_remove_clean_blocks(file);
-        bcache_remove_file(file);
+        BlockCacheManager::getInstance()->removeDirtyBlocks(file);
+        BlockCacheManager::getInstance()->removeCleanBlocks(file);
+        BlockCacheManager::getInstance()->removeFile(file);
         file->bcache.store(NULL, std::memory_order_relaxed);
     }
 
@@ -1769,7 +1770,7 @@ fdb_status filemgr_shutdown()
         if (!open_file) {
             hash_free_active(&hash, filemgr_free_func);
             if (global_config.getNcacheBlock() > 0) {
-                bcache_shutdown();
+                BlockCacheManager::getInstance()->destroyInstance();
             }
             filemgr_initialized = 0;
 #ifndef SPIN_INITIALIZER
@@ -1893,7 +1894,7 @@ bool filemgr_invalidate_block(struct filemgr *file, bid_t bid)
         ret = false; // a block from the past is invalidated (committed)
     }
     if (global_config.getNcacheBlock() > 0) {
-        bcache_invalidate_block(file, bid);
+        BlockCacheManager::getInstance()->invalidateBlock(file, bid);
     }
     return ret;
 }
@@ -1904,7 +1905,8 @@ bool filemgr_is_fully_resident(struct filemgr *file)
     if (global_config.getNcacheBlock() > 0) {
         //TODO: A better thing to do is to track number of document blocks
         // and only compare those with the cached document block count
-        double num_cached_blocks = (double)bcache_get_num_blocks(file);
+        double num_cached_blocks =
+            static_cast<double>(BlockCacheManager::getInstance()->getNumBlocks(file));
         uint64_t num_blocks = file->pos.load() / file->blocksize;
         double num_fblocks = (double)num_blocks;
         if (num_cached_blocks > num_fblocks * FILEMGR_RESIDENT_THRESHOLD) {
@@ -1922,16 +1924,16 @@ uint64_t filemgr_flush_immutable(struct filemgr *file,
         if (file->io_in_prog.load()) {
             return 0;
         }
-        ret = bcache_get_num_immutable(file);
+        ret = BlockCacheManager::getInstance()->getNumImmutables(file);
         if (!ret) {
             return ret;
         }
-        fdb_status rv = bcache_flush_immutable(file);
+        fdb_status rv = BlockCacheManager::getInstance()->flushImmutable(file);
         if (rv != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status)rv, "WRITE",
                            file->filename);
         }
-        return bcache_get_num_immutable(file);
+        return BlockCacheManager::getInstance()->getNumImmutables(file);
     }
 
     return ret;
@@ -1978,7 +1980,7 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
             locked = true;
         }
 
-        r = bcache_read(file, bid, buf);
+        r = BlockCacheManager::getInstance()->read(file, bid, buf);
         if (r == 0) {
             // cache miss
             if (!read_on_cache_miss) {
@@ -2045,7 +2047,8 @@ fdb_status filemgr_read(struct filemgr *file, bid_t bid, void *buf,
                 return status;
             }
 #endif
-            r = bcache_write(file, bid, buf, BCACHE_REQ_CLEAN, false);
+            r = BlockCacheManager::getInstance()->write(file, bid, buf,
+                                                        BCACHE_REQ_CLEAN, false);
             if (r != global_config.getBlockSize()) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -2179,7 +2182,8 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
 
         if (len == file->blocksize) {
             // write entire block .. we don't need to read previous block
-            r = bcache_write(file, bid, buf, BCACHE_REQ_DIRTY, final_write);
+            r = BlockCacheManager::getInstance()->write(file, bid, buf,
+                                                        BCACHE_REQ_DIRTY, final_write);
             if (r != global_config.getBlockSize()) {
                 if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -2196,7 +2200,8 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
             }
         } else {
             // partially write buffer cache first
-            r = bcache_write_partial(file, bid, buf, offset, len, final_write);
+            r = BlockCacheManager::getInstance()->writePartial(file, bid, buf,
+                                                               offset, len, final_write);
             if (r == 0) {
                 // cache miss
                 // write partially .. we have to read previous contents of the block
@@ -2231,7 +2236,8 @@ fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid,
                     }
                 }
                 memcpy((uint8_t *)_buf + offset, buf, len);
-                r = bcache_write(file, bid, _buf, BCACHE_REQ_DIRTY, final_write);
+                r = BlockCacheManager::getInstance()->write(file, bid, _buf,
+                                                            BCACHE_REQ_DIRTY, final_write);
                 if (r != global_config.getBlockSize()) {
                     if (locked) {
 #ifdef __FILEMGR_DATA_PARTIAL_LOCK
@@ -2321,7 +2327,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
 
     filemgr_set_io_inprog(file);
     if (global_config.getNcacheBlock() > 0) {
-        result = bcache_flush(file);
+        result = BlockCacheManager::getInstance()->flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
                            "FLUSH", file->filename);
@@ -2423,7 +2429,7 @@ fdb_status filemgr_commit_bid(struct filemgr *file, bid_t bid,
             // we MUST invalidate the header block 'bid', since previous
             // contents of 'bid' may remain in block cache and cause data
             // inconsistency if reading header block hits the cache.
-            bcache_invalidate_block(file, bid);
+            BlockCacheManager::getInstance()->invalidateBlock(file, bid);
         }
 
         ssize_t rv = filemgr_write_blocks(file, buf, 1, bid);
@@ -2484,7 +2490,7 @@ fdb_status filemgr_sync(struct filemgr *file, bool sync_option,
 {
     fdb_status result = FDB_RESULT_SUCCESS;
     if (global_config.getNcacheBlock() > 0) {
-        result = bcache_flush(file);
+        result = BlockCacheManager::getInstance()->flush(file);
         if (result != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, (fdb_status) result,
                            "FLUSH", file->filename);

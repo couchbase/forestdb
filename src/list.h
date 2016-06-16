@@ -81,6 +81,10 @@ INLINE struct list_elem *list_prev(struct list_elem *e)
     return e->prev;
 }
 
+INLINE bool list_empty(struct list *list) {
+    return list->head == NULL;
+}
+
 #ifdef __cplusplus
 }
 #endif

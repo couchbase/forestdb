@@ -15,40 +15,308 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_BLOCKCACHE_H
-#define _JSAHN_BLOCKCACHE_H
+#pragma once
+
+#include <atomic>
+#include <unordered_map>
+#include <list>
+#include <vector>
+#include <mutex>
+#include <string>
 
 #include "filemgr.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 typedef enum {
     BCACHE_REQ_CLEAN,
     BCACHE_REQ_DIRTY
 } bcache_dirty_t;
 
-void bcache_init(int nblock, int blocksize);
-int bcache_read(struct filemgr *file, bid_t bid, void *buf);
-bool bcache_invalidate_block(struct filemgr *file, bid_t bid);
-int bcache_write(struct filemgr *file, bid_t bid, void *buf,
-                 bcache_dirty_t dirty, bool final_write);
-int bcache_write_partial(struct filemgr *file, bid_t bid, void *buf,
-                         size_t offset, size_t len, bool final_write);
-void bcache_remove_dirty_blocks(struct filemgr *file);
-void bcache_remove_clean_blocks(struct filemgr *file);
-bool bcache_remove_file(struct filemgr *file);
-uint64_t bcache_get_num_blocks(struct filemgr *file);
-fdb_status bcache_flush(struct filemgr *file);
-uint64_t bcache_get_num_immutable(struct filemgr *file);
-fdb_status bcache_flush_immutable(struct filemgr *file);
-void bcache_shutdown();
-uint64_t bcache_get_num_free_blocks();
-void bcache_print_items();
+class BlockCacheItem;
+class FileBlockCache;
 
-#ifdef __cplusplus
-}
-#endif
+// Block cache file map with a file name as a key.
+typedef std::unordered_map<std::string, FileBlockCache *> bcache_file_map;
 
-#endif
+
+/**
+ * Global block cache manager that maintains the list of active files and their
+ * cache entries.
+ */
+class BlockCacheManager {
+
+public:
+    /**
+     * Instantiate the block cache manager and allocate the memory requested.
+     *
+     * @param nblock Number of blocks to be allocated in the cache
+     * @param blocksize Size of each block in the cache
+     * @return Pointer to the block cache manager
+     */
+    static BlockCacheManager* init(uint64_t nblock,
+                                   uint32_t blocksize);
+
+    /**
+     * Get the singleton instance of the block cache manager.
+     */
+    static BlockCacheManager* getInstance();
+
+    /**
+     * Release all the resources including memory allocated and destroy the
+     * block cache manager.
+     */
+    static void destroyInstance();
+
+    /**
+     * Read a given block from the block cache.
+     *
+     * @param file Pointer to the file manager instance
+     * @param bid ID of a block to be read from the cache
+     * @param buf Pointer to the read buffer
+     * @return the number of bytes that are read from the cache.
+     */
+    int read(struct filemgr *file,
+             bid_t bid,
+             void *buf);
+
+    /**
+     * Invalidate a given cached block and return its memory to the free list
+     * to be used for future allocations.
+     *
+     * @param file Pointer to the file manager instance
+     * @param bid ID of a block to be invalidated.
+     * @return true if a given cached block is invalidated and its memory is
+     *         successfully returned back to the free list.
+     */
+    bool invalidateBlock(struct filemgr *file,
+                         bid_t bid);
+
+    /**
+     * Write a given block into the block cache.
+     *
+     * @param file Pointer to the file manager instance
+     * @param bid ID of block to be written
+     * @param buf Pointer to the buffer containing the block content
+     * @param dirty Flag indicating if a given block is dirty or not
+     * @param final_write Flag indicating if a given block becomes immutable
+     *        after the write operation
+     * @return Number of bytes written into the cache
+     */
+    int write(struct filemgr *file,
+              bid_t bid,
+              void *buf,
+              bcache_dirty_t dirty,
+              bool final_write);
+
+    /**
+     * Write a offset range of a given block into the block cache.
+     *
+     * @param file Pointer to the file manager instance
+     * @param bid ID of block to be written partially
+     * @param buf Pointer to the buffer containing the partial content of
+     *        a block
+     * @param offset Offset within a block to be written from
+     * @param len Size of data to be written
+     * @param final_write Flag indicating if a given block becomes immutable
+     *        after the write operation
+     * @return Number of bytes written into the cache
+     */
+    int writePartial(struct filemgr *file,
+                     bid_t bid,
+                     void *buf,
+                     size_t offset,
+                     size_t len,
+                     bool final_write);
+
+    /**
+     * Discard all the dirty blocks for a given file from the block cache.
+     * Note that those dirty blocks are not written into disk.
+     *
+     *@param file Pointer to the file manager instance
+     */
+    void removeDirtyBlocks(struct filemgr *file);
+
+    /**
+     * Discard all the clean blocks for a given file from the block cache.
+     *
+     * @param file Pointer to the file manager instance
+     */
+    void removeCleanBlocks(struct filemgr *file);
+
+    /**
+     * Remove a give file from the block cache's global file list.
+     *
+     * @param file Pointer to the file manager instance
+     */
+    bool removeFile(struct filemgr *file);
+
+    /**
+     * Flush all the dirty blocks for a given file into disk and mark them as
+     * clean.
+     *
+     * @param file Pointer to the file manager instance
+     * @return FDB_RESULT_SUCCESS if the flush operation is completed successfully.
+     */
+    fdb_status flush(struct filemgr *file);
+
+    /**
+     * Flush all the immutable dirty blocks for a given file into disk and
+     * mark them as clean.
+     *
+     * @param file Pointer to the file manager instance
+     * @return FDB_RESULT_SUCCESS if the flush operation is completed successfully.
+     */
+    fdb_status flushImmutable(struct filemgr *file);
+
+    /**
+     * Return the total number of blocks in the block cache.
+     *
+     * @Param file Pointer to the file manager instance
+     */
+    uint64_t getNumBlocks(struct filemgr *file);
+
+    /**
+     * Return the number of immutable blocks in the block cache.
+     *
+     * @param file Pointer to the file manager instance
+     * @return Number of immutable blocks in the block cache
+     */
+    uint64_t getNumImmutables(struct filemgr *file);
+
+    /**
+     * Return the number of blocks in the block cache's free list.
+     *
+     */
+    uint64_t getNumFreeBlocks() const {
+        return freeListCount;
+    }
+
+    /**
+     * Print the stats summary of the block cache.
+     */
+    void printItems();
+
+private:
+    /**
+     * Constructor
+     *
+     * @param nblock Number of blocks to be allocated in the cache
+     * @param blocksize Size of each block in the cache
+     */
+    BlockCacheManager(uint64_t nblock, uint32_t blocksize);
+
+    ~BlockCacheManager();
+
+    /**
+     * Set the cache weighted score for a given cache item.
+     *
+     * @param item A cache item whose weighted score is set
+     */
+    void setScore(BlockCacheItem &item);
+
+    /**
+     * Add a given cache item to the free block list.
+     *
+     * @param item Pointer to a cache item to be added to the free block list
+     */
+    void addToFreeBlockList(BlockCacheItem *item);
+
+    /**
+     * Create a file block cache for a given file.
+     *
+     * @param file Pointer to a file manager instance
+     * @return Pointer to a file block cache instantiated
+     */
+    FileBlockCache* createFileBlockCache(struct filemgr *file);
+
+    /**
+     * Free a given file block cache and its allocated resouces.
+     *
+     * @param fcache Pointer to the file block cache to be freed.
+     * @param force Flag indicating if a file block cache should be freed even if
+     *        it is still referenced or not empty.
+     * @return True if a given file block cache is freed successfully
+     */
+    bool freeFileBlockCache(FileBlockCache *fcache, bool force = false);
+
+    /**
+     * Prepare the resource deallocation for a given file block cache
+     *
+     * @param fcache Pointer to the file block cache to be prepared for deallocation
+     * @return True if a given file block cache is ready for deallocation
+     */
+    bool prepareDeallocationForFileBlockCache(FileBlockCache *fcache);
+
+    /**
+     * Clean up all file block caches that are no longer valid.
+     */
+    void cleanUpInvalidFileBlockCaches();
+
+    /**
+     * Get a block from the free block list.
+     *
+     * @return Pointer to the free block
+     */
+    BlockCacheItem *getFreeBlock();
+
+    /**
+     * Perform cache eviction.
+     *
+     */
+    void performEviction();
+
+    /**
+     * Choose a file block cache that is goint to be a victim for eviction.
+     *
+     * @return Pointer to a file block cache that is chosen as an eviction victim
+     */
+    FileBlockCache *chooseEvictionVictim();
+
+    /**
+     * Flush some dirty blocks from a given file block cache
+     *
+     * @param fcache Pointer to a file block cache whose dirty blocks are flushed
+     * @param sync True if dirty blocks should be flushed into disk
+     * @param flush_all True if all the dirty blocks should be flushed
+     * @param immutable_only True if only immutable dirty blocks should be flushed
+     * @return FDB_RESULT_SUCCESS if flush is successful
+     */
+    fdb_status flushDirtyBlocks(FileBlockCache *fcache,
+                                bool sync,
+                                bool flush_all,
+                                bool immutables_only);
+
+
+    // Singleton block cache manager and mutex guarding it's creation.
+    static std::atomic<BlockCacheManager *> instance;
+    static std::mutex instanceMutex;
+    // Default block cache size in bytes
+    static const uint64_t defaultCacheSize;
+    // Default block size in bytes
+    static const uint32_t defaultBlockSize;
+
+    // global lock
+    spin_t bcacheLock;
+
+    // free block list
+    std::atomic<uint64_t> freeListCount;
+    struct list freeList;
+    spin_t freeListLock;
+
+    // file block cache list
+    bcache_file_map fileMap;
+    std::vector<FileBlockCache *> fileList;
+    std::list<FileBlockCache *> fileZombies;
+    // Reader-Writer lock for the file list
+    fdb_rw_lock fileListLock;
+
+    // Number of blocks in the block cache
+    uint64_t numBlocks;
+    // Size of a block
+    uint32_t blockSize;
+    // Number of bytes to be written for each flush
+    size_t flushUnit;
+    // Pointer to the block cache memory
+    void *bufferCache;
+
+    DISALLOW_COPY_AND_ASSIGN(BlockCacheManager);
+};
