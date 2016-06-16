@@ -15,8 +15,7 @@
  *   limitations under the License.
  */
 
-#ifndef _JSAHN_WAL_H
-#define _JSAHN_WAL_H
+#pragma once
 
 #include <stdint.h>
 #include "internal_types.h"
@@ -47,15 +46,20 @@ struct wal_item_header{
     struct list items;
 };
 
+struct wal_kvs_snaps; // forward declaration for snap_handle
 typedef uint64_t wal_snapid_t;
 #define OPEN_SNAPSHOT_TAG ((wal_snapid_t)(-1)) // any latest snapshot item
 struct snap_handle {
     /**
-     * Link to the tree of snapshots indexed by (kvs_id, snap_id) pair.
+     * Link to the list of snapshots for a kv store.
      */
-    struct avl_node avl_id;
+    struct list_elem snaplist_elem;
     /**
-     * Unique KV Store ID (keep as second member).
+     * Back pointer to the parent KV Store in whose list this struct belongs.
+     */
+    struct wal_kvs_snaps *kvs_snapshots;
+    /**
+     * ID of the KV Store to which this snapshot belongs.
      */
     fdb_kvs_id_t id;
     /**
@@ -121,6 +125,19 @@ struct snap_handle {
     struct avl_tree seq_tree;
 };
 
+/**
+ * This struct tracks the KV Stores whose items are present in the WAL
+ * It is inserted into the AVL tree of the WAL sorted by the KV Store's id
+ * The main purpose of this struct is to house a list of shared snapshots
+ * created in the KV Store.
+ */
+struct wal_kvs_snaps {
+    struct avl_node avl_id; // link into wal_kvs_snap_tree
+    fdb_kvs_id_t id; // id of KV store whose snapshots are tracked
+    struct list snap_list; // list of globally shared snapshots
+    size_t num_snaps; // bookeeping number of concurrent snapshots opened
+};
+
 #define WAL_ITEM_COMMITTED (0x01)
 #define WAL_ITEM_FLUSH_READY (0x02)
 #define WAL_ITEM_MULTI_KV_INS_MODE (0x04)
@@ -131,7 +148,7 @@ struct wal_item{
     struct wal_item_header *header;
     fdb_txn *txn;
     uint64_t txn_id; // used to track closed transactions
-    struct snap_handle *shandle; // Pointer into wal_snapshot_tree for KV Store
+    struct snap_handle *shandle; // Pointer into item's parent snapshot
     wal_item_action action;
     std::atomic<uint8_t> flag;
     uint32_t doc_size;
@@ -458,11 +475,13 @@ private:
     bool _wal_can_discard(struct wal_item *_item,
                           struct wal_item *covering_item);
 
-    struct snap_handle * _wal_get_latest_snapshot(fdb_kvs_id_t kv_id);
+    struct wal_kvs_snaps *_wal_get_kvs_snaplist(fdb_kvs_id_t kv_id);
+    struct snap_handle * _wal_get_latest_snapshot(struct wal_kvs_snaps *slist);
 
     struct snap_handle * _wal_snapshot_create(fdb_kvs_id_t kv_id,
                                               wal_snapid_t snap_tag,
-                                              wal_snapid_t snap_flush_tag);
+                                              wal_snapid_t snap_flush_tag,
+                                              struct wal_kvs_snaps *snap_list);
     void _wal_snap_mark_flushed(void);
 
     // When a snapshot reader has called snapshotOpen_Wal(), the ref count
@@ -519,7 +538,7 @@ private:
     struct wal_shard *seq_shards;
     size_t num_shards;
     // Global shared WAL Snapshot Data
-    struct avl_tree wal_snapshot_tree;
+    struct avl_tree wal_kvs_snap_tree;
     spin_t lock;
     FileMgr *file;
     DISALLOW_COPY_AND_ASSIGN(Wal);
@@ -623,5 +642,3 @@ union wal_flush_items {
     struct avl_tree tree; // if WAL items are to be sorted by offset
     struct list list; // if WAL items need not be sorted
 };
-
-#endif
