@@ -26,6 +26,7 @@
 #include "wal.h"
 #include "hash_functions.h"
 #include "fdb_internal.h"
+#include "iterator.h"
 
 #include "memleak.h"
 #include "time_utils.h"

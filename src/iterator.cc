@@ -29,7 +29,7 @@
 #include "wal.h"
 #include "avltree.h"
 #include "list.h"
-#include "internal_types.h"
+#include "iterator.h"
 #include "btree_var_kv_ops.h"
 #include "time_utils.h"
 
@@ -134,7 +134,7 @@ fdb_status fdb_iterator_init(FdbKvsHandle *handle,
         fdb_sync_db_header(handle);
     }
 
-    fdb_iterator *iterator = (fdb_iterator *)calloc(1, sizeof(fdb_iterator));
+    FdbIterator *iterator = new FdbIterator(false/*don't use sequence tree*/);
 
     if (!handle->shandle) {
         // snapshot handle doesn't exist
@@ -304,7 +304,8 @@ fdb_status fdb_iterator_sequence_init(FdbKvsHandle *handle,
 
     size_id = sizeof(fdb_kvs_id_t);
     size_seq = sizeof(fdb_seqnum_t);
-    fdb_iterator *iterator = (fdb_iterator *)calloc(1, sizeof(fdb_iterator));
+
+    FdbIterator *iterator = new FdbIterator(true/*use sequence tree*/);
 
     if (!handle->shandle) {
         // snapshot handle doesn't exist
@@ -1927,6 +1928,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     if (iterator->seqtree_iterator) {
         delete iterator->seqtree_iterator;
     }
+
     if (iterator->seqtrie_iterator) {
         delete iterator->seqtrie_iterator;
     }
@@ -1957,7 +1959,9 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     }
 
     free(iterator->_key);
-    free(iterator);
+
+    delete iterator;
+
     return FDB_RESULT_SUCCESS;
 }
 

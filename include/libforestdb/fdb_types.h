@@ -554,7 +554,7 @@ enum {
  * Opaque reference to ForestDB iterator structure definition, which is exposed
  * in public APIs.
  */
-typedef struct _fdb_iterator fdb_iterator;
+typedef struct FdbIterator fdb_iterator;
 
 /**
  * Return type for the fdb_changes_since API's callback: fdb_changes_function_fn
