@@ -1335,7 +1335,7 @@ fdb_status sb_write(struct filemgr *file, size_t sb_no,
     memset(buf + blocksize, BLK_MARKER_SB, BLK_MARKER_SIZE);
 
     // directly write a block bypassing block cache
-    r = file->ops->pwrite(file->fd, buf, real_blocksize, sb_no * real_blocksize);
+    r = filemgr_write_blocks(file, buf, 1, sb_no);
     if (r != real_blocksize) {
         char errno_msg[512];
         file->ops->get_errno_str(errno_msg, 512);
@@ -1378,7 +1378,7 @@ static fdb_status _sb_read_given_no(struct filemgr *file,
     offset = 0;
 
     // directly read a block bypassing block cache
-    r = file->ops->pread(file->fd, buf, real_blocksize, sb_no * real_blocksize);
+    r = filemgr_read_block(file, buf, sb_no);
     if (r != real_blocksize) {
         char errno_msg[512];
         file->ops->get_errno_str(errno_msg, 512);

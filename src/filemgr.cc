@@ -315,7 +315,7 @@ static void _filemgr_shutdown_temp_buf()
 }
 
 // Read a block from the file, decrypting if necessary.
-static ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid) {
+ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid) {
     ssize_t result = file->ops->pread(file->fd, buf, file->blocksize,
                                       file->blocksize*bid);
     if (file->encryption.ops && result > 0) {
