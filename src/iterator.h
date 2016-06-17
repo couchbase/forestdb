@@ -59,131 +59,156 @@ enum {
 };
 
 /**
+ * ForestDB iterator direction
+ */
+typedef uint8_t itr_seek_t;
+enum {
+    ITR_SEEK_PREV = 0x00,
+    ITR_SEEK_NEXT = 0x01
+};
+
+/**
  * ForestDB iterator structure definition.
  */
 class FdbIterator {
 public:
-    FdbIterator(bool use_sequence_tree)
-        : handle(nullptr), hbtrie_iterator(nullptr),
-          seqtree_iterator(nullptr), seqtrie_iterator(nullptr),
-          _seqnum(0), wal_itr(nullptr), tree_cursor(nullptr),
-          tree_cursor_start(nullptr), tree_cursor_prev(nullptr),
-          start_key(nullptr), end_key(nullptr),
-          opt(FDB_ITR_NONE), direction(FDB_ITR_DIR_NONE),
-          status(0x00), snapshot_handle(false), _key(nullptr),
-          _keylen(0), _offset(0), _dhandle(nullptr), _get_offset(0)
-    {
-        if (use_sequence_tree) {
-            start_seqnum = 0;
-            end_seqnum = 0;
-        } else {
-            start_keylen = 0;
-            end_keylen = 0;
-        }
+    /* Fetches the iterator's kv store handle */
+    FdbKvsHandle* getHandle() {
+        return iterHandle;
     }
 
-    ~FdbIterator() { }
+    /* Fetches the current key pointed to by the iterator */
+    void* getIterKey() {
+        return iterKey;
+    }
 
-    /**
-     * ForestDB KV store handle.
-     */
-    FdbKvsHandle *handle;
-    /**
-     * HB+Trie iterator instance.
-     */
-    HBTrieIterator *hbtrie_iterator;
-    /**
-     * B+Tree iterator for sequence number iteration
-     */
-    BTreeIterator *seqtree_iterator;
-    /**
-     * HB+Trie iterator for sequence number iteration
-     * (for multiple KV instance mode)
-     */
-    HBTrieIterator *seqtrie_iterator;
-    /**
-     * Current seqnum pointed by the iterator.
-     */
-    fdb_seqnum_t _seqnum;
-    /**
-     * WAL Iterator to iterate over the shared sharded global WAL
-     */
-    WalItr *wal_itr;
-    /**
-     * Cursor instance of WAL iterator.
-     */
-    struct wal_item *tree_cursor;
-    /**
-     * Unique starting AVL node indicating the WAL iterator's start node.
-     */
-    struct wal_item *tree_cursor_start;
-    /**
-     * Previous position of WAL cursor.
-     */
-    struct wal_item *tree_cursor_prev;
-    /**
-     * Iterator start key.
-     */
-    void *start_key;
+    /* To initialize a regular iterator */
+    static fdb_status initIterator(FdbKvsHandle *handle,
+                                   fdb_iterator **ptr_iterator,
+                                   const void *start_key,
+                                   size_t start_keylen,
+                                   const void *end_key,
+                                   size_t end_keylen,
+                                   fdb_iterator_opt_t opt);
+
+    /* To initialize a sequence iterator */
+    static fdb_status initSeqIterator(FdbKvsHandle *handle,
+                                      fdb_iterator **ptr_iterator,
+                                      const fdb_seqnum_t start_seq,
+                                      const fdb_seqnum_t end_seq,
+                                      fdb_iterator_opt_t opt);
+
+    /* To close & delete an iterator */
+    static fdb_status destroyIterator(fdb_iterator *iterator);
+
+    /* Moves the iterator to specified key */
+    fdb_status seek(const void *seek_key, const size_t seek_keylen,
+                    const fdb_iterator_seek_opt_t seek_pref);
+
+    /* Moves the iterator to smallest key */
+    fdb_status seekToMin();
+
+    /* Moves the iterator to largest key or sequence number*/
+    fdb_status seekToMax();
+
+    /* Moves the iterator backward by one */
+    fdb_status iterateToPrev();
+
+    /* Moves the iterator forward by one */
+    fdb_status iterateToNext();
+
+    /* Gets the item pointed to by the iterator */
+    fdb_status get(fdb_doc **doc, bool metaOnly);
+
+private:
+    /* Constructor for regular iterator */
+    FdbIterator(FdbKvsHandle *_handle,
+                bool snapshoted_handle,
+                const void *start_key,
+                size_t start_keylen,
+                const void *end_key,
+                size_t end_keylen,
+                fdb_iterator_opt_t opt);
+
+    /* Constructor for sequence iterator */
+    FdbIterator(FdbKvsHandle *_handle,
+                bool snapshoted_handle,
+                const fdb_seqnum_t start_seq,
+                const fdb_seqnum_t end_seq,
+                fdb_iterator_opt_t opt);
+
+    /* Destructor */
+    ~FdbIterator();
+
+    /* Operation for a regular iterator to move forward/backward
+       based on seek_type */
+    fdb_status iterate(itr_seek_t seek_type);
+
+    bool validateRangeLimits(void *ret_key, const size_t ret_keylen);
+
+    /* Operation for a regular iterator to seek to largest key */
+    fdb_status seekToMaxKey();
+
+    /* Operation for a sequence iterator to seek to largest sequence number */
+    fdb_status seekToMaxSeq();
+
+    /* Operation for a sequence iterator to move backward */
+    fdb_status iterateSeqPrev();
+
+    /* Operation for a sequence iterator to move forward */
+    fdb_status iterateSeqNext();
+
+    // ForestDB KV store handle
+    FdbKvsHandle *iterHandle;
+    // Was this iterator created on an pre-existing snapshot handle
+    bool snapshotHandle;
+    // HB+Trie iterator instance
+    HBTrieIterator *hbtrieIterator;
+    // B+Tree iterator for sequence number iteration
+    BTreeIterator *seqtreeIterator;
+    // HB+Trie iterator for sequence number iteration (for multiple KV instance mode)
+    HBTrieIterator *seqtrieIterator;
+    // Current seqnum pointed by the iterator.
+    fdb_seqnum_t seqNum;
+    // WAL Iterator to iterate over the shared sharded global WAL
+    WalItr *walIterator;
+    // Cursor instance of WAL iterator.
+    struct wal_item *treeCursor;
+    // Unique starting AVL node indicating the WAL iterator's start node.
+    struct wal_item *treeCursorStart;
+    // Previous position of WAL cursor.
+    struct wal_item *treeCursorPrev;
+    // Iterator start key.
+    void *startKey;
     union {
-        /**
-         * Iterator start seqnum.
-         */
-        fdb_seqnum_t start_seqnum;
-        /**
-         * Start key length.
-         */
-        size_t start_keylen;
+        // Iterator start seqnum.
+        fdb_seqnum_t startSeqnum;
+        // Start key length.
+        size_t startKeylen;
     };
-    /**
-     * Iterator end key.
-     */
-    void *end_key;
+    // Iterator end key.
+    void *endKey;
     union {
-        /**
-         * Iterator end seqnum.
-         */
-        fdb_seqnum_t end_seqnum;
-        /**
-         * End key length.
-         */
-        size_t end_keylen;
+        // Iterator end seqnum.
+        fdb_seqnum_t endSeqnum;
+        // End key length.
+        size_t endKeylen;
     };
-    /**
-     * Iterator option.
-     */
-    fdb_iterator_opt_t opt;
-    /**
-     * Iterator cursor direction status.
-     */
-    fdb_iterator_dir_t direction;
-    /**
-     * The last returned document info.
-     */
-    fdb_iterator_status_t status;
-    /**
-     * Was this iterator created on an pre-existing snapshot handle
-     */
-    bool snapshot_handle;
-    /**
-     * Current key pointed by the iterator.
-     */
-    void *_key;
-    /**
-     * Length of key pointed by the iterator.
-     */
-    size_t _keylen;
-    /**
-     * Key offset.
-     */
-    uint64_t _offset;
-    /**
-     * Doc IO handle instance to the correct file.
-     */
-    DocioHandle *_dhandle;
-    /**
-     * Cursor offset to key, meta and value on disk
-     */
-    uint64_t _get_offset;
+    // Iterator option.
+    fdb_iterator_opt_t iterOpt;
+    // Iterator cursor direction status.
+    fdb_iterator_dir_t iterDirection;
+    // The last returned document info.
+    fdb_iterator_status_t iterStatus;
+    // Current key pointed by the iterator.
+    void *iterKey;
+    // Length of key pointed by the iterator.
+    size_t iterKeylen;
+    // Key offset.
+    uint64_t iterOffset;
+    // Doc IO handle instance to the correct file.
+    DocioHandle *dHandle;
+    // Cursor offset to key, meta and value on disk
+    uint64_t getOffset;
 };
 
