@@ -4357,6 +4357,26 @@ void rekey_test()
         TEST_STATUS(status);
     }
 
+    status = fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+    TEST_STATUS(status);
+
+    // close and reopen with wrong key
+    status = fdb_close(dbfile);
+    TEST_STATUS(status);
+
+    memset(fconfig.encryption_key.bytes, 0xff, sizeof(fconfig.encryption_key.bytes));
+    status = fdb_open(&dbfile, "./dummy1", &fconfig);
+    // must fail
+    TEST_CHK(status != FDB_RESULT_SUCCESS);
+
+    // open again
+    memset(fconfig.encryption_key.bytes, 0x42, sizeof(fconfig.encryption_key.bytes));
+    fdb_open(&dbfile, "./dummy1", &fconfig);
+    fdb_kvs_open_default(dbfile, &db, &kvs_config);
+    status = fdb_set_log_callback(db, logCallbackFunc,
+                                  (void *) "api_wrapper_test");
+    TEST_STATUS(status);
+
     // change the encryption key:
     fdb_encryption_key new_key;
     new_key.algorithm = -1; // Bogus encryption

@@ -554,6 +554,7 @@ fdb_status filemgr_read(struct filemgr *file,
                         bid_t bid, void *buf,
                         ErrLogCallback *log_callback,
                         bool read_on_cache_miss);
+ssize_t filemgr_read_block(struct filemgr *file, void *buf, bid_t bid);
 
 fdb_status filemgr_write_offset(struct filemgr *file, bid_t bid, uint64_t offset,
                           uint64_t len, void *buf, bool final_write,
