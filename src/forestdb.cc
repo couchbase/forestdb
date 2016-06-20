@@ -140,9 +140,10 @@ int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux)
     size_t keylen1, keylen2;
     btree_cmp_args *args = (btree_cmp_args *)aux;
     fdb_custom_cmp_variable cmp = (fdb_custom_cmp_variable)args->aux;
+    BTreeKVOps *kv_ops = args->kv_ops;
 
-    is_key1_inf = _is_inf_key(key1);
-    is_key2_inf = _is_inf_key(key2);
+    is_key1_inf = kv_ops->isInfVarKey(key1);
+    is_key2_inf = kv_ops->isInfVarKey(key2);
     if (is_key1_inf && is_key2_inf) { // both are infinite
         return 0;
     } else if (!is_key1_inf && is_key2_inf) { // key2 is infinite
@@ -151,8 +152,8 @@ int _fdb_custom_cmp_wrap(void *key1, void *key2, void *aux)
         return 1;
     }
 
-    _get_var_key(key1, (void*)keystr1, &keylen1);
-    _get_var_key(key2, (void*)keystr2, &keylen2);
+    kv_ops->getVarKey(key1, (void*)keystr1, keylen1);
+    kv_ops->getVarKey(key2, (void*)keystr2, keylen2);
 
     if (keylen1 == 0 && keylen2 == 0) {
         return 0;
@@ -615,7 +616,7 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
                     handle->seqtrie = new_db.seqtrie;
                 }
             } else {
-                free(handle->seqtree->kv_ops);
+                delete handle->seqtree->kv_ops;
                 free(handle->seqtree);
                 if (new_db.config.seqtree_opt == FDB_SEQTREE_USE) {
                     handle->seqtree = new_db.seqtree;
@@ -1514,15 +1515,13 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
             // multi KV instance mode .. HB+trie
             handle_out->seqtrie = new HBTrie(sizeof(fdb_kvs_id_t), OFFSET_SIZE,
                         handle_out->file->blocksize,
-                        handle_in->seqtrie->getRootBid(), // Source snapshot's seqtrie root bid
+                        // Source snapshot's seqtrie root bid
+                        handle_in->seqtrie->getRootBid(),
                         (void *)handle_out->bhandle, handle_out->btreeblkops,
                         (void *)handle_out->dhandle, _fdb_readseq_wrap);
         } else {
             // single KV instance mode .. normal B+tree
-            struct btree_kv_ops *seq_kv_ops =
-                (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
-            seq_kv_ops = btree_kv_get_kb64_vb64(seq_kv_ops);
-            seq_kv_ops->cmp = _cmp_uint64_t_endian_safe;
+            BTreeKVOps *seq_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
 
             handle_out->seqtree = (struct btree*)malloc(sizeof(struct btree));
             // Init the seq tree using the root bid of the source snapshot.
@@ -2051,10 +2050,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                         (void *)handle->dhandle, _fdb_readseq_wrap);
         } else {
             // single KV instance mode .. normal B+tree
-            struct btree_kv_ops *seq_kv_ops =
-                (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
-            seq_kv_ops = btree_kv_get_kb64_vb64(seq_kv_ops);
-            seq_kv_ops->cmp = _cmp_uint64_t_endian_safe;
+            BTreeKVOps *seq_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
 
             handle->seqtree = (struct btree*)malloc(sizeof(struct btree));
             if (seq_root_bid == BLK_NOT_FOUND) {
@@ -2076,10 +2072,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
     // this tree is independent to multi/single KVS mode option
     if (ver_staletree_support(handle->file->version)) {
         // normal B+tree
-        struct btree_kv_ops *stale_kv_ops =
-            (struct btree_kv_ops *)calloc(1, sizeof(struct btree_kv_ops));
-        stale_kv_ops = btree_kv_get_kb64_vb64(stale_kv_ops);
-        stale_kv_ops->cmp = _cmp_uint64_t_endian_safe;
+        BTreeKVOps *stale_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
 
         handle->staletree = (struct btree*)calloc(1, sizeof(struct btree));
         if (stale_root_bid == BLK_NOT_FOUND) {
@@ -6439,10 +6432,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
             } // LCOV_EXCL_STOP
         } else {
             // single KV instance mode .. normal B+tree
-            struct btree_kv_ops *seq_kv_ops =
-                (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
-            seq_kv_ops = btree_kv_get_kb64_vb64(seq_kv_ops);
-            seq_kv_ops->cmp = _cmp_uint64_t_endian_safe;
+            BTreeKVOps *seq_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
             if (!seq_kv_ops) { // LCOV_EXCL_START
                 free(new_bhandle);
                 delete new_dhandle;
@@ -6455,7 +6445,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
                 free(new_bhandle);
                 delete new_dhandle;
                 delete new_trie;
-                free(seq_kv_ops);
+                delete seq_kv_ops;
                 return FDB_RESULT_ALLOC_FAIL;
             } // LCOV_EXCL_STOP
 
@@ -6469,8 +6459,8 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     }
 
     if (ver_staletree_support(ver_get_latest_magic())) {
-        struct btree_kv_ops *stale_kv_ops =
-            (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
+        BTreeKVOps *stale_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
+
         if (!stale_kv_ops) { // LCOV_EXCL_START
             free(new_bhandle);
             delete new_dhandle;
@@ -6478,13 +6468,10 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
             delete new_seqtrie;
             free(new_seqtree);
             if (!handle->kvs && new_seqtree) {
-                free(new_seqtree->kv_ops);
+                delete new_seqtree->kv_ops;
             }
             return FDB_RESULT_ALLOC_FAIL;
         } // LCOV_EXCL_STOP
-
-        stale_kv_ops = btree_kv_get_kb64_vb64(stale_kv_ops);
-        stale_kv_ops->cmp = _cmp_uint64_t_endian_safe;
 
         old_staletree = handle->staletree;
         new_staletree = (struct btree*)calloc(1, sizeof(struct btree));
@@ -6647,14 +6634,12 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
 
     // stale-block tree
     if (ver_staletree_support(ver_get_latest_magic())) {
-        struct btree_kv_ops *stale_kv_ops;
+        BTreeKVOps *stale_kv_ops;
         if (handle->staletree) {
             stale_kv_ops = handle->staletree->kv_ops;
         } else {
             // this happens when the old file's version is older than MAGIC_002.
-            stale_kv_ops = (struct btree_kv_ops*)calloc(1, sizeof(struct btree_kv_ops));
-            stale_kv_ops = btree_kv_get_kb64_vb64(stale_kv_ops);
-            stale_kv_ops->cmp = _cmp_uint64_t_endian_safe;
+            stale_kv_ops = new FixedKVOps(8, 8, _cmp_uint64_t_endian_safe);
         }
 
         new_staletree = (struct btree*)calloc(1, sizeof(struct btree));
@@ -7292,13 +7277,13 @@ fdb_status _fdb_close(FdbKvsHandle *handle)
             // multi KV instance mode
             delete handle->seqtrie;
         } else {
-            free(handle->seqtree->kv_ops);
+            delete handle->seqtree->kv_ops;
             free(handle->seqtree);
         }
     }
 
     if (handle->staletree) {
-        free(handle->staletree->kv_ops);
+        delete handle->staletree->kv_ops;
         free(handle->staletree);
     }
 

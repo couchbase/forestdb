@@ -67,6 +67,7 @@ struct btree_meta{
 
 typedef void* voidref;
 typedef struct bnode* bnoderef;
+typedef int btree_cmp_func(void *key1, void *key2, void *aux);
 
 struct btree_blk_ops {
     voidref (*blk_alloc)(void *handle, bid_t *bid);
@@ -82,6 +83,185 @@ struct btree_blk_ops {
     void (*blk_operation_end)(void *handle); // optional
 };
 
+
+/**
+ * B+tree key-value operation wrapper class definition.
+ * Actual operation class will inherit this class.
+ */
+class BTreeKVOps {
+public:
+    // Destructor
+    virtual ~BTreeKVOps() { }
+
+    // Initialize
+    virtual void init(size_t _ksize, size_t _vsize, btree_cmp_func _cmp_func) {
+        ksize = _ksize;
+        vsize = _vsize;
+        cmp_func = _cmp_func;
+    }
+
+    // Set default custom comparison function
+    virtual void setCmpFunc(btree_cmp_func _cmp_func) {
+        cmp_func = _cmp_func;
+    }
+    // Get the current comparison function
+    virtual btree_cmp_func *getCmpFunc() const {
+        return cmp_func;
+    }
+
+    // set key size
+    virtual void setKSize(size_t _ksize) {
+        ksize = _ksize;
+    }
+    // set value size
+    virtual void setVSize(size_t _vsize) {
+        vsize = _vsize;
+    }
+
+    /**
+     * Get a key-value pair at a specific position in a B+tree node.
+     *
+     * @param node Pointer to the B+tree node.
+     * @param idx Index number of the required key-value pair.
+     * @param key Pointer to key buffer.
+     * @param value Pointer to value buffer.
+     */
+    virtual void getKV(struct bnode *node, idx_t idx, void *key, void *value) = 0;
+
+    /**
+     * Assign a key-value pair at a specific position in a B+tree node.
+     * The key-value pair already existing at the position will be overwritten.
+     *
+     * @param node Pointer to the B+tree node.
+     * @param idx Index number where the key-value pair will be stored.
+     * @param key Pointer to key buffer.
+     * @param value Pointer to value buffer.
+     */
+    virtual void setKV(struct bnode *node, idx_t idx, void *key, void *value) = 0;
+
+    /**
+     * Insert a key-value pair at a specific position in a B+tree node.
+     * Existing key-value pairs will be shifted so that there will be no overwrite.
+     *
+     * @param node Pointer to the B+tree node.
+     * @param idx Index number where the key-value pair will be stored.
+     * @param key Pointer to key buffer.
+     * @param value Pointer to value buffer.
+     */
+    virtual void insKV(struct bnode *node, idx_t idx, void *key, void *value) = 0;
+
+    /**
+     * Copy a set of key-value pairs from the source node to the destination node.
+     *
+     * @param node_dst Pointer to the destination B+tree node.
+     * @param node_src Pointer to the source B+tree node.
+     * @param dst_idx Index number in the destination node where the copied
+     *        key-value pair will be stored.
+     * @param src_idx Index number in the source node where the target key-value
+     *        pair is located.
+     * @param len Number of key-value pairs.
+     */
+    virtual void copyKV(struct bnode *node_dst,
+                        struct bnode *node_src,
+                        idx_t dst_idx,
+                        idx_t src_idx,
+                        idx_t len) = 0;
+    /**
+     * Calculate the actual used space of a given node.
+     *
+     * @param node Pointer to the B+tree node.
+     * @param new_minkey New smallest key in the node. NULL if smallest key does not
+     *        change.
+     * @param key_arr Array of keys that will be newly inserted into the node.
+     * @param key_arr Array of values that will be newly inserted into the node.
+     * @param len Size of the array.
+     * @return Actual used space
+     */
+    virtual size_t getDataSize(struct bnode *node,
+                               void *new_minkey,
+                               void *key_arr,
+                               void *value_arr,
+                               size_t len) = 0;
+    /**
+     * Calculate the size of a key-value pair.
+     *
+     * @param key Pointer to key buffer.
+     * @param value Pointer to value buffer.
+     * @return Key-value pair size
+     */
+    virtual size_t getKVSize(void *key, void *value) = 0;
+    /**
+     * Initialize a key-value pair
+     */
+    virtual void initKVVar(void *key, void *value) = 0;
+    /**
+     * Free a key-value pair
+     */
+    virtual void freeKVVar(void *key, void *value) = 0;
+    /**
+     * Copy key from 'src' to 'dst'
+     */
+    virtual void setKey(void *dst, void *src) = 0;
+    /**
+     * Copy value from 'src' to 'dst'
+     */
+    virtual void setValue(void *dst, void *src) = 0;
+
+    /**
+     * Get the index number of the starting entry which is copied into 'num'-th
+     * node when a B+tree node is split into 'den' nodes.
+     */
+    virtual idx_t getNthIdx(struct bnode *node, idx_t num, idx_t den) = 0;
+    /**
+     * Get a key that needs to be inserted into a parent node, when a B+tree node
+     * is split into 'prev_node' and 'node'.
+     */
+    virtual void getNthSplitter(struct bnode *prev_node,
+                                struct bnode *node,
+                                void *key) { }
+    inline virtual int cmp(void *key1, void *key2, void *aux) {
+        return cmp_func(key1, key2, aux);
+    }
+    /**
+     * Convert value buffer contents to block ID.
+     */
+    inline bid_t value2bid(void *value) {
+        return *((bid_t *)value);
+    }
+    /**
+     * Convert block ID to value buffer contents.
+     */
+    inline void* bid2value(bid_t *bid) {
+        return (void *)bid;
+    }
+
+    /**
+     * Assign a variable-length string to 'key'.
+     */
+    virtual void setVarKey(void *key, void *str, size_t len) = 0;
+    /**
+     * Assign an infinite key (which is grater than any other keys) to 'key'.
+     */
+    virtual void setInfVarKey(void *key) = 0;
+    /**
+     * Return true if 'key' is an infinite key.
+     */
+    virtual bool isInfVarKey(void *key) = 0;
+    /**
+     * Get a variable length string from 'key'.
+     */
+    virtual void getVarKey(void *key, void *strbuf, size_t& len) = 0;
+    /**
+     * Free 'key'.
+     */
+    virtual void freeVarKey(void *key) = 0;
+
+protected:
+    size_t ksize;
+    size_t vsize;
+    btree_cmp_func *cmp_func;
+};
+
 struct btree {
     uint8_t ksize;
     uint8_t vsize;
@@ -90,7 +270,7 @@ struct btree {
     bid_t root_bid;
     void *blk_handle;
     struct btree_blk_ops *blk_ops;
-    struct btree_kv_ops *kv_ops;
+    BTreeKVOps *kv_ops;
     bnode_flag_t root_flag;
     void *aux;
 
@@ -99,38 +279,11 @@ struct btree {
 #endif
 };
 
-typedef int btree_cmp_func(void *key1, void *key2, void *aux);
-
 typedef struct {
     btree_cmp_func *aux;
+    BTreeKVOps *kv_ops;
     uint8_t chunksize;
 } btree_cmp_args ;
-
-struct btree_kv_ops {
-    void (*get_kv)(struct bnode *node, idx_t idx, void *key, void *value);
-    void (*set_kv)(struct bnode *node, idx_t idx, void *key, void *value);
-    void (*ins_kv)(struct bnode *node, idx_t idx, void *key, void *value);
-    void (*copy_kv)(struct bnode *node_dst, struct bnode *node_src, idx_t dst_idx, idx_t src_idx, idx_t len);
-
-    // return node size after inserting list of key/value pairs
-    size_t (*get_data_size)(struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len);
-    // return (actual) key value size
-    size_t (*get_kv_size)(struct btree *tree, void *key, void *value);
-
-    void (*init_kv_var)(struct btree *tree, void *key, void *value);
-    void (*free_kv_var)(struct btree *tree, void *key, void *value);
-
-    void (*set_key)(struct btree *tree, void *dst, void *src);
-    void (*set_value)(struct btree *tree, void *dst, void *src);
-
-    void (*get_nth_idx)(struct bnode *node, idx_t num, idx_t den, idx_t *idx);
-    //void (*get_nth_splitter)(struct bnode *node, idx_t num, idx_t den, void *key);
-    void (*get_nth_splitter)(struct bnode *prev_node, struct bnode *node, void *key);
-
-    btree_cmp_func *cmp;
-    bid_t (*value2bid)(void *value);
-    voidref (*bid2value)(bid_t *bid);
-};
 
 struct btree_iterator {
     struct btree btree;
@@ -176,11 +329,11 @@ metasize_t btree_read_meta(struct btree *btree, void *buf);
 void btree_update_meta(struct btree *btree, struct btree_meta *meta);
 btree_result btree_init_from_bid(
         struct btree *btree, void *blk_handle,
-        struct btree_blk_ops *blk_ops,     struct btree_kv_ops *kv_ops,
+        struct btree_blk_ops *blk_ops, BTreeKVOps *kv_ops,
         uint32_t nodesize, bid_t root_bid);
 btree_result btree_init(
         struct btree *btree, void *blk_handle,
-        struct btree_blk_ops *blk_ops,     struct btree_kv_ops *kv_ops,
+        struct btree_blk_ops *blk_ops, BTreeKVOps *kv_ops,
         uint32_t nodesize, uint8_t ksize, uint8_t vsize,
         bnode_flag_t flag, struct btree_meta *meta);
 

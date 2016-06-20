@@ -168,14 +168,6 @@ target_link_libraries(hbtrie_test ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 set_target_properties(hbtrie_test PROPERTIES COMPILE_FLAGS "${CB_GNU_CXX11_OPTION}")
 
-add_executable(btree_str_kv_test
-               btree_str_kv_test.cc
-               ${ROOT_SRC}/btree_str_kv.cc
-               ${ROOT_SRC}/avltree.cc
-               ${GETTIMEOFDAY_VS}
-               ${ROOT_UTILS}/memleak.cc)
-target_link_libraries(btree_str_kv_test  ${LIBM} ${MALLOC_LIBRARIES})
-
 add_executable(btree_kv_test
                btree_kv_test.cc
                ${ROOT_SRC}/btree_kv.cc
@@ -191,7 +183,6 @@ add_test(filemgr_test filemgr_test)
 add_test(btreeblock_test btreeblock_test)
 add_test(docio_test docio_test)
 add_test(hbtrie_test hbtrie_test)
-add_test(btree_str_kv_test btree_str_kv_test)
 add_test(btree_kv_test btree_kv_test)
 ADD_CUSTOM_TARGET(unit_tests
     COMMAND ctest

@@ -24,64 +24,25 @@ struct bnode* dummy_node(uint8_t ksize, uint8_t vsize, uint16_t level)
     return node;
 }
 
-
-void kv_init_ops_test(int i)
-{
-    TEST_INIT();
-    memleak_start();
-
-    btree_kv_ops *kv_ops = NULL, *kv_ops_copy;
-    kv_ops_copy = NULL;
-
-    if(i == 0){
-        kv_ops =  btree_kv_get_kb64_vb64(NULL);
-        TEST_CHK(kv_ops!= NULL);
-
-        // re-init with existing ops
-        kv_ops_copy =  btree_kv_get_kb64_vb64(kv_ops);
-        if (kv_ops && kv_ops_copy) {
-            TEST_CHK(memcmp(kv_ops, kv_ops_copy, sizeof(btree_kv_ops)) == 0);
-        }
-    }
-    if(i == 1){
-        kv_ops =  btree_kv_get_kb32_vb64(NULL);
-        TEST_CHK(kv_ops!= NULL);
-
-        // re-init with existing ops
-        kv_ops_copy =  btree_kv_get_kb32_vb64(kv_ops);
-        if (kv_ops && kv_ops_copy) {
-            TEST_CHK(memcmp(kv_ops, kv_ops_copy, sizeof(btree_kv_ops)) == 0);
-        }
-    }
-
-    free(kv_ops);
-    memleak_end();
-    TEST_RESULT("kv init ops test");
-}
-
-
-void kv_init_var_test(btree_kv_ops *kv_ops)
+void kv_init_var_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
     void *key, *value;
-    btree *tree = alca(struct btree, 1);
     uint8_t ksize = 8;
     uint8_t vsize = 8;
 
     // unintialized key/value
     key = NULL;
     value = NULL;
-    kv_ops->init_kv_var(tree, key, value);
+    kv_ops->initKVVar(key, value);
     TEST_CHK(key == NULL);
     TEST_CHK(value == NULL);
 
     // initialized
     key = (void *)alca(uint8_t, ksize);
     value = (void *)alca(uint8_t, vsize);
-    tree->ksize = ksize;
-    tree->vsize = vsize;
-    kv_ops->init_kv_var(tree, key, value);
+    kv_ops->initKVVar(key, value);
     TEST_CHK( *(uint8_t *)key == 0 );
     TEST_CHK( *(uint8_t *)value == 0 );
 
@@ -90,7 +51,7 @@ void kv_init_var_test(btree_kv_ops *kv_ops)
 }
 
 
-void kv_set_var_test(btree_kv_ops *kv_ops)
+void kv_set_var_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -109,7 +70,9 @@ void kv_set_var_test(btree_kv_ops *kv_ops)
     idx = 0;
     level = 1;
     node = dummy_node(ksize, vsize, level);
-    kv_ops->set_kv(node, idx, (void*)key, (void*)&value);
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+    kv_ops->setKV(node, idx, (void*)key, (void*)&value);
 
     // verify node->data
     TEST_CHK(!(memcmp(node->data, key, ksize)));
@@ -128,7 +91,7 @@ void kv_set_var_test(btree_kv_ops *kv_ops)
  * verifies multiple key/value entries can be added to bnode
  *
  */
-void kv_set_var_nentry_test(btree_kv_ops *kv_ops)
+void kv_set_var_nentry_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -146,12 +109,15 @@ void kv_set_var_nentry_test(btree_kv_ops *kv_ops)
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     v = 100;
     for (idx = 0; idx < n; idx ++){
 
         // set key/value
         sprintf(key, "key%d", idx);
-        kv_ops->set_kv(node, idx, key, (void *)&v);
+        kv_ops->setKV(node, idx, key, (void *)&v);
 
         // verify
         TEST_CHK(!memcmp((uint8_t *)node->data + offset, key, strlen(key)));
@@ -177,7 +143,7 @@ void kv_set_var_nentry_test(btree_kv_ops *kv_ops)
  * then the same entries can be updated with new kvs
  *
  */
-void kv_set_var_nentry_update_test(btree_kv_ops *kv_ops)
+void kv_set_var_nentry_update_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -193,13 +159,16 @@ void kv_set_var_nentry_update_test(btree_kv_ops *kv_ops)
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     v = 100;
 
     // first pass
     for (i = 0; i < n; i++) {
         key[i] = alca(char, ksize);
         sprintf(key[i], "key%d", i);
-        kv_ops->set_kv(node, i, key[i], (void *)&v);
+        kv_ops->setKV(node, i, key[i], (void *)&v);
 
         TEST_CHK(!memcmp((uint8_t *)node->data + offset, key[i], strlen(key[i])));
         offset += ksize;
@@ -213,7 +182,7 @@ void kv_set_var_nentry_update_test(btree_kv_ops *kv_ops)
     // second pass
     for (i = 0; i < n; i++) {
 
-        kv_ops->set_kv(node, i, key[i], (void *)&v);
+        kv_ops->setKV(node, i, key[i], (void *)&v);
         TEST_CHK(!memcmp((uint8_t *)node->data + offset, key[i], strlen(key[i])));
         offset += ksize;
         TEST_CHK(!memcmp((uint8_t *)node->data + offset, &v, vsize));
@@ -223,11 +192,11 @@ void kv_set_var_nentry_update_test(btree_kv_ops *kv_ops)
     /* swap first/last entries */
 
     // copy first key to last
-    kv_ops->set_kv(node, n-1, key[0], (void *)&v);
+    kv_ops->setKV(node, n-1, key[0], (void *)&v);
     strcpy(key[0], key[n-1]);
 
     // copy last key to first
-    kv_ops->set_kv(node, 0, key[n-1], (void *)&v);
+    kv_ops->setKV(node, 0, key[n-1], (void *)&v);
     strcpy(key[n-1], "key0");
 
     // verify
@@ -244,7 +213,7 @@ void kv_set_var_nentry_update_test(btree_kv_ops *kv_ops)
     TEST_RESULT("kv_set_var_nentry_update_test");
 }
 
-void kv_get_var_test(btree_kv_ops *kv_ops)
+void kv_get_var_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -258,6 +227,9 @@ void kv_get_var_test(btree_kv_ops *kv_ops)
     vsize = sizeof(v_in);
     node = dummy_node(ksize, vsize, 1);
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     char *str = alca(char, ksize);
     char *k1 = alca(char, ksize);
     char *k2 = alca(char, ksize);
@@ -268,13 +240,13 @@ void kv_get_var_test(btree_kv_ops *kv_ops)
     v_in = 20;
 
     // set get key
-    kv_ops->set_kv(node, idx, str, (void *)&v_in);
-    kv_ops->get_kv(node, idx, k1, (void *)&v_out);
+    kv_ops->setKV(node, idx, str, (void *)&v_in);
+    kv_ops->getKV(node, idx, k1, (void *)&v_out);
     TEST_CHK(!(strcmp(k1, str)));
     TEST_CHK(v_out == v_in);
 
     // get with value is NULL
-    kv_ops->get_kv(node, idx, k2, NULL);
+    kv_ops->getKV(node, idx, k2, NULL);
     TEST_CHK(!(strcmp(k2, str)));
 
     free(node);
@@ -282,7 +254,7 @@ void kv_get_var_test(btree_kv_ops *kv_ops)
     TEST_RESULT("kv_get_var_test");
 }
 
-void kv_get_var_nentry_test(btree_kv_ops *kv_ops)
+void kv_get_var_nentry_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -300,20 +272,23 @@ void kv_get_var_nentry_test(btree_kv_ops *kv_ops)
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     v = 100;
 
     // set n keys
     for (idx = 0; idx < n; idx ++){
         key[idx] = alca(char, ksize);
         sprintf(key[idx], "key%d", idx);
-        kv_ops->set_kv(node, idx, key[idx], (void *)&v);
+        kv_ops->setKV(node, idx, key[idx], (void *)&v);
         v++;
     }
 
     // get n keys
     v = 100;
     for (idx = 0; idx < n; idx ++){
-        kv_ops->get_kv(node, idx, k_out, (void *)&v_out);
+        kv_ops->getKV(node, idx, k_out, (void *)&v_out);
         TEST_CHK(!(strcmp(k_out, key[idx])));
         TEST_CHK(v_out == v);
         v++;
@@ -330,7 +305,7 @@ void kv_get_var_nentry_test(btree_kv_ops *kv_ops)
  * verifies insert op on empty bnode
  *
  */
-void kv_ins_var(btree_kv_ops *kv_ops)
+void kv_ins_var(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -345,6 +320,9 @@ void kv_ins_var(btree_kv_ops *kv_ops)
     vsize = sizeof(value);
     node = dummy_node(ksize, vsize, 1);
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     char *key = alca(char, ksize);
     char *k_out = alca(char, ksize);
     memset(key, 0x0, ksize);
@@ -352,10 +330,10 @@ void kv_ins_var(btree_kv_ops *kv_ops)
 
     // insert key into to empty node
     idx = 0;
-    kv_ops->ins_kv(node, idx, key, (void *)&value);
+    kv_ops->insKV(node, idx, key, (void *)&value);
 
     // get and verify
-    kv_ops->get_kv(node, idx, k_out, (void *)&v_out);
+    kv_ops->getKV(node, idx, k_out, (void *)&v_out);
     TEST_CHK(!(strcmp(k_out, key)));
     TEST_CHK(v_out == value);
 
@@ -371,7 +349,7 @@ void kv_ins_var(btree_kv_ops *kv_ops)
  * verifies inserting twice at index 0 causes entries to shift
  *
  */
-void kv_ins_var_nentry_test(btree_kv_ops *kv_ops)
+void kv_ins_var_nentry_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -388,6 +366,9 @@ void kv_ins_var_nentry_test(btree_kv_ops *kv_ops)
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     k1 = alca(char, ksize);
     k2 = alca(char, ksize);
     memset(k1, 0x0, ksize);
@@ -396,9 +377,9 @@ void kv_ins_var_nentry_test(btree_kv_ops *kv_ops)
     strcpy(k2, "key2");
 
     // insert twice at beginning of node
-    kv_ops->ins_kv(node, 0, k1, (void *)&v);
+    kv_ops->insKV(node, 0, k1, (void *)&v);
     v++;
-    kv_ops->ins_kv(node, 0, k2, (void *)&v);
+    kv_ops->insKV(node, 0, k2, (void *)&v);
 
     // verify k2 is at entry 0, and k2 at 1
     TEST_CHK(!memcmp(node->data, k2, ksize));
@@ -416,17 +397,15 @@ void kv_ins_var_nentry_test(btree_kv_ops *kv_ops)
  * verify set key string from src to empty dst and copy back to source
  *
  */
-void kv_set_str_key_test(btree_kv_ops *kv_ops)
+void kv_set_str_key_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
 
-    btree *tree = alca(struct btree, 1);
     char src[] = "srckey";
     char *dst = alca(char, strlen(src));
-    tree->ksize = strlen(src);
-    kv_ops->set_key(tree, dst, src);
-    TEST_CHK(!memcmp(dst, src, tree->ksize));
+    kv_ops->setKey(dst, src);
+    TEST_CHK(!memcmp(dst, src, strlen(src)));
 
     memleak_end();
     TEST_RESULT("kv_set_str_key_test");
@@ -438,24 +417,22 @@ void kv_set_str_key_test(btree_kv_ops *kv_ops)
  * verify set kv value from src to empty dst and copy back to source
  *
  */
-void kv_set_str_value_test(btree_kv_ops *kv_ops)
+void kv_set_str_value_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
 
     uint64_t v_dst, v_src = 100;
-    btree *tree = alca(struct btree, 1);
-    tree->vsize = sizeof(v_dst);
 
     // set dst value
-    kv_ops->set_value(tree,(void *)&v_src,(void *)&v_dst);
+    kv_ops->setValue((void *)&v_src,(void *)&v_dst);
 
     // verify
     TEST_CHK(v_src == v_dst);
 
     // update dest and copy back to source
     v_dst = 200;
-    kv_ops->set_value(tree,(void *)&v_dst,(void *)&v_src);
+    kv_ops->setValue((void *)&v_dst,(void *)&v_src);
     TEST_CHK(v_src == v_dst);
 
     memleak_end();
@@ -470,7 +447,7 @@ void kv_set_str_value_test(btree_kv_ops *kv_ops)
  *
  */
 
-void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
+void kv_get_str_data_size_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -490,6 +467,9 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
     node = dummy_node(ksize, vsize, 1);
     node->nentry = 0;
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     new_minkey = NULL;
 
     for (i = 0; i < n; i++){
@@ -499,17 +479,17 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
     }
 
     // calculate datasize to extend empty node
-    size = kv_ops->get_data_size(node, new_minkey, key, value, 2);
+    size = kv_ops->getDataSize(node, new_minkey, key, value, 2);
     TEST_CHK(size == (size_t)(2*(ksize + vsize)));
 
     // set kvs
     for (i = 0; i < n; i++){
-        kv_ops->set_kv(node, i, key[i], (void *)&value[i]);
+        kv_ops->setKV(node, i, key[i], (void *)&value[i]);
     }
 
     // cacluate datasize to extend node with n entries
     node->nentry = n;
-    size = kv_ops->get_data_size(node, new_minkey, key, value, n);
+    size = kv_ops->getDataSize(node, new_minkey, key, value, n);
     TEST_CHK(size == (size_t)(2*(n*(ksize+vsize))));
 
     free(node);
@@ -524,35 +504,34 @@ void kv_get_str_data_size_test(btree_kv_ops *kv_ops)
  *
  */
 
-void kv_get_str_kv_size_test(btree_kv_ops *kv_ops)
+void kv_get_str_kv_size_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
 
-    btree *tree;
     int v;
     size_t size;
     char str[] = "teststring";
 
-    tree = alca(struct btree, 1);
-    tree->ksize = strlen(str);
-    tree->vsize = sizeof(v);
     v = 1;
 
+    kv_ops->setKSize(strlen(str));
+    kv_ops->setVSize(sizeof(v));
+
     // get/verify size of kv string
-    size = kv_ops->get_kv_size(tree, str, (void *)&v);
+    size = kv_ops->getKVSize(str, (void *)&v);
     TEST_CHK(size == (strlen(str) + sizeof(v)));
 
     // verify with NULL key
-    size = kv_ops->get_kv_size(tree, NULL, (void *)&v);
-    TEST_CHK(size == (tree->vsize));
+    size = kv_ops->getKVSize(NULL, (void *)&v);
+    TEST_CHK(size == sizeof(v));
 
     // verify with NULL value
-    size = kv_ops->get_kv_size(tree,&str, NULL);
+    size = kv_ops->getKVSize(&str, NULL);
     TEST_CHK(size == (strlen(str)));
 
     // NULL key/value
-    size = kv_ops->get_kv_size(tree, NULL, NULL);
+    size = kv_ops->getKVSize(NULL, NULL);
     TEST_CHK(size == 0);
 
     memleak_end();
@@ -565,7 +544,7 @@ void kv_get_str_kv_size_test(btree_kv_ops *kv_ops)
  * verify single entry from source bnode can be put into destination
  *
  */
-void kv_copy_var_test(btree_kv_ops *kv_ops)
+void kv_copy_var_test(BTreeKVOps *kv_ops)
 {
 
     TEST_INIT();
@@ -583,13 +562,16 @@ void kv_copy_var_test(btree_kv_ops *kv_ops)
     node_dst = dummy_node(ksize, vsize, 1);
     node_src = dummy_node(ksize, vsize, 1);
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     dst_idx = 0;
     src_idx = 0;
     len = 1;
 
     // set kv into src node and copy into dest
-    kv_ops->set_kv(node_src, src_idx, key, &v);
-    kv_ops->copy_kv(node_dst, node_src, dst_idx, src_idx, len);
+    kv_ops->setKV(node_src, src_idx, key, &v);
+    kv_ops->copyKV(node_dst, node_src, dst_idx, src_idx, len);
 
     // verify
     TEST_CHK(!(memcmp(node_dst->data, key, ksize)));
@@ -609,7 +591,7 @@ void kv_copy_var_test(btree_kv_ops *kv_ops)
  *   -3, prepend n-entries into occupied destination
  *
  */
-void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
+void kv_copy_var_nentry_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -626,12 +608,15 @@ void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     v = 100;
     // set n items into source node
     for (idx = 0; idx < n; idx++){
         key[idx] = alca(char, ksize);
         sprintf(key[idx], "key%d", idx);
-        kv_ops->set_kv(node, idx, key[idx], (void *)&v);
+        kv_ops->setKV(node, idx, key[idx], (void *)&v);
         v++;
     }
 
@@ -640,13 +625,13 @@ void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
     dst_idx = 0;
     len = src_idx;
     node_dst = dummy_node(ksize, vsize, 1);
-    kv_ops->copy_kv(node_dst, node, dst_idx, src_idx, len);
+    kv_ops->copyKV(node_dst, node, dst_idx, src_idx, len);
 
     // verify
     v = 100 + n/2;
     for (idx = 0; idx < n/2; idx++){
 
-        kv_ops->get_kv(node_dst, idx, k_out, (void *)&v_out);
+        kv_ops->getKV(node_dst, idx, k_out, (void *)&v_out);
         TEST_CHK(!(strcmp(k_out, key[idx + n/2])));
         TEST_CHK(v_out == v);
         v++;
@@ -656,13 +641,13 @@ void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
     // append n entries into dst node
     dst_idx = src_idx;
     src_idx = 0;
-    kv_ops->copy_kv(node_dst, node, dst_idx, src_idx, n);
+    kv_ops->copyKV(node_dst, node, dst_idx, src_idx, n);
 
     // verify
     v = 100;
     for (idx = n/2; idx < n+n/2; idx++){
 
-        kv_ops->get_kv(node_dst, idx, k_out, (void *)&v_out);
+        kv_ops->getKV(node_dst, idx, k_out, (void *)&v_out);
         TEST_CHK(!(strcmp(k_out, key[idx - n/2])));
         TEST_CHK(v_out == v);
         v++;
@@ -671,13 +656,13 @@ void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
     // prepend n entries into dst node
     dst_idx = 0;
     src_idx = 0;
-    kv_ops->copy_kv(node_dst, node, dst_idx, src_idx, n);
+    kv_ops->copyKV(node_dst, node, dst_idx, src_idx, n);
 
     // verify
     v = 100;
     for (idx = src_idx; idx < n; idx++){
 
-        kv_ops->get_kv(node_dst, idx, k_out, (void *)&v_out);
+        kv_ops->getKV(node_dst, idx, k_out, (void *)&v_out);
         TEST_CHK(!(strcmp(k_out, key[idx])));
         TEST_CHK(v_out == v);
         v++;
@@ -696,7 +681,7 @@ void kv_copy_var_nentry_test(btree_kv_ops *kv_ops)
  * verifies calculating nth index of bnode entry
  *
  */
-void kv_get_nth_idx_test(btree_kv_ops *kv_ops)
+void kv_get_nth_idx_test(BTreeKVOps *kv_ops)
 {
 
     TEST_INIT();
@@ -710,20 +695,23 @@ void kv_get_nth_idx_test(btree_kv_ops *kv_ops)
     num = 3;
     den = 4;
 
+    kv_ops->setKSize(0);
+    kv_ops->setVSize(0);
+
     // verify 3/4th offset
-    kv_ops->get_nth_idx(node, num, den, &location);
+    location = kv_ops->getNthIdx(node, num, den);
     TEST_CHK(location == 3);
 
     // verify 1/4 offset
     num = 1;
     den = 4;
-    kv_ops->get_nth_idx(node, num, den, &location);
+    location = kv_ops->getNthIdx(node, num, den);
     TEST_CHK(location == 1);
 
      // verify with num == 0
     num = 0;
     den = 3;
-    kv_ops->get_nth_idx(node, num, den, &location);
+    location = kv_ops->getNthIdx(node, num, den);
     TEST_CHK(location == 0);
 
     free(node);
@@ -737,7 +725,7 @@ void kv_get_nth_idx_test(btree_kv_ops *kv_ops)
  * verifies splitter entry can be retrieved
  *
  */
-void kv_get_nth_splitter_test(btree_kv_ops *kv_ops)
+void kv_get_nth_splitter_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -755,17 +743,20 @@ void kv_get_nth_splitter_test(btree_kv_ops *kv_ops)
     node = dummy_node(ksize, vsize, 1);
     node->nentry = n;
 
+    kv_ops->setKSize(ksize);
+    kv_ops->setVSize(vsize);
+
     v = 100;
 
     // set n keys
     for (idx = 0; idx < n; idx ++){
         sprintf(key, "key%d", idx);
-        kv_ops->set_kv(node, idx, key, (void *)&v);
+        kv_ops->setKV(node, idx, key, (void *)&v);
         v++;
     }
 
     // set *key to nth_splitter
-    kv_ops->get_nth_splitter(NULL, node, split);
+    kv_ops->getNthSplitter(NULL, node, split);
 
     // verify key[0] is set as splitter
     TEST_CHK(!(strcmp(split, "key0")));
@@ -783,7 +774,7 @@ void kv_get_nth_splitter_test(btree_kv_ops *kv_ops)
  *  - null key_ptrs
  *
  */
-void kv_cmp_key_str_test(btree_kv_ops *kv_ops, int i)
+void kv_cmp_key_str_test(BTreeKVOps *kv_ops, int i)
 {
 
     TEST_INIT();
@@ -794,14 +785,12 @@ void kv_cmp_key_str_test(btree_kv_ops *kv_ops, int i)
     int n = 4;
     char **keys = alca(char*, n);
     void *tmp;
-    btree_kv_ops *kv_ops2 = NULL;
+    BTreeKVOps *kv_ops2;
 
     if (i == 0){
-        kv_ops2 = btree_kv_get_kb64_vb64(NULL);
-    }
-    if (i == 1){
-        kv_ops2 =  btree_kv_get_kb32_vb64(NULL);
-
+        kv_ops2 = new FixedKVOps(8, 8);
+    } else {
+        kv_ops2 = new FixedKVOps(4, 8);
     }
 
     tmp = NULL;
@@ -841,7 +830,7 @@ void kv_cmp_key_str_test(btree_kv_ops *kv_ops, int i)
     cmp = kv_ops2->cmp(&tmp, &tmp, NULL);
     TEST_CHK( cmp == 0 );
 
-    free(kv_ops2);
+    delete kv_ops2;
     memleak_end();
     TEST_RESULT("kv_cmp_key_str_test");
 }
@@ -851,7 +840,7 @@ void kv_cmp_key_str_test(btree_kv_ops *kv_ops, int i)
  *
  * verifies conversion of values to bid types and vice-versa
  */
-void kv_bid_to_value_to_bid_test(btree_kv_ops *kv_ops)
+void kv_bid_to_value_to_bid_test(BTreeKVOps *kv_ops)
 {
     TEST_INIT();
     memleak_start();
@@ -873,22 +862,48 @@ void kv_bid_to_value_to_bid_test(btree_kv_ops *kv_ops)
     TEST_RESULT("kv_bid_to_value_to_bid_test");
 }
 
+int kv_test_cmp32(void *key1, void *key2, void *aux)
+{
+    (void) aux;
+    uint32_t a, b;
+    a = deref32(key1);
+    b = deref32(key2);
+
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int kv_test_cmp64(void *key1, void *key2, void *aux)
+{
+    (void) aux;
+    uint64_t a,b;
+    a = deref64(key1);
+    b = deref64(key2);
+
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
 
 int main()
 {
     int i;
 
-    #ifdef _MEMPOOL
-        mempool_init();
-    #endif
-
-    btree_kv_ops ** ops = alca(btree_kv_ops*, 2);
-    ops[0] = btree_kv_get_ku64_vu64();
-    ops[1] = btree_kv_get_ku32_vu64();
+    BTreeKVOps ** ops = alca(BTreeKVOps*, 2);
+    ops[0] = new FixedKVOps(8, 8, kv_test_cmp64);
+    ops[1] = new FixedKVOps(4, 8, kv_test_cmp32);
 
     for (i=0; i<2; i++){
 
-        kv_init_ops_test(i);
         kv_init_var_test(ops[i]);
 
         kv_set_var_test(ops[i]);
@@ -916,6 +931,9 @@ int main()
         kv_cmp_key_str_test(ops[i], i);
         kv_bid_to_value_to_bid_test(ops[i]);
     }
+
+    delete ops[0];
+    delete ops[1];
 
     return 0;
 }

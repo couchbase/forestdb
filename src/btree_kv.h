@@ -22,6 +22,8 @@
 #include <stdint.h>
 #include "common.h"
 
+#include "btree.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -54,12 +56,48 @@ INLINE uint64_t deref64(const void *ptr)
     return *(uint64_t*)ptr;
 }
 
-struct btree_kv_ops;
-struct btree_kv_ops * btree_kv_get_ku64_vu64();
-struct btree_kv_ops * btree_kv_get_ku32_vu64();
-struct btree_kv_ops * btree_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops);
-struct btree_kv_ops * btree_kv_get_kb32_vb64(struct btree_kv_ops *kv_ops);
-struct btree_kv_ops * btree_kv_get_kbn_vb64(struct btree_kv_ops *kv_ops);
+/**
+ * B+tree key-value operation class for fixed chunk key.
+ */
+class FixedKVOps : public BTreeKVOps {
+public:
+    FixedKVOps();
+    FixedKVOps(size_t _ksize, size_t _vsize);
+    FixedKVOps(size_t _ksize, size_t _vsize, btree_cmp_func _cmp_func);
+
+    virtual ~FixedKVOps() { }
+
+    void init(size_t _ksize, size_t _vsize, btree_cmp_func _cmp_func);
+
+    void getKV(struct bnode *node, idx_t idx, void *key, void *value);
+    void setKV(struct bnode *node, idx_t idx, void *key, void *value);
+    void insKV(struct bnode *node, idx_t idx, void *key, void *value);
+    void copyKV(struct bnode *node_dst,
+                struct bnode *node_src,
+                idx_t dst_idx,
+                idx_t src_idx,
+                idx_t len);
+    size_t getDataSize(struct bnode *node,
+                       void *new_minkey,
+                       void *key_arr,
+                       void *value_arr,
+                       size_t len);
+    size_t getKVSize(void *key, void *value);
+    void initKVVar(void *key, void *value);
+    void freeKVVar(void *key, void *value) { }
+    void setKey(void *dst, void *src);
+    void setValue(void *dst, void *src);
+    idx_t getNthIdx(struct bnode *node, idx_t num, idx_t den);
+    void getNthSplitter(struct bnode *prev_node,
+                        struct bnode *node,
+                        void *key);
+
+    void setVarKey(void *key, void *str, size_t len) { }
+    void setInfVarKey(void *key) { }
+    bool isInfVarKey(void *key) { return false; }
+    void getVarKey(void *key, void *strbuf, size_t& len) { }
+    void freeVarKey(void *key) { }
+};
 
 #ifdef __cplusplus
 }

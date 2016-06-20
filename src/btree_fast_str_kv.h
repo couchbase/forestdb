@@ -21,18 +21,56 @@
 #include <stdint.h>
 #include "common.h"
 
+#include "btree.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void btree_fast_str_kv_set_key(void *key, void *str, size_t len);
-void btree_fast_str_kv_set_inf_key(void *key);
-int btree_fast_str_kv_is_inf_key(void *key);
-void btree_fast_str_kv_get_key(void *key, void *strbuf, size_t *len);
-void btree_fast_str_kv_free_key(void *key);
+/**
+ * B+tree key-value operation class for variable-length string key.
+ * Note that it can be also used for custom (non-lexicographical) order operations.
+ */
+class FastStrKVOps : public BTreeKVOps {
+public:
+    FastStrKVOps();
+    FastStrKVOps(size_t _ksize, size_t _vsize);
+    FastStrKVOps(size_t _ksize, size_t _vsize, btree_cmp_func _cmp_func);
 
-struct btree_kv_ops;
-struct btree_kv_ops *btree_fast_str_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops);
+    virtual ~FastStrKVOps() { }
+
+    void init(size_t _ksize, size_t _vsize, btree_cmp_func _cmp_func);
+
+    void getKV(struct bnode *node, idx_t idx, void *key, void *value);
+    void setKV(struct bnode *node, idx_t idx, void *key, void *value);
+    void insKV(struct bnode *node, idx_t idx, void *key, void *value);
+    void copyKV(struct bnode *node_dst,
+                struct bnode *node_src,
+                idx_t dst_idx,
+                idx_t src_idx,
+                idx_t len);
+    size_t getDataSize(struct bnode *node,
+                       void *new_minkey,
+                       void *key_arr,
+                       void *value_arr,
+                       size_t len);
+    size_t getKVSize(void *key, void *value);
+    void initKVVar(void *key, void *value);
+    void freeKVVar(void *key, void *value);
+    void setKey(void *dst, void *src);
+    void setValue(void *dst, void *src);
+    idx_t getNthIdx(struct bnode *node, idx_t num, idx_t den);
+    void getNthSplitter(struct bnode *prev_node,
+                        struct bnode *node,
+                        void *key);
+
+    void setVarKey(void *key, void *str, size_t len);
+    void setInfVarKey(void *key);
+    bool isInfVarKey(void *key);
+    void getVarKey(void *key, void *strbuf, size_t& len);
+    void freeVarKey(void *key);
+};
+
 
 #ifdef __cplusplus
 }

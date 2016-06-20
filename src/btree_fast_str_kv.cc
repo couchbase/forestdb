@@ -20,39 +20,114 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "btree.h"
 #include "btree_fast_str_kv.h"
 
 #include "memleak.h"
 
 typedef uint16_t key_len_t;
 
-/*
-=== node->data structure overview ===
+/**
+ * === node->data structure overview ===
+ *
+ * [offset of key 1]: sizeof(key_len_t) bytes
+ * [offset of key 2]: ...
+ * ...
+ * [offset of key n]: ...
+ * [offset of key n+1]: points to the byte offset right after the end of n-th entry
+ * [key 1][value 1]
+ * [key 2][value 2]
+ * ...
+ * [key n][value n]
+ *
+ * Note that the maximum node size is limited to 2^(8*sizeof(key_len_t)) bytes
+ */
 
-[offset of key 1]: sizeof(key_len_t) bytes
-[offset of key 2]: ...
-...
-[offset of key n]: ...
-[offset of key n+1]: points to the byte offset right after the end of n-th entry
-[key 1][value 1]
-[key 2][value 2]
-...
-[key n][value n]
+/**
+ * === Variable-length key structure ===
+ *
+ * B+tree key (8 bytes): pointer to the address that the actual key is stored.
+ *
+ * Actual key:
+ * <-- 2 --><-- key len -->
+ * [key len][  key string ]
+ */
 
-Note that the maximum node size is limited to 2^(8*sizeof(key_len_t)) bytes
-*/
-
-static void _get_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
+int cmpFastStr64(void *key1, void *key2, void* aux)
 {
-    int ksize, vsize;
+    (void) aux;
+    void *key_ptr1, *key_ptr2;
+    key_len_t keylen1, keylen2, inflen;
+    key_len_t _keylen1, _keylen2;
+
+    memcpy(&key_ptr1, key1, sizeof(void *));
+    memcpy(&key_ptr2, key2, sizeof(void *));
+
+    if (key_ptr1 == NULL && key_ptr2 == NULL) {
+        return 0;
+    } else if (key_ptr1 == NULL) {
+        return -1;
+    } else if (key_ptr2 == NULL) {
+        return 1;
+    }
+
+    memcpy(&_keylen1, key_ptr1, sizeof(key_len_t));
+    memcpy(&_keylen2, key_ptr2, sizeof(key_len_t));
+    keylen1 = _endian_decode(_keylen1);
+    keylen2 = _endian_decode(_keylen2);
+
+    inflen = static_cast<key_len_t>(-1);
+    if (keylen1 == inflen) {
+        return 1;
+    } else if (keylen2 == inflen) {
+        return -1;
+    }
+
+    if (keylen1 == keylen2) {
+        return memcmp((uint8_t*)key_ptr1 + sizeof(key_len_t),
+                      (uint8_t*)key_ptr2 + sizeof(key_len_t), keylen1);
+    }else{
+        key_len_t len = MIN(keylen1, keylen2);
+        int cmp = memcmp((uint8_t*)key_ptr1 + sizeof(key_len_t),
+                         (uint8_t*)key_ptr2 + sizeof(key_len_t), len);
+        if (cmp != 0) {
+            return cmp;
+        } else {
+            return (int)((int)keylen1 - (int)keylen2);
+        }
+    }
+}
+
+FastStrKVOps::FastStrKVOps() {
+    init(8, 8, NULL);
+}
+
+FastStrKVOps::FastStrKVOps(size_t _ksize, size_t _vsize)
+{
+    init(_ksize, _vsize, NULL);
+}
+
+FastStrKVOps::FastStrKVOps(size_t _ksize, size_t _vsize, btree_cmp_func _cmp_func)
+{
+    init(_ksize, _vsize, _cmp_func);
+}
+
+void FastStrKVOps::init(size_t _ksize, size_t _vsize, btree_cmp_func _cmp_func)
+{
+    ksize = sizeof(void *);
+    vsize = _vsize;
+    if (_cmp_func) {
+        cmp_func = _cmp_func;
+    } else {
+        cmp_func = cmpFastStr64;
+    }
+}
+
+void FastStrKVOps::getKV(struct bnode *node, idx_t idx, void *key, void *value)
+{
     void *key_ptr, *ptr;
     key_len_t *_offset_arr;
     key_len_t keylen, _keylen;
     key_len_t offset;
-
-    _get_kvsize(node->kvsize, ksize, vsize);
-    ksize = sizeof(void *);
 
     ptr = node->data;
 
@@ -83,19 +158,17 @@ static void _get_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
     if (value) {
         memcpy(value, (uint8_t*)ptr + offset + keylen, vsize);
     }
+
 }
 
-static void _set_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
+void FastStrKVOps::setKV(struct bnode *node, idx_t idx, void *key, void *value)
 {
-    int ksize, vsize, i;
+    int i;
     void *key_ptr, *ptr;
     key_len_t *_offset_arr, offset;
     key_len_t keylen_ins, keylen_idx;
     key_len_t _keylen_ins;
     key_len_t offset_idx, offset_next, next_len;
-
-    _get_kvsize(node->kvsize, ksize, vsize);
-    ksize = sizeof(void *);
 
     ptr = node->data;
 
@@ -161,22 +234,21 @@ static void _set_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
         _offset_arr[idx+1] = _endian_encode(offset);
     }
     // copy key into the node
-    memcpy((uint8_t*)ptr + offset_idx, (uint8_t*)key_ptr + sizeof(key_len_t), keylen_ins);
+    memcpy( (uint8_t*)ptr + offset_idx,
+            (uint8_t*)key_ptr + sizeof(key_len_t),
+            keylen_ins );
     // copy value
     memcpy((uint8_t*)ptr + offset_idx + keylen_ins, value, vsize);
 }
 
-static void _ins_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *value)
+void FastStrKVOps::insKV(struct bnode *node, idx_t idx, void *key, void *value)
 {
-    int ksize, vsize, i;
+    int i;
     void *key_ptr, *ptr;
     key_len_t *_offset_arr;
     key_len_t keylen_ins;
     key_len_t _keylen_ins;
     key_len_t offset, offset_begin, offset_idx, offset_next, next_len;
-
-    _get_kvsize(node->kvsize, ksize, vsize);
-    ksize = sizeof(void *);
 
     ptr = node->data;
 
@@ -198,13 +270,15 @@ static void _ins_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
 
         // move idx ~ nentry-1 KVs to right by (keylen + vsize + sizeof(key_len_t))
         next_len = _endian_decode(_offset_arr[node->nentry]) - offset_idx;
-        memmove((uint8_t*)ptr + offset_idx + keylen_ins + vsize + sizeof(key_len_t),
-                (uint8_t*)ptr + offset_idx, next_len);
+        memmove( (uint8_t*)ptr + offset_idx + keylen_ins + vsize + sizeof(key_len_t),
+                 (uint8_t*)ptr + offset_idx,
+                 next_len);
 
         // move 0 ~ idx to right by sizeof(key_len_t)
         next_len = _endian_decode(_offset_arr[idx]) - offset_begin;
-        memmove((uint8_t*)ptr + offset_begin + sizeof(key_len_t),
-                (uint8_t*)ptr + offset_begin, next_len);
+        memmove( (uint8_t*)ptr + offset_begin + sizeof(key_len_t),
+                 (uint8_t*)ptr + offset_begin,
+                 next_len);
         offset_idx += sizeof(key_len_t);
 
         // also move offset array
@@ -212,7 +286,9 @@ static void _ins_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
                 sizeof(key_len_t) * (node->nentry - idx + 1));
 
         // copy key into the node
-        memcpy((uint8_t*)ptr + offset_idx, (uint8_t*)key_ptr + sizeof(key_len_t), keylen_ins);
+        memcpy( (uint8_t*)ptr + offset_idx,
+                (uint8_t*)key_ptr + sizeof(key_len_t),
+                keylen_ins);
         // copy value
         memcpy((uint8_t*)ptr + offset_idx + keylen_ins, value, vsize);
 
@@ -226,7 +302,7 @@ static void _ins_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
             }
             _offset_arr[i] = _endian_encode(offset);
         }
-    }else{
+    } else {
         // we have to move idx+1 ~ nentry KVs to appropriate position
         key_len_t len_left, len_right;
 
@@ -240,12 +316,14 @@ static void _ins_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
                 sizeof(key_len_t) * (node->nentry - (idx+1) + 1));
 
         // move 0 ~ idx to left by sizeof(key_len_t)
-        memmove((uint8_t*)ptr + offset_begin - sizeof(key_len_t),
-                (uint8_t*)ptr + offset_begin, len_left);
+        memmove( (uint8_t*)ptr + offset_begin - sizeof(key_len_t),
+                 (uint8_t*)ptr + offset_begin,
+                 len_left );
 
         // move idx+1 ~ nentry-1
-        memmove((uint8_t*)ptr + offset_idx - sizeof(key_len_t),
-                (uint8_t*)ptr + offset_next, len_right);
+        memmove( (uint8_t*)ptr + offset_idx - sizeof(key_len_t),
+                 (uint8_t*)ptr + offset_next,
+                 len_right );
 
         // update offset array
         for (i=0;i<node->nentry;++i){
@@ -258,26 +336,22 @@ static void _ins_fast_str_kv(struct bnode *node, idx_t idx, void *key, void *val
             _offset_arr[i] = _endian_encode(offset);
         }
     }
+
 }
 
-static void _copy_fast_str_kv(struct bnode *node_dst,
-                         struct bnode *node_src,
-                         idx_t dst_idx,
-                         idx_t src_idx,
-                         idx_t len)
+void FastStrKVOps::copyKV(struct bnode *node_dst,
+                          struct bnode *node_src,
+                          idx_t dst_idx,
+                          idx_t src_idx,
+                          idx_t len)
 {
     int i;
-    int ksize, vsize;
     void *ptr_src, *ptr_dst, *ptr_swap;
     key_len_t *_src_offset_arr, *_dst_offset_arr;
     key_len_t offset, src_offset, src_len, dst_offset;
 
     // not support when dst_idx != 0
     assert(dst_idx == 0);
-
-    _get_kvsize(node_src->kvsize, ksize, vsize);
-    (void)ksize;
-    (void)vsize;
 
     ptr_src = node_src->data;
     ptr_dst = node_dst->data;
@@ -318,35 +392,19 @@ static void _copy_fast_str_kv(struct bnode *node_dst,
         memcpy(ptr_swap, ptr_dst, dst_offset + src_len);
         free(ptr_dst);
     }
+
 }
 
-// LCOV_EXCL_START
-static size_t _get_fast_str_kv_size(struct btree *tree, void *key, void *value)
+size_t FastStrKVOps::getDataSize(struct bnode *node,
+                                 void *new_minkey,
+                                 void *key_arr,
+                                 void *value_arr,
+                                 size_t len)
 {
-    void *key_ptr;
-    key_len_t keylen, _keylen;
-
-    if (key) {
-        memcpy(&key_ptr, key, sizeof(void *));
-        memcpy(&_keylen, key_ptr, sizeof(key_len_t));
-        keylen = _endian_decode(_keylen);
-    }
-
-    return ((key)?(sizeof(key_len_t) + keylen):0) + ((value)?tree->vsize:0);
-}
-// LCOV_EXCL_STOP
-
-static size_t _get_fast_str_data_size(
-    struct bnode *node, void *new_minkey, void *key_arr, void *value_arr, size_t len)
-{
-    int ksize, vsize;
     void *ptr, *key_ptr;
     size_t size, i;
     key_len_t *_offset_arr;
     key_len_t keylen, _keylen;
-
-    _get_kvsize(node->kvsize, ksize, vsize);
-    ksize = sizeof(void *);
 
     ptr = node->data;
     size = 0;
@@ -383,13 +441,32 @@ static size_t _get_fast_str_data_size(
     return size;
 }
 
-INLINE void _init_fast_str_kv_var(struct btree *tree, void *key, void *value)
+size_t FastStrKVOps::getKVSize(void *key, void *value)
 {
-    if (key) memset(key, 0, sizeof(void *));
-    if (value) memset(value, 0, tree->vsize);
+    void *key_ptr;
+    key_len_t keylen, _keylen;
+
+    if (key) {
+        memcpy(&key_ptr, key, sizeof(void *));
+        memcpy(&_keylen, key_ptr, sizeof(key_len_t));
+        keylen = _endian_decode(_keylen);
+    }
+
+    return ( (key)   ? (sizeof(key_len_t) + keylen) : (0) ) +
+           ( (value) ? (vsize) : (0) );
 }
 
-static void _free_fast_str_kv_var(struct btree *tree, void *key, void *value)
+void FastStrKVOps::initKVVar(void *key, void *value)
+{
+    if (key) {
+        memset(key, 0, sizeof(void *));
+    }
+    if (value) {
+        memset(value, 0, vsize);
+    }
+}
+
+void FastStrKVOps::freeKVVar(void *key, void *value)
 {
     void *key_ptr;
 
@@ -401,13 +478,13 @@ static void _free_fast_str_kv_var(struct btree *tree, void *key, void *value)
     }
 }
 
-static void _set_fast_str_key(struct btree *tree, void *dst, void *src)
+void FastStrKVOps::setKey(void *dst, void *src)
 {
     void *key_ptr_old, *key_ptr_new;
     key_len_t keylen_new, _keylen_new, inflen, keylen_alloc;
     size_t size_key = sizeof(key_len_t);
 
-    memset(&inflen, 0xff, sizeof(inflen));
+    inflen = static_cast<key_len_t>(-1);
 
     memcpy(&key_ptr_new, src, sizeof(void *));
     memcpy(&_keylen_new, key_ptr_new, size_key);
@@ -419,35 +496,39 @@ static void _set_fast_str_key(struct btree *tree, void *dst, void *src)
         free(key_ptr_old);
     }
 
-    keylen_alloc = (keylen_new == inflen)?(0):(keylen_new);
+    keylen_alloc = (keylen_new == inflen) ? (0) : (keylen_new);
     key_ptr_old = (void*)malloc(size_key + keylen_alloc);
     // copy keylen
     memcpy(key_ptr_old, key_ptr_new, size_key);
     if (keylen_alloc) {
-        memcpy((uint8_t*)key_ptr_old + size_key,
-               (uint8_t*)key_ptr_new + size_key, keylen_new);
+        memcpy( (uint8_t*)key_ptr_old + size_key,
+                (uint8_t*)key_ptr_new + size_key,
+                keylen_new);
     }
     memcpy(dst, &key_ptr_old, sizeof(void *));
 }
 
-INLINE void _set_fast_str_value(struct btree *tree, void *dst, void *src)
+void FastStrKVOps::setValue(void *dst, void *src)
 {
-    memcpy(dst, src, tree->vsize);
+    memcpy(dst, src, vsize);
 }
 
-INLINE void _get_fast_str_nth_idx(struct bnode *node, idx_t num, idx_t den, idx_t *idx)
+idx_t FastStrKVOps::getNthIdx(struct bnode *node, idx_t num, idx_t den)
 {
     size_t rem = node->nentry - (int)(node->nentry / den) * den;
-    *idx = (int)(node->nentry / den) * num + ((num < rem)?(num):(rem));
+    return (node->nentry / den) * num + ((num < rem)?(num):(rem));
 }
 
-INLINE void _get_fast_str_nth_splitter(struct bnode *prev_node, struct bnode *node, void *key)
+void FastStrKVOps::getNthSplitter(struct bnode *prev_node,
+                                  struct bnode *node,
+                                  void *key)
 {
-    // always return the smallest key of 'node'
-    _get_fast_str_kv(node, 0, key, NULL);
+    // always return the first key of the NODE
+    getKV(node, 0, key, NULL);
 }
 
-void btree_fast_str_kv_set_key(void *key, void *str, size_t len)
+// set a variable-length key from a binary stream
+void FastStrKVOps::setVarKey(void *key, void *str, size_t len)
 {
     void *key_ptr;
     key_len_t keylen = len;
@@ -461,7 +542,7 @@ void btree_fast_str_kv_set_key(void *key, void *str, size_t len)
 }
 
 // create an infinite key that is larger than any other keys
-void btree_fast_str_kv_set_inf_key(void *key)
+void FastStrKVOps::setInfVarKey(void *key)
 {
     void *key_ptr;
     key_len_t keylen;
@@ -469,38 +550,39 @@ void btree_fast_str_kv_set_inf_key(void *key)
 
     // just containing length (0xff..) info
     key_ptr = (void *)malloc(sizeof(key_len_t));
-    memset(&keylen, 0xff, sizeof(key_len_t));
+    keylen = static_cast<key_len_t>(-1);
     _keylen = _endian_encode(keylen);
     memcpy(key_ptr, &_keylen, sizeof(key_len_t));
     memcpy(key, &key_ptr, sizeof(void *));
 }
 
 // return true if KEY is infinite key
-int btree_fast_str_kv_is_inf_key(void *key)
+bool FastStrKVOps::isInfVarKey(void *key)
 {
     void *key_ptr;
     key_len_t keylen, inflen;
     key_len_t _keylen;
 
-    memset(&inflen, 0xff, sizeof(key_len_t));
+    inflen = static_cast<key_len_t>(-1);
     memcpy(&key_ptr, key, sizeof(void *));
     if (key_ptr) {
         memcpy(&_keylen, key_ptr, sizeof(key_len_t));
         keylen = _endian_decode(_keylen);
         if (keylen == inflen) {
-            return 1;
+            return true;
         }
     }
-    return 0;
+    return false;
 }
 
-void btree_fast_str_kv_get_key(void *key, void *strbuf, size_t *len)
+// get a binary stream from a variable-length key
+void FastStrKVOps::getVarKey(void *key, void *strbuf, size_t& len)
 {
     void *key_ptr;
     key_len_t keylen, inflen;
     key_len_t _keylen;
 
-    memset(&inflen, 0xff, sizeof(key_len_t));
+    inflen = static_cast<key_len_t>(-1);
 
     memcpy(&key_ptr, key, sizeof(void *));
     if (key_ptr) {
@@ -509,13 +591,14 @@ void btree_fast_str_kv_get_key(void *key, void *strbuf, size_t *len)
         if (keylen != inflen) {
             memcpy(strbuf, (uint8_t*)key_ptr + sizeof(key_len_t), keylen);
         }
-        *len = keylen;
+        len = keylen;
     } else {
-        *len = 0;
+        len = 0;
     }
 }
 
-void btree_fast_str_kv_free_key(void *key)
+// free a variable-length key
+void FastStrKVOps::freeVarKey(void *key)
 {
     void *key_ptr;
     memcpy(&key_ptr, key, sizeof(void *));
@@ -524,87 +607,4 @@ void btree_fast_str_kv_free_key(void *key)
     memcpy(key, &key_ptr, sizeof(void *));
 }
 
-INLINE bid_t _fast_str_value_to_bid_64(void *value)
-{
-    return *((bid_t *)value);
-}
 
-INLINE void* _fast_str_bid_to_value_64(bid_t *bid)
-{
-    return (void *)bid;
-}
-
-int _cmp_fast_str64(void *key1, void *key2, void* aux)
-{
-    (void) aux;
-    void *key_ptr1, *key_ptr2;
-    key_len_t keylen1, keylen2, inflen;
-    key_len_t _keylen1, _keylen2;
-
-    memcpy(&key_ptr1, key1, sizeof(void *));
-    memcpy(&key_ptr2, key2, sizeof(void *));
-
-    if (key_ptr1 == NULL && key_ptr2 == NULL) {
-        return 0;
-    } else if (key_ptr1 == NULL) {
-        return -1;
-    } else if (key_ptr2 == NULL) {
-        return 1;
-    }
-
-    memcpy(&_keylen1, key_ptr1, sizeof(key_len_t));
-    memcpy(&_keylen2, key_ptr2, sizeof(key_len_t));
-    keylen1 = _endian_decode(_keylen1);
-    keylen2 = _endian_decode(_keylen2);
-
-    memset(&inflen, 0xff, sizeof(key_len_t));
-    if (keylen1 == inflen) {
-        return 1;
-    } else if (keylen2 == inflen) {
-        return -1;
-    }
-
-    if (keylen1 == keylen2) {
-        return memcmp((uint8_t*)key_ptr1 + sizeof(key_len_t),
-                      (uint8_t*)key_ptr2 + sizeof(key_len_t), keylen1);
-    }else{
-        key_len_t len = MIN(keylen1, keylen2);
-        int cmp = memcmp((uint8_t*)key_ptr1 + sizeof(key_len_t),
-                         (uint8_t*)key_ptr2 + sizeof(key_len_t), len);
-        if (cmp != 0) return cmp;
-        else {
-            return (int)((int)keylen1 - (int)keylen2);
-        }
-    }
-}
-
-struct btree_kv_ops * btree_fast_str_kv_get_kb64_vb64(struct btree_kv_ops *kv_ops)
-{
-    struct btree_kv_ops *btree_kv_ops;
-    if (kv_ops) {
-        btree_kv_ops = kv_ops;
-    }else{
-        btree_kv_ops = (struct btree_kv_ops *)malloc(sizeof(struct btree_kv_ops));
-    }
-
-    btree_kv_ops->get_kv = _get_fast_str_kv;
-    btree_kv_ops->set_kv = _set_fast_str_kv;
-    btree_kv_ops->ins_kv = _ins_fast_str_kv;
-    btree_kv_ops->copy_kv = _copy_fast_str_kv;
-    btree_kv_ops->set_key = _set_fast_str_key;
-    btree_kv_ops->set_value = _set_fast_str_value;
-    btree_kv_ops->get_data_size = _get_fast_str_data_size;
-    btree_kv_ops->get_kv_size = _get_fast_str_kv_size;
-    btree_kv_ops->init_kv_var = _init_fast_str_kv_var;
-    btree_kv_ops->free_kv_var = _free_fast_str_kv_var;
-
-    btree_kv_ops->get_nth_idx = _get_fast_str_nth_idx;
-    btree_kv_ops->get_nth_splitter = _get_fast_str_nth_splitter;
-
-    btree_kv_ops->cmp = _cmp_fast_str64;
-
-    btree_kv_ops->bid2value = _fast_str_bid_to_value_64;
-    btree_kv_ops->value2bid = _fast_str_value_to_bid_64;
-
-    return btree_kv_ops;
-}

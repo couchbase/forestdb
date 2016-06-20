@@ -127,11 +127,11 @@ public:
         return btree_blk_ops;
     }
 
-    struct btree_kv_ops* getBtreeKvOps() const {
+    BTreeKVOps* getBtreeKvOps() const {
         return btree_kv_ops;
     }
 
-    struct btree_kv_ops* getBtreeLeafKvOps() const {
+    BTreeKVOps* getBtreeLeafKvOps() const {
         return btree_leaf_kv_ops;
     }
 
@@ -164,7 +164,7 @@ public:
     }
 
     void setLeafCmp(btree_cmp_func* _cmp) {
-        btree_leaf_kv_ops->cmp = _cmp;
+        btree_leaf_kv_ops->setCmpFunc(_cmp);
     }
 
     void setMapFunction(hbtrie_cmp_map* _map_func) {
@@ -238,8 +238,8 @@ private:
     void *aux;
 
     struct btree_blk_ops *btree_blk_ops;
-    struct btree_kv_ops *btree_kv_ops;
-    struct btree_kv_ops *btree_leaf_kv_ops;
+    BTreeKVOps *btree_kv_ops;
+    BTreeKVOps *btree_leaf_kv_ops;
     hbtrie_func_readkey *readkey;
     hbtrie_cmp_map *map;
     btree_cmp_args cmp_args;
@@ -331,6 +331,28 @@ private:
     hbtrie_result _insert(void *rawkey, int rawkeylen,
                           void *value, void *oldvalue_out,
                           uint8_t flag);
+
+
+    inline void getLeafKey(void *key, void *str, size_t& len)
+    {
+        btree_leaf_kv_ops->getVarKey(key, str, len);
+    }
+
+    inline void setLeafKey(void *key, void *str, size_t len)
+    {
+        btree_leaf_kv_ops->setVarKey(key, str, len);
+    }
+
+    inline void setInfVarKey(void *key)
+    {
+        btree_leaf_kv_ops->setInfVarKey(key);
+    }
+
+    inline void freeLeafKey(void *key)
+    {
+        btree_leaf_kv_ops->freeVarKey(key);
+    }
+
 };
 
 #define HBTRIE_ITERATOR_REV    0x01
@@ -447,6 +469,27 @@ private:
     inline void flagsSetMoved() {
         flags |= HBTRIE_ITERATOR_MOVED;
     }
+
+    inline void getLeafKey(void *key, void *str, size_t& len)
+    {
+        trie->getBtreeLeafKvOps()->getVarKey(key, str, len);
+    }
+
+    inline void setLeafKey(void *key, void *str, size_t len)
+    {
+        trie->getBtreeLeafKvOps()->setVarKey(key, str, len);
+    }
+
+    inline void setLeafInfKey(void *key)
+    {
+        trie->getBtreeLeafKvOps()->setInfVarKey(key);
+    }
+
+    inline void freeLeafKey(void *key)
+    {
+        trie->getBtreeLeafKvOps()->freeVarKey(key);
+    }
+
 };
 
 #ifdef __cplusplus
