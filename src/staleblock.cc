@@ -153,7 +153,7 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
     btree_iterator_init(handle->staletree, &bit, NULL);
     do {
         br = btree_next(&bit, (void*)&_revnum, (void*)&_offset);
-        btreeblk_end(handle->bhandle);
+        handle->bhandle->flushBuffer();
         if (br != BTREE_RESULT_SUCCESS) {
             break;
         }
@@ -238,8 +238,8 @@ void fdb_gather_stale_blocks(FdbKvsHandle *handle,
         struct stale_data *item;
 
         r = _kvs_stat_get(handle->file, 0, &stat);
-        handle->bhandle->nlivenodes = stat.nlivenodes;
-        handle->bhandle->ndeltanodes = stat.nlivenodes;
+        handle->bhandle->setNLiveNodes(stat.nlivenodes);
+        handle->bhandle->setNDeltaNodes(stat.nlivenodes);
         (void)r;
 
         buf = (uint8_t *)calloc(1, bufsize);
@@ -379,8 +379,8 @@ void fdb_gather_stale_blocks(FdbKvsHandle *handle,
                 // insert into stale-block tree
                 _doc_offset = _endian_encode(doc_offset);
                 btree_insert(handle->staletree, (void *)&_revnum, (void *)&_doc_offset);
-                btreeblk_end(handle->bhandle);
-                btreeblk_reset_subblock_info(handle->bhandle);
+                handle->bhandle->flushBuffer();
+                handle->bhandle->resetSubblockInfo();
 
                 if (from_mergetree && first_loop) {
                     // if from_mergetree flag is set and this is the first loop,
@@ -418,15 +418,15 @@ void fdb_gather_stale_blocks(FdbKvsHandle *handle,
             first_loop = false;
         } // gather stale blocks
 
-        delta = handle->bhandle->nlivenodes - stat.nlivenodes;
+        delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
         _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
-        delta = handle->bhandle->ndeltanodes - stat.nlivenodes;
+        delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
         delta *= handle->config.blocksize;
         _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
 
         free(buf);
     } else {
-        btreeblk_reset_subblock_info(handle->bhandle);
+        handle->bhandle->resetSubblockInfo();
     }
 }
 
@@ -583,8 +583,8 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     revnum_upto = stale_header.revnum;
 
     r = _kvs_stat_get(handle->file, 0, &stat);
-    handle->bhandle->nlivenodes = stat.nlivenodes;
-    handle->bhandle->ndeltanodes = stat.nlivenodes;
+    handle->bhandle->setNLiveNodes(stat.nlivenodes);
+    handle->bhandle->setNDeltaNodes(stat.nlivenodes);
     (void)r;
 
     revnum_array = (filemgr_header_revnum_t *)
@@ -707,7 +707,7 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
         btree_iterator_init(handle->staletree, &bit, NULL);
         do {
             br = btree_next(&bit, (void*)&_revnum, (void*)&_offset);
-            btreeblk_end(handle->bhandle);
+            handle->bhandle->flushBuffer();
             if (br != BTREE_RESULT_SUCCESS) {
                 break;
             }
@@ -769,12 +769,12 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     for (i=0; i<n_revnums; ++i) {
         _revnum = _endian_encode(revnum_array[i]);
         btree_remove(handle->staletree, (void*)&_revnum);
-        btreeblk_end(handle->bhandle);
+        handle->bhandle->flushBuffer();
     }
 
-    delta = handle->bhandle->nlivenodes - stat.nlivenodes;
+    delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
     _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
-    delta = handle->bhandle->ndeltanodes - stat.nlivenodes;
+    delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
     delta *= handle->config.blocksize;
     _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
 
@@ -925,7 +925,7 @@ void fdb_rollback_stale_blocks(FdbKvsHandle *handle,
         br = btree_remove(handle->staletree, (void*)&_revnum);
         // don't care the result
         (void)br;
-        btreeblk_end(handle->bhandle);
+        handle->bhandle->flushBuffer();
     }
 
     // also remove from in-memory stale-tree

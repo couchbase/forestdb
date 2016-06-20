@@ -28,7 +28,7 @@ extern int _kvs_cmp_name(struct avl_node *a, struct avl_node *b, void *aux);
 
 FdbKvsHandle::FdbKvsHandle() :
     kvs(NULL), op_stats(NULL), fhandle(NULL), trie(NULL), staletree(NULL),
-    seqtree(NULL), file(NULL), dhandle(NULL), bhandle(NULL), btreeblkops(NULL),
+    seqtree(NULL), file(NULL), dhandle(NULL), bhandle(NULL),
     fileops(NULL), log_callback(), cur_header_revnum(0), rollback_revnum(0),
     last_hdr_bid(0), last_wal_flush_hdr_bid(0), kv_info_offset(0), shandle(NULL),
     seqnum(0), max_seqnum(0), txn(NULL), handle_busy(0), dirty_updates(0),
@@ -143,7 +143,6 @@ void FdbKvsHandle::copyFromOtherHandle(const FdbKvsHandle& kv_handle) {
     file = kv_handle.file;
     dhandle = kv_handle.dhandle;
     bhandle = kv_handle.bhandle;
-    btreeblkops = kv_handle.btreeblkops;
     fileops = kv_handle.fileops;
 
     config = kv_handle.config;

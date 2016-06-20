@@ -69,6 +69,8 @@ void print_header(fdb_kvs_handle *db)
         printf("    DB header revision number: %d\n", (int)revnum);
         printf("    DB file version: %s\n", fdb_get_file_version(db->fhandle));
 
+        struct btreeblk_subblocks *subblock = db->bhandle->getSubblockArray();
+
         if (trie_root_bid != BLK_NOT_FOUND) {
             if (!is_subblock(trie_root_bid)) {
                 // normal block
@@ -78,9 +80,9 @@ void print_header(fdb_kvs_handle *db)
                 // sub-block
                 subbid2bid(trie_root_bid, &subblock_no, &idx, &bid);
                 printf("    HB+trie root BID: %" _F64 ", %d-byte subblock #%" _F64,
-                       bid, db->bhandle->sb[subblock_no].sb_size, (uint64_t) idx);
+                       bid, subblock[subblock_no].sb_size, (uint64_t) idx);
                 printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", trie_root_bid,
-                       bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
+                       bid * FDB_BLOCKSIZE + subblock[subblock_no].sb_size * idx);
             }
         } else {
             printf("    HB+trie root BID: not exist\n");
@@ -95,9 +97,9 @@ void print_header(fdb_kvs_handle *db)
                 // sub-block
                 subbid2bid(seq_root_bid, &subblock_no, &idx, &bid);
                 printf("    Seq B+tree root BID: %" _F64 ", %d-byte subblock #%" _F64,
-                       bid, db->bhandle->sb[subblock_no].sb_size, (uint64_t) idx);
+                       bid, subblock[subblock_no].sb_size, (uint64_t) idx);
                 printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", seq_root_bid,
-                       bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
+                       bid * FDB_BLOCKSIZE + subblock[subblock_no].sb_size * idx);
             }
         } else {
             printf("    Seq B+tree root BID: not exist\n");
@@ -112,9 +114,9 @@ void print_header(fdb_kvs_handle *db)
                 // sub-block
                 subbid2bid(stale_root_bid, &subblock_no, &idx, &bid);
                 printf("    Stale B+tree root BID: %" _F64 ", %d-byte subblock #%" _F64,
-                       bid, db->bhandle->sb[subblock_no].sb_size, (uint64_t) idx);
+                       bid, subblock[subblock_no].sb_size, (uint64_t) idx);
                 printf(" (0x%" _X64 ", byte offset: %" _F64 ")\n", stale_root_bid,
-                       bid * FDB_BLOCKSIZE + db->bhandle->sb[subblock_no].sb_size * idx);
+                       bid * FDB_BLOCKSIZE + subblock[subblock_no].sb_size * idx);
             }
         } else {
             printf("    Stale B+tree root BID: not exist\n");

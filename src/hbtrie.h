@@ -71,14 +71,12 @@ public:
     HBTrie(HBTrie *_trie);
 
     HBTrie(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
-           void* _btreeblk_handle, struct btree_blk_ops* _btree_blk_ops,
-           void* _doc_handle, hbtrie_func_readkey* _readkey);
+           BTreeBlkHandle* _btreeblk_handle, void* _doc_handle, hbtrie_func_readkey* _readkey);
 
     ~HBTrie();
 
     void init(int _chunksize, int _valuelen, int _btree_nodesize, bid_t _root_bid,
-              void* _btreeblk_handle, struct btree_blk_ops* _btree_blk_ops,
-              void* _doc_handle, hbtrie_func_readkey* _readkey);
+              BTreeBlkHandle* _btreeblk_handle, void* _doc_handle, hbtrie_func_readkey* _readkey);
 
     void allocLastMapChunk() {
         last_map_chunk = (void *)malloc(chunksize);
@@ -115,16 +113,12 @@ public:
         return valuelen;
     }
 
-    void* getBtreeBlkHandle() const {
+    BTreeBlkHandle* getBtreeBlkHandle() const {
         return btreeblk_handle;
     }
 
     void* getDocHandle() const {
         return doc_handle;
-    }
-
-    struct btree_blk_ops* getBtreeBlkOps() const {
-        return btree_blk_ops;
     }
 
     BTreeKVOps* getBtreeKvOps() const {
@@ -233,11 +227,10 @@ private:
     uint8_t leaf_height_limit;
     uint32_t btree_nodesize;
     bid_t root_bid;
-    void *btreeblk_handle;
+    BTreeBlkHandle *btreeblk_handle;
     void *doc_handle;
     void *aux;
 
-    struct btree_blk_ops *btree_blk_ops;
     BTreeKVOps *btree_kv_ops;
     BTreeKVOps *btree_leaf_kv_ops;
     hbtrie_func_readkey *readkey;

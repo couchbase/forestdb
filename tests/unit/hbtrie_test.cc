@@ -64,7 +64,7 @@ void basic_test()
     TEST_INIT();
 
     int blocksize = 256;
-    struct btreeblk_handle bhandle;
+    BTreeBlkHandle *bhandle;
     struct filemgr *file;
     HBTrie *trie;
     struct docio_object doc;
@@ -99,10 +99,10 @@ void basic_test()
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle dhandle(file, false, NULL);
-    btreeblk_init(&bhandle, file, blocksize);
+    bhandle = new BTreeBlkHandle(file, blocksize);
 
     trie = new HBTrie(8, 8, blocksize, BLK_NOT_FOUND,
-        (void*)&bhandle, btreeblk_get_ops(), (void*)&dhandle, _readkey_wrap);
+                      bhandle, (void*)&dhandle, _readkey_wrap);
 
     for (i=0;i<n;++i){
         _key_expand((char *) key_ori[i], key[i], 8);
@@ -115,11 +115,11 @@ void basic_test()
         _offset = _endian_encode(offset);
         trie->insert((void*)key[i], strlen(key[i]),
                       (void*)&_offset, (void*)&offset_old);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
 
     trie->remove((void*)key[0], strlen(key[0]));
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
 
     filemgr_commit(file, true, NULL);
 
@@ -156,6 +156,7 @@ void basic_test()
     }
     delete it;
     delete trie;
+    delete bhandle;
 
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
@@ -186,7 +187,7 @@ void skew_basic_test()
     TEST_INIT();
 
     int blocksize = 256;
-    struct btreeblk_handle bhandle;
+    BTreeBlkHandle *bhandle;
     struct filemgr *file;
     HBTrie *trie;
     FileMgrConfig config(blocksize, 0, 0x0, sizeof(uint64_t),
@@ -243,10 +244,10 @@ void skew_basic_test()
                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle dhandle(file, false, NULL);
-    btreeblk_init(&bhandle, file, blocksize);
+    bhandle = new BTreeBlkHandle(file, blocksize);
 
     trie = new HBTrie(8, 8, blocksize, BLK_NOT_FOUND,
-        (void *)&bhandle, btreeblk_get_ops(), (void *)&dhandle, _readkey_wrap_memory);
+                      bhandle, (void *)&dhandle, _readkey_wrap_memory);
     trie->setFlag(HBTRIE_FLAG_COMPACT);
     trie->setLeafHeightLimit(1);
 
@@ -255,14 +256,14 @@ void skew_basic_test()
         _offset = _endian_encode(offset);
         trie->insert((void *)key_cpy[i], strlen(key_cpy[i]),
                       (void *)&_offset, (void *)value_buf);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
 
     // find all keys
     for (i=0;i<n;++i){
         trie->find((void *)key_cpy[i], strlen(key_cpy[i]),
                     (void *)&offset);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         offset = _endian_decode(offset);
         printf("%s\n", key_cpy[offset]);
     }
@@ -273,7 +274,7 @@ void skew_basic_test()
     hr = it->init(trie, (void*)NULL, (size_t)0);
     while (hr == HBTRIE_RESULT_SUCCESS) {
         hr = it->next((void *)key_buf, keylen, (void *)&offset);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         key_buf[keylen]=0;
         printf("%s %d\n", key_buf, (int)keylen);
@@ -287,7 +288,7 @@ void skew_basic_test()
     it->init(trie, (void*)key_buf, strlen(key_buf));
     while (hr == HBTRIE_RESULT_SUCCESS) {
         hr = it->next((void*)key_buf, keylen, (void*)&offset);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         key_buf[keylen]=0;
         printf("%s %d\n", key_buf, (int)keylen);
@@ -297,14 +298,14 @@ void skew_basic_test()
     // remove metasection key
     hr = trie->remove((void*)key_cpy[6], strlen(key_cpy[6]));
     TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     sprintf(key_buf, "aaaaaaa_a");  // not exist key
     hr = trie->remove((void*)key_buf, strlen(key_buf));    // must fail
     TEST_CHK(hr != HBTRIE_RESULT_SUCCESS);
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     hr = trie->remove((void*)key_cpy[4], strlen(key_cpy[4]));
     TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
 
     // update metasection key
     offset = 3;
@@ -312,7 +313,7 @@ void skew_basic_test()
     hr = trie->insert((void*)key_cpy[offset], strlen(key_cpy[offset]),
                        (void*)&_offset, (void*)value_buf);
     TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
 
     char ff_str[8];
     memset(ff_str, 0xff, 8);
@@ -324,7 +325,7 @@ void skew_basic_test()
                        (void*)&_offset, (void*)value_buf);
     TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     TEST_CHK(memcmp(value_buf, ff_str, 8)); // should not be 0xff..
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
 
     // update normal tree key
     offset = 16;
@@ -333,7 +334,7 @@ void skew_basic_test()
                        (void*)&_offset, (void*)value_buf);
     TEST_CHK(hr == HBTRIE_RESULT_SUCCESS);
     TEST_CHK(memcmp(value_buf, ff_str, 8)); // should not be 0xff..
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
 
     // range scan from the beginning
     printf("\n");
@@ -341,7 +342,7 @@ void skew_basic_test()
     hr = it->init(trie, (void*)NULL, (size_t)0);
     while (hr == HBTRIE_RESULT_SUCCESS) {
         hr = it->next((void*)key_buf, keylen, (void*)&offset);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         key_buf[keylen]=0;
         printf("%s %d\n", key_buf, (int)keylen);
@@ -354,7 +355,7 @@ void skew_basic_test()
     hr = it->init(trie, (void*)NULL, (size_t)0);
     while (hr == HBTRIE_RESULT_SUCCESS) {
         hr = it->nextValueOnly((void*)&offset);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         key_buf[keylen]=0;
         offset = _endian_decode(offset);
@@ -365,7 +366,7 @@ void skew_basic_test()
     filemgr_commit(file, true, NULL);
 
     delete trie;
-    btreeblk_free(&bhandle);
+    delete bhandle;
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
 
@@ -393,7 +394,7 @@ void hbtrie_reverse_iterator_test()
     char key[256], key_temp[256];
     size_t keylen;
     struct filemgr *file;
-    struct btreeblk_handle bhandle;
+    BTreeBlkHandle *bhandle;
     HBTrie *trie;
     HBTrieIterator *hit;
     FileMgrConfig config(nodesize, 0, 0, ksize,
@@ -411,28 +412,28 @@ void hbtrie_reverse_iterator_test()
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
 
-    btreeblk_init(&bhandle, file, nodesize);
+    bhandle = new BTreeBlkHandle(file, nodesize);
     trie = new HBTrie(ksize, vsize, nodesize, BLK_NOT_FOUND,
-        &bhandle, btreeblk_get_ops(), NULL, _readkey_wrap_memory_itr);
+                      bhandle, NULL, _readkey_wrap_memory_itr);
 
     for (i=0;i<(uint64_t)n;++i){
         v = _endian_encode(i);
         sprintf(key, HB_KEYSTR, (int)i);
         trie->insert(key, strlen(key), &v, &v_out);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
 
     c = 0;
     hit = new HBTrieIterator(trie, (void*)NULL, (size_t)0);
     while( (hr = hit->next(key, keylen, &v)) == HBTRIE_RESULT_SUCCESS) {
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
         TEST_CHK(v == (uint64_t)c);
         c++;
     }
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     delete hit;
     TEST_CHK(c == n);
 
@@ -440,12 +441,12 @@ void hbtrie_reverse_iterator_test()
     hit = new HBTrieIterator(trie, (void*)NULL, (size_t)0);
     while(1) {
         hr = hit->prev(key, keylen, &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         v = _endian_decode(v);
         c++;
     }
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     delete hit;
     TEST_CHK(c == 0);
 
@@ -454,7 +455,7 @@ void hbtrie_reverse_iterator_test()
     hit = new HBTrieIterator(trie, key, strlen(key));
     while(1) {
         hr = hit->prev(key, keylen, &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)(n-c-1));
@@ -462,7 +463,7 @@ void hbtrie_reverse_iterator_test()
         TEST_CHK(v == (uint64_t)n-c-1);
         c++;
     }
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     delete hit;
     TEST_CHK(c == n);
 
@@ -471,7 +472,7 @@ void hbtrie_reverse_iterator_test()
     hit = new HBTrieIterator(trie, key, strlen(key));
     while(1) {
         hr = hit->prev(key, keylen, &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         if (hr != HBTRIE_RESULT_SUCCESS) break;
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)((n/2)-c));
@@ -479,7 +480,7 @@ void hbtrie_reverse_iterator_test()
         TEST_CHK(v == (uint64_t)(n/2)-c);
         c++;
     }
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     delete hit;
     TEST_CHK(c == (n/2)+1);
 
@@ -489,7 +490,7 @@ void hbtrie_reverse_iterator_test()
         c++;
         hr = hit->next(key, keylen, &v);
         TEST_CHK(hr != HBTRIE_RESULT_FAIL);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
@@ -499,7 +500,7 @@ void hbtrie_reverse_iterator_test()
         c--;
         hr = hit->prev(key, keylen, &v);
         TEST_CHK(hr != HBTRIE_RESULT_FAIL);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
@@ -509,19 +510,19 @@ void hbtrie_reverse_iterator_test()
         c++;
         hr = hit->next(key, keylen, &v);
         TEST_CHK(hr != HBTRIE_RESULT_FAIL);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
         sprintf(key_temp, HB_KEYSTR, (int)c);
         TEST_CHK(!memcmp(key, key_temp, keylen));
         TEST_CHK(v == (uint64_t)c);
     }
     hr = hit->next(key, keylen, &v);
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     TEST_CHK(hr == HBTRIE_RESULT_FAIL);
     delete hit;
 
     delete trie;
-    btreeblk_free(&bhandle);
+    delete bhandle;
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
     memleak_end();
@@ -550,7 +551,7 @@ void hbtrie_partial_update_test()
     char key[256];
     char keystr[] = "key%05d%08d%08d";
     struct filemgr *file;
-    struct btreeblk_handle bhandle;
+    BTreeBlkHandle *bhandle;
     HBTrie *trie;
     FileMgrConfig config(nodesize, 0, 0, ksize,
                          FILEMGR_CREATE, FDB_SEQTREE_NOT_USE, 0, 8, 0,
@@ -568,15 +569,15 @@ void hbtrie_partial_update_test()
     fr = filemgr_open(fname, get_filemgr_ops(), &config, NULL);
     file = fr.file;
 
-    btreeblk_init(&bhandle, file, nodesize);
+    bhandle = new BTreeBlkHandle(file, nodesize);
     trie = new HBTrie(ksize, vsize, nodesize, BLK_NOT_FOUND,
-        &bhandle, btreeblk_get_ops(), NULL, _key_wrap_partial_update);
+                      bhandle, NULL, _key_wrap_partial_update);
 
     for (i=0;i<(uint64_t)n;++i) {
         v = _endian_encode(i);
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         trie->insert(key, strlen(key), &v, &v_out);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
     filemgr_commit(file, true, NULL);
     //printf("root: %lx\n", trie.root_bid);
@@ -585,7 +586,7 @@ void hbtrie_partial_update_test()
     for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         trie->find(key, strlen(key), &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
         TEST_CHK(v == i);
     }
@@ -594,14 +595,14 @@ void hbtrie_partial_update_test()
     for (i=0;i<3;++i){
         sprintf(key, "key%05d", (int)i);
         trie->findPartial(key, strlen(key), &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v1[i] = v;
         v = _endian_decode(v);
     }
     for (i=0;i<9;++i){
         sprintf(key, "key%05d%08d", (int)(i/3), (int)(i%3));
         trie->findPartial(key, strlen(key), &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v2[i] = v;
         v = _endian_decode(v);
     }
@@ -611,7 +612,7 @@ void hbtrie_partial_update_test()
         v = _endian_encode(i+100);
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         trie->insert(key, strlen(key), &v, &v_out);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
     filemgr_commit(file, true, NULL);
 
@@ -619,7 +620,7 @@ void hbtrie_partial_update_test()
     for (i=0;i<3;++i){
         sprintf(key, "key%05d", (int)i);
         trie->insertPartial(key, strlen(key), &v1[i], &v_out);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
     filemgr_commit(file, true, NULL);
 
@@ -627,7 +628,7 @@ void hbtrie_partial_update_test()
     for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         trie->find(key, strlen(key), &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
         TEST_CHK(v == i);
     }
@@ -637,7 +638,7 @@ void hbtrie_partial_update_test()
         v = _endian_encode(i+200);
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         trie->insert(key, strlen(key), &v, &v_out);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
     filemgr_commit(file, true, NULL);
 
@@ -645,7 +646,7 @@ void hbtrie_partial_update_test()
     for (i=0;i<9;++i){
         sprintf(key, "key%05d%08d", (int)(i/3), (int)(i%3));
         trie->insertPartial(key, strlen(key), &v2[i], &v_out);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
     }
     filemgr_commit(file, true, NULL);
 
@@ -653,7 +654,7 @@ void hbtrie_partial_update_test()
     for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         trie->find(key, strlen(key), &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
         TEST_CHK(v == i);
     }
@@ -662,19 +663,19 @@ void hbtrie_partial_update_test()
     i = 1;
     sprintf(key, "key%05d%08d", (int)(i/3), (int)(i%3));
     trie->removePartial(key, strlen(key));
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
 
     i = 1;
     sprintf(key, "key%05d", (int)i);
     trie->removePartial(key, strlen(key));
-    btreeblk_end(&bhandle);
+    bhandle->flushBuffer();
     filemgr_commit(file, true, NULL);
 
     // retrieve check
     for (i=0;i<(uint64_t)n;++i) {
         sprintf(key, keystr, (int)(i/9), (int)((i/3)%3), (int)(i%3));
         hr = trie->find(key, strlen(key), &v);
-        btreeblk_end(&bhandle);
+        bhandle->flushBuffer();
         v = _endian_decode(v);
 
         if ( ((i/9) == 0 && ((i/3)%3) == 1) ||
@@ -686,7 +687,7 @@ void hbtrie_partial_update_test()
     }
 
     delete trie;
-    btreeblk_free(&bhandle);
+    delete bhandle;
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
     memleak_end();

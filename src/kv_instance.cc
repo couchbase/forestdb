@@ -266,13 +266,13 @@ hbtrie_cmp_func *fdb_kvs_find_cmp_chunk(void *chunk, void *aux)
 {
     fdb_kvs_id_t kv_id;
     HBTrie *trie = reinterpret_cast<HBTrie *>(aux);
-    struct btreeblk_handle *bhandle;
+    BTreeBlkHandle *bhandle;
     struct filemgr *file;
     struct avl_node *a;
     struct kvs_node query, *node;
 
-    bhandle = (struct btreeblk_handle*)trie->getBtreeBlkHandle();
-    file = bhandle->file;
+    bhandle = trie->getBtreeBlkHandle();
+    file = bhandle->getFile();
 
     if (!file->kv_header->custom_cmp_enabled) {
         return NULL;
@@ -1166,7 +1166,7 @@ fdb_kvs_create_start:
                                 cur_bmp_revnum,
                                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
                                 &root_handle->log_callback);
-        btreeblk_reset_subblock_info(root_handle->bhandle);
+        root_handle->bhandle->resetSubblockInfo();
     }
 
     filemgr_mutex_unlock(file);
@@ -1683,13 +1683,13 @@ fdb_kvs_remove_start:
     _kv_id = alca(uint8_t, size_chunk);
     kvid2buf(size_chunk, kv_id, _kv_id);
     root_handle->trie->removePartial(_kv_id, size_chunk);
-    btreeblk_end(root_handle->bhandle);
+    root_handle->bhandle->flushBuffer();
 
     if (root_handle->config.seqtree_opt == FDB_SEQTREE_USE) {
         _kv_id = alca(uint8_t, size_id);
         kvid2buf(size_id, kv_id, _kv_id);
         root_handle->seqtrie->removePartial(_kv_id, size_id);
-        btreeblk_end(root_handle->bhandle);
+        root_handle->bhandle->flushBuffer();
     }
 
     _fdb_dirty_update_finalize(root_handle, prev_node, new_node,
@@ -1708,7 +1708,7 @@ fdb_kvs_remove_start:
                                 cur_bmp_revnum,
                                 !(root_handle->config.durability_opt & FDB_DRB_ASYNC),
                                 &root_handle->log_callback);
-        btreeblk_reset_subblock_info(root_handle->bhandle);
+        root_handle->bhandle->resetSubblockInfo();
     }
 
     filemgr_mutex_unlock(file);
@@ -1864,21 +1864,21 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         _kv_id = alca(uint8_t, size_chunk);
         kvid2buf(size_chunk, handle->kvs->getKvsId(), _kv_id);
         hr = handle->trie->findPartial(_kv_id, size_chunk, &id_root);
-        btreeblk_end(handle->bhandle);
+        handle->bhandle->flushBuffer();
         if (hr == HBTRIE_RESULT_SUCCESS) {
             super_handle->trie->insertPartial(_kv_id, size_chunk, &id_root, &dummy);
         } else { // No Trie info in rollback header.
                  // Erase kv store from super handle's main index.
             super_handle->trie->removePartial(_kv_id, size_chunk);
         }
-        btreeblk_end(super_handle->bhandle);
+        super_handle->bhandle->flushBuffer();
 
         if (config.seqtree_opt == FDB_SEQTREE_USE) {
             // same as above for seq-trie
             _kv_id = alca(uint8_t, size_id);
             kvid2buf(size_id, handle->kvs->getKvsId(), _kv_id);
             hr = handle->seqtrie->findPartial(_kv_id, size_id, &seq_root);
-            btreeblk_end(handle->bhandle);
+            handle->bhandle->flushBuffer();
             if (hr == HBTRIE_RESULT_SUCCESS) {
                 super_handle->seqtrie->insertPartial(_kv_id, size_id,
                                                      &seq_root, &dummy);
@@ -1886,7 +1886,7 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                      // Erase kv store from super handle's seqtrie index.
                 super_handle->seqtrie->removePartial(_kv_id, size_id);
             }
-            btreeblk_end(super_handle->bhandle);
+            super_handle->bhandle->flushBuffer();
         }
 
         old_seqnum = fdb_kvs_get_seqnum(handle_in->file,

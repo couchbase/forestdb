@@ -23,6 +23,8 @@
 #include "common.h"
 #include "internal_types.h"
 
+class BTreeBlkHandle;
+
 /**
  * ForestDB KV store handle definition.
  */
@@ -105,11 +107,7 @@ public:
     /**
      * B+-Tree handle instance.
      */
-    struct btreeblk_handle *bhandle;
-    /**
-     * B+-Tree block operation handle.
-     */
-    struct btree_blk_ops *btreeblkops;
+    BTreeBlkHandle *bhandle;
     /**
      * File manager IO operation handle.
      */

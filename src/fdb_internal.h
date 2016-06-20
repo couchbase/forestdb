@@ -209,8 +209,7 @@ INLINE void _fdb_import_dirty_root(FdbKvsHandle *handle,
                 handle->seqtrie->setRootBid(dirty_seqtree_root);
             } else {
                 btree_init_from_bid(handle->seqtree,
-                                    handle->seqtree->blk_handle,
-                                    handle->seqtree->blk_ops,
+                                    handle->seqtree->bhandle,
                                     handle->seqtree->kv_ops,
                                     handle->seqtree->blksize,
                                     dirty_seqtree_root);
@@ -249,7 +248,7 @@ INLINE void _fdb_dirty_update_ready(FdbKvsHandle *handle,
 
     // discard all cached index blocks
     // to avoid data inconsistency with other writers
-    btreeblk_discard_blocks(handle->bhandle);
+    handle->bhandle->discardBlocks();
 
     // create a new dirty update entry if previous one exists
     // (if we don't this, we cannot identify which block on
@@ -264,8 +263,8 @@ INLINE void _fdb_dirty_update_ready(FdbKvsHandle *handle,
         filemgr_dirty_update_get_root(*prev_node,
                                       dirty_idtree_root, dirty_seqtree_root);
     }
-    btreeblk_set_dirty_update(handle->bhandle, *prev_node);
-    btreeblk_set_dirty_update_writer(handle->bhandle, *new_node);
+    handle->bhandle->setDirtyUpdate(*prev_node);
+    handle->bhandle->setDirtyUpdateWriter(*new_node);
 
     // assign dirty root nodes to FDB handle
     _fdb_import_dirty_root(handle, *dirty_idtree_root, *dirty_seqtree_root);
@@ -289,7 +288,7 @@ INLINE void _fdb_dirty_update_finalize(FdbKvsHandle *handle,
                                       *dirty_idtree_root, *dirty_seqtree_root);
     }
     // clear dirty update setting in bhandle
-    btreeblk_clear_dirty_update(handle->bhandle);
+    handle->bhandle->clearDirtyUpdate();
     // finalize new_node
     if (new_node) {
         filemgr_dirty_update_set_immutable(handle->file, prev_node, new_node);
@@ -304,7 +303,7 @@ INLINE void _fdb_dirty_update_finalize(FdbKvsHandle *handle,
     } else {
         // if this update set is still dirty,
         // discard all cached index blocks to avoid data inconsistency.
-        btreeblk_discard_blocks(handle->bhandle);
+        handle->bhandle->discardBlocks();
     }
 }
 

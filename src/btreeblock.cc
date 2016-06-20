@@ -22,6 +22,7 @@
 #include "common.h"
 #include "btreeblock.h"
 #include "fdb_internal.h"
+#include "btree.h"
 
 #include "memleak.h"
 
@@ -79,13 +80,119 @@ static int _btreeblk_bid_cmp(struct avl_node *a, struct avl_node *b, void *aux)
 }
 #endif
 
-INLINE void _btreeblk_get_aligned_block(struct btreeblk_handle *handle,
-                                        struct btreeblk_block *block)
+BTreeBlkHandle::BTreeBlkHandle(struct filemgr *_file, uint32_t _nodesize)
+{
+    uint32_t i;
+    uint32_t _sub_nodesize;
+
+    file = _file;
+    nodesize = _nodesize;
+    nnodeperblock = file->blocksize / nodesize;
+    nlivenodes = 0;
+    ndeltanodes = 0;
+    dirty_update = NULL;
+    dirty_update_writer = NULL;
+
+    list_init(&alc_list);
+    list_init(&read_list);
+
+#ifdef __BTREEBLK_READ_TREE
+    avl_init(&read_tree, NULL);
+#endif
+
+#ifdef __BTREEBLK_BLOCKPOOL
+    list_init(&blockpool);
+#endif
+
+#ifdef __BTREEBLK_SUBBLOCK
+    // compute # subblock sets
+    _sub_nodesize = BTREEBLK_MIN_SUBBLOCK;
+    for (i=0; (_sub_nodesize < _nodesize && i<5); ++i){
+        _sub_nodesize = _sub_nodesize << 1;
+    }
+    n_subblocks = i;
+    if (i) {
+        subblock = (struct btreeblk_subblocks*)
+                     malloc(sizeof(struct btreeblk_subblocks) * n_subblocks);
+        // initialize each subblock set
+        _sub_nodesize = BTREEBLK_MIN_SUBBLOCK;
+        for (i=0;i<n_subblocks;++i){
+            subblock[i].bid = BLK_NOT_FOUND;
+            subblock[i].sb_size = _sub_nodesize;
+            subblock[i].nblocks = _nodesize / _sub_nodesize;
+            subblock[i].bitmap = (uint8_t*)malloc(subblock[i].nblocks);
+            memset(subblock[i].bitmap, 0, subblock[i].nblocks);
+            _sub_nodesize = _sub_nodesize << 1;
+        }
+    } else {
+        subblock = NULL;
+    }
+#endif
+}
+
+BTreeBlkHandle::~BTreeBlkHandle()
+{
+    struct list_elem *e;
+    struct btreeblk_block *block;
+
+    // free all blocks in alc list
+    e = list_begin(&alc_list);
+    while(e) {
+        block = _get_entry(e, struct btreeblk_block, le);
+        e = list_remove(&alc_list, &block->le);
+        freeDirtyBlock(block);
+    }
+
+    // free all blocks in read list
+#ifdef __BTREEBLK_READ_TREE
+    // AVL tree
+    struct avl_node *a;
+    a = avl_first(&read_tree);
+    while (a) {
+        block = _get_entry(a, struct btreeblk_block, avl);
+        a = avl_next(a);
+        avl_remove(&read_tree, &block->avl);
+        freeDirtyBlock(block);
+    }
+#else
+    // linked list
+    e = list_begin(&read_list);
+    while(e) {
+        block = _get_entry(e, struct btreeblk_block, le);
+        e = list_remove(&read_list, &block->le);
+        freeDirtyBlock(block);
+    }
+#endif
+
+#ifdef __BTREEBLK_BLOCKPOOL
+    // free all blocks in the block pool
+    struct btreeblk_addr *item;
+
+    e = list_begin(&blockpool);
+    while(e){
+        item = _get_entry(e, struct btreeblk_addr, le);
+        e = list_next(e);
+
+        free_align(item->addr);
+        mempool_free(item);
+    }
+#endif
+
+#ifdef __BTREEBLK_SUBBLOCK
+    uint32_t i;
+    for (i=0;i<n_subblocks;++i){
+        free(subblock[i].bitmap);
+    }
+    free(subblock);
+#endif
+}
+
+void BTreeBlkHandle::getAlignedBlock(struct btreeblk_block *block)
 {
 #ifdef __BTREEBLK_BLOCKPOOL
     struct list_elem *e;
 
-    e = list_pop_front(&handle->blockpool);
+    e = list_pop_front(&blockpool);
     if (e) {
         block->addr_item = _get_entry(e, struct btreeblk_addr, le);
         block->addr = block->addr_item->addr;
@@ -96,11 +203,10 @@ INLINE void _btreeblk_get_aligned_block(struct btreeblk_handle *handle,
                        mempool_alloc(sizeof(struct btreeblk_addr));
 #endif
 
-    malloc_align(block->addr, FDB_SECTOR_SIZE, handle->file->blocksize);
+    malloc_align(block->addr, FDB_SECTOR_SIZE, file->blocksize);
 }
 
-INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,
-                                         struct btreeblk_block *block)
+void BTreeBlkHandle::freeAlignedBlock(struct btreeblk_block *block)
 {
 #ifdef __BTREEBLK_BLOCKPOOL
     if (!block->addr_item) {
@@ -109,7 +215,7 @@ INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,
     }
     // sync addr & insert into pool
     block->addr_item->addr = block->addr;
-    list_push_front(&handle->blockpool, &block->addr_item->le);
+    list_push_front(&blockpool, &block->addr_item->le);
     block->addr_item = NULL;
     return;
 
@@ -118,49 +224,50 @@ INLINE void _btreeblk_free_aligned_block(struct btreeblk_handle *handle,
     free_align(block->addr);
 }
 
-// LCOV_EXCL_START
-INLINE int is_subblock(bid_t subbid)
+void BTreeBlkHandle::freeDirtyBlock(struct btreeblk_block *block)
 {
-    uint8_t flag;
-    flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
-    return flag;
-}
-// LCOV_EXCL_STOP
-
-INLINE void bid2subbid(bid_t bid, size_t subblock_no, size_t idx, bid_t *subbid)
-{
-    bid_t flag;
-    // to distinguish subblock_no==0 to non-subblock
-    subblock_no++;
-    flag = (subblock_no << 5) | idx;
-    *subbid = bid | (flag << (8 * (sizeof(bid_t)-2)));
-}
-INLINE void subbid2bid(bid_t subbid, size_t *subblock_no, size_t *idx, bid_t *bid)
-{
-    uint8_t flag;
-    flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
-    *subblock_no = flag >> 5;
-    // to distinguish subblock_no==0 to non-subblock
-    *subblock_no -= 1;
-    *idx = flag & (0x20 - 0x01);
-    *bid = ((bid_t)(subbid << 16)) >> 16;
+    freeAlignedBlock(block);
+    mempool_free(block);
 }
 
-INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
+fdb_status BTreeBlkHandle::writeDirtyBlock(struct btreeblk_block *block)
 {
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
-    struct list_elem *e = list_end(&handle->alc_list);
+    fdb_status status;
+    //2 MUST BE modified to support multiple nodes in a block
+
+    encodeBlock(block);
+    if (dirty_update_writer) {
+        // dirty update is in-progress
+        status = filemgr_write_dirty(file, block->bid, block->addr,
+                                     dirty_update_writer,
+                                     log_callback);
+    } else {
+        // normal write into file
+        status = filemgr_write(file, block->bid, block->addr,
+                               log_callback);
+    }
+    if (status != FDB_RESULT_SUCCESS) {
+        fdb_log(log_callback, status,
+                "Failed to write the B+-Tree block (block id: %" _F64
+                ", block address: %p)", block->bid, block->addr);
+    }
+    decodeBlock(block);
+    return status;
+}
+
+void * BTreeBlkHandle::_alloc(bid_t& bid, int sb_no)
+{
+    struct list_elem *e = list_end(&alc_list);
     struct btreeblk_block *block;
     uint32_t curpos;
 
     if (e) {
         block = _get_entry(e, struct btreeblk_block, le);
-        if (block->pos <= (handle->file->blocksize) - (handle->nodesize)) {
-            if (filemgr_is_writable(handle->file, block->bid)) {
+        if (block->pos <= (file->blocksize) - (nodesize)) {
+            if (filemgr_is_writable(file, block->bid)) {
                 curpos = block->pos;
-                block->pos += (handle->nodesize);
-                *bid = block->bid * handle->nnodeperblock + curpos /
-                       (handle->nodesize);
+                block->pos += (nodesize);
+                bid = (block->bid * nnodeperblock) + (curpos / nodesize);
                 return ((uint8_t *)block->addr + curpos);
             }
         }
@@ -168,16 +275,16 @@ INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
 
     // allocate new block from file manager
     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
-    _btreeblk_get_aligned_block(handle, block);
+    getAlignedBlock(block);
     if (sb_no != -1) {
         // If this block is used as a sub-block container,
         // fill it with zero bytes for easy identifying
         // which region is allocated and which region is not.
-        memset(block->addr, 0x0, handle->nodesize);
+        memset(block->addr, 0x0, nodesize);
     }
     block->sb_no = sb_no;
-    block->pos = handle->nodesize;
-    block->bid = filemgr_alloc(handle->file, handle->log_callback);
+    block->pos = nodesize;
+    block->bid = filemgr_alloc(file, log_callback);
     block->dirty = 1;
     block->age = 0;
 
@@ -186,40 +293,42 @@ INLINE void * _btreeblk_alloc(void *voidhandle, bid_t *bid, int sb_no)
     // with garbage data so that it causes various unexpected behaviors.
     // To avoid this issue, populate block cache for the given BID before use it.
     uint8_t marker = BLK_MARKER_BNODE;
-    filemgr_write_offset(handle->file, block->bid, handle->file->blocksize - 1,
-                         1, &marker, false, handle->log_callback);
+    filemgr_write_offset(file, block->bid, file->blocksize - 1,
+                         1, &marker, false, log_callback);
 
 #ifdef __CRC32
-    memset((uint8_t *)block->addr + handle->nodesize - BLK_MARKER_SIZE,
+    memset((uint8_t *)block->addr + nodesize - BLK_MARKER_SIZE,
            BLK_MARKER_BNODE, BLK_MARKER_SIZE);
 #endif
 
     // btree bid differs to filemgr bid
-    *bid = block->bid * handle->nnodeperblock;
-    list_push_back(&handle->alc_list, &block->le);
+    bid = block->bid * nnodeperblock;
+    list_push_back(&alc_list, &block->le);
 
-    handle->nlivenodes++;
-    handle->ndeltanodes++;
+    nlivenodes++;
+    ndeltanodes++;
 
     return block->addr;
 }
-void * btreeblk_alloc(void *voidhandle, bid_t *bid) {
-    return _btreeblk_alloc(voidhandle, bid, -1);
+
+void * BTreeBlkHandle::alloc(bid_t& bid)
+{
+    // 'sb_no == -1' means a regular block
+    return _alloc(bid, -1);
 }
 
-
-#ifdef __ENDIAN_SAFE
-INLINE void _btreeblk_encode(struct btreeblk_handle *handle,
-                             struct btreeblk_block *block)
+void BTreeBlkHandle::encodeBlock(struct btreeblk_block *block)
 {
+#ifdef __ENDIAN_SAFE
+
     size_t i, nsb, sb_size, offset;
     void *addr;
     struct bnode *node;
 
-    for (offset=0; offset<handle->nnodeperblock; ++offset) {
+    for (offset = 0; offset < nnodeperblock; ++offset) {
         if (block->sb_no > -1) {
-            nsb = handle->sb[block->sb_no].nblocks;
-            sb_size = handle->sb[block->sb_no].sb_size;
+            nsb = subblock[block->sb_no].nblocks;
+            sb_size = subblock[block->sb_no].sb_size;
         } else {
             nsb = 1;
             sb_size = 0;
@@ -227,7 +336,7 @@ INLINE void _btreeblk_encode(struct btreeblk_handle *handle,
 
         for (i=0;i<nsb;++i) {
             addr = (uint8_t*)block->addr +
-                   (handle->nodesize) * offset +
+                   nodesize * offset +
                    sb_size * i;
 #ifdef _BTREE_HAS_MULTIPLE_BNODES
             size_t j, n;
@@ -241,27 +350,31 @@ INLINE void _btreeblk_encode(struct btreeblk_handle *handle,
                 node->nentry = _endian_encode(node->nentry);
             }
             free(node_arr);
-#else
+#else // _BTREE_HAS_MULTIPLE_BNODES
             node = btree_get_bnode(addr);
             node->kvsize = _endian_encode(node->kvsize);
             node->flag = _endian_encode(node->flag);
             node->level = _endian_encode(node->level);
             node->nentry = _endian_encode(node->nentry);
-#endif
+#endif // _BTREE_HAS_MULTIPLE_BNODES
         }
     }
+
+#endif // __ENDIAN_SAFE
 }
-INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
-                             struct btreeblk_block *block)
+
+void BTreeBlkHandle::decodeBlock(struct btreeblk_block *block)
 {
+#ifdef __ENDIAN_SAFE
+
     size_t i, nsb, sb_size, offset;
     void *addr;
     struct bnode *node;
 
-    for (offset=0; offset<handle->nnodeperblock; ++offset) {
+    for (offset=0; offset<nnodeperblock; ++offset) {
         if (block->sb_no > -1) {
-            nsb = handle->sb[block->sb_no].nblocks;
-            sb_size = handle->sb[block->sb_no].sb_size;
+            nsb = subblock[block->sb_no].nblocks;
+            sb_size = subblock[block->sb_no].sb_size;
         } else {
             nsb = 1;
             sb_size = 0;
@@ -269,7 +382,7 @@ INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
 
         for (i=0;i<nsb;++i) {
             addr = (uint8_t*)block->addr +
-                   (handle->nodesize) * offset +
+                   nodesize * offset +
                    sb_size * i;
 #ifdef _BTREE_HAS_MULTIPLE_BNODES
             size_t j, n;
@@ -283,39 +396,33 @@ INLINE void _btreeblk_decode(struct btreeblk_handle *handle,
                 node->nentry = _endian_decode(node->nentry);
             }
             free(node_arr);
-#else
+#else // _BTREE_HAS_MULTIPLE_BNODES
             node = btree_get_bnode(addr);
             node->kvsize = _endian_decode(node->kvsize);
             node->flag = _endian_decode(node->flag);
             node->level = _endian_decode(node->level);
             node->nentry = _endian_decode(node->nentry);
-#endif
+#endif // _BTREE_HAS_MULTIPLE_BNODES
         }
     }
+
+#endif // __ENDIAN_SAFE
 }
-#else
-#define _btreeblk_encode(a,b)
-#define _btreeblk_decode(a,b)
-#endif
 
-INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle,
-                                       struct btreeblk_block *block);
-
-INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
+void * BTreeBlkHandle::_read(bid_t bid, int sb_no)
 {
     struct list_elem *elm = NULL;
     struct btreeblk_block *block = NULL;
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     bid_t _bid, filebid;
-    int subblock;
+    bool subblock_mode;
     int offset;
     size_t sb, idx;
 
     sb = idx = 0;
-    subbid2bid(bid, &sb, &idx, &_bid);
-    subblock = is_subblock(bid);
-    filebid = _bid / handle->nnodeperblock;
-    offset = _bid % handle->nnodeperblock;
+    subbid2bid(bid, sb, idx, _bid);
+    subblock_mode = isSubblock(bid);
+    filebid = _bid / nnodeperblock;
+    offset = _bid % nnodeperblock;
 
     // check whether the block is in current lists
     // read list (clean or dirty)
@@ -324,21 +431,21 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
     // check first 3 elements in the list first,
     // and then retrieve AVL-tree
     size_t count = 0;
-    for (elm = list_begin(&handle->read_list);
+    for (elm = list_begin(&read_list);
          (elm && count < 3); elm = list_next(elm)) {
         block = _get_entry(elm, struct btreeblk_block, le);
         if (block->bid == filebid) {
             block->age = 0;
             // move the elements to the front
-            list_remove(&handle->read_list, &block->le);
-            list_push_front(&handle->read_list, &block->le);
-            if (subblock) {
+            list_remove(&read_list, &block->le);
+            list_push_front(&read_list, &block->le);
+            if (subblock_mode) {
                 return (uint8_t *)block->addr +
-                       (handle->nodesize) * offset +
-                       handle->sb[sb].sb_size * idx;
+                       nodesize * offset +
+                       subblock[sb].sb_size * idx;
             } else {
                 return (uint8_t *)block->addr +
-                       (handle->nodesize) * offset;
+                       nodesize * offset;
             }
         }
         count++;
@@ -347,53 +454,53 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
     struct btreeblk_block query;
     query.bid = filebid;
     struct avl_node *a;
-    a = avl_search(&handle->read_tree, &query.avl, _btreeblk_bid_cmp);
+    a = avl_search(&read_tree, &query.avl, _btreeblk_bid_cmp);
     if (a) { // cache hit
         block = _get_entry(a, struct btreeblk_block, avl);
         block->age = 0;
         // move the elements to the front
-        list_remove(&handle->read_list, &block->le);
-        list_push_front(&handle->read_list, &block->le);
-        if (subblock) {
+        list_remove(&read_list, &block->le);
+        list_push_front(&read_list, &block->le);
+        if (subblock_mode) {
             return (uint8_t *)block->addr +
-                   (handle->nodesize) * offset +
-                   handle->sb[sb].sb_size * idx;
+                   nodesize * offset +
+                   subblock[sb].sb_size * idx;
         } else {
             return (uint8_t *)block->addr +
-                   (handle->nodesize) * offset;
+                   nodesize * offset;
         }
     }
 #else
     // list
-    for (elm = list_begin(&handle->read_list); elm; elm = list_next(elm)) {
+    for (elm = list_begin(&read_list); elm; elm = list_next(elm)) {
         block = _get_entry(elm, struct btreeblk_block, le);
         if (block->bid == filebid) {
             block->age = 0;
-            if (subblock) {
+            if (subblock_mode) {
                 return (uint8_t *)block->addr +
-                       (handle->nodesize) * offset +
-                       handle->sb[sb].sb_size * idx;
+                       nodesize * offset +
+                       subblock[sb].sb_size * idx;
             } else {
                 return (uint8_t *)block->addr +
-                       (handle->nodesize) * offset;
+                       nodesize * offset;
             }
         }
     }
 #endif
 
     // allocation list (dirty)
-    for (elm = list_begin(&handle->alc_list); elm; elm = list_next(elm)) {
+    for (elm = list_begin(&alc_list); elm; elm = list_next(elm)) {
         block = _get_entry(elm, struct btreeblk_block, le);
         if (block->bid == filebid &&
-            block->pos >= (handle->nodesize) * offset) {
+            block->pos >= (nodesize) * offset) {
             block->age = 0;
-            if (subblock) {
+            if (subblock_mode) {
                 return (uint8_t *)block->addr +
-                       (handle->nodesize) * offset +
-                       handle->sb[sb].sb_size * idx;
+                       nodesize * offset +
+                       subblock[sb].sb_size * idx;
             } else {
                 return (uint8_t *)block->addr +
-                       (handle->nodesize) * offset;
+                       nodesize * offset;
             }
         }
     }
@@ -401,209 +508,191 @@ INLINE void * _btreeblk_read(void *voidhandle, bid_t bid, int sb_no)
     // there is no block in lists
     // if miss, read from file and add item into read list
     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
-    block->sb_no = (subblock)?(sb):(sb_no);
-    block->pos = (handle->file->blocksize);
+    block->sb_no = (subblock_mode)?(sb):(sb_no);
+    block->pos = file->blocksize;
     block->bid = filebid;
     block->dirty = 0;
     block->age = 0;
 
-    _btreeblk_get_aligned_block(handle, block);
+    getAlignedBlock(block);
 
     fdb_status status;
-    if (handle->dirty_update || handle->dirty_update_writer) {
+    if (dirty_update || dirty_update_writer) {
         // read from the given dirty update entry
-        status = filemgr_read_dirty(handle->file, block->bid, block->addr,
-                                    handle->dirty_update, handle->dirty_update_writer,
-                                    handle->log_callback, true);
+        status = filemgr_read_dirty(file, block->bid, block->addr,
+                                    dirty_update, dirty_update_writer,
+                                    log_callback, true);
     } else {
         // normal read
-        status = filemgr_read(handle->file, block->bid, block->addr,
-                              handle->log_callback, true);
+        status = filemgr_read(file, block->bid, block->addr,
+                              log_callback, true);
     }
     if (status != FDB_RESULT_SUCCESS) {
-        fdb_log(handle->log_callback, status,
+        fdb_log(log_callback, status,
                 "Failed to read the B+-Tree block (block id: %" _F64
                 ", block address: %p)", block->bid, block->addr);
-        _btreeblk_free_aligned_block(handle, block);
+        freeAlignedBlock(block);
         mempool_free(block);
         return NULL;
     }
 
-    _btreeblk_decode(handle, block);
+    decodeBlock(block);
 
-    list_push_front(&handle->read_list, &block->le);
+    list_push_front(&read_list, &block->le);
 #ifdef __BTREEBLK_READ_TREE
-    avl_insert(&handle->read_tree, &block->avl, _btreeblk_bid_cmp);
+    avl_insert(&read_tree, &block->avl, _btreeblk_bid_cmp);
 #endif
 
-    if (subblock) {
+    if (subblock_mode) {
         return (uint8_t *)block->addr +
-               (handle->nodesize) * offset +
-               handle->sb[sb].sb_size * idx;
+               nodesize * offset +
+               subblock[sb].sb_size * idx;
     } else {
-        return (uint8_t *)block->addr + (handle->nodesize) * offset;
+        return (uint8_t *)block->addr + nodesize * offset;
     }
 }
 
-void * btreeblk_read(void *voidhandle, bid_t bid)
+void * BTreeBlkHandle::read(bid_t bid)
 {
-    return _btreeblk_read(voidhandle, bid, -1);
+    return _read(bid, -1);
 }
 
-INLINE void _btreeblk_add_stale_block(struct btreeblk_handle *handle,
-                                 uint64_t pos,
-                                 uint32_t len)
+void * BTreeBlkHandle::move(bid_t bid, bid_t& new_bid)
 {
-    filemgr_add_stale_block(handle->file, pos, len);
-}
-
-void btreeblk_set_dirty(void *voidhandle, bid_t bid);
-void * btreeblk_move(void *voidhandle, bid_t bid, bid_t *new_bid)
-{
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     void *old_addr, *new_addr;
     bid_t _bid, _new_bid;
-    int i, subblock;
+    int i;
+    bool subblock_mode;
     size_t sb, idx, new_idx;
 
     old_addr = new_addr = NULL;
     sb = idx = 0;
-    subbid2bid(bid, &sb, &idx, &_bid);
-    subblock = is_subblock(bid);
+    subbid2bid(bid, sb, idx, _bid);
+    subblock_mode = isSubblock(bid);
 
-    if (!subblock) {
+    if (!subblock_mode) {
         // normal block
-        old_addr = btreeblk_read(voidhandle, bid);
-        new_addr = btreeblk_alloc(voidhandle, new_bid);
-        handle->nlivenodes--;
+        old_addr = read(bid);
+        new_addr = alloc(new_bid);
+        nlivenodes--;
 
         // move
-        memcpy(new_addr, old_addr, (handle->nodesize));
+        memcpy(new_addr, old_addr, nodesize);
 
         // the entire block becomes stale
-        _btreeblk_add_stale_block(handle, bid * handle->nodesize, handle->nodesize);
-
+        addStaleBlock(bid * nodesize, nodesize);
         return new_addr;
+
     } else {
         // subblock
 
         // move the target subblock
         // into the current subblock set
-        old_addr = _btreeblk_read(voidhandle, _bid, sb);
+        old_addr = _read(_bid, sb);
 
-        new_idx = handle->sb[sb].nblocks;
-        for (i=0;i<handle->sb[sb].nblocks;++i){
-            if (handle->sb[sb].bitmap[i] == 0) {
+        new_idx = subblock[sb].nblocks;
+        for (i=0 ; i<subblock[sb].nblocks ; ++i){
+            if (subblock[sb].bitmap[i] == 0) {
                 new_idx = i;
                 break;
             }
         }
-        if (handle->sb[sb].bid == BLK_NOT_FOUND ||
-            new_idx == handle->sb[sb].nblocks ||
-            !filemgr_is_writable(handle->file, handle->sb[sb].bid)) {
+        if (subblock[sb].bid == BLK_NOT_FOUND ||
+            new_idx == subblock[sb].nblocks ||
+            !filemgr_is_writable(file, subblock[sb].bid)) {
             // There is no free slot in the parent block, OR
             // the parent block is not writable.
 
             // Mark all unused subblocks in the current parent block as stale
-            if (handle->sb[sb].bid != BLK_NOT_FOUND) {
-                for (i=0; i<handle->sb[sb].nblocks; ++i) {
-                    if (handle->sb[sb].bitmap[i] == 0) {
-                        _btreeblk_add_stale_block(handle,
-                            (handle->sb[sb].bid * handle->nodesize)
-                                + (i * handle->sb[sb].sb_size),
-                            handle->sb[sb].sb_size);
+            if (subblock[sb].bid != BLK_NOT_FOUND) {
+                for (i=0; i<subblock[sb].nblocks; ++i) {
+                    if (subblock[sb].bitmap[i] == 0) {
+                        addStaleBlock( (subblock[sb].bid * nodesize) +
+                                           (i * subblock[sb].sb_size),
+                                       subblock[sb].sb_size);
                     }
                 }
             }
 
             // Allocate new parent block.
-            new_addr = _btreeblk_alloc(voidhandle, &_new_bid, sb);
-            handle->nlivenodes--;
-            handle->sb[sb].bid = _new_bid;
-            memset(handle->sb[sb].bitmap, 0, handle->sb[sb].nblocks);
+            new_addr = _alloc(_new_bid, sb);
+            nlivenodes--;
+            subblock[sb].bid = _new_bid;
+            memset(subblock[sb].bitmap, 0, subblock[sb].nblocks);
             new_idx = 0;
         } else {
             // just append to the current block
-            new_addr = _btreeblk_read(voidhandle, handle->sb[sb].bid, sb);
+            new_addr = _read(subblock[sb].bid, sb);
         }
 
-        handle->sb[sb].bitmap[new_idx] = 1;
-        bid2subbid(handle->sb[sb].bid, sb, new_idx, new_bid);
-        btreeblk_set_dirty(voidhandle, handle->sb[sb].bid);
+        subblock[sb].bitmap[new_idx] = 1;
+        bid2subbid(subblock[sb].bid, sb, new_idx, new_bid);
+        setDirty(subblock[sb].bid);
 
         // move
-        memcpy((uint8_t*)new_addr + handle->sb[sb].sb_size * new_idx,
-               (uint8_t*)old_addr + handle->sb[sb].sb_size * idx,
-               handle->sb[sb].sb_size);
+        memcpy((uint8_t*)new_addr + subblock[sb].sb_size * new_idx,
+               (uint8_t*)old_addr + subblock[sb].sb_size * idx,
+               subblock[sb].sb_size);
 
         // Also mark the target (old) subblock as stale
-        _btreeblk_add_stale_block(handle,
-            (_bid * handle->nodesize) + (idx * handle->sb[sb].sb_size),
-            handle->sb[sb].sb_size);
+        addStaleBlock( (_bid * nodesize) + (idx * subblock[sb].sb_size),
+                       subblock[sb].sb_size);
 
-        return (uint8_t*)new_addr + handle->sb[sb].sb_size * new_idx;
+        return (uint8_t*)new_addr + subblock[sb].sb_size * new_idx;
     }
 }
 
-// LCOV_EXCL_START
-void btreeblk_remove(void *voidhandle, bid_t bid)
+void BTreeBlkHandle::remove(bid_t bid)
 {
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     bid_t _bid;
-    int i, subblock, nitems;
+    int i, nitems;
+    bool subblock_mode;
     size_t sb, idx;
 
     sb = idx = 0;
-    subbid2bid(bid, &sb, &idx, &_bid);
-    subblock = is_subblock(bid);
+    subbid2bid(bid, sb, idx, _bid);
+    subblock_mode = isSubblock(bid);
 
-    if (subblock) {
+    if (subblock_mode) {
         // subblock
-        if (handle->sb[sb].bid == _bid) {
+        if (subblock[sb].bid == _bid) {
             // erase bitmap
-            handle->sb[sb].bitmap[idx] = 0;
+            subblock[sb].bitmap[idx] = 0;
             // if all slots are empty, invalidate the block
             nitems = 0;
-            for (i=0;i<handle->sb[sb].nblocks;++i){
-                if (handle->sb[sb].bitmap) {
+            for (i = 0 ; i < subblock[sb].nblocks ; ++i){
+                if (subblock[sb].bitmap) {
                     nitems++;
                 }
             }
             if (nitems == 0) {
-                handle->sb[sb].bid = BLK_NOT_FOUND;
-                handle->nlivenodes--;
-                _btreeblk_add_stale_block(handle,
-                                          _bid * handle->nodesize,
-                                          handle->nodesize);
+                subblock[sb].bid = BLK_NOT_FOUND;
+                nlivenodes--;
+                addStaleBlock(_bid * nodesize, nodesize);
             }
         }
     } else {
         // normal block
-        handle->nlivenodes--;
-        _btreeblk_add_stale_block(handle,
-                                  _bid * handle->nodesize,
-                                  handle->nodesize);
+        nlivenodes--;
+        addStaleBlock(_bid * nodesize, nodesize);
     }
 }
-// LCOV_EXCL_STOP
 
-int btreeblk_is_writable(void *voidhandle, bid_t bid)
+bool BTreeBlkHandle::isWritable(bid_t bid)
 {
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     bid_t _bid;
     bid_t filebid;
     size_t sb, idx;
 
     sb = idx = 0;
-    subbid2bid(bid, &sb, &idx, &_bid);
-    filebid = _bid / handle->nnodeperblock;
+    subbid2bid(bid, sb, idx, _bid);
+    filebid = _bid / nnodeperblock;
 
-    return filemgr_is_writable(handle->file, filebid);
+    return filemgr_is_writable(file, filebid);
 }
 
-void btreeblk_set_dirty(void *voidhandle, bid_t bid)
+void BTreeBlkHandle::setDirty(bid_t bid)
 {
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;
     struct btreeblk_block *block;
     bid_t _bid;
@@ -611,22 +700,22 @@ void btreeblk_set_dirty(void *voidhandle, bid_t bid)
     size_t sb, idx;
 
     sb = idx = 0;
-    subbid2bid(bid, &sb, &idx, &_bid);
-    filebid = _bid / handle->nnodeperblock;
+    subbid2bid(bid, sb, idx, _bid);
+    filebid = _bid / nnodeperblock;
 
 #ifdef __BTREEBLK_READ_TREE
     // AVL-tree
     struct btreeblk_block query;
     query.bid = filebid;
     struct avl_node *a;
-    a = avl_search(&handle->read_tree, &query.avl, _btreeblk_bid_cmp);
+    a = avl_search(&read_tree, &query.avl, _btreeblk_bid_cmp);
     if (a) {
         block = _get_entry(a, struct btreeblk_block, avl);
         block->dirty = 1;
     }
 #else
     // list
-    e = list_begin(&handle->read_list);
+    e = list_begin(&read_list);
     while(e){
         block = _get_entry(e, struct btreeblk_block, le);
         if (block->bid == filebid) {
@@ -638,9 +727,8 @@ void btreeblk_set_dirty(void *voidhandle, bid_t bid)
 #endif
 }
 
-static void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)
+void BTreeBlkHandle::setSBNo(bid_t bid, int sb_no)
 {
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;
     struct btreeblk_block *block;
     bid_t _bid;
@@ -648,10 +736,10 @@ static void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)
     size_t sb, idx;
 
     sb = idx = 0;
-    subbid2bid(bid, &sb, &idx, &_bid);
-    filebid = _bid / handle->nnodeperblock;
+    subbid2bid(bid, sb, idx, _bid);
+    filebid = _bid / nnodeperblock;
 
-    e = list_begin(&handle->alc_list);
+    e = list_begin(&alc_list);
     while(e){
         block = _get_entry(e, struct btreeblk_block, le);
         if (block->bid == filebid) {
@@ -666,14 +754,14 @@ static void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)
     struct btreeblk_block query;
     query.bid = filebid;
     struct avl_node *a;
-    a = avl_search(&handle->read_tree, &query.avl, _btreeblk_bid_cmp);
+    a = avl_search(&read_tree, &query.avl, _btreeblk_bid_cmp);
     if (a) {
         block = _get_entry(a, struct btreeblk_block, avl);
         block->sb_no = sb_no;
     }
 #else
     // list
-    e = list_begin(&handle->read_list);
+    e = list_begin(&read_list);
     while(e){
         block = _get_entry(e, struct btreeblk_block, le);
         if (block->bid == filebid) {
@@ -685,110 +773,103 @@ static void _btreeblk_set_sb_no(void *voidhandle, bid_t bid, int sb_no)
 #endif
 }
 
-size_t btreeblk_get_size(void *voidhandle, bid_t bid)
+size_t BTreeBlkHandle::getBlockSize(bid_t bid)
 {
     bid_t _bid;
     size_t sb, idx;
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
 
-    if (is_subblock(bid) && bid != BLK_NOT_FOUND) {
-        subbid2bid(bid, &sb, &idx, &_bid);
-        return handle->sb[sb].sb_size;
+    if (isSubblock(bid) && bid != BLK_NOT_FOUND) {
+        subbid2bid(bid, sb, idx, _bid);
+        return subblock[sb].sb_size;
     } else {
-        return handle->nodesize;
+        return nodesize;
     }
 }
 
-void * btreeblk_alloc_sub(void *voidhandle, bid_t *bid)
+void * BTreeBlkHandle::allocSub(bid_t& bid)
 {
     int i;
     void *addr;
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
 
-    if (handle->nsb == 0) {
-        return btreeblk_alloc(voidhandle, bid);
+    if (n_subblocks == 0) {
+        return alloc(bid);
     }
 
     // check current block is available
-    if (handle->sb[0].bid != BLK_NOT_FOUND) {
-        if (filemgr_is_writable(handle->file, handle->sb[0].bid)) {
+    if (subblock[0].bid != BLK_NOT_FOUND) {
+        if (filemgr_is_writable(file, subblock[0].bid)) {
             // check if there is an empty slot
-            for (i=0;i<handle->sb[0].nblocks;++i){
-                if (handle->sb[0].bitmap[i] == 0) {
+            for (i=0 ; i<subblock[0].nblocks ; ++i){
+                if (subblock[0].bitmap[i] == 0) {
                     // return subblock
-                    handle->sb[0].bitmap[i] = 1;
-                    bid2subbid(handle->sb[0].bid, 0, i, bid);
-                    addr = _btreeblk_read(voidhandle, handle->sb[0].bid, 0);
-                    btreeblk_set_dirty(voidhandle, handle->sb[0].bid);
-                    return (void*)
-                           ((uint8_t*)addr +
-                            handle->sb[0].sb_size * i);
+                    subblock[0].bitmap[i] = 1;
+                    bid2subbid(subblock[0].bid, 0, i, bid);
+                    addr = _read(subblock[0].bid, 0);
+                    setDirty(subblock[0].bid);
+                    return ((uint8_t*)addr + subblock[0].sb_size * i);
                 }
             }
         } else {
             // we have to mark all unused slots as stale
             size_t idx;
-            for (idx=0; idx<handle->sb[0].nblocks; ++idx) {
-                if (handle->sb[0].bitmap[idx] == 0) {
-                    _btreeblk_add_stale_block(handle,
-                        (handle->sb[0].bid * handle->nodesize)
-                            + (idx * handle->sb[0].sb_size),
-                        handle->sb[0].sb_size);
+            for (idx = 0 ; idx < subblock[0].nblocks ; ++idx) {
+                if (subblock[0].bitmap[idx] == 0) {
+                    addStaleBlock( (subblock[0].bid * nodesize) +
+                                       (idx * subblock[0].sb_size),
+                                   subblock[0].sb_size);
                 }
             }
         }
     }
 
     // existing subblock cannot be used .. give it up & allocate new one
-    addr = _btreeblk_alloc(voidhandle, &handle->sb[0].bid, 0);
-    memset(handle->sb[0].bitmap, 0, handle->sb[0].nblocks);
+    addr = _alloc(subblock[0].bid, 0);
+    memset(subblock[0].bitmap, 0, subblock[0].nblocks);
     i = 0;
-    handle->sb[0].bitmap[i] = 1;
-    bid2subbid(handle->sb[0].bid, 0, i, bid);
-    return (void*)((uint8_t*)addr + handle->sb[0].sb_size * i);
+    subblock[0].bitmap[i] = 1;
+    bid2subbid(subblock[0].bid, 0, i, bid);
+    return (void*)((uint8_t*)addr + subblock[0].sb_size * i);
 }
 
-void * btreeblk_enlarge_node(void *voidhandle,
-                             bid_t old_bid,
-                             size_t req_size,
-                             bid_t *new_bid)
+void * BTreeBlkHandle::enlargeNode(bid_t old_bid,
+                                   size_t req_size,
+                                   bid_t& new_bid)
 {
     uint32_t i;
     bid_t bid;
     size_t src_sb, src_idx, src_nitems;
     size_t dst_sb, dst_idx, dst_nitems;
     void *src_addr, *dst_addr;
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
 
-    if (!is_subblock(old_bid)) {
+    if (!isSubblock(old_bid)) {
         return NULL;
     }
     src_addr = dst_addr = NULL;
-    subbid2bid(old_bid, &src_sb, &src_idx, &bid);
+    subbid2bid(old_bid, src_sb, src_idx, bid);
 
     dst_sb = 0;
     // find sublock that can accommodate req_size
-    for (i=src_sb+1; i<handle->nsb; ++i){
-        if (handle->sb[i].sb_size > req_size) {
+    for (i = src_sb+1 ; i < n_subblocks ; ++i){
+        if (subblock[i].sb_size > req_size) {
             dst_sb = i;
             break;
         }
     }
 
     src_nitems = 0;
-    for (i=0;i<handle->sb[src_sb].nblocks;++i){
-        if (handle->sb[src_sb].bitmap[i]) {
+    for (i = 0 ; i < subblock[src_sb].nblocks ; ++i){
+        if (subblock[src_sb].bitmap[i]) {
             src_nitems++;
         }
     }
 
     dst_nitems = 0;
     if (dst_sb > 0) {
-        dst_idx = handle->sb[dst_sb].nblocks;
-        for (i=0;i<handle->sb[dst_sb].nblocks;++i){
-            if (handle->sb[dst_sb].bitmap[i]) {
+        dst_idx = subblock[dst_sb].nblocks;
+        for (i = 0 ; i < subblock[dst_sb].nblocks ; ++i){
+            if (subblock[dst_sb].bitmap[i]) {
                 dst_nitems++;
-            } else if (dst_idx == handle->sb[dst_sb].nblocks) {
+            } else if (dst_idx == subblock[dst_sb].nblocks) {
                 dst_idx = i;
             }
         }
@@ -798,39 +879,38 @@ void * btreeblk_enlarge_node(void *voidhandle,
         // destination block is empty
         dst_idx = 0;
         if (src_nitems == 1 &&
-            bid == handle->sb[src_sb].bid &&
-            filemgr_is_writable(handle->file, bid)) {
+            bid == subblock[src_sb].bid &&
+            filemgr_is_writable(file, bid)) {
             //2 case 1
             // if there's only one subblock in the source block, and
             // the source block is still writable and allocable,
             // then switch source block to destination block
-            src_addr = _btreeblk_read(voidhandle, bid, src_sb);
+            src_addr = _read(bid, src_sb);
             dst_addr = src_addr;
             if (dst_sb > 0) {
-                handle->sb[dst_sb].bid = handle->sb[src_sb].bid;
+                subblock[dst_sb].bid = subblock[src_sb].bid;
             } else {
-                *new_bid = handle->sb[src_sb].bid;
+                new_bid = subblock[src_sb].bid;
             }
-            btreeblk_set_dirty(voidhandle, handle->sb[src_sb].bid);
+            setDirty(subblock[src_sb].bid);
             // we MUST change block->sb_no value since subblock is switched.
             // dst_sb == 0: regular block, otherwise: sub-block
-            _btreeblk_set_sb_no(voidhandle, handle->sb[src_sb].bid,
-                                ((dst_sb)?(dst_sb):(-1)));
+            setSBNo( subblock[src_sb].bid, ((dst_sb) ? (dst_sb) : (-1)) );
 
             if (src_idx > 0 || dst_addr != src_addr) {
                 // move node to the beginning of the block
                 memmove(dst_addr,
-                        (uint8_t*)src_addr + handle->sb[src_sb].sb_size * src_idx,
-                        handle->sb[src_sb].sb_size);
+                        (uint8_t*)src_addr + subblock[src_sb].sb_size * src_idx,
+                        subblock[src_sb].sb_size);
             }
             if (dst_sb > 0) {
-                handle->sb[dst_sb].bitmap[dst_idx] = 1;
+                subblock[dst_sb].bitmap[dst_idx] = 1;
             }
-            if (bid == handle->sb[src_sb].bid) {
+            if (bid == subblock[src_sb].bid) {
                 // remove existing source block info
-                handle->sb[src_sb].bid = BLK_NOT_FOUND;
-                memset(handle->sb[src_sb].bitmap, 0,
-                       handle->sb[src_sb].nblocks);
+                subblock[src_sb].bid = BLK_NOT_FOUND;
+                memset(subblock[src_sb].bitmap, 0,
+                       subblock[src_sb].nblocks);
             }
 
         } else {
@@ -838,38 +918,37 @@ void * btreeblk_enlarge_node(void *voidhandle,
             // if there are more than one subblock in the source block,
             // or no more subblock is allocable from the current source block,
             // then allocate a new destination block and move the target subblock only.
-            src_addr = _btreeblk_read(voidhandle, bid, src_sb);
+            src_addr = _read(bid, src_sb);
 
             if (dst_sb > 0) {
                 // case 2-1: enlarged block will be also a subblock
-                dst_addr = _btreeblk_alloc(voidhandle, &handle->sb[dst_sb].bid, dst_sb);
-                memcpy((uint8_t*)dst_addr + handle->sb[dst_sb].sb_size * dst_idx,
-                       (uint8_t*)src_addr + handle->sb[src_sb].sb_size * src_idx,
-                       handle->sb[src_sb].sb_size);
-                handle->sb[dst_sb].bitmap[dst_idx] = 1;
+                dst_addr = _alloc(subblock[dst_sb].bid, dst_sb);
+                memcpy((uint8_t*)dst_addr + subblock[dst_sb].sb_size * dst_idx,
+                       (uint8_t*)src_addr + subblock[src_sb].sb_size * src_idx,
+                       subblock[src_sb].sb_size);
+                subblock[dst_sb].bitmap[dst_idx] = 1;
             } else {
                 // case 2-2: enlarged block will be a regular block
-                dst_addr = btreeblk_alloc(voidhandle, new_bid);
+                dst_addr = alloc(new_bid);
                 memcpy((uint8_t*)dst_addr,
-                       (uint8_t*)src_addr + handle->sb[src_sb].sb_size * src_idx,
-                       handle->sb[src_sb].sb_size);
+                       (uint8_t*)src_addr + subblock[src_sb].sb_size * src_idx,
+                       subblock[src_sb].sb_size);
             }
 
             // Mark the source subblock as stale.
-            if (bid == handle->sb[src_sb].bid) {
+            if (bid == subblock[src_sb].bid) {
                 // The current source block may be still allocable.
                 // Remove the corresponding bitmap from the source bitmap.
                 // All unused subblocks will be marked as stale when this block
                 // becomes immutable.
-                handle->sb[src_sb].bitmap[src_idx] = 0;
+                subblock[src_sb].bitmap[src_idx] = 0;
 
                 // TODO: what if FDB handle is closed without fdb_commit() ?
             } else if (bid != BLK_NOT_FOUND) {
                 // The current source block will not be used for allocation anymore.
                 // Mark the corresponding subblock as stale.
-                _btreeblk_add_stale_block(handle,
-                    (bid * handle->nodesize) + (src_idx * handle->sb[src_sb].sb_size),
-                    handle->sb[src_sb].sb_size);
+                addStaleBlock( (bid * nodesize) + (src_idx * subblock[src_sb].sb_size),
+                               subblock[src_sb].sb_size );
             }
         }
     } else {
@@ -877,100 +956,64 @@ void * btreeblk_enlarge_node(void *voidhandle,
         // destination block exists
         // (happens only when the destination block is
         //  a parent block of subblock set)
-        src_addr = _btreeblk_read(voidhandle, bid, src_sb);
-        if (filemgr_is_writable(handle->file, handle->sb[dst_sb].bid) &&
-            dst_idx != handle->sb[dst_sb].nblocks) {
+        src_addr = _read(bid, src_sb);
+        if (filemgr_is_writable(file, subblock[dst_sb].bid) &&
+            dst_idx != subblock[dst_sb].nblocks) {
             // case 3-1
-            dst_addr = _btreeblk_read(voidhandle, handle->sb[dst_sb].bid, dst_sb);
-            btreeblk_set_dirty(voidhandle, handle->sb[dst_sb].bid);
+            dst_addr = _read(subblock[dst_sb].bid, dst_sb);
+            setDirty(subblock[dst_sb].bid);
         } else {
             // case 3-2: allocate new destination block
-            dst_addr = _btreeblk_alloc(voidhandle, &handle->sb[dst_sb].bid, dst_sb);
-            memset(handle->sb[dst_sb].bitmap, 0, handle->sb[dst_sb].nblocks);
+            dst_addr = _alloc(subblock[dst_sb].bid, dst_sb);
+            memset(subblock[dst_sb].bitmap, 0, subblock[dst_sb].nblocks);
             dst_idx = 0;
         }
 
-        memcpy((uint8_t*)dst_addr + handle->sb[dst_sb].sb_size * dst_idx,
-               (uint8_t*)src_addr + handle->sb[src_sb].sb_size * src_idx,
-               handle->sb[src_sb].sb_size);
-        handle->sb[dst_sb].bitmap[dst_idx] = 1;
+        memcpy( (uint8_t*)dst_addr + subblock[dst_sb].sb_size * dst_idx,
+                (uint8_t*)src_addr + subblock[src_sb].sb_size * src_idx,
+                subblock[src_sb].sb_size );
+        subblock[dst_sb].bitmap[dst_idx] = 1;
 
         // Mark the source subblock as stale.
-        if (bid == handle->sb[src_sb].bid) {
+        if (bid == subblock[src_sb].bid) {
             // The current source block may be still allocable.
             // Remove the corresponding bitmap from the source bitmap.
             // All unused subblocks will be marked as stale when this block
             // becomes immutable.
-            handle->sb[src_sb].bitmap[src_idx] = 0;
-        } else if (handle->sb[src_sb].bid != BLK_NOT_FOUND) {
+            subblock[src_sb].bitmap[src_idx] = 0;
+        } else if (subblock[src_sb].bid != BLK_NOT_FOUND) {
             // The current source block will not be used for allocation anymore.
             // Mark the corresponding subblock as stale.
-            _btreeblk_add_stale_block(handle,
-                (bid * handle->nodesize) + (src_idx * handle->sb[src_sb].sb_size),
-                handle->sb[src_sb].sb_size);
+            addStaleBlock( (bid * nodesize) + (src_idx * subblock[src_sb].sb_size) ,
+                           subblock[src_sb].sb_size );
         }
-
     }
 
     if (dst_sb > 0) {
         // sub block
-        bid2subbid(handle->sb[dst_sb].bid, dst_sb, dst_idx, new_bid);
-        return (uint8_t*)dst_addr + handle->sb[dst_sb].sb_size * dst_idx;
+        bid2subbid(subblock[dst_sb].bid, dst_sb, dst_idx, new_bid);
+        return (uint8_t*)dst_addr + subblock[dst_sb].sb_size * dst_idx;
     } else {
         // whole block
         return dst_addr;
     }
 }
 
-INLINE void _btreeblk_free_dirty_block(struct btreeblk_handle *handle,
-                                       struct btreeblk_block *block)
-{
-    _btreeblk_free_aligned_block(handle, block);
-    mempool_free(block);
-}
-
-INLINE fdb_status _btreeblk_write_dirty_block(struct btreeblk_handle *handle,
-                                        struct btreeblk_block *block)
-{
-    fdb_status status;
-    //2 MUST BE modified to support multiple nodes in a block
-
-    _btreeblk_encode(handle, block);
-    if (handle->dirty_update_writer) {
-        // dirty update is in-progress
-        status = filemgr_write_dirty(handle->file, block->bid, block->addr,
-                                     handle->dirty_update_writer,
-                                     handle->log_callback);
-    } else {
-        // normal write into file
-        status = filemgr_write(handle->file, block->bid, block->addr,
-                               handle->log_callback);
-    }
-    if (status != FDB_RESULT_SUCCESS) {
-        fdb_log(handle->log_callback, status,
-                "Failed to write the B+-Tree block (block id: %" _F64
-                ", block address: %p)", block->bid, block->addr);
-    }
-    _btreeblk_decode(handle, block);
-    return status;
-}
-
-fdb_status btreeblk_operation_end(void *voidhandle)
+fdb_status BTreeBlkHandle::_flushBuffer()
 {
     // flush and write all items in allocation list
-    struct btreeblk_handle *handle = (struct btreeblk_handle *)voidhandle;
     struct list_elem *e;
     struct btreeblk_block *block;
     int writable;
     fdb_status status = FDB_RESULT_SUCCESS;
 
     // write and free items in allocation list
-    e = list_begin(&handle->alc_list);
+    e = list_begin(&alc_list);
     while(e){
         block = _get_entry(e, struct btreeblk_block, le);
-        writable = filemgr_is_writable(handle->file, block->bid);
+        writable = filemgr_is_writable(file, block->bid);
         if (writable) {
-            status = _btreeblk_write_dirty_block(handle, block);
+            status = writeDirtyBlock(block);
             if (status != FDB_RESULT_SUCCESS) {
                 return status;
             }
@@ -978,13 +1021,13 @@ fdb_status btreeblk_operation_end(void *voidhandle)
             return FDB_RESULT_WRITE_FAIL;
         }
 
-        if (block->pos + (handle->nodesize) > (handle->file->blocksize) || !writable) {
+        if (block->pos + nodesize > file->blocksize || !writable) {
             // remove from alc_list and insert into read list
-            e = list_remove(&handle->alc_list, &block->le);
+            e = list_remove(&alc_list, &block->le);
             block->dirty = 0;
-            list_push_front(&handle->read_list, &block->le);
+            list_push_front(&read_list, &block->le);
 #ifdef __BTREEBLK_READ_TREE
-            avl_insert(&handle->read_tree, &block->avl, _btreeblk_bid_cmp);
+            avl_insert(&read_tree, &block->avl, _btreeblk_bid_cmp);
 #endif
         }else {
             // reserve the block when there is enough space and the block is writable
@@ -996,14 +1039,14 @@ fdb_status btreeblk_operation_end(void *voidhandle)
 #ifdef __BTREEBLK_READ_TREE
     // AVL-tree
     struct avl_node *a;
-    a = avl_first(&handle->read_tree);
+    a = avl_first(&read_tree);
     while (a) {
         block = _get_entry(a, struct btreeblk_block, avl);
         a = avl_next(a);
 
         if (block->dirty) {
             // write back only when the block is modified
-            status = _btreeblk_write_dirty_block(handle, block);
+            status = writeDirtyBlock(block);
             if (status != FDB_RESULT_SUCCESS) {
                 return status;
             }
@@ -1011,22 +1054,22 @@ fdb_status btreeblk_operation_end(void *voidhandle)
         }
 
         if (block->age >= BTREEBLK_AGE_LIMIT) {
-            list_remove(&handle->read_list, &block->le);
-            avl_remove(&handle->read_tree, &block->avl);
-            _btreeblk_free_dirty_block(handle, block);
+            list_remove(&read_list, &block->le);
+            avl_remove(&read_tree, &block->avl);
+            freeDirtyBlock(block);
         } else {
             block->age++;
         }
     }
 #else
     // list
-    e = list_begin(&handle->read_list);
+    e = list_begin(&read_list);
     while(e){
         block = _get_entry(e, struct btreeblk_block, le);
 
         if (block->dirty) {
             // write back only when the block is modified
-            status = _btreeblk_write_dirty_block(handle, block);
+            status = writeDirtyBlock(block);
             if (status != FDB_RESULT_SUCCESS) {
                 return status;
             }
@@ -1034,8 +1077,8 @@ fdb_status btreeblk_operation_end(void *voidhandle)
         }
 
         if (block->age >= BTREEBLK_AGE_LIMIT) {
-            e = list_remove(&handle->read_list, &block->le);
-            _btreeblk_free_dirty_block(handle, block);
+            e = list_remove(&read_list, &block->le);
+            freeDirtyBlock(block);
         } else {
             block->age++;
             e = list_next(e);
@@ -1046,7 +1089,7 @@ fdb_status btreeblk_operation_end(void *voidhandle)
     return status;
 }
 
-void btreeblk_discard_blocks(struct btreeblk_handle *handle)
+void BTreeBlkHandle::discardBlocks()
 {
     // discard all writable blocks in the read list
     struct list_elem *e;
@@ -1056,218 +1099,81 @@ void btreeblk_discard_blocks(struct btreeblk_handle *handle)
 #ifdef __BTREEBLK_READ_TREE
     // AVL-tree
     struct avl_node *a;
-    a = avl_first(&handle->read_tree);
+    a = avl_first(&read_tree);
     while (a) {
         block = _get_entry(a, struct btreeblk_block, avl);
         a = avl_next(a);
 
-        list_remove(&handle->read_list, &block->le);
-        avl_remove(&handle->read_tree, &block->avl);
-        _btreeblk_free_dirty_block(handle, block);
+        list_remove(&read_list, &block->le);
+        avl_remove(&read_tree, &block->avl);
+        freeDirtyBlock(block);
     }
 #else
     // list
-    e = list_begin(&handle->read_list);
+    e = list_begin(&read_list);
     while(e){
         block = _get_entry(e, struct btreeblk_block, le);
         e = list_next(&block->le);
 
-        list_remove(&handle->read_list, &block->le);
-        _btreeblk_free_dirty_block(handle, block);
+        list_remove(&read_list, &block->le);
+        freeDirtyBlock(block);
     }
 #endif
 }
 
-#ifdef __BTREEBLK_SUBBLOCK
-struct btree_blk_ops btreeblk_ops = {
-    btreeblk_alloc,
-    btreeblk_alloc_sub,
-    btreeblk_enlarge_node,
-    btreeblk_read,
-    btreeblk_move,
-    btreeblk_remove,
-    btreeblk_is_writable,
-    btreeblk_get_size,
-    btreeblk_set_dirty,
-    NULL
-};
-#else
-struct btree_blk_ops btreeblk_ops = {
-    btreeblk_alloc,
-    NULL,
-    NULL,
-    btreeblk_read,
-    btreeblk_move,
-    btreeblk_remove,
-    btreeblk_is_writable,
-    btreeblk_get_size,
-    btreeblk_set_dirty,
-    NULL
-};
-#endif
-
-struct btree_blk_ops *btreeblk_get_ops()
-{
-    return &btreeblk_ops;
-}
-
-void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file,
-                   uint32_t nodesize)
-{
-    uint32_t i;
-    uint32_t _nodesize;
-
-    handle->file = file;
-    handle->nodesize = nodesize;
-    handle->nnodeperblock = handle->file->blocksize / handle->nodesize;
-    handle->nlivenodes = 0;
-    handle->ndeltanodes = 0;
-    handle->dirty_update = NULL;
-    handle->dirty_update_writer = NULL;
-
-    list_init(&handle->alc_list);
-    list_init(&handle->read_list);
-
-#ifdef __BTREEBLK_READ_TREE
-    avl_init(&handle->read_tree, NULL);
-#endif
-
-#ifdef __BTREEBLK_BLOCKPOOL
-    list_init(&handle->blockpool);
-#endif
-
-#ifdef __BTREEBLK_SUBBLOCK
-    // compute # subblock sets
-    _nodesize = BTREEBLK_MIN_SUBBLOCK;
-    for (i=0; (_nodesize < nodesize && i<5); ++i){
-        _nodesize = _nodesize << 1;
-    }
-    handle->nsb = i;
-    if (i) {
-        handle->sb = (struct btreeblk_subblocks*)
-                     malloc(sizeof(struct btreeblk_subblocks) * handle->nsb);
-        // initialize each subblock set
-        _nodesize = BTREEBLK_MIN_SUBBLOCK;
-        for (i=0;i<handle->nsb;++i){
-            handle->sb[i].bid = BLK_NOT_FOUND;
-            handle->sb[i].sb_size = _nodesize;
-            handle->sb[i].nblocks = nodesize / _nodesize;
-            handle->sb[i].bitmap = (uint8_t*)malloc(handle->sb[i].nblocks);
-            memset(handle->sb[i].bitmap, 0, handle->sb[i].nblocks);
-            _nodesize = _nodesize << 1;
-        }
-    } else {
-        handle->sb = NULL;
-    }
-#endif
-}
-
-void btreeblk_reset_subblock_info(struct btreeblk_handle *handle)
+void BTreeBlkHandle::resetSubblockInfo()
 {
 #ifdef __BTREEBLK_SUBBLOCK
     uint32_t sb_no, idx;
 
-    for (sb_no=0;sb_no<handle->nsb;++sb_no){
-        if (handle->sb[sb_no].bid != BLK_NOT_FOUND) {
+    for (sb_no = 0 ; sb_no < n_subblocks ; ++sb_no){
+        if (subblock[sb_no].bid != BLK_NOT_FOUND) {
             // first of all, make all unused subblocks as stale
-            for (idx=0; idx<handle->sb[sb_no].nblocks; ++idx) {
-                if (handle->sb[sb_no].bitmap[idx] == 0) {
-                    _btreeblk_add_stale_block(handle,
-                        (handle->sb[sb_no].bid * handle->nodesize)
-                            + (idx * handle->sb[sb_no].sb_size),
-                        handle->sb[sb_no].sb_size);
+            for (idx = 0 ; idx < subblock[sb_no].nblocks ; ++idx) {
+                if (subblock[sb_no].bitmap[idx] == 0) {
+                    addStaleBlock( (subblock[sb_no].bid * nodesize) +
+                                       (idx * subblock[sb_no].sb_size),
+                                   subblock[sb_no].sb_size );
                 }
             }
-            handle->sb[sb_no].bid = BLK_NOT_FOUND;
+            subblock[sb_no].bid = BLK_NOT_FOUND;
         }
         // clear all info in each subblock set
-        memset(handle->sb[sb_no].bitmap, 0, handle->sb[sb_no].nblocks);
+        memset(subblock[sb_no].bitmap, 0, subblock[sb_no].nblocks);
     }
-
 #endif
 }
 
-// shutdown
-void btreeblk_free(struct btreeblk_handle *handle)
-{
-    struct list_elem *e;
-    struct btreeblk_block *block;
-
-    // free all blocks in alc list
-    e = list_begin(&handle->alc_list);
-    while(e) {
-        block = _get_entry(e, struct btreeblk_block, le);
-        e = list_remove(&handle->alc_list, &block->le);
-        _btreeblk_free_dirty_block(handle, block);
-    }
-
-    // free all blocks in read list
-#ifdef __BTREEBLK_READ_TREE
-    // AVL tree
-    struct avl_node *a;
-    a = avl_first(&handle->read_tree);
-    while (a) {
-        block = _get_entry(a, struct btreeblk_block, avl);
-        a = avl_next(a);
-        avl_remove(&handle->read_tree, &block->avl);
-        _btreeblk_free_dirty_block(handle, block);
-    }
-#else
-    // linked list
-    e = list_begin(&handle->read_list);
-    while(e) {
-        block = _get_entry(e, struct btreeblk_block, le);
-        e = list_remove(&handle->read_list, &block->le);
-        _btreeblk_free_dirty_block(handle, block);
-    }
-#endif
-
-#ifdef __BTREEBLK_BLOCKPOOL
-    // free all blocks in the block pool
-    struct btreeblk_addr *item;
-
-    e = list_begin(&handle->blockpool);
-    while(e){
-        item = _get_entry(e, struct btreeblk_addr, le);
-        e = list_next(e);
-
-        free_align(item->addr);
-        mempool_free(item);
-    }
-#endif
-
-#ifdef __BTREEBLK_SUBBLOCK
-    uint32_t i;
-    for (i=0;i<handle->nsb;++i){
-        free(handle->sb[i].bitmap);
-    }
-    free(handle->sb);
-#endif
-}
-
-fdb_status btreeblk_end(struct btreeblk_handle *handle)
+fdb_status BTreeBlkHandle::flushBuffer()
 {
     struct list_elem *e;
     struct btreeblk_block *block;
     fdb_status status = FDB_RESULT_SUCCESS;
 
     // flush all dirty items
-    status = btreeblk_operation_end((void *)handle);
+    status = _flushBuffer();
     if (status != FDB_RESULT_SUCCESS) {
         return status;
     }
 
     // remove all items in lists
-    e = list_begin(&handle->alc_list);
+    e = list_begin(&alc_list);
     while(e) {
         block = _get_entry(e, struct btreeblk_block, le);
-        e = list_remove(&handle->alc_list, &block->le);
+        e = list_remove(&alc_list, &block->le);
 
         block->dirty = 0;
-        list_push_front(&handle->read_list, &block->le);
+        list_push_front(&read_list, &block->le);
 #ifdef __BTREEBLK_READ_TREE
-        avl_insert(&handle->read_tree, &block->avl, _btreeblk_bid_cmp);
+        avl_insert(&read_tree, &block->avl, _btreeblk_bid_cmp);
 #endif
     }
     return status;
 }
+
+void BTreeBlkHandle::operationEnd()
+{
+    // do nothing for now
+}
+
+

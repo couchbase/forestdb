@@ -69,21 +69,6 @@ typedef void* voidref;
 typedef struct bnode* bnoderef;
 typedef int btree_cmp_func(void *key1, void *key2, void *aux);
 
-struct btree_blk_ops {
-    voidref (*blk_alloc)(void *handle, bid_t *bid);
-    voidref (*blk_alloc_sub)(void *handle, bid_t *bid);
-    voidref (*blk_enlarge_node)(void *voidhandle, bid_t old_bid,
-                                size_t req_size, bid_t *new_bid);
-    voidref (*blk_read)(void *handle, bid_t bid);
-    voidref (*blk_move)(void *handle, bid_t bid, bid_t *new_bid);
-    void (*blk_remove)(void *handle, bid_t bid);
-    int (*blk_is_writable)(void *handle, bid_t bid);
-    size_t (*blk_get_size)(void *handle, bid_t bid);
-    void (*blk_set_dirty)(void *handle, bid_t bid);
-    void (*blk_operation_end)(void *handle); // optional
-};
-
-
 /**
  * B+tree key-value operation wrapper class definition.
  * Actual operation class will inherit this class.
@@ -262,14 +247,15 @@ protected:
     btree_cmp_func *cmp_func;
 };
 
+class BTreeBlkHandle;
+
 struct btree {
     uint8_t ksize;
     uint8_t vsize;
     uint16_t height;
     uint32_t blksize;
     bid_t root_bid;
-    void *blk_handle;
-    struct btree_blk_ops *blk_ops;
+    BTreeBlkHandle *bhandle;
     BTreeKVOps *kv_ops;
     bnode_flag_t root_flag;
     void *aux;
@@ -327,15 +313,19 @@ struct bnode * btree_get_bnode(void *addr);
 #endif
 metasize_t btree_read_meta(struct btree *btree, void *buf);
 void btree_update_meta(struct btree *btree, struct btree_meta *meta);
-btree_result btree_init_from_bid(
-        struct btree *btree, void *blk_handle,
-        struct btree_blk_ops *blk_ops, BTreeKVOps *kv_ops,
-        uint32_t nodesize, bid_t root_bid);
-btree_result btree_init(
-        struct btree *btree, void *blk_handle,
-        struct btree_blk_ops *blk_ops, BTreeKVOps *kv_ops,
-        uint32_t nodesize, uint8_t ksize, uint8_t vsize,
-        bnode_flag_t flag, struct btree_meta *meta);
+btree_result btree_init_from_bid(struct btree *btree,
+                                 BTreeBlkHandle *bhandle,
+                                 BTreeKVOps *kv_ops,
+                                 uint32_t nodesize,
+                                 bid_t root_bid);
+btree_result btree_init(struct btree *btree,
+                        BTreeBlkHandle *bhandle,
+                        BTreeKVOps *kv_ops,
+                        uint32_t nodesize,
+                        uint8_t ksize,
+                        uint8_t vsize,
+                        bnode_flag_t flag,
+                        struct btree_meta *meta);
 
 btree_result btree_iterator_init(struct btree *btree, struct btree_iterator *it, void *initial_key);
 btree_result btree_iterator_free(struct btree_iterator *it);

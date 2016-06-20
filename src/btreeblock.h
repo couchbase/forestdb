@@ -21,7 +21,6 @@
 #include "filemgr.h"
 #include "list.h"
 #include "avltree.h"
-#include "btree.h"
 #include "libforestdb/fdb_errors.h"
 
 #ifdef __cplusplus
@@ -37,13 +36,160 @@ struct btreeblk_subblocks{
     uint8_t *bitmap;
 };
 
-struct dirty_snapshot_t {
-    spin_t lock;
-    int ref_cnt;
-    struct avl_tree *snap_tree;
-};
+class BTreeBlkHandle {
+public:
+    BTreeBlkHandle(struct filemgr *_file, uint32_t _nodesize);
 
-struct btreeblk_handle{
+    ~BTreeBlkHandle();
+
+    /**
+     * Allocate an index block.
+     *
+     * @param bid Reference to block ID that will be allocated as a result of this
+     *        API call.
+     */
+    void * alloc(bid_t& bid);
+
+    /**
+     * Read an index block.
+     */
+    void * read(bid_t bid);
+
+    /**
+     * Move an index block to another block.
+     *
+     * @param bid Target block ID.
+     * @param bid Reference to new block ID that will be allocated as a result of
+     *        this API call.
+     */
+    void * move(bid_t bid, bid_t& new_bid);
+
+    /**
+     * Remove an index block.
+     */
+    void remove(bid_t bid);
+
+    /**
+     * Return true if the given block is writable.
+     */
+    bool isWritable(bid_t bid);
+
+    /**
+     * Set dirty flag for the given block.
+     */
+    void setDirty(bid_t bid);
+
+    /**
+     * Get actual block size.
+     */
+    size_t getBlockSize(bid_t bid);
+
+    /**
+     * Allocate a sub index block.
+     *
+     * @param bid Reference to block ID that will be allocated as a result of
+     *        this API call.
+     */
+    void * allocSub(bid_t& bid);
+
+    /**
+     * Enlarge the size of a given sub index block to the requested size.
+     *
+     * @param old_bid Target block ID.
+     * @param req_size Requested block size.
+     * @param new_bid Reference to block ID that will be allocated as a result of
+     *        this API call.
+     */
+    void * enlargeNode(bid_t old_bid,
+                       size_t req_size,
+                       bid_t& new_bid);
+
+    /**
+     * Discard all writable blocks in the buffer.
+     */
+    void discardBlocks();
+
+    /**
+     * Clear all the current sub block allocation info, to prevent allocating a
+     * new sub block in existing (i.e., already used for other sub blocks) block.
+     */
+    void resetSubblockInfo();
+
+    /**
+     * Write all dirty index blocks into disk, and flush read buffer.
+     */
+    fdb_status flushBuffer();
+
+    /**
+     * Reserved API that will be called at the end of each tree operation.
+     */
+    void operationEnd();
+
+    inline void setDirtyUpdate(struct filemgr_dirty_update_node *node)
+    {
+        dirty_update = node;
+    }
+
+    inline void setDirtyUpdateWriter(struct filemgr_dirty_update_node *node)
+    {
+        dirty_update_writer = node;
+    }
+
+    inline void clearDirtyUpdate()
+    {
+        dirty_update = dirty_update_writer = NULL;
+    }
+
+    inline struct filemgr_dirty_update_node* getDirtyUpdate()
+    {
+        return dirty_update;
+    }
+
+    void setLogCallback(ErrLogCallback *_log_callback) {
+        log_callback = _log_callback;
+    }
+
+    ErrLogCallback * getLogCallback() {
+        return log_callback;
+    }
+
+    int64_t getNLiveNodes() const {
+        return nlivenodes;
+    }
+
+    void setNLiveNodes(int64_t _nlivenodes) {
+        nlivenodes = _nlivenodes;
+    }
+
+    int64_t getNDeltaNodes() const {
+        return ndeltanodes;
+    }
+
+    void setNDeltaNodes(int64_t _ndeltanodes) {
+        ndeltanodes = _ndeltanodes;
+    }
+
+    uint32_t getNodeSize() const {
+        return nodesize;
+    }
+
+    uint16_t getNNodePerBlock() const {
+        return nnodeperblock;
+    }
+
+    struct filemgr *getFile() const {
+        return file;
+    }
+
+    uint32_t getNSubblocks() const {
+        return n_subblocks;
+    }
+
+    struct btreeblk_subblocks * getSubblockArray() const {
+        return subblock;
+    }
+
+private:
     uint32_t nodesize;
     uint16_t nnodeperblock;
     int64_t nlivenodes;
@@ -66,45 +212,92 @@ struct btreeblk_handle{
     struct btreeblk_block *cache[BTREEBLK_CACHE_LIMIT];
 #endif
 
-    uint32_t nsb;
-    struct btreeblk_subblocks *sb;
+    uint32_t n_subblocks;
+    struct btreeblk_subblocks *subblock;
     // dirty update entry for read
     struct filemgr_dirty_update_node *dirty_update;
     // dirty update entry for the current WAL flushing
     struct filemgr_dirty_update_node *dirty_update_writer;
+
+    void getAlignedBlock(struct btreeblk_block *block);
+    void freeAlignedBlock(struct btreeblk_block *block);
+    void freeDirtyBlock(struct btreeblk_block *block);
+    fdb_status writeDirtyBlock(struct btreeblk_block *block);
+
+    /**
+     * True if given block is a sub index block.
+     */
+    inline bool isSubblock(bid_t subbid)
+    {
+        uint8_t flag;
+        flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
+        return flag;
+    }
+
+    /**
+     * Convert a combination of block ID, sub block type number (indicates the type
+     * size of sub block), and sub block index number (indicates the index number of
+     * the sub block among the sub blocks in the same regular block) into a
+     * manufactured block ID.
+     *
+     * @param bid Block ID.
+     * @param subblock_no Sub block type number.
+     * @param idx Sub block index number.
+     * @param subbid Reference to block ID as a result of this API call.
+     */
+    inline void bid2subbid(bid_t bid, size_t subblock_no, size_t idx, bid_t& subbid)
+    {
+        bid_t flag;
+        // to distinguish subblock_no==0 to non-subblock
+        subblock_no++;
+        flag = (subblock_no << 5) | idx;
+        subbid = bid | (flag << (8 * (sizeof(bid_t)-2)));
+    }
+
+    /**
+     * Extract block ID, sub block type number and sub block index number from a
+     * manufactured block ID.
+     *
+     * @param subbid (Manufactured) block ID.
+     * @param subblock_no Sub block type number as a result of this API call.
+     * @param idx Sub block index number
+     * @param bid Reference to block ID as a result of this API call.
+     */
+    inline void subbid2bid(bid_t subbid, size_t& subblock_no, size_t& idx, bid_t& bid)
+    {
+        uint8_t flag;
+        flag = (subbid >> (8 * (sizeof(bid_t)-2))) & 0x00ff;
+        subblock_no = flag >> 5;
+        // to distinguish subblock_no==0 to non-subblock
+        subblock_no -= 1;
+        idx = flag & (0x20 - 0x01);
+        bid = ((bid_t)(subbid << 16)) >> 16;
+    }
+
+    void * _alloc(bid_t& bid, int sb_no);
+
+    /**
+     * Endian-safe encode all sub blocks belonging to the given regular block
+     */
+    void encodeBlock(struct btreeblk_block *block);
+
+    /**
+     * Endian-safe decode all sub blocks belonging to the given regular block
+     */
+    void decodeBlock(struct btreeblk_block *block);
+
+    void * _read(bid_t bid, int sb_no);
+
+    inline void addStaleBlock(uint64_t pos, uint32_t len)
+    {
+        filemgr_add_stale_block(file, pos, len);
+    }
+
+    void setSBNo(bid_t bid, int sb_no);
+
+    fdb_status _flushBuffer();
 };
 
-struct btree_blk_ops *btreeblk_get_ops();
-void btreeblk_init(struct btreeblk_handle *handle, struct filemgr *file,
-                   uint32_t nodesize);
-
-INLINE void btreeblk_set_dirty_update(struct btreeblk_handle *handle,
-                                      struct filemgr_dirty_update_node *node)
-{
-    handle->dirty_update = node;
-}
-
-INLINE void btreeblk_set_dirty_update_writer(struct btreeblk_handle *handle,
-                                             struct filemgr_dirty_update_node *node)
-{
-    handle->dirty_update_writer = node;
-}
-
-INLINE void btreeblk_clear_dirty_update(struct btreeblk_handle *handle)
-{
-    handle->dirty_update = handle->dirty_update_writer = NULL;
-}
-
-INLINE struct filemgr_dirty_update_node*
-       btreeblk_get_dirty_update(struct btreeblk_handle *handle)
-{
-    return handle->dirty_update;
-}
-
-void btreeblk_reset_subblock_info(struct btreeblk_handle *handle);
-void btreeblk_free(struct btreeblk_handle *handle);
-void btreeblk_discard_blocks(struct btreeblk_handle *handle);
-fdb_status btreeblk_end(struct btreeblk_handle *handle);
 
 #ifdef __cplusplus
 }

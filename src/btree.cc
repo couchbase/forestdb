@@ -8,10 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "btree.h"
 #include "common.h"
-
 #include "list.h"
+#include "btree.h"
+#include "btreeblock.h"
 
 #ifdef __DEBUG
     #include "memleak.h"
@@ -141,7 +141,7 @@ INLINE int _bnode_size_check(
     struct list_elem *e;
     struct kv_ins_item *item;
 
-    nodesize = btree->blk_ops->blk_get_size(btree->blk_handle, bid);
+    nodesize = btree->bhandle->getBlockSize(bid);
 #ifdef __CRC32
     nodesize -= BLK_MARKER_SIZE;
 #endif
@@ -224,7 +224,7 @@ INLINE size_t _btree_get_nsplitnode(struct btree *btree, bid_t bid, struct bnode
     size_t nodesize;
     size_t nnode = 0;
 
-    nodesize = btree->blk_ops->blk_get_size(btree->blk_handle, bid);
+    nodesize = btree->bhandle->getBlockSize(bid);
 #ifdef __CRC32
     nodesize -= BLK_MARKER_SIZE;
 #endif
@@ -252,7 +252,7 @@ metasize_t btree_read_meta(struct btree *btree, void *buf)
     metasize_t size;
     struct bnode *node;
 
-    addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
+    addr = btree->bhandle->read(btree->root_bid);
     node = _fetch_bnode(btree, addr, btree->height);
     if (node->flag & BNODE_MASK_METADATA) {
         ptr = ((uint8_t *)node) + sizeof(struct bnode);
@@ -275,7 +275,7 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
     struct bnode *node;
 
     // read root node
-    addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
+    addr = btree->bhandle->read(btree->root_bid);
     node = _fetch_bnode(btree, addr, btree->height);
 
     ptr = ((uint8_t *)node) + sizeof(struct bnode);
@@ -324,30 +324,29 @@ void btree_update_meta(struct btree *btree, struct btree_meta *meta)
         }
     }
 
-    if (!btree->blk_ops->blk_is_writable(btree->blk_handle, btree->root_bid)) {
+    if (!btree->bhandle->isWritable(btree->root_bid)) {
         // already flushed block -> cannot overwrite, we have to move to new block
-        btree->blk_ops->blk_move(btree->blk_handle, btree->root_bid,
-                                &btree->root_bid);
+        btree->bhandle->move(btree->root_bid, btree->root_bid);
     }else{
-        btree->blk_ops->blk_set_dirty(btree->blk_handle, btree->root_bid);
+        btree->bhandle->setDirty(btree->root_bid);
     }
 }
 
-btree_result btree_init_from_bid(struct btree *btree, void *blk_handle,
-                                 struct btree_blk_ops *blk_ops,
+btree_result btree_init_from_bid(struct btree *btree,
+                                 BTreeBlkHandle *bhandle,
                                  BTreeKVOps *kv_ops,
-                                 uint32_t nodesize, bid_t root_bid)
+                                 uint32_t nodesize,
+                                 bid_t root_bid)
 {
     void *addr;
     struct bnode *root;
 
-    btree->blk_ops = blk_ops;
-    btree->blk_handle = blk_handle;
+    btree->bhandle = bhandle;
     btree->kv_ops = kv_ops;
     btree->blksize = nodesize;
     btree->root_bid = root_bid;
 
-    addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
+    addr = btree->bhandle->read(btree->root_bid);
     root = _fetch_bnode(btree, addr, 0);
 
     btree->root_flag = root->flag;
@@ -357,18 +356,20 @@ btree_result btree_init_from_bid(struct btree *btree, void *blk_handle,
     return BTREE_RESULT_SUCCESS;
 }
 
-btree_result btree_init(
-        struct btree *btree, void *blk_handle,
-        struct btree_blk_ops *blk_ops, BTreeKVOps *kv_ops,
-        uint32_t nodesize, uint8_t ksize, uint8_t vsize,
-        bnode_flag_t flag, struct btree_meta *meta)
+btree_result btree_init(struct btree *btree,
+                        BTreeBlkHandle *bhandle,
+                        BTreeKVOps *kv_ops,
+                        uint32_t nodesize,
+                        uint8_t ksize,
+                        uint8_t vsize,
+                        bnode_flag_t flag,
+                        struct btree_meta *meta)
 {
     void *addr;
     size_t min_nodesize = 0;
 
     btree->root_flag = BNODE_MASK_ROOT | flag;
-    btree->blk_ops = blk_ops;
-    btree->blk_handle = blk_handle;
+    btree->bhandle = bhandle;
     btree->kv_ops = kv_ops;
     btree->height = 1;
     btree->blksize = nodesize;
@@ -388,24 +389,27 @@ btree_result btree_init(
     }
 
     // create the first root node
-    if (btree->blk_ops->blk_alloc_sub && btree->blk_ops->blk_enlarge_node) {
-        addr = btree->blk_ops->blk_alloc_sub(btree->blk_handle, &btree->root_bid);
-        if (meta) {
-            // check if the initial node size including metadata is
-            // larger than the subblock size
-            size_t subblock_size;
-            subblock_size = btree->blk_ops->blk_get_size(btree->blk_handle,
-                                                         btree->root_bid);
-            if (subblock_size < min_nodesize) {
-                addr = btree->blk_ops->blk_enlarge_node(btree->blk_handle,
-                                                        btree->root_bid,
-                                                        min_nodesize,
-                                                        &btree->root_bid);
-            }
+#ifdef __BTREEBLK_SUBBLOCK
+
+    addr = btree->bhandle->allocSub(btree->root_bid);
+    if (meta) {
+        // check if the initial node size including metadata is
+        // larger than the subblock size
+        size_t subblock_size;
+        subblock_size = btree->bhandle->getBlockSize(btree->root_bid);
+        if (subblock_size < min_nodesize) {
+            addr = btree->bhandle->enlargeNode(btree->root_bid,
+                                               min_nodesize,
+                                               btree->root_bid);
         }
-    } else {
-        addr = btree->blk_ops->blk_alloc (btree->blk_handle, &btree->root_bid);
     }
+
+#else
+
+    addr = btree->bhandle->alloc(btree->root_bid);
+
+#endif
+
     _btree_init_node(btree, btree->root_bid, addr,
                      btree->root_flag, BNODE_MASK_ROOT, meta);
 
@@ -570,7 +574,7 @@ static void _btree_print_node(struct btree *btree, int depth,
 
     btree->kv_ops->initKVVar(k, v);
 
-    addr = btree->blk_ops->blk_read(btree->blk_handle, bid);
+    addr = btree->bhandle->read(bid);
     node = _fetch_bnode(btree, addr, depth);
 
     fprintf(stderr, "[d:%d n:%d f:%x b:%" _F64 " ", node->level, node->nentry, node->flag, bid);
@@ -622,7 +626,7 @@ btree_result btree_get_key_range(
     _den = (uint64_t)den * resolution;
 
     // get root node
-    addr = btree->blk_ops->blk_read(btree->blk_handle, btree->root_bid);
+    addr = btree->bhandle->read(btree->root_bid);
     root = _fetch_bnode(btree, addr, btree->height);
     _nentry = (uint64_t)root->nentry * resolution;
 
@@ -641,7 +645,7 @@ btree_result btree_get_key_range(
         btree->kv_ops->getKV(root, idx_begin, k, v);
         bid = btree->kv_ops->value2bid(v);
         bid = _endian_decode(bid);
-        addr = btree->blk_ops->blk_read(btree->blk_handle, bid);
+        addr = btree->bhandle->read(bid);
         node = _fetch_bnode(btree, addr, btree->height-1);
 
         idx = ((_idx_begin & mask) * (node->nentry-1) / (resolution-1));
@@ -652,7 +656,7 @@ btree_result btree_get_key_range(
             btree->kv_ops->getKV(root, idx_end, k, v);
             bid = btree->kv_ops->value2bid(v);
             bid = _endian_decode(bid);
-            addr = btree->blk_ops->blk_read(btree->blk_handle, bid);
+            addr = btree->bhandle->read(bid);
             node = _fetch_bnode(btree, addr, btree->height-1);
         }
 
@@ -681,7 +685,7 @@ btree_result btree_find(struct btree *btree, void *key, void *value_buf)
 
     for (i=btree->height-1; i>=0; --i) {
         // read block using bid
-        addr = btree->blk_ops->blk_read(btree->blk_handle, bid[i]);
+        addr = btree->bhandle->read(bid[i]);
         // fetch node structure from block
         node[i] = _fetch_bnode(btree, addr, i+1);
 
@@ -690,8 +694,7 @@ btree_result btree_find(struct btree *btree, void *key, void *value_buf)
 
         if (idx[i] == BTREE_IDX_NOT_FOUND) {
             // not found .. return NULL
-            if (btree->blk_ops->blk_operation_end)
-                btree->blk_ops->blk_operation_end(btree->blk_handle);
+            btree->bhandle->operationEnd();
             btree->kv_ops->freeKVVar(k, v);
             return BTREE_RESULT_FAIL;
         }
@@ -709,16 +712,14 @@ btree_result btree_find(struct btree *btree, void *key, void *value_buf)
             if (!btree->kv_ops->cmp(key, k, btree->aux)) {
                 btree->kv_ops->setValue(value_buf, v);
             }else{
-                if (btree->blk_ops->blk_operation_end)
-                    btree->blk_ops->blk_operation_end(btree->blk_handle);
+                btree->bhandle->operationEnd();
                 btree->kv_ops->freeKVVar(k, v);
                 return BTREE_RESULT_FAIL;
             }
         }
     }
-    if (btree->blk_ops->blk_operation_end) {
-        btree->blk_ops->blk_operation_end(btree->blk_handle);
-    }
+
+    btree->bhandle->operationEnd();
     btree->kv_ops->freeKVVar(k, v);
     return BTREE_RESULT_SUCCESS;
 }
@@ -748,7 +749,7 @@ static int _btree_split_node(
     // allocate new block(s)
     new_node[0] = node[i];
     for (j=1; j<nnode;++j){
-        addr = btree->blk_ops->blk_alloc(btree->blk_handle, &new_bid[j]);
+        addr = btree->bhandle->alloc(new_bid[j]);
         new_node[j] = _btree_init_node(btree, new_bid[j], addr, 0x0,
                                        node[i]->level, NULL);
     }
@@ -832,7 +833,7 @@ static int _btree_split_node(
 
         btree->height++;
 
-        addr = btree->blk_ops->blk_alloc(btree->blk_handle, &new_root_bid);
+        addr = btree->bhandle->alloc(new_root_bid);
         if (meta.size > 0)
             new_root =
                 _btree_init_node(
@@ -851,11 +852,11 @@ static int _btree_split_node(
         btree->root_bid = new_root_bid;
 
         // move the former node if not dirty
-        if (!btree->blk_ops->blk_is_writable(btree->blk_handle, bid[i])) {
-            addr = btree->blk_ops->blk_move(btree->blk_handle, bid[i], &bid[i]);
+        if (!btree->bhandle->isWritable(bid[i])) {
+            addr = btree->bhandle->move(bid[i], bid[i]);
             node[i] = _fetch_bnode(btree, addr, i+1);
         }else{
-            btree->blk_ops->blk_set_dirty(btree->blk_handle, bid[i]);
+            btree->bhandle->setDirty(bid[i]);
         }
 
         // insert kv-pairs pointing to their child nodes
@@ -888,7 +889,7 @@ static int _btree_move_modified_node(
     void *addr;
 
     // get new bid[i]
-    addr = btree->blk_ops->blk_move(btree->blk_handle, bid[i], &bid[i]);
+    addr = btree->bhandle->move(bid[i], bid[i]);
     (void)addr;
     //node[i] = _fetch_bnode(btree, addr, i+1);
     moved[i] = 1;
@@ -951,7 +952,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
     // find path from root to leaf
     for (i=btree->height-1; i>=0; --i){
         // read block using bid
-        addr = btree->blk_ops->blk_read(btree->blk_handle, bid[i]);
+        addr = btree->bhandle->read(bid[i]);
         // fetch node structure from block
         node[i] = _fetch_bnode(btree, addr, i+1);
 
@@ -1043,11 +1044,9 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
             }else{
                 //2 not enough
                 // first check if the node can be enlarged
-                if (btree->blk_ops->blk_enlarge_node &&
-                    is_subblock(bid[i])) {
+                if (is_subblock(bid[i])) {
                     bid_t new_bid;
-                    addr = btree->blk_ops->blk_enlarge_node(btree->blk_handle,
-                        bid[i], nodesize, &new_bid);
+                    addr = btree->bhandle->enlargeNode(bid[i], nodesize, new_bid);
                     if (addr) {
                         // the node can be enlarged .. fetch the enlarged node
                         moved[i] = 1;
@@ -1080,7 +1079,7 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
 
         if (modified[i]) {
             //2 when the node is modified
-            if (!btree->blk_ops->blk_is_writable(btree->blk_handle, bid[i])) {
+            if (!btree->bhandle->isWritable(bid[i])) {
                 // not writable .. already flushed block -> cannot overwrite,
                 // we have to move to new block
                 height_growup = _btree_move_modified_node(
@@ -1091,15 +1090,13 @@ btree_result btree_insert(struct btree *btree, void *key, void *value)
                 if (height_growup) break;
             }else{
                 // writable .. just set dirty to write back into storage
-                btree->blk_ops->blk_set_dirty(btree->blk_handle, bid[i]);
+                btree->bhandle->setDirty(bid[i]);
             } // is writable
         } // is modified
     } // for loop
 
     // release temporary resources
-    if (btree->blk_ops->blk_operation_end) {
-        btree->blk_ops->blk_operation_end(btree->blk_handle);
-    }
+    btree->bhandle->operationEnd();
     btree->kv_ops->freeKVVar(k, v);
 
     for (j=0; j < ((height_growup)?(btree->height-1):(btree->height)); ++j){
@@ -1155,7 +1152,7 @@ btree_result btree_remove(struct btree *btree, void *key)
     // find path from root to leaf
     for (i=btree->height-1; i>=0; --i) {
         // read block using bid
-        addr = btree->blk_ops->blk_read(btree->blk_handle, bid[i]);
+        addr = btree->bhandle->read(bid[i]);
         // fetch node structure from block
         node[i] = _fetch_bnode(btree, addr, i+1);
 
@@ -1164,8 +1161,7 @@ btree_result btree_remove(struct btree *btree, void *key)
 
         if (idx[i] == BTREE_IDX_NOT_FOUND) {
             // not found
-            if (btree->blk_ops->blk_operation_end)
-                btree->blk_ops->blk_operation_end(btree->blk_handle);
+            btree->bhandle->operationEnd();
             btree->kv_ops->freeKVVar(k, v);
             btree->kv_ops->freeKVVar(kk, vv);
             return BTREE_RESULT_FAIL;
@@ -1226,7 +1222,7 @@ btree_result btree_remove(struct btree *btree, void *key)
                 (node[i]->nentry <= 1 && i+1 == btree->height)) &&
                 btree->height > 1) {
                 // remove the node
-                btree->blk_ops->blk_remove(btree->blk_handle, bid[i]);
+                btree->bhandle->remove(bid[i]);
                 if (i+1 < btree->height) {
                     // if non-root node
                     rmv[i+1] = 1;
@@ -1244,10 +1240,10 @@ btree_result btree_remove(struct btree *btree, void *key)
                     btree->kv_ops->getKV(node[i], 0, k, v);
                     child_bid = btree->kv_ops->value2bid(v);
                     child_bid = _endian_decode(child_bid);
-                    addr = btree->blk_ops->blk_read(btree->blk_handle, child_bid);
+                    addr = btree->bhandle->read(child_bid);
                     child = _fetch_bnode(btree, addr, btree->height);
 
-                    nodesize = btree->blk_ops->blk_get_size(btree->blk_handle, child_bid);
+                    nodesize = btree->bhandle->getBlockSize(child_bid);
 #ifdef __CRC32
                     nodesize -= BLK_MARKER_SIZE;
 #endif
@@ -1267,8 +1263,7 @@ btree_result btree_remove(struct btree *btree, void *key)
                         btree->height--;
 
                         // allocate a new node with the given meta
-                        addr = btree->blk_ops->blk_alloc(btree->blk_handle,
-                                                         &new_root_bid);
+                        addr = btree->bhandle->alloc(new_root_bid);
                         _btree_init_node(btree, new_root_bid, addr,
                                          btree->root_flag, btree->height, &meta);
                         new_root = _fetch_bnode(btree, addr, btree->height);
@@ -1277,7 +1272,7 @@ btree_result btree_remove(struct btree *btree, void *key)
                         btree->kv_ops->copyKV(new_root, child, 0, 0, child->nentry);
                         new_root->nentry = child->nentry;
                         // invalidate chlid node
-                        btree->blk_ops->blk_remove(btree->blk_handle, child_bid);
+                        btree->bhandle->remove(child_bid);
 
                         btree->root_bid = new_root_bid;
 
@@ -1291,12 +1286,11 @@ btree_result btree_remove(struct btree *btree, void *key)
 
         if (modified[i]) {
             // when node is modified
-            if (!btree->blk_ops->blk_is_writable(btree->blk_handle, bid[i])) {
+            if (!btree->bhandle->isWritable(bid[i])) {
                 // already flushed block -> cannot overwrite, so
                 // we have to move to new block
                 // get new bid[i]
-                addr = btree->blk_ops->blk_move(btree->blk_handle, bid[i],
-                                                &bid[i]);
+                addr = btree->bhandle->move(bid[i], bid[i]);
                 node[i] = _fetch_bnode(btree, addr, i+1);
                 moved[i] = 1;
 
@@ -1305,15 +1299,13 @@ btree_result btree_remove(struct btree *btree, void *key)
                     btree->root_bid = bid[i];
 
             }else{
-                btree->blk_ops->blk_set_dirty(btree->blk_handle, bid[i]);
+                btree->bhandle->setDirty(bid[i]);
             }
 
         }
     }
 
-    if (btree->blk_ops->blk_operation_end) {
-        btree->blk_ops->blk_operation_end(btree->blk_handle);
-    }
+    btree->bhandle->operationEnd();
     btree->kv_ops->freeKVVar(k, v);
     btree->kv_ops->freeKVVar(kk, vv);
     return BTREE_RESULT_SUCCESS;
@@ -1322,9 +1314,7 @@ btree_result btree_remove(struct btree *btree, void *key)
 // LCOV_EXCL_START
 btree_result btree_operation_end(struct btree *btree)
 {
-    if (btree->blk_ops->blk_operation_end) {
-        btree->blk_ops->blk_operation_end(btree->blk_handle);
-    }
+    btree->bhandle->operationEnd();
     return BTREE_RESULT_SUCCESS;
 }
 // LCOV_EXCL_STOP
@@ -1395,10 +1385,9 @@ static btree_result _btree_prev(struct btree_iterator *it, void *key_buf,
 
     if (it->node[depth] == NULL){
         size_t blksize;
-        addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
+        addr = btree->bhandle->read(it->bid[depth]);
         it->addr[depth] = (void *)mempool_alloc(btree->blksize);
-        blksize = btree->blk_ops->blk_get_size(btree->blk_handle,
-                                               it->bid[depth]);
+        blksize = btree->bhandle->getBlockSize(it->bid[depth]);
         memcpy(it->addr[depth], addr, blksize);
         it->node[depth] = _fetch_bnode(&it->btree, it->addr[depth], depth+1);
     }
@@ -1532,10 +1521,9 @@ static btree_result _btree_next(struct btree_iterator *it, void *key_buf,
 
     if (it->node[depth] == NULL){
         size_t blksize;
-        addr = btree->blk_ops->blk_read(btree->blk_handle, it->bid[depth]);
+        addr = btree->bhandle->read(it->bid[depth]);
         it->addr[depth] = (void *)mempool_alloc(btree->blksize);
-        blksize = btree->blk_ops->blk_get_size(btree->blk_handle,
-                                               it->bid[depth]);
+        blksize = btree->bhandle->getBlockSize(it->bid[depth]);
         memcpy(it->addr[depth], addr, blksize);
         it->node[depth] = _fetch_bnode(&it->btree, it->addr[depth], depth+1);
     }

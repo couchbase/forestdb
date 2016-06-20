@@ -480,7 +480,7 @@ start:
                 hr = iterator->hbtrie_iterator->next(key, iterator->_keylen,
                                                      (void*)&iterator->_offset);
             }
-            btreeblk_end(iterator->handle->bhandle);
+            iterator->handle->bhandle->flushBuffer();
             iterator->_offset = _endian_decode(iterator->_offset);
             if (!(iterator->opt & FDB_ITR_NO_DELETES) ||
                   hr != HBTRIE_RESULT_SUCCESS) {
@@ -748,7 +748,7 @@ fetch_hbtrie:
         // fetch next key
         hr = iterator->hbtrie_iterator->next(iterator->_key, iterator->_keylen,
                                              (void*)&iterator->_offset);
-        btreeblk_end(iterator->handle->bhandle);
+        iterator->handle->bhandle->flushBuffer();
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator,
@@ -759,7 +759,7 @@ fetch_hbtrie:
                 hr = iterator->hbtrie_iterator->next(iterator->_key,
                                                      iterator->_keylen,
                                                      (void*)&iterator->_offset);
-                btreeblk_end(iterator->handle->bhandle);
+                iterator->handle->bhandle->flushBuffer();
             }
             iterator->_offset = _endian_decode(iterator->_offset);
 
@@ -784,7 +784,7 @@ fetch_hbtrie:
                     hr = iterator->hbtrie_iterator->next(iterator->_key,
                                                          iterator->_keylen,
                                                          (void*)&iterator->_offset);
-                    btreeblk_end(iterator->handle->bhandle);
+                    iterator->handle->bhandle->flushBuffer();
                     iterator->_offset = _endian_decode(iterator->_offset);
                 }
             }
@@ -793,7 +793,7 @@ fetch_hbtrie:
         // fetch prev key
         hr = iterator->hbtrie_iterator->prev(iterator->_key, iterator->_keylen,
                                              (void*)&iterator->_offset);
-        btreeblk_end(iterator->handle->bhandle);
+        iterator->handle->bhandle->flushBuffer();
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(iterator,
                                iterator->_key, iterator->_keylen,
@@ -803,7 +803,7 @@ fetch_hbtrie:
                 hr = iterator->hbtrie_iterator->prev(iterator->_key,
                                                      iterator->_keylen,
                                                      (void*)&iterator->_offset);
-                btreeblk_end(iterator->handle->bhandle);
+                iterator->handle->bhandle->flushBuffer();
             }
             iterator->_offset = _endian_decode(iterator->_offset);
 
@@ -828,7 +828,7 @@ fetch_hbtrie:
                     hr = iterator->hbtrie_iterator->prev(iterator->_key,
                                                          iterator->_keylen,
                                                          (void*)&iterator->_offset);
-                    btreeblk_end(iterator->handle->bhandle);
+                    iterator->handle->bhandle->flushBuffer();
                     iterator->_offset = _endian_decode(iterator->_offset);
                 }
             }
@@ -1405,7 +1405,7 @@ start_seq:
             br = btree_prev(iterator->seqtree_iterator, &seqnum,
                             (void *)&offset);
         }
-        btreeblk_end(iterator->handle->bhandle);
+        iterator->handle->bhandle->flushBuffer();
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
             iterator->_seqnum = seqnum;
@@ -1489,7 +1489,7 @@ start_seq:
         struct docio_object _hbdoc;
         hr = iterator->handle->trie->find(_doc.key, _doc.length.keylen,
                                           (void *)&hboffset);
-        btreeblk_end(iterator->handle->bhandle);
+        iterator->handle->bhandle->flushBuffer();
 
         if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);
@@ -1580,7 +1580,7 @@ start_seq:
             br = btree_next(iterator->seqtree_iterator, &seqnum,
                             (void *)&offset);
         }
-        btreeblk_end(iterator->handle->bhandle);
+        iterator->handle->bhandle->flushBuffer();
         if (br == BTREE_RESULT_SUCCESS) {
             seqnum = _endian_decode(seqnum);
             iterator->_seqnum = seqnum;
@@ -1674,7 +1674,7 @@ start_seq:
         struct docio_object _hbdoc;
         hr = iterator->handle->trie->find(_doc.key, _doc.length.keylen,
                                           (void *)&hboffset);
-        btreeblk_end(iterator->handle->bhandle);
+        iterator->handle->bhandle->flushBuffer();
 
         if (hr != HBTRIE_RESULT_SUCCESS) {
             free(_doc.key);
