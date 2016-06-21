@@ -52,11 +52,19 @@ LIST(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules")
 if (COUCHBASE_SERVER_BUILD)
     ADD_DEFINITIONS(-D_DOC_COMP=1)
     include_directories(AFTER ${SNAPPY_INCLUDE_DIR})
-    include_directories(AFTER ${Platform_SOURCE_DIR}/include)
+
+    if (WIN32)
+       # The rest of Couchbase server use tcmalloc as the memory
+       # allocator for WIN32. Override the allocator to jemalloc
+       ADD_DEFINITIONS(-UHAVE_TCMALLOC)
+       SET(COUCHBASE_MEMORY_ALLOCATOR "jemalloc")
+       # Make sure that we define all of the variables
+       include(CouchbaseMemoryAllocator)
+    endif (WIN32)
+
     if (MEMORY_ALLOCATOR)
         include_directories(AFTER ${MALLOC_INCLUDE_DIR})
     endif (MEMORY_ALLOCATOR)
-    set(PLATFORM_LIBRARY platform)
     set(DIRUTILS_LIBRARY dirutils)
     set(GTEST_LIBRARY gtest)
 
@@ -220,7 +228,7 @@ add_library(forestdb SHARED
             ${FORESTDB_UTILS_SRC})
 target_link_libraries(forestdb ${PTHREAD_LIB} ${LIBM} ${SNAPPY_LIBRARIES}
                       ${ASYNC_IO_LIB} ${MALLOC_LIBRARIES} ${LIBRT}
-                      ${PLATFORM_LIBRARY} ${CRYPTO_LIB}
+                      ${CRYPTO_LIB}
                       ${DL_LIBRARIES} ${BREAKPAD_LIBRARIES})
 
 # Create objects libraries for the different "tools" parts forestdb, which can be reused
