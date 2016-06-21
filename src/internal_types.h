@@ -310,6 +310,7 @@ struct avl_tree;
 struct avl_node;
 
 class HBTrieIterator;
+class BTreeIterator;
 
 /**
  * ForestDB iterator cursor movement direction
@@ -360,7 +361,7 @@ struct _fdb_iterator {
     /**
      * B+Tree iterator for sequence number iteration
      */
-    struct btree_iterator *seqtree_iterator;
+    BTreeIterator *seqtree_iterator;
     /**
      * HB+Trie iterator for sequence number iteration
      * (for multiple KV instance mode)

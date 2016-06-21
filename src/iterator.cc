@@ -371,11 +371,9 @@ fdb_status fdb_iterator_sequence_init(FdbKvsHandle *handle,
                                                        &query);
     } else {
         // create an iterator handle for b-tree
-        iterator->seqtree_iterator = (struct btree_iterator *)
-                                     calloc(1, sizeof(struct btree_iterator));
-        btree_iterator_init(iterator->handle->seqtree,
-                            iterator->seqtree_iterator,
-                            (void *)(start_seq ? &_start_seq : NULL));
+        iterator->seqtree_iterator =
+            new BTreeIterator(iterator->handle->seqtree,
+                              (void *)( start_seq ? (&_start_seq) : (NULL) ));
         query_key.key = (void*)NULL;
         query_key.keylen = 0;
         query.seqnum = start_seq;
@@ -1277,11 +1275,10 @@ fdb_status _fdb_iterator_seek_to_max_seq(fdb_iterator *iterator) {
                                end_seq_kv, sizeof(size_t)*2);
     } else {
         // reset Btree iterator to end_seqnum
-        btree_iterator_free(iterator->seqtree_iterator);
+        delete iterator->seqtree_iterator;
         // create an iterator handle for b-tree
-        btree_iterator_init(iterator->handle->seqtree,
-                            iterator->seqtree_iterator,
-                            (void *)(&iterator->end_seqnum));
+        iterator->seqtree_iterator = new BTreeIterator(iterator->handle->seqtree,
+                                                       (void *)(&iterator->end_seqnum));
     }
 
     if (iterator->end_seqnum != SEQNUM_NOT_USED) {
@@ -1399,8 +1396,7 @@ start_seq:
                 br = BTREE_RESULT_FAIL;
             }
         } else {
-            br = btree_prev(iterator->seqtree_iterator, &seqnum,
-                            (void *)&offset);
+            br = iterator->seqtree_iterator->prev(&seqnum, (void *)&offset);
         }
         iterator->handle->bhandle->flushBuffer();
         if (br == BTREE_RESULT_SUCCESS) {
@@ -1574,8 +1570,7 @@ start_seq:
                 br = BTREE_RESULT_FAIL;
             }
         } else {
-            br = btree_next(iterator->seqtree_iterator, &seqnum,
-                            (void *)&offset);
+            br = iterator->seqtree_iterator->next(&seqnum, (void *)&offset);
         }
         iterator->handle->bhandle->flushBuffer();
         if (br == BTREE_RESULT_SUCCESS) {
@@ -1930,8 +1925,7 @@ fdb_status fdb_iterator_close(fdb_iterator *iterator)
     }
 
     if (iterator->seqtree_iterator) {
-        btree_iterator_free(iterator->seqtree_iterator);
-        free(iterator->seqtree_iterator);
+        delete iterator->seqtree_iterator;
     }
     if (iterator->seqtrie_iterator) {
         delete iterator->seqtrie_iterator;

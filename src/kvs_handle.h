@@ -24,6 +24,7 @@
 #include "internal_types.h"
 
 class BTreeBlkHandle;
+class BTree;
 
 /**
  * ForestDB KV store handle definition.
@@ -88,12 +89,12 @@ public:
      * Stale block B+-Tree instance.
      * Maps from 'commit revision number' to 'stale block info' system document.
      */
-    struct btree *staletree;
+    BTree *staletree;
     /**
      * Sequence B+-Tree instance.
      */
     union {
-        struct btree *seqtree; // single KV instance mode
+        BTree *seqtree; // single KV instance mode
         HBTrie *seqtrie; // multi KV instance mode
     };
     /**

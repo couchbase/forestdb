@@ -208,11 +208,10 @@ INLINE void _fdb_import_dirty_root(FdbKvsHandle *handle,
             if (handle->kvs) {
                 handle->seqtrie->setRootBid(dirty_seqtree_root);
             } else {
-                btree_init_from_bid(handle->seqtree,
-                                    handle->seqtree->bhandle,
-                                    handle->seqtree->kv_ops,
-                                    handle->seqtree->blksize,
-                                    dirty_seqtree_root);
+                handle->seqtree->initFromBid(handle->seqtree->getBhandle(),
+                                             handle->seqtree->getKVOps(),
+                                             handle->seqtree->getBlkSize(),
+                                             dirty_seqtree_root);
             }
         }
     }
@@ -227,7 +226,7 @@ INLINE void _fdb_export_dirty_root(FdbKvsHandle *handle,
         if (handle->kvs) {
             *dirty_seqtree_root = handle->seqtrie->getRootBid();
         } else {
-            *dirty_seqtree_root = handle->seqtree->root_bid;
+            *dirty_seqtree_root = handle->seqtree->getRootBid();
         }
     }
 }

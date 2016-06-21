@@ -28,11 +28,6 @@
 
 #include "memleak.h"
 
-void print_btree(struct btree *btree, void *key, void *value)
-{
-    fprintf(stderr, "(%" _F64 " %" _F64 ")", *(uint64_t*)key, *(uint64_t*)value);
-}
-
 static int blk_test_cmp64(void *key1, void *key2, void *aux)
 {
     (void) aux;
@@ -63,7 +58,7 @@ void basic_test()
     int blocksize = nodesize * 2;
     struct filemgr *file;
     BTreeBlkHandle *btree_handle;
-    struct btree btree;
+    BTree *btree;
     FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
@@ -84,54 +79,45 @@ void basic_test()
     BTreeKVOps *kv_ops = new FixedKVOps(sizeof(uint64_t),
                                         sizeof(uint64_t),
                                         blk_test_cmp64);
-    btree_init(&btree, btree_handle, kv_ops, nodesize, ksize, vsize, 0x0, NULL);
+    btree = new BTree(btree_handle, kv_ops, nodesize, ksize, vsize, 0x0, NULL);
 
     for (i=0;i<6;++i) {
         k = i; v = i*10;
-        btree_insert(&btree, (void*)&k, (void*)&v);
+        btree->insert((void*)&k, (void*)&v);
     }
-
-    btree_print_node(&btree, print_btree);
 
     for (i=6;i<12;++i) {
         k = i; v = i*10;
-        btree_insert(&btree, (void*)&k, (void*)&v);
+        btree->insert((void*)&k, (void*)&v);
     }
-
-    btree_print_node(&btree, print_btree);
     btree_handle->flushBuffer();
 
     k = 4;
     v = 44;
-    btree_insert(&btree, (void*)&k, (void*)&v);
-    btree_print_node(&btree, print_btree);
-
+    btree->insert((void*)&k, (void*)&v);
     btree_handle->flushBuffer();
     filemgr_commit(file, true, NULL);
 
     k = 5;
     v = 55;
-    btree_insert(&btree, (void*)&k, (void*)&v);
-    btree_print_node(&btree, print_btree);
-
+    btree->insert((void*)&k, (void*)&v);
     btree_handle->flushBuffer();
     filemgr_commit(file, true, NULL);
 
     k = 5;
     v = 59;
-    btree_insert(&btree, (void*)&k, (void*)&v);
-    btree_print_node(&btree, print_btree);
-    //btree_operation_end(&btree);
-
+    btree->insert((void*)&k, (void*)&v);
     btree_handle->flushBuffer();
     filemgr_commit(file, true, NULL);
 
+    BTree *btree2;
 
-    struct btree btree2;
+    DBG("re-read using root bid %" _F64 "\n", btree->getRootBid());
+    btree2 = new BTree(btree_handle,kv_ops, nodesize, btree->getRootBid());
+    (void)btree2;
 
-    DBG("re-read using root bid %" _F64 "\n", btree.root_bid);
-    btree_init_from_bid(&btree2, btree_handle,kv_ops, nodesize, btree.root_bid);
-    btree_print_node(&btree2, print_btree);
+    delete btree;
+    delete btree2;
 
     delete kv_ops;
     delete btree_handle;
@@ -152,8 +138,8 @@ void iterator_test()
     int blocksize = nodesize * 2;
     struct filemgr *file;
     BTreeBlkHandle *btree_handle;
-    struct btree btree;
-    struct btree_iterator bi;
+    BTree *btree;
+    BTreeIterator *bi;
     FileMgrConfig config(blocksize, 0, 0x0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
@@ -172,51 +158,48 @@ void iterator_test()
     BTreeKVOps *kv_ops = new FixedKVOps(sizeof(uint64_t),
                                         sizeof(uint64_t),
                                         blk_test_cmp64);
-    btree_init(&btree, btree_handle, kv_ops, nodesize, ksize, vsize, 0x0, NULL);
+    btree = new BTree(btree_handle, kv_ops, nodesize, ksize, vsize, 0x0, NULL);
 
     for (i=0;i<6;++i) {
         k = i*2; v = i*10;
-        btree_insert(&btree, (void*)&k, (void*)&v);
+        btree->insert((void*)&k, (void*)&v);
     }
-
-    btree_print_node(&btree, print_btree);
 
     for (i=6;i<12;++i) {
         k = i*2; v = i*10;
-        btree_insert(&btree, (void*)&k, (void*)&v);
+        btree->insert((void*)&k, (void*)&v);
     }
-
-    btree_print_node(&btree, print_btree);
     btree_handle->flushBuffer();
-
     filemgr_commit(file, true, NULL);
 
     k = 4;
-    btree_iterator_init(&btree, &bi, (void*)&k);
+    bi = new BTreeIterator(btree, (void*)&k);
     for (i=0;i<3;++i){
-        btree_next(&bi, (void*)&k, (void*)&v);
+        bi->next((void*)&k, (void*)&v);
         DBG("%" _F64 " , %" _F64 "\n", k, v);
     }
-    btree_iterator_free(&bi);
+    delete bi;
 
     DBG("\n");
     k = 7;
-    btree_iterator_init(&btree, &bi, (void*)&k);
+    bi = new BTreeIterator(btree, (void*)&k);
     for (i=0;i<3;++i){
-        btree_next(&bi, (void*)&k, (void*)&v);
+        bi->next((void*)&k, (void*)&v);
         DBG("%" _F64 " , %" _F64 "\n", k, v);
     }
-    btree_iterator_free(&bi);
+    delete bi;
 
     DBG("\n");
-    btree_iterator_init(&btree, &bi, NULL);
+    bi = new BTreeIterator(btree, NULL);
     for (i=0;i<30;++i){
-        br = btree_next(&bi, (void*)&k, (void*)&v);
-        if (br == BTREE_RESULT_FAIL) break;
+        br = bi->next((void*)&k, (void*)&v);
+        if (br == BTREE_RESULT_FAIL) {
+            break;
+        }
         DBG("%" _F64 " , %" _F64 "\n", k, v);
     }
-    btree_iterator_free(&bi);
-
+    delete bi;
+    delete btree;
     delete btree_handle;
     delete kv_ops;
     filemgr_close(file, true, NULL, NULL);
@@ -235,7 +218,7 @@ void two_btree_test()
     int blocksize = nodesize * 4;
     struct filemgr *file;
     BTreeBlkHandle *btreeblk_handle;
-    struct btree btree_a, btree_b;
+    BTree *btree_a, *btree_b;
     FileMgrConfig config(blocksize, 1024, 0x0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
@@ -251,25 +234,26 @@ void two_btree_test()
     BTreeKVOps *kv_ops = new FixedKVOps(sizeof(uint64_t),
                                         sizeof(uint64_t),
                                         blk_test_cmp64);
-    btree_init(&btree_a, btreeblk_handle, kv_ops, nodesize, 8, 8, 0x0, NULL);
-    btree_init(&btree_b, btreeblk_handle, kv_ops, nodesize, 8, 8, 0x0, NULL);
+    btree_a = new BTree(btreeblk_handle, kv_ops, nodesize, 8, 8, 0x0, NULL);
+    btree_b = new BTree(btreeblk_handle, kv_ops, nodesize, 8, 8, 0x0, NULL);
 
     for (i=0;i<12;++i){
         k = i*2; v = k * 10;
-        btree_insert(&btree_a, (void*)&k, (void*)&v);
+        btree_a->insert((void*)&k, (void*)&v);
 
         k = i*2 + 1; v = k*10 + 5;
-        btree_insert(&btree_b, (void*)&k, (void*)&v);
+        btree_b->insert((void*)&k, (void*)&v);
     }
 
-    btree_print_node(&btree_a, print_btree);
-    btree_print_node(&btree_b, print_btree);
+    delete btree_a;
+    delete btree_b;
+
+    delete btreeblk_handle;
+    delete kv_ops;
 
     filemgr_commit(file, true, NULL);
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
-    delete btreeblk_handle;
-    delete kv_ops;
 
     TEST_RESULT("two btree test");
 }
@@ -282,7 +266,7 @@ void range_test()
     int blocksize = 512;
     struct filemgr *file;
     BTreeBlkHandle *bhandle;
-    struct btree btree;
+    BTree *btree;
     FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
                           FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                           0x00, 0, 0);
@@ -299,21 +283,22 @@ void range_test()
     BTreeKVOps *kv_ops = new FixedKVOps(sizeof(uint64_t),
                                         sizeof(uint64_t),
                                         blk_test_cmp64);
-    btree_init(&btree, bhandle, kv_ops, blocksize,
-               sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    btree = new BTree(bhandle, kv_ops, blocksize,
+                      sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
 
     for (i=0;i<n;++i){
         key = i;
         value = i*10;
-        btree_insert(&btree, (void*)&key, (void*)&value);
+        btree->insert((void*)&key, (void*)&value);
         bhandle->flushBuffer();
     }
 
     for (i=0;i<den;++i){
-        btree_get_key_range(&btree, i, den, (void*)&key, (void*)&key_end);
+        btree->getKeyRange(i, den, (void*)&key, (void*)&key_end);
         DBG("%d %d\n", (int)key, (int)key_end);
     }
 
+    delete btree;
     delete kv_ops;
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
@@ -355,7 +340,7 @@ void subblock_test()
     size_t subblock_no, idx;
     struct filemgr *file;
     BTreeBlkHandle *bhandle;
-    struct btree btree, btree_arr[64];
+    BTree *btree, *btree_arr[64];
     FileMgrConfig fconfig(blocksize, 0, 0, 0, FILEMGR_CREATE,
                           FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                           0x00, 0, 0);
@@ -374,53 +359,59 @@ void subblock_test()
 
     meta.size = 120;
     bhandle = new BTreeBlkHandle(file, blocksize);
-    btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
-    TEST_CHK(is_subblock(btree.root_bid));
-    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    btree = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                      sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree->getRootBid()));
+    subbid2bid(btree->getRootBid(), &subblock_no, &idx, &bid);
     TEST_CHK(subblock_no == 1);
+    delete btree;
     delete bhandle;
 
     meta.size = 250;
     bhandle = new BTreeBlkHandle(file, blocksize);
-    btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
-    TEST_CHK(is_subblock(btree.root_bid));
-    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    btree = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                      sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree->getRootBid()));
+    subbid2bid(btree->getRootBid(), &subblock_no, &idx, &bid);
     TEST_CHK(subblock_no == 2);
+    delete btree;
     delete bhandle;
 
     meta.size = 510;
     bhandle = new BTreeBlkHandle(file, blocksize);
-    btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
-    TEST_CHK(is_subblock(btree.root_bid));
-    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    btree = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                      sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree->getRootBid()));
+    subbid2bid(btree->getRootBid(), &subblock_no, &idx, &bid);
     TEST_CHK(subblock_no == 3);
+    delete btree;
     delete bhandle;
 
     meta.size = 1020;
     bhandle = new BTreeBlkHandle(file, blocksize);
-    btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
-    TEST_CHK(is_subblock(btree.root_bid));
-    subbid2bid(btree.root_bid, &subblock_no, &idx, &bid);
+    btree = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                      sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(is_subblock(btree->getRootBid()));
+    subbid2bid(btree->getRootBid(), &subblock_no, &idx, &bid);
     TEST_CHK(subblock_no == 4);
+    delete btree;
     delete bhandle;
 
     meta.size = 2040;
     bhandle = new BTreeBlkHandle(file, blocksize);
-    btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
-    TEST_CHK(!is_subblock(btree.root_bid));
+    btree = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                      sizeof(uint64_t), 0x0, &meta);
+    TEST_CHK(!is_subblock(btree->getRootBid()));
+    delete btree;
     delete bhandle;
 
     meta.size = 4090;
     bhandle = new BTreeBlkHandle(file, blocksize);
-    br = btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, &meta);
+    btree = new BTree();
+    br = btree->init(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                     sizeof(uint64_t), 0x0, &meta);
     TEST_CHK(br == BTREE_RESULT_FAIL);
-
+    delete btree;
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
@@ -433,21 +424,22 @@ void subblock_test()
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
-    btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    btree = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                      sizeof(uint64_t), 0x0, NULL);
     for (i=0;i<256;++i){
         sprintf(keybuf, "%08d", i);
         sprintf(valuebuf, "%08x", i);
-        btree_insert(&btree, (void*)keybuf, (void*)valuebuf);
+        btree->insert((void*)keybuf, (void*)valuebuf);
         bhandle->flushBuffer();
         for (j=0;j<=i;++j){
             sprintf(keybuf, "%08d", j);
             sprintf(valuebuf, "%08x", j);
-            btree_find(&btree, (void*)keybuf, (void*)temp);
+            btree->find((void*)keybuf, (void*)temp);
             bhandle->flushBuffer();
             TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
         }
     }
+    delete btree;
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
@@ -459,22 +451,23 @@ void subblock_test()
     file = result.file;
 
     bhandle = new BTreeBlkHandle(file, blocksize);
-    btree_init(&btree, bhandle, kv_ops,
-               blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+    btree = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                      sizeof(uint64_t), 0x0, NULL);
     for (i=0;i<256;++i){
         sprintf(keybuf, "%08d", i);
         sprintf(valuebuf, "%08x", i);
-        btree_insert(&btree, (void*)keybuf, (void*)valuebuf);
+        btree->insert((void*)keybuf, (void*)valuebuf);
         bhandle->flushBuffer();
         filemgr_commit(file, true, NULL);
         for (j=0;j<=i;++j){
             sprintf(keybuf, "%08d", j);
             sprintf(valuebuf, "%08x", j);
-            btree_find(&btree, (void*)keybuf, (void*)temp);
+            btree->find((void*)keybuf, (void*)temp);
             bhandle->flushBuffer();
             TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
         }
     }
+    delete btree;
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
     filemgr_shutdown();
@@ -488,23 +481,26 @@ void subblock_test()
 
     bhandle = new BTreeBlkHandle(file, blocksize);
     for (i=0;i<nbtrees;++i){
-        btree_init(&btree_arr[i], bhandle, kv_ops,
-                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+        btree_arr[i] = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                                 sizeof(uint64_t), 0x0, NULL);
     }
     for (i=0;i<256;++i){
         for (j=0;j<nbtrees;++j){
             sprintf(keybuf, "%02d%06d", j, i);
             sprintf(valuebuf, "%02d%06x", j, i);
-            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btree_arr[j]->insert((void*)keybuf, (void*)valuebuf);
             bhandle->flushBuffer();
             for (k=0;k<=i;++k){
                 sprintf(keybuf, "%02d%06d", j, k);
                 sprintf(valuebuf, "%02d%06x", j, k);
-                btree_find(&btree_arr[j], (void*)keybuf, (void*)temp);
+                btree_arr[j]->find((void*)keybuf, (void*)temp);
                 bhandle->flushBuffer();
                 TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
             }
         }
+    }
+    for (i=0;i<nbtrees;++i){
+        delete btree_arr[i];
     }
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
@@ -519,14 +515,14 @@ void subblock_test()
 
     bhandle = new BTreeBlkHandle(file, blocksize);
     for (i=0;i<nbtrees;++i){
-        btree_init(&btree_arr[i], bhandle, kv_ops,
-                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+        btree_arr[i] = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                                 sizeof(uint64_t), 0x0, NULL);
     }
     for (i=0;i<256;++i){
         for (j=0;j<nbtrees;++j){
             sprintf(keybuf, "%02d%06d", j, i);
             sprintf(valuebuf, "%02d%06x", j, i);
-            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btree_arr[j]->insert((void*)keybuf, (void*)valuebuf);
             bhandle->flushBuffer();
         }
         filemgr_commit(file, true, NULL);
@@ -534,11 +530,14 @@ void subblock_test()
             for (k=0;k<=i;++k){
                 sprintf(keybuf, "%02d%06d", j, k);
                 sprintf(valuebuf, "%02d%06x", j, k);
-                btree_find(&btree_arr[j], (void*)keybuf, (void*)temp);
+                btree_arr[j]->find((void*)keybuf, (void*)temp);
                 bhandle->flushBuffer();
                 TEST_CHK(!memcmp(valuebuf, temp, strlen(valuebuf)));
             }
         }
+    }
+    for (i=0;i<nbtrees;++i){
+        delete btree_arr[i];
     }
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
@@ -553,18 +552,21 @@ void subblock_test()
 
     bhandle = new BTreeBlkHandle(file, blocksize);
     for (i=0;i<nbtrees;++i){
-        btree_init(&btree_arr[i], bhandle, kv_ops,
-                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+        btree_arr[i] = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                                 sizeof(uint64_t), 0x0, NULL);
     }
     for (j=0;j<nbtrees;++j){
         nodesize = 128 * (1<<j);
         for (i=0;i<(nodesize-16)/16;++i){
             sprintf(keybuf, "%02d%06d", j, i);
             sprintf(valuebuf, "%02d%06x", j, i);
-            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btree_arr[j]->insert((void*)keybuf, (void*)valuebuf);
             bhandle->flushBuffer();
         }
         filemgr_commit(file, true, NULL);
+    }
+    for (i=0;i<nbtrees;++i){
+        delete btree_arr[i];
     }
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
@@ -579,18 +581,21 @@ void subblock_test()
 
     bhandle = new BTreeBlkHandle(file, blocksize);
     for (i=0;i<nbtrees;++i){
-        btree_init(&btree_arr[i], bhandle, kv_ops,
-                   blocksize, sizeof(uint64_t), sizeof(uint64_t), 0x0, NULL);
+        btree_arr[i] = new BTree(bhandle, kv_ops, blocksize, sizeof(uint64_t),
+                                 sizeof(uint64_t), 0x0, NULL);
     }
     for (j=0;j<nbtrees;++j){
         nodesize = 128 * (1<<j);
         for (i=0;i<(nodesize-16)/16;++i){
             sprintf(keybuf, "%02d%06d", j, i);
             sprintf(valuebuf, "%02d%06x", j, i);
-            btree_insert(&btree_arr[j], (void*)keybuf, (void*)valuebuf);
+            btree_arr[j]->insert((void*)keybuf, (void*)valuebuf);
             bhandle->flushBuffer();
             filemgr_commit(file, true, NULL);
         }
+    }
+    for (i=0;i<nbtrees;++i){
+        delete btree_arr[i];
     }
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);
@@ -608,8 +613,8 @@ void btree_reverse_iterator_test()
     int nodesize = 256;
     struct filemgr *file;
     BTreeBlkHandle *bhandle;
-    struct btree btree;
-    struct btree_iterator bi;
+    BTree *btree;
+    BTreeIterator *bi;
     FileMgrConfig config(nodesize, 0, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
@@ -630,19 +635,18 @@ void btree_reverse_iterator_test()
     bhandle = new BTreeBlkHandle(file, nodesize);
     BTreeKVOps *kv_ops = new FixedKVOps(sizeof(uint64_t),
                                         sizeof(uint64_t));
-    btree_init(&btree, bhandle, kv_ops,
-               nodesize, ksize, vsize, 0x0, NULL);
+    btree = new BTree(bhandle, kv_ops, nodesize, ksize, vsize, 0x0, NULL);
 
     for (i=10;i<40;++i) {
         k = _endian_encode(i*0x10);
         v = _endian_encode(i*0x100);
-        btree_insert(&btree, (void*)&k, (void*)&v);
+        btree->insert((void*)&k, (void*)&v);
         bhandle->flushBuffer();
     }
 
     c = 0;
-    btree_iterator_init(&btree, &bi, NULL);
-    while ((br=btree_next(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+    bi = new BTreeIterator(btree, NULL);
+    while ((br = bi->next(&k, &v)) == BTREE_RESULT_SUCCESS) {
         bhandle->flushBuffer();
         k = _endian_decode(k);
         v = _endian_decode(v);
@@ -651,39 +655,39 @@ void btree_reverse_iterator_test()
         c++;
     }
     bhandle->flushBuffer();
-    btree_iterator_free(&bi);
+    delete bi;
     TEST_CHK(c == 30);
 
     c = 0;
     i=10000;
     k = _endian_encode(i);
-    btree_iterator_init(&btree, &bi, &k);
-    while ((br=btree_next(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+    bi = new BTreeIterator(btree, &k);
+    while ((br = bi->next(&k, &v)) == BTREE_RESULT_SUCCESS) {
         bhandle->flushBuffer();
         k = _endian_decode(k);
         v = _endian_decode(v);
     }
     bhandle->flushBuffer();
-    btree_iterator_free(&bi);
+    delete bi;
     TEST_CHK(c == 0);
 
     // reverse iteration with NULL initial key
     c = 0;
-    btree_iterator_init(&btree, &bi, NULL);
-    while ((br=btree_prev(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+    bi = new BTreeIterator(btree, NULL);
+    while ((br = bi->prev(&k, &v)) == BTREE_RESULT_SUCCESS) {
         bhandle->flushBuffer();
         k = _endian_decode(k);
         v = _endian_decode(v);
     }
     bhandle->flushBuffer();
-    btree_iterator_free(&bi);
+    delete bi;
     TEST_CHK(c == 0);
 
     c = 0;
     i=10000;
     k = _endian_encode(i);
-    btree_iterator_init(&btree, &bi, &k);
-    while ((br=btree_prev(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+    bi = new BTreeIterator(btree, &k);
+    while ((br = bi->prev(&k, &v)) == BTREE_RESULT_SUCCESS) {
         bhandle->flushBuffer();
         k = _endian_decode(k);
         v = _endian_decode(v);
@@ -692,14 +696,14 @@ void btree_reverse_iterator_test()
         c++;
     }
     bhandle->flushBuffer();
-    btree_iterator_free(&bi);
+    delete bi;
     TEST_CHK(c == 30);
 
     c = 0;
     i=0x175;
     k = _endian_encode(i);
-    btree_iterator_init(&btree, &bi, &k);
-    while ((br=btree_prev(&bi, &k, &v)) == BTREE_RESULT_SUCCESS) {
+    bi = new BTreeIterator(btree, &k);
+    while ((br = bi->prev(&k, &v)) == BTREE_RESULT_SUCCESS) {
         bhandle->flushBuffer();
         k = _endian_decode(k);
         v = _endian_decode(v);
@@ -708,14 +712,14 @@ void btree_reverse_iterator_test()
         c++;
     }
     bhandle->flushBuffer();
-    btree_iterator_free(&bi);
+    delete bi;
     TEST_CHK(c == 14);
 
     c = 0xa0 - 0x10;
-    btree_iterator_init(&btree, &bi, NULL);
+    bi = new BTreeIterator(btree, NULL);
     for (i=0;i<15;++i){
         c += 0x10;
-        br = btree_next(&bi, &k, &v);
+        br = bi->next(&k, &v);
         TEST_CHK(br == BTREE_RESULT_SUCCESS);
         bhandle->flushBuffer();
         k = _endian_decode(k);
@@ -725,7 +729,7 @@ void btree_reverse_iterator_test()
     }
     for (i=0;i<7;++i){
         c -= 0x10;
-        br = btree_prev(&bi, &k, &v);
+        br = bi->prev(&k, &v);
         TEST_CHK(br == BTREE_RESULT_SUCCESS);
         bhandle->flushBuffer();
         k = _endian_decode(k);
@@ -735,7 +739,7 @@ void btree_reverse_iterator_test()
     }
     for (i=0;i<10;++i){
         c += 0x10;
-        br = btree_next(&bi, &k, &v);
+        br = bi->next(&k, &v);
         TEST_CHK(br == BTREE_RESULT_SUCCESS);
         bhandle->flushBuffer();
         k = _endian_decode(k);
@@ -745,7 +749,7 @@ void btree_reverse_iterator_test()
     }
     for (i=0;i<17;++i){
         c -= 0x10;
-        br = btree_prev(&bi, &k, &v);
+        br = bi->prev(&k, &v);
         TEST_CHK(br == BTREE_RESULT_SUCCESS);
         bhandle->flushBuffer();
         k = _endian_decode(k);
@@ -753,12 +757,12 @@ void btree_reverse_iterator_test()
         TEST_CHK(k == (uint64_t)c);
         TEST_CHK(v == (uint64_t)c*0x10);
     }
-    br = btree_prev(&bi, &k, &v);
+    br = bi->prev(&k, &v);
     bhandle->flushBuffer();
     TEST_CHK(br == BTREE_RESULT_FAIL);
 
-    btree_iterator_free(&bi);
-
+    delete bi;
+    delete btree;
     delete kv_ops;
     delete bhandle;
     filemgr_close(file, true, NULL, NULL);

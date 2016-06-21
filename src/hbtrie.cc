@@ -54,7 +54,7 @@ typedef enum {
 } hbmeta_opt;
 
 struct btreelist_item {
-    struct btree btree;
+    BTree *btree;
     chunkno_t chunkno;
     bid_t child_rootbid;
     struct list_elem e;
@@ -62,7 +62,7 @@ struct btreelist_item {
 };
 
 struct btreeit_item {
-    struct btree_iterator btree_it;
+    BTreeIterator *btree_it;
     chunkno_t chunkno;
     struct list_elem le;
     uint8_t leaf;
@@ -364,6 +364,7 @@ void HBTrie::freeBtreeList(struct list *btreelist)
     while(e) {
         btreeitem = _get_entry(e, struct btreelist_item, e);
         e = list_remove(btreelist, e);
+        delete btreeitem->btree;
         mempool_free(btreeitem);
     }
 }
@@ -386,15 +387,14 @@ void HBTrie::btreeCascadedUpdate(struct list *btreelist,
         btreeitem = _get_entry(e, struct btreelist_item, e);
         btreeitem_child = _get_entry(e_child, struct btreelist_item, e);
 
-        if (btreeitem->child_rootbid != btreeitem_child->btree.root_bid) {
+        if (btreeitem->child_rootbid != btreeitem_child->btree->getRootBid()) {
             // root node of child sub-tree has been moved to another block
             // update parent sub-tree
-            bid_new = btreeitem_child->btree.root_bid;
+            bid_new = btreeitem_child->btree->getRootBid();
             _bid = _endian_encode(bid_new);
             valueSetMsb((void *)&_bid);
-            btree_insert(&btreeitem->btree,
-                    (uint8_t*)key + btreeitem->chunkno * chunksize,
-                    (void *)&_bid);
+            btreeitem->btree->insert((uint8_t*)key + btreeitem->chunkno * chunksize,
+                                     (void *)&_bid);
         }
         e_child = e;
         e = list_prev(e);
@@ -403,10 +403,10 @@ void HBTrie::btreeCascadedUpdate(struct list *btreelist,
     // update trie root bid
     if (e) {
         btreeitem = _get_entry(e, struct btreelist_item, e);
-        root_bid = btreeitem->btree.root_bid;
+        root_bid = btreeitem->btree->getRootBid();
     } else if (e_child) {
         btreeitem = _get_entry(e_child, struct btreelist_item, e);
-        root_bid = btreeitem->btree.root_bid;
+        root_bid = btreeitem->btree->getRootBid();
     } else {
         fdb_assert(0, this, e_child);
     }
@@ -422,8 +422,8 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
     int nchunk;
     int rawkeylen;
     int prevchunkno, curchunkno, cpt_node = 0;
-    struct btree *btree = NULL;
-    struct btree btree_static;
+    BTree *btree = NULL;
+    BTree btree_static;
     btree_result r;
     struct hbtrie_meta hbmeta;
     struct btree_meta meta;
@@ -444,8 +444,10 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
         list_init(btreelist);
         btreeitem = (struct btreelist_item *)
                     mempool_alloc(sizeof(struct btreelist_item));
+        // Note that this instance will be released in freeBtreeList().
+        btreeitem->btree = new BTree();
         list_push_back(btreelist, &btreeitem->e);
-        btree = &btreeitem->btree;
+        btree = btreeitem->btree;
     } else {
         btree = &btree_static;
     }
@@ -455,14 +457,13 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
         return HBTRIE_RESULT_FAIL;
     } else {
         // read from root_bid
-        r = btree_init_from_bid(btree, btreeblk_handle, btree_kv_ops,
-                                btree_nodesize, root_bid);
+        r = btree->initFromBid(btreeblk_handle, btree_kv_ops, btree_nodesize, root_bid);
         if (r != BTREE_RESULT_SUCCESS) {
             return HBTRIE_RESULT_FAIL;
         }
-        btree->aux = aux;
-        if (btree->ksize != chunksize || btree->vsize != valuelen) {
-            if (((chunksize << 4) | valuelen) == btree->ksize) {
+        btree->setAux(aux);
+        if (btree->getKSize() != chunksize || btree->getVSize() != valuelen) {
+            if (((chunksize << 4) | valuelen) == btree->getKSize()) {
                 // this is an old meta format
                 return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
             }
@@ -473,13 +474,13 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
 
     while (curchunkno < nchunk) {
         // get current chunk number
-        meta.size = btree_read_meta(btree, meta.data);
+        meta.size = btree->readMeta(meta.data);
         fetchMeta(meta.size, &hbmeta, meta.data);
         prevchunkno = curchunkno;
         if (_is_leaf_btree(hbmeta.chunkno)) {
             cpt_node = 1;
             hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
-            btree->kv_ops = btree_leaf_kv_ops;
+            btree->setKVOps(btree_leaf_kv_ops);
         }
         curchunkno = hbmeta.chunkno;
 
@@ -519,10 +520,10 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
                     reformKeyReverse(chunk, (nchunk-curchunkno) * chunksize);
 
                 setLeafKey(k, chunk, rawchunklen);
-                r = btree_find(btree, k, btree_value);
+                r = btree->find(k, btree_value);
                 freeLeafKey(k);
             } else {
-                r = btree_find(btree, chunk, btree_value);
+                r = btree->find(chunk, btree_value);
             }
         }
 
@@ -551,17 +552,18 @@ hbtrie_result HBTrie::_find(void *key, int keylen, void *valuebuf,
                     btreeitem->child_rootbid = bid_new;
                     btreeitem = (struct btreelist_item *)
                                 mempool_alloc(sizeof(struct btreelist_item));
+                    btreeitem->btree = new BTree();
                     list_push_back(btreelist, &btreeitem->e);
-                    btree = &btreeitem->btree;
+                    btree = btreeitem->btree;
                 }
 
                 // fetch sub-tree
-                r = btree_init_from_bid(btree, btreeblk_handle,
-                                        btree_kv_ops, btree_nodesize, bid_new);
+                r = btree->initFromBid(btreeblk_handle, btree_kv_ops,
+                                       btree_nodesize, bid_new);
                 if (r != BTREE_RESULT_SUCCESS) {
                     return HBTRIE_RESULT_FAIL;
                 }
-                btree->aux = aux;
+                btree->setAux(aux);
             } else {
                 // this is offset of document (as it is)
                 // read entire key
@@ -670,7 +672,7 @@ hbtrie_result HBTrie::_remove(void *rawkey, int rawkeylen, uint8_t flag)
             uint8_t *buf = alca(uint8_t, btree_nodesize);
 
             meta.data = buf;
-            meta.size = btree_read_meta(&btreeitem->btree, meta.data);
+            meta.size = btreeitem->btree->readMeta(meta.data);
             fetchMeta(meta.size, &hbmeta, meta.data);
 
             opt = (_is_leaf_btree(hbmeta.chunkno))?(HBMETA_LEAF):(HBMETA_NORMAL);
@@ -678,19 +680,18 @@ hbtrie_result HBTrie::_remove(void *rawkey, int rawkeylen, uint8_t flag)
             // remove value from metasection
             storeMeta(meta.size, _get_chunkno(hbmeta.chunkno), opt,
                       hbmeta.prefix, hbmeta.prefix_len, NULL, buf);
-            btree_update_meta(&btreeitem->btree, &meta);
+            btreeitem->btree->updateMeta(&meta);
         } else {
             if (btreeitem && btreeitem->leaf) {
                 // leaf b-tree
                 uint8_t *k = alca(uint8_t, chunksize);
                 setLeafKey(k, key + btreeitem->chunkno * chunksize,
                     rawkeylen - btreeitem->chunkno * chunksize);
-                br = btree_remove(&btreeitem->btree, k);
+                br = btreeitem->btree->remove(k);
                 freeLeafKey(k);
             } else if (btreeitem) {
                 // normal b-tree
-                br = btree_remove(&btreeitem->btree,
-                                  key + chunksize * btreeitem->chunkno);
+                br = btreeitem->btree->remove(key + chunksize * btreeitem->chunkno);
             }
             if (br == BTREE_RESULT_FAIL) {
                 r = HBTRIE_RESULT_FAIL;
@@ -725,8 +726,8 @@ void HBTrie::extendLeafTree(struct list *btreelist,
     struct list keys;
     struct list_elem *e;
     struct _key_item *item, *smallest = NULL;
-    struct btree_iterator it;
-    struct btree new_btree;
+    BTreeIterator *it;
+    BTree *new_btree;
     struct btree_meta meta;
     struct hbtrie_meta hbmeta;
     btree_result br;
@@ -739,7 +740,7 @@ void HBTrie::extendLeafTree(struct list *btreelist,
 
     // fetch metadata
     meta.data = buf;
-    meta.size = btree_read_meta(&btreeitem->btree, meta.data);
+    meta.size = btreeitem->btree->readMeta(meta.data);
     fetchMeta(meta.size, &hbmeta, meta.data);
 
     // scan all keys
@@ -747,10 +748,11 @@ void HBTrie::extendLeafTree(struct list *btreelist,
     memset(key_buf, 0, chunksize);
     minchunkno = 0;
 
-    br = btree_iterator_init(&btreeitem->btree, &it, NULL);
+    it = new BTreeIterator();
+    br = it->init(btreeitem->btree, NULL);
     while (br == BTREE_RESULT_SUCCESS) {
         // get key
-        if ((br = btree_next(&it, key_buf, value_buf)) == BTREE_RESULT_FAIL) {
+        if ((br = it->next(key_buf, value_buf)) == BTREE_RESULT_FAIL) {
             break;
         }
 
@@ -791,7 +793,7 @@ void HBTrie::extendLeafTree(struct list *btreelist,
             }
         }
     }
-    btree_iterator_free(&it);
+    delete it;
 
     // construct new (non-leaf) b-tree
     if (hbmeta.value) {
@@ -820,9 +822,9 @@ void HBTrie::extendLeafTree(struct list *btreelist,
     storeMeta(meta.size, _get_chunkno(hbmeta.chunkno) + minchunkno,
               HBMETA_NORMAL, prefix, minchunkno * chunksize, meta_value, buf);
 
-    btree_init(&new_btree, btreeblk_handle, btree_kv_ops,
-               btree_nodesize, chunksize, valuelen, 0x0, &meta);
-    new_btree.aux = aux;
+    new_btree = new BTree(btreeblk_handle, btree_kv_ops, btree_nodesize,
+                          chunksize, valuelen, 0x0, &meta);
+    new_btree->setAux(aux);
 
     // reset BTREEITEM
     btreeitem->btree = new_btree;
@@ -905,27 +907,28 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
     // btreeitem for root btree
     btreeitem = (struct btreelist_item*)
                 mempool_alloc(sizeof(struct btreelist_item));
+    btreeitem->btree = new BTree();
     list_push_back(&btreelist, &btreeitem->e);
 
     if (root_bid == BLK_NOT_FOUND) {
         // create root b-tree
         storeMeta(meta.size, 0, HBMETA_NORMAL,
                   NULL, 0, NULL, buf);
-        r = btree_init(&btreeitem->btree, btreeblk_handle, btree_kv_ops,
-                       btree_nodesize, chunksize, valuelen, 0x0, &meta);
+        r = btreeitem->btree->init(btreeblk_handle, btree_kv_ops, btree_nodesize,
+                                   chunksize, valuelen, 0x0, &meta);
         if (r != BTREE_RESULT_SUCCESS) {
             return HBTRIE_RESULT_FAIL;
         }
     } else {
         // read from root_bid
-        r = btree_init_from_bid(&btreeitem->btree, btreeblk_handle,
-                                btree_kv_ops, btree_nodesize, root_bid);
+        r = btreeitem->btree->initFromBid(btreeblk_handle, btree_kv_ops,
+                                          btree_nodesize, root_bid);
         if (r != BTREE_RESULT_SUCCESS) {
             return HBTRIE_RESULT_FAIL;
         }
-        if (btreeitem->btree.ksize != chunksize ||
-            btreeitem->btree.vsize != valuelen) {
-            if (((chunksize << 4) | valuelen) == btreeitem->btree.ksize) {
+        if (btreeitem->btree->getKSize() != chunksize ||
+            btreeitem->btree->getVSize() != valuelen) {
+            if (((chunksize << 4) | valuelen) == btreeitem->btree->getKSize()) {
                 // this is an old meta format
                 return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
             }
@@ -933,7 +936,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             return HBTRIE_RESULT_INDEX_CORRUPTED;
         }
     }
-    btreeitem->btree.aux = aux;
+    btreeitem->btree->setAux(aux);
 
     // set 'oldvalue_out' to 0xff..
     if (oldvalue_out) {
@@ -945,13 +948,13 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
 
     while (curchunkno < nchunk) {
         // get current chunk number
-        meta.size = btree_read_meta(&btreeitem->btree, meta.data);
+        meta.size = btreeitem->btree->readMeta(meta.data);
         fetchMeta(meta.size, &hbmeta, meta.data);
         prevchunkno = curchunkno;
         if (_is_leaf_btree(hbmeta.chunkno)) {
             cpt_node = 1;
             hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
-            btreeitem->btree.kv_ops = btree_leaf_kv_ops;
+            btreeitem->btree->setKVOps(btree_leaf_kv_ops);
         }
         btreeitem->chunkno = curchunkno = hbmeta.chunkno;
 
@@ -988,7 +991,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                               hbmeta.value, buf);
                 }
                 // update metadata for old b-tree
-                btree_update_meta(&btreeitem->btree, &meta);
+                btreeitem->btree->updateMeta(&meta);
 
                 // split prefix and create new sub-tree
                 storeMeta(meta.size, prevchunkno + diffchunkno + 1,
@@ -998,23 +1001,24 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 // create new b-tree
                 btreeitem_new = (struct btreelist_item *)
                                 mempool_alloc(sizeof(struct btreelist_item));
+                btreeitem_new->btree = new BTree();
                 btreeitem_new->chunkno = prevchunkno + diffchunkno + 1;
-                r = btree_init(&btreeitem_new->btree, btreeblk_handle,
-                               btree_kv_ops, btree_nodesize, chunksize,
-                               valuelen, 0x0, &meta);
+                r = btreeitem_new->btree->init(btreeblk_handle, btree_kv_ops,
+                                               btree_nodesize, chunksize, valuelen,
+                                               0x0, &meta);
                 if (r != BTREE_RESULT_SUCCESS) {
                     free(docrawkey);
                     free(dockey);
                     return HBTRIE_RESULT_FAIL;
                 }
-                btreeitem_new->btree.aux = aux;
+                btreeitem_new->btree->setAux(aux);
                 list_insert_before(&btreelist, &btreeitem->e,
                                    &btreeitem_new->e);
 
                 // insert chunk for 'key'
                 chunk_new = key + (prevchunkno + diffchunkno + 1) *
                                   chunksize;
-                r = btree_insert(&btreeitem_new->btree, chunk_new, value);
+                r = btreeitem_new->btree->insert(chunk_new, value);
                 if (r == BTREE_RESULT_FAIL) {
                     free(docrawkey);
                     free(dockey);
@@ -1023,13 +1027,12 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 // insert chunk for existing btree
                 chunk_new = (uint8_t*)old_prefix + diffchunkno *
                                                    chunksize;
-                bid_new = btreeitem->btree.root_bid;
+                bid_new = btreeitem->btree->getRootBid();
                 btreeitem_new->child_rootbid = bid_new;
                 // set MSB
                 _bid = _endian_encode(bid_new);
                 valueSetMsb((void*)&_bid);
-                r = btree_insert(&btreeitem_new->btree,
-                                 chunk_new, (void*)&_bid);
+                r = btreeitem_new->btree->insert(chunk_new, (void*)&_bid);
                 if (r == BTREE_RESULT_FAIL) {
                     free(docrawkey);
                     free(dockey);
@@ -1049,7 +1052,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                       hbmeta.prefix,
                       (curchunkno-prevchunkno - 1) * chunksize,
                       value, buf);
-            btree_update_meta(&btreeitem->btree, &meta);
+            btreeitem->btree->updateMeta(&meta);
             break;
         } else {
             chunk = key + curchunkno*chunksize;
@@ -1057,10 +1060,10 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 // leaf b-tree
                 setLeafKey(k, chunk,
                               rawkeylen - curchunkno*chunksize);
-                r = btree_find(&btreeitem->btree, k, btree_value);
+                r = btreeitem->btree->find(k, btree_value);
                 freeLeafKey(k);
             } else {
-                r = btree_find(&btreeitem->btree, chunk, btree_value);
+                r = btreeitem->btree->find(chunk, btree_value);
             }
         }
 
@@ -1074,9 +1077,8 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
 
             if (cpt_node) {
                 // leaf b-tree
-                setLeafKey(k, chunk,
-                              rawkeylen - curchunkno*chunksize);
-                r = btree_insert(&btreeitem->btree, k, value);
+                setLeafKey(k, chunk, rawkeylen - curchunkno*chunksize);
+                r = btreeitem->btree->insert(k, value);
                 if (r == BTREE_RESULT_FAIL) {
                     freeLeafKey(k);
                     ret_result = HBTRIE_RESULT_FAIL;
@@ -1084,16 +1086,15 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 }
                 freeLeafKey(k);
 
-                if (btreeitem->btree.height > leaf_height_limit) {
+                if (btreeitem->btree->getHeight() > leaf_height_limit) {
                     // height growth .. extend!
-                    extendLeafTree(&btreelist, btreeitem,
-                                   key, curchunkno * chunksize);
+                    extendLeafTree(&btreelist, btreeitem, key, curchunkno * chunksize);
                     free(docrawkey);
                     free(dockey);
                     return ret_result;
                 }
             } else {
-                r = btree_insert(&btreeitem->btree, chunk, value);
+                r = btreeitem->btree->insert(chunk, value);
                 if (r == BTREE_RESULT_FAIL) {
                     ret_result = HBTRIE_RESULT_FAIL;
                 }
@@ -1110,7 +1111,7 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 memcpy(oldvalue_out, btree_value, valuelen);
             }
             // assume that always normal b-tree
-            r = btree_insert(&btreeitem->btree, chunk, value);
+            r = btreeitem->btree->insert(chunk, value);
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
             } else {
@@ -1131,15 +1132,14 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             // fetch sub-tree
             btreeitem = (struct btreelist_item*)
                         mempool_alloc(sizeof(struct btreelist_item));
+            btreeitem->btree = new BTree();
 
-            r = btree_init_from_bid(&btreeitem->btree,
-                                    btreeblk_handle,
-                                    btree_kv_ops,
-                                    btree_nodesize, bid_new);
+            r = btreeitem->btree->initFromBid(btreeblk_handle, btree_kv_ops,
+                                              btree_nodesize, bid_new);
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
             }
-            btreeitem->btree.aux = aux;
+            btreeitem->btree->setAux(aux);
             list_push_back(&btreelist, &btreeitem->e);
             continue;
         }
@@ -1227,11 +1227,11 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
                 // leaf b-tree
                 setLeafKey(k, chunk,
                               rawkeylen - curchunkno*chunksize);
-                r = btree_insert(&btreeitem->btree, k, value);
+                r = btreeitem->btree->insert(k, value);
                 freeLeafKey(k);
             } else {
                 // normal b-tree
-                r = btree_insert(&btreeitem->btree, chunk, value);
+                r = btreeitem->btree->insert(chunk, value);
             }
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
@@ -1255,24 +1255,26 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
 
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
+            btreeitem_new->btree = new BTree();
             btreeitem_new->chunkno = midchunkno;
-            r = btree_init(&btreeitem_new->btree, btreeblk_handle, kv_ops,
-                           btree_nodesize, chunksize, valuelen, 0x0, &meta);
+
+            r = btreeitem_new->btree->init(btreeblk_handle, kv_ops, btree_nodesize,
+                                           chunksize, valuelen, 0x0, &meta);
             if (r == BTREE_RESULT_FAIL) {
                 free(docrawkey);
                 free(dockey);
                 return HBTRIE_RESULT_FAIL;
             }
-            btreeitem_new->btree.aux = aux;
+            btreeitem_new->btree->setAux(aux);
             btreeitem_new->child_rootbid = BLK_NOT_FOUND;
             list_push_back(&btreelist, &btreeitem_new->e);
 
             // insert new btree's bid into the previous btree
-            bid_new = btreeitem_new->btree.root_bid;
+            bid_new = btreeitem_new->btree->getRootBid();
             btreeitem->child_rootbid = bid_new;
             _bid = _endian_encode(bid_new);
             valueSetMsb((void *)&_bid);
-            r = btree_insert(&btreeitem->btree, chunk, &_bid);
+            r = btreeitem->btree->insert(chunk, &_bid);
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
                 break;
@@ -1326,14 +1328,15 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
 
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
+            btreeitem_new->btree = new BTree();
             btreeitem_new->chunkno = newchunkno;
-            r = btree_init(&btreeitem_new->btree, btreeblk_handle, kv_ops,
-                           btree_nodesize, chunksize, valuelen, 0x0, &meta);
+            r = btreeitem_new->btree->init(btreeblk_handle, kv_ops, btree_nodesize,
+                                           chunksize, valuelen, 0x0, &meta);
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
                 break;
             }
-            btreeitem_new->btree.aux = aux;
+            btreeitem_new->btree->setAux(aux);
 
             list_push_back(&btreelist, &btreeitem_new->e);
 
@@ -1342,14 +1345,14 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             if (opt == HBMETA_LEAF) {
                 // optimization mode
                 setLeafKey(k, chunk_new, rawkeylen_long - newchunkno*chunksize);
-                r = btree_insert(&btreeitem_new->btree, k, value_long);
+                r = btreeitem_new->btree->insert(k, value_long);
                 if (r == BTREE_RESULT_FAIL) {
                     ret_result = HBTRIE_RESULT_FAIL;
                 }
                 freeLeafKey(k);
             } else {
                 // normal mode
-                r = btree_insert(&btreeitem_new->btree, chunk_new, value_long);
+                r = btreeitem_new->btree->insert(chunk_new, value_long);
                 if (r == BTREE_RESULT_FAIL) {
                     ret_result = HBTRIE_RESULT_FAIL;
                 }
@@ -1363,13 +1366,14 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
 
             btreeitem_new = (struct btreelist_item *)
                             mempool_alloc(sizeof(struct btreelist_item));
+            btreeitem_new->btree = new BTree();
             btreeitem_new->chunkno = newchunkno;
-            r = btree_init(&btreeitem_new->btree, btreeblk_handle, kv_ops,
-                           btree_nodesize, chunksize, valuelen, 0x0, &meta);
+            r = btreeitem_new->btree->init(btreeblk_handle, kv_ops, btree_nodesize,
+                                           chunksize, valuelen, 0x0, &meta);
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
             }
-            btreeitem_new->btree.aux = aux;
+            btreeitem_new->btree->setAux(aux);
 
             list_push_back(&btreelist, &btreeitem_new->e);
             // insert KEY
@@ -1377,10 +1381,10 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             if (opt == HBMETA_LEAF) {
                 // optimization mode
                 setLeafKey(k, chunk_new, rawkeylen - newchunkno*chunksize);
-                r = btree_insert(&btreeitem_new->btree, k, value);
+                r = btreeitem_new->btree->insert(k, value);
                 freeLeafKey(k);
             } else {
-                r = btree_insert(&btreeitem_new->btree, chunk_new, value);
+                r = btreeitem_new->btree->insert(chunk_new, value);
             }
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
@@ -1391,10 +1395,10 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
             if (opt == HBMETA_LEAF) {
                 // optimization mode
                 setLeafKey(k, chunk_new, docrawkeylen - newchunkno*chunksize);
-                r = btree_insert(&btreeitem_new->btree, k, btree_value);
+                r = btreeitem_new->btree->insert(k, btree_value);
                 freeLeafKey(k);
             } else {
-                r = btree_insert(&btreeitem_new->btree, chunk_new, btree_value);
+                r = btreeitem_new->btree->insert(chunk_new, btree_value);
             }
             if (r == BTREE_RESULT_FAIL) {
                 ret_result = HBTRIE_RESULT_FAIL;
@@ -1402,14 +1406,14 @@ hbtrie_result HBTrie::_insert(void *rawkey, int rawkeylen,
         }
 
         // update previous (parent) b-tree
-        bid_new = btreeitem_new->btree.root_bid;
+        bid_new = btreeitem_new->btree->getRootBid();
         btreeitem->child_rootbid = bid_new;
 
         // set MSB
         _bid = _endian_encode(bid_new);
         valueSetMsb((void *)&_bid);
         // ASSUMPTION: parent b-tree always MUST be non-leaf b-tree
-        r = btree_insert(&btreeitem->btree, chunk, (void*)&_bid);
+        r = btreeitem->btree->insert(chunk, (void*)&_bid);
         if (r == BTREE_RESULT_FAIL) {
             ret_result = HBTRIE_RESULT_FAIL;
         }
@@ -1459,12 +1463,15 @@ HBTrieIterator::~HBTrieIterator()
 {
     struct list_elem *e;
     struct btreeit_item *item;
+    BTree *btree;
 
     e = list_begin(&btreeit_list);
     while(e) {
         item = _get_entry(e, struct btreeit_item, le);
         e = list_remove(&btreeit_list, e);
-        btree_iterator_free(&item->btree_it);
+        btree = item->btree_it->getBTree();
+        delete item->btree_it;
+        delete btree;
         mempool_free(item);
     }
     if (curkey) {
@@ -1510,7 +1517,7 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
 {
     struct list_elem *e;
     struct btreeit_item *item_new;
-    struct btree btree;
+    BTree *btree;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
     btree_result br;
     struct hbtrie_meta hbmeta;
@@ -1532,28 +1539,36 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
         // set current chunk (key for b-tree)
         chunk = curkey;
         // load b-tree
-        btree_init_from_bid(&btree,
-                            trie->getBtreeBlkHandle(), trie->getBtreeKvOps(),
-                            trie->getBtreeNodeSize(), trie->getRootBid());
-        btree.aux = trie->getAux();
-        if (btree.ksize != chunksize || btree.vsize != valuelen) {
-            if (((chunksize << 4) | valuelen) == btree.ksize) {
+        // Note that this instance will be inserted into btreeit_list, and
+        // will be freed in the destructor of HBTrieIterator.
+        btree = new BTree(trie->getBtreeBlkHandle(), trie->getBtreeKvOps(),
+                          trie->getBtreeNodeSize(), trie->getRootBid());
+        btree->setAux(trie->getAux());
+        if (btree->getKSize() != chunksize || btree->getVSize() != valuelen) {
+            if (((chunksize << 4) | valuelen) == btree->getKSize()) {
                 // this is an old meta format
+                delete btree;
                 return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
             }
             // B+tree root node is corrupted.
+            delete btree;
             return HBTRIE_RESULT_INDEX_CORRUPTED;
         }
 
         item = (struct btreeit_item *)mempool_alloc(sizeof(
                                                     struct btreeit_item));
+        item->btree_it = new BTreeIterator();
         item->chunkno = 0;
         item->leaf = 0;
 
-        br = btree_iterator_init(&btree, &item->btree_it, chunk);
-        if (br == BTREE_RESULT_FAIL) return HBTRIE_RESULT_FAIL;
+        br = item->btree_it->init(btree, chunk);
+        if (br == BTREE_RESULT_FAIL) {
+            delete btree;
+            return HBTRIE_RESULT_FAIL;
+        }
 
         list_push_back(&btreeit_list, &item->le);
+        // now we don't need to release 'btree' instance in this function.
     }
 
     e = list_next(&item->le);
@@ -1561,20 +1576,22 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
         // if prev sub b-tree exists
         item_new = _get_entry(e, struct btreeit_item, le);
         hr = _prev(item_new, key_buf, keylen_out, value_buf, flag);
-        if (hr == HBTRIE_RESULT_SUCCESS) return hr;
+        if (hr == HBTRIE_RESULT_SUCCESS) {
+            return hr;
+        }
         keylen = (item->chunkno+1) * chunksize;
     }
 
     while (hr != HBTRIE_RESULT_SUCCESS) {
         // get key-value from current b-tree iterator
         memset(k, 0, chunksize);
-        br = btree_prev(&item->btree_it, k, v);
+        br = item->btree_it->prev(k, v);
         if (item->leaf) {
             freeLeafKey(k);
         } else {
             chunk = (uint8_t*)curkey + item->chunkno * chunksize;
-            if (item->btree_it.btree.kv_ops->cmp(k, chunk,
-                    item->btree_it.btree.aux) != 0) {
+            if (item->btree_it->getBTreeKVOps()->cmp(k, chunk,
+                    item->btree_it->getBTreeAux()) != 0) {
                 // not exact match key .. the rest of string is not necessary anymore
                 keylen = (item->chunkno+1) * chunksize;
                 flagsSetMoved();
@@ -1583,7 +1600,9 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
 
         if (br == BTREE_RESULT_FAIL) {
             // no more KV pair in the b-tree
-            btree_iterator_free(&item->btree_it);
+            BTree *_btree = item->btree_it->getBTree();
+            delete item->btree_it;
+            delete _btree;
             list_remove(&btreeit_list, &item->le);
             mempool_free(item);
             return HBTRIE_RESULT_FAIL;
@@ -1597,24 +1616,26 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
             trie->valueClearMsb(v);
             bid = trie->getBtreeKvOps()->value2bid(v);
             bid = _endian_decode(bid);
-            btree_init_from_bid(&btree, trie->getBtreeBlkHandle(),
-                                trie->getBtreeKvOps(), trie->getBtreeNodeSize(), bid);
+            // it will be inserted into item_new, and will be freed in
+            // the destructor of HBTrieIterator.
+            btree = new BTree(trie->getBtreeBlkHandle(),
+                              trie->getBtreeKvOps(), trie->getBtreeNodeSize(), bid);
 
             // get sub b-tree's chunk number
             bmeta.data = (void *)mempool_alloc(trie->getBtreeNodeSize());
-            bmeta.size = btree_read_meta(&btree, bmeta.data);
+            bmeta.size = btree->readMeta(bmeta.data);
             trie->fetchMeta(bmeta.size, &hbmeta, bmeta.data);
 
             item_new = (struct btreeit_item *)
                        mempool_alloc(sizeof(struct btreeit_item));
             if (_is_leaf_btree(hbmeta.chunkno)) {
                 trie->setLastMapChunk(curkey);
-                btree.kv_ops = trie->getBtreeLeafKvOps();
+                btree->setKVOps(trie->getBtreeLeafKvOps());
                 item_new->leaf = 1;
             } else {
                 item_new->leaf = 0;
             }
-            btree.aux = trie->getAux();
+            btree->setAux(trie->getAux());
             hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
             item_new->chunkno = hbmeta.chunkno;
 
@@ -1642,6 +1663,7 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
                             // we have to go back to parent B+tree and pick prev entry
                             mempool_free(bmeta.data);
                             mempool_free(item_new);
+                            delete btree;
                             keylen = offset_key;
                             hr = HBTRIE_RESULT_FAIL;
                             flagsSetMoved();
@@ -1671,6 +1693,7 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
                     // return the largest key of the previous tree.
                     mempool_free(bmeta.data);
                     mempool_free(item_new);
+                    delete btree;
                     keylen = (item->chunkno + 1) * chunksize;
                     flagsSetMoved();
                     continue;
@@ -1680,6 +1703,7 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
                 memset(chunk, 0xff, chunksize);
             }
 
+            item_new->btree_it = new BTreeIterator();
             if (item_new->leaf && chunk && chunksize > 0) {
                 uint8_t *k_temp = alca(uint8_t, chunksize);
                 size_t _leaf_keylen, _leaf_keylen_raw = 0;
@@ -1689,19 +1713,19 @@ hbtrie_result HBTrieIterator::_prev(struct btreeit_item *item,
                     trie->reformKeyReverse(chunk, _leaf_keylen);
                     setLeafKey(k_temp, chunk, _leaf_keylen_raw);
                     if (_leaf_keylen_raw) {
-                        btree_iterator_init(&btree, &item_new->btree_it, k_temp);
+                        item_new->btree_it->init(btree, k_temp);
                     } else {
-                        btree_iterator_init(&btree, &item_new->btree_it, NULL);
+                        item_new->btree_it->init(btree, NULL);
                     }
                 } else {
                     // set initial key as the largest key
                     // for reverse scan from the end of the B+tree
                     setLeafInfKey(k_temp);
-                    btree_iterator_init(&btree, &item_new->btree_it, k_temp);
+                    item_new->btree_it->init(btree, k_temp);
                 }
                 freeLeafKey(k_temp);
             } else {
-                btree_iterator_init(&btree, &item_new->btree_it, chunk);
+                item_new->btree_it->init(btree, chunk);
             }
             list_push_back(&btreeit_list, &item_new->le);
 
@@ -1775,7 +1799,7 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
 {
     struct list_elem *e;
     struct btreeit_item *item_new;
-    struct btree btree;
+    BTree *btree;
     hbtrie_result hr = HBTRIE_RESULT_FAIL;
     btree_result br;
     struct hbtrie_meta hbmeta;
@@ -1795,23 +1819,28 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
         // set current chunk (key for b-tree)
         chunk = curkey;
         // load b-tree
-        btree_init_from_bid(&btree, trie->getBtreeBlkHandle(), trie->getBtreeKvOps(),
-                            trie->getBtreeNodeSize(), trie->getRootBid());
-        btree.aux = trie->getAux();
-        if (btree.ksize != chunksize || btree.vsize != valuelen) {
-            if (((chunksize << 4) | valuelen) == btree.ksize) {
+        // Note that this instance will be inserted into btreeit_list, and
+        // will be freed in the destructor of HBTrieIterator.
+        btree = new BTree(trie->getBtreeBlkHandle(), trie->getBtreeKvOps(),
+                          trie->getBtreeNodeSize(), trie->getRootBid());
+        btree->setAux(trie->getAux());
+        if (btree->getKSize() != chunksize || btree->getVSize() != valuelen) {
+            if (((chunksize << 4) | valuelen) == btree->getKSize()) {
                 // this is an old meta format
+                delete btree;
                 return HBTRIE_RESULT_INDEX_VERSION_NOT_SUPPORTED;
             }
             // B+tree root node is corrupted.
+            delete btree;
             return HBTRIE_RESULT_INDEX_CORRUPTED;
         }
 
         item = (struct btreeit_item *)mempool_alloc(sizeof(struct btreeit_item));
         item->chunkno = 0;
         item->leaf = 0;
+        item->btree_it = new BTreeIterator();
 
-        br = btree_iterator_init(&btree, &item->btree_it, chunk);
+        br = item->btree_it->init(btree, chunk);
         if (br == BTREE_RESULT_FAIL) return HBTRIE_RESULT_FAIL;
 
         list_push_back(&btreeit_list, &item->le);
@@ -1830,13 +1859,13 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
     while (hr != HBTRIE_RESULT_SUCCESS) {
         // get key-value from current b-tree iterator
         memset(k, 0, chunksize);
-        br = btree_next(&item->btree_it, k, v);
+        br = item->btree_it->next(k, v);
         if (item->leaf) {
             freeLeafKey(k);
         } else {
             chunk = (uint8_t*)curkey + item->chunkno * chunksize;
-            if (item->btree_it.btree.kv_ops->cmp(k, chunk,
-                    item->btree_it.btree.aux) != 0) {
+            if (item->btree_it->getBTreeKVOps()->cmp(k, chunk,
+                    item->btree_it->getBTreeAux()) != 0) {
                 // not exact match key .. the rest of string is not necessary anymore
                 keylen = (item->chunkno+1) * chunksize;
                 flagsSetMoved();
@@ -1845,7 +1874,9 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
 
         if (br == BTREE_RESULT_FAIL) {
             // no more KV pair in the b-tree
-            btree_iterator_free(&item->btree_it);
+            BTree *_btree = item->btree_it->getBTree();
+            delete item->btree_it;
+            delete _btree;
             list_remove(&btreeit_list, &item->le);
             mempool_free(item);
             return HBTRIE_RESULT_FAIL;
@@ -1865,25 +1896,26 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
             trie->valueClearMsb(v);
             bid = trie->getBtreeKvOps()->value2bid(v);
             bid = _endian_decode(bid);
-            btree_init_from_bid(&btree, trie->getBtreeBlkHandle(),
-                                trie->getBtreeKvOps(), trie->getBtreeNodeSize(), bid);
+            // it will be inserted into item_new, and will be freed in
+            // the destructor of HBTrieIterator.
+            btree = new BTree(trie->getBtreeBlkHandle(),
+                              trie->getBtreeKvOps(), trie->getBtreeNodeSize(), bid);
 
             // get sub b-tree's chunk number
             bmeta.data = (void *)mempool_alloc(trie->getBtreeNodeSize());
-            bmeta.size = btree_read_meta(&btree, bmeta.data);
+            bmeta.size = btree->readMeta(bmeta.data);
             trie->fetchMeta(bmeta.size, &hbmeta, bmeta.data);
 
             item_new = (struct btreeit_item *)
                        mempool_alloc(sizeof(struct btreeit_item));
             if (_is_leaf_btree(hbmeta.chunkno)) {
                 trie->setLastMapChunk(curkey);
-
-                btree.kv_ops = trie->getBtreeLeafKvOps();
+                btree->setKVOps(trie->getBtreeLeafKvOps());
                 item_new->leaf = 1;
             } else {
                 item_new->leaf = 0;
             }
-            btree.aux = trie->getAux();
+            btree->setAux(trie->getAux());
             hbmeta.chunkno = _get_chunkno(hbmeta.chunkno);
             item_new->chunkno = hbmeta.chunkno;
 
@@ -1917,6 +1949,7 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
                             // we have to go back to parent B+tree and pick next entry
                             mempool_free(bmeta.data);
                             mempool_free(item_new);
+                            delete btree;
                             keylen = offset_key;
                             hr = HBTRIE_RESULT_FAIL;
                             flagsSetMoved();
@@ -1934,6 +1967,7 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
                 chunk = NULL;
             }
 
+            item_new->btree_it = new BTreeIterator();
             if (item_new->leaf && chunk && chunksize > 0) {
                 uint8_t *k_temp = alca(uint8_t, chunksize);
                 memset(k_temp, 0, chunksize * sizeof(uint8_t));
@@ -1945,10 +1979,10 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
                 }
                 if (_leaf_keylen_raw) {
                     setLeafKey(k_temp, chunk, _leaf_keylen_raw);
-                    btree_iterator_init(&btree, &item_new->btree_it, k_temp);
+                    item_new->btree_it->init(btree, k_temp);
                     freeLeafKey(k_temp);
                 } else {
-                    btree_iterator_init(&btree, &item_new->btree_it, NULL);
+                    item_new->btree_it->init(btree, NULL);
                 }
             } else {
                 bool null_btree_init_key = false;
@@ -1972,9 +2006,9 @@ hbtrie_result HBTrieIterator::_next(struct btreeit_item *item,
                     }
                 }
                 if (null_btree_init_key) {
-                    btree_iterator_init(&btree, &item_new->btree_it, NULL);
+                    item_new->btree_it->init(btree, NULL);
                 } else {
-                    btree_iterator_init(&btree, &item_new->btree_it, chunk);
+                    item_new->btree_it->init(btree, chunk);
                 }
             }
             list_push_back(&btreeit_list, &item_new->le);
@@ -2110,12 +2144,15 @@ hbtrie_result HBTrieIterator::last()
     // free btreeit_list
     struct list_elem *e;
     struct btreeit_item *item;
+    BTree *btree;
 
     e = list_begin(&btreeit_list);
     while(e) {
         item = _get_entry(e, struct btreeit_item, le);
         e = list_remove(&btreeit_list, e);
-        btree_iterator_free(&item->btree_it);
+        btree = item->btree_it->getBTree();
+        delete item->btree_it;
+        delete btree;
         mempool_free(item);
     }
 

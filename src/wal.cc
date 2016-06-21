@@ -1563,11 +1563,11 @@ INLINE void _wal_backup_root_info(void *voidhandle,
         if (handle->kvs) {
             root_info->orig_seq_root = handle->seqtrie->getRootBid();
         } else {
-            root_info->orig_seq_root = handle->seqtree->root_bid;
+            root_info->orig_seq_root = handle->seqtree->getRootBid();
         }
     }
     if (handle->staletree) {
-        root_info->orig_stale_root = handle->staletree->root_bid;
+        root_info->orig_stale_root = handle->staletree->getRootBid();
     }
 }
 
@@ -1581,11 +1581,11 @@ INLINE void _wal_restore_root_info(void *voidhandle,
         if (handle->kvs) {
             handle->seqtrie->setRootBid(root_info->orig_seq_root);
         } else {
-            handle->seqtree->root_bid = root_info->orig_seq_root;
+            handle->seqtree->setRootBid(root_info->orig_seq_root);
         }
     }
     if (handle->staletree) {
-        handle->staletree->root_bid = root_info->orig_stale_root;
+        handle->staletree->setRootBid(root_info->orig_stale_root);
     }
 }
 

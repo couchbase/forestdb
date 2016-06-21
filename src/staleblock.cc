@@ -135,7 +135,7 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
     int64_t ret;
     bid_t offset, _offset, prev_offset;
     filemgr_header_revnum_t revnum, _revnum;
-    btree_iterator bit;
+    BTreeIterator *bit;
     btree_result br;
     struct filemgr *file = handle->file;
     struct docio_object doc;
@@ -150,9 +150,9 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
     // should grab mutex to avoid race with other writer
     filemgr_mutex_lock(file);
 
-    btree_iterator_init(handle->staletree, &bit, NULL);
+    bit = new BTreeIterator(handle->staletree, NULL);
     do {
-        br = btree_next(&bit, (void*)&_revnum, (void*)&_offset);
+        br = bit->next((void*)&_revnum, (void*)&_offset);
         handle->bhandle->flushBuffer();
         if (br != BTREE_RESULT_SUCCESS) {
             break;
@@ -190,7 +190,8 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
             offset = prev_offset;
         }
     } while (true);
-    btree_iterator_free(&bit);
+
+    delete bit;
 
     filemgr_mutex_unlock(file);
 }
@@ -378,7 +379,7 @@ void fdb_gather_stale_blocks(FdbKvsHandle *handle,
 
                 // insert into stale-block tree
                 _doc_offset = _endian_encode(doc_offset);
-                btree_insert(handle->staletree, (void *)&_revnum, (void *)&_doc_offset);
+                handle->staletree->insert((void *)&_revnum, (void *)&_doc_offset);
                 handle->bhandle->flushBuffer();
                 handle->bhandle->resetSubblockInfo();
 
@@ -565,7 +566,7 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     uint32_t item_len;
     uint32_t n_revnums, max_revnum_array = 256;
     uint64_t item_pos;
-    btree_iterator bit;
+    BTreeIterator *bit;
     btree_result br;
     filemgr_header_revnum_t revnum_upto, prev_revnum = 0;
     filemgr_header_revnum_t revnum = 0, _revnum;
@@ -704,9 +705,9 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
         // scan stale-block tree and get all stale regions
         // corresponding to commit headers whose seq number is
         // equal to or smaller than 'revnum_upto'
-        btree_iterator_init(handle->staletree, &bit, NULL);
+        bit = new BTreeIterator(handle->staletree, NULL);
         do {
-            br = btree_next(&bit, (void*)&_revnum, (void*)&_offset);
+            br = bit->next((void*)&_revnum, (void*)&_offset);
             handle->bhandle->flushBuffer();
             if (br != BTREE_RESULT_SUCCESS) {
                 break;
@@ -762,13 +763,13 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
                 offset = prev_offset;
             }
         } while (true);
-        btree_iterator_free(&bit);
+        delete bit;
     }
 
     // remove merged commit headers
     for (i=0; i<n_revnums; ++i) {
         _revnum = _endian_encode(revnum_array[i]);
-        btree_remove(handle->staletree, (void*)&_revnum);
+        handle->staletree->remove((void*)&_revnum);
         handle->bhandle->flushBuffer();
     }
 
@@ -922,7 +923,7 @@ void fdb_rollback_stale_blocks(FdbKvsHandle *handle,
     // remove from on-disk stale-tree
     for (i = handle->rollback_revnum; i < cur_revnum; ++i) {
         _revnum = _endian_encode(i);
-        br = btree_remove(handle->staletree, (void*)&_revnum);
+        br = handle->staletree->remove((void*)&_revnum);
         // don't care the result
         (void)br;
         handle->bhandle->flushBuffer();
