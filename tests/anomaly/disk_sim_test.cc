@@ -351,9 +351,9 @@ void indexer_pattern_test()
 
     // SETUP Configurations...
     NUM_DOCS = 10000;
-    NUM_WRITER_ITERATIONS = 5;
+    NUM_WRITER_ITERATIONS = 3;
     COMMIT_FREQ = NUM_DOCS/10;
-    SNAPSHOT_FREQ = 5;
+    SNAPSHOT_FREQ = COMMIT_FREQ / 17; // Derive snapshot freq from commit freq
     ITERATOR_BATCH_SIZE = 10;
     NUM_ITERATORS = 7;
     MAX_NUM_SNAPSHOTS = 5;
@@ -402,9 +402,9 @@ void indexer_pattern_test()
     TEST_CHK(s == FDB_RESULT_SUCCESS);
 
     printf("Num docs %d Num iterations %d Commit freq %d Snapshot freq %d "
-           "Iterator batch %d\n",
+           "Iterator batch %d Num iterator threads %d\n",
            NUM_DOCS, NUM_WRITER_ITERATIONS, COMMIT_FREQ, SNAPSHOT_FREQ,
-           ITERATOR_BATCH_SIZE);
+           ITERATOR_BATCH_SIZE, NUM_ITERATORS);
     printf("Wal size %" _F64 " Buffercache size %" _F64 "MB\n",
            fconfig.wal_threshold, fconfig.buffercache_size/1024/1024);
     for (r = 0; r < NUM_WRITERS; ++r) {

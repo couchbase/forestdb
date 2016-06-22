@@ -8151,7 +8151,7 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
 
     fprintf(stderr, "snap_handle: %p\n", (void *)h->shandle);
     if (h->shandle) {
-        fprintf(stderr, "shandle: ref_cnt %d\n",
+        fprintf(stderr, "shandle: ref_cnt %" _F64 "\n",
                 h->shandle->ref_cnt_kvs.load());
         fprintf(stderr, "shandle: kvs_stat: nlivenodes %" _F64 "\n",
                 h->shandle->stat.nlivenodes);

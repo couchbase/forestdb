@@ -74,7 +74,7 @@ struct snap_handle {
      * Incremented on snapshot_open, decremented on snapshot_close(Write Barrier)
      * Reference count to avoid copy if same KV store WAL snapshot is cloned.
      */
-    std::atomic<uint16_t> ref_cnt_kvs;
+    std::atomic<uint64_t> ref_cnt_kvs;
     /**
      * Did flush_Wal make me inaccessible to later snapshots, (Read-Write Barrier)
      */
@@ -83,6 +83,10 @@ struct snap_handle {
      * Is this a persistent snapshot completely separate from WAL.
      */
     bool is_persisted_snapshot;
+    /**
+     * Number of previous snapshots which share items with current snapshot.
+     */
+    int num_prev_snaps;
     /**
      * Number of WAL items put into this snapshot before it became immutable.
      */
@@ -472,16 +476,16 @@ private:
     fdb_status _snapFind_Wal(struct snap_handle *shandle, fdb_doc *doc,
                              uint64_t *offset);
 
-    bool _wal_can_discard(struct wal_item *_item,
-                          struct wal_item *covering_item);
-
     struct wal_kvs_snaps *_wal_get_kvs_snaplist(fdb_kvs_id_t kv_id);
     struct snap_handle * _wal_get_latest_snapshot(struct wal_kvs_snaps *slist);
 
     struct snap_handle * _wal_snapshot_create(fdb_kvs_id_t kv_id,
                                               wal_snapid_t snap_tag,
                                               wal_snapid_t snap_flush_tag,
+                                              _fdb_key_cmp_info *key_cmp_info,
                                               struct wal_kvs_snaps *snap_list);
+
+    void _snapshotClose_Wal(struct snap_handle *shandle);
     void _wal_snap_mark_flushed(void);
 
     // When a snapshot reader has called snapshotOpen_Wal(), the ref count
@@ -490,12 +494,12 @@ private:
         return shandle->ref_cnt_kvs.load();
     }
 
-    struct snap_handle * _wal_fetch_snapshot(fdb_kvs_id_t kv_id);
+    struct snap_handle * _wal_fetch_snapshot(fdb_kvs_id_t kv_id,
+                                             _fdb_key_cmp_info *key_cmp_info);
 
     fdb_status _wal_snapshot_init(struct snap_handle *shandle,
                                   fdb_txn *txn,
-                                  fdb_seqnum_t seqnum,
-                                  _fdb_key_cmp_info *key_cmp_info);
+                                  fdb_seqnum_t seqnum);
 
     typedef enum _wal_update_type_t {
         _WAL_NEW_DEL, // A new deleted item inserted into WAL
@@ -517,7 +521,7 @@ private:
     static struct wal_item *_wal_get_snap_item(struct wal_item_header *header,
                                                struct snap_handle *shandle);
 
-    void _wal_free_item(struct wal_item *item);
+    void _wal_free_item(struct wal_item *item, bool gotlock);
     bool _wal_are_items_sorted(union wal_flush_items *flush_items);
     fdb_status _wal_do_flush(struct wal_item *item,
                              wal_flush_func *flush_func,
