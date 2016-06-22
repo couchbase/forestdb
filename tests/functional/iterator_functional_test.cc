@@ -3880,10 +3880,10 @@ void iterator_deleted_doc_right_before_the_end_test()
     config.buffercache_size = 0;
     kvs_config = fdb_get_default_kvs_config();
 
-    sprintf(cmd, SHELL_DEL " %s*", "./dummy");
+    sprintf(cmd, SHELL_DEL " %s*", "./itr_test");
     r = system(cmd); (void)r;
 
-    fdb_open(&dbfile, "./dummy", &config);
+    fdb_open(&dbfile, "./itr_test", &config);
     fdb_kvs_open(dbfile, &db, NULL, &kvs_config);
 
     // insert 3 docs
