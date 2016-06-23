@@ -17,6 +17,14 @@
 
 #pragma once
 
+/**
+ * Structure to hold the contents of a binary key
+ */
+struct binary_key_t {
+    void *data;
+    size_t len;
+};
+
 struct avl_tree;
 struct avl_node;
 
@@ -59,6 +67,21 @@ enum {
 };
 
 /**
+ * ForestDB iterator type
+ */
+typedef uint8_t fdb_iterator_type_t;
+enum {
+    /**
+     * Regular iterator (over keys)
+     */
+    FDB_ITR_REG = 0x00,
+    /**
+     * Sequence Iterator (uses seq tree)
+     */
+    FDB_ITR_SEQ = 0x01
+};
+
+/**
  * ForestDB iterator direction
  */
 typedef uint8_t itr_seek_t;
@@ -79,7 +102,7 @@ public:
 
     /* Fetches the current key pointed to by the iterator */
     void* getIterKey() {
-        return iterKey;
+        return iterKey.data;
     }
 
     /* To initialize a regular iterator */
@@ -168,47 +191,43 @@ private:
     BTreeIterator *seqtreeIterator;
     // HB+Trie iterator for sequence number iteration (for multiple KV instance mode)
     HBTrieIterator *seqtrieIterator;
-    // Current seqnum pointed by the iterator.
+    // Current seqnum pointed by the iterator
     fdb_seqnum_t seqNum;
     // WAL Iterator to iterate over the shared sharded global WAL
     WalItr *walIterator;
-    // Cursor instance of WAL iterator.
+    // Cursor instance of WAL iterator
     struct wal_item *treeCursor;
-    // Unique starting AVL node indicating the WAL iterator's start node.
+    // Unique starting AVL node indicating the WAL iterator's start node
     struct wal_item *treeCursorStart;
-    // Previous position of WAL cursor.
+    // Previous position of WAL cursor
     struct wal_item *treeCursorPrev;
-    // Iterator start key.
-    void *startKey;
     union {
-        // Iterator start seqnum.
+        // Iterator start seqnum
         fdb_seqnum_t startSeqnum;
-        // Start key length.
-        size_t startKeylen;
+        // Iterator start key
+        binary_key_t startKey;
     };
-    // Iterator end key.
-    void *endKey;
     union {
-        // Iterator end seqnum.
+        // Iterator end seqnum
         fdb_seqnum_t endSeqnum;
-        // End key length.
-        size_t endKeylen;
+        // Iterator end key
+        binary_key_t endKey;
     };
-    // Iterator option.
+    // Iterator option
     fdb_iterator_opt_t iterOpt;
-    // Iterator cursor direction status.
+    // Iterator cursor direction status
     fdb_iterator_dir_t iterDirection;
-    // The last returned document info.
+    // The last returned document info
     fdb_iterator_status_t iterStatus;
-    // Current key pointed by the iterator.
-    void *iterKey;
-    // Length of key pointed by the iterator.
-    size_t iterKeylen;
-    // Key offset.
+    // Current key pointed by the iterator
+    binary_key_t iterKey;
+    // Key offset
     uint64_t iterOffset;
-    // Doc IO handle instance to the correct file.
+    // Doc IO handle instance to the correct file
     DocioHandle *dHandle;
     // Cursor offset to key, meta and value on disk
     uint64_t getOffset;
+    // Type of iterator
+    fdb_iterator_type_t iterType;
 };
 

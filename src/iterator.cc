@@ -109,12 +109,12 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
       seqtreeIterator(nullptr), seqtrieIterator(nullptr),
       seqNum(0), iterOpt(opt), iterDirection(FDB_ITR_DIR_NONE),
       iterStatus(FDB_ITR_IDX), iterOffset(BLK_NOT_FOUND),
-      dHandle(nullptr), getOffset(0)
+      dHandle(nullptr), getOffset(0), iterType(FDB_ITR_REG)
 {
-    iterKey = (void*)malloc(FDB_MAX_KEYLEN_INTERNAL);
+    iterKey.data = (void*)malloc(FDB_MAX_KEYLEN_INTERNAL);
     // set to zero the first <chunksize> bytes
-    memset(iterKey, 0x0, iterHandle->config.chunksize);
-    iterKeylen = 0;
+    memset(iterKey.data, 0x0, iterHandle->config.chunksize);
+    iterKey.len = 0;
 
     if (iterHandle->kvs) {
         // multi KV instance mode .. prepend KV ID
@@ -154,32 +154,32 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
             end_keylen += size_chunk;
         }
 
-        startKey = (void*)malloc(start_keylen);
-        memcpy(startKey, start_key, start_keylen);
-        startKeylen = start_keylen;
+        startKey.data = (void*)malloc(start_keylen);
+        memcpy(startKey.data, start_key, start_keylen);
+        startKey.len = start_keylen;
 
-        endKey = (void*)malloc(end_keylen);
-        memcpy(endKey, end_key, end_keylen);
-        endKeylen = end_keylen;
+        endKey.data = (void*)malloc(end_keylen);
+        memcpy(endKey.data, end_key, end_keylen);
+        endKey.len = end_keylen;
 
     } else { // single KV instance mode
 
         if (start_key == NULL) {
-            startKey = NULL;
-            startKeylen = 0;
+            startKey.data = NULL;
+            startKey.len = 0;
         } else {
-            startKey = (void*)malloc(start_keylen);
-            memcpy(startKey, start_key, start_keylen);
-            startKeylen = start_keylen;
+            startKey.data = (void*)malloc(start_keylen);
+            memcpy(startKey.data, start_key, start_keylen);
+            startKey.len = start_keylen;
         }
 
         if (end_key == NULL) {
-            endKey = NULL;
-            endKeylen = 0;
+            endKey.data = NULL;
+            endKey.len = 0;
         } else {
-            endKey = (void*)malloc(end_keylen);
-            memcpy(endKey, end_key, end_keylen);
-            endKeylen = end_keylen;
+            endKey.data = (void*)malloc(end_keylen);
+            memcpy(endKey.data, end_key, end_keylen);
+            endKey.len = end_keylen;
         }
     }
 
@@ -196,8 +196,8 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
         struct wal_item query;
         struct wal_item_header query_key;
         query.header = &query_key;
-        query_key.key = startKey;
-        query_key.keylen = startKeylen;
+        query_key.key = startKey.data;
+        query_key.keylen = startKey.len;
         treeCursor = walIterator->searchGreater_WalItr(&query);
     } else {
         treeCursor = walIterator->first_WalItr();
@@ -221,10 +221,10 @@ FdbIterator::FdbIterator(FdbKvsHandle *_handle,
     : iterHandle(_handle), snapshotHandle(snapshoted_handle),
       hbtrieIterator(nullptr), seqtreeIterator(nullptr),
       seqtrieIterator(nullptr), seqNum(start_seq),
-      startKey(nullptr), startSeqnum(start_seq), endKey(nullptr),
-      iterOpt(opt), iterDirection(FDB_ITR_DIR_NONE),
-      iterStatus(FDB_ITR_IDX), iterKey(nullptr), iterKeylen(0),
-      iterOffset(BLK_NOT_FOUND), dHandle(nullptr), getOffset(0)
+      startSeqnum(start_seq), iterOpt(opt), iterDirection(FDB_ITR_DIR_NONE),
+      iterStatus(FDB_ITR_IDX), iterKey({nullptr, 0}),
+      iterOffset(BLK_NOT_FOUND), dHandle(nullptr), getOffset(0),
+      iterType(FDB_ITR_SEQ)
 {
     // For easy API call, treat zero seq as 0xffff...
     // (because zero seq number is not used)
@@ -298,20 +298,20 @@ FdbIterator::~FdbIterator()
         delete seqtrieIterator;
     }
 
-    if (startKey) {
-        free(startKey);
+    if (iterType == FDB_ITR_REG) {
+        // Free startKey, endKey data which would've been
+        // allocated in case of a regular iterator.
+        free(startKey.data);
+        free(endKey.data);
     }
 
-    if (endKey) {
-        free(endKey);
-    }
-
-    --iterHandle->num_iterators; // Decrement the iterator counter of the KV handle
+    // Decrement the iterator counter of the KV handle
+    --iterHandle->num_iterators;
 
     delete walIterator;
 
-    if (iterKey) {
-        free(iterKey);
+    if (iterKey.data) {
+        free(iterKey.data);
     }
 
     if (!snapshotHandle) {
@@ -491,7 +491,7 @@ fdb_status FdbIterator::seek(const void *seek_key,
 
     dHandle = NULL; // setup for get() to return FAIL
 
-    if (!seek_key || !iterKey ||
+    if (!seek_key || !iterKey.data ||
         seek_keylen > FDB_MAX_KEYLEN ||
         (iterHandle->kvs_config.custom_cmp &&
          seek_keylen > iterHandle->config.blocksize - HBTRIE_HEADROOM)) {
@@ -516,8 +516,8 @@ fdb_status FdbIterator::seek(const void *seek_key,
     }
 
     // disable seeking beyond the end key...
-    if (endKey) {
-        cmp = _fdb_key_cmp(this, endKey, endKeylen,
+    if (endKey.data) {
+        cmp = _fdb_key_cmp(this, endKey.data, endKey.len,
                            (void *)seek_key_kv, seek_keylen_kv);
         if (cmp == 0 && iterOpt & FDB_ITR_SKIP_MAX_KEY) {
             // seek the end key at this time,
@@ -532,8 +532,8 @@ fdb_status FdbIterator::seek(const void *seek_key,
     }
 
     // disable seeking beyond the start key...
-    if (startKey) {
-        cmp = _fdb_key_cmp(this, startKey, startKeylen,
+    if (startKey.data) {
+        cmp = _fdb_key_cmp(this, startKey.data, startKey.len,
                            (void *)seek_key_kv, seek_keylen_kv);
         if (cmp == 0 && iterOpt & FDB_ITR_SKIP_MIN_KEY) {
             // seek the start key at this time,
@@ -557,15 +557,15 @@ fdb_status FdbIterator::seek(const void *seek_key,
 fetch_hbtrie:
     if (seek_pref == FDB_ITR_SEEK_HIGHER) {
         // fetch next key
-        hr = hbtrieIterator->next(iterKey, iterKeylen, (void*)&iterOffset);
+        hr = hbtrieIterator->next(iterKey.data, iterKey.len, (void*)&iterOffset);
         iterHandle->bhandle->flushBuffer();
 
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            cmp = _fdb_key_cmp(this, iterKey, iterKeylen,
+            cmp = _fdb_key_cmp(this, iterKey.data, iterKey.len,
                                seek_key_kv, seek_keylen_kv);
             if (cmp < 0) {
                 // key[HB+trie] < seek_key .. move forward
-                hr = hbtrieIterator->next(iterKey, iterKeylen,
+                hr = hbtrieIterator->next(iterKey.data, iterKey.len,
                                           &iterOffset);
                 iterHandle->bhandle->flushBuffer();
             }
@@ -590,7 +590,7 @@ fetch_hbtrie:
                     free(_doc.meta);
                 }
                 if (fetch_next) {
-                    hr = hbtrieIterator->next(iterKey, iterKeylen,
+                    hr = hbtrieIterator->next(iterKey.data, iterKey.len,
                                               (void*)&iterOffset);
                     iterHandle->bhandle->flushBuffer();
                     iterOffset = _endian_decode(iterOffset);
@@ -599,14 +599,14 @@ fetch_hbtrie:
         }
     } else {
         // fetch prev key
-        hr = hbtrieIterator->prev(iterKey, iterKeylen, (void*)&iterOffset);
+        hr = hbtrieIterator->prev(iterKey.data, iterKey.len, (void*)&iterOffset);
         iterHandle->bhandle->flushBuffer();
         if (hr == HBTRIE_RESULT_SUCCESS) {
-            cmp = _fdb_key_cmp(this, iterKey, iterKeylen,
+            cmp = _fdb_key_cmp(this, iterKey.data, iterKey.len,
                                seek_key_kv, seek_keylen_kv);
             if (cmp > 0) {
                 // key[HB+trie] > seek_key .. move backward
-                hr = hbtrieIterator->prev(iterKey, iterKeylen,
+                hr = hbtrieIterator->prev(iterKey.data, iterKey.len,
                                           (void*)&iterOffset);
                 iterHandle->bhandle->flushBuffer();
             }
@@ -631,7 +631,7 @@ fetch_hbtrie:
                     free(_doc.meta);
                 }
                 if (fetch_next) {
-                    hr = hbtrieIterator->prev(iterKey, iterKeylen,
+                    hr = hbtrieIterator->prev(iterKey.data, iterKey.len,
                                               (void*)&iterOffset);
                     iterHandle->bhandle->flushBuffer();
                     iterOffset = _endian_decode(iterOffset);
@@ -642,14 +642,14 @@ fetch_hbtrie:
 
     if (hr == HBTRIE_RESULT_SUCCESS && // Validate iteration range limits..
         !next_op) { // only if caller is not seek_to_max/min (handled later)
-        if (!validateRangeLimits(iterKey, iterKeylen)) {
+        if (!validateRangeLimits(iterKey.data, iterKey.len)) {
             hr = HBTRIE_RESULT_FAIL;
         }
     }
 
     if (iterHandle->kvs) {
         fdb_kvs_id_t kv_id;
-        buf2kvid(size_chunk, iterKey, &kv_id);
+        buf2kvid(size_chunk, iterKey.data, &kv_id);
         if (iterHandle->kvs->getKvsId() != kv_id) {
             // seek is done beyond the KV ID
             hr = HBTRIE_RESULT_FAIL;
@@ -695,7 +695,7 @@ fetch_hbtrie:
                         cmp = _fdb_key_cmp(this,
                                            snap_item->header->key,
                                            snap_item->header->keylen,
-                                           iterKey, iterKeylen);
+                                           iterKey.data, iterKey.len);
                         if (cmp == 0) {
                             // same doc exists in HB+trie
                             // move tree cursor
@@ -710,10 +710,10 @@ fetch_hbtrie:
                     }
                     treeCursor = walIterator->next_WalItr();
                     continue;
-                } else if (endKey &&
+                } else if (endKey.data &&
                            iterOpt & FDB_ITR_SKIP_MAX_KEY) {
                     cmp = _fdb_key_cmp(this,
-                                       endKey, endKeylen,
+                                       endKey.data, endKey.len,
                                        snap_item->header->key,
                                        snap_item->header->keylen);
                     if (cmp == 0 ||
@@ -760,7 +760,7 @@ fetch_hbtrie:
                         cmp = _fdb_key_cmp(this,
                                            snap_item->header->key,
                                            snap_item->header->keylen,
-                                           iterKey, iterKeylen);
+                                           iterKey.data, iterKey.len);
                         if (cmp == 0) {
                             // same doc exists in HB+trie
                             // move tree cursor
@@ -775,12 +775,12 @@ fetch_hbtrie:
                     }
                     treeCursor = walIterator->prev_WalItr();
                     continue;
-                } else if (startKey &&
+                } else if (startKey.data &&
                            iterOpt & FDB_ITR_SKIP_MIN_KEY) {
                     cmp = _fdb_key_cmp(this,
                                        snap_item->header->key,
                                        snap_item->header->keylen,
-                                       startKey, startKeylen);
+                                       startKey.data, startKey.len);
                     if (cmp == 0 ||
                         // WAL cursor is positioned exactly at seeked start key
                         // but iterator must skip the start key!
@@ -818,7 +818,7 @@ fetch_hbtrie:
         if (hr == HBTRIE_RESULT_SUCCESS) {
             cmp = _fdb_key_cmp(this,
                                snap_item->header->key, snap_item->header->keylen,
-                               iterKey, iterKeylen);
+                               iterKey.data, iterKey.len);
 
             if (cmp == 0) {
                 // same key exists in both HB+trie and WAL
@@ -839,10 +839,10 @@ fetch_hbtrie:
                         // if key[HB+trie] is the largest key
                         // smaller than max key,
                         // do not call prev() next.
-                        if (endKey) {
+                        if (endKey.data) {
                             cmp2 = _fdb_key_cmp(this,
-                                                iterKey, iterKeylen,
-                                                endKey, endKeylen);
+                                                iterKey.data, iterKey.len,
+                                                endKey.data, endKey.len);
                         } else {
                             cmp2 = -1;
                         }
@@ -861,10 +861,10 @@ fetch_hbtrie:
                         // if key[HB+trie] is the smallest key
                         // larger than min key,
                         // do not call next() next.
-                        if (startKey) {
+                        if (startKey.data) {
                             cmp2 = _fdb_key_cmp(this,
-                                                startKey, startKeylen,
-                                                iterKey, iterKeylen);
+                                                startKey.data, startKey.len,
+                                                iterKey.data, iterKey.len);
                         } else {
                             cmp2 = -1;
                         }
@@ -929,17 +929,17 @@ fdb_status FdbIterator::seekToMin() {
     // called right after FdbIterator::initIterator() so the cursor gets
     // positioned correctly
     iterDirection = FDB_ITR_FORWARD;
-    if (startKeylen > size_chunk) {
+    if (startKey.len > size_chunk) {
         fdb_iterator_seek_opt_t dir = (iterOpt & FDB_ITR_SKIP_MIN_KEY) ?
                                       FDB_ITR_SEEK_HIGHER : FDB_ITR_SEEK_LOWER;
-        fdb_status status = seek((uint8_t *)startKey + size_chunk,
-                                 startKeylen - size_chunk, dir);
+        fdb_status status = seek((uint8_t *)startKey.data + size_chunk,
+                                 startKey.len - size_chunk, dir);
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_LOWER) {
             dir = FDB_ITR_SEEK_HIGHER;
             // It is possible that the min key specified during init does not
             // exist, so retry the seek with the HIGHER key
-            return seek((uint8_t *)startKey + size_chunk,
-                        startKeylen - size_chunk, dir);
+            return seek((uint8_t *)startKey.data + size_chunk,
+                        startKey.len - size_chunk, dir);
         }
         return status;
     }
@@ -947,7 +947,7 @@ fdb_status FdbIterator::seekToMin() {
     // reset HB+trie iterator using start key
     delete hbtrieIterator;
     hbtrieIterator = new HBTrieIterator(iterHandle->trie,
-                                        startKey, startKeylen);
+                                        startKey.data, startKey.len);
 
     // reset WAL tree cursor using search because of the sharded nature of WAL
     if (treeCursorStart) {
@@ -1197,7 +1197,7 @@ fdb_status FdbIterator::iterate(itr_seek_t seek_type) {
     }
 
 start:
-    key = iterKey;
+    key = iterKey.data;
     dhandle = iterHandle->dhandle;
 
     // retrieve from hb-trie
@@ -1209,9 +1209,9 @@ start:
         int64_t _offset;
         do {
             if (seek_type == ITR_SEEK_PREV) {
-                hr = hbtrieIterator->prev(key, iterKeylen, (void*)&iterOffset);
+                hr = hbtrieIterator->prev(key, iterKey.len, (void*)&iterOffset);
             } else { // seek_type == ITR_SEEK_NEXT
-                hr = hbtrieIterator->next(key, iterKeylen, (void*)&iterOffset);
+                hr = hbtrieIterator->next(key, iterKey.len, (void*)&iterOffset);
             }
             iterHandle->bhandle->flushBuffer();
             iterOffset = _endian_decode(iterOffset);
@@ -1236,7 +1236,7 @@ start:
         } while (1);
     }
 
-    keylen = iterKeylen;
+    keylen = iterKey.len;
     offset = iterOffset;
 
     if (hr != HBTRIE_RESULT_SUCCESS && !treeCursor) {
@@ -1315,9 +1315,9 @@ start:
         iterStatus = FDB_ITR_IDX;
     }
 
-    if (startKey) {
-        cmp = _fdb_key_cmp(this, startKey,
-                           startKeylen, key, keylen);
+    if (startKey.data) {
+        cmp = _fdb_key_cmp(this, startKey.data,
+                           startKey.len, key, keylen);
 
         if ((cmp == 0 && iterOpt & FDB_ITR_SKIP_MIN_KEY) || cmp > 0) {
             if (seek_type == ITR_SEEK_PREV) {
@@ -1333,9 +1333,9 @@ start:
         }
     }
 
-    if (endKey) {
+    if (endKey.data) {
         cmp = _fdb_key_cmp(this,
-                           endKey, endKeylen,
+                           endKey.data, endKey.len,
                            key, keylen);
 
         if ((cmp == 0 && iterOpt & FDB_ITR_SKIP_MAX_KEY) || cmp < 0) {
@@ -1362,18 +1362,18 @@ bool FdbIterator::validateRangeLimits(void *ret_key,
                                       const size_t ret_keylen) {
     int cmp;
 
-    if (endKey) {
+    if (endKey.data) {
         cmp = _fdb_key_cmp(this, ret_key, ret_keylen,
-                           endKey, endKeylen);
+                           endKey.data, endKey.len);
         if ((cmp == 0 && iterOpt & FDB_ITR_SKIP_MAX_KEY) ||
             cmp > 0) { // greater than endKey OR at skipped MAX_KEY
             return false;
         }
     }
 
-    if (startKey) {
+    if (startKey.data) {
         cmp = _fdb_key_cmp(this, ret_key, ret_keylen,
-                           startKey, startKeylen);
+                           startKey.data, startKey.len);
         if ((cmp == 0 && iterOpt & FDB_ITR_SKIP_MIN_KEY) ||
             cmp < 0) { // smaller than startKey OR at skipped MIN_KEY
             return false;
@@ -1385,7 +1385,7 @@ bool FdbIterator::validateRangeLimits(void *ret_key,
 fdb_status FdbIterator::seekToMaxKey() {
     int cmp;
 
-    if (!iterKey) {
+    if (!iterKey.data) {
         return FDB_RESULT_INVALID_ARGS;
     }
 
@@ -1395,27 +1395,27 @@ fdb_status FdbIterator::seekToMaxKey() {
     // called right after FdbIterator::initIterator() so the cursor gets
     // positioned correctly
     iterDirection = FDB_ITR_FORWARD;
-    if (endKeylen > size_chunk) {
+    if (endKey.len > size_chunk) {
         fdb_iterator_seek_opt_t dir = (iterOpt & FDB_ITR_SKIP_MAX_KEY) ?
                                             FDB_ITR_SEEK_LOWER :
                                             FDB_ITR_SEEK_HIGHER;
-        fdb_status status = seek((uint8_t *)endKey + size_chunk,
-                                 endKeylen - size_chunk,
+        fdb_status status = seek((uint8_t *)endKey.data + size_chunk,
+                                 endKey.len - size_chunk,
                                  dir);
 
         if (status != FDB_RESULT_SUCCESS && dir == FDB_ITR_SEEK_HIGHER) {
             dir = FDB_ITR_SEEK_LOWER;
             // It is possible that the max key specified during init does not
             // exist, so retry the seek with the LOWER key
-            return seek((uint8_t *)endKey + size_chunk,
-                        endKeylen - size_chunk,
+            return seek((uint8_t *)endKey.data + size_chunk,
+                        endKey.len - size_chunk,
                         dir);
         }
         return status;
     }
     iterDirection = FDB_ITR_REVERSE; // only reverse iteration possible
 
-    if (endKey && endKeylen == size_chunk) {
+    if (endKey.data && endKey.len == size_chunk) {
         // endKey exists but endKeylen == size_id
         // it means that user doesn't assign endKey but
         // endKey is automatically assigned due to multi KVS mode.
@@ -1423,14 +1423,14 @@ fdb_status FdbIterator::seekToMaxKey() {
         // reset HB+trie's iterator using endKey
         delete hbtrieIterator;
         hbtrieIterator = new HBTrieIterator(iterHandle->trie,
-                                            endKey,
-                                            endKeylen);
+                                            endKey.data,
+                                            endKey.len);
 
         // get first key
-        hbtrieIterator->prev(iterKey, iterKeylen, (void*)&iterOffset);
+        hbtrieIterator->prev(iterKey.data, iterKey.len, (void*)&iterOffset);
         iterOffset = _endian_decode(iterOffset);
-        cmp = _fdb_key_cmp(this, endKey, endKeylen,
-                           iterKey, iterKeylen);
+        cmp = _fdb_key_cmp(this, endKey.data, endKey.len,
+                           iterKey.data, iterKey.len);
         if (cmp < 0) {
             // returned key is larger than the end key .. skip
             iterOffset = BLK_NOT_FOUND;
@@ -1444,8 +1444,8 @@ fdb_status FdbIterator::seekToMaxKey() {
     struct wal_item_header hdr;
     struct wal_item query;
     query.header = &hdr;
-    hdr.key = endKey;
-    hdr.keylen = endKeylen;
+    hdr.key = endKey.data;
+    hdr.keylen = endKey.len;
     treeCursor = walIterator->searchSmaller_WalItr(&query);
     treeCursorPrev = treeCursor;
     iterStatus = FDB_ITR_IDX;
