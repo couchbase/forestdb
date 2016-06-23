@@ -162,7 +162,8 @@ typedef uint8_t filemgr_prefetch_status_t;
 enum {
     FILEMGR_PREFETCH_IDLE = 0,
     FILEMGR_PREFETCH_RUNNING = 1,
-    FILEMGR_PREFETCH_ABORT = 2
+    FILEMGR_PREFETCH_ABORT = 2,
+    FILEMGR_PREFETCH_TERMINATED = 3
 };
 
 #define DLOCK_MAX (41) /* a prime number */

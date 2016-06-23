@@ -664,8 +664,7 @@ static void *_filemgr_prefetch_thread(void *voidargs)
         }
     }
 
-    atomic_cas_uint8_t(&args->file->prefetch_status, FILEMGR_PREFETCH_RUNNING,
-                       FILEMGR_PREFETCH_IDLE);
+    args->file->prefetch_status.store(FILEMGR_PREFETCH_TERMINATED);
     free(args);
     return NULL;
 }
@@ -1606,12 +1605,10 @@ void filemgr_free_func(struct hash_elem *h)
 {
     struct filemgr *file = _get_entry(h, struct filemgr, e);
 
-    filemgr_prefetch_status_t prefetch_state =
-                              atomic_get_uint8_t(&file->prefetch_status);
-
-    atomic_store_uint8_t(&file->prefetch_status, FILEMGR_PREFETCH_ABORT);
-    if (prefetch_state == FILEMGR_PREFETCH_RUNNING) {
-        // prefetch thread was running
+    filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_RUNNING;
+    if (file->prefetch_status.compare_exchange_strong(cond, FILEMGR_PREFETCH_ABORT)) {
+        // prefetch thread is now running
+        // change its status to ABORT to avoid other thread attempts to terminate it.
         void *ret;
         // wait (the thread must have been created..)
         thread_join(file->prefetch_tid, &ret);
