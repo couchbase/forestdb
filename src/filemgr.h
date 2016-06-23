@@ -55,6 +55,7 @@ extern "C" {
 #define FILEMGR_REMOVAL_IN_PROG 0x10
 #define FILEMGR_CREATE_CRC32 0x20 // Used in testing upgrade path
 #define FILEMGR_CANCEL_COMPACTION 0x40 // Cancel the compaction
+#define FILEMGR_EXCL_CREATE 0x80 // fail open if file already exists
 
 class FileMgrConfig {
 public:

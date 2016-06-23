@@ -733,6 +733,7 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     struct filemgr query;
     struct hash_elem *e = NULL;
     bool create = config->getOptions() & FILEMGR_CREATE;
+    bool fail_if_exists = config->getOptions() & FILEMGR_EXCL_CREATE;
     int file_flag = 0x0;
     int fd = -1;
     fdb_status status;
@@ -753,6 +754,11 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     e = hash_find(&hash, &query.e);
 
     if (e) {
+        if (fail_if_exists) {
+            spin_unlock(&filemgr_openlock);
+            result.rv = FDB_RESULT_EEXIST;
+            return result;
+        }
         // already opened (return existing structure)
         file = _get_entry(e, struct filemgr, e);
 
@@ -837,6 +843,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file_flag = O_RDWR;
     if (create) {
         file_flag |= O_CREAT;
+    }
+    if (fail_if_exists) {
+        file_flag |= O_EXCL;
     }
     file_flag |= config->getFlag();
     fd = ops->open(filename, file_flag, 0666);

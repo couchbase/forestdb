@@ -6552,6 +6552,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     // set filemgr configuration
     _fdb_init_file_config(&handle->config, &fconfig);
     fconfig.addOptions(FILEMGR_CREATE);
+    fconfig.addOptions(FILEMGR_EXCL_CREATE); // fail if file already exists
     if (new_encryption_key) {
         fconfig.setEncryptionKey(*new_encryption_key);
     }

@@ -741,6 +741,104 @@ void compact_reopen_with_iterator()
     TEST_RESULT("compact reopen with iterator");
 }
 
+void open_newfile_before_compact_done(void)
+{
+    TEST_INIT();
+
+    memleak_start();
+
+    int i, j, r;
+    int n = 20;
+    int num_kvs = 16;
+    fdb_file_handle *dbfile, *illegalfile;
+    fdb_kvs_handle **db = alca(fdb_kvs_handle *, num_kvs+1);
+    fdb_doc **doc = alca(fdb_doc*, n);
+    fdb_status status;
+
+    char keybuf[32], metabuf[32], bodybuf[32];
+    char kv_name[8];
+
+    fdb_config fconfig = fdb_get_default_config();
+    fdb_kvs_config kvs_config = fdb_get_default_kvs_config();
+    fconfig.buffercache_size = 0;
+    fconfig.wal_threshold = 50;
+    fconfig.flags = FDB_OPEN_FLAG_CREATE;
+    fconfig.compaction_threshold = 0;
+    fconfig.block_reusing_threshold = 0;
+
+    // remove previous compact_test files
+    r = system(SHELL_DEL" compact_test* > errorlog.txt");
+    (void)r;
+
+    // open db
+    fdb_open(&dbfile, "./compact_test1", &fconfig);
+    for (r = 0; r < num_kvs; ++r) {
+        sprintf(kv_name, "kv%d", r);
+        fdb_kvs_open(dbfile, &db[r], kv_name, &kvs_config);
+    }
+
+   // ------- Setup test ----------------------------------
+   // insert first quarter of documents
+    for (i=0; i<n; i++){
+        sprintf(keybuf, "key%d", i);
+        sprintf(metabuf, "meta%d", i);
+        sprintf(bodybuf, "body%d", i);
+        fdb_doc_create(&doc[i], (void*)keybuf, strlen(keybuf),
+            (void*)metabuf, strlen(metabuf), (void*)bodybuf, strlen(bodybuf));
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[i]);
+        }
+    }
+
+    // commit with a manual WAL flush (these docs go into HB-trie)
+    fdb_commit(dbfile, FDB_COMMIT_MANUAL_WAL_FLUSH);
+
+    // Update first quarter of documents again overwriting previous update..
+    for (j = 0; j < n; j++){
+        for (r = 0; r < num_kvs; ++r) {
+            fdb_set(db[r], doc[j]);
+        }
+    }
+
+    // commit again without a WAL flush (some of these docs remain in WAL)
+    fdb_commit(dbfile, FDB_COMMIT_NORMAL);
+
+    for (r = 0; r < num_kvs; ++r) {
+        status = fdb_set_log_callback(db[r], logCallbackFunc,
+                                      (void *)"open_newfile_before_compact_done");
+        TEST_CHK(status == FDB_RESULT_SUCCESS);
+    }
+
+    // It is illegal to open the new file before compaction is done in
+    // manual compaction mode..
+    status = fdb_open(&illegalfile, "./compact_test1.b", &fconfig);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_kvs_open(dbfile, &db[num_kvs], kv_name, &kvs_config);
+    TEST_CHK(status == FDB_RESULT_SUCCESS);
+
+    status = fdb_compact(dbfile, "./compact_test1.b");
+    TEST_CHK(status == FDB_RESULT_EEXIST);
+
+    fdb_kvs_close(db[num_kvs]);
+
+    // close db file
+    fdb_close(dbfile);
+    fdb_close(illegalfile);
+
+    // free all documents
+    for (i=0;i<n;++i){
+        fdb_doc_free(doc[i]);
+    }
+
+    // free all resources
+    fdb_shutdown();
+
+    memleak_end();
+
+    TEST_RESULT("illegal new file opened before compaction done");
+}
+
 void estimate_space_upto_test(bool multi_kv)
 {
     TEST_INIT();
@@ -3574,6 +3672,7 @@ int main(){
     int i;
 
     compact_deleted_doc_test();
+    open_newfile_before_compact_done();
     compact_upto_test(false); // single kv instance in file
     compact_upto_test(true); // multiple kv instance in file
     compact_upto_last_wal_flush_bid_check();
