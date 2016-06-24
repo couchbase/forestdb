@@ -7931,13 +7931,13 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
     fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
 
-    fprintf(stderr, "file: filename %s\n", h->file->fileName);
-    fprintf(stderr, "file: ref_count %d\n", h->file->refCount.load());
-    fprintf(stderr, "file: flags %x\n", h->file->fMgrFlags);
-    fprintf(stderr, "file: blocksize %d\n", h->file->blockSize);
+    fprintf(stderr, "file: fileName %s\n", h->file->fileName);
+    fprintf(stderr, "file: refCount %d\n", h->file->refCount.load());
+    fprintf(stderr, "file: fMgrFlags %x\n", h->file->fMgrFlags);
+    fprintf(stderr, "file: blockSize %d\n", h->file->blockSize);
     fprintf(stderr, "file: fd %d\n", h->file->fd);
-    fprintf(stderr, "file: pos %" _F64"\n", h->file->lastPos.load());
-    fprintf(stderr, "file: status %d\n", h->file->fMgrStatus.load());
+    fprintf(stderr, "file: lastPos %" _F64"\n", h->file->lastPos.load());
+    fprintf(stderr, "file: fMgrStatus %d\n", h->file->fMgrStatus.load());
     fprintf(stderr, "file: config: blocksize %d\n", h->file->fileConfig->getBlockSize());
     fprintf(stderr, "file: config: ncacheblock %d\n",
             h->file->fileConfig->getNcacheBlock());
@@ -7950,19 +7950,19 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
             h->file->fileConfig->getNumWalShards());
     fprintf(stderr, "file: config: num_bcache_shards %d\n",
             h->file->fileConfig->getNumBcacheShards());
-    fprintf(stderr, "file: new_file %p\n", (void *)h->file->newFile);
-    fprintf(stderr, "file: old_filename %p\n", (void *)h->file->oldFileName);
-    fprintf(stderr, "file: fnamedic_item: bcache %p\n",
+    fprintf(stderr, "file: newFile %p\n", (void *)h->file->newFile);
+    fprintf(stderr, "file: oldFileName %p\n", (void *)h->file->oldFileName);
+    fprintf(stderr, "file: FileBlockCache: bcache %p\n",
             (void *)h->file->bCache);
-    fprintf(stderr, "file: global_txn: handle %p\n",
+    fprintf(stderr, "file: globalTxn: handle %p\n",
             (void *)h->file->globalTxn.handle);
-    fprintf(stderr, "file: global_txn: prev_hdr_bid %" _F64 "\n",
+    fprintf(stderr, "file: globalTxn: prev_hdr_bid %" _F64 "\n",
             h->file->globalTxn.prev_hdr_bid);
-    fprintf(stderr, "file: global_txn: isolation %d\n",
+    fprintf(stderr, "file: globalTxn: isolation %d\n",
             h->file->globalTxn.isolation);
-    fprintf(stderr, "file: in_place_compaction: %d\n",
+    fprintf(stderr, "file: inPlaceCompaction: %d\n",
             h->file->inPlaceCompaction);
-    fprintf(stderr, "file: kvs_header: %" _F64 "\n",
+    fprintf(stderr, "file: kvHeader: %" _F64 "\n",
             h->file->kvHeader->id_counter);
 
     fprintf(stderr, "docio_handle: %p\n", (void*)h->dhandle);
