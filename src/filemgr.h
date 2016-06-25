@@ -487,7 +487,10 @@ public:
 
     /* Public member functions */
 
-    const std::string& getFileName() {
+    std::string getFileName() {
+        // Here we are explictly forcing a copy of the object to
+        // work around std::string copy-on-write data-race issues
+        // seen on some versions of libstdc++.
         return fileName;
     }
 
