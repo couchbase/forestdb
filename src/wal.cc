@@ -382,7 +382,7 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
         // This snapshot is not inserted into global shared tree
         _wal_snapshot_init(_shandle, txn, seqnum, key_cmp_info);
         DBG("%s Persisted snapshot taken at %" _F64 " for kv id %" _F64 "\n",
-            file->fileName, _shandle->seqnum, kv_id);
+            file->fileName.c_str(), _shandle->seqnum, kv_id);
     } else { // Take a snapshot of the latest WAL state for this KV Store
         if (_wal_snap_is_immutable(_shandle)) { // existing snapshot still open
             _shandle->ref_cnt_kvs++; // ..just Clone it
@@ -390,7 +390,7 @@ fdb_status Wal::snapshotOpen_Wal(fdb_txn *txn,
             _wal_snapshot_init(_shandle, txn, seqnum, key_cmp_info);
             DBG("%s Snapshot init %" _F64 " - %" _F64 " taken at %"
                 _F64 " for kv id %" _F64 "\n",
-                file->fileName, _shandle->snap_stop_idx,
+                file->fileName.c_str(), _shandle->snap_stop_idx,
                 _shandle->snap_tag_idx, _shandle->seqnum, kv_id);
         }
     }
@@ -1057,7 +1057,7 @@ inline void Wal::_wal_free_item(struct wal_item *item) {
         DBG("%s Last item removed from snapshot %" _F64 "-%" _F64 " %" _F64
                 " kv id %" _F64 ". Destroy snapshot handle..\n",
                 shandle->snap_txn && shandle->snap_txn->handle ?
-                shandle->snap_txn->handle->file->fileName : "",
+                shandle->snap_txn->handle->file->fileName.c_str() : "",
                 shandle->snap_stop_idx, shandle->snap_tag_idx,
                 shandle->seqnum, shandle->id);
         avl_remove(&wal_snapshot_tree, &shandle->avl_id);
@@ -1253,7 +1253,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                             "Error in appending a commit mark at offset %"
                             _F64 " in "
                             "a database file '%s'", item->offset,
-                            file->fileName);
+                            file->fileName.c_str());
                     spin_unlock(&key_shards[shard_num].lock);
                     mem_overhead.fetch_sub(_mem_overhead,
                                            std::memory_order_relaxed);
@@ -1320,7 +1320,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                             "item seqnum %" _F64
                             " keylen %d flags %x action %d"
                             "%s", _item->seqnum, item->header->keylen,
-                            _item->flag.load(), _item->action, file->fileName);
+                            _item->flag.load(), _item->action, file->fileName.c_str());
                 }
             }
         }
@@ -1539,7 +1539,7 @@ inline fdb_status Wal::_wal_do_flush(struct wal_item *item,
             FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
             fdb_log(&handle->log_callback, fs,
                     "Failed to flush WAL item (key '%s') into a database file '%s'",
-                    (const char *) item->header->key, handle->file->fileName);
+                    (const char *) item->header->key, handle->file->fileName.c_str());
             return fs;
         }
     }
@@ -2790,7 +2790,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
             if (_wal_snap_is_immutable(shandle)) {
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
-                        " in file %s", shandle->id, file->fileName);
+                        " in file %s", shandle->id, file->fileName.c_str());
             }
             if (shandle->id != kv_id_req) {
                 break;
@@ -2816,7 +2816,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
                         " with %" _F64 " docs in file %s", shandle->id,
-                        shandle->wal_ndocs.load(), file->fileName);
+                        shandle->wal_ndocs.load(), file->fileName.c_str());
             }
             next_a = avl_next(a);
             avl_remove(&wal_snapshot_tree, a);

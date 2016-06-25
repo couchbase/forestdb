@@ -43,6 +43,7 @@
 #include "staleblock.h"
 
 #include <atomic>
+#include <string>
 
 #define FILEMGR_SYNC 0x01
 #define FILEMGR_READONLY 0x02
@@ -541,7 +542,7 @@ public:
 
     fdb_status sync_FileMgr(bool sync_option, ErrLogCallback *log_callback);
 
-    int updateFileStatus(file_status_t status, char *old_filename);
+    int updateFileStatus(file_status_t status, const char *old_filename);
 
     file_status_t getFileStatus() {
         return fMgrStatus.load();
@@ -649,7 +650,7 @@ public:
 
     static uint64_t getBcacheUsedSpace(void);
 
-    static filemgr_open_result open(char *filename,
+    static filemgr_open_result open(std::string filename,
                                     struct filemgr_ops *ops,
                                     FileMgrConfig *config,
                                     ErrLogCallback *log_callback);
@@ -665,7 +666,7 @@ public:
 
     static void removeFile(FileMgr *file, ErrLogCallback *log_callback);
 
-    static fdb_status destroyFile(char *filename,
+    static fdb_status destroyFile(std::string filename,
                                   FileMgrConfig *config,
                                   struct hash *destroy_set);
 
@@ -849,8 +850,7 @@ public:
 
     /* Public member variables */
 
-    char *fileName;                      // Current file name.
-    uint16_t fileNameLen;
+    std::string fileName;             // Current file name.
     std::atomic<uint32_t> refCount;
     uint8_t fMgrFlags;
     uint32_t blockSize;
@@ -867,7 +867,7 @@ public:
     FileMgrConfig *fileConfig;
     FileMgr *newFile;                 // Pointer to new file upon compaction
     FileMgr *prevFile;                // Pointer to prev file upon compaction
-    char *oldFileName;                // Old file name before compaction
+    std::string oldFileName;          // Old file name before compaction
     std::atomic<FileBlockCache *> bCache;
     fdb_txn globalTxn;
     bool inPlaceCompaction;

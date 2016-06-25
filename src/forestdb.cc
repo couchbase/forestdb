@@ -98,7 +98,7 @@ size_t _fdb_readkey_wrap(void *handle, uint64_t offset, void *buf)
             ": FDB status %d, lastbid 0x%" _X64 ", "
             "curblock 0x%" _X64 ", curpos 0x%x\n";
         fdb_log(NULL, FDB_RESULT_READ_FAIL, msg, offset,
-                dhandle->getFile()->fileName, fs, dhandle->getLastBid(),
+                dhandle->getFile()->fileName.c_str(), fs, dhandle->getLastBid(),
                 dhandle->getCurBlock(), dhandle->getCurPos());
         dbg_print_buf(dhandle->getReadBuffer(), dhandle->getFile()->blockSize,
                       true, 16);
@@ -582,8 +582,8 @@ INLINE fdb_status _fdb_recover_compaction(FdbKvsHandle *handle,
 
     new_file = new_db.file;
 
-    if (new_file->oldFileName &&
-        !strncmp(new_file->oldFileName, handle->file->fileName,
+    if (!new_file->oldFileName.empty() &&
+        !strncmp(new_file->oldFileName.c_str(), handle->file->fileName.c_str(),
                  FDB_MAX_FILENAME_LEN)) {
         FileMgr *old_file = handle->file;
         // If new file has a recorded old_filename then it means that
@@ -1019,7 +1019,7 @@ fdb_snapshot_open_start:
                     "Warning: Snapshot clone at sequence number %" _F64
                     "does not match its snapshot handle %" _F64
                     "in file '%s'.", seqnum, handle_in->seqnum,
-                    file->fileName);
+                    file->fileName.c_str());
             delete handle;
             return fs;
         }
@@ -1058,7 +1058,7 @@ fdb_snapshot_open_start:
         } else {
             fs = _fdb_kvs_open(handle_in->kvs->getRootHandle(),
                               &config, &kvs_config, file,
-                              file->fileName,
+                              file->fileName.c_str(),
                               _fdb_kvs_get_name(handle_in, file),
                               handle);
         }
@@ -1066,7 +1066,8 @@ fdb_snapshot_open_start:
         if (clone_snapshot) {
             fs = _fdb_clone_snapshot(handle_in, handle);
         } else {
-            fs = _fdb_open(handle, file->fileName, FDB_AFILENAME, &config);
+            fs = _fdb_open(handle, file->fileName.c_str(), FDB_AFILENAME,
+                           &config);
         }
     }
 
@@ -1193,7 +1194,7 @@ fdb_status fdb_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
     if (handle_in->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle_in->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: Rollback is not allowed on the read-only DB file '%s'.",
-                       handle_in->file->fileName);
+                       handle_in->file->fileName.c_str());
     }
 
     uint8_t cond = 0;
@@ -1255,7 +1256,7 @@ fdb_status fdb_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
         fs = _fdb_reset(handle, handle_in);
     } else {
         handle->max_seqnum = seqnum;
-        fs = _fdb_open(handle, handle_in->file->fileName, FDB_AFILENAME,
+        fs = _fdb_open(handle, handle_in->file->fileName.c_str(), FDB_AFILENAME,
                        &config);
     }
 
@@ -1337,7 +1338,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     if (super_handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&super_handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: Rollback is not allowed on the read-only DB file '%s'.",
-                       super_handle->file->fileName);
+                       super_handle->file->fileName.c_str());
     }
 
     super_handle->file->mutexLock();
@@ -1386,7 +1387,7 @@ fdb_status fdb_rollback_all(fdb_file_handle *fhandle,
     }
     handle->config = config;
 
-    fs = _fdb_open(handle, file->fileName, FDB_AFILENAME, &config);
+    fs = _fdb_open(handle, file->fileName.c_str(), FDB_AFILENAME, &config);
 
     if (handle->config.multi_kv_instances) {
         handle->file->mutexLock();
@@ -1538,7 +1539,8 @@ fdb_status _fdb_clone_snapshot(FdbKvsHandle *handle_in,
     if (status != FDB_RESULT_SUCCESS) {
         const char *msg = "Snapshot clone operation fails due to the errors in "
             "btreeblk_end() in a database file '%s'\n";
-        fdb_log(&handle_in->log_callback, status, msg, handle_in->file->fileName);
+        fdb_log(&handle_in->log_callback, status, msg,
+                handle_in->file->fileName.c_str());
     }
 
     return status;
@@ -1622,7 +1624,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
     }
 
     handle->fileops = get_filemgr_ops();
-    filemgr_open_result result = FileMgr::open((char *)actual_filename,
+    filemgr_open_result result = FileMgr::open(std::string(actual_filename),
                                                handle->fileops,
                                                &fconfig, &handle->log_callback);
     if (result.rv != FDB_RESULT_SUCCESS) {
@@ -2021,7 +2023,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
         const char *msg = "Database open fails due to the error in retrieving "
             "the global operational stats of KV store in a database file '%s'\n";
         fdb_log(&handle->log_callback, FDB_RESULT_OPEN_FAIL, msg,
-                handle->file->fileName);
+                handle->file->fileName.c_str());
         return FDB_RESULT_OPEN_FAIL;
     }
 
@@ -2105,7 +2107,8 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
     }
 
     if (prev_filename) {
-        if (!handle->shandle && strcmp(prev_filename, handle->file->fileName)) {
+        if (!handle->shandle &&
+            strcmp(prev_filename, handle->file->fileName.c_str())) {
             // record the old filename into the file handle of current file
             // and REMOVE old file on the first open
             // WARNING: snapshots must have been opened before this call
@@ -2116,10 +2119,11 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                 //  the old file might be already removed.)
                 ErrLogCallback dummy_cb(fdb_dummy_log_callback, NULL);
                 fconfig.setOptions(FILEMGR_READONLY);
-                filemgr_open_result result = FileMgr::open(prev_filename,
-                                                           handle->fileops,
-                                                           &fconfig,
-                                                           &dummy_cb);
+                filemgr_open_result result = FileMgr::open(
+                                                    std::string(prev_filename),
+                                                    handle->fileops,
+                                                    &fconfig,
+                                                    &dummy_cb);
                 if (result.file) {
                     FileMgr::removePending(result.file, handle->file,
                                            &handle->log_callback);
@@ -3364,7 +3368,7 @@ fdb_status fdb_set(FdbKvsHandle *handle, fdb_doc *doc)
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: SET is not allowed on the read-only DB file '%s'.",
-                       handle->file->fileName);
+                       handle->file->fileName.c_str());
     }
 
     if (!doc || doc->key == NULL ||
@@ -3625,7 +3629,7 @@ fdb_status fdb_del(FdbKvsHandle *handle, fdb_doc *doc)
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: DEL is not allowed on the read-only DB file '%s'.",
-                       handle->file->fileName);
+                       handle->file->fileName.c_str());
     }
 
     if (doc->key == NULL || doc->keylen == 0 ||
@@ -3774,25 +3778,25 @@ uint64_t fdb_set_file_header(FdbKvsHandle *handle, bool inc_revnum)
 
     // size of newly compacted target file name
     if (handle->file->newFile) {
-        new_filename_len = strlen(handle->file->newFile->fileName) + 1;
+        new_filename_len = handle->file->newFile->fileName.length() + 1;
     }
     _edn_safe_16 = _endian_encode(new_filename_len);
     seq_memcpy(buf + offset, &_edn_safe_16, sizeof(new_filename_len), offset);
 
     // size of old filename before compaction
-    if (handle->file->oldFileName) {
-        old_filename_len = strlen(handle->file->oldFileName) + 1;
+    if (!handle->file->oldFileName.empty()) {
+        old_filename_len = handle->file->oldFileName.length() + 1;
     }
     _edn_safe_16 = _endian_encode(old_filename_len);
     seq_memcpy(buf + offset, &_edn_safe_16, sizeof(old_filename_len), offset);
 
     if (new_filename_len) {
-        seq_memcpy(buf + offset, handle->file->newFile->fileName,
+        seq_memcpy(buf + offset, handle->file->newFile->fileName.c_str(),
                    new_filename_len, offset);
     }
 
     if (old_filename_len) {
-        seq_memcpy(buf + offset, handle->file->oldFileName,
+        seq_memcpy(buf + offset, handle->file->oldFileName.c_str(),
                    old_filename_len, offset);
     }
 
@@ -3809,7 +3813,7 @@ char *_fdb_redirect_header(FileMgr *old_file, uint8_t *buf,
                            FileMgr *new_file) {
     uint16_t old_compact_filename_len; // size of existing old_filename in buf
     uint16_t new_compact_filename_len; // size of existing new_filename in buf
-    uint16_t new_filename_len = strlen(new_file->fileName) + 1;
+    uint16_t new_filename_len = new_file->fileName.length() + 1;
     uint16_t new_filename_len_enc = _endian_encode(new_filename_len);
     uint32_t crc;
     size_t crc_offset;
@@ -3837,7 +3841,7 @@ char *_fdb_redirect_header(FileMgr *old_file, uint8_t *buf,
                 old_compact_filename_len);
     }
     // Update the DB header's new_filename to the redirected one
-    memcpy(buf + new_fname_off, new_file->fileName, new_filename_len);
+    memcpy(buf + new_fname_off, new_file->fileName.c_str(), new_filename_len);
     // Compute the DB header's new crc32 value
     crc_offset = new_fname_off + new_filename_len + old_compact_filename_len;
     crc = get_checksum(buf, crc_offset, new_file->crcMode);
@@ -3909,7 +3913,7 @@ fdb_status _fdb_commit(FdbKvsHandle *handle,
     if (handle->config.flags & FDB_OPEN_FLAG_RDONLY) {
         return fdb_log(&handle->log_callback, FDB_RESULT_RONLY_VIOLATION,
                        "Warning: Commit is not allowed on the read-only DB file '%s'.",
-                       handle->file->fileName);
+                       handle->file->fileName.c_str());
     }
 
     uint8_t cond = 0;
@@ -4220,7 +4224,7 @@ static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
             // I/O errors here are not propogated since this is best-effort
             // Since FileMgr::searchStaleLinks() will have opened the file
             // we must close it here to ensure decrement of ref counter
-            FileMgr::close(very_old_file, true, very_old_file->fileName,
+            FileMgr::close(very_old_file, true, very_old_file->fileName.c_str(),
                            &handle->log_callback);
         }
     } while (very_old_file);
@@ -5422,11 +5426,11 @@ _fdb_compact_move_docs_upto_marker(FdbKvsHandle *rhandle,
         // sub-handle in multi KV instance mode
         fs = _fdb_kvs_open(NULL,
                            &config, &kvs_config, file,
-                           file->fileName,
+                           file->fileName.c_str(),
                            NULL,
                            &handle);
     } else {
-        fs = _fdb_open(&handle, file->fileName, FDB_AFILENAME, &config);
+        fs = _fdb_open(&handle, file->fileName.c_str(), FDB_AFILENAME, &config);
     }
     if (fs != FDB_RESULT_SUCCESS) {
         return fs;
@@ -5955,7 +5959,7 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
                     fdb_log(log_callback, fs,
                             "A commit header with block id (%" _F64 ") in the file '%s'"
                             " seems corrupted!",
-                            offset / blocksize, handle->file->fileName);
+                            offset / blocksize, handle->file->fileName.c_str());
                     return fs;
                 }
 
@@ -6020,7 +6024,7 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
                     free(old_offset_array);
                     fdb_log(log_callback, fs,
                             "Commit failure on a new file '%s' during the compaction!",
-                            new_file->fileName);
+                            new_file->fileName.c_str());
                     return fs;
                 }
                 new_handle.bhandle->resetSubblockInfo();
@@ -6334,7 +6338,7 @@ fdb_status _fdb_compact_file_checks(FdbKvsHandle *handle,
     if (strlen(new_filename) > FDB_MAX_FILENAME_LEN - 8) {
         return FDB_RESULT_TOO_LONG_FILENAME;
     }
-    if (!strcmp(new_filename, handle->file->fileName)) {
+    if (!strcmp(new_filename, handle->file->fileName.c_str())) {
         return FDB_RESULT_INVALID_ARGS;
     }
     if (handle->file->isRollbackOn()) {
@@ -6360,7 +6364,7 @@ static void _fdb_cleanup_compact_err(FdbKvsHandle *handle,
         new_file->mutexUnlock();
     }
     new_file->fhandleRemove(handle->fhandle);
-    FileMgr::close(new_file, cleanup_cache, new_file->fileName,
+    FileMgr::close(new_file, cleanup_cache, new_file->fileName.c_str(),
                    &handle->log_callback);
     // Free all the resources allocated in this function.
     delete new_bhandle;
@@ -6502,7 +6506,7 @@ static fdb_status _fdb_reset(FdbKvsHandle *handle, FdbKvsHandle *handle_in)
     fconfig.addOptions(FILEMGR_CREATE);
 
     // open same file again, so the root kv handle can be redirected to this
-    result = FileMgr::open((char *)handle->filename.c_str(),
+    result = FileMgr::open(handle->filename,
                            handle->fileops,
                            &fconfig,
                            &handle->log_callback);
@@ -6578,7 +6582,7 @@ fdb_status fdb_compact_file(fdb_file_handle *fhandle,
     }
 
     // open new file
-    filemgr_open_result result = FileMgr::open((char *)new_filename,
+    filemgr_open_result result = FileMgr::open(std::string(new_filename),
                                                handle->fileops,
                                                &fconfig,
                                                &handle->log_callback);
@@ -6671,8 +6675,6 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
                              bool clone_docs)
 {
     union wal_flush_items flush_items;
-    char *old_filename = NULL;
-    size_t old_filename_len = 0;
     FileMgr *old_file;
     BTree *new_idtree = NULL;
     bid_t dirty_idtree_root = BLK_NOT_FOUND;
@@ -6968,12 +6970,7 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
     delete handle->staletree;
     handle->staletree = new_staletree;
 
-    old_filename_len = strlen(old_file->fileName) + 1;
-    old_filename = (char *) malloc(old_filename_len);
-    strncpy(old_filename, old_file->fileName, old_filename_len);
-    if(new_file->updateFileStatus(FILE_NORMAL, old_filename) == 0) {
-        free(old_filename);
-    }
+    new_file->updateFileStatus(FILE_NORMAL, old_file->fileName.c_str());
 
     // Atomically perform
     // 1) commit new file
@@ -7007,7 +7004,7 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
         // manual compaction
         if (!new_filename) { // In-place compaction.
             in_place_compaction = true;
-            compactor_get_next_filename(handle->file->fileName, nextfile);
+            compactor_get_next_filename(handle->file->fileName.c_str(), nextfile);
             new_filename = nextfile;
         }
         fs = fdb_compact_file(fhandle, new_filename, in_place_compaction,
@@ -7023,7 +7020,7 @@ static fdb_status _fdb_compact(fdb_file_handle *fhandle,
             return FDB_RESULT_FILE_IS_BUSY;
         }
         // get next filename
-        compactor_get_next_filename(handle->file->fileName, nextfile);
+        compactor_get_next_filename(handle->file->fileName.c_str(), nextfile);
         fs = fdb_compact_file(fhandle, nextfile, in_place_compaction,
                               (bid_t)marker, clone_docs, new_encryption_key);
         // clear compaction flag
@@ -7117,7 +7114,7 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
             }
 
             strcpy(vfilename, handle->filename.c_str());
-            strcpy(filename, handle->file->fileName);
+            strcpy(filename, handle->file->fileName.c_str());
             fs = _fdb_close(handle);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
@@ -7136,8 +7133,8 @@ fdb_status fdb_switch_compaction_mode(fdb_file_handle *fhandle,
             }
         } else if (handle->config.compaction_mode == FDB_COMPACTION_MANUAL) {
             // 1. rename [filename] as [filename].rev_num
-            strcpy(vfilename, handle->file->fileName);
-            compactor_get_next_filename(handle->file->fileName, filename);
+            strcpy(vfilename, handle->file->fileName.c_str());
+            compactor_get_next_filename(handle->file->fileName.c_str(), filename);
             fs = _fdb_close(handle);
             if (fs != FDB_RESULT_SUCCESS) {
                 return fs;
@@ -7333,7 +7330,7 @@ fdb_status fdb_destroy(const char *fname,
     // Destroy file whose name is exactly matched.
     // In auto compaction mode, exact matching file name will not exist in
     // file system, so we allow failure returned by this function.
-    status = FileMgr::destroyFile(filename, &fconfig, NULL);
+    status = FileMgr::destroyFile(std::string(filename), &fconfig, NULL);
     if (status != FDB_RESULT_SUCCESS &&
         config.compaction_mode != FDB_COMPACTION_AUTO) {
         FileMgr::mutexOpenunlock();
@@ -7537,7 +7534,7 @@ fdb_status fdb_get_file_info(fdb_file_handle *fhandle, fdb_file_info *info)
         // compaction daemon mode
         info->filename = handle->filename.c_str();
     } else {
-        info->filename = handle->file->fileName;
+        info->filename = handle->file->fileName.c_str();
     }
 
     if (handle->shandle) {
@@ -7931,7 +7928,7 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
     fprintf(stderr, "seqtrie: root_bid %" _F64 "\n", h->seqtrie->getRootBid());
 
-    fprintf(stderr, "file: fileName %s\n", h->file->fileName);
+    fprintf(stderr, "file: fileName %s\n", h->file->fileName.c_str());
     fprintf(stderr, "file: refCount %d\n", h->file->refCount.load());
     fprintf(stderr, "file: fMgrFlags %x\n", h->file->fMgrFlags);
     fprintf(stderr, "file: blockSize %d\n", h->file->blockSize);
@@ -7951,7 +7948,8 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "file: config: num_bcache_shards %d\n",
             h->file->fileConfig->getNumBcacheShards());
     fprintf(stderr, "file: newFile %p\n", (void *)h->file->newFile);
-    fprintf(stderr, "file: oldFileName %p\n", (void *)h->file->oldFileName);
+    fprintf(stderr, "file: prevFile %p\n", (void *)h->file->prevFile);
+    fprintf(stderr, "file: oldFileName %p\n", (void *)h->file->oldFileName.c_str());
     fprintf(stderr, "file: FileBlockCache: bcache %p\n",
             (void *)h->file->bCache);
     fprintf(stderr, "file: globalTxn: handle %p\n",
@@ -7967,7 +7965,7 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
 
     fprintf(stderr, "docio_handle: %p\n", (void*)h->dhandle);
     fprintf(stderr, "dhandle: file: filename %s\n",
-            h->dhandle->getFile()->fileName);
+            h->dhandle->getFile()->fileName.c_str());
     fprintf(stderr, "dhandle: curblock %" _F64 "\n", h->dhandle->getCurBlock());
     fprintf(stderr, "dhandle: curpos %d\n", h->dhandle->getCurPos());
     fprintf(stderr, "dhandle: cur_bmp_revnum_hash %d\n", h->dhandle->getCurBmpRevnumHash());
@@ -7981,7 +7979,7 @@ void _fdb_dump_handle(FdbKvsHandle *h) {
     fprintf(stderr, "bhandle: nodesize %d\n", h->bhandle->getNodeSize());
     fprintf(stderr, "bhandle: nnodeperblock %d\n", h->bhandle->getNNodePerBlock());
     fprintf(stderr, "bhandle: nlivenodes %" _F64 "\n", h->bhandle->getNLiveNodes());
-    fprintf(stderr, "bhandle: file %s\n", h->bhandle->getFile()->fileName);
+    fprintf(stderr, "bhandle: file %s\n", h->bhandle->getFile()->fileName.c_str());
     fprintf(stderr, "bhandle: nsb %d\n", h->bhandle->getNSubblocks());
 
     fprintf(stderr, "multi_kv_instances: %d\n", h->config.multi_kv_instances);

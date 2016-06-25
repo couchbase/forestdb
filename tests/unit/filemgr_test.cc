@@ -35,15 +35,17 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     const char *dbheader2 = "dbheader2222222222";
     char buf[256];
 
-    filemgr_open_result result = FileMgr::open((char *) "./filemgr_testfile",
-                                              get_filemgr_ops(), &config, NULL);
-    result = FileMgr::open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
+    std::string fname("./filemgr_testfile");
+    filemgr_open_result result = FileMgr::open(fname,
+                                               get_filemgr_ops(),
+                                               &config, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     file->updateHeader((void*)dbheader, strlen(dbheader)+1, true);
 
     FileMgr::close(file, true, NULL, NULL);
-    result = FileMgr::open((char *) "./filemgr_testfile", get_filemgr_ops(), &config, NULL);
+    result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
     memcpy(buf, file->fMgrHeader.data, file->fMgrHeader.size);

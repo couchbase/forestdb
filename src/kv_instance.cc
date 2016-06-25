@@ -853,7 +853,7 @@ void fdb_kvs_header_read(KvsHeader *kv_header,
         fdb_log(dhandle->getLogCallback(), (fdb_status) offset,
                 "Failed to read a KV header with the offset %" _F64 " from a "
                 "database file '%s'", kv_info_offset,
-                dhandle->getFile()->fileName);
+                dhandle->getFile()->fileName.c_str());
         return;
     }
 
@@ -1377,7 +1377,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
             }
 
             handle->fhandle = fhandle;
-            fs = _fdb_open(handle, root_handle->file->fileName, FDB_AFILENAME, &config);
+            fs = _fdb_open(handle, root_handle->file->fileName.c_str(), FDB_AFILENAME, &config);
             if (fs != FDB_RESULT_SUCCESS) {
                 delete handle;
                 *ptr_handle = NULL;
@@ -1424,7 +1424,7 @@ fdb_status fdb_kvs_open(fdb_file_handle *fhandle,
     handle->handle_busy = 0;
     handle->fhandle = fhandle;
     fs = _fdb_kvs_open(root_handle, &config, &config_local,
-                       root_handle->file, root_handle->file->fileName, kvs_name, handle);
+                       root_handle->file, root_handle->file->fileName.c_str(), kvs_name, handle);
     if (fs == FDB_RESULT_SUCCESS) {
         *ptr_handle = handle;
     } else {
@@ -1761,7 +1761,7 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                        FDB_RESULT_RONLY_VIOLATION,
                        "Warning: Rollback is not allowed on "
                        "the read-only DB file '%s'.",
-                       handle_in->file->fileName);
+                       handle_in->file->fileName.c_str());
     }
 
     handle_in->file->mutexLock();
@@ -1823,11 +1823,11 @@ fdb_status fdb_kvs_rollback(FdbKvsHandle **handle_ptr, fdb_seqnum_t seqnum)
                            &config,
                            &kvs_config,
                            handle_in->file,
-                           handle_in->file->fileName,
+                           handle_in->file->fileName.c_str(),
                            kvs_name,
                            handle);
     } else {
-        fs = _fdb_open(handle, handle_in->file->fileName,
+        fs = _fdb_open(handle, handle_in->file->fileName.c_str(),
                        FDB_AFILENAME, &config);
     }
     handle_in->file->setRollback(0); // allow mutations

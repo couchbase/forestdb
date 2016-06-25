@@ -200,7 +200,7 @@ bool compactor_is_file_removed(const char *filename)
 }
 
 // return the location of '.'
-INLINE int _compactor_prefix_len(char *filename)
+INLINE int _compactor_prefix_len(const char *filename)
 {
     int i;
     int file_len = strlen(filename);
@@ -216,7 +216,7 @@ INLINE int _compactor_prefix_len(char *filename)
 }
 
 // return the the location of '/' or '\'
-INLINE int _compactor_dir_len(char *filename)
+INLINE int _compactor_dir_len(const char *filename)
 {
     int i;
     int file_len = strlen(filename);
@@ -232,7 +232,7 @@ INLINE int _compactor_dir_len(char *filename)
 }
 
 // copy from 'foo/bar.baz' to 'bar.baz'
-static void _strcpy_fname(char *dst, char *src)
+static void _strcpy_fname(char *dst, const char *src)
 {
     int dir_len = _compactor_dir_len(src);
     strcpy(dst, src + dir_len);
@@ -259,7 +259,7 @@ static void _reconstruct_path(char *dst, char *path, char *fname)
     strcat(dst + strlen(dst), fname);
 }
 
-static void _compactor_get_vfilename(char *filename, char *vfilename)
+static void _compactor_get_vfilename(const char *filename, char *vfilename)
 {
     int prefix_len = _compactor_prefix_len(filename);
 
@@ -269,7 +269,8 @@ static void _compactor_get_vfilename(char *filename, char *vfilename)
     }
 }
 
-static void _compactor_convert_dbfile_to_metafile(char *dbfile, char *metafile)
+static void _compactor_convert_dbfile_to_metafile(const char *dbfile,
+                                                  char *metafile)
 {
     int prefix_len = _compactor_prefix_len(dbfile);
 
@@ -280,7 +281,7 @@ static void _compactor_convert_dbfile_to_metafile(char *dbfile, char *metafile)
     }
 }
 
-static bool _allDigit(char *str) {
+static bool _allDigit(const char *str) {
     int numchar = strlen(str);
     for(int i = 0; i < numchar; ++i) {
         if (str[i] < '0' || str[i] > '9') {
@@ -290,7 +291,7 @@ static bool _allDigit(char *str) {
     return true;
 }
 
-void compactor_get_next_filename(char *file, char *nextfile)
+void compactor_get_next_filename(const char *file, char *nextfile)
 {
     int compaction_no = 0;
     int prefix_len = _compactor_prefix_len(file);
@@ -318,7 +319,7 @@ bool compactor_switch_compaction_flag(FileMgr *file, bool flag)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->fileName);
+    strcpy(query.filename, file->fileName.c_str());
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -431,7 +432,7 @@ void * compactor_thread(void *voidargs)
                 ret = elem->file->fMgrOps->close(elem->file->fd);
 #if defined(WIN32) || defined(_WIN32)
                 // For Windows, we need to manually remove the file.
-                ret = remove(elem->file->fileName);
+                ret = remove(elem->file->fileName.c_str());
 #endif
                 elem->file->removeAllBufferBlocks();
                 mutex_lock(&cpt_lock);
@@ -444,7 +445,7 @@ void * compactor_thread(void *voidargs)
                     fprintf(stderr,
                             "Error status code: %d, Error in REMOVE on a "
                             "database file '%s', %s",
-                            ret, elem->file->fileName, errno_msg);
+                            ret, elem->file->fileName.c_str(), errno_msg);
                 }
 
                 // free filemgr structure
@@ -554,7 +555,7 @@ void compactor_shutdown()
 
         if (_compactor_check_file_removal(elem)) {
             // remove file if removal is pended.
-            remove(elem->file->fileName);
+            remove(elem->file->fileName.c_str());
             FileMgr::freeFunc(&elem->file->hashElem);
         }
 
@@ -592,7 +593,7 @@ fdb_status compactor_register_file(FileMgr *file,
         return fs;
     }
 
-    strcpy(query.filename, file->fileName);
+    strcpy(query.filename, file->fileName.c_str());
     // first search the existing file
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
@@ -603,7 +604,7 @@ fdb_status compactor_register_file(FileMgr *file,
         struct compactor_meta meta;
 
         elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
-        strcpy(elem->filename, file->fileName);
+        strcpy(elem->filename, file->fileName.c_str());
         elem->file = file;
         elem->config = *config;
         elem->config.cleanup_cache_onclose = false; // prevent MB-16422
@@ -622,8 +623,8 @@ fdb_status compactor_register_file(FileMgr *file,
                                  // counter below.
 
         // store in metafile
-        _compactor_convert_dbfile_to_metafile(file->fileName, path);
-        _strcpy_fname(meta.filename, file->fileName);
+        _compactor_convert_dbfile_to_metafile(file->fileName.c_str(), path);
+        _strcpy_fname(meta.filename, file->fileName.c_str());
         fs = _compactor_store_metafile(path, &meta, log_callback);
     } else {
         // already exists
@@ -642,7 +643,7 @@ void compactor_deregister_file(FileMgr *file)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->fileName);
+    strcpy(query.filename, file->fileName.c_str());
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -674,7 +675,7 @@ fdb_status compactor_register_file_removing(FileMgr *file,
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->fileName);
+    strcpy(query.filename, file->fileName.c_str());
     // first search the existing file
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
@@ -682,7 +683,7 @@ fdb_status compactor_register_file_removing(FileMgr *file,
         // doesn't exist
         // create a fake & temporary element for the file to be removed.
         elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
-        strcpy(elem->filename, file->fileName);
+        strcpy(elem->filename, file->fileName.c_str());
 
         // set flag
         file->fMgrFlags |= FILEMGR_REMOVAL_IN_PROG;
@@ -720,7 +721,7 @@ void compactor_change_threshold(FileMgr *file, size_t new_threshold)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->fileName);
+    strcpy(query.filename, file->fileName.c_str());
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -737,7 +738,7 @@ fdb_status compactor_set_compaction_interval(FileMgr *file,
     struct openfiles_elem query, *elem;
     fdb_status result = FDB_RESULT_SUCCESS;
 
-    strcpy(query.filename, file->fileName);
+    strcpy(query.filename, file->fileName.c_str());
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -877,7 +878,7 @@ void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
     struct openfiles_elem query, *elem;
     struct compactor_meta meta;
 
-    strcpy(query.filename, old_file->fileName);
+    strcpy(query.filename, old_file->fileName.c_str());
     mutex_lock(&cpt_lock);
     a = avl_search(&openfiles, &query.avl, _compactor_cmp);
     if (a) {
@@ -886,7 +887,7 @@ void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
 
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openfiles, a);
-        strcpy(elem->filename, new_file->fileName);
+        strcpy(elem->filename, new_file->fileName.c_str());
         elem->file = new_file;
         elem->register_count = 1;
         elem->daemon_compact_in_progress = false;
@@ -902,8 +903,8 @@ void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
                                  // the same file.
 
         if (comp_mode == FDB_COMPACTION_AUTO) {
-            _compactor_convert_dbfile_to_metafile(new_file->fileName, metafile);
-            _strcpy_fname(meta.filename, new_file->fileName);
+            _compactor_convert_dbfile_to_metafile(new_file->fileName.c_str(), metafile);
+            _strcpy_fname(meta.filename, new_file->fileName.c_str());
             _compactor_store_metafile(metafile, &meta, log_callback);
         }
     } else {
@@ -914,7 +915,7 @@ void compactor_switch_file(FileMgr *old_file, FileMgr *new_file,
 void compactor_get_virtual_filename(const char *filename,
                                     char *virtual_filename)
 {
-    int prefix_len = _compactor_prefix_len((char*)filename) - 1;
+    int prefix_len = _compactor_prefix_len(filename) - 1;
     if (prefix_len > 0) {
         strncpy(virtual_filename, filename, prefix_len);
         virtual_filename[prefix_len] = 0;

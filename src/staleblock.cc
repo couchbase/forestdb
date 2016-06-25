@@ -74,7 +74,7 @@ void StaleDataManager::addInmemStaleInfo(filemgr_header_revnum_t revnum,
                     "Compression error from a database file '%s'"
                     ": return value %d, header revnum %" _F64 ", "
                     "doc offset %" _F64 "\n",
-                    file->fileName, ret, revnum, doc_offset);
+                    file->fileName.c_str(), ret, revnum, doc_offset);
                 if (cur == staleInfoTree.end()) {
                     // 'item' is allocated in this function call.
                     staleInfoTree.erase(item->revnum);
@@ -152,7 +152,7 @@ void StaleDataManager::loadInmemStaleInfo(FdbKvsHandle *handle)
                     "Error in reading a stale region info document "
                     "from a database file '%s'"
                     ": revnum %" _F64 ", offset %" _F64 "\n",
-                    file->fileName, revnum, offset);
+                    file->fileName.c_str(), revnum, offset);
                 offset = BLK_NOT_FOUND;
                 continue;
             }
@@ -634,7 +634,8 @@ reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
                                 "Uncompression error from a database file '%s'"
                                 ": return value %d, header revnum %" _F64 ", "
                                 "doc offset %" _F64 "\n",
-                                handle->file->fileName, r, revnum, entry->offset);
+                                handle->file->fileName.c_str(), r, revnum,
+                                entry->offset);
                             free(uncomp_buf);
                             free(revnum_array);
 

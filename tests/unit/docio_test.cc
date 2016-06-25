@@ -52,7 +52,7 @@ void basic_test()
     FileMgrConfig config(blocksize, 1024, 0, 0, FILEMGR_CREATE,
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
-    char *fname = (char *) "./docio_testfile";
+    std::string fname("./docio_testfile");
 
     doc.key = (void*)keybuf;
     doc.meta = (void*)metabuf;

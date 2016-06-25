@@ -65,7 +65,7 @@ void basic_test()
 
     int i, r;
     uint64_t k,v;
-    char *fname = (char *) "./btreeblock_testfile";
+    std::string fname("./btreeblock_testfile");
 
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
@@ -146,7 +146,7 @@ void iterator_test()
     btree_result br;
     int i, r;
     uint64_t k,v;
-    char *fname = (char *) "./btreeblock_testfile";
+    std::string fname("./btreeblock_testfile");
 
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
@@ -224,7 +224,7 @@ void two_btree_test()
                          FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                          0x00, 0, 0);
     uint64_t k,v;
-    char *fname = (char *) "./btreeblock_testfile";
+    std::string fname("./btreeblock_testfile");
     int r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
 
@@ -272,7 +272,7 @@ void range_test()
                           FDB_SEQTREE_NOT_USE, 0, 8, 0, FDB_ENCRYPTION_NONE,
                           0x00, 0, 0);
     uint64_t key, value, key_end;
-    char *fname = (char *) "./btreeblock_testfile";
+    std::string fname("./btreeblock_testfile");
 
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;
@@ -333,7 +333,7 @@ void subblock_test()
     int i, j, k, r, nbtrees;
     int nodesize;
     int blocksize = 4096;
-    char *fname = (char *) "./btreeblock_testfile";
+    std::string fname("./btreeblock_testfile");
     char keybuf[256], valuebuf[256], temp[256];
     filemgr_open_result result;
     btree_result br;
@@ -623,7 +623,7 @@ void btree_reverse_iterator_test()
     filemgr_open_result fr;
     uint64_t i;
     uint64_t k,v;
-    char *fname = (char *) "./btreeblock_testfile";
+    std::string fname("./btreeblock_testfile");
 
     r = system(SHELL_DEL" btreeblock_testfile");
     (void)r;

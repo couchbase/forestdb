@@ -43,7 +43,7 @@ void basic_test()
                          0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
     int i;
     uint8_t buf[4096];
-    char *fname = (char *) "./bcache_testfile";
+    std::string fname("./bcache_testfile");
 
     filemgr_open_result result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
@@ -85,7 +85,7 @@ void basic_test2()
                          0, 8, 0, FDB_ENCRYPTION_NONE, 0x00, 0, 0);
     int i;
     uint8_t buf[4096];
-    char *fname = (char *) "./bcache_testfile";
+    std::string fname("./bcache_testfile");
     int r;
     r = system(SHELL_DEL " bcache_testfile");
     (void)r;
@@ -197,7 +197,7 @@ void multi_thread_test(int nblocks, int cachesize,
     uint32_t crc;
     uint8_t *buf;
     int r;
-    char *fname = (char *) "./bcache_testfile";
+    std::string fname("./bcache_testfile");
     thread_t *tid = alca(thread_t, n);
     struct worker_args *args = alca(struct worker_args, n);
     void **ret = alca(void *, n);

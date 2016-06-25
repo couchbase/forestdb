@@ -95,8 +95,9 @@ void basic_test()
     doc.meta = (void*)metabuf;
     doc.body = (void*)bodybuf;
 
-    filemgr_open_result result = FileMgr::open((char *) "./hbtrie_testfile",
-                                              get_filemgr_ops(), &config, NULL);
+    std::string fname("./hbtrie_testfile");
+    filemgr_open_result result = FileMgr::open(fname,
+                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle dhandle(file, false, NULL);
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -240,8 +241,9 @@ void skew_basic_test()
     rr = system(SHELL_DEL " hbtrie_testfile");
     (void)rr;
 
-    filemgr_open_result result = FileMgr::open((char*)"./hbtrie_testfile",
-                                              get_filemgr_ops(), &config, NULL);
+    std::string fname("./hbtrie_testfile");
+    filemgr_open_result result = FileMgr::open(fname,
+                                               get_filemgr_ops(), &config, NULL);
     file = result.file;
     DocioHandle dhandle(file, false, NULL);
     bhandle = new BTreeBlkHandle(file, blocksize);
@@ -403,7 +405,7 @@ void hbtrie_reverse_iterator_test()
 
     hbtrie_result hr;
     filemgr_open_result fr;
-    char *fname = (char *) "./hbtrie_testfile";
+    std::string fname("./hbtrie_testfile");
 
     r = system(SHELL_DEL" hbtrie_testfile");
     (void)r;
@@ -559,7 +561,7 @@ void hbtrie_partial_update_test()
 
     hbtrie_result hr;
     filemgr_open_result fr;
-    char *fname = (char *) "./hbtrie_testfile";
+    std::string fname("./hbtrie_testfile");
 
     memleak_start();
 

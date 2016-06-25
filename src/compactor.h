@@ -52,7 +52,7 @@ fdb_status compactor_get_actual_filename(const char *filename,
                                          char *actual_filename,
                                          fdb_compaction_mode_t comp_mode,
                                          ErrLogCallback *log_callback);
-void compactor_get_next_filename(char *file, char *nextfile);
+void compactor_get_next_filename(const char *file, char *nextfile);
 bool compactor_is_valid_mode(const char *filename, fdb_config *config);
 
 fdb_status compactor_destroy_file(char *filename,
