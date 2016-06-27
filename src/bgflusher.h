@@ -15,32 +15,55 @@
  *   limitations under the License.
  */
 
-#ifndef _FDB_BGFLUSHER_H
-#define _FDB_BGFLUSHER_H
+#pragma once
 
+#include <atomic>
+#include <mutex>
 #include <time.h>
 
 #include "internal_types.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 struct bgflusher_config{
     size_t num_threads;
 };
 
-void bgflusher_init(struct bgflusher_config *config);
-void bgflusher_shutdown();
-fdb_status bgflusher_register_file(FileMgr *file,
-                                   fdb_config *config,
-                                   ErrLogCallback *log_callback);
-void bgflusher_switch_file(FileMgr *old_file, FileMgr *new_file,
-                           ErrLogCallback *log_callback);
-void bgflusher_deregister_file(FileMgr *file);
+// Singleton Instance of Background Flusher
+class BgFlusher {
+public:
+    static BgFlusher *getBgfInstance();
+    static BgFlusher *createBgFlusher(struct bgflusher_config *config);
+    static void destroyBgFlusher();
 
-#ifdef __cplusplus
-}
-#endif
+    fdb_status registerFile_BgFlusher(FileMgr *file,
+                                      fdb_config *config,
+                                      ErrLogCallback *log_callback);
+    void switchFile_BgFlusher(FileMgr *old_file,
+                              FileMgr *new_file,
+                              ErrLogCallback *log_callback);
+    void deregisterFile_BgFlusher(FileMgr *file);
 
-#endif // _FDB_BGFLUSHER_H
+private:
+    BgFlusher(size_t num_threads);
+    ~BgFlusher();
+
+    friend void *bgflusher_thread(void *voidargs);
+
+    void * bgflusherThread();
+
+    static std::atomic<BgFlusher *> bgflusherInstance;
+    static std::mutex bgfLock;
+
+    size_t numBgFlusherThreads;
+    thread_t *bgflusherThreadIds;
+
+    size_t bgFlusherSleepInSecs;
+
+    mutex_t syncMutex;
+    thread_cond_t syncCond;
+
+    std::atomic<uint8_t> bgflusherTerminateSignal;
+
+    struct avl_tree openFiles;
+
+    DISALLOW_COPY_AND_ASSIGN(BgFlusher);
+};

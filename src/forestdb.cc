@@ -728,7 +728,7 @@ fdb_status fdb_init(fdb_config *config)
         // Temporarily disable background flushers until blockcache contention
         // issue is resolved.
         bgf_config.num_threads = 0; //_config.num_bgflusher_threads;
-        bgflusher_init(&bgf_config);
+        BgFlusher::createBgFlusher(&bgf_config);
 
         // Initialize breakpad
         _dbg_handle_crashes(config->breakpad_minidump_dir);
@@ -2267,9 +2267,12 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
                                                                     &handle->log_callback);
         }
         if (status == FDB_RESULT_SUCCESS) {
-            status = bgflusher_register_file(handle->file,
-                                             (fdb_config *)config,
-                                             &handle->log_callback);
+            BgFlusher *bgf = BgFlusher::getBgfInstance();
+            if (bgf) {
+                status = bgf->registerFile_BgFlusher(handle->file,
+                                                     (fdb_config *)config,
+                                                     &handle->log_callback);
+            }
         }
     }
     if (status != FDB_RESULT_SUCCESS) {
@@ -6955,8 +6958,11 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
             // any additional updates on it.
             // Also stop flushing blocks from old file in favor of new file
             if (!file_switched) {
-                bgflusher_switch_file(handle->file, new_file,
-                                      &handle->log_callback);
+                BgFlusher *bgf = BgFlusher::getBgfInstance();
+                if (bgf) {
+                    bgf->switchFile_BgFlusher(handle->file, new_file,
+                                              &handle->log_callback);
+                }
                 file_switched = true;
             }
             handle->file->mutexLock();
@@ -6990,8 +6996,11 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
 
             // failure in compaction means switch back to old file
             if (file_switched) {
-                bgflusher_switch_file(new_file, handle->file,
-                                      &handle->log_callback);
+                BgFlusher *bgf = BgFlusher::getBgfInstance();
+                if (bgf) {
+                    bgf->switchFile_BgFlusher(new_file, handle->file,
+                                              &handle->log_callback);
+                }
             }
 
             return fs;
@@ -7058,8 +7067,11 @@ fdb_status _fdb_compact_file(FdbKvsHandle *handle,
                                  new_dhandle, new_trie, new_seqtrie,
                                  new_seqtree, new_staletree);
         if (file_switched) {
-            bgflusher_switch_file(new_file, handle->file,
-                                  &handle->log_callback);
+            BgFlusher *bgf = BgFlusher::getBgfInstance();
+            if (bgf) {
+                bgf->switchFile_BgFlusher(new_file, handle->file,
+                                          &handle->log_callback);
+            }
         }
         return fs;
     }
@@ -7389,7 +7401,10 @@ fdb_status _fdb_close(FdbKvsHandle *handle)
             // read-only file is not registered in compactor
             CompactionManager::getInstance()->deregisterFile(handle->file);
         }
-        bgflusher_deregister_file(handle->file);
+        BgFlusher *bgf = BgFlusher::getBgfInstance();
+        if (bgf) {
+            bgf->deregisterFile_BgFlusher(handle->file);
+        }
     }
 
     handle->bhandle->flushBuffer();
@@ -7977,7 +7992,7 @@ fdb_status fdb_shutdown()
             return FDB_RESULT_FILE_IS_BUSY;
         }
         CompactionManager::destroyInstance();
-        bgflusher_shutdown();
+        BgFlusher::destroyBgFlusher();
         ret = FileMgr::shutdown();
         if (ret == FDB_RESULT_SUCCESS) {
 #ifdef _MEMPOOL
