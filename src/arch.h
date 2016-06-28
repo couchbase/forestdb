@@ -49,6 +49,52 @@
 #endif
 #endif
 
+#ifdef HAVE_JEMALLOC
+#ifdef WIN32
+/* jemalloc.h tries to include strings.h, but on win32
+   that is our own "hacked" version that provides stuff
+   we use elsewhere in the system. By including that
+   file you might end up having to link with the
+   platform lib which supplies a lot of the functions
+   forestdb also provides an implementation of (but
+   with a different linkage)
+*/
+#define STRINGS_H
+#endif
+
+/* string has some memory allocators of its own which MUST come first
+ in the include order to ensure that je_malloc can correctly override
+ the string malloc and free definitions too, otherwise we can have
+ asymmetrical operation resulting in crashes.
+ TODO: We plan to address this in a modularized way in the future.
+*/
+#include <string>
+#include <jemalloc/jemalloc.h>
+
+#ifdef WIN32
+#undef STRINGS_H
+#endif
+
+#undef malloc
+#undef calloc
+#undef realloc
+#undef free
+#undef posix_memalign
+#undef memalign
+#undef aligned_malloc
+#undef aligned_free
+
+#define malloc(size) je_malloc(size)
+#define calloc(nmemb, size) je_calloc(nmemb, size)
+#define realloc(ptr, size) je_realloc(ptr, size)
+#define free(addr) je_free(addr)
+#define posix_memalign(memptr, alignment, size) \
+	je_posix_memalign(memptr, alignment, size)
+#define memalign(alignment, size) je_memalign(alignment, size)
+#define aligned_malloc(size, align) je_aligned_malloc(size, align)
+#define aligned_free(addr) je_aligned_free(addr)
+#endif //HAVE_JEMALLOC
+
 #ifdef __APPLE__
     #include <inttypes.h>
     #include <alloca.h>
@@ -66,25 +112,6 @@
     #if TARGET_CPU_ARM
     #define _ALIGN_MEM_ACCESS
     #endif
-
-    #ifdef HAVE_JEMALLOC
-    // string has some memory allocators of its own which MUST come first
-    // in the include order to ensure that je_malloc can correctly override
-    // the string malloc and free definitions too, otherwise we can have
-    // asymmetrical operation resulting in crashes.
-    // TODO: We plan to address this in a modularized way in the future.
-    #include <string>
-    #include <jemalloc/jemalloc.h>
-    #define malloc(size) je_malloc(size)
-    #define calloc(nmemb, size) je_calloc(nmemb, size)
-    #define realloc(ptr, size) je_realloc(ptr, size)
-    #define free(addr) je_free(addr)
-    #define posix_memalign(memptr, alignment, size)\
-                           je_posix_memalign(memptr, alignment, size)
-    #define memalign(alignment, size) je_memalign(alignment, size)
-    #define aligned_malloc(size, align) je_aligned_malloc(size, align)
-    #define aligned_free(addr) je_aligned_free(addr)
-    #endif //HAVE_JEMALLOC
 
     #define malloc_align(addr, align, size) \
         {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
@@ -219,26 +246,6 @@
         (addr = memalign((align), (size)))
     #define free_align(addr) free(addr)
 
-
-    #ifdef HAVE_JEMALLOC
-    // string has some memory allocators of its own which MUST come first
-    // in the include order to ensure that je_malloc can correctly override
-    // the string malloc and free definitions too, otherwise we can have
-    // asymmetrical operation resulting in crashes.
-    // TODO: We plan to address this in a modularized way in the future.
-    #include <string>
-    #include <jemalloc/jemalloc.h>
-    #define malloc(size) je_malloc(size)
-    #define calloc(nmemb, size) je_calloc(nmemb, size)
-    #define realloc(ptr, size) je_realloc(ptr, size)
-    #define free(addr) je_free(addr)
-    #define posix_memalign(memptr, alignment, size)\
-                           je_posix_memalign(memptr, alignment, size)
-    #define memalign(alignment, size) je_memalign(alignment, size)
-    #define aligned_malloc(size, align) je_aligned_malloc(size, align)
-    #define aligned_free(addr) je_aligned_free(addr)
-    #endif //HAVE_JEMALLOC
-
     #ifndef spin_t
         // spinlock
         #include <pthread.h>
@@ -297,25 +304,6 @@
     #define _FUSEC "ld"
 
     #define _ARCH_O_DIRECT (O_DIRECT)
-
-    #ifdef HAVE_JEMALLOC
-    // string has some memory allocators of its own which MUST come first
-    // in the include order to ensure that je_malloc can correctly override
-    // the string malloc and free definitions too, otherwise we can have
-    // asymmetrical operation resulting in crashes.
-    // TODO: We plan to address this in a modularized way in the future.
-    #include <string>
-    #include <jemalloc/jemalloc.h>
-    #define malloc(size) je_malloc(size)
-    #define calloc(nmemb, size) je_calloc(nmemb, size)
-    #define realloc(ptr, size) je_realloc(ptr, size)
-    #define free(addr) je_free(addr)
-    #define posix_memalign(memptr, alignment, size)\
-                           je_posix_memalign(memptr, alignment, size)
-    #define memalign(alignment, size) je_memalign(alignment, size)
-    #define aligned_malloc(size, align) je_aligned_malloc(size, align)
-    #define aligned_free(addr) je_aligned_free(addr)
-    #endif //HAVE_JEMALLOC
 
     #define malloc_align(addr, align, size) \
         {int __ret__; __ret__=posix_memalign(&(addr), (align), (size));\
