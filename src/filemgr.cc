@@ -62,8 +62,10 @@ static spin_t initial_lock;
 static volatile uint8_t filemgr_initialized = 0;
 extern volatile uint8_t bgflusher_initialized;
 static FileMgrConfig global_config;
-static struct hash hash;
 static spin_t filemgr_openlock;
+
+std::mutex FileMgrMap::initGuard;
+std::atomic<FileMgrMap *> FileMgrMap::instance(nullptr);
 
 static const int MAX_STAT_UPDATE_RETRIES = 5;
 
@@ -189,22 +191,89 @@ static void _log_errno_str(struct filemgr_ops *ops,
     }
 }
 
-static uint32_t _file_hash(struct hash *hash, struct hash_elem *e)
-{
-    FileMgr *file = _get_entry(e, struct FileMgr, hashElem);
-    int len = file->fileName.length();
-
-    return get_checksum(
-            reinterpret_cast<const uint8_t*>(file->fileName.c_str()), len) &
-            ((unsigned)(NBUCKET-1));
+FileMgrMap* FileMgrMap::get(void) {
+    auto *tmp = instance.load();
+    if (tmp == nullptr) {
+        std::lock_guard<std::mutex> lock(initGuard);
+        tmp = instance.load();
+        if (tmp == nullptr) {
+            // Second check under lock - to ensure that an instance is not
+            // create twice by two threads if it were null.
+            tmp = new FileMgrMap();
+            instance.store(tmp);
+        }
+    }
+    return tmp;
 }
 
-static int _file_cmp(struct hash_elem *a, struct hash_elem *b)
-{
-    FileMgr *aa, *bb;
-    aa = _get_entry(a, struct FileMgr, hashElem);
-    bb = _get_entry(b, struct FileMgr, hashElem);
-    return strcmp(aa->fileName.c_str(), bb->fileName.c_str());
+void FileMgrMap::shutdown(void) {
+    std::lock_guard<std::mutex> lock(initGuard);
+    auto *tmp = instance.load();
+    if (tmp != nullptr) {
+        delete tmp;
+        instance = nullptr;
+    }
+}
+
+FileMgrMap::FileMgrMap() {
+    spin_init(&fileMapLock);
+}
+
+FileMgrMap::~FileMgrMap() {
+    spin_destroy(&fileMapLock);
+}
+
+void FileMgrMap::addEntry(const std::string filename, FileMgr *file) {
+    spin_lock(&fileMapLock);
+    fileMap[filename] = file;
+    spin_unlock(&fileMapLock);
+}
+
+void FileMgrMap::removeEntry(const std::string filename) {
+    spin_lock(&fileMapLock);
+    fileMap.erase(filename);
+    spin_unlock(&fileMapLock);
+}
+
+FileMgr* FileMgrMap::fetchEntry(const std::string filename) {
+    FileMgr *file;
+    spin_lock(&fileMapLock);
+    auto it = fileMap.find(filename);
+    if (it == fileMap.end()) {
+        file = nullptr;
+    } else {
+        file = it->second;
+    }
+    spin_unlock(&fileMapLock);
+    return file;
+}
+
+void* FileMgrMap::scan(filemgr_factory_scan_cb *scan_callback,
+                       void *ctx) {
+    // Make a copy of the unordered map within lock, this is done
+    // so that the callback can be invoked outside fileMapLock's
+    // context to avoid any potential lock inversions.
+    spin_lock(&fileMapLock);
+    std::unordered_map<std::string, FileMgr*> fileMapCopy = fileMap;
+    spin_unlock(&fileMapLock);
+
+    for (auto &it : fileMapCopy) {
+        void *ret = scan_callback(it.second/*FileMgr* */,
+                                  ctx);
+        if (ret) {
+            return ret;
+        }
+    }
+    return nullptr;
+}
+
+void FileMgrMap::freeEntries(filemgr_factory_free_cb free_callback) {
+    spin_lock(&fileMapLock);
+
+    for (auto &it : fileMap) {
+        free_callback(it.second/*FileMgr* */);
+    }
+    spin_unlock(&fileMapLock);
 }
 
 FileMgr::FileMgr()
@@ -221,7 +290,6 @@ FileMgr::FileMgr()
     fMgrHeader.bid = 0;
     fMgrHeader.op_stat.reset();
 
-    memset(&hashElem, 0, sizeof(struct hash_elem));
     memset(&globalTxn, 0, sizeof(fdb_txn));
 
 #ifdef _LATENCY_STATS
@@ -338,8 +406,6 @@ void FileMgr::init(FileMgrConfig *config)
             if (global_config.getNcacheBlock() > 0)
                 BlockCacheManager::init(global_config.getNcacheBlock(),
                                         global_config.getBlockSize());
-
-            hash_init(&hash, NBUCKET, _file_hash, _file_cmp);
 
             // initialize temp buffer
             list_init(&temp_buf);
@@ -842,19 +908,17 @@ static fdb_status _filemgr_load_sb(FileMgr *file,
     return status;
 }
 
-filemgr_open_result FileMgr::open(std::string filename, struct filemgr_ops *ops,
+filemgr_open_result FileMgr::open(std::string filename,
+                                  struct filemgr_ops *ops,
                                   FileMgrConfig *config,
                                   ErrLogCallback *log_callback)
 {
-    FileMgr *file = NULL;
-    FileMgr query;
-    struct hash_elem *e = NULL;
     bool create = config->getOptions() & FILEMGR_CREATE;
     bool fail_if_exists = config->getOptions() & FILEMGR_EXCL_CREATE;
     int file_flag = 0x0;
     int fd = -1;
     fdb_status status;
-    filemgr_open_result result = {NULL, FDB_RESULT_OPEN_FAIL};
+    filemgr_open_result result = {nullptr, FDB_RESULT_OPEN_FAIL};
 
     init(config);
 
@@ -866,19 +930,17 @@ filemgr_open_result FileMgr::open(std::string filename, struct filemgr_ops *ops,
     }
 
     // check whether file is already opened or not
-    query.fileName = filename;
     spin_lock(&filemgr_openlock);
-    e = hash_find(&hash, &query.hashElem);
+    FileMgr *file = FileMgrMap::get()->fetchEntry(filename);
 
-    if (e) {
+    if (file) {
         if (fail_if_exists) {
             spin_unlock(&filemgr_openlock);
             result.rv = FDB_RESULT_EEXIST;
             return result;
         }
-        // already opened (return existing structure)
-        file = _get_entry(e, struct FileMgr, hashElem);
 
+        // already opened (return existing structure)
         if ((++file->refCount) > 1 &&
             file->fMgrStatus.load() != FILE_CLOSED) {
             spin_unlock(&filemgr_openlock);
@@ -903,14 +965,12 @@ filemgr_open_result FileMgr::open(std::string filename, struct filemgr_ops *ops,
             if (file->fd < 0) {
                 if (file->fd == FDB_RESULT_NO_SUCH_FILE) {
                     // A database file was manually deleted by the user.
-                    // Clean up global hash table, WAL index, and buffer cache.
+                    // Clean up FileMgrMap's unordered map, WAL index, and buffer cache.
                     // Then, retry it with a create option below IFF it is not
                     // a read-only open attempt
-                    struct hash_elem *ret;
                     spin_unlock(&file->fMgrLock);
-                    ret = hash_remove(&hash, &file->hashElem);
-                    fdb_assert(ret, 0, 0);
-                    FileMgr::freeFunc(&file->hashElem);
+                    FileMgrMap::get()->removeEntry(file->fileName);
+                    FileMgr::freeFunc(file);
                     if (!create) {
                         _log_errno_str(ops, log_callback,
                                        FDB_RESULT_NO_SUCH_FILE, "OPEN",
@@ -1093,7 +1153,8 @@ filemgr_open_result FileMgr::open(std::string filename, struct filemgr_ops *ops,
     file->globalTxn.isolation = FDB_ISOLATION_READ_COMMITTED;
     file->fMgrWal->addTransaction_Wal(&file->globalTxn);
 
-    hash_insert(&hash, &file->hashElem);
+    FileMgrMap::get()->addEntry(filename, file);
+
     if (config->getPrefetchDuration() > 0) {
         filemgr_prefetch(file, config, log_callback);
     }
@@ -1549,14 +1610,13 @@ fdb_status FileMgr::close(FileMgr *file,
 
             // we can release lock becuase no one will open this file
             spin_unlock(&file->fMgrLock);
-            struct hash_elem *ret = hash_remove(&hash, &file->hashElem);
-            fdb_assert(ret, 0, 0);
+            FileMgrMap::get()->removeEntry(file->fileName);
 
             update_file_pointers(file);
             spin_unlock(&filemgr_openlock);
 
             if (foreground_deletion) {
-                FileMgr::freeFunc(&file->hashElem);
+                FileMgr::freeFunc(file);
             } else {
                 register_file_removal(file, log_callback);
             }
@@ -1568,23 +1628,14 @@ fdb_status FileMgr::close(FileMgr *file,
                 _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
                                file->fileName.c_str());
                 if (file->inPlaceCompaction && orig_file_name) {
-                    struct hash_elem *elem = NULL;
-                    FileMgr query;
                     uint32_t old_file_refcount = 0;
-
-                    query.fileName = orig_file_name;
-                    elem = hash_find(&hash, &query.hashElem);
-
+                    FileMgr *orig_file = FileMgrMap::get()->fetchEntry(
+                                                                orig_file_name);
                     if (!file->oldFileName.empty()) {
-                        struct hash_elem *elem_old = NULL;
-                        FileMgr query_old;
-                        FileMgr *old_file = NULL;
-
                         // get old file's ref count if exists
-                        query_old.fileName = file->oldFileName;
-                        elem_old = hash_find(&hash, &query_old.hashElem);
-                        if (elem_old) {
-                            old_file = _get_entry(elem_old, struct FileMgr, hashElem);
+                        FileMgr *old_file = FileMgrMap::get()->fetchEntry(
+                                                                file->oldFileName);
+                        if (old_file) {
                             old_file_refcount = old_file->refCount.load();
                         }
                     }
@@ -1592,7 +1643,7 @@ fdb_status FileMgr::close(FileMgr *file,
                     // If old file is opened by other handle, renaming should be
                     // postponed. It will be renamed later by the handle referring
                     // to the old file.
-                    if (!elem && old_file_refcount == 0 &&
+                    if (!orig_file && old_file_refcount == 0 &&
                         is_file_removed(orig_file_name)) {
                         // If background file removal is not done yet, we postpone
                         // file renaming at this time.
@@ -1608,14 +1659,13 @@ fdb_status FileMgr::close(FileMgr *file,
                     }
                 }
                 spin_unlock(&file->fMgrLock);
-                // Clean up global hash table, WAL index, and buffer cache.
-                struct hash_elem *ret = hash_remove(&hash, &file->hashElem);
-                fdb_assert(ret, file, 0);
+                // Clean up FileMgrMap's unordered map, WAL index, and buffer cache.
+                FileMgrMap::get()->removeEntry(file->fileName);
 
                 update_file_pointers(file);
                 spin_unlock(&filemgr_openlock);
 
-                FileMgr::freeFunc(&file->hashElem);
+                FileMgr::freeFunc(file);
                 return (fdb_status) rv;
             } else {
                 file->fMgrStatus.store(FILE_CLOSED);
@@ -1644,9 +1694,11 @@ void FileMgr::removeAllBufferBlocks() {
     }
 }
 
-void FileMgr::freeFunc(struct hash_elem *h)
+void FileMgr::freeFunc(FileMgr *file)
 {
-    FileMgr *file = _get_entry(h, struct FileMgr, hashElem);
+    if (!file) {
+        return;
+    }
 
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_RUNNING;
     if (file->prefetchStatus.compare_exchange_strong(cond, FILEMGR_PREFETCH_ABORT)) {
@@ -1710,29 +1762,25 @@ void FileMgr::removeFile(FileMgr *file,
         return;
     }
 
-    struct hash_elem *ret;
-
     if (file->refCount.load() > 0) {
         return;
     }
 
     // remove from global hash table
     spin_lock(&filemgr_openlock);
-    ret = hash_remove(&hash, &file->hashElem);
-    fdb_assert(ret, ret, NULL);
+    FileMgrMap::get()->removeEntry(file->fileName);
     spin_unlock(&filemgr_openlock);
 
     if (!lazy_file_deletion_enabled ||
         (file->newFile && file->newFile->inPlaceCompaction)) {
-        FileMgr::freeFunc(&file->hashElem);
+        FileMgr::freeFunc(file);
     } else {
         register_file_removal(file, log_callback);
     }
 }
 // LCOV_EXCL_STOP
 
-static void* _filemgr_is_closed(struct hash_elem *h, void *ctx) {
-    FileMgr *file = _get_entry(h, struct FileMgr, hashElem);
+static void* _filemgr_is_closed(FileMgr *file, void *ctx) {
     void *ret;
     spin_lock(&file->fMgrLock);
     if (file->refCount.load() != 0) {
@@ -1771,10 +1819,11 @@ fdb_status FileMgr::shutdown()
         }
 
         spin_lock(&filemgr_openlock);
-        open_file = hash_scan(&hash, _filemgr_is_closed, NULL);
+        open_file = FileMgrMap::get()->scan(_filemgr_is_closed, nullptr);
         spin_unlock(&filemgr_openlock);
         if (!open_file) {
-            hash_free_active(&hash, FileMgr::freeFunc);
+            FileMgrMap::get()->freeEntries(FileMgr::freeFunc);
+            FileMgrMap::shutdown();
             if (global_config.getNcacheBlock() > 0) {
                 BlockCacheManager::getInstance()->destroyInstance();
             }
@@ -2593,9 +2642,8 @@ KvsHeader* FileMgr::getKVHeader() {
 
 // Check if there is a file that still points to the old_file that is being
 // compacted away. If so open the file and return its pointer.
-static void *_filemgr_check_stale_link(struct hash_elem *h, void *ctx) {
+static void *_filemgr_check_stale_link(FileMgr *file, void *ctx) {
     FileMgr *cur_file = reinterpret_cast<FileMgr *>(ctx);
-    FileMgr *file = _get_entry(h, struct FileMgr, hashElem);
     spin_lock(&file->fMgrLock);
     if (file->fMgrStatus.load() == FILE_REMOVED_PENDING &&
         file->newFile == cur_file) {
@@ -2614,7 +2662,7 @@ FileMgr* FileMgr::searchStaleLinks() {
     FileMgr *very_old_file;
     spin_lock(&filemgr_openlock);
     very_old_file = reinterpret_cast<FileMgr *>(
-                    hash_scan(&hash, _filemgr_check_stale_link, this));
+                    FileMgrMap::get()->scan(_filemgr_check_stale_link, this));
     spin_unlock(&filemgr_openlock);
     return very_old_file;
 }
@@ -2695,64 +2743,54 @@ void FileMgr::removePending(FileMgr *old_file,
 // Note: filemgr_openlock should be held before calling this function.
 fdb_status FileMgr::destroyFile(std::string filename,
                                 FileMgrConfig *config,
-                                struct hash *destroy_file_set) {
-    struct hash to_destroy_files;
-    struct hash *destroy_set = (destroy_file_set ? destroy_file_set :
-                                                  &to_destroy_files);
-    FileMgr query;
-    struct hash_elem *e = NULL;
+                                std::unordered_set<std::string> *destroy_file_set) {
+    std::unordered_set<std::string> to_destroy_files;
+    std::unordered_set<std::string> *destroy_set = (destroy_file_set
+                                                        ? destroy_file_set
+                                                        : &to_destroy_files);
     fdb_status status = FDB_RESULT_SUCCESS;
     char *old_filename = NULL;
 
-    if (!destroy_file_set) { // top level or non-recursive call
-        hash_init(destroy_set, NBUCKET, _file_hash, _file_cmp);
-    }
-
-    query.fileName = filename;
     // check whether file is already being destroyed in parent recursive call
-    e = hash_find(destroy_set, &query.hashElem);
-    if (e) { // Duplicate filename found, nothing to be done in this call
-        if (!destroy_file_set) { // top level or non-recursive call
-            hash_free(destroy_set);
+    auto it = destroy_set->find(filename);
+    if (it != destroy_set->end()) {
+        // Duplicate filename found, nothing to be done in this call
+        if (!destroy_file_set) {
+            // top level or non-recursive call
+            destroy_set->clear();
         }
         return status;
     } else {
         // Remember file. Stack value ok IFF single direction recursion
-        hash_insert(destroy_set, &query.hashElem);
+        destroy_set->insert(filename);
     }
 
     // check global list of known files to see if it is already opened or not
-    e = hash_find(&hash, &query.hashElem);
-    if (e) {
-        FileMgr *file = NULL;
+    FileMgr *file = FileMgrMap::get()->fetchEntry(filename);
+    if (file) {
         // already opened (return existing structure)
-        file = _get_entry(e, struct FileMgr, hashElem);
-
         spin_lock(&file->fMgrLock);
         if (file->refCount.load()) {
             spin_unlock(&file->fMgrLock);
             status = FDB_RESULT_FILE_IS_BUSY;
             if (!destroy_file_set) { // top level or non-recursive call
-                hash_free(destroy_set);
+                destroy_set->clear();
             }
             return status;
         }
         spin_unlock(&file->fMgrLock);
         if (!file->oldFileName.empty()) {
-            status = destroyFile(file->oldFileName, config,
-                                 destroy_set);
+            status = destroyFile(file->oldFileName, config, destroy_set);
             if (status != FDB_RESULT_SUCCESS) {
                 if (!destroy_file_set) { // top level or non-recursive call
-                    hash_free(destroy_set);
+                    destroy_set->clear();
                 }
                 return status;
             }
         }
 
         // Cleanup file from in-memory as well as on-disk
-        e = hash_remove(&hash, &file->hashElem);
-        fdb_assert(e, e, 0);
-        FileMgr::freeFunc(&file->hashElem);
+        FileMgr::freeFunc(file);
         if (filemgr_does_file_exist(filename.c_str()) == FDB_RESULT_SUCCESS) {
             if (remove(filename.c_str())) {
                 status = FDB_RESULT_FILE_REMOVE_FAIL;
@@ -2772,7 +2810,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
         if (disk_file.fd < 0) {
             if (disk_file.fd != FDB_RESULT_NO_SUCH_FILE) {
                 if (!destroy_file_set) { // top level or non-recursive call
-                    hash_free(destroy_set);
+                    destroy_set->clear();
                 }
                 return (fdb_status) disk_file.fd;
             }
@@ -2780,7 +2818,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
             cs_off_t offset = disk_file.fMgrOps->goto_eof(disk_file.fd);
             if (offset < 0) {
                 if (!destroy_file_set) { // top level or non-recursive call
-                    hash_free(destroy_set);
+                    destroy_set->clear();
                 }
                 return (fdb_status) offset;
             } else { // Need to read DB header which contains old filename
@@ -2796,7 +2834,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                 status = _filemgr_load_sb(&disk_file, NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
-                        hash_free(destroy_set);
+                        destroy_set->clear();
                     }
                     disk_file.fMgrOps->close(disk_file.fd);
                     return status;
@@ -2805,7 +2843,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
                 status = _filemgr_read_header(&disk_file, NULL);
                 if (status != FDB_RESULT_SUCCESS) {
                     if (!destroy_file_set) { // top level or non-recursive call
-                        hash_free(destroy_set);
+                        destroy_set->clear();
                     }
                     disk_file.fMgrOps->close(disk_file.fd);
                     if (sb_ops.release && disk_file.fMgrSb) {
@@ -2853,7 +2891,7 @@ fdb_status FileMgr::destroyFile(std::string filename,
     }
 
     if (!destroy_file_set) { // top level or non-recursive call
-        hash_free(destroy_set);
+        destroy_set->clear();
     }
 
     return status;

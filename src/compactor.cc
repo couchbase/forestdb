@@ -449,7 +449,7 @@ void * compactor_thread(void *voidargs)
                 }
 
                 // free filemgr structure
-                FileMgr::freeFunc(&elem->file->hashElem);
+                FileMgr::freeFunc(elem->file);
                 // remove & free elem
                 a = avl_next(a);
                 avl_remove(&openfiles, &elem->avl);
@@ -556,7 +556,7 @@ void compactor_shutdown()
         if (_compactor_check_file_removal(elem)) {
             // remove file if removal is pended.
             remove(elem->file->fileName.c_str());
-            FileMgr::freeFunc(&elem->file->hashElem);
+            FileMgr::freeFunc(elem->file);
         }
 
         avl_remove(&openfiles, &elem->avl);

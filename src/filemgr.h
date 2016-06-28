@@ -43,7 +43,10 @@
 #include "staleblock.h"
 
 #include <atomic>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #define FILEMGR_SYNC 0x01
 #define FILEMGR_READONLY 0x02
@@ -287,6 +290,59 @@ struct filemgr_buffer {
     bid_t lastbid;
 };
 
+class FileMgr;
+
+/**
+ * Callback definitions for operations supported in FileMgrMap
+ */
+typedef void *filemgr_factory_scan_cb(FileMgr *file, void *ctx);
+typedef void filemgr_factory_free_cb(FileMgr *file);
+
+/**
+ * File Manager factory singleton class whose purpose is to maintain an
+ * unordered map of all the file manager instances.
+ */
+class FileMgrMap {
+public:
+    FileMgrMap();
+
+    ~FileMgrMap();
+
+    /* Adds a new entry to the map */
+    void addEntry(const std::string filename, FileMgr *file);
+
+    /* Removes the entry from the map */
+    void removeEntry(const std::string filename);
+
+    /* Looks up and fetches the entry from the map, nullptr if not found */
+    FileMgr* fetchEntry(const std::string filename);
+
+    /* Scans through all the entries of the map and invokes the callback
+       function for each, stops iteration and returns the first NON-NULL
+       entry obtained as return value from the callback invocation */
+    void* scan(filemgr_factory_scan_cb *scan_callback, void *ctx);
+
+    /* Iterates through all the entries of the map and invokes the
+       free callback function for each */
+    void freeEntries(filemgr_factory_free_cb iter_callback);
+
+    /* Returns a singleton instance for the class */
+    static FileMgrMap* get(void);
+
+    /* Destroys the singleton instance of the class */
+    static void shutdown(void);
+
+private:
+    // Lock to protech the unordered map
+    spin_t fileMapLock;
+    // Unordered map that maps filenames to FileMgr instances
+    std::unordered_map<std::string, FileMgr *> fileMap;
+
+    // Singleton creation
+    static std::mutex initGuard;
+    static std::atomic<FileMgrMap *> instance;
+};
+
 class FileMgrHeader {
 public:
     FileMgrHeader()
@@ -416,7 +472,6 @@ private:
 
     FileMgr *file;
 };
-
 
 class FileMgr {
 public:
@@ -655,7 +710,7 @@ public:
                                     FileMgrConfig *config,
                                     ErrLogCallback *log_callback);
 
-    static void freeFunc(struct hash_elem *h);
+    static void freeFunc(FileMgr *file);
 
     static fdb_status shutdown();
 
@@ -668,7 +723,7 @@ public:
 
     static fdb_status destroyFile(std::string filename,
                                   FileMgrConfig *config,
-                                  struct hash *destroy_set);
+                                  std::unordered_set<std::string> *destroy_set);
 
     static char* redirectOldFile(FileMgr *very_old_file,
                                  FileMgr *new_file,
@@ -862,7 +917,6 @@ public:
     Wal *fMgrWal;
     FileMgrHeader fMgrHeader;
     struct filemgr_ops *fMgrOps;
-    struct hash_elem hashElem;
     std::atomic<uint8_t> fMgrStatus;
     FileMgrConfig *fileConfig;
     FileMgr *newFile;                 // Pointer to new file upon compaction
