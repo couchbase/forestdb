@@ -225,7 +225,7 @@ int process_file(struct input_option *opt)
             return -2;
         }
         for (uint64_t i = 0; i < num_markers; ++i) {
-            printf("DB Header at bid %" _F64 ": with %ld kv stores\n",
+            printf("DB Header at bid %" _F64 ": with %" _F64 " kv stores\n",
                 markers[i].marker, markers[i].num_kvs_markers);
             for (int64_t j = 0; j < markers[i].num_kvs_markers; ++j) {
                 printf("\t KVS %s at seqnum %" _F64 "\n",
