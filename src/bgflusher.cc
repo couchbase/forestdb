@@ -111,18 +111,18 @@ static void * bgflusher_thread(void *voidargs)
             } else {
                 elem->background_flush_in_progress = true;
                 log_callback = elem->log_callback;
-                ffs = FileMgr::open(file->fileName, file->fMgrOps,
-                                    file->fileConfig, log_callback);
+                ffs = FileMgr::open(file->getFileName(), file->getOps(),
+                                    file->getConfig(), log_callback);
                 fs = (fdb_status)ffs.rv;
                 mutex_unlock(&bgf_lock);
                 if (fs == FDB_RESULT_SUCCESS) {
                     num_blocks += file->flushImmutable(log_callback);
-                    FileMgr::close(file, false, file->fileName.c_str(), log_callback);
+                    FileMgr::close(file, false, file->getFileName().c_str(), log_callback);
 
                 } else {
                     fdb_log(log_callback, fs,
                             "Failed to open the file '%s' for background flushing\n.",
-                            file->fileName.c_str());
+                            file->getFileName().c_str());
                 }
                 mutex_lock(&bgf_lock);
                 elem->background_flush_in_progress = false;
@@ -243,7 +243,7 @@ fdb_status bgflusher_register_file(FileMgr *file,
         return fs;
     }
 
-    strcpy(query.filename, file->fileName.c_str());
+    strcpy(query.filename, file->getFileName().c_str());
     // first search the existing file
     mutex_lock(&bgf_lock);
     a = avl_search(&openfiles, &query.avl, _bgflusher_cmp);
@@ -252,7 +252,7 @@ fdb_status bgflusher_register_file(FileMgr *file,
         // create elem and insert into tree
         elem = (struct openfiles_elem *)calloc(1, sizeof(struct openfiles_elem));
         elem->file = file;
-        strcpy(elem->filename, file->fileName.c_str());
+        strcpy(elem->filename, file->getFileName().c_str());
         elem->config = *config;
         elem->register_count = 1;
         elem->background_flush_in_progress = false;
@@ -277,13 +277,13 @@ void bgflusher_switch_file(FileMgr *old_file, FileMgr *new_file,
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, old_file->fileName.c_str());
+    strcpy(query.filename, old_file->getFileName().c_str());
     mutex_lock(&bgf_lock);
     a = avl_search(&openfiles, &query.avl, _bgflusher_cmp);
     if (a) {
         elem = _get_entry(a, struct openfiles_elem, avl);
         avl_remove(&openfiles, a);
-        strcpy(elem->filename, new_file->fileName.c_str());
+        strcpy(elem->filename, new_file->getFileName().c_str());
         elem->file = new_file;
         elem->register_count = 1;
         elem->background_flush_in_progress = false;
@@ -299,7 +299,7 @@ void bgflusher_deregister_file(FileMgr *file)
     struct avl_node *a = NULL;
     struct openfiles_elem query, *elem;
 
-    strcpy(query.filename, file->fileName.c_str());
+    strcpy(query.filename, file->getFileName().c_str());
     mutex_lock(&bgf_lock);
     a = avl_search(&openfiles, &query.avl, _bgflusher_cmp);
     if (a) {

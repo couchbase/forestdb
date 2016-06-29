@@ -86,7 +86,7 @@ BTreeBlkHandle::BTreeBlkHandle(FileMgr *_file, uint32_t _nodesize)
     uint32_t i;
     uint32_t _sub_nodesize;
 
-    nnodeperblock = _file->blockSize / _nodesize;
+    nnodeperblock = _file->getBlockSize() / _nodesize;
     nlivenodes = 0;
     ndeltanodes = 0;
     dirty_update = NULL;
@@ -202,7 +202,7 @@ void BTreeBlkHandle::getAlignedBlock(struct btreeblk_block *block)
                        mempool_alloc(sizeof(struct btreeblk_addr));
 #endif
 
-    malloc_align(block->addr, FDB_SECTOR_SIZE, file->blockSize);
+    malloc_align(block->addr, FDB_SECTOR_SIZE, file->getBlockSize());
 }
 
 void BTreeBlkHandle::freeAlignedBlock(struct btreeblk_block *block)
@@ -262,7 +262,7 @@ void * BTreeBlkHandle::_alloc(bid_t& bid, int sb_no)
 
     if (e) {
         block = _get_entry(e, struct btreeblk_block, le);
-        if (block->pos <= (file->blockSize) - (nodesize)) {
+        if (block->pos <= (file->getBlockSize()) - (nodesize)) {
             if (file->isWritable(block->bid)) {
                 curpos = block->pos;
                 block->pos += (nodesize);
@@ -292,7 +292,7 @@ void * BTreeBlkHandle::_alloc(bid_t& bid, int sb_no)
     // with garbage data so that it causes various unexpected behaviors.
     // To avoid this issue, populate block cache for the given BID before use it.
     uint8_t marker = BLK_MARKER_BNODE;
-    file->writeOffset(block->bid, file->blockSize - 1,
+    file->writeOffset(block->bid, file->getBlockSize() - 1,
                       1, &marker, false, log_callback);
 
 #ifdef __CRC32
@@ -508,7 +508,7 @@ void * BTreeBlkHandle::_read(bid_t bid, int sb_no)
     // if miss, read from file and add item into read list
     block = (struct btreeblk_block *)mempool_alloc(sizeof(struct btreeblk_block));
     block->sb_no = (subblock_mode)?(sb):(sb_no);
-    block->pos = file->blockSize;
+    block->pos = file->getBlockSize();
     block->bid = filebid;
     block->dirty = 0;
     block->age = 0;
@@ -1020,7 +1020,7 @@ fdb_status BTreeBlkHandle::_flushBuffer()
             return FDB_RESULT_WRITE_FAIL;
         }
 
-        if (block->pos + nodesize > file->blockSize || !writable) {
+        if (block->pos + nodesize > file->getBlockSize() || !writable) {
             // remove from alc_list and insert into read list
             e = list_remove(&alc_list, &block->le);
             block->dirty = 0;

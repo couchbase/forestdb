@@ -48,7 +48,7 @@ void basic_test(fdb_encryption_algorithm_t encryption)
     result = FileMgr::open(fname, get_filemgr_ops(), &config, NULL);
     file = result.file;
 
-    memcpy(buf, file->fMgrHeader.data, file->fMgrHeader.size);
+    memcpy(buf, file->accessHeader()->data, file->accessHeader()->size);
     printf("%s\n", buf);
 
     file->updateHeader((void*)dbheader2, strlen(dbheader2) + 1, true);

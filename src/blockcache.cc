@@ -391,7 +391,7 @@ fdb_status BlockCacheManager::flushDirtyBlocks(FileBlockCache *fcache,
     // Cross-shard dirty block list for sequential writes.
     std::map<bid_t, BlockCacheItem *> dirty_blocks;
 
-    if (fcache->getFileManager()->fileConfig->getFlag() & _ARCH_O_DIRECT) {
+    if (fcache->getFileManager()->getConfig()->getFlag() & _ARCH_O_DIRECT) {
         o_direct = true;
     }
 
@@ -546,7 +546,7 @@ fdb_status BlockCacheManager::flushDirtyBlocks(FileBlockCache *fcache,
                        0xff, BTREE_CRC_FIELD_LEN);
                 uint32_t crc = get_checksum(reinterpret_cast<const uint8_t*>(ptr),
                                             blockSize,
-                                            fcache->getFileManager()->crcMode);
+                                            fcache->getFileManager()->getCrcMode());
                 crc = _endian_encode(crc);
                 memcpy((uint8_t *)(ptr) + BTREE_CRC_OFFSET, &crc, sizeof(crc));
             }
@@ -750,13 +750,13 @@ FileBlockCache* BlockCacheManager::createFileBlockCache(FileMgr *file) {
     cleanUpInvalidFileBlockCaches();
 
     size_t num_shards;
-    if (file->fileConfig->getNumBcacheShards()) {
-        num_shards = file->fileConfig->getNumBcacheShards();
+    if (file->getConfig()->getNumBcacheShards()) {
+        num_shards = file->getConfig()->getNumBcacheShards();
     } else {
         num_shards = DEFAULT_NUM_BCACHE_PARTITIONS;
     }
 
-    std::string file_name(file->fileName);
+    std::string file_name(file->getFileName());
     FileBlockCache *fcache = new FileBlockCache(file_name, file, num_shards);
 
     // For random eviction among shards
@@ -764,7 +764,7 @@ FileBlockCache* BlockCacheManager::createFileBlockCache(FileMgr *file) {
 
     // insert into a file map
     fileMap.insert(std::make_pair(file_name, fcache));
-    file->bCache.store(fcache, std::memory_order_relaxed);
+    file->setBCache(fcache);
 
     if (writer_lock(&fileListLock) == 0) {
         fileList.push_back(fcache);
@@ -836,7 +836,7 @@ int BlockCacheManager::read(FileMgr *file,
     // Note that we don't need to grab bcacheLock here as the block cache
     // is already created and binded when the file is created or opened for
     // the first time.
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
 
     if (fcache) {
         // file exists
@@ -896,7 +896,7 @@ bool BlockCacheManager::invalidateBlock(FileMgr *file,
     // Note that we don't need to grab bcache_lock here as the block cache
     // is already created and binded when the file is created or opened for
     // the first time.
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
 
     if (fcache) {
         // file exists
@@ -958,10 +958,10 @@ int BlockCacheManager::write(FileMgr *file,
     BlockCacheItem *item;
     FileBlockCache *fcache;
 
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
     if (fcache == NULL) {
         spin_lock(&bcacheLock);
-        fcache = file->bCache.load(std::memory_order_relaxed);
+        fcache = file->getBCache();
         if (fcache == NULL) {
             // A file block cache doesn't exist in the block cache manager.
             // Create it.
@@ -1067,10 +1067,10 @@ int BlockCacheManager::writePartial(FileMgr *file,
     BlockCacheItem *item = NULL;
     FileBlockCache *fcache = NULL;
 
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
     if (fcache == NULL) {
         spin_lock(&bcacheLock);
-        fcache = file->bCache.load(std::memory_order_relaxed);
+        fcache = file->getBCache();
         if (fcache == NULL) {
             // A file block cache doesn't exist in the block cache manager.
             // Create it.
@@ -1151,7 +1151,7 @@ int BlockCacheManager::writePartial(FileMgr *file,
 fdb_status BlockCacheManager::flushImmutable(FileMgr *file) {
     FileBlockCache *fcache;
     fdb_status status = FDB_RESULT_SUCCESS;
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
 
     if (fcache) {
         status = flushDirtyBlocks(fcache, true, true, true);
@@ -1163,7 +1163,7 @@ fdb_status BlockCacheManager::flushImmutable(FileMgr *file) {
 // (they are only discarded and not written back)
 void BlockCacheManager::removeDirtyBlocks(FileMgr *file) {
     FileBlockCache *fcache;
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
 
     if (fcache) {
         // Note that this function is only invoked as part of database file close or
@@ -1181,7 +1181,7 @@ void BlockCacheManager::removeCleanBlocks(FileMgr *file) {
     BlockCacheItem *item;
     FileBlockCache *fcache;
 
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
 
     if (fcache) {
         // Note that this function is only invoked as part of database file close or
@@ -1216,7 +1216,7 @@ bool BlockCacheManager::removeFile(FileMgr *file) {
 
     // Before proceeding with deletion, garbage collect zombie file cache instances
     cleanUpInvalidFileBlockCaches();
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
 
     if (fcache) {
         // acquire lock
@@ -1231,7 +1231,7 @@ bool BlockCacheManager::removeFile(FileMgr *file) {
         }
 
         // remove from the file block cache map
-        fileMap.erase(std::string(file->fileName));
+        fileMap.erase(file->getFileName());
         spin_unlock(&bcacheLock);
 
         // We don't need to grab the file buffer cache's partition locks
@@ -1251,7 +1251,7 @@ fdb_status BlockCacheManager::flush(FileMgr *file) {
     FileBlockCache *fcache;
     fdb_status status = FDB_RESULT_SUCCESS;
 
-    fcache = file->bCache.load(std::memory_order_relaxed);
+    fcache = file->getBCache();
 
     if (fcache) {
         // Note that this function is invoked as part of a commit operation while
@@ -1365,7 +1365,7 @@ BlockCacheManager::~BlockCacheManager() {
 }
 
 uint64_t BlockCacheManager::getNumBlocks(FileMgr *file) {
-    FileBlockCache *fcache = file->bCache.load(std::memory_order_relaxed);
+    FileBlockCache *fcache = file->getBCache();
     if (fcache) {
         return fcache->getNumItems();
     }
@@ -1373,7 +1373,7 @@ uint64_t BlockCacheManager::getNumBlocks(FileMgr *file) {
 }
 
 uint64_t BlockCacheManager::getNumImmutables(FileMgr *file) {
-    FileBlockCache *fcache = file->bCache.load(std::memory_order_relaxed);
+    FileBlockCache *fcache = file->getBCache();
     if (fcache) {
         return fcache->getNumImmutables();
     }

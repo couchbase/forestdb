@@ -168,25 +168,25 @@ bool FdbFileHandle::activateRootHandle(const char *kvs_name, fdb_kvs_config &con
         fdb_custom_cmp_variable default_kvs_cmp;
         root->kvs_config = config;
 
-        if (root->file->kvHeader) {
+        if (root->file->getKVHeader_UNLOCKED()) {
             // search fhandle's custom cmp func list first
             default_kvs_cmp = getCmpFunctionByName((char *) kvs_name);
 
-            spin_lock(&root->file->kvHeader->lock);
-            root->file->kvHeader->default_kvs_cmp = default_kvs_cmp;
+            spin_lock(&root->file->getKVHeader_UNLOCKED()->lock);
+            root->file->getKVHeader_UNLOCKED()->default_kvs_cmp = default_kvs_cmp;
 
-            if (root->file->kvHeader->default_kvs_cmp == NULL &&
+            if (root->file->getKVHeader_UNLOCKED()->default_kvs_cmp == NULL &&
                 root->kvs_config.custom_cmp) {
                 // follow kvs_config's custom cmp next
-                root->file->kvHeader->default_kvs_cmp = root->kvs_config.custom_cmp;
+                root->file->getKVHeader_UNLOCKED()->default_kvs_cmp = root->kvs_config.custom_cmp;
                 addCmpFunction(NULL, root->kvs_config.custom_cmp);
             }
 
-            if (root->file->kvHeader->default_kvs_cmp) {
-                root->file->kvHeader->custom_cmp_enabled = 1;
+            if (root->file->getKVHeader_UNLOCKED()->default_kvs_cmp) {
+                root->file->getKVHeader_UNLOCKED()->custom_cmp_enabled = 1;
                 flags |= FHANDLE_ROOT_CUSTOM_CMP;
             }
-            spin_unlock(&root->file->kvHeader->lock);
+            spin_unlock(&root->file->getKVHeader_UNLOCKED()->lock);
         }
 
         flags |= FHANDLE_ROOT_INITIALIZED;

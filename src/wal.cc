@@ -186,15 +186,15 @@ Wal::Wal(FileMgr *_file, size_t nbucket)
     list_init(&txn_list);
     spin_init(&lock);
 
-    if (file->fileConfig->getNumWalShards()) {
-        num_shards = file->fileConfig->getNumWalShards();
+    if (file->getConfig()->getNumWalShards()) {
+        num_shards = file->getConfig()->getNumWalShards();
     } else {
         num_shards = DEFAULT_NUM_WAL_PARTITIONS;
     }
 
     key_shards = (wal_shard *)malloc(sizeof(struct wal_shard) * num_shards);
 
-    if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         seq_shards = (wal_shard *)
             malloc(sizeof(struct wal_shard) * num_shards);
     } else {
@@ -204,7 +204,7 @@ Wal::Wal(FileMgr *_file, size_t nbucket)
     for (int i = num_shards - 1; i >= 0; --i) {
         avl_init(&key_shards[i]._map, NULL);
         spin_init(&key_shards[i].lock);
-        if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             avl_init(&seq_shards[i]._map, NULL);
             spin_init(&seq_shards[i].lock);
         }
@@ -221,13 +221,13 @@ Wal::~Wal()
     // Free all WAL shards
     for (; i < num_shards; ++i) {
         spin_destroy(&key_shards[i].lock);
-        if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             spin_destroy(&seq_shards[i].lock);
         }
     }
     spin_destroy(&lock);
     free(key_shards);
-    if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         free(seq_shards);
     }
 }
@@ -325,7 +325,7 @@ inline fdb_status Wal::_wal_snapshot_init(struct snap_handle *shandle,
     shandle->snap_txn = txn;
     shandle->cmp_info = *key_cmp_info;
     shandle->ref_cnt_kvs++;
-    file->kvsStatOps.statGet(shandle->id, &shandle->stat);
+    file->getKvsStatOps()->statGet(shandle->id, &shandle->stat);
     if (seqnum == FDB_SNAPSHOT_INMEM) {
         shandle->seqnum = fdb_kvs_get_seqnum(file, shandle->id);
         shandle->is_persisted_snapshot = false;
@@ -337,7 +337,7 @@ inline fdb_status Wal::_wal_snapshot_init(struct snap_handle *shandle,
     }
     avl_init(&shandle->key_tree, &shandle->cmp_info);
     avl_init(&shandle->seq_tree, NULL);
-    shandle->global_txn = &file->globalTxn;
+    shandle->global_txn = file->getGlobalTxn();
     list_init(&shandle->active_txn_list);
     ee = list_begin(&txn_list);
     while (ee) {
@@ -346,7 +346,7 @@ inline fdb_status Wal::_wal_snapshot_init(struct snap_handle *shandle,
         txn_wrapper = _get_entry(ee, struct wal_txn_wrapper, le);
         active_txn = txn_wrapper->txn;
         // except for global_txn
-        if (active_txn != &file->globalTxn) {
+        if (active_txn != file->getGlobalTxn()) {
             txn_wrapper = (struct wal_txn_wrapper *)
                 calloc(1, sizeof(struct wal_txn_wrapper));
             txn_wrapper->txn = active_txn;
@@ -460,20 +460,20 @@ inline void Wal::_wal_update_stat(fdb_kvs_id_t kv_id,
 {
     switch (type) {
         case _WAL_NEW_DEL: // inserted deleted doc: ++wal_ndocs, ++wal_ndeletes
-            file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, 1);
+            file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, 1);
         case _WAL_NEW_SET: // inserted new doc: ++wal_ndocs
-            file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDOCS, 1);
+            file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDOCS, 1);
             break;
         case _WAL_SET_TO_DEL: // update prev doc to deleted: ++wal_ndeletes
-            file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, 1);
+            file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, 1);
             break;
         case _WAL_DEL_TO_SET: // update prev deleted doc to set: --wal_ndeletes
-            file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, -1);
+            file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, -1);
             break;
         case _WAL_DROP_DELETE: // drop deleted item: --wal_ndocs,--wal_ndeletes
-            file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, -1);
+            file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, -1);
         case _WAL_DROP_SET: // drop item: --wal_ndocs
-            file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDOCS, -1);
+            file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDOCS, -1);
             break;
     }
 }
@@ -498,8 +498,8 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
     fdb_kvs_id_t kv_id;
     LATENCY_STAT_START();
 
-    if (file->kvHeader) { // multi KV instance mode
-        buf2kvid(file->fileConfig->getChunkSize(), doc->key, &kv_id);
+    if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
+        buf2kvid(file->getConfig()->getChunkSize(), doc->key, &kv_id);
     } else {
         kv_id = 0;
     }
@@ -534,7 +534,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 item->shandle->snap_tag_idx == snap_tag) {
                 item->flag &= ~WAL_ITEM_FLUSH_READY;
 
-                if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                     // Re-index the item by new sequence number..
                     size_t seq_shard_num = item->seqnum % num_shards;
                     if (caller == WAL_INS_WRITER) {
@@ -572,7 +572,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 }
 
                 if (doc->deleted) {
-                    if (item->txn == &file->globalTxn &&
+                    if (item->txn == file->getGlobalTxn() &&
                         item->action == WAL_ACT_INSERT) {
                         _wal_update_stat(kv_id, _WAL_SET_TO_DEL);
                     }
@@ -591,7 +591,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                         doc_size_ondisk = 0;
                     }
                 } else {
-                    if (item->txn == &file->globalTxn &&
+                    if (item->txn == file->getGlobalTxn() &&
                         item->action != WAL_ACT_INSERT) {
                         _wal_update_stat(kv_id, _WAL_DEL_TO_SET);
                     }
@@ -617,18 +617,18 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
             // create new item
             item = (struct wal_item *)calloc(1, sizeof(struct wal_item));
 
-            if (file->kvHeader) { // multi KV instance mode
+            if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
                 item->flag |= WAL_ITEM_MULTI_KV_INS_MODE;
             }
             item->txn = txn;
-            if (txn == &file->globalTxn) {
+            if (txn == file->getGlobalTxn()) {
                 num_flushable++;
             }
             item->header = header;
             item->seqnum = doc->seqnum;
 
             if (doc->deleted) {
-                if (item->txn == &file->globalTxn) {
+                if (item->txn == file->getGlobalTxn()) {
                     _wal_update_stat(kv_id, _WAL_NEW_DEL);
                 }
                 if (offset != BLK_NOT_FOUND && !immediate_remove) {
@@ -645,7 +645,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                     }
                 }
             } else {
-                if (item->txn == &file->globalTxn) {
+                if (item->txn == file->getGlobalTxn()) {
                     _wal_update_stat(kv_id, _WAL_NEW_SET);
                 }
                 item->action = WAL_ACT_INSERT;
@@ -658,7 +658,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                                               std::memory_order_relaxed);
             }
 
-            if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+            if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                 size_t seq_shard_num = doc->seqnum % num_shards;
                 if (caller == WAL_INS_WRITER) {
                     spin_lock(&seq_shards[seq_shard_num].lock);
@@ -683,7 +683,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         // create new header and new item
         header = (struct wal_item_header*)malloc(sizeof(struct wal_item_header));
         list_init(&header->items);
-        header->chunksize = file->fileConfig->getChunkSize();
+        header->chunksize = file->getConfig()->getChunkSize();
         header->keylen = keylen;
         header->key = (void *)malloc(header->keylen);
         memcpy(header->key, key, header->keylen);
@@ -698,11 +698,11 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         } else {
             item->flag = 0x0;
         }
-        if (file->kvHeader) { // multi KV instance mode
+        if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
             item->flag |= WAL_ITEM_MULTI_KV_INS_MODE;
         }
         item->txn = txn;
-        if (txn == &file->globalTxn) {
+        if (txn == file->getGlobalTxn()) {
             num_flushable++;
         }
         item->header = header;
@@ -710,7 +710,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
         item->seqnum = doc->seqnum;
 
         if (doc->deleted) {
-            if (item->txn == &file->globalTxn) {
+            if (item->txn == file->getGlobalTxn()) {
                 _wal_update_stat(kv_id, _WAL_NEW_DEL);
             }
             if (offset != BLK_NOT_FOUND && !immediate_remove) {// purge interval not met yet
@@ -726,7 +726,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                 }
             }
         } else {
-            if (item->txn == &file->globalTxn) {
+            if (item->txn == file->getGlobalTxn()) {
                 _wal_update_stat(kv_id, _WAL_NEW_SET);
             }
             item->action = WAL_ACT_INSERT;
@@ -739,7 +739,7 @@ inline fdb_status Wal::_insert_Wal(fdb_txn *txn,
                                std::memory_order_relaxed);
         }
 
-        if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             size_t seq_shard_num = doc->seqnum % num_shards;
             if (caller == WAL_INS_WRITER) {
                 spin_lock(&seq_shards[seq_shard_num].lock);
@@ -971,15 +971,15 @@ fdb_status Wal::_find_Wal(fdb_txn *txn,
         }
         spin_unlock(&key_shards[shard_num].lock);
     } else {
-        if (file->fileConfig->getSeqtreeOpt() != FDB_SEQTREE_USE) {
+        if (file->getConfig()->getSeqtreeOpt() != FDB_SEQTREE_USE) {
             return FDB_RESULT_INVALID_CONFIG;
         }
         // search by seqnum
         struct wal_item_header temp_header;
 
-        if (file->kvHeader) { // multi KV instance mode
-            temp_header.key = (void*)alca(uint8_t, file->fileConfig->getChunkSize());
-            kvid2buf(file->fileConfig->getChunkSize(), kv_id, temp_header.key);
+        if (file->getKVHeader_UNLOCKED()) { // multi KV instance mode
+            temp_header.key = (void*)alca(uint8_t, file->getConfig()->getChunkSize());
+            kvid2buf(file->getConfig()->getChunkSize(), kv_id, temp_header.key);
             item_query.header = &temp_header;
         }
         item_query.seqnum = doc->seqnum;
@@ -1090,7 +1090,7 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
     struct avl_node *node;
     struct list_elem *e;
     size_t i = 0;
-    size_t num_shards = old_file->fMgrWal->num_shards;
+    size_t num_shards = old_file->getWal()->num_shards;
     uint64_t mem_overhead = 0;
     struct _fdb_key_cmp_info cmp_info;
 
@@ -1100,8 +1100,8 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
     // to the new_file filemgr instance.
 
     for (; i < num_shards; ++i) {
-        spin_lock(&old_file->fMgrWal->key_shards[i].lock);
-        node = avl_first(&old_file->fMgrWal->key_shards[i]._map);
+        spin_lock(&old_file->getWal()->key_shards[i].lock);
+        node = avl_first(&old_file->getWal()->key_shards[i]._map);
         while(node) {
             header = _get_entry(node, struct wal_item_header, avl_key);
             e = list_end(&header->items);
@@ -1112,27 +1112,27 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                     // move doc
                     offset = move_doc(dbhandle, new_dhandle, item, &doc);
                     if (offset <= 0) {
-                        spin_unlock(&old_file->fMgrWal->key_shards[i].lock);
+                        spin_unlock(&old_file->getWal()->key_shards[i].lock);
                         return offset < 0 ? (fdb_status) offset : FDB_RESULT_READ_FAIL;
                     }
                     // Note that all items belonging to global_txn should be
                     // flushed before calling this function
                     // (migrate transactional items only).
-                    fdb_assert(item->txn != &old_file->globalTxn,
+                    fdb_assert(item->txn != old_file->getGlobalTxn(),
                                (uint64_t)item->txn, 0);
                     cmp_info.kvs_config = item->txn->handle->kvs_config;
                     cmp_info.kvs = item->txn->handle->kvs;
                     // insert into new_file's WAL
-                    new_file->fMgrWal->insert_Wal(item->txn, &cmp_info, &doc, offset,
+                    new_file->getWal()->insert_Wal(item->txn, &cmp_info, &doc, offset,
                                WAL_INS_WRITER);
 
-                    if (old_file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    if (old_file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                         // remove from seq map
                         size_t shard_num = item->seqnum % num_shards;
-                        spin_lock(&old_file->fMgrWal->seq_shards[shard_num].lock);
-                        avl_remove(&old_file->fMgrWal->seq_shards[shard_num]._map,
+                        spin_lock(&old_file->getWal()->seq_shards[shard_num].lock);
+                        avl_remove(&old_file->getWal()->seq_shards[shard_num]._map,
                                 &item->avl_seq);
-                        spin_unlock(&old_file->fMgrWal->seq_shards[shard_num].lock);
+                        spin_unlock(&old_file->getWal()->seq_shards[shard_num].lock);
                     }
 
                     // remove from header's list
@@ -1140,11 +1140,11 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                     // remove from transaction's list
                     list_remove(item->txn->items, &item->list_elem_txn);
                     // decrease num_flushable of old_file if non-transactional update
-                    if (item->txn == &old_file->globalTxn) {
-                        old_file->fMgrWal->num_flushable--;
+                    if (item->txn == old_file->getGlobalTxn()) {
+                        old_file->getWal()->num_flushable--;
                     }
                     if (item->action != WAL_ACT_REMOVE) {
-                        old_file->fMgrWal->datasize.fetch_sub(item->doc_size,
+                        old_file->getWal()->datasize.fetch_sub(item->doc_size,
                                                           std::memory_order_relaxed);
                     }
                     // free item
@@ -1153,7 +1153,7 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                     free(doc.key);
                     free(doc.meta);
                     free(doc.body);
-                    old_file->fMgrWal->size--;
+                    old_file->getWal()->size--;
                     mem_overhead += sizeof(struct wal_item);
                 } else {
                     e = list_prev(e);
@@ -1164,7 +1164,7 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                 // header's list becomes empty
                 // remove from key map
                 node = avl_next(node);
-                avl_remove(&old_file->fMgrWal->key_shards[i]._map,
+                avl_remove(&old_file->getWal()->key_shards[i]._map,
                            &header->avl_key);
                 mem_overhead += header->keylen + sizeof(struct wal_item_header);
                 // free key & header
@@ -1174,22 +1174,22 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
                 node = avl_next(node);
             }
         }
-        spin_unlock(&old_file->fMgrWal->key_shards[i].lock);
+        spin_unlock(&old_file->getWal()->key_shards[i].lock);
     }
-    old_file->fMgrWal->mem_overhead.fetch_sub(mem_overhead,
+    old_file->getWal()->mem_overhead.fetch_sub(mem_overhead,
                                           std::memory_order_relaxed);
 
-    spin_lock(&old_file->fMgrWal->lock);
+    spin_lock(&old_file->getWal()->lock);
 
     // migrate all entries in txn list
-    e = list_begin(&old_file->fMgrWal->txn_list);
+    e = list_begin(&old_file->getWal()->txn_list);
     while(e) {
         txn_wrapper = _get_entry(e, struct wal_txn_wrapper, le);
         txn = txn_wrapper->txn;
         // except for global_txn
-        if (txn != &old_file->globalTxn) {
-            e = list_remove(&old_file->fMgrWal->txn_list, &txn_wrapper->le);
-            list_push_front(&new_file->fMgrWal->txn_list, &txn_wrapper->le);
+        if (txn != old_file->getGlobalTxn()) {
+            e = list_remove(&old_file->getWal()->txn_list, &txn_wrapper->le);
+            list_push_front(&new_file->getWal()->txn_list, &txn_wrapper->le);
             // remove previous header info & revnum
             txn->prev_hdr_bid = BLK_NOT_FOUND;
             txn->prev_revnum = 0;
@@ -1198,7 +1198,7 @@ fdb_status Wal::migrateUncommittedTxns_Wal(void *dbhandle,
         }
     }
 
-    spin_unlock(&old_file->fMgrWal->lock);
+    spin_unlock(&old_file->getWal()->lock);
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1234,7 +1234,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
             }
 
             item->flag |= WAL_ITEM_COMMITTED;
-            if (item->txn != &file->globalTxn) {
+            if (item->txn != file->getGlobalTxn()) {
                 // increase num_flushable if it is transactional update
                 num_flushable++;
                 // Also since a transaction doc was committed
@@ -1253,7 +1253,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                             "Error in appending a commit mark at offset %"
                             _F64 " in "
                             "a database file '%s'", item->offset,
-                            file->fileName.c_str());
+                            file->getFileName().c_str());
                     spin_unlock(&key_shards[shard_num].lock);
                     mem_overhead.fetch_sub(_mem_overhead,
                                            std::memory_order_relaxed);
@@ -1283,7 +1283,7 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                 if (!(_item->flag & WAL_ITEM_FLUSH_READY)) {
                     // remove from list & hash
                     list_remove(&item->header->items, &_item->list_elem);
-                    if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                         size_t seq_shard_num = _item->seqnum % num_shards;
                         spin_lock(&seq_shards[seq_shard_num].lock);
                         avl_remove(&seq_shards[seq_shard_num]._map,
@@ -1320,7 +1320,8 @@ fdb_status Wal::commit_Wal(fdb_txn *txn, wal_commit_mark_func *func,
                             "item seqnum %" _F64
                             " keylen %d flags %x action %d"
                             "%s", _item->seqnum, item->header->keylen,
-                            _item->flag.load(), _item->action, file->fileName.c_str());
+                            _item->flag.load(), _item->action,
+                            file->getFileName().c_str());
                 }
             }
         }
@@ -1375,7 +1376,7 @@ void Wal::releaseItem_Wal(size_t shard_num, fdb_kvs_id_t kv_id,
                           struct wal_item *item)
 {
     list_remove(&item->header->items, &item->list_elem);
-    if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
         size_t seq_shard_num;
         seq_shard_num = item->seqnum % num_shards;
         spin_lock(&seq_shards[seq_shard_num].lock);
@@ -1386,9 +1387,9 @@ void Wal::releaseItem_Wal(size_t shard_num, fdb_kvs_id_t kv_id,
 
     if (item->action == WAL_ACT_LOGICAL_REMOVE ||
         item->action == WAL_ACT_REMOVE) {
-        file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, -1);
+        file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDELETES, -1);
     }
-    file->kvsStatOps.statUpdateAttr(kv_id, KVS_STAT_WAL_NDOCS, -1);
+    file->getKvsStatOps()->statUpdateAttr(kv_id, KVS_STAT_WAL_NDOCS, -1);
     size--;
     num_flushable--;
     if (item->action != WAL_ACT_REMOVE) {
@@ -1539,7 +1540,8 @@ inline fdb_status Wal::_wal_do_flush(struct wal_item *item,
             FdbKvsHandle *handle = reinterpret_cast<FdbKvsHandle *>(dbhandle);
             fdb_log(&handle->log_callback, fs,
                     "Failed to flush WAL item (key '%s') into a database file '%s'",
-                    (const char *) item->header->key, handle->file->fileName.c_str());
+                    (const char *) item->header->key,
+                    handle->file->getFileName().c_str());
             return fs;
         }
     }
@@ -1891,7 +1893,7 @@ fdb_status Wal::copy2Snapshot_Wal(struct snap_handle *shandle,
                 // Skip any uncommitted item, if not part of either global or
                 // the current transaction
                 if (!(item->flag & WAL_ITEM_COMMITTED) &&
-                        item->txn != &file->globalTxn &&
+                        item->txn != file->getGlobalTxn() &&
                         item->txn != shandle->snap_txn) {
                     ee = list_next(ee);
                     continue;
@@ -2016,14 +2018,14 @@ WalItr::WalItr(FileMgr *file,
 {
     // If key_cmp_info is non-null it implies key-range iteration
     if (by_key) {
-        map_shards = file->fMgrWal->key_shards;
+        map_shards = file->getWal()->key_shards;
         avl_init(&merge_tree, &shandle->cmp_info);
         this->by_key = true;
     } else {
         // Otherwise wal iteration is requested over sequence range
-        fdb_assert(file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE,
-                   file->fileConfig->getSeqtreeOpt(), FDB_SEQTREE_USE);
-        map_shards = file->fMgrWal->seq_shards;
+        fdb_assert(file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE,
+                   file->getConfig()->getSeqtreeOpt(), FDB_SEQTREE_USE);
+        map_shards = file->getWal()->seq_shards;
         avl_init(&merge_tree, NULL);
         this->by_key = false;
     }
@@ -2036,7 +2038,7 @@ WalItr::WalItr(FileMgr *file,
     cursor_pos = NULL;
     item_prev = NULL;
 
-    num_shards = file->fMgrWal->num_shards;
+    num_shards = file->getWal()->num_shards;
     if (!shandle->is_persisted_snapshot) {
         cursors = (struct wal_cursor *)calloc(num_shards,
                            sizeof(struct wal_cursor));
@@ -2044,7 +2046,7 @@ WalItr::WalItr(FileMgr *file,
         cursors = NULL;
     }
     this->shandle = shandle;
-    _wal = file->fMgrWal;
+    _wal = file->getWal();
     direction = FDB_ITR_DIR_NONE;
 }
 
@@ -2710,7 +2712,7 @@ fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
                                  num_shards;
         spin_lock(&key_shards[shard_num].lock);
 
-        if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+        if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
             // remove from seq map
             seq_shard_num = item->seqnum % num_shards;
             spin_lock(&seq_shards[seq_shard_num].lock);
@@ -2734,7 +2736,7 @@ fdb_status Wal::discardTxnEntries_Wal(fdb_txn *txn)
         }
         // remove from txn's list
         e = list_remove(txn->items, e);
-        if (item->txn == &file->globalTxn ||
+        if (item->txn == file->getGlobalTxn() ||
             item->flag & WAL_ITEM_COMMITTED) {
             num_flushable--;
         }
@@ -2790,7 +2792,8 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
             if (_wal_snap_is_immutable(shandle)) {
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
-                        " in file %s", shandle->id, file->fileName.c_str());
+                        " in file %s", shandle->id,
+                        file->getFileName().c_str());
             }
             if (shandle->id != kv_id_req) {
                 break;
@@ -2816,7 +2819,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                 fdb_log(log_callback, FDB_RESULT_INVALID_ARGS,
                         "WAL closed before snapshot close in kv id %" _F64
                         " with %" _F64 " docs in file %s", shandle->id,
-                        shandle->wal_ndocs.load(), file->fileName.c_str());
+                        shandle->wal_ndocs.load(), file->getFileName().c_str());
             }
             next_a = avl_next(a);
             avl_remove(&wal_snapshot_tree, a);
@@ -2867,7 +2870,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                         committed = true;
                     }
 
-                    if (file->fileConfig->getSeqtreeOpt() == FDB_SEQTREE_USE) {
+                    if (file->getConfig()->getSeqtreeOpt() == FDB_SEQTREE_USE) {
                         // remove from seq hash table
                         seq_shard_num = item->seqnum % num_shards;
                         spin_lock(&seq_shards[seq_shard_num].lock);
@@ -2880,7 +2883,7 @@ fdb_status Wal::_close_Wal(wal_discard_t type, void *aux,
                         datasize.fetch_sub(item->doc_size,
                                            std::memory_order_relaxed);
                     }
-                    if (item->txn == &file->globalTxn || committed) {
+                    if (item->txn == file->getGlobalTxn() || committed) {
                         if (item->action != WAL_ACT_INSERT) {
                             _wal_update_stat(kv_id, _WAL_DROP_DELETE);
                         } else {
@@ -2954,11 +2957,11 @@ size_t Wal::getNumFlushable_Wal(void)
 }
 
 size_t Wal::getNumDocs_Wal(void) {
-    return file->kvsStatOps.statGetSum(KVS_STAT_WAL_NDOCS);
+    return file->getKvsStatOps()->statGetSum(KVS_STAT_WAL_NDOCS);
 }
 
 size_t Wal::getNumDeletes_Wal(void) {
-    return file->kvsStatOps.statGetSum(KVS_STAT_WAL_NDELETES);
+    return file->getKvsStatOps()->statGetSum(KVS_STAT_WAL_NDELETES);
 }
 
 size_t Wal::getDataSize_Wal(void)
@@ -3046,7 +3049,7 @@ bool Wal::doesTxnExist_Wal(void)
     while(le) {
         txn_wrapper = _get_entry(le, struct wal_txn_wrapper, le);
         txn = txn_wrapper->txn;
-        if (txn != &file->globalTxn) {
+        if (txn != file->getGlobalTxn()) {
             spin_unlock(&lock);
             return true;
         }

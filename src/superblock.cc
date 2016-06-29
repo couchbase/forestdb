@@ -283,7 +283,7 @@ void sb_bmp_append_doc(FdbKvsHandle *handle)
     size_t i;
     uint64_t num_docs;
     char doc_key[64];
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
 
     // mark stale if previous doc offset exists
     if (sb->bmp_doc_offset) {
@@ -336,7 +336,7 @@ void sb_rsv_append_doc(FdbKvsHandle *handle)
     size_t i;
     uint64_t num_docs;
     char doc_key[64];
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
     struct sb_rsv_bmp *rsv = NULL;
 
     if (!sb) {
@@ -390,7 +390,7 @@ fdb_status sb_bmp_fetch_doc(FdbKvsHandle *handle)
     uint64_t num_docs;
     int64_t r_offset;
     char doc_key[64];
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
     struct sb_rsv_bmp *rsv = NULL;
 
     // skip if previous bitmap exists OR
@@ -483,9 +483,9 @@ fdb_status sb_bmp_fetch_doc(FdbKvsHandle *handle)
 
 bool sb_check_sync_period(FdbKvsHandle *handle)
 {
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
 
-    if (sb && sb->num_alloc * handle->file->blockSize > SB_SYNC_PERIOD) {
+    if (sb && sb->num_alloc * handle->file->getBlockSize() > SB_SYNC_PERIOD) {
         return true;
     }
     return false;
@@ -494,7 +494,7 @@ bool sb_check_sync_period(FdbKvsHandle *handle)
 bool sb_update_header(FdbKvsHandle *handle)
 {
     bool ret = false;
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
 
     if (sb && (sb->last_hdr_bid.load() != handle->last_hdr_bid) &&
         (sb->last_hdr_revnum.load() < handle->cur_header_revnum)) {
@@ -502,7 +502,7 @@ bool sb_update_header(FdbKvsHandle *handle)
         sb->last_hdr_bid = handle->last_hdr_bid;
         sb->last_hdr_revnum.store(handle->cur_header_revnum.load());
 
-        uint64_t lw_revnum = handle->file->lastWritableBmpRevnum.load();
+        uint64_t lw_revnum = handle->file->getLastWritableBmpRevnum();
         if (lw_revnum == sb->bmp_revnum &&
             sb->bmp_prev) {
             free(sb->bmp_prev);
@@ -516,8 +516,8 @@ bool sb_update_header(FdbKvsHandle *handle)
 
 void sb_reset_num_alloc(FdbKvsHandle *handle)
 {
-    if (handle->file->fMgrSb) {
-        handle->file->fMgrSb->num_alloc = 0;
+    if (handle->file->getSb()) {
+        handle->file->getSb()->num_alloc = 0;
     }
 }
 
@@ -526,9 +526,9 @@ fdb_status sb_sync_circular(FdbKvsHandle *handle)
     uint64_t sb_revnum;
     fdb_status fs;
 
-    sb_revnum = handle->file->fMgrSb->revnum.load();
+    sb_revnum = handle->file->getSb()->revnum.load();
     fs = sb_write(handle->file,
-                  sb_revnum % handle->file->fMgrSb->config->num_sb,
+                  sb_revnum % handle->file->getSb()->config->num_sb,
                   &handle->log_callback);
     return fs;
 }
@@ -545,7 +545,7 @@ sb_decision_t sb_check_block_reusing(FdbKvsHandle *handle)
     uint64_t live_datasize;
     uint64_t filesize;
     uint64_t ratio;
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
 
     if (!sb) {
         return SBD_NONE;
@@ -557,7 +557,7 @@ sb_decision_t sb_check_block_reusing(FdbKvsHandle *handle)
     }
 
     uint64_t block_reusing_threshold =
-                        handle->file->fileConfig->getBlockReusingThreshold();
+                        handle->file->getConfig()->getBlockReusingThreshold();
     if (block_reusing_threshold == 0 || block_reusing_threshold >= 100) {
         // circular block reusing is disabled
         return SBD_NONE;
@@ -571,7 +571,7 @@ sb_decision_t sb_check_block_reusing(FdbKvsHandle *handle)
     // at least # keeping headers should exist
     // since the last block reusing
     if (handle->cur_header_revnum <=
-        sb->min_live_hdr_revnum + handle->file->fileConfig->getNumKeepingHeaders()) {
+        sb->min_live_hdr_revnum + handle->file->getConfig()->getNumKeepingHeaders()) {
         return SBD_NONE;
     }
 
@@ -599,7 +599,7 @@ sb_decision_t sb_check_block_reusing(FdbKvsHandle *handle)
                 }
             } else if ( (sb->num_free_blocks * 100 <
                          sb->num_init_free_blocks * SB_PRE_RECLAIM_RATIO)) {
-                if (sb->num_init_free_blocks * handle->file->fileConfig->getBlockSize()
+                if (sb->num_init_free_blocks * handle->file->getConfig()->getBlockSize()
                     > SB_MIN_BLOCK_REUSING_FILESIZE)  {
                     return SBD_RESERVE;
                 }
@@ -616,7 +616,7 @@ bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle)
     uint64_t num_blocks, bmp_size_byte;
     stale_header_info sheader;
     reusable_block_list blist;
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
 
     // should flush all dirty blocks in cache
     handle->file->sync_FileMgr(false, &handle->log_callback);
@@ -627,11 +627,11 @@ bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle)
     }
 
     // get reusable block list
-    blist = handle->file->staleData->getReusableBlocks(handle, sheader);
+    blist = handle->file->getStaleData()->getReusableBlocks(handle, sheader);
 
     // update superblock's bitmap
     uint8_t *new_bmp = NULL, *old_bmp = NULL;
-    num_blocks = handle->file->getPos() / handle->file->blockSize;
+    num_blocks = handle->file->getPos() / handle->file->getBlockSize();
     // 8 bitmaps per byte
     bmp_size_byte = (num_blocks+7) / 8;
     fdb_assert(num_blocks >= SB_DEFAULT_NUM_SUPERBLOCKS,
@@ -672,7 +672,7 @@ bool sb_reserve_next_reusable_blocks(FdbKvsHandle *handle)
     uint64_t num_blocks, bmp_size_byte;
     stale_header_info sheader;
     reusable_block_list blist;
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
     struct sb_rsv_bmp *rsv = NULL;
 
     if (sb->rsv_bmp) {
@@ -686,10 +686,10 @@ bool sb_reserve_next_reusable_blocks(FdbKvsHandle *handle)
     }
 
     // get reusable block list
-    blist = handle->file->staleData->getReusableBlocks(handle, sheader);
+    blist = handle->file->getStaleData()->getReusableBlocks(handle, sheader);
 
     // calculate bitmap size
-    num_blocks = handle->file->getPos() / handle->file->blockSize;
+    num_blocks = handle->file->getPos() / handle->file->getBlockSize();
     bmp_size_byte = (num_blocks+7) / 8;
     if (num_blocks) {
         rsv = (struct sb_rsv_bmp*)calloc(1, sizeof(struct sb_rsv_bmp));
@@ -726,7 +726,7 @@ void sb_return_reusable_blocks(FdbKvsHandle *handle)
 {
     uint64_t node_id;
     bid_t cur;
-    struct superblock *sb = handle->file->fMgrSb;
+    struct superblock *sb = handle->file->getSb();
     struct sb_rsv_bmp *rsv;
     struct avl_node *a;
     struct bmp_idx_node *item, query;
@@ -831,8 +831,9 @@ void sb_return_reusable_blocks(FdbKvsHandle *handle)
 
     // re-store into stale tree using next header's revnum
     filemgr_header_revnum_t revnum = handle->cur_header_revnum;
-    handle->file->staleData->gatherRegions( handle, revnum+1, BLK_NOT_FOUND,
-                                            BLK_NOT_FOUND, 0, false );
+    handle->file->getStaleData()->gatherRegions(handle, revnum + 1,
+                                                BLK_NOT_FOUND,
+                                                BLK_NOT_FOUND, 0, false );
 }
 
 void sb_bmp_mask_init()
@@ -929,7 +930,7 @@ void sb_bmp_clear(uint8_t *bmp, bid_t bid, uint64_t len)
 bool sb_switch_reserved_blocks(FileMgr *file)
 {
     size_t i;
-    struct superblock *sb = file->fMgrSb;
+    struct superblock *sb = file->getSb();
     struct sb_rsv_bmp *rsv = sb->rsv_bmp;
 
     // reserved block should exist
@@ -996,7 +997,7 @@ bid_t sb_alloc_block(FileMgr *file)
 {
     uint64_t i, node_idx, node_off, bmp_idx, bmp_off;
     bid_t ret = BLK_NOT_FOUND;
-    struct superblock *sb = file->fMgrSb;
+    struct superblock *sb = file->getSb();
     struct avl_node *a;
     struct bmp_idx_node *item, query;
 
@@ -1085,15 +1086,15 @@ sb_alloc_start_over:
 
 bool sb_bmp_is_writable(FileMgr *file, bid_t bid)
 {
-    if (bid < file->fMgrSb->config->num_sb) {
+    if (bid < file->getSb()->config->num_sb) {
         // superblocks are always writable
         return true;
     }
 
     bool ret = false;
-    bid_t last_commit = file->lastCommit.load() / file->blockSize;
-    uint64_t lw_bmp_revnum = file->lastWritableBmpRevnum.load();
-    struct superblock *sb = file->fMgrSb;
+    bid_t last_commit = file->getLastCommit() / file->getBlockSize();
+    uint64_t lw_bmp_revnum = file->getLastWritableBmpRevnum();
+    struct superblock *sb = file->getSb();
 
     sb_bmp_barrier_on(sb);
 
@@ -1211,8 +1212,8 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
                     ErrLogCallback * log_callback)
 {
     ssize_t r;
-    int real_blocksize = file->blockSize;
-    int blocksize = file->blockSize - BLK_MARKER_SIZE;
+    int real_blocksize = file->getBlockSize();
+    int blocksize = file->getBlockSize() - BLK_MARKER_SIZE;
     uint8_t *buf = alca(uint8_t, real_blocksize);
     uint32_t crc, _crc;
     uint64_t enc_u64;
@@ -1224,61 +1225,61 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
 
     offset = 0;
     // magic number
-    enc_u64 = _endian_encode(file->fMgrVersion);
+    enc_u64 = _endian_encode(file->getVersion());
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // revision number
-    uint64_t sb_revnum = file->fMgrSb->revnum.load();
+    uint64_t sb_revnum = file->getSb()->revnum.load();
     enc_u64 = _endian_encode(sb_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // bitmap's revision number
-    enc_u64 = _endian_encode(file->fMgrSb->bmp_revnum);
+    enc_u64 = _endian_encode(file->getSb()->bmp_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // cur_alloc_bid
-    bid_t sb_cur_alloc_bid = file->fMgrSb->cur_alloc_bid.load();
+    bid_t sb_cur_alloc_bid = file->getSb()->cur_alloc_bid.load();
     enc_u64 = _endian_encode(sb_cur_alloc_bid);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // last header bid
-    bid_t sb_last_hdr_bid = file->fMgrSb->last_hdr_bid.load();
+    bid_t sb_last_hdr_bid = file->getSb()->last_hdr_bid.load();
     enc_u64 = _endian_encode(sb_last_hdr_bid);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // last header rev number
-    uint64_t sb_last_hdr_revnum = file->fMgrSb->last_hdr_revnum.load();
+    uint64_t sb_last_hdr_revnum = file->getSb()->last_hdr_revnum.load();
     enc_u64 = _endian_encode(sb_last_hdr_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // minimum active header revnum
-    enc_u64 = _endian_encode(file->fMgrSb->min_live_hdr_revnum);
+    enc_u64 = _endian_encode(file->getSb()->min_live_hdr_revnum);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // minimum active header BID
-    enc_u64 = _endian_encode(file->fMgrSb->min_live_hdr_bid);
+    enc_u64 = _endian_encode(file->getSb()->min_live_hdr_bid);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // # initial free blocks
-    enc_u64 = _endian_encode(file->fMgrSb->num_init_free_blocks);
+    enc_u64 = _endian_encode(file->getSb()->num_init_free_blocks);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // # free blocks
-    enc_u64 = _endian_encode(file->fMgrSb->num_free_blocks);
+    enc_u64 = _endian_encode(file->getSb()->num_free_blocks);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
 
     // bitmap size
-    uint64_t sb_bmp_size = file->fMgrSb->bmp_size.load();
+    uint64_t sb_bmp_size = file->getSb()->bmp_size.load();
     enc_u64 = _endian_encode(sb_bmp_size);
     memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
     offset += sizeof(enc_u64);
@@ -1286,8 +1287,8 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
     bool rsv_bmp_enabled = false;
 
     uint32_t cond = SB_RSV_READY;
-    if (file->fMgrSb->rsv_bmp &&
-        file->fMgrSb->rsv_bmp->status.compare_exchange_strong(cond,
+    if (file->getSb()->rsv_bmp &&
+        file->getSb()->rsv_bmp->status.compare_exchange_strong(cond,
                                                           SB_RSV_WRITING) ) {
         rsv_bmp_enabled = true;
         // status becomes 'WRITING' so that switching will be postponed.
@@ -1297,7 +1298,7 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
 
     // reserved bitmap size (0 if not exist)
     if (rsv_bmp_enabled) {
-        enc_u64 = _endian_encode(file->fMgrSb->rsv_bmp->bmp_size);
+        enc_u64 = _endian_encode(file->getSb()->rsv_bmp->bmp_size);
     } else {
         enc_u64 = 0;
     }
@@ -1307,25 +1308,25 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
     // bitmap doc offsets
     num_docs = _bmp_size_to_num_docs(sb_bmp_size);
     for (i=0; i<num_docs; ++i) {
-        enc_u64 = _endian_encode(file->fMgrSb->bmp_doc_offset[i]);
+        enc_u64 = _endian_encode(file->getSb()->bmp_doc_offset[i]);
         memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
         offset += sizeof(enc_u64);
     }
 
     // reserved bitmap doc offsets
     if (rsv_bmp_enabled) {
-        num_docs = _bmp_size_to_num_docs(file->fMgrSb->rsv_bmp->bmp_size);
+        num_docs = _bmp_size_to_num_docs(file->getSb()->rsv_bmp->bmp_size);
         for (i=0; i<num_docs; ++i) {
-            enc_u64 = _endian_encode(file->fMgrSb->rsv_bmp->bmp_doc_offset[i]);
+            enc_u64 = _endian_encode(file->getSb()->rsv_bmp->bmp_doc_offset[i]);
             memcpy(buf + offset, &enc_u64, sizeof(enc_u64));
             offset += sizeof(enc_u64);
         }
 
-        file->fMgrSb->rsv_bmp->status = SB_RSV_READY;
+        file->getSb()->rsv_bmp->status = SB_RSV_READY;
     }
 
     // CRC
-    crc = get_checksum(buf, offset, file->crcMode);
+    crc = get_checksum(buf, offset, file->getCrcMode());
     _crc = _endian_encode(crc);
     memcpy(buf + offset, &_crc, sizeof(_crc));
 
@@ -1336,7 +1337,7 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
     r = file->writeBlocks(buf, 1, sb_no);
     if (r != real_blocksize) {
         char errno_msg[512];
-        file->fMgrOps->get_errno_str(errno_msg, 512);
+        file->getOps()->get_errno_str(errno_msg, 512);
         fs = FDB_RESULT_SB_RACE_CONDITION;
         fdb_log(log_callback, fs,
                 "Failed to write the superblock (number: %" _F64 "), %s",
@@ -1345,7 +1346,7 @@ fdb_status sb_write(FileMgr *file, size_t sb_no,
     }
 
     // increase superblock's revision number
-    file->fMgrSb->revnum++;
+    file->getSb()->revnum++;
 
     return FDB_RESULT_SUCCESS;
 }
@@ -1363,8 +1364,8 @@ static fdb_status _sb_read_given_no(FileMgr *file,
                                     ErrLogCallback *log_callback)
 {
     ssize_t r;
-    int real_blocksize = file->blockSize;
-    int blocksize = file->blockSize - BLK_MARKER_SIZE;
+    int real_blocksize = file->getBlockSize();
+    int blocksize = file->getBlockSize() - BLK_MARKER_SIZE;
     size_t i, num_docs;
     uint8_t *buf = alca(uint8_t, real_blocksize);
     uint32_t crc_file, crc, _crc;
@@ -1379,7 +1380,7 @@ static fdb_status _sb_read_given_no(FileMgr *file,
     r = file->readBlock(buf, sb_no);
     if (r != real_blocksize) {
         char errno_msg[512];
-        file->fMgrOps->get_errno_str(errno_msg, 512);
+        file->getOps()->get_errno_str(errno_msg, 512);
         fs = FDB_RESULT_SB_READ_FAIL;
         fdb_log(log_callback, fs,
                 "Failed to read the superblock: file read failure (SB No.: %" _F64 "), %s",
@@ -1515,7 +1516,7 @@ static fdb_status _sb_read_given_no(FileMgr *file,
     }
 
     // CRC
-    crc = get_checksum(buf, offset, file->crcMode);
+    crc = get_checksum(buf, offset, file->getCrcMode());
     memcpy(&_crc, buf + offset, sizeof(_crc));
     crc_file = _endian_decode(_crc);
     if (crc != crc_file) {
@@ -1628,11 +1629,11 @@ fdb_status sb_read_latest(FileMgr *file,
     struct superblock *sb_arr;
 
     // initialize staleData instance if not exist
-    if (!file->staleData) {
-        file->staleData = new StaleDataManager(file);
+    if (!file->getStaleData()) {
+        file->setStaleData(new StaleDataManager(file));
     }
 
-    if (file->fMgrSb) {
+    if (file->getSb()) {
         // Superblock is already read previously.
         // This means that there are some problems with the current superblock
         // so that we have to read another candidate.
@@ -1640,7 +1641,7 @@ fdb_status sb_read_latest(FileMgr *file,
         // Note: 'sb->revnum' denotes the revnum of next superblock to be
         // written, so we need to subtract 1 from it to get the revnum of
         // the current superblock successfully read from the file.
-        revnum_limit = file->fMgrSb->revnum.load() - 1;
+        revnum_limit = file->getSb()->revnum.load() - 1;
         sb_free(file);
     }
 
@@ -1674,20 +1675,20 @@ fdb_status sb_read_latest(FileMgr *file,
         return fs;
     }
 
-    file->fMgrSb = (struct superblock*)calloc(1, sizeof(struct superblock));
-    _sb_copy(file->fMgrSb, &sb_arr[max_sb_no]);
+    file->setSb((struct superblock*)calloc(1, sizeof(struct superblock)));
+    _sb_copy(file->getSb(), &sb_arr[max_sb_no]);
 
     // set last commit position
-    if (file->fMgrSb->cur_alloc_bid.load() != BLK_NOT_FOUND) {
-        file->lastCommit.store(file->fMgrSb->cur_alloc_bid.load() *
-                                file->fileConfig->getBlockSize());
+    if (file->getSb()->cur_alloc_bid.load() != BLK_NOT_FOUND) {
+        file->setLastCommit(file->getSb()->cur_alloc_bid.load() *
+                            file->getConfig()->getBlockSize());
     } else {
         // otherwise, last_commit == file->pos
         // (already set by FileMgr::open() function)
     }
 
-    file->fMgrSb->revnum++;
-    avl_init(&file->fMgrSb->bmp_idx, NULL);
+    file->getSb()->revnum++;
+    avl_init(&file->getSb()->bmp_idx, NULL);
 
     // free the other superblocks
     for (i=0; i<sconfig.num_sb; ++i) {
@@ -1701,8 +1702,8 @@ fdb_status sb_read_latest(FileMgr *file,
 
 uint64_t sb_get_bmp_revnum(FileMgr *file)
 {
-    if (file->fMgrSb) {
-        return file->fMgrSb->bmp_revnum;
+    if (file->getSb()) {
+        return file->getSb()->bmp_revnum;
     } else {
         return 0;
     }
@@ -1710,8 +1711,8 @@ uint64_t sb_get_bmp_revnum(FileMgr *file)
 
 filemgr_header_revnum_t sb_get_min_live_revnum(FileMgr *file)
 {
-    if (file->fMgrSb) {
-        return file->fMgrSb->min_live_hdr_revnum;
+    if (file->getSb()) {
+        return file->getSb()->min_live_hdr_revnum;
     } else {
         return 0;
     }
@@ -1719,8 +1720,8 @@ filemgr_header_revnum_t sb_get_min_live_revnum(FileMgr *file)
 
 uint64_t sb_get_num_free_blocks(FileMgr *file)
 {
-    if (file->fMgrSb) {
-        return file->fMgrSb->num_free_blocks;
+    if (file->getSb()) {
+        return file->getSb()->num_free_blocks;
     } else {
         return 0;
     }
@@ -1741,7 +1742,7 @@ fdb_status sb_init(FileMgr *file, struct sb_config sconfig,
     fdb_status fs;
 
     // exit if superblock already exists.
-    if (file->fMgrSb) {
+    if (file->getSb()) {
         return FDB_RESULT_SUCCESS;
     }
     // no data should be written in the file before initialization of superblock.
@@ -1750,17 +1751,17 @@ fdb_status sb_init(FileMgr *file, struct sb_config sconfig,
     }
 
     // initialize staleData instance if not exist
-    if (!file->staleData) {
-        file->staleData = new StaleDataManager(file);
+    if (!file->getStaleData()) {
+        file->setStaleData(new StaleDataManager(file));
     }
 
-    file->fMgrSb = (struct superblock*)calloc(1, sizeof(struct superblock));
-    file->fMgrSb->config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
-    file->fMgrVersion = ver_get_latest_magic();
-    _sb_init(file->fMgrSb, sconfig);
+    file->setSb((struct superblock*)calloc(1, sizeof(struct superblock)));
+    file->getSb()->config = (struct sb_config*)calloc(1, sizeof(struct sb_config));
+    file->setVersion(ver_get_latest_magic());
+    _sb_init(file->getSb(), sconfig);
 
     // write initial superblocks
-    for (i=0; i<file->fMgrSb->config->num_sb; ++i) {
+    for (i=0; i<file->getSb()->config->num_sb; ++i) {
         // allocate
         sb_bid = file->alloc_FileMgr(log_callback);
         if (sb_bid != i) {
@@ -1769,8 +1770,8 @@ fdb_status sb_init(FileMgr *file, struct sb_config sconfig,
             fdb_log(log_callback, fs,
                     "Other writer interfered during sb_write (number: %" _F64 ")",
                     i);
-            free(file->fMgrSb->config);
-            free(file->fMgrSb);
+            free(file->getSb()->config);
+            free(file->getSb());
             return fs;
         }
 
@@ -1785,10 +1786,10 @@ fdb_status sb_init(FileMgr *file, struct sb_config sconfig,
 
 fdb_status sb_free(FileMgr *file)
 {
-    if (file->fMgrSb) {
-        _sb_free(file->fMgrSb);
-        free(file->fMgrSb);
-        file->fMgrSb = NULL;
+    if (file->getSb()) {
+        _sb_free(file->getSb());
+        free(file->getSb());
+        file->setSb(NULL);
     }
 
     return FDB_RESULT_SUCCESS;

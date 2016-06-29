@@ -97,7 +97,7 @@ fdb_status fdb_begin_transaction(fdb_file_handle *fhandle,
     handle->txn->items = (struct list *)malloc(sizeof(struct list));
     handle->txn->isolation = isolation_level;
     list_init(handle->txn->items);
-    file->fMgrWal->addTransaction_Wal(handle->txn);
+    file->getWal()->addTransaction_Wal(handle->txn);
 
     file->mutexUnlock();
 
@@ -156,8 +156,8 @@ fdb_status _fdb_abort_transaction(FdbKvsHandle *handle)
         }
     } while (fstatus == FILE_REMOVED_PENDING);
 
-    file->fMgrWal->discardTxnEntries_Wal(handle->txn);
-    file->fMgrWal->removeTransaction_Wal(handle->txn);
+    file->getWal()->discardTxnEntries_Wal(handle->txn);
+    file->getWal()->removeTransaction_Wal(handle->txn);
 
     free(handle->txn->items);
     free(handle->txn->wrapper);
@@ -217,7 +217,7 @@ fdb_status fdb_end_transaction(fdb_file_handle *fhandle,
             }
         } while (fstatus == FILE_REMOVED_PENDING);
 
-        file->fMgrWal->removeTransaction_Wal(handle->txn);
+        file->getWal()->removeTransaction_Wal(handle->txn);
 
         free(handle->txn->items);
         free(handle->txn->wrapper);

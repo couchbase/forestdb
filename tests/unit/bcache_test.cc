@@ -136,13 +136,13 @@ void * worker(void *voidargs)
         bid = rand() % args->nblocks;
         ret = BlockCacheManager::getInstance()->read(args->file, bid, buf);
         if (ret <= 0) {
-            ret = args->file->fMgrOps->pread(args->file->fd, buf,
-                                             args->file->blockSize,
-                                             bid * args->file->blockSize);
-            TEST_CHK(ret == (ssize_t)args->file->blockSize);
+            ret = args->file->getOps()->pread(args->file->getFd(), buf,
+                                              args->file->getBlockSize(),
+                                              bid * args->file->getBlockSize());
+            TEST_CHK(ret == (ssize_t)args->file->getBlockSize());
             ret = BlockCacheManager::getInstance()->write(args->file, bid, buf,
                                                           BCACHE_REQ_CLEAN, false);
-            TEST_CHK(ret == (ssize_t)args->file->blockSize);
+            TEST_CHK(ret == (ssize_t)args->file->getBlockSize());
         }
         crc_file = crc32_8(buf, sizeof(uint64_t)*2, 0);
         (void)crc_file;
@@ -162,7 +162,7 @@ void * worker(void *voidargs)
 
             ret = BlockCacheManager::getInstance()->write(args->file, bid, buf,
                                                           BCACHE_REQ_DIRTY, true);
-            TEST_CHK(ret == (ssize_t)args->file->blockSize);
+            TEST_CHK(ret == (ssize_t)args->file->getBlockSize());
         } else { // have some of the reader threads flush dirty immutable blocks
             if (bid <= args->nblocks / 4) { // 25% probability
                 args->file->flushImmutable(NULL);

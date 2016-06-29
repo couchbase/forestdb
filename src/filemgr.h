@@ -481,10 +481,9 @@ public:
 
     /* Public member functions */
 
-    bool setKVHeader(KvsHeader *kv_header,
-                     void (*free_kv_header)(FileMgr *file));
-
-    KvsHeader* getKVHeader();
+    const std::string& getFileName() {
+        return fileName;
+    }
 
     void incrRefCount() {
         refCount++;
@@ -492,11 +491,79 @@ public:
 
     size_t getRefCount();
 
+    uint32_t getRefCount_UNLOCKED() const {
+        return refCount.load();
+    }
+
+    void addToFlags(uint8_t flag) {
+        fMgrFlags |= flag;
+    }
+
+    uint8_t getFlags() const {
+        return fMgrFlags;
+    }
+
+    uint32_t getBlockSize() const {
+        return blockSize;
+    }
+
+    void setFd(int to) {
+        fd = to;
+    }
+
+    int getFd() const {
+        return fd;
+    }
+
+    void decrPos(uint64_t by) {
+        lastPos.fetch_sub(by);
+    }
+
+    uint64_t getPos() const {
+        return lastPos.load();
+    }
+
+    bid_t getNextAllocBlock() const {
+        return lastPos.load() / blockSize;
+    }
+
+    void setLastCommit(uint64_t to) {
+        lastCommit.store(to);
+    }
+
+    uint64_t getLastCommit() const {
+        return lastCommit.load();
+    }
+
+    void setLastWritableBmpRevnum(uint64_t to) {
+        lastWritableBmpRevnum.store(to);
+    }
+
+    uint64_t getLastWritableBmpRevnum() const {
+        return lastWritableBmpRevnum.load();
+    }
+
+    void setIoInprog() {
+        ioInprog++;
+    }
+
+    void clearIoInprog() {
+        ioInprog--;
+    }
+
+    Wal* getWal() {
+        return fMgrWal;
+    }
+
     uint64_t updateHeader(void *buf, size_t len, bool inc_revnum);
+
+    FileMgrHeader* accessHeader() {
+        return &fMgrHeader;
+    }
 
     filemgr_header_revnum_t getHeaderRevnum();
 
-    fdb_seqnum_t getSeqnum();
+    fdb_seqnum_t getSeqnum() const;
 
     void setSeqnum(fdb_seqnum_t seqnum);
 
@@ -530,11 +597,134 @@ public:
                              uint64_t *sb_bmp_revnum,
                              ErrLogCallback *log_callback);
 
-    void removeAllBufferBlocks();
-
-    bid_t getNextAllocBlock() {
-        return lastPos.load() / blockSize;
+    void setOps(struct filemgr_ops *to) {
+        fMgrOps = to;
     }
+
+    struct filemgr_ops* getOps() {
+        return fMgrOps;
+    }
+
+    file_status_t getFileStatus() const {
+        return fMgrStatus.load();
+    }
+
+    FileMgrConfig* getConfig() {
+        return fileConfig;
+    }
+
+    void setNewFile(FileMgr *to) {
+        newFile = to;
+    }
+
+    FileMgr* getNewFile() {
+        return newFile;
+    }
+
+    void setPrevFile(FileMgr *to) {
+        prevFile = to;
+    }
+
+    FileMgr* getPrevFile() {
+        return prevFile;
+    }
+
+    const std::string& getOldFileName() {
+        return oldFileName;
+    }
+
+    void setBCache(FileBlockCache *to) {
+        bCache.store(to, std::memory_order_relaxed);
+    }
+
+    FileBlockCache* getBCache() {
+        return bCache.load(std::memory_order_relaxed);
+    }
+
+    fdb_txn* getGlobalTxn() {
+        return &globalTxn;
+    }
+
+    void setInPlaceCompaction(bool in_place_compaction);
+
+    bool isInPlaceCompactionSet();
+
+    bool setKVHeader(KvsHeader *kv_header,
+                     void (*free_kv_header)(FileMgr *file));
+
+    void setKVHeader_UNLOCKED(KvsHeader *to) {
+        kvHeader = to;
+    }
+
+    KvsHeader* getKVHeader();
+
+    KvsHeader* getKVHeader_UNLOCKED() {
+        return kvHeader;
+    }
+
+    void setFreeKVHeaderCB(void (*free_kv_header)(FileMgr *file)) {
+        this->free_kv_header = free_kv_header;
+    }
+
+    void setThrottlingDelay(uint64_t delay_us);
+
+    uint32_t getThrottlingDelay() const;
+
+    void setVersion(filemgr_magic_t to) {
+        fMgrVersion = to;
+    }
+
+    filemgr_magic_t getVersion() const {
+        return fMgrVersion;
+    }
+
+    void setSb(struct superblock *to) {
+        fMgrSb = to;
+    }
+
+    struct superblock* getSb() {
+        return fMgrSb;
+    }
+
+    KvsStatOperations* getKvsStatOps() {
+        return &kvsStatOps;
+    }
+
+    void acquireSpinLock() {
+        spin_lock(&fMgrLock);
+    }
+
+    void releaseSpinLock() {
+        spin_unlock(&fMgrLock);
+    }
+
+    void mutexLock();
+
+    bool mutexTrylock();
+
+    void mutexUnlock();
+
+    void setCrcMode(crc_mode_e to) {
+        crcMode = to;
+    }
+
+    crc_mode_e getCrcMode() {
+        return crcMode;
+    }
+
+    encryptor* getEncryption() {
+        return &fMgrEncryption;
+    }
+
+    void setStaleData(StaleDataManagerBase *to) {
+        staleData = to;
+    }
+
+    StaleDataManagerBase* getStaleData() {
+        return staleData;
+    }
+
+    void removeAllBufferBlocks();
 
     bid_t alloc_FileMgr(ErrLogCallback *log_callback);
 
@@ -570,14 +760,6 @@ public:
 
     int isWritable(bid_t bid);
 
-    void setIoInprog() {
-        ioInprog++;
-    }
-
-    void clearIoInprog() {
-        ioInprog--;
-    }
-
     fdb_status commit_FileMgr(bool sync, ErrLogCallback *log_callback);
 
     /**
@@ -599,14 +781,6 @@ public:
 
     int updateFileStatus(file_status_t status, const char *old_filename);
 
-    file_status_t getFileStatus() {
-        return fMgrStatus.load();
-    }
-
-    uint64_t getPos() {
-        return lastPos.load();
-    }
-
     bool isRollbackOn();
 
     void setRollback(uint8_t new_val);
@@ -627,20 +801,6 @@ public:
      * @return True if a compaction cancellation is requested.
      */
     bool isCompactionCancellationRequested();
-
-    void setInPlaceCompaction(bool in_place_compaction);
-
-    bool isInPlaceCompactionSet();
-
-    void mutexLock();
-
-    bool mutexTrylock();
-
-    void mutexUnlock();
-
-    void setThrottlingDelay(uint64_t delay_us);
-
-    uint32_t getThrottlingDelay();
 
     /**
      * Add an item into stale-block list of the given 'file'.
@@ -733,7 +893,6 @@ public:
                                     FileMgr *dst_file,
                                     bid_t src_bid, bid_t dst_bid,
                                     bid_t clone_len);
-
 
 
     static void mutexOpenlock(FileMgrConfig *config);
@@ -902,9 +1061,27 @@ public:
      */
     static const char* getLatencyStatName(fdb_latency_stat_type stat);
 
+    struct avl_tree* getHandleIdx() {
+        return &handleIdx;
+    }
 
-    /* Public member variables */
+    void acquireHandleIdxLock() {
+        spin_lock(&handleIdxLock);
+    }
 
+    void releaseHandleIdxLock() {
+        spin_unlock(&handleIdxLock);
+    }
+
+    // variables related to prefetching
+    std::atomic<uint8_t> prefetchStatus;
+    thread_t prefetchTid;
+
+#ifdef _LATENCY_STATS
+    struct latency_stat latStats[FDB_LATENCY_NUM_STATS];
+#endif //_LATENCY_STATS
+
+private:
     std::string fileName;             // Current file name.
     std::atomic<uint32_t> refCount;
     uint8_t fMgrFlags;
@@ -930,10 +1107,6 @@ public:
     void (*free_kv_header)(FileMgr *file); // callback function
     std::atomic<uint32_t> throttlingDelay;
 
-    // variables related to prefetching
-    std::atomic<uint8_t> prefetchStatus;
-    thread_t prefetchTid;
-
     // File format version
     filemgr_magic_t fMgrVersion;
 
@@ -941,10 +1114,6 @@ public:
     struct superblock *fMgrSb;
 
     KvsStatOperations kvsStatOps;
-
-#ifdef _LATENCY_STATS
-    struct latency_stat latStats[FDB_LATENCY_NUM_STATS];
-#endif //_LATENCY_STATS
 
     // spin lock for small region
     spin_t fMgrLock;
@@ -964,6 +1133,7 @@ public:
     // CRC the file is using.
     crc_mode_e crcMode;
 
+    // Encryption type
     encryptor fMgrEncryption;
 
     StaleDataManagerBase *staleData;
@@ -977,13 +1147,9 @@ public:
     // spin lock for dirty_update_idx
     spin_t dirtyUpdateLock;
 
-    /**
-     * Index for fdb_file_handle belonging to the same filemgr handle.
-     */
+    // Index for fdb_file_handle belonging to the same filemgr handle.
     struct avl_tree handleIdx;
-    /**
-     * Spin lock for file handle index.
-     */
+    // Spin lock for file handle index.
     spin_t handleIdxLock;
 };
 

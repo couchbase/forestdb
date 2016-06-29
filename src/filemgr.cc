@@ -282,15 +282,17 @@ FileMgr::FileMgr()
       fMgrWal(nullptr), fMgrOps(nullptr), fMgrStatus(FILE_NORMAL),
       fileConfig(nullptr), newFile(nullptr), prevFile(nullptr), bCache(nullptr),
       inPlaceCompaction(false), fsType(0), kvHeader(nullptr),
-      throttlingDelay(0), prefetchStatus(FILEMGR_PREFETCH_IDLE), prefetchTid(0),
-      fMgrVersion(0), fMgrSb(nullptr), kvsStatOps(this), crcMode(CRC_DEFAULT),
-      staleData(nullptr), latestDirtyUpdate(nullptr)
+      throttlingDelay(0), fMgrVersion(0), fMgrSb(nullptr), kvsStatOps(this),
+      crcMode(CRC_DEFAULT), staleData(nullptr), latestDirtyUpdate(nullptr)
 {
 
     fMgrHeader.bid = 0;
     fMgrHeader.op_stat.reset();
 
     memset(&globalTxn, 0, sizeof(fdb_txn));
+
+    prefetchStatus = FILEMGR_PREFETCH_IDLE;
+    prefetchTid = 0;
 
 #ifdef _LATENCY_STATS
     for (int i = 0; i < FDB_LATENCY_NUM_STATS; ++i) {
@@ -581,17 +583,17 @@ static fdb_status _filemgr_read_header(FileMgr *file,
     buf = (uint8_t *) _filemgr_get_temp_buf();
 
     // If a header is found crc_mode can change to reflect the file
-    if (file->crcMode == CRC32) {
+    if (file->getCrcMode() == CRC32) {
         check_crc32_open_rule = true;
     }
 
-    hdr_bid = (file->lastPos.load() / file->blockSize) - 1;
+    hdr_bid = (file->getPos() / file->getBlockSize()) - 1;
     hdr_bid_local = hdr_bid;
 
-    if (file->fMgrSb) {
+    if (file->getSb()) {
         // superblock exists .. file size does not start from zero.
-        min_filesize = file->fMgrSb->config->num_sb * file->blockSize;
-        bid_t sb_last_hdr_bid = file->fMgrSb->last_hdr_bid.load();
+        min_filesize = file->getSb()->config->num_sb * file->getBlockSize();
+        bid_t sb_last_hdr_bid = file->getSb()->last_hdr_bid.load();
         if (sb_last_hdr_bid != BLK_NOT_FOUND) {
             hdr_bid = hdr_bid_local = sb_last_hdr_bid;
         }
@@ -599,54 +601,54 @@ static fdb_status _filemgr_read_header(FileMgr *file,
         // get DB header at the end of the file.
     }
 
-    if (file->lastPos.load() > min_filesize) {
+    if (file->getPos() > min_filesize) {
         // Crash Recovery Test 1: unaligned last block write
-        uint64_t remain = file->lastPos.load() % file->blockSize;
+        uint64_t remain = file->getPos() % file->getBlockSize();
         if (remain) {
-            file->lastPos.fetch_sub(remain);
-            file->lastCommit.store(file->lastPos.load());
+            file->decrPos(remain);
+            file->setLastCommit(file->getPos());
             const char *msg = "Crash Detected: %" _F64 " non-block aligned "
                 "bytes discarded from a database file '%s'\n";
             DBG(msg, remain, file->fileName.c_str());
             // TODO: Need to add a better error code
             fdb_log(log_callback, FDB_RESULT_READ_FAIL,
-                    msg, remain, file->fileName.c_str());
+                    msg, remain, file->getFileName().c_str());
         }
 
         size_t block_counter = 0;
         do {
-            if (hdr_bid_local * file->blockSize >= file->lastPos) {
+            if (hdr_bid_local * file->getBlockSize() >= file->getPos()) {
                 // Handling EOF scenario
                 status = FDB_RESULT_NO_DB_HEADERS;
                 const char *msg = "Unable to read block from file '%s' as EOF "
                     "reached\n";
-                fdb_log(log_callback, status, msg, file->fileName.c_str());
+                fdb_log(log_callback, status, msg, file->getFileName().c_str());
                 break;
             }
             ssize_t rv = file->readBlock(buf, hdr_bid_local);
-            if (rv != (ssize_t)file->blockSize) {
+            if (rv != (ssize_t)file->getBlockSize()) {
                 status = (fdb_status)rv;
                 const char *msg = "Unable to read a database file '%s' with "
                     "blocksize %u\n";
-                DBG(msg, file->fileName.c_str(), file->blockSize);
-                fdb_log(log_callback, status, msg, file->fileName.c_str(),
-                        file->blockSize);
+                DBG(msg, file->fileName.c_str(), file->getBlockSize());
+                fdb_log(log_callback, status, msg, file->getFileName().c_str(),
+                        file->getBlockSize());
                 break;
             }
             ++block_counter;
-            memcpy(marker, buf + file->blockSize - BLK_MARKER_SIZE,
+            memcpy(marker, buf + file->getBlockSize() - BLK_MARKER_SIZE,
                    BLK_MARKER_SIZE);
 
             if (marker[0] == BLK_MARKER_DBHEADER) {
                 // possible need for byte conversions here
                 memcpy(&magic,
-                       buf + file->blockSize - BLK_MARKER_SIZE - sizeof(magic),
+                       buf + file->getBlockSize() - BLK_MARKER_SIZE - sizeof(magic),
                        sizeof(magic));
                 magic = _endian_decode(magic);
 
                 if (ver_is_valid_magic(magic)) {
                     memcpy(&len,
-                           buf + file->blockSize - BLK_MARKER_SIZE -
+                           buf + file->getBlockSize() - BLK_MARKER_SIZE -
                            sizeof(magic) - sizeof(len),
                            sizeof(len));
                     len = _endian_decode(len);
@@ -655,14 +657,16 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                     crc_file = _endian_decode(crc_file);
 
                     // crc check and detect the crc_mode
-                    if (detect_and_check_crc(
-                                reinterpret_cast<const uint8_t*>(buf),
-                                len - sizeof(crc),
-                                crc_file,
-                                &file->crcMode)) {
+                    crc_mode_e crc_mode = file->getCrcMode();
+                    bool ret = detect_and_check_crc(reinterpret_cast<const uint8_t*>(buf),
+                                                    len - sizeof(crc),
+                                                    crc_file,
+                                                    &crc_mode);
+                    file->setCrcMode(crc_mode);
+                    if (ret) {
                         // crc mode is detected and known.
                         // check the rules of opening legacy CRC
-                        if (check_crc32_open_rule && file->crcMode != CRC32) {
+                        if (check_crc32_open_rule && file->getCrcMode() != CRC32) {
                             const char *msg = "Open of CRC32C file"
                                 " with forced CRC32\n";
                             status = FDB_RESULT_INVALID_ARGS;
@@ -672,13 +676,14 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                         } else {
                             status = FDB_RESULT_SUCCESS;
 
-                            file->fMgrHeader.data = (void*) malloc (file->blockSize);
-                            memcpy(file->fMgrHeader.data, buf, len);
+                            file->accessHeader()->data =
+                                          (void*) malloc (file->getBlockSize());
+                            memcpy(file->accessHeader()->data, buf, len);
 
-                            memcpy(&file->fMgrHeader.revnum, buf + len,
+                            memcpy(&file->accessHeader()->revnum, buf + len,
                                    sizeof(filemgr_header_revnum_t));
 
-                            memcpy(&file->fMgrHeader.seqnum,
+                            memcpy(&file->accessHeader()->seqnum,
                                    buf + len + sizeof(filemgr_header_revnum_t),
                                    sizeof(fdb_seqnum_t));
 
@@ -686,21 +691,23 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                                 // last_writable_bmp_revnum should be same with
                                 // the current bmp_revnum (since it indicates the
                                 // 'bmp_revnum' of 'sb->cur_alloc_bid').
-                                file->lastWritableBmpRevnum.store(
-                                        file->getSbBmpRevnum());
+                                file->setLastWritableBmpRevnum(
+                                                        file->getSbBmpRevnum());
                             }
 
-                            file->fMgrHeader.revnum = _endian_decode(file->fMgrHeader.revnum);
-                            file->fMgrHeader.seqnum = _endian_decode(file->fMgrHeader.seqnum.load());
+                            file->accessHeader()->revnum =
+                                _endian_decode(file->accessHeader()->revnum);
+                            file->accessHeader()->seqnum =
+                                _endian_decode(file->accessHeader()->seqnum.load());
 
-                            file->fMgrHeader.size = len;
-                            file->fMgrHeader.bid = hdr_bid_local;
+                            file->accessHeader()->size = len;
+                            file->accessHeader()->bid = hdr_bid_local;
 
                             // release temp buffer
                             _filemgr_release_temp_buf(buf);
                         }
 
-                        file->fMgrVersion = magic;
+                        file->setVersion(magic);
                         return status;
                     } else {
                         status = FDB_RESULT_CHECKSUM_ERROR;
@@ -717,14 +724,14 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                             "in a database file '%s'\n";
                         DBG(msg, crc_file, crc32, crc32c, file->fileName.c_str());
                         fdb_log(log_callback, status, msg, crc_file, crc32, crc32c,
-                                file->fileName.c_str());
+                                file->getFileName().c_str());
                     }
                 } else {
                     status = FDB_RESULT_FILE_CORRUPTION;
                     const char *msg = "Crash Detected: Wrong Magic %" _F64
                         " in a database file '%s'\n";
                     fdb_log(log_callback, status, msg, magic,
-                            file->fileName.c_str());
+                            file->getFileName().c_str());
                 }
             } else {
                 status = FDB_RESULT_NO_DB_HEADERS;
@@ -733,16 +740,16 @@ static fdb_status _filemgr_read_header(FileMgr *file,
                         "in a database file '%s'\n";
                     DBG(msg, marker[0], file->fileName.c_str());
                     fdb_log(log_callback, status, msg, marker[0],
-                            file->fileName.c_str());
+                            file->getFileName().c_str());
                 }
             }
 
-            file->lastCommit.store(hdr_bid_local * file->blockSize);
+            file->setLastCommit(hdr_bid_local * file->getBlockSize());
             // traverse headers in a circular manner
             if (hdr_bid_local) {
                 hdr_bid_local--;
             } else {
-                hdr_bid_local = (file->lastPos.load() / file->blockSize) - 1;
+                hdr_bid_local = (file->getPos() / file->getBlockSize()) - 1;
             }
         } while (hdr_bid_local != hdr_bid);
     }
@@ -750,17 +757,17 @@ static fdb_status _filemgr_read_header(FileMgr *file,
     // release temp buffer
     _filemgr_release_temp_buf(buf);
 
-    file->fMgrHeader.reset();
-    file->fMgrVersion = magic;
+    file->accessHeader()->reset();
+    file->setVersion(magic);
     return status;
 }
 
 size_t FileMgr::getRefCount()
 {
     size_t ret = 0;
-    spin_lock(&fMgrLock);
-    ret = refCount.load();
-    spin_unlock(&fMgrLock);
+    acquireSpinLock();
+    ret = getRefCount_UNLOCKED();
+    releaseSpinLock();
     return ret;
 }
 
@@ -785,16 +792,16 @@ struct filemgr_prefetch_args {
 static void *_filemgr_prefetch_thread(void *voidargs)
 {
     struct filemgr_prefetch_args *args = (struct filemgr_prefetch_args*)voidargs;
-    uint8_t *buf = alca(uint8_t, args->file->blockSize);
+    uint8_t *buf = alca(uint8_t, args->file->getBlockSize());
     uint64_t cur_pos = 0, i;
     uint64_t bcache_free_space;
     bid_t bid;
     bool terminate = false;
     struct timeval begin, cur, gap;
 
-    spin_lock(&args->file->fMgrLock);
-    cur_pos = args->file->lastCommit.load();
-    spin_unlock(&args->file->fMgrLock);
+    args->file->acquireSpinLock();
+    cur_pos = args->file->getLastCommit();
+    args->file->releaseSpinLock();
     if (cur_pos < FILEMGR_PREFETCH_UNIT) {
         terminate = true;
     } else {
@@ -805,12 +812,12 @@ static void *_filemgr_prefetch_thread(void *voidargs)
     while (!terminate) {
         for (i = cur_pos;
              i < cur_pos + FILEMGR_PREFETCH_UNIT;
-             i += args->file->blockSize) {
+             i += args->file->getBlockSize()) {
 
             gettimeofday(&cur, NULL);
             gap = _utime_gap(begin, cur);
             bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
-            bcache_free_space *= args->file->blockSize;
+            bcache_free_space *= args->file->getBlockSize();
 
             if (args->file->prefetchStatus.load() == FILEMGR_PREFETCH_ABORT ||
                 gap.tv_sec >= (int64_t)args->duration ||
@@ -822,14 +829,14 @@ static void *_filemgr_prefetch_thread(void *voidargs)
                 terminate = true;
                 break;
             } else {
-                bid = i / args->file->blockSize;
+                bid = i / args->file->getBlockSize();
                 if (args->file->read_FileMgr(bid, buf, NULL, true)
                         != FDB_RESULT_SUCCESS) {
                     // 4. read failure
                     fdb_log(args->log_callback, FDB_RESULT_READ_FAIL,
                             "Prefetch thread failed to read a block with block "
                             "id %" _F64 " from a database file '%s'",
-                            bid, args->file->fileName.c_str());
+                            bid, args->file->getFileName().c_str());
                     terminate = true;
                     break;
                 }
@@ -857,12 +864,12 @@ void filemgr_prefetch(FileMgr *file,
     uint64_t bcache_free_space;
 
     bcache_free_space = BlockCacheManager::getInstance()->getNumFreeBlocks();
-    bcache_free_space *= file->blockSize;
+    bcache_free_space *= file->getBlockSize();
 
     // block cache should have free space larger than FILEMGR_PREFETCH_UNIT
-    spin_lock(&file->fMgrLock);
+    file->acquireSpinLock();
     filemgr_prefetch_status_t cond = FILEMGR_PREFETCH_IDLE;
-    if (file->lastCommit.load() > 0 &&
+    if (file->getLastCommit() > 0 &&
         bcache_free_space >= FILEMGR_PREFETCH_UNIT &&
         file->prefetchStatus.compare_exchange_strong(cond,
                                                       FILEMGR_PREFETCH_RUNNING)) {
@@ -875,7 +882,7 @@ void filemgr_prefetch(FileMgr *file,
         args->log_callback = log_callback;
         thread_create(&file->prefetchTid, _filemgr_prefetch_thread, args);
     }
-    spin_unlock(&file->fMgrLock);
+    file->releaseSpinLock();
 }
 
 fdb_status filemgr_does_file_exist(const char *filename) {
@@ -949,7 +956,7 @@ filemgr_open_result FileMgr::open(std::string filename,
             return result;
         }
 
-        spin_lock(&file->fMgrLock);
+        file->acquireSpinLock();
 
         if (file->fMgrStatus.load() == FILE_CLOSED) { // if file was closed before
             file_flag = O_RDWR;
@@ -968,8 +975,8 @@ filemgr_open_result FileMgr::open(std::string filename,
                     // Clean up FileMgrMap's unordered map, WAL index, and buffer cache.
                     // Then, retry it with a create option below IFF it is not
                     // a read-only open attempt
-                    spin_unlock(&file->fMgrLock);
-                    FileMgrMap::get()->removeEntry(file->fileName);
+                    file->releaseSpinLock();
+                    FileMgrMap::get()->removeEntry(file->getFileName());
                     FileMgr::freeFunc(file);
                     if (!create) {
                         _log_errno_str(ops, log_callback,
@@ -983,7 +990,7 @@ filemgr_open_result FileMgr::open(std::string filename,
                     _log_errno_str(file->fMgrOps, log_callback,
                                    (fdb_status)file->fd, "OPEN", filename.c_str());
                     file->refCount--;
-                    spin_unlock(&file->fMgrLock);
+                    file->releaseSpinLock();
                     spin_unlock(&filemgr_openlock);
                     result.rv = file->fd;
                     return result;
@@ -996,7 +1003,7 @@ filemgr_open_result FileMgr::open(std::string filename,
                     file->fMgrFlags &= ~FILEMGR_SYNC;
                 }
 
-                spin_unlock(&file->fMgrLock);
+                file->releaseSpinLock();
                 spin_unlock(&filemgr_openlock);
 
                 result.file = file;
@@ -1011,7 +1018,7 @@ filemgr_open_result FileMgr::open(std::string filename,
                 file->fMgrFlags &= ~FILEMGR_SYNC;
             }
 
-            spin_unlock(&file->fMgrLock);
+            file->releaseSpinLock();
             spin_unlock(&filemgr_openlock);
             result.file = file;
             result.rv = FDB_RESULT_SUCCESS;
@@ -1097,7 +1104,7 @@ filemgr_open_result FileMgr::open(std::string filename,
 
         // read header
         status = _filemgr_read_header(file, log_callback);
-        if (file->fMgrSb && status == FDB_RESULT_NO_DB_HEADERS) {
+        if (file->getSb() && status == FDB_RESULT_NO_DB_HEADERS) {
             // this happens when user created & closed a file without any mutations,
             // thus there is no other data but superblocks.
             // we can tolerate this case.
@@ -1105,7 +1112,7 @@ filemgr_open_result FileMgr::open(std::string filename,
             _log_errno_str(file->fMgrOps, log_callback, status, "READ",
                            filename.c_str());
             file->fMgrOps->close(file->fd);
-            if (file->fMgrSb) {
+            if (file->getSb()) {
                 sb_ops.release(file);
             }
             delete file->staleData;
@@ -1116,8 +1123,8 @@ filemgr_open_result FileMgr::open(std::string filename,
             return result;
         }
 
-        if (file->fMgrSb &&
-            file->fMgrHeader.revnum != file->fMgrSb->last_hdr_revnum.load()) {
+        if (file->getSb() &&
+            file->accessHeader()->revnum != file->getSb()->last_hdr_revnum.load()) {
             // superblock exists but the corresponding DB header does not match.
             // read another candidate.
             continue;
@@ -1142,8 +1149,8 @@ filemgr_open_result FileMgr::open(std::string filename,
                                malloc(sizeof(struct wal_txn_wrapper));
     file->globalTxn.wrapper->txn = &file->globalTxn;
     file->globalTxn.handle = NULL;
-    if (file->lastPos.load()) {
-        file->globalTxn.prev_hdr_bid = (file->lastPos.load() / file->blockSize) - 1;
+    if (file->getPos()) {
+        file->globalTxn.prev_hdr_bid = (file->getPos() / file->getBlockSize()) - 1;
     } else {
         file->globalTxn.prev_hdr_bid = BLK_NOT_FOUND;
     }
@@ -1177,7 +1184,7 @@ uint64_t FileMgr::updateHeader(void *buf,
                                size_t len,
                                bool inc_revnum) {
     uint64_t ret;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     if (fMgrHeader.data == nullptr) {
         fMgrHeader.data = (void *)malloc(blockSize);
     }
@@ -1189,22 +1196,22 @@ uint64_t FileMgr::updateHeader(void *buf,
     }
     ret = fMgrHeader.revnum;
 
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
     return ret;
 }
 
 filemgr_header_revnum_t FileMgr::getHeaderRevnum() {
     filemgr_header_revnum_t ret;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     ret = fMgrHeader.revnum;
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
     return ret;
 }
 
 // 'filemgr_get_seqnum', 'filemgr_set_seqnum',
 // 'filemgr_get_walflush_revnum', 'filemgr_set_walflush_revnum'
 // have to be protected by 'filemgr_mutex_lock' & 'filemgr_mutex_unlock'.
-fdb_seqnum_t FileMgr::getSeqnum() {
+fdb_seqnum_t FileMgr::getSeqnum() const {
     return fMgrHeader.seqnum;
 }
 
@@ -1215,7 +1222,7 @@ void FileMgr::setSeqnum(fdb_seqnum_t seqnum) {
 void* FileMgr::getHeader(void *buf, size_t *len,
                          bid_t *header_bid, fdb_seqnum_t *seqnum,
                          filemgr_header_revnum_t *header_revnum) {
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
 
     if (fMgrHeader.size > 0) {
         if (buf == NULL) {
@@ -1237,7 +1244,7 @@ void* FileMgr::getHeader(void *buf, size_t *len,
         *header_revnum = fMgrHeader.revnum;
     }
 
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 
     return buf;
 }
@@ -1524,20 +1531,21 @@ uint64_t FileMgr::fetchPrevHeader(uint64_t bid, void *buf, size_t *len,
 
 static void update_file_pointers(FileMgr *file) {
     // Update new_file pointers of all previously redirected downstream files
-    FileMgr *temp = file->prevFile;
+    FileMgr *temp = file->getPrevFile();
     while (temp != NULL) {
-        spin_lock(&temp->fMgrLock);
-        if (temp->newFile == file) {
-            temp->newFile = file->newFile;
+        temp->acquireSpinLock();
+        if (temp->getNewFile() == file) {
+            temp->setNewFile(file->getNewFile());
         }
-        spin_unlock(&temp->fMgrLock);
-        temp = temp->prevFile;
+        temp->releaseSpinLock();
+        temp = temp->getPrevFile();
     }
     // Update prev_file pointer of the upstream file if any
-    if (file->newFile != NULL) {
-        spin_lock(&file->newFile->fMgrLock);
-        file->newFile->prevFile = file->prevFile;
-        spin_unlock(&file->newFile->fMgrLock);
+    FileMgr *new_file = file->getNewFile();
+    if (new_file != NULL) {
+        new_file->acquireSpinLock();
+        new_file->setPrevFile(file->getPrevFile());
+        new_file->releaseSpinLock();
     }
 }
 
@@ -1557,28 +1565,28 @@ fdb_status FileMgr::close(FileMgr *file,
                                   // prevent the race condition.
 
     // remove filemgr structure if no thread refers to the file
-    spin_lock(&file->fMgrLock);
-    if (file->refCount.load() == 0) {
+    file->acquireSpinLock();
+    if (file->getRefCount_UNLOCKED() == 0) {
         if (global_config.getNcacheBlock() > 0 &&
-            file->fMgrStatus.load() != FILE_REMOVED_PENDING) {
-            spin_unlock(&file->fMgrLock);
+            file->getFileStatus() != FILE_REMOVED_PENDING) {
+            file->releaseSpinLock();
             // discard all dirty blocks belonged to this file
             BlockCacheManager::getInstance()->removeDirtyBlocks(file);
         } else {
             // If the file is in pending removal (i.e., FILE_REMOVED_PENDING),
             // then its dirty block entries will be cleaned up in either
             // FileMgr::freeFunc() or register_file_removal() below.
-            spin_unlock(&file->fMgrLock);
+            file->releaseSpinLock();
         }
 
         if (file->fMgrWal) {
             file->fMgrWal->close_Wal(log_callback);
         }
 #ifdef _LATENCY_STATS_DUMP_TO_FILE
-        LatencyStat::dump(file, log_callback);
+        LatencyStats::dump(file, log_callback);
 #endif // _LATENCY_STATS_DUMP_TO_FILE
 
-        spin_lock(&file->fMgrLock);
+        file->acquireSpinLock();
 
         if (file->fMgrStatus.load() == FILE_REMOVED_PENDING) {
 
@@ -1609,8 +1617,8 @@ fdb_status FileMgr::close(FileMgr *file,
             }
 
             // we can release lock becuase no one will open this file
-            spin_unlock(&file->fMgrLock);
-            FileMgrMap::get()->removeEntry(file->fileName);
+            file->releaseSpinLock();
+            FileMgrMap::get()->removeEntry(file->getFileName());
 
             update_file_pointers(file);
             spin_unlock(&filemgr_openlock);
@@ -1658,9 +1666,9 @@ fdb_status FileMgr::close(FileMgr *file,
                         }
                     }
                 }
-                spin_unlock(&file->fMgrLock);
-                // Clean up FileMgrMap's unordered map, WAL index, and buffer cache.
-                FileMgrMap::get()->removeEntry(file->fileName);
+                file->releaseSpinLock();
+                // Clean up FileMgrFactory's unordered map, WAL index, and buffer cache.
+                FileMgrMap::get()->removeEntry(file->getFileName());
 
                 update_file_pointers(file);
                 spin_unlock(&filemgr_openlock);
@@ -1676,7 +1684,7 @@ fdb_status FileMgr::close(FileMgr *file,
     _log_errno_str(file->fMgrOps, log_callback, (fdb_status)rv, "CLOSE",
                    file->fileName.c_str());
 
-    spin_unlock(&file->fMgrLock);
+    file->releaseSpinLock();
     spin_unlock(&filemgr_openlock);
     return (fdb_status) rv;
 }
@@ -1719,7 +1727,7 @@ void FileMgr::freeFunc(FileMgr *file)
         file->bCache.store(NULL, std::memory_order_relaxed);
     }
 
-    if (file->kvHeader) {
+    if (file->getKVHeader_UNLOCKED()) {
         // multi KV intance mode & KV header exists
         file->free_kv_header(file);
     }
@@ -1737,9 +1745,9 @@ void FileMgr::freeFunc(FileMgr *file)
     }
 
     // free file header
-    if (file->fMgrHeader.data) {
-        free(file->fMgrHeader.data);
-        file->fMgrHeader.data = nullptr;
+    if (file->accessHeader()->data) {
+        free(file->accessHeader()->data);
+        file->accessHeader()->data = nullptr;
     }
 
     // free superblock
@@ -1782,13 +1790,13 @@ void FileMgr::removeFile(FileMgr *file,
 
 static void* _filemgr_is_closed(FileMgr *file, void *ctx) {
     void *ret;
-    spin_lock(&file->fMgrLock);
-    if (file->refCount.load() != 0) {
+    file->acquireSpinLock();
+    if (file->getRefCount_UNLOCKED() != 0) {
         ret = (void *)file;
     } else {
         ret = NULL;
     }
-    spin_unlock(&file->fMgrLock);
+    file->releaseSpinLock();
     return ret;
 }
 
@@ -1847,7 +1855,7 @@ fdb_status FileMgr::shutdown()
 }
 
 bid_t FileMgr::alloc_FileMgr(ErrLogCallback *log_callback) {
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     bid_t bid = BLK_NOT_FOUND;
 
     // block reusing is not allowed for being compacted file
@@ -1868,7 +1876,7 @@ bid_t FileMgr::alloc_FileMgr(ErrLogCallback *log_callback) {
         _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE",
                        fileName.c_str());
     }
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 
     return bid;
 }
@@ -1877,7 +1885,7 @@ bid_t FileMgr::alloc_FileMgr(ErrLogCallback *log_callback) {
 // the new version of DB file (with superblock support).
 void FileMgr::allocMultiple(int nblock, bid_t *begin,
                             bid_t *end, ErrLogCallback *log_callback) {
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     *begin = lastPos.load() / blockSize;
     *end = *begin + nblock - 1;
     lastPos.fetch_add(blockSize * nblock);
@@ -1889,7 +1897,7 @@ void FileMgr::allocMultiple(int nblock, bid_t *begin,
         _log_errno_str(fMgrOps, log_callback, (fdb_status) rv, "WRITE",
                        fileName.c_str());
     }
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 }
 
 // atomically allocate NBLOCK blocks only when current file position is same
@@ -1899,7 +1907,7 @@ bid_t FileMgr::allocMultipleCond(bid_t nextbid, int nblock,
                                  ErrLogCallback *log_callback)
 {
     bid_t bid;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     bid = lastPos.load() / blockSize;
     if (bid == nextbid) {
         *begin = lastPos.load() / blockSize;
@@ -1917,22 +1925,22 @@ bid_t FileMgr::allocMultipleCond(bid_t nextbid, int nblock,
         *begin = BLK_NOT_FOUND;
         *end = BLK_NOT_FOUND;
     }
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
     return bid;
 }
 
 #ifdef __CRC32
 INLINE fdb_status _filemgr_crc32_check(FileMgr *file, void *buf)
 {
-    if ( *((uint8_t*)buf + file->blockSize-1) == BLK_MARKER_BNODE ) {
+    if ( *((uint8_t*)buf + file->getBlockSize()-1) == BLK_MARKER_BNODE ) {
         uint32_t crc_file = 0;
         memcpy(&crc_file, (uint8_t *) buf + BTREE_CRC_OFFSET, sizeof(crc_file));
         crc_file = _endian_decode(crc_file);
         memset((uint8_t *) buf + BTREE_CRC_OFFSET, 0xff, BTREE_CRC_FIELD_LEN);
         if (!perform_integrity_check(reinterpret_cast<const uint8_t*>(buf),
-                                     file->blockSize,
+                                     file->getBlockSize(),
                                      crc_file,
-                                     file->crcMode)) {
+                                     file->getCrcMode())) {
             return FDB_RESULT_CHECKSUM_ERROR;
         }
     }
@@ -2394,7 +2402,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
         }
     }
 
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
 
     uint16_t header_len = fMgrHeader.size;
     KvsHeader *kv_header = kvHeader;
@@ -2497,7 +2505,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
                        "WRITE", fileName.c_str());
         if (rv != (ssize_t)blockSize) {
             _filemgr_release_temp_buf(buf);
-            spin_unlock(&fMgrLock);
+            releaseSpinLock();
             clearIoInprog();
             return rv < 0 ? (fdb_status) rv : FDB_RESULT_WRITE_FAIL;
         }
@@ -2533,7 +2541,7 @@ fdb_status FileMgr::commitBid(bid_t bid, uint64_t bmp_revnum, bool sync,
         lastWritableBmpRevnum.store(getSbBmpRevnum());
     }
 
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 
     if (sync) {
         result = fMgrOps->fsync(fd);
@@ -2569,7 +2577,7 @@ fdb_status FileMgr::copyFileRange(FileMgr *src_file,
                                   FileMgr *dst_file,
                                   bid_t src_bid, bid_t dst_bid,
                                   bid_t clone_len) {
-    uint32_t blocksize = src_file->blockSize;
+    uint32_t blocksize = src_file->getBlockSize();
     fdb_status fs = (fdb_status)dst_file->fMgrOps->copy_file_range(
                                             src_file->fsType,
                                             src_file->fd,
@@ -2586,7 +2594,7 @@ fdb_status FileMgr::copyFileRange(FileMgr *src_file,
 
 int FileMgr::updateFileStatus(file_status_t status, const char *old_filename) {
     int ret = 1;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     fMgrStatus = status;
     if (old_filename) {
         if (oldFileName.empty()) {
@@ -2596,7 +2604,7 @@ int FileMgr::updateFileStatus(file_status_t status, const char *old_filename) {
             fdb_assert(refCount.load(), refCount.load(), 0);
         }
     }
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
     return ret;
 }
 
@@ -2617,26 +2625,26 @@ void FileMgr::setCompactionState(FileMgr *old_file, FileMgr *new_file,
 bool FileMgr::setKVHeader(KvsHeader *kv_header,
                           void (*free_kv_header)(FileMgr *file)) {
     bool ret;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
 
     if (!kvHeader) {
-        kvHeader = kv_header;
-        this->free_kv_header = free_kv_header;
+        setKVHeader_UNLOCKED(kv_header);
+        setFreeKVHeaderCB(free_kv_header);
         ret = true;
     } else {
         ret = false;
     }
 
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 
     return ret;
 }
 
 KvsHeader* FileMgr::getKVHeader() {
     KvsHeader *kv_header = NULL;
-    spin_lock(&fMgrLock);
-    kv_header = kvHeader;
-    spin_unlock(&fMgrLock);
+    acquireSpinLock();
+    kv_header = getKVHeader_UNLOCKED();
+    releaseSpinLock();
     return kv_header;
 }
 
@@ -2644,17 +2652,17 @@ KvsHeader* FileMgr::getKVHeader() {
 // compacted away. If so open the file and return its pointer.
 static void *_filemgr_check_stale_link(FileMgr *file, void *ctx) {
     FileMgr *cur_file = reinterpret_cast<FileMgr *>(ctx);
-    spin_lock(&file->fMgrLock);
-    if (file->fMgrStatus.load() == FILE_REMOVED_PENDING &&
-        file->newFile == cur_file) {
+    file->acquireSpinLock();
+    if (file->getFileStatus() == FILE_REMOVED_PENDING &&
+        file->getNewFile() == cur_file) {
         // Incrementing reference counter below is the same as Filemgr::open()
         // We need to do this to ensure that the pointer returned does not
         // get freed outside the filemgr_open lock
-        file->refCount++;
-        spin_unlock(&file->fMgrLock);
+        file->incrRefCount();
+        file->releaseSpinLock();
         return (void *)file;
     }
-    spin_unlock(&file->fMgrLock);
+    file->releaseSpinLock();
     return (void *)NULL;
 }
 
@@ -2674,12 +2682,12 @@ char* FileMgr::redirectOldFile(FileMgr *very_old_file,
     char *past_filename;
     spin_lock(&very_old_file->fMgrLock);
 
-    if (very_old_file->fMgrHeader.size == 0 || very_old_file->newFile == NULL) {
+    if (very_old_file->accessHeader()->size == 0 || very_old_file->newFile == NULL) {
         spin_unlock(&very_old_file->fMgrLock);
         return NULL;
     }
 
-    old_header_len = very_old_file->fMgrHeader.size;
+    old_header_len = very_old_file->accessHeader()->size;
     // Find out the new DB header length with new_file's filename
     new_header_len = old_header_len -
                      very_old_file->newFile->fileName.length() +
@@ -2687,18 +2695,18 @@ char* FileMgr::redirectOldFile(FileMgr *very_old_file,
     // As we are going to change the new_filename field in the DB header of the
     // very_old_file, maybe reallocate DB header buf to accomodate bigger value
     if (new_header_len > old_header_len) {
-        very_old_file->fMgrHeader.data = realloc(very_old_file->fMgrHeader.data,
-                                                 new_file->blockSize);
+        very_old_file->accessHeader()->data = realloc(very_old_file->accessHeader()->data,
+                                                 new_file->getBlockSize());
     }
     very_old_file->newFile = new_file; // Re-direct very_old_file to new_file
     // Note that the prev_file pointer of the new_file is not updated, this
     // is so that every file in the history is reachable from the current file.
 
     past_filename = redirect_header_func(very_old_file,
-                                         (uint8_t *)very_old_file->fMgrHeader.data,
+                                         (uint8_t *)very_old_file->accessHeader()->data,
                                          new_file);//Update in-memory header
-    very_old_file->fMgrHeader.size = new_header_len;
-    ++very_old_file->fMgrHeader.revnum;
+    very_old_file->accessHeader()->size = new_header_len;
+    ++very_old_file->accessHeader()->revnum;
 
     spin_unlock(&very_old_file->fMgrLock);
     return past_filename;
@@ -2769,16 +2777,16 @@ fdb_status FileMgr::destroyFile(std::string filename,
     FileMgr *file = FileMgrMap::get()->fetchEntry(filename);
     if (file) {
         // already opened (return existing structure)
-        spin_lock(&file->fMgrLock);
+        file->acquireSpinLock();
         if (file->refCount.load()) {
-            spin_unlock(&file->fMgrLock);
+            file->releaseSpinLock();
             status = FDB_RESULT_FILE_IS_BUSY;
             if (!destroy_file_set) { // top level or non-recursive call
                 destroy_set->clear();
             }
             return status;
         }
-        spin_unlock(&file->fMgrLock);
+        file->releaseSpinLock();
         if (!file->oldFileName.empty()) {
             status = destroyFile(file->oldFileName, config, destroy_set);
             if (status != FDB_RESULT_SUCCESS) {
@@ -2899,51 +2907,51 @@ fdb_status FileMgr::destroyFile(std::string filename,
 
 bool FileMgr::isRollbackOn() {
     bool rv;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     rv = (fMgrFlags & FILEMGR_ROLLBACK_IN_PROG);
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
     return rv;
 }
 
 void FileMgr::setRollback(uint8_t new_val) {
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     if (new_val) {
         fMgrFlags |= FILEMGR_ROLLBACK_IN_PROG;
     } else {
         fMgrFlags &= ~FILEMGR_ROLLBACK_IN_PROG;
     }
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 }
 
 void FileMgr::setCancelCompaction(bool cancel) {
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     if (cancel) {
         fMgrFlags |= FILEMGR_CANCEL_COMPACTION;
     } else {
         fMgrFlags &= ~FILEMGR_CANCEL_COMPACTION;
     }
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 }
 
 bool FileMgr::isCompactionCancellationRequested() {
     bool rv;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     rv = (fMgrFlags & FILEMGR_CANCEL_COMPACTION);
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
     return rv;
 }
 
 void FileMgr::setInPlaceCompaction(bool in_place_compaction) {
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     inPlaceCompaction = in_place_compaction;
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
 }
 
 bool FileMgr::isInPlaceCompactionSet() {
     bool ret = false;
-    spin_lock(&fMgrLock);
+    acquireSpinLock();
     ret = inPlaceCompaction;
-    spin_unlock(&fMgrLock);
+    releaseSpinLock();
     return ret;
 }
 
@@ -3011,7 +3019,7 @@ void FileMgr::setThrottlingDelay(uint64_t delay_us) {
     throttlingDelay.store(delay_us, std::memory_order_relaxed);
 }
 
-uint32_t FileMgr::getThrottlingDelay() {
+uint32_t FileMgr::getThrottlingDelay() const {
     return throttlingDelay.load(std::memory_order_relaxed);
 }
 
@@ -3461,13 +3469,13 @@ fdb_status FileMgr::readDirty(bid_t bid, void *buf,
 
 void KvsStatOperations::statSet(fdb_kvs_id_t kv_id, KvsStat stat) {
     if (kv_id == 0) {
-        spin_lock(&file->fMgrLock);
-        file->fMgrHeader.stat = stat;
-        spin_unlock(&file->fMgrLock);
+        file->acquireSpinLock();
+        file->accessHeader()->stat = stat;
+        file->releaseSpinLock();
     } else {
         struct avl_node *a;
         struct kvs_node query, *node;
-        KvsHeader *kv_header = file->kvHeader;
+        KvsHeader *kv_header = file->getKVHeader_UNLOCKED();
 
         spin_lock(&kv_header->lock);
         query.id = kv_id;
@@ -3483,25 +3491,22 @@ void KvsStatOperations::statSet(fdb_kvs_id_t kv_id, KvsStat stat) {
 void KvsStatOperations::statUpdateAttr(fdb_kvs_id_t kv_id,
                                        kvs_stat_attr_t attr,
                                        int delta) {
-    spin_t *lock = NULL;
     KvsStat *stat;
+    KvsHeader *kv_header = file->getKVHeader_UNLOCKED();
 
     if (kv_id == 0) {
-        stat = &file->fMgrHeader.stat;
-        lock = &file->fMgrLock;
-        spin_lock(lock);
+        stat = &file->accessHeader()->stat;
+        file->acquireSpinLock();
     } else {
         struct avl_node *a;
         struct kvs_node query, *node;
-        KvsHeader *kv_header = file->kvHeader;
 
-        lock = &kv_header->lock;
-        spin_lock(lock);
+        spin_lock(&kv_header->lock);
         query.id = kv_id;
         a = avl_search(kv_header->idx_id, &query.avl_id, _kvs_stat_cmp);
         if (!a) {
             // KV instance corresponding to the kv_id is already removed
-            spin_unlock(lock);
+            spin_unlock(&kv_header->lock);
             return;
         }
         node = _get_entry(a, struct kvs_node, avl_id);
@@ -3523,7 +3528,12 @@ void KvsStatOperations::statUpdateAttr(fdb_kvs_id_t kv_id,
     } else if (attr == KVS_STAT_DELTASIZE) {
         stat->deltasize += delta;
     }
-    spin_unlock(lock);
+
+    if (kv_id == 0) {
+        file->releaseSpinLock();
+    } else {
+        spin_unlock(&kv_header->lock);
+    }
 }
 
 int KvsStatOperations::statGetKvHeader(KvsHeader *kv_header,
@@ -3549,11 +3559,11 @@ int KvsStatOperations::statGet(fdb_kvs_id_t kv_id,
     int ret = 0;
 
     if (kv_id == 0) {
-        spin_lock(&file->fMgrLock);
-        *stat = file->fMgrHeader.stat;
-        spin_unlock(&file->fMgrLock);
+        file->acquireSpinLock();
+        *stat = file->accessHeader()->stat;
+        file->releaseSpinLock();
     } else {
-        KvsHeader *kv_header = file->kvHeader;
+        KvsHeader *kv_header = file->getKVHeader_UNLOCKED();
 
         spin_lock(&kv_header->lock);
         ret = statGetKvHeader(kv_header, kv_id, stat);
@@ -3566,26 +3576,26 @@ int KvsStatOperations::statGet(fdb_kvs_id_t kv_id,
 uint64_t KvsStatOperations::statGetSum(kvs_stat_attr_t attr) {
     struct avl_node *a;
     struct kvs_node *node;
-    KvsHeader *kv_header = file->kvHeader;
+    KvsHeader *kv_header = file->getKVHeader_UNLOCKED();
 
     uint64_t ret = 0;
-    spin_lock(&file->fMgrLock);
+    file->acquireSpinLock();
     if (attr == KVS_STAT_DATASIZE) {
-        ret += file->fMgrHeader.stat.datasize;
+        ret += file->accessHeader()->stat.datasize;
     } else if (attr == KVS_STAT_NDOCS) {
-        ret += file->fMgrHeader.stat.ndocs;
+        ret += file->accessHeader()->stat.ndocs;
     } else if (attr == KVS_STAT_NDELETES) {
-        ret += file->fMgrHeader.stat.ndeletes;
+        ret += file->accessHeader()->stat.ndeletes;
     } else if (attr == KVS_STAT_NLIVENODES) {
-        ret += file->fMgrHeader.stat.nlivenodes;
+        ret += file->accessHeader()->stat.nlivenodes;
     } else if (attr == KVS_STAT_WAL_NDELETES) {
-        ret += file->fMgrHeader.stat.wal_ndeletes;
+        ret += file->accessHeader()->stat.wal_ndeletes;
     } else if (attr == KVS_STAT_WAL_NDOCS) {
-        ret += file->fMgrHeader.stat.wal_ndocs;
+        ret += file->accessHeader()->stat.wal_ndocs;
     } else if (attr == KVS_STAT_DELTASIZE) {
-        ret += file->fMgrHeader.stat.deltasize;
+        ret += file->accessHeader()->stat.deltasize;
     }
-    spin_unlock(&file->fMgrLock);
+    file->releaseSpinLock();
 
     if (kv_header) {
         spin_lock(&kv_header->lock);
@@ -3639,11 +3649,11 @@ int KvsStatOperations::opsStatGet(fdb_kvs_id_t kv_id,
     int ret = 0;
 
     if (kv_id == 0) {
-        spin_lock(&file->fMgrLock);
-        *stat = file->fMgrHeader.op_stat;
-        spin_unlock(&file->fMgrLock);
+        file->acquireSpinLock();
+        *stat = file->accessHeader()->op_stat;
+        file->releaseSpinLock();
     } else {
-        KvsHeader *kv_header = file->kvHeader;
+        KvsHeader *kv_header = file->getKVHeader_UNLOCKED();
 
         spin_lock(&kv_header->lock);
         ret = opsStatGetKvHeader(kv_header, kv_id, stat);
@@ -3656,9 +3666,9 @@ int KvsStatOperations::opsStatGet(fdb_kvs_id_t kv_id,
 KvsOpsStat* KvsStatOperations::getOpsStats(KvsInfo *kvs) {
     KvsOpsStat *stat = NULL;
     if (!kvs || (kvs && kvs->getKvsId() == 0)) {
-        return &file->fMgrHeader.op_stat;
+        return &file->accessHeader()->op_stat;
     } else {
-        KvsHeader *kv_header = file->kvHeader;
+        KvsHeader *kv_header = file->getKVHeader_UNLOCKED();
         struct avl_node *a;
         struct kvs_node query, *node;
         spin_lock(&kv_header->lock);
@@ -3681,10 +3691,10 @@ KvsOpsStat* KvsStatOperations::migrateOpStats(FileMgr *old_file,
         return NULL;
     }
 
-    spin_lock(&old_file->fMgrLock);
-    new_file->fMgrHeader.op_stat = old_file->fMgrHeader.op_stat;
-    ret = &new_file->fMgrHeader.op_stat;
-    spin_unlock(&old_file->fMgrLock);
+    old_file->acquireSpinLock();
+    new_file->accessHeader()->op_stat = old_file->accessHeader()->op_stat;
+    ret = &new_file->accessHeader()->op_stat;
+    old_file->releaseSpinLock();
     return ret;
 }
 
@@ -3749,7 +3759,7 @@ fdb_seqnum_t fdb_kvs_get_seqnum(FileMgr *file,
         return file->getSeqnum();
     }
 
-    return _fdb_kvs_get_seqnum(file->kvHeader, id);
+    return _fdb_kvs_get_seqnum(file->getKVHeader_UNLOCKED(), id);
 }
 
 #ifdef _LATENCY_STATS
@@ -3767,13 +3777,13 @@ void LatencyStats::destroy(struct latency_stat *val) {
 void LatencyStats::migrate(FileMgr *src, FileMgr *dst) {
     for (int type = 0; type < FDB_LATENCY_NUM_STATS; ++type) {
         dst->latStats[type].lat_min.store(src->latStats[type].lat_min.load(),
-                                           std::memory_order_relaxed);
+                                          std::memory_order_relaxed);
         dst->latStats[type].lat_max.store(src->latStats[type].lat_max.load(),
-                                           std::memory_order_relaxed);
+                                          std::memory_order_relaxed);
         dst->latStats[type].lat_sum.store(src->latStats[type].lat_sum.load(),
-                                           std::memory_order_relaxed);
+                                          std::memory_order_relaxed);
         dst->latStats[type].lat_num.store(src->latStats[type].lat_num.load(),
-                                           std::memory_order_relaxed);
+                                          std::memory_order_relaxed);
     }
 }
 
@@ -3785,7 +3795,7 @@ void LatencyStats::update(FileMgr *file, fdb_latency_stat_type type,
                                                     std::memory_order_relaxed);
         if (lat_max < val) {
             if (!file->latStats[type].lat_max.compare_exchange_strong(lat_max,
-                                                                       val)) {
+                                                                      val)) {
                 continue;
             }
         }
@@ -3797,7 +3807,7 @@ void LatencyStats::update(FileMgr *file, fdb_latency_stat_type type,
                                                     std::memory_order_relaxed);
         if (val < lat_min) {
             if (!file->latStats[type].lat_min.compare_exchange_strong(lat_min,
-                                                                       val)) {
+                                                                      val)) {
                 continue;
             }
         }
@@ -3826,7 +3836,7 @@ static const int _MAX_STATSFILE_LEN = FDB_MAX_FILENAME_LEN + 4;
 void LatencyStats::dump(FileMgr *file, ErrLogCallback *log_callback) {
     FILE *lat_file;
     char latency_file_path[_MAX_STATSFILE_LEN];
-    strncpy(latency_file_path, file->fileName.c_str(), _MAX_STATSFILE_LEN);
+    strncpy(latency_file_path, file->getFileName().c_str(), _MAX_STATSFILE_LEN);
     strncat(latency_file_path, ".lat", _MAX_STATSFILE_LEN);
     lat_file = fopen(latency_file_path, "a");
     if (!lat_file) {

@@ -54,7 +54,7 @@ void print_header(fdb_kvs_handle *db)
     printf("DB header info:\n");
 
     db->file->getHeader(header_buf, &header_len, NULL, NULL, NULL);
-    version = db->file->fMgrVersion;
+    version = db->file->getVersion();
     if (header_len > 0) {
         fdb_fetch_header(version, header_buf, &trie_root_bid, &seq_root_bid,
                          &stale_root_bid, &ndocs, &ndeletes, &nlivenodes,
@@ -137,13 +137,13 @@ void print_header(fdb_kvs_handle *db)
             struct kvs_node *node, query;
             struct avl_node *a;
 
-            ndocs = db->file->kvsStatOps.statGetSum(KVS_STAT_NDOCS);
-            ndeletes = db->file->kvsStatOps.statGetSum(KVS_STAT_NDELETES);
-            nlivenodes = db->file->kvsStatOps.statGetSum(KVS_STAT_NLIVENODES);
-            ndocs_wal_inserted = db->file->fMgrWal->getSize_Wal();
-            ndocs_wal_deleted = db->file->fMgrWal->getNumDeletes_Wal();
-            datasize = db->file->kvsStatOps.statGetSum(KVS_STAT_DATASIZE);
-            datasize_wal = db->file->fMgrWal->getDataSize_Wal();
+            ndocs = db->file->getKvsStatOps()->statGetSum(KVS_STAT_NDOCS);
+            ndeletes = db->file->getKvsStatOps()->statGetSum(KVS_STAT_NDELETES);
+            nlivenodes = db->file->getKvsStatOps()->statGetSum(KVS_STAT_NLIVENODES);
+            ndocs_wal_inserted = db->file->getWal()->getSize_Wal();
+            ndocs_wal_deleted = db->file->getWal()->getNumDeletes_Wal();
+            datasize = db->file->getKvsStatOps()->statGetSum(KVS_STAT_DATASIZE);
+            datasize_wal = db->file->getWal()->getDataSize_Wal();
 
             printf("    # documents in the main index: %" _F64
                    ", %" _F64 "deleted / "
@@ -161,7 +161,7 @@ void print_header(fdb_kvs_handle *db)
             for (i=0; i<name_list.num_kvs_names; ++i){
                 if (strcmp(name_list.kvs_names[i], DEFAULT_KVS_NAME)) {
                     query.kvs_name = name_list.kvs_names[i];
-                    a = avl_search(db->file->kvHeader->idx_name,
+                    a = avl_search(db->file->getKVHeader_UNLOCKED()->idx_name,
                                    &query.avl_name,
                                    _kvs_cmp_name_fdb_dump);
                     if (!a) {
@@ -179,14 +179,14 @@ void print_header(fdb_kvs_handle *db)
                     datasize = node->stat.datasize;
                 } else { // default KVS
                     printf("      KV store name: %s\n", name_list.kvs_names[i]);
-                    ndocs = db->file->fMgrHeader.stat.ndocs;
-                    ndeletes = db->file->fMgrHeader.stat.ndeletes;
-                    nlivenodes = db->file->fMgrHeader.stat.nlivenodes;
-                    seqnum = db->file->fMgrHeader.seqnum;
-                    ndocs_wal_inserted = db->file->fMgrHeader.stat.wal_ndocs -
-                                         db->file->fMgrHeader.stat.wal_ndeletes;
-                    ndocs_wal_deleted = db->file->fMgrHeader.stat.wal_ndeletes;
-                    datasize = db->file->fMgrHeader.stat.datasize;
+                    ndocs = db->file->accessHeader()->stat.ndocs;
+                    ndeletes = db->file->accessHeader()->stat.ndeletes;
+                    nlivenodes = db->file->accessHeader()->stat.nlivenodes;
+                    seqnum = db->file->accessHeader()->seqnum;
+                    ndocs_wal_inserted = db->file->accessHeader()->stat.wal_ndocs -
+                                         db->file->accessHeader()->stat.wal_ndeletes;
+                    ndocs_wal_deleted = db->file->accessHeader()->stat.wal_ndeletes;
+                    datasize = db->file->accessHeader()->stat.datasize;
                 }
 
                 printf("      # documents in the main index: %" _F64
@@ -205,9 +205,9 @@ void print_header(fdb_kvs_handle *db)
         } else {
             // single KV instance mode
             seqnum = db->file->getSeqnum();
-            ndocs_wal_inserted = db->file->fMgrWal->getSize_Wal();
-            ndocs_wal_deleted = db->file->fMgrWal->getNumDeletes_Wal();
-            datasize_wal = db->file->fMgrWal->getDataSize_Wal();
+            ndocs_wal_inserted = db->file->getWal()->getSize_Wal();
+            ndocs_wal_deleted = db->file->getWal()->getNumDeletes_Wal();
+            datasize_wal = db->file->getWal()->getDataSize_Wal();
 
             printf("    # documents in the main index: %" _F64
             ", %" _F64 "deleted / "

@@ -199,15 +199,15 @@ int process_file(struct input_option *opt)
     config = fdb_get_default_config();
     config.buffercache_size = 0;
     config.flags = FDB_OPEN_FLAG_RDONLY;
-    file.fMgrOps = get_filemgr_ops();
-    file.fd = file.fMgrOps->open(filename, O_RDWR, 0666);
+    file.setOps(get_filemgr_ops());
+    file.setFd(file.getOps()->open(filename, O_RDWR, 0666));
 
-    if (file.fd < 0) {
+    if (file.getFd() < 0) {
         printf("\nUnable to open %s\n", filename);
         return -1;
     }
 
-    file_size = file.fMgrOps->file_size(filename);
+    file_size = file.getOps()->file_size(filename);
     num_blocks = file_size / BLK_SIZE;
 
     if (opt->print_header) {
@@ -237,8 +237,8 @@ int process_file(struct input_option *opt)
     }
     if (opt->headers_only) {
         for (uint64_t i = 0; i < num_blocks; ++i) {
-            ssize_t rv = file.fMgrOps->pread(file.fd, &block_buf, BLK_SIZE,
-                                          i * BLK_SIZE);
+            ssize_t rv = file.getOps()->pread(file.getFd(), &block_buf, BLK_SIZE,
+                                             i * BLK_SIZE);
             if (rv != BLK_SIZE) {
                 fdb_close(dbfile);
                 return FDB_RESULT_READ_FAIL;
@@ -295,8 +295,8 @@ int process_file(struct input_option *opt)
             return -1;
         }
         for (uint64_t i = 0; i < num_blocks; ++i) {
-            ssize_t rv = file.fMgrOps->pread(file.fd, &db[i], BLK_SIZE,
-                    i * BLK_SIZE);
+            ssize_t rv = file.getOps()->pread(file.getFd(), &db[i], BLK_SIZE,
+                                             i * BLK_SIZE);
             if (rv != BLK_SIZE) {
                 if (opt->print_header) {
                     fdb_close(dbfile);
@@ -326,7 +326,7 @@ int process_file(struct input_option *opt)
         }
     }
 
-    file.fMgrOps->close(file.fd);
+    file.getOps()->close(file.getFd());
 
     return -1;
 }
