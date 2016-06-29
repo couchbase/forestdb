@@ -2075,7 +2075,7 @@ fdb_status _fdb_open(FdbKvsHandle *handle,
             handle->staletree->initFromBid(handle->bhandle, stale_kv_ops,
                                            handle->config.blocksize, stale_root_bid);
             // prefetch stale info into memory
-            fdb_load_inmem_stale_info(handle);
+            handle->file->StaleData->loadInmemStaleInfo(handle);
          }
     } else {
         handle->staletree = NULL;
@@ -4008,17 +4008,16 @@ fdb_commit_start:
     if (handle->rollback_revnum) {
         // if this commit is called by rollback API,
         // remove all stale-tree entries related to the rollback
-        fdb_rollback_stale_blocks(handle, next_revnum);
+        handle->file->StaleData->rollbackStaleBlocks(handle, next_revnum);
         handle->rollback_revnum = 0;
     }
 
     if (wal_flushed) {
-        fdb_gather_stale_blocks(handle,
-                                next_revnum,
-                                handle->last_hdr_bid,
-                                handle->kv_info_offset,
-                                filemgr_get_seqnum(handle->file),
-                                NULL, false);
+        handle->file->StaleData->gatherRegions(handle, next_revnum,
+                                               handle->last_hdr_bid,
+                                               handle->kv_info_offset,
+                                               filemgr_get_seqnum(handle->file),
+                                               false);
     }
 
     // Note: Getting header BID must be done after
@@ -4161,12 +4160,10 @@ static fdb_status _fdb_commit_and_remove_pending(FdbKvsHandle *handle,
         handle->kv_info_offset = fdb_kvs_header_append(handle);
     }
 
-    fdb_gather_stale_blocks(handle,
-                            filemgr_get_header_revnum(handle->file)+1,
-                            filemgr_get_header_bid(handle->file),
-                            handle->kv_info_offset,
-                            filemgr_get_seqnum(handle->file),
-                            NULL, false);
+    handle->file->StaleData->gatherRegions
+        ( handle, filemgr_get_header_revnum(handle->file)+1,
+          filemgr_get_header_bid(handle->file), handle->kv_info_offset,
+          filemgr_get_seqnum(handle->file), false );
     handle->last_hdr_bid = filemgr_get_next_alloc_block(new_file);
     if (new_file->wal->getDirtyStatus_Wal() == FDB_WAL_CLEAN) {
         earliest_txn = new_file->wal->getEarliestTxn_Wal(&new_file->global_txn);
@@ -5987,12 +5984,10 @@ static fdb_status _fdb_compact_move_delta(FdbKvsHandle *handle,
                 // Note: calling fdb_gather_stale_blocks() MUST be called BEFORE
                 // calling filemgr_get_next_alloc_block(), because the system doc for
                 // stale block info should be written BEFORE 'new_handle.last_hdr_bid'.
-                fdb_gather_stale_blocks(&new_handle,
-                                        filemgr_get_header_revnum(new_file)+1,
-                                        new_handle.last_hdr_bid,
-                                        new_handle.kv_info_offset,
-                                        filemgr_get_seqnum(new_file),
-                                        NULL, false);
+                new_handle.file->StaleData->gatherRegions
+                    ( &new_handle, filemgr_get_header_revnum(new_file)+1,
+                      new_handle.last_hdr_bid, new_handle.kv_info_offset,
+                      filemgr_get_seqnum(new_file), false );
                 new_handle.last_hdr_bid = filemgr_get_next_alloc_block(new_file);
                 new_handle.last_wal_flush_hdr_bid = new_handle.last_hdr_bid;
                 new_handle.cur_header_revnum = fdb_set_file_header(&new_handle, true);

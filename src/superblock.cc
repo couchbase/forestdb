@@ -627,7 +627,7 @@ bool sb_reclaim_reusable_blocks(FdbKvsHandle *handle)
     }
 
     // get reusable block list
-    blist = fdb_get_reusable_block(handle, sheader);
+    blist = handle->file->StaleData->getReusableBlocks(handle, sheader);
 
     // update superblock's bitmap
     uint8_t *new_bmp = NULL, *old_bmp = NULL;
@@ -686,7 +686,7 @@ bool sb_reserve_next_reusable_blocks(FdbKvsHandle *handle)
     }
 
     // get reusable block list
-    blist = fdb_get_reusable_block(handle, sheader);
+    blist = handle->file->StaleData->getReusableBlocks(handle, sheader);
 
     // calculate bitmap size
     num_blocks = filemgr_get_pos(handle->file) / handle->file->blocksize;
@@ -831,7 +831,8 @@ void sb_return_reusable_blocks(FdbKvsHandle *handle)
 
     // re-store into stale tree using next header's revnum
     filemgr_header_revnum_t revnum = handle->cur_header_revnum;
-    fdb_gather_stale_blocks(handle, revnum+1, BLK_NOT_FOUND, BLK_NOT_FOUND, 0, NULL, false);
+    handle->file->StaleData->gatherRegions( handle, revnum+1, BLK_NOT_FOUND,
+                                            BLK_NOT_FOUND, 0, false );
 }
 
 void sb_bmp_mask_init()
@@ -1626,6 +1627,11 @@ fdb_status sb_read_latest(struct filemgr *file,
     fdb_status fs;
     struct superblock *sb_arr;
 
+    // initialize StaleData instance if not exist
+    if (!file->StaleData) {
+        file->StaleData = new StaleDataManager(file);
+    }
+
     if (file->sb) {
         // Superblock is already read previously.
         // This means that there are some problems with the current superblock
@@ -1741,6 +1747,11 @@ fdb_status sb_init(struct filemgr *file, struct sb_config sconfig,
     // no data should be written in the file before initialization of superblock.
     if (filemgr_get_pos(file) > 0) {
         return FDB_RESULT_SB_INIT_FAIL;
+    }
+
+    // initialize StaleData instance if not exist
+    if (!file->StaleData) {
+        file->StaleData = new StaleDataManager(file);
     }
 
     file->sb = (struct superblock*)calloc(1, sizeof(struct superblock));

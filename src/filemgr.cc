@@ -861,7 +861,6 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     strcpy(file->filename, filename);
 
     file->ref_count = 1;
-    file->stale_list = NULL;
 
     status = fdb_init_encryptor(&file->encryption,
                                 config->getEncryptionKey());
@@ -917,15 +916,9 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
     file->header.bid = 0;
     file->header.op_stat.reset();
 
-    spin_init(&file->lock);
-    file->stale_list = (struct list*)calloc(1, sizeof(struct list));
-    list_init(file->stale_list);
-    avl_init(&file->stale_info_tree, NULL);
-    avl_init(&file->mergetree, NULL);
-    file->stale_info_tree_loaded = false;
-
     filemgr_dirty_update_init(file);
 
+    spin_init(&file->lock);
     spin_init(&file->fhandle_idx_lock);
     avl_init(&file->fhandle_idx, NULL);
 
@@ -981,8 +974,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             status != FDB_RESULT_SUCCESS) {
             _log_errno_str(file->ops, log_callback, status, "READ", file->filename);
             file->ops->close(file->fd);
-            free(file->stale_list);
             free(file->filename);
+            delete file->StaleData;
             delete file->config;
             free(file);
             spin_unlock(&filemgr_openlock);
@@ -1002,8 +995,8 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
             if (file->sb) {
                 sb_ops.release(file);
             }
-            free(file->stale_list);
             free(file->filename);
+            delete file->StaleData;
             delete file->config;
             free(file);
             spin_unlock(&filemgr_openlock);
@@ -1020,6 +1013,12 @@ filemgr_open_result filemgr_open(char *filename, struct filemgr_ops *ops,
 
         break;
     } while (true);
+
+    if (!file->StaleData) {
+        // this means that superblock is not used.
+        // init with dummy instance.
+        file->StaleData = new StaleDataManagerBase();
+    }
 
     // initialize WAL
     if (!file->wal) {
@@ -1690,11 +1689,7 @@ void filemgr_free_func(struct hash_elem *h)
     spin_destroy(&file->fhandle_idx_lock);
 
     // free file structure
-    struct list *stale_list = filemgr_get_stale_list(file);
-    filemgr_clear_stale_list(file);
-    filemgr_clear_stale_info_tree(file);
-    filemgr_clear_mergetree(file);
-    free(stale_list);
+    delete file->StaleData;
     delete file->config;
     free(file);
 }
@@ -3009,201 +3004,18 @@ uint32_t filemgr_get_throttling_delay(struct filemgr *file)
     return file->throttling_delay.load(std::memory_order_relaxed);
 }
 
-void filemgr_clear_stale_list(struct filemgr *file)
-{
-    if (file->stale_list) {
-        // if the items in the list are not freed yet, release them first.
-        struct list_elem *e;
-        struct stale_data *item;
-
-        e = list_begin(file->stale_list);
-        while (e) {
-            item = _get_entry(e, struct stale_data, le);
-            e = list_remove(file->stale_list, e);
-            free(item);
-        }
-        file->stale_list = NULL;
-    }
-}
-
-void filemgr_clear_stale_info_tree(struct filemgr *file)
-{
-    struct avl_node *a;
-    struct list_elem *e;
-    struct stale_info_commit *commit;
-    struct stale_info_entry *entry;
-
-    a = avl_first(&file->stale_info_tree);
-    while (a) {
-        commit = _get_entry(a, struct stale_info_commit, avl);
-        a = avl_next(&commit->avl);
-        avl_remove(&file->stale_info_tree, &commit->avl);
-
-        e = list_begin(&commit->doc_list);
-        while (e) {
-            entry = _get_entry(e, struct stale_info_entry, le);
-            e = list_next(&entry->le);
-            list_remove(&commit->doc_list, &entry->le);
-            free(entry->ctx);
-            free(entry);
-        }
-        free(commit);
-    }
-}
-
-void filemgr_clear_mergetree(struct filemgr *file)
-{
-    struct avl_node *a;
-    struct stale_data *entry;
-
-    a = avl_first(&file->mergetree);
-    while (a) {
-        entry = _get_entry(a, struct stale_data, avl);
-        a = avl_next(&entry->avl);
-        avl_remove(&file->mergetree, &entry->avl);
-        free(entry);
-    }
-}
-
 void filemgr_add_stale_block(struct filemgr *file,
                              bid_t pos,
                              size_t len)
 {
-    if (file->stale_list) {
-        struct stale_data *item;
-        struct list_elem *e;
-
-        e = list_end(file->stale_list);
-
-        if (e) {
-            item = _get_entry(e, struct stale_data, le);
-            if (item->pos + item->len == pos) {
-                // merge if consecutive item
-                item->len += len;
-                return;
-            }
-        }
-
-        item = (struct stale_data*)calloc(1, sizeof(struct stale_data));
-        item->pos = pos;
-        item->len = len;
-        list_push_back(file->stale_list, &item->le);
-    }
-}
-
-size_t filemgr_actual_stale_length(struct filemgr *file,
-                                   bid_t offset,
-                                   size_t length)
-{
-    size_t actual_len;
-    bid_t start_bid, end_bid;
-
-    start_bid = offset / file->blocksize;
-    end_bid = (offset + length) / file->blocksize;
-
-    actual_len = length + (end_bid - start_bid);
-    if ((offset + actual_len) % file->blocksize ==
-        file->blocksize - 1) {
-        actual_len += 1;
-    }
-
-    return actual_len;
-}
-
-// if a document is not physically consecutive,
-// return all fragmented regions.
-struct stale_regions filemgr_actual_stale_regions(struct filemgr *file,
-                                                  bid_t offset,
-                                                  size_t length)
-{
-    uint8_t *buf = alca(uint8_t, file->blocksize);
-    size_t remaining = length;
-    size_t real_blocksize = file->blocksize;
-    size_t blocksize = real_blocksize;
-    size_t cur_pos, space_in_block, count;
-    bid_t cur_bid;
-    bool non_consecutive = ver_non_consecutive_doc(file->version);
-    struct docblk_meta blk_meta;
-    struct stale_regions ret;
-    struct stale_data *arr = NULL, *cur_region;
-
-    if (non_consecutive) {
-        blocksize -= DOCBLK_META_SIZE;
-
-        cur_bid = offset / file->blocksize;
-        // relative position in the block 'cur_bid'
-        cur_pos = offset % file->blocksize;
-
-        count = 0;
-        while (remaining) {
-            if (count == 1) {
-                // more than one stale region .. allocate array
-                size_t arr_size = (length / blocksize) + 2;
-                arr = (struct stale_data *)calloc(arr_size, sizeof(struct stale_data));
-                arr[0] = ret.region;
-                ret.regions = arr;
-            }
-
-            if (count == 0) {
-                // Since n_regions will be 1 in most cases,
-                // we do not allocate heap memory when 'n_regions==1'.
-                cur_region = &ret.region;
-            } else {
-                cur_region = &ret.regions[count];
-            }
-            cur_region->pos = (cur_bid * real_blocksize) + cur_pos;
-
-            // subtract data size in the current block
-            space_in_block = blocksize - cur_pos;
-            if (space_in_block <= remaining) {
-                // rest of the current block (including block meta)
-                cur_region->len = real_blocksize - cur_pos;
-                remaining -= space_in_block;
-            } else {
-                cur_region->len = remaining;
-                remaining = 0;
-            }
-            count++;
-
-            if (remaining) {
-                // get next BID
-                filemgr_read(file, cur_bid, (void *)buf, NULL, true);
-                memcpy(&blk_meta, buf + blocksize, sizeof(blk_meta));
-                cur_bid = _endian_decode(blk_meta.next_bid);
-                cur_pos = 0; // beginning of the block
-            }
-        }
-        ret.n_regions = count;
-
-    } else {
-        // doc blocks are consecutive .. always return a single region.
-        ret.n_regions = 1;
-        ret.region.pos = offset;
-        ret.region.len = filemgr_actual_stale_length(file, offset, length);
-    }
-
-    return ret;
+    file->StaleData->addStaleRegion(pos, len);
 }
 
 void filemgr_mark_stale(struct filemgr *file,
                         bid_t offset,
                         size_t length)
 {
-    if (file->stale_list && length) {
-        size_t i;
-        struct stale_regions sr;
-
-        sr = filemgr_actual_stale_regions(file, offset, length);
-
-        if (sr.n_regions > 1) {
-            for (i=0; i<sr.n_regions; ++i){
-                filemgr_add_stale_block(file, sr.regions[i].pos, sr.regions[i].len);
-            }
-            free(sr.regions);
-        } else if (sr.n_regions == 1) {
-            filemgr_add_stale_block(file, sr.region.pos, sr.region.len);
-        }
-    }
+    file->StaleData->markDocStale(offset, length);
 }
 
 INLINE int _fhandle_idx_cmp(struct avl_node *a, struct avl_node *b, void *aux)

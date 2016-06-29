@@ -36,50 +36,30 @@
 
 static bool compress_inmem_stale_info = true;
 
-static int _inmem_stale_cmp(struct avl_node *a, struct avl_node *b, void *aux)
-{
-    struct stale_info_commit *aa, *bb;
-    aa = _get_entry(a, struct stale_info_commit, avl);
-    bb = _get_entry(b, struct stale_info_commit, avl);
-
-    if (aa->revnum < bb->revnum) {
-        return -1;
-    } else if (aa->revnum > bb->revnum) {
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-static void fdb_add_inmem_stale_info(FdbKvsHandle *handle,
-                                     filemgr_header_revnum_t revnum,
+void StaleDataManager::addInmemStaleInfo(filemgr_header_revnum_t revnum,
                                      struct docio_object *doc,
                                      uint64_t doc_offset,
                                      bool system_doc_only)
 {
     int ret;
     size_t buflen = 0;
-    struct filemgr *file = handle->file;
-    struct avl_node *a;
-    struct stale_info_commit *item, query;
-    struct stale_info_entry *entry;
+    StaleInfoCommit *item;
+    StaleInfoEntry *entry;
 
     // search using revnum first
-    query.revnum = revnum;
-    a = avl_search(&file->stale_info_tree, &query.avl, _inmem_stale_cmp);
-    if (a) {
+    auto cur = staleInfoTree.find(revnum);
+    if (cur != staleInfoTree.end()) {
         // already exist
-        item = _get_entry(a, struct stale_info_commit, avl);
+        item = cur->second;
     } else {
         // not exist .. create a new one and insert into tree
-        item = (struct stale_info_commit *)calloc(1, sizeof(struct stale_info_commit));
+        item = new StaleInfoCommit();
         item->revnum = revnum;
-        list_init(&item->doc_list);
-        avl_insert(&file->stale_info_tree, &item->avl, _inmem_stale_cmp);
-        file->stale_info_tree_loaded.store(true, std::memory_order_relaxed);
+        staleInfoTree.insert(std::make_pair(item->revnum, item));
+        staleInfoTreeLoaded.store(true, std::memory_order_relaxed);
     }
 
-    entry = (struct stale_info_entry *)calloc(1, sizeof(struct stale_info_entry));
+    entry = new StaleInfoEntry();
 
     if (!system_doc_only) {
 #ifdef _DOC_COMP
@@ -95,12 +75,12 @@ static void fdb_add_inmem_stale_info(FdbKvsHandle *handle,
                     ": return value %d, header revnum %" _F64 ", "
                     "doc offset %" _F64 "\n",
                     file->filename, ret, revnum, doc_offset);
-                if (!a) {
+                if (cur == staleInfoTree.end()) {
                     // 'item' is allocated in this function call.
-                    avl_remove(&file->stale_info_tree, &item->avl);
-                    free(item);
+                    staleInfoTree.erase(item->revnum);
+                    delete item;
                 }
-                free(entry);
+                delete entry;
                 return;
             }
         } else {
@@ -126,10 +106,10 @@ static void fdb_add_inmem_stale_info(FdbKvsHandle *handle,
     entry->comp_ctxlen = buflen;
     entry->doclen = _fdb_get_docsize(doc->length);
     entry->offset = doc_offset;
-    list_push_back(&item->doc_list, &entry->le);
+    item->infoList.push_back(entry);
 }
 
-void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
+void StaleDataManager::loadInmemStaleInfo(FdbKvsHandle *handle)
 {
     uint8_t keybuf[64];
     int64_t ret;
@@ -137,11 +117,10 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
     filemgr_header_revnum_t revnum, _revnum;
     BTreeIterator *bit;
     btree_result br;
-    struct filemgr *file = handle->file;
     struct docio_object doc;
     bool expected = false;
 
-    if (!file->stale_info_tree_loaded.compare_exchange_strong(expected, true)) {
+    if (!staleInfoTreeLoaded.compare_exchange_strong(expected, true)) {
         // stale info is already loaded (fast screening without mutex)
         return;
     }
@@ -178,7 +157,7 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
                 continue;
             }
 
-            fdb_add_inmem_stale_info(handle, revnum, &doc, offset, false);
+            addInmemStaleInfo(revnum, &doc, offset, false);
 
             // fetch previous doc offset
             memcpy(&_offset, doc.body, sizeof(_offset));
@@ -196,12 +175,12 @@ void fdb_load_inmem_stale_info(FdbKvsHandle *handle)
     filemgr_mutex_unlock(file);
 }
 
-void fdb_gather_stale_blocks(FdbKvsHandle *handle,
+void StaleDataManager::gatherRegions(FdbKvsHandle *handle,
                              filemgr_header_revnum_t revnum,
                              bid_t prev_hdr,
                              uint64_t kv_info_offset,
                              fdb_seqnum_t seqnum,
-                             struct list_elem *e_last,
+                             std::list<stale_data*>::iterator e_last,
                              bool from_mergetree)
 {
     int64_t delta;
@@ -233,225 +212,214 @@ void fdb_gather_stale_blocks(FdbKvsHandle *handle,
      * ...
      */
 
-    if (filemgr_get_stale_list(handle->file)) {
-        struct avl_node *a;
-        struct list_elem *e;
-        struct stale_data *item;
+    struct stale_data *item;
+    std::map<uint64_t, stale_data*>::iterator cur;
+    std::list<stale_data*>::iterator list_cur;
 
-        r = _kvs_stat_get(handle->file, 0, &stat);
-        handle->bhandle->setNLiveNodes(stat.nlivenodes);
-        handle->bhandle->setNDeltaNodes(stat.nlivenodes);
-        (void)r;
+    r = _kvs_stat_get(handle->file, 0, &stat);
+    handle->bhandle->setNLiveNodes(stat.nlivenodes);
+    handle->bhandle->setNDeltaNodes(stat.nlivenodes);
+    (void)r;
 
-        buf = (uint8_t *)calloc(1, bufsize);
-        _revnum = _endian_encode(revnum);
+    buf = (uint8_t *)calloc(1, bufsize);
+    _revnum = _endian_encode(revnum);
 
-        // initial previous doc offset
-        memset(buf, 0xff, sizeof(bid_t));
-        count_location = sizeof(bid_t);
+    // initial previous doc offset
+    memset(buf, 0xff, sizeof(bid_t));
+    count_location = sizeof(bid_t);
 
-        // previous header BID
-        if (prev_hdr == 0 || prev_hdr == BLK_NOT_FOUND) {
-            // does not exist
-            memset(&_prev_hdr, 0xff, sizeof(_prev_hdr));
-        } else {
-            _prev_hdr = _endian_encode(prev_hdr);
-        }
-        memcpy(buf + sizeof(bid_t), &_prev_hdr, sizeof(bid_t));
-        count_location += sizeof(bid_t);
-
-        // KVS info doc offset
-        _kv_info_offset = _endian_encode(kv_info_offset);
-        memcpy(buf + count_location, &_kv_info_offset, sizeof(uint64_t));
-        count_location += sizeof(uint64_t);
-
-        // default KVS seqnum
-        _seqnum = _endian_encode(seqnum);
-        memcpy(buf + count_location, &_seqnum, sizeof(fdb_seqnum_t));
-        count_location += sizeof(fdb_seqnum_t);
-        count_location += sizeof(count);
-
-        while(gather_staleblocks) {
-            // reserve space for
-            // prev offset (8), prev header (8), kv_info_offset (8),
-            // seqnum (8), count (4)
-            offset = count_location;
-
-            if (first_loop && from_mergetree) {
-                // gather from mergetree
-                a = avl_first(&handle->file->mergetree);
-                while (a) {
-                    item = _get_entry(a, struct stale_data, avl);
-
-                    if (handle->staletree) {
-                        count++;
-
-                        _pos = _endian_encode(item->pos);
-                        _len = _endian_encode(item->len);
-
-                        memcpy(buf + offset, &_pos, sizeof(_pos));
-                        offset += sizeof(_pos);
-                        memcpy(buf + offset, &_len, sizeof(_len));
-                        offset += sizeof(_len);
-
-                        if (offset + sizeof(_pos) + sizeof(_len) >= bufsize) {
-                            bufsize *= 2;
-                            buf = (uint8_t*)realloc(buf, bufsize);
-                        }
-                    }
-
-
-                    // If 'from_mergetree' flag is set, it means that this
-                    // function is called at the end of fdb_get_reusable_block(),
-                    // and those items are remaining (non-reusable) regions after
-                    // picking up reusable blocks from 'mergetree'.
-
-                    // In the previous implementation, those items are converted
-                    // and stored as a system document. The document is re-read in
-                    // the next block reclaim, and then we reconstruct 'mergetree'
-                    // from the document; this is unnecessary duplicated overhead.
-
-                    // As an optimization, we can simply keep those items in
-                    // 'mergetree' and use them in the next block reclaim, without
-                    // reading the corresponding system document; this also reduces
-                    // the commit latency much. Instead, to minimize memory
-                    // consumption, we don't need to maintain in-memory copy of the
-                    // system doc corresponding to the remaining items in the
-                    // 'mergetree', that will be created below.
-
-                    // do not remove the item
-                    a = avl_next(&item->avl);
-                }
-            } else {
-                // gater from stale_list
-                if (e_last) {
-                    e = list_next(e_last);
-                } else {
-                    e = list_begin(handle->file->stale_list);
-                }
-                while (e) {
-                    item = _get_entry(e, struct stale_data, le);
-
-                    if (handle->staletree) {
-                        count++;
-
-                        _pos = _endian_encode(item->pos);
-                        _len = _endian_encode(item->len);
-
-                        memcpy(buf + offset, &_pos, sizeof(_pos));
-                        offset += sizeof(_pos);
-                        memcpy(buf + offset, &_len, sizeof(_len));
-                        offset += sizeof(_len);
-
-                        if (offset + sizeof(_pos) + sizeof(_len) >= bufsize) {
-                            bufsize *= 2;
-                            buf = (uint8_t*)realloc(buf, bufsize);
-                        }
-                    }
-
-                    e = list_remove(handle->file->stale_list, e);
-                    free(item);
-                }
-            }
-
-            gather_staleblocks = false;
-            if (count) {
-                char *doc_key = alca(char, 32);
-                struct docio_object doc;
-
-                // store count
-                _count = _endian_encode(count);
-                memcpy(buf + count_location - sizeof(_count), &_count, sizeof(_count));
-
-                // append a system doc
-                memset(&doc, 0x0, sizeof(doc));
-                // add one to 'revnum' to get the next revision number
-                // (note that filemgr_mutex() is grabbed so that no other thread
-                //  will change the 'revnum').
-                sprintf(doc_key, "stale_blocks_%" _F64, revnum);
-                doc.key = (void*)doc_key;
-                doc.body = buf;
-                doc.length.keylen = strlen(doc_key) + 1;
-                doc.length.metalen = 0;
-                doc.length.bodylen = offset;
-                doc.seqnum = 0;
-                doc_offset = handle->dhandle->appendSystemDoc_Docio(&doc);
-
-                // insert into stale-block tree
-                _doc_offset = _endian_encode(doc_offset);
-                handle->staletree->insert((void *)&_revnum, (void *)&_doc_offset);
-                handle->bhandle->flushBuffer();
-                handle->bhandle->resetSubblockInfo();
-
-                if (from_mergetree && first_loop) {
-                    // if from_mergetree flag is set and this is the first loop,
-                    // stale regions in this document are already in mergetree
-                    // so skip adding them into in-memory stale info tree.
-
-                    // however, the system doc itself should be marked as stale
-                    // when the doc is reclaimed, thus we instead add a dummy entry
-                    // that containing doc offset, length info only.
-                    fdb_add_inmem_stale_info(handle, revnum, &doc, doc_offset, true);
-                } else {
-                    // add the doc into in-memory stale info tree
-                    fdb_add_inmem_stale_info(handle, revnum, &doc, doc_offset, false);
-                }
-
-                if (list_begin(filemgr_get_stale_list(handle->file))) {
-                    // updating stale tree brings another stale blocks.
-                    // recursively update until there is no more stale block.
-
-                    // note that infinite loop will not occur because
-                    // 1) all updated index blocks for stale tree are still writable
-                    // 2) incoming keys for stale tree (revnum) are monotonic
-                    //    increasing order; most recently allocated node will be
-                    //    updated again.
-
-                    count = 0;
-                    // save previous doc offset
-                    memcpy(buf, &_doc_offset, sizeof(_doc_offset));
-
-                    // gather once again
-                    gather_staleblocks = true;
-                }
-            }
-
-            first_loop = false;
-        } // gather stale blocks
-
-        delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
-        _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
-        delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
-        delta *= handle->config.blocksize;
-        _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
-
-        free(buf);
+    // previous header BID
+    if (prev_hdr == 0 || prev_hdr == BLK_NOT_FOUND) {
+        // does not exist
+        memset(&_prev_hdr, 0xff, sizeof(_prev_hdr));
     } else {
-        handle->bhandle->resetSubblockInfo();
+        _prev_hdr = _endian_encode(prev_hdr);
     }
+    memcpy(buf + sizeof(bid_t), &_prev_hdr, sizeof(bid_t));
+    count_location += sizeof(bid_t);
+
+    // KVS info doc offset
+    _kv_info_offset = _endian_encode(kv_info_offset);
+    memcpy(buf + count_location, &_kv_info_offset, sizeof(uint64_t));
+    count_location += sizeof(uint64_t);
+
+    // default KVS seqnum
+    _seqnum = _endian_encode(seqnum);
+    memcpy(buf + count_location, &_seqnum, sizeof(fdb_seqnum_t));
+    count_location += sizeof(fdb_seqnum_t);
+    count_location += sizeof(count);
+
+    while(gather_staleblocks) {
+        // reserve space for
+        // prev offset (8), prev header (8), kv_info_offset (8),
+        // seqnum (8), count (4)
+        offset = count_location;
+
+        if (first_loop && from_mergetree) {
+            // gather from mergetree
+            cur = mergeTree.begin();
+            while ( cur != mergeTree.end() ) {
+                item = cur->second;
+
+                if (handle->staletree) {
+                    count++;
+
+                    _pos = _endian_encode(item->pos);
+                    _len = _endian_encode(item->len);
+
+                    memcpy(buf + offset, &_pos, sizeof(_pos));
+                    offset += sizeof(_pos);
+                    memcpy(buf + offset, &_len, sizeof(_len));
+                    offset += sizeof(_len);
+
+                    if (offset + sizeof(_pos) + sizeof(_len) >= bufsize) {
+                        bufsize *= 2;
+                        buf = (uint8_t*)realloc(buf, bufsize);
+                    }
+                }
+
+
+                // If 'from_mergetree' flag is set, it means that this
+                // function is called at the end of fdb_get_reusable_block(),
+                // and those items are remaining (non-reusable) regions after
+                // picking up reusable blocks from 'mergetree'.
+
+                // In the previous implementation, those items are converted
+                // and stored as a system document. The document is re-read in
+                // the next block reclaim, and then we reconstruct 'mergetree'
+                // from the document; this is unnecessary duplicated overhead.
+
+                // As an optimization, we can simply keep those items in
+                // 'mergetree' and use them in the next block reclaim, without
+                // reading the corresponding system document; this also reduces
+                // the commit latency much. Instead, to minimize memory
+                // consumption, we don't need to maintain in-memory copy of the
+                // system doc corresponding to the remaining items in the
+                // 'mergetree', that will be created below.
+
+                // do not remove the item
+                cur++;
+            }
+        } else {
+            // gater from stale_list
+            if ( e_last != staleList.end() ) {
+                // start from some point, not the beginning
+                list_cur = std::next(e_last);
+            } else {
+                list_cur = staleList.begin();
+            }
+            while ( list_cur != staleList.end() ) {
+                item = *list_cur;
+
+                if (handle->staletree) {
+                    count++;
+
+                    _pos = _endian_encode(item->pos);
+                    _len = _endian_encode(item->len);
+
+                    memcpy(buf + offset, &_pos, sizeof(_pos));
+                    offset += sizeof(_pos);
+                    memcpy(buf + offset, &_len, sizeof(_len));
+                    offset += sizeof(_len);
+
+                    if (offset + sizeof(_pos) + sizeof(_len) >= bufsize) {
+                        bufsize *= 2;
+                        buf = (uint8_t*)realloc(buf, bufsize);
+                    }
+                }
+
+                list_cur = staleList.erase(list_cur);
+                free(item);
+            }
+        }
+
+        gather_staleblocks = false;
+        if (count) {
+            char *doc_key = alca(char, 32);
+            struct docio_object doc;
+
+            // store count
+            _count = _endian_encode(count);
+            memcpy(buf + count_location - sizeof(_count), &_count, sizeof(_count));
+
+            // append a system doc
+            memset(&doc, 0x0, sizeof(doc));
+            // add one to 'revnum' to get the next revision number
+            // (note that filemgr_mutex() is grabbed so that no other thread
+            //  will change the 'revnum').
+            sprintf(doc_key, "stale_blocks_%" _F64, revnum);
+            doc.key = (void*)doc_key;
+            doc.body = buf;
+            doc.length.keylen = strlen(doc_key) + 1;
+            doc.length.metalen = 0;
+            doc.length.bodylen = offset;
+            doc.seqnum = 0;
+            doc_offset = handle->dhandle->appendSystemDoc_Docio(&doc);
+
+            // insert into stale-block tree
+            _doc_offset = _endian_encode(doc_offset);
+            handle->staletree->insert((void *)&_revnum, (void *)&_doc_offset);
+            handle->bhandle->flushBuffer();
+            handle->bhandle->resetSubblockInfo();
+
+            if (from_mergetree && first_loop) {
+                // if from_mergetree flag is set and this is the first loop,
+                // stale regions in this document are already in mergetree
+                // so skip adding them into in-memory stale info tree.
+
+                // however, the system doc itself should be marked as stale
+                // when the doc is reclaimed, thus we instead add a dummy entry
+                // that containing doc offset, length info only.
+                addInmemStaleInfo(revnum, &doc, doc_offset, true);
+            } else {
+                // add the doc into in-memory stale info tree
+                addInmemStaleInfo(revnum, &doc, doc_offset, false);
+            }
+
+            if ( !staleList.empty() ) {
+                // updating stale tree brings another stale blocks.
+                // recursively update until there is no more stale block.
+
+                // note that infinite loop will not occur because
+                // 1) all updated index blocks for stale tree are still writable
+                // 2) incoming keys for stale tree (revnum) are monotonic
+                //    increasing order; most recently allocated node will be
+                //    updated again.
+
+                count = 0;
+                // save previous doc offset
+                memcpy(buf, &_doc_offset, sizeof(_doc_offset));
+
+                // gather once again
+                gather_staleblocks = true;
+            }
+        }
+
+        first_loop = false;
+    } // gather stale blocks
+
+    delta = handle->bhandle->getNLiveNodes() - stat.nlivenodes;
+    _kvs_stat_update_attr(handle->file, 0, KVS_STAT_NLIVENODES, delta);
+    delta = handle->bhandle->getNDeltaNodes() - stat.nlivenodes;
+    delta *= handle->config.blocksize;
+    _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
+
+    free(buf);
 }
 
-static int _reusable_offset_cmp(struct avl_node *a, struct avl_node *b, void *aux)
+void StaleDataManager::insertNmerge(std::map<uint64_t, stale_data*> *tree,
+                                    uint64_t item_pos,
+                                    uint32_t item_len)
 {
-    struct stale_data *aa, *bb;
-    aa = _get_entry(a, struct stale_data, avl);
-    bb = _get_entry(b, struct stale_data, avl);
-    return _CMP_U64(aa->pos, bb->pos);
-}
-
-static void _insert_n_merge(struct avl_tree *tree,
-                            uint64_t item_pos,
-                            uint32_t item_len)
-{
-    struct stale_data query, *item;
-    struct avl_node *avl;
+    struct stale_data *item;
+    std::map<uint64_t, stale_data*>::iterator cur, prev, next;
+    std::pair<std::map<uint64_t, stale_data*>::iterator, bool> ret;
 
     // retrieve the tree first
-    query.pos = item_pos;
-    avl = avl_search(tree, &query.avl, _reusable_offset_cmp);
-    if (avl) {
+    cur = tree->find(item_pos);
+    if ( cur != tree->end() ) {
         // same offset already exists
-        item = _get_entry(avl, struct stale_data, avl);
+        item = cur->second;
         // choose longer length
         if (item->len < item_len) {
             item->len = item_len;
@@ -462,17 +430,24 @@ static void _insert_n_merge(struct avl_tree *tree,
                calloc(1, sizeof(struct stale_data));
         item->pos = item_pos;
         item->len = item_len;
-        avl_insert(tree, &item->avl, _reusable_offset_cmp);
+
+        ret = tree->insert(std::make_pair(item->pos, item));
+        cur = ret.first;
     }
 
     // check prev/next item to see if they can be merged
-    struct avl_node *p_avl, *n_avl;
     struct stale_data*p_item, *n_item;
-    p_avl = avl_prev(&item->avl);
-    if (p_avl) {
-        p_item = _get_entry(p_avl, struct stale_data, avl);
-        if (p_item->pos + p_item->len >= item->pos) {
 
+    if (cur != tree->begin()) {
+        // std::prev(tree->begin()) will cause undefined behavior.
+        prev = std::prev(cur);
+    } else {
+        prev = tree->end();
+    }
+    if ( prev != tree->end() ) {
+        p_item = prev->second;
+
+        if (p_item->pos + p_item->len >= item->pos) {
             if (p_item->pos + p_item->len >= item->pos + item->len) {
                 // 'item' is included in p_item .. simply remove it
                 // (do nothing)
@@ -482,17 +457,18 @@ static void _insert_n_merge(struct avl_tree *tree,
                                (item->pos - p_item->pos - p_item->len);
             }
             // remove current item
-            avl_remove(tree, &item->avl);
+            tree->erase(cur);
             free(item);
             item = p_item;
+            cur = prev;
         }
     }
 
-    n_avl = avl_next(&item->avl);
-    if (n_avl) {
-        n_item = _get_entry(n_avl, struct stale_data, avl);
-        if (item->pos + item->len >= n_item->pos) {
+    next = std::next(cur);
+    if ( next != tree->end() ) {
+        n_item = next->second;
 
+        if (item->pos + item->len >= n_item->pos) {
             if (item->pos + item->len >= n_item->pos + n_item->len) {
                 // 'n_item' is included in 'item' .. simply remove it
                 // (do nothing)
@@ -502,7 +478,7 @@ static void _insert_n_merge(struct avl_tree *tree,
                              (n_item->pos - item->pos - item->len);
             }
             // remove next item
-            avl_remove(tree, &n_item->avl);
+            tree->erase(next);
             free(n_item);
         }
     }
@@ -512,8 +488,8 @@ static void _insert_n_merge(struct avl_tree *tree,
 // a stale info system document (from either in-memory stale-block-tree or
 // on-disk stale-block-tree). After fetching, insert those regions
 // into 'mergetree'.
-static void _fetch_stale_info_doc(void *ctx,
-                                  struct avl_tree *mergetree,
+void StaleDataManager::fetchStaleInfoDoc(void *ctx,
+                                  std::map<uint64_t, stale_data*> *mergetree,
                                   uint64_t &prev_offset_out,
                                   uint64_t &prev_hdr_out)
 {
@@ -552,11 +528,11 @@ static void _fetch_stale_info_doc(void *ctx,
         item_len = _endian_decode(item_len);
         pos += sizeof(item_len);
 
-        _insert_n_merge(mergetree, item_pos, item_len);
+        insertNmerge(mergetree, item_pos, item_len);
     }
 }
 
-reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
+reusable_block_list StaleDataManager::getReusableBlocks(FdbKvsHandle *handle,
                                            stale_header_info stale_header)
 {
     int64_t delta;
@@ -575,11 +551,12 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     bid_t prev_hdr = BLK_NOT_FOUND;
     bool stale_tree_scan = true;
     struct docio_object doc;
-    struct avl_tree *mergetree = &handle->file->mergetree;
-    struct avl_node *avl;
+    std::map<uint64_t, stale_data*> *mergetree = &mergeTree;
     struct stale_data *item;
-    struct list_elem *e, *e_last;
     KvsStat stat;
+
+    std::map<filemgr_header_revnum_t, StaleInfoCommit *>::iterator prev_commit, cur_commit;
+    std::list<stale_data*>::iterator cur_stalelist, last_stalelist;
 
     revnum_upto = stale_header.revnum;
 
@@ -593,16 +570,19 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     n_revnums = 0;
 
     // remember the last stale list item to be preserved
-    e_last = list_end(handle->file->stale_list);
+    if ( staleList.empty() ) {
+        last_stalelist = staleList.end();
+    } else {
+        last_stalelist = std::prev(staleList.end());
+    }
 
-    avl = avl_first(&handle->file->stale_info_tree);
-    if (avl) {
+    if (!staleInfoTree.empty()) {
         // if in-memory stale info exists
         void *uncomp_buf = NULL;
         int r;
         size_t uncomp_buflen = 128*1024; // 128 KB by default;
-        struct stale_info_commit *commit;
-        struct stale_info_entry *entry;
+        StaleInfoCommit *commit;
+        StaleInfoEntry *entry;
 
         stale_tree_scan = false;
 
@@ -610,9 +590,10 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
             uncomp_buf = (void*)calloc(1, uncomp_buflen);
         }
 
-        while (avl) {
-            commit = _get_entry(avl, struct stale_info_commit, avl);
-            avl = avl_next(avl);
+        cur_commit = staleInfoTree.begin();
+        while (cur_commit != staleInfoTree.end()) {
+            commit = cur_commit->second;
+            prev_commit = cur_commit++;
 
             prev_revnum = revnum;
             revnum = commit->revnum;
@@ -629,13 +610,12 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
                                    sizeof(filemgr_header_revnum_t));
             }
 
-            avl_remove(&handle->file->stale_info_tree, &commit->avl);
+            staleInfoTree.erase(prev_commit);
 
-            e = list_begin(&commit->doc_list);
-            while (e) {
-                entry = _get_entry(e, struct stale_info_entry, le);
-                e = list_next(&entry->le);
-                list_remove(&commit->doc_list, &entry->le);
+            auto cur_entry = commit->infoList.begin();
+            while ( cur_entry != commit->infoList.end() ) {
+                entry = *cur_entry;
+                cur_entry = commit->infoList.erase(cur_entry);
 
                 if (entry->ctx) {
 #ifdef _DOC_COMP
@@ -666,37 +646,35 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
                         }
 
                         // fetch the context
-                        _fetch_stale_info_doc(uncomp_buf, mergetree,
+                        fetchStaleInfoDoc(uncomp_buf, mergetree,
                                               prev_offset, prev_hdr);
                     } else {
-                        _fetch_stale_info_doc(entry->ctx, mergetree,
+                        fetchStaleInfoDoc(entry->ctx, mergetree,
                                               prev_offset, prev_hdr);
                     }
 #else
-                    _fetch_stale_info_doc(entry->ctx, mergetree, prev_offset, prev_hdr);
+                    fetchStaleInfoDoc(entry->ctx, mergetree, prev_offset, prev_hdr);
 #endif
                 }
 
                 // also insert/merge the system doc region
                 struct stale_regions sr;
-
-                sr = filemgr_actual_stale_regions(handle->file, entry->offset,
-                                                  entry->doclen);
+                sr = getActualStaleRegionsofDoc(entry->offset, entry->doclen);
 
                 if (sr.n_regions > 1) {
                     for (i=0; i<sr.n_regions; ++i){
-                        _insert_n_merge(mergetree, sr.regions[i].pos, sr.regions[i].len);
+                        insertNmerge(mergetree, sr.regions[i].pos, sr.regions[i].len);
                     }
                     free(sr.regions);
                 } else {
-                    _insert_n_merge(mergetree, sr.region.pos, sr.region.len);
+                    insertNmerge(mergetree, sr.region.pos, sr.region.len);
                 }
 
                 free(entry->ctx);
-                free(entry);
+                delete entry;
             }
 
-            free(commit);
+            delete commit;
         }
         free(uncomp_buf);
     }
@@ -740,21 +718,20 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
                     continue;
                 }
 
-                _fetch_stale_info_doc(doc.body, mergetree, prev_offset, prev_hdr);
+                fetchStaleInfoDoc(doc.body, mergetree, prev_offset, prev_hdr);
 
                 // also insert/merge the system doc region
                 size_t length = _fdb_get_docsize(doc.length);
                 struct stale_regions sr;
-
-                sr = filemgr_actual_stale_regions(handle->file, offset, length);
+                sr = getActualStaleRegionsofDoc(offset, length);
 
                 if (sr.n_regions > 1) {
                     for (i=0; i<sr.n_regions; ++i){
-                        _insert_n_merge(mergetree, sr.regions[i].pos, sr.regions[i].len);
+                        insertNmerge(mergetree, sr.regions[i].pos, sr.regions[i].len);
                     }
                     free(sr.regions);
                 } else {
-                    _insert_n_merge(mergetree, sr.region.pos, sr.region.len);
+                    insertNmerge(mergetree, sr.region.pos, sr.region.len);
                 }
 
                 // We don't need to free 'meta' as it will be NULL.
@@ -780,16 +757,16 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     _kvs_stat_update_attr(handle->file, 0, KVS_STAT_DELTASIZE, delta);
 
     // gather stale blocks generated by removing b+tree entries
-    if (e_last) {
-        e = list_next(e_last);
+    if ( last_stalelist != staleList.end() ) {
+        cur_stalelist = std::next(last_stalelist);
     } else {
-        e = list_begin(handle->file->stale_list);
+        cur_stalelist = staleList.begin();
     }
-    while (e) {
-        item = _get_entry(e, struct stale_data, le);
-        e = list_remove(handle->file->stale_list, e);
+    while ( cur_stalelist != staleList.end() ) {
+        item = *cur_stalelist;
+        cur_stalelist = staleList.erase(cur_stalelist);
 
-        _insert_n_merge(mergetree, item->pos, item->len);
+        insertNmerge(mergetree, item->pos, item->len);
         free(item);
     }
 
@@ -800,14 +777,16 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     uint32_t front_margin;
     reusable_block_list ret;
     struct reusable_block *blocks_arr;
+    std::map<uint64_t, stale_data*>::iterator cur_mergetree, prev_mergetree;
+    std::pair<std::map<uint64_t, stale_data*>::iterator, bool> ret_map;
 
     blocks_arr = (struct reusable_block*)
         calloc(max_blocks, sizeof(struct reusable_block));
 
-    avl = avl_first(mergetree);
-    while (avl) {
-        item = _get_entry(avl, struct stale_data, avl);
-        avl = avl_next(avl);
+    cur_mergetree = mergetree->begin();
+    while ( cur_mergetree != mergetree->end() ) {
+        item = cur_mergetree->second;
+        prev_mergetree = cur_mergetree++;
 
         // A stale region can be represented as follows:
         //
@@ -870,7 +849,7 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
             item->len = front_margin;
         } else {
             // exactly aligned .. remove this item
-            avl_remove(mergetree, &item->avl);
+            mergetree->erase(prev_mergetree);
             free(item);
         }
 
@@ -884,8 +863,10 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
             new_item->pos = (blocks_arr[n_blocks-1].bid + blocks_arr[n_blocks-1].count)
                             * blocksize;
             new_item->len = remaining_len;
-            avl_insert(mergetree, &new_item->avl, _reusable_offset_cmp);
-            avl = avl_next(&new_item->avl);
+
+            ret_map = mergetree->insert( std::make_pair(new_item->pos, new_item) );
+            prev_mergetree = ret_map.first;
+            cur_mergetree = std::next(prev_mergetree);
         }
     }
 
@@ -896,8 +877,7 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
 
     // however, do not remove the remaining items in the merge-tree and continue to
     // merge them in the next block reclaim.
-    fdb_gather_stale_blocks(handle, revnum, BLK_NOT_FOUND, BLK_NOT_FOUND,
-                            0, e_last, true);
+    gatherRegions(handle, revnum, BLK_NOT_FOUND, BLK_NOT_FOUND, 0, last_stalelist, true);
 
     free(revnum_array);
 
@@ -906,15 +886,13 @@ reusable_block_list fdb_get_reusable_block(FdbKvsHandle *handle,
     return ret;
 }
 
-void fdb_rollback_stale_blocks(FdbKvsHandle *handle,
+void StaleDataManager::rollbackStaleBlocks(FdbKvsHandle *handle,
                                filemgr_header_revnum_t cur_revnum)
 {
     btree_result br;
     filemgr_header_revnum_t i, _revnum;
-    struct avl_node *avl;
-    struct list_elem *elem;
-    struct stale_info_commit *commit, query;
-    struct stale_info_entry *entry;
+    StaleInfoCommit *commit, query;
+    StaleInfoEntry *entry;
 
     if (handle->rollback_revnum == 0) {
         return;
@@ -930,29 +908,210 @@ void fdb_rollback_stale_blocks(FdbKvsHandle *handle,
     }
 
     // also remove from in-memory stale-tree
-    query.revnum = handle->rollback_revnum;
-    avl = avl_search(&handle->file->stale_info_tree,
-                   &query.avl, _inmem_stale_cmp);
-    if (!avl) {
-        avl = avl_search_greater(&handle->file->stale_info_tree,
-                               &query.avl, _inmem_stale_cmp);
+    auto cur_commit = staleInfoTree.find(handle->rollback_revnum);
+    if (cur_commit == staleInfoTree.end()) {
+        cur_commit = staleInfoTree.upper_bound(handle->rollback_revnum);
     }
-    while (avl) {
-        commit = _get_entry(avl, struct stale_info_commit, avl);
-        avl = avl_next(avl);
 
-        avl_remove(&handle->file->stale_info_tree, &commit->avl);
+    while (cur_commit != staleInfoTree.end()) {
+        commit = cur_commit->second;
+        cur_commit = staleInfoTree.erase(cur_commit);
 
-        elem = list_begin(&commit->doc_list);
-        while (elem) {
-            entry = _get_entry(elem, struct stale_info_entry, le);
-            elem = list_remove(&commit->doc_list, &entry->le);
+        auto cur_entry = commit->infoList.begin();
+        while ( cur_entry != commit->infoList.end() ) {
+            entry = *cur_entry;
+            cur_entry = commit->infoList.erase(cur_entry);
 
             free(entry->ctx);
-            free(entry);
+            delete entry;
         }
 
-        free(commit);
+        delete commit;
+    }
+}
+
+StaleDataManager::StaleDataManager(struct filemgr *_file)
+{
+    file = _file;
+    staleInfoTreeLoaded = false;
+}
+
+StaleDataManager::~StaleDataManager()
+{
+    clearStaleList();
+    clearStaleInfoTree();
+    clearMergeTree();
+}
+
+void StaleDataManager::addStaleRegion(uint64_t pos, size_t len)
+{
+    struct stale_data *item;
+
+    if ( !staleList.empty() ) {
+        item = staleList.back();
+        if (item->pos + item->len == pos) {
+            // merge if consecutive item
+            item->len += len;
+            return;
+        }
+    }
+
+    item = (struct stale_data*)calloc(1, sizeof(struct stale_data));
+    item->pos = pos;
+    item->len = len;
+    staleList.push_back(item);
+}
+
+size_t StaleDataManager::getActualStaleLengthofDoc(uint64_t offset, size_t doclen)
+{
+    size_t actual_len;
+    bid_t start_bid, end_bid;
+
+    start_bid = offset / file->blocksize;
+    end_bid = (offset + doclen) / file->blocksize;
+
+    actual_len = doclen + (end_bid - start_bid);
+    if ((offset + actual_len) % file->blocksize ==
+        file->blocksize - 1) {
+        actual_len += 1;
+    }
+
+    return actual_len;
+}
+
+struct stale_regions StaleDataManager::getActualStaleRegionsofDoc(uint64_t offset,
+                                                                  size_t doclen)
+{
+    uint8_t *buf = alca(uint8_t, file->blocksize);
+    size_t remaining = doclen;
+    size_t real_blocksize = file->blocksize;
+    size_t blocksize = real_blocksize;
+    size_t cur_pos, space_in_block, count;
+    bid_t cur_bid;
+    bool non_consecutive = ver_non_consecutive_doc(file->version);
+    struct docblk_meta blk_meta;
+    struct stale_regions ret;
+    struct stale_data *arr = NULL, *cur_region;
+
+    if (non_consecutive) {
+        blocksize -= DOCBLK_META_SIZE;
+
+        cur_bid = offset / file->blocksize;
+        // relative position in the block 'cur_bid'
+        cur_pos = offset % file->blocksize;
+
+        count = 0;
+        while (remaining) {
+            if (count == 1) {
+                // more than one stale region .. allocate array
+                size_t arr_size = (doclen / blocksize) + 2;
+                arr = (struct stale_data *)calloc(arr_size, sizeof(struct stale_data));
+                arr[0] = ret.region;
+                ret.regions = arr;
+            }
+
+            if (count == 0) {
+                // Since n_regions will be 1 in most cases,
+                // we do not allocate heap memory when 'n_regions==1'.
+                cur_region = &ret.region;
+            } else {
+                cur_region = &ret.regions[count];
+            }
+            cur_region->pos = (cur_bid * real_blocksize) + cur_pos;
+
+            // subtract data size in the current block
+            space_in_block = blocksize - cur_pos;
+            if (space_in_block <= remaining) {
+                // rest of the current block (including block meta)
+                cur_region->len = real_blocksize - cur_pos;
+                remaining -= space_in_block;
+            } else {
+                cur_region->len = remaining;
+                remaining = 0;
+            }
+            count++;
+
+            if (remaining) {
+                // get next BID
+                filemgr_read(file, cur_bid, (void *)buf, NULL, true);
+                memcpy(&blk_meta, buf + blocksize, sizeof(blk_meta));
+                cur_bid = _endian_decode(blk_meta.next_bid);
+                cur_pos = 0; // beginning of the block
+            }
+        }
+        ret.n_regions = count;
+
+    } else {
+        // doc blocks are consecutive .. always return a single region.
+        ret.n_regions = 1;
+        ret.region.pos = offset;
+        ret.region.len = getActualStaleLengthofDoc(offset, doclen);
+    }
+
+    return ret;
+}
+
+void StaleDataManager::markDocStale(uint64_t offset, size_t doclen)
+{
+    if (doclen) {
+        size_t i;
+        struct stale_regions sr;
+
+        sr = getActualStaleRegionsofDoc(offset, doclen);
+
+        if (sr.n_regions > 1) {
+            for (i=0; i<sr.n_regions; ++i){
+                addStaleRegion(sr.regions[i].pos, sr.regions[i].len);
+            }
+            free(sr.regions);
+        } else if (sr.n_regions == 1) {
+            addStaleRegion(sr.region.pos, sr.region.len);
+        }
+    }
+}
+
+void StaleDataManager::clearStaleList()
+{
+    struct stale_data *item;
+
+    auto cur = staleList.begin();
+    while ( cur != staleList.end() ) {
+        item = *cur;
+        cur = staleList.erase(cur);
+        free(item);
+    }
+}
+
+void StaleDataManager::clearStaleInfoTree()
+{
+    StaleInfoCommit *commit;
+    StaleInfoEntry *entry;
+
+    auto cur_commit = staleInfoTree.begin();
+    while (cur_commit != staleInfoTree.end()) {
+        commit = cur_commit->second;
+        cur_commit = staleInfoTree.erase(cur_commit);
+
+        auto cur_entry = commit->infoList.begin();
+        while (cur_entry != commit->infoList.end()) {
+            entry = *cur_entry;
+            cur_entry = commit->infoList.erase(cur_entry);
+            free(entry->ctx);
+            delete entry;
+        }
+        delete commit;
+    }
+}
+
+void StaleDataManager::clearMergeTree()
+{
+    struct stale_data *entry;
+
+    auto cur = mergeTree.begin();
+    while (cur != mergeTree.end()) {
+        entry = cur->second;
+        cur = mergeTree.erase(cur);
+        free(entry);
     }
 }
 

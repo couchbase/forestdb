@@ -41,6 +41,7 @@
 #include "filemgr_ops.h"
 #include "encryption.h"
 #include "superblock.h"
+#include "staleblock.h"
 
 #include <atomic>
 
@@ -290,10 +291,6 @@ struct filemgr_buffer {
     bid_t lastbid;
 };
 
-typedef uint16_t filemgr_header_len_t;
-typedef uint64_t filemgr_magic_t;
-typedef uint64_t filemgr_header_revnum_t;
-
 class FileMgrHeader {
 public:
     FileMgrHeader()
@@ -341,6 +338,7 @@ typedef struct {
     bool locked;
 } mutex_lock_t;
 
+class StaleDataManagerBase;
 struct filemgr {
     char *filename; // Current file name.
     std::atomic<uint32_t> ref_count;
@@ -404,14 +402,7 @@ struct filemgr {
 
     encryptor encryption;
 
-    // temporary in-memory list of stale blocks
-    struct list *stale_list;
-    // in-memory clone of system docs for reusable block info
-    // (they are pointed to by stale-block-tree)
-    struct avl_tree stale_info_tree;
-    // temporary tree for merging stale regions
-    struct avl_tree mergetree;
-    std::atomic<bool> stale_info_tree_loaded;
+    StaleDataManagerBase *StaleData;
 
     // in-memory index for a set of dirty index block updates
     struct avl_tree dirty_update_idx;
@@ -754,20 +745,6 @@ bool filemgr_is_cow_supported(struct filemgr *src, struct filemgr *dst);
 
 void filemgr_set_throttling_delay(struct filemgr *file, uint64_t delay_us);
 uint32_t filemgr_get_throttling_delay(struct filemgr *file);
-
-INLINE void filemgr_set_stale_list(struct filemgr *file,
-                            struct list *stale_list)
-{
-    file->stale_list = stale_list;
-}
-void filemgr_clear_stale_list(struct filemgr *file);
-void filemgr_clear_stale_info_tree(struct filemgr *file);
-void filemgr_clear_mergetree(struct filemgr *file);
-
-INLINE struct list * filemgr_get_stale_list(struct filemgr *file)
-{
-    return file->stale_list;
-}
 
 /**
  * Add an item into stale-block list of the given 'file'.

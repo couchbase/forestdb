@@ -100,6 +100,9 @@ private:
 typedef struct _fdb_transaction fdb_txn;
 
 typedef uint64_t fdb_kvs_id_t;
+typedef uint16_t filemgr_header_len_t;
+typedef uint64_t filemgr_magic_t;
+typedef uint64_t filemgr_header_revnum_t;
 
 typedef uint8_t kvs_type_t;
 enum {
@@ -459,10 +462,6 @@ struct stale_data {
      * Length of the stale data
      */
     uint32_t len;
-    union {
-        struct list_elem le;
-        struct avl_node avl;
-    };
 };
 
 /**
